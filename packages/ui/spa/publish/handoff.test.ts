@@ -24,11 +24,11 @@ async function until(check: () => boolean) {
   throw new Error("timed out");
 }
 
-const commitOf = (commit: string): Extract<ToTab, { type: "commit" }> => ({
-  type: "commit",
-  commit,
-  branch: "main",
-  binaryFiles: { files: { "/public/val/a.png": "AAAA" }, unread: [] },
+const jobOf = (id: string): Extract<ToTab, { type: "job" }> => ({
+  type: "job",
+  job: { id, step: "prepare", base: "C0", patches: ["p1", "p2"] },
+  tab: "site-tab",
+  requestId: "r1",
 });
 
 const opened: string[] = [];
@@ -54,20 +54,20 @@ test("a blocked tab is reported, so the page can offer it as a button", () => {
   site.close();
 });
 
-test("a tab that joins AFTER the commit was sent still gets it", async () => {
+test("a tab that joins AFTER the job was sent still gets it", async () => {
   const site = openHandoff({ open });
-  site.commit(commitOf("c1"));
+  site.job(jobOf("J1"));
   const got: ToTab[] = [];
   const tab = joinHandoff(site.id, (message) => got.push(message), {
     retryMs: 10,
   });
   await until(() => got.length > 0);
-  expect(got[0]).toEqual(commitOf("c1"));
+  expect(got[0]).toEqual(jobOf("J1"));
   tab.close();
   site.close();
 });
 
-test("a tab that joins BEFORE the commit gets it when it is sent", async () => {
+test("a tab that joins BEFORE the job gets it when it is sent", async () => {
   const site = openHandoff({ open });
   const got: ToTab[] = [];
   const tab = joinHandoff(site.id, (message) => got.push(message), {
@@ -75,9 +75,9 @@ test("a tab that joins BEFORE the commit gets it when it is sent", async () => {
   });
   await wait(40);
   expect(got).toEqual([]);
-  site.commit(commitOf("c2"));
+  site.job(jobOf("J2"));
   await until(() => got.length > 0);
-  expect(got[0]?.type).toBe("commit");
+  expect(got[0]?.type).toBe("job");
   tab.close();
   site.close();
 });
@@ -89,7 +89,7 @@ test("another publish's messages are not this one's", async () => {
   const tab = joinHandoff(mine.id, (message) => got.push(message), {
     retryMs: 10,
   });
-  other.commit(commitOf("theirs"));
+  other.job(jobOf("theirs"));
   await wait(60);
   expect(got).toEqual([]);
   tab.close();
@@ -97,7 +97,7 @@ test("another publish's messages are not this one's", async () => {
   other.close();
 });
 
-test("a save that did not happen tells the tab", async () => {
+test("a press that started no job tells the tab", async () => {
   const site = openHandoff({ open });
   const got: ToTab[] = [];
   const tab = joinHandoff(site.id, (message) => got.push(message), {
@@ -118,7 +118,7 @@ test("the tab's progress and result reach the site", async () => {
   tab.report({ type: "phase", label: "Building", elapsedMs: 4_000 });
   tab.report({
     type: "done",
-    result: { status: "live", url: null, visible: true },
+    result: { status: "live", url: null },
     ms: 12_000,
   });
   await until(() => heard.some((message) => message.type === "done"));
@@ -126,7 +126,7 @@ test("the tab's progress and result reach the site", async () => {
     { type: "phase", label: "Building", elapsedMs: 4_000 },
     {
       type: "done",
-      result: { status: "live", url: null, visible: true },
+      result: { status: "live", url: null },
       ms: 12_000,
     },
   ]);
@@ -164,32 +164,34 @@ test("a failure crosses as a sentence, with the technical message beside it", as
   site.close();
 });
 
-test("the text the save wrote reaches the tab, deletions included", async () => {
+test("the tab's part of the job reaches the site, before the publish is Live", async () => {
   const site = openHandoff({ open });
-  site.commit({
-    ...commitOf("c3"),
-    committedFiles: {
-      "src/routes/_site.index.val.ts": "export default 1",
-      "gone.ts": null,
+  const heard: ToSite[] = [];
+  site.onMessage((message) => heard.push(message));
+  const tab = joinHandoff(site.id, () => undefined, { retryMs: 10 });
+  tab.report({
+    type: "job-result",
+    result: { status: "handed-off", jobId: "J1" },
+  });
+  tab.report({
+    type: "job-result",
+    result: { status: "failed", jobId: "J2", message: "rolldown" },
+  });
+  await until(
+    () => heard.filter((message) => message.type === "job-result").length > 1,
+  );
+  expect(heard.filter((message) => message.type === "job-result")).toEqual([
+    { type: "job-result", result: { status: "handed-off", jobId: "J1" } },
+    {
+      type: "job-result",
+      result: { status: "failed", jobId: "J2", message: "rolldown" },
     },
-  });
-  const got: ToTab[] = [];
-  const tab = joinHandoff(site.id, (message) => got.push(message), {
-    retryMs: 10,
-  });
-  await until(() => got.length > 0);
-  expect(got[0]).toEqual({
-    ...commitOf("c3"),
-    committedFiles: {
-      "src/routes/_site.index.val.ts": "export default 1",
-      "gone.ts": null,
-    },
-  });
+  ]);
   tab.close();
   site.close();
 });
 
-test("committed files that arrive as an array are dropped, not read as files", async () => {
+test("a job that is not one is dropped, not built", async () => {
   const site = openHandoff({ open });
   const got: ToTab[] = [];
   const tab = joinHandoff(site.id, (message) => got.push(message), {
@@ -199,11 +201,12 @@ test("committed files that arrive as an array are dropped, not read as files", a
   const channel = new BroadcastChannel("val-publish-handoff");
   channel.postMessage({
     id: site.id,
-    message: { ...commitOf("c4"), committedFiles: ["export default 1"] },
+    message: { ...jobOf("J4"), job: { id: "J4", patches: "p1" } },
   });
+  channel.postMessage({ id: site.id, message: jobOf("J5") });
   try {
     await until(() => got.length > 0);
-    expect(got[0]).toEqual(commitOf("c4"));
+    expect(got[0]).toEqual(jobOf("J5"));
   } finally {
     // An open channel keeps jest alive, and a failure would hang instead.
     channel.close();
@@ -216,7 +219,7 @@ test("committed files that arrive as an array are dropped, not read as files", a
  * An update handed to a tab: the Studio in WebKit cannot build, so pressing
  * Update site opens a tab that can. Nothing is saved first, so the page sends
  * `update` at once -- and it has to survive a tab that joins late, exactly as
- * a commit does.
+ * a job does.
  */
 describe("an update handed to a tab", () => {
   test("reaches a tab that joins after it was sent", async () => {

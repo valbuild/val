@@ -304,16 +304,7 @@ export type ShellDeployActivity = {
  * How a publish is doing, reduced to the three states anything rendering one
  * cares about. See `deploymentProgress`.
  */
-export type DeploymentProgress =
-  | "building"
-  | "failed"
-  | "settled"
-  /**
-   * The managed equivalent of `building`: the commit landed and the build did
-   * not, and nothing outside this browser will ever change that. See
-   * `summarizeDeployments`.
-   */
-  | "saved-not-live";
+export type DeploymentProgress = "building" | "failed" | "settled";
 
 /**
  * A destination: what the left rail switches between.

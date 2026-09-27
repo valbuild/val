@@ -12,41 +12,81 @@ if (typeof globalThis.BroadcastChannel === "undefined") {
   });
 }
 
+const job = {
+  id: "J1",
+  step: "prepare" as const,
+  base: null,
+  patches: ["p1"],
+};
+
 /**
- * The page that handed its publish to a Studio tab learns the commit is live
- * from the tab, not from `/stat` -- which in http mode is minutes away.
+ * The page that handed its publish job to a Studio tab waits for the tab's
+ * part of it -- the job runner goes on from there -- and the card follows the
+ * tab to Live.
  */
-test("a live publish from the tab names the commit that went live", async () => {
+test("the tab runs the job as this page, and answers with its part of it", async () => {
   const opened: string[] = [];
   jest.spyOn(window, "open").mockImplementation((url) => {
     opened.push(String(url));
     return null;
   });
-  const live: string[] = [];
-  const { result } = renderHook(() =>
-    useSiteHandoff({ onLive: (commit) => live.push(commit), enabled: true }),
-  );
+  const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
   act(() => result.current.prepare(true));
   const id = new URL(opened[0], "http://site").searchParams.get(
     "publish-handoff",
   );
   expect(id).not.toBeNull();
-  act(() =>
-    result.current.commit({ commit: "c1", binaryFiles: null, branch: null }),
-  );
-  const tab = joinHandoff(id ?? "", () => undefined, { retryMs: 10 });
+  let running!: Promise<unknown>;
+  act(() => {
+    running = result.current.runJob(job, "site-tab", "r1", () => {});
+  });
+  const heard: unknown[] = [];
+  const tab = joinHandoff(id ?? "", (message) => heard.push(message), {
+    retryMs: 10,
+  });
   try {
+    await waitFor(() =>
+      expect(heard).toContainEqual({
+        type: "job",
+        job,
+        tab: "site-tab",
+        requestId: "r1",
+      }),
+    );
+    tab.report({
+      type: "job-result",
+      result: { status: "handed-off", jobId: "J1" },
+    });
+    await expect(running).resolves.toEqual({
+      status: "handed-off",
+      jobId: "J1",
+    });
     tab.report({
       type: "done",
-      result: { status: "live", url: null, visible: true },
+      result: { status: "live", url: null },
       ms: 1_000,
     });
-    await waitFor(() => expect(live).toEqual(["c1"]));
+    await waitFor(() =>
+      expect(result.current.state).toEqual({ kind: "live", ms: 1_000 }),
+    );
   } finally {
     // An open channel keeps jest alive, and a failure would hang instead.
     tab.close();
     act(() => result.current.cancel(""));
   }
+});
+
+test("a handoff given up on answers `lost`, so the job goes back to the queue", async () => {
+  jest.spyOn(window, "open").mockImplementation(() => null);
+  const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+  act(() => result.current.prepare(true));
+  let running!: Promise<unknown>;
+  act(() => {
+    running = result.current.runJob(job, "site-tab", "r1", () => {});
+  });
+  act(() => result.current.dismiss());
+  await expect(running).resolves.toEqual({ status: "lost", jobId: "J1" });
+  expect(result.current.active()).toBe(false);
 });
 
 test("a provider that may not hand off never opens a tab", () => {

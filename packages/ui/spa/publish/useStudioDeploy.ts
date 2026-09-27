@@ -4,9 +4,8 @@
  * `runStudioDeploy` is the sequence and this is everything around it: which
  * client, which builder, which generator, and the phase an editor is shown
  * while it runs. Separate from `ValProvider`'s publish handler because it is
- * wanted in two places that are not the same event — a publish that has just
- * committed, and `Finish publishing` on a project whose commit landed and
- * whose build did not.
+ * wanted in two places that are not the same event — a publish job's build,
+ * and an update of the site's dependencies.
  *
  * ## It refuses to run twice
  *
@@ -25,12 +24,8 @@
 import { useCallback, useRef, useState } from "react";
 import type { BuildTarget } from "@valbuild/tanstack-build";
 import { createStudioPublishClient } from "./publishClient";
-import {
-  fetchBuiltSource,
-  fetchLiveStylesheet,
-  fetchPublicFile,
-  waitUntilServed,
-} from "./fetchPublicFile";
+import { fetchLiveStylesheet, fetchPublicFile } from "./fetchPublicFile";
+import type { PreparedJob } from "./jobClient";
 import { loadBuilder, routeTreeGenerator } from "./loadBuilder";
 import {
   STUDIO_OUT_OF_DATE,
@@ -69,6 +64,8 @@ export type StudioDeployState =
       steps: DeployStep[];
       /** The step it stopped at, when it failed. */
       failedAt?: DeployPhase["kind"] | null;
+      /** `Date.now()` when it ended. */
+      finishedAt?: number;
       /**
        * The commit it published. A live one is a commit this Studio has seen
        * the site serve, the same as `/stat` reporting it -- which, polled as
@@ -97,6 +94,8 @@ export interface UseStudioDeploy {
       branch: string | null;
       /** An update's build target. See `target` on `runStudioDeploy`. */
       target?: BuildTarget;
+      /** A publish job's build: stop once uploaded. See `until` on `runStudioDeploy`. */
+      until?: "confirmed";
     } | null,
   ) => Promise<StudioDeployOutcome>;
 }
@@ -106,6 +105,26 @@ export type StudioDeployOutcome = {
   result: StudioDeployResult;
   failedAt: DeployPhase["kind"] | null;
 };
+
+/**
+ * A publish job's build, as `runStudioJob` asks for it: at no commit -- the
+ * job's is minted at the seal -- from what the server prepared, stopping once
+ * the artifacts are confirmed.
+ */
+export async function deployPreparedJob(
+  deploy: UseStudioDeploy["deploy"],
+  prepared: PreparedJob,
+): Promise<StudioDeployResult> {
+  const { result } = await deploy(null, prepared.sourceFiles, {
+    binaryFiles: {
+      files: prepared.binaryFiles,
+      unread: prepared.binaryFilesUnread,
+    },
+    branch: prepared.branch,
+    until: "confirmed",
+  });
+  return result;
+}
 
 const ALREADY_RUNNING: StudioDeployResult = {
   status: "failed",
@@ -182,10 +201,9 @@ export function useStudioDeploy(options?: {
           committedBinaryFiles: details?.binaryFiles ?? null,
           branch: details?.branch ?? null,
           ...(details?.target ? { target: details.target } : {}),
+          ...(details?.until ? { until: details.until } : {}),
           fetchPublicFile: (path) => fetchPublicFile(path),
-          builtSource: () => fetchBuiltSource(api),
           liveStylesheet: () => fetchLiveStylesheet(),
-          waitUntilServed: (buildHash) => waitUntilServed(buildHash),
           loadBuilder,
           ...(generateRouteTree !== null ? { generateRouteTree } : {}),
           onPhase: enter,
@@ -211,7 +229,15 @@ export function useStudioDeploy(options?: {
         );
         // The step that was current when it returned is the one that failed.
         const failedAt = result.status === "failed" ? current.phase.kind : null;
-        setState({ status: "done", result, ms, steps, commit, failedAt });
+        setState({
+          status: "done",
+          result,
+          ms,
+          steps,
+          commit,
+          failedAt,
+          finishedAt: now,
+        });
         return { result, failedAt };
       } finally {
         running.current = false;

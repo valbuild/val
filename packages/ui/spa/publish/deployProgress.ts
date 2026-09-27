@@ -14,6 +14,8 @@ export function seconds(ms: number): string {
 
 export function describeDeployPhase(phase: DeployPhase): string {
   switch (phase.kind) {
+    case "queued":
+      return "Waiting for the publish before it";
     case "getting-ready":
       return "Loading the builder";
     case "reading":
@@ -32,8 +34,6 @@ export function describeDeployPhase(phase: DeployPhase): string {
       return "Checking the site renders";
     case "promoting":
       return "Going live";
-    case "propagating":
-      return "Live — waiting for the site to show it";
   }
 }
 
@@ -42,8 +42,6 @@ export function describeDeployStep(kind: DeployPhase["kind"]): string {
   switch (kind) {
     case "uploading":
       return "Uploading";
-    case "propagating":
-      return "Waiting for the site to show it";
     default:
       return describeDeployPhase({ kind });
   }
@@ -58,6 +56,7 @@ export function describeDeployStep(kind: DeployPhase["kind"]): string {
  * leap at the ends.
  */
 const STARTS: Record<DeployPhase["kind"], number> = {
+  queued: 0,
   "getting-ready": 0,
   reading: 8,
   building: 12,
@@ -66,9 +65,9 @@ const STARTS: Record<DeployPhase["kind"], number> = {
   confirming: 60,
   verifying: 64,
   promoting: 86,
-  propagating: 92,
 };
 const ORDER: DeployPhase["kind"][] = [
+  "queued",
   "getting-ready",
   "reading",
   "building",
@@ -77,7 +76,6 @@ const ORDER: DeployPhase["kind"][] = [
   "confirming",
   "verifying",
   "promoting",
-  "propagating",
 ];
 
 /**
@@ -130,6 +128,8 @@ export function describeDeployFailure(
   scope: { crossOriginIsolated?: boolean } = globalThis,
 ): string {
   switch (failedAt) {
+    case "queued":
+      return "The publish before this one did not finish, so this one never started. Publish again to retry.";
     case "getting-ready":
       return scope.crossOriginIsolated === true
         ? "The site builder could not be loaded. Check the connection and publish again."
@@ -145,7 +145,6 @@ export function describeDeployFailure(
     case "verifying":
       return "The new version did not pass its check, so the live site was left as it was.";
     case "promoting":
-    case "propagating":
       return "The new version was built but could not be made live. Publish again to retry.";
     case undefined:
       return "The site could not be rebuilt. Publish again to retry.";

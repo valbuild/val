@@ -67,6 +67,16 @@ const WebSocketServerMessage = z.union([
     type: z.literal("commit"),
     commit: ValCommit,
   }),
+  /*
+   * A publish job moved (valbuild/home, docs/app-mode.md, "Publishing is a
+   * queued job"). A NUDGE, not the state: the Studio re-reads the requests it
+   * pressed, which is where Live is decided. Only the id is read, so the rest
+   * of what content sends may change without this parse failing.
+   */
+  z.object({
+    type: z.literal("publish-job"),
+    job: z.object({ id: z.string() }),
+  }),
   z.object({
     type: z.literal("subscribed"),
   }),
@@ -259,6 +269,24 @@ export function useStatus(client: ValClient) {
   >();
 
   const statIdRef = useRef(0);
+  /** Who hears a `publish-job` nudge. See `subscribePublishJobs`. */
+  const publishJobListeners = useRef(new Set<(jobId: string) => void>());
+  const onPublishJob = useCallback((jobId: string) => {
+    for (const listener of publishJobListeners.current) listener(jobId);
+  }, []);
+  /**
+   * Hear every `publish-job` nudge the socket delivers. A stable function, so
+   * a subscriber's effect runs once.
+   */
+  const subscribePublishJobs = useCallback(
+    (listener: (jobId: string) => void) => {
+      publishJobListeners.current.add(listener);
+      return () => {
+        publishJobListeners.current.delete(listener);
+      };
+    },
+    [],
+  );
   useEffect(() => {
     if (
       stat.status === "updated-request-again" ||
@@ -293,6 +321,7 @@ export function useStatus(client: ValClient) {
           setAuthenticationLoadingIfNotAuthenticated,
           setIsAuthenticated,
           setServiceUnavailable,
+          onPublishJob,
         );
       } else {
         console.debug(
@@ -314,6 +343,7 @@ export function useStatus(client: ValClient) {
             setAuthenticationLoadingIfNotAuthenticated,
             setIsAuthenticated,
             setServiceUnavailable,
+            onPublishJob,
           );
         }, wait);
         return () => clearTimeout(timeout);
@@ -337,6 +367,7 @@ export function useStatus(client: ValClient) {
         setAuthenticationLoadingIfNotAuthenticated,
         setIsAuthenticated,
         setServiceUnavailable,
+        onPublishJob,
       );
     }
   }, [client, stat.status]);
@@ -348,6 +379,7 @@ export function useStatus(client: ValClient) {
     setAuthenticationLoadingIfNotAuthenticated,
     setIsAuthenticated,
     serviceUnavailable,
+    subscribePublishJobs,
   ] as const;
 }
 
@@ -425,6 +457,7 @@ async function execStat(
   setAuthenticationLoadingIfNotAuthenticated: () => void,
   setIsAuthenticated: Dispatch<SetStateAction<AuthenticationState>>,
   setServiceUnavailable: Dispatch<SetStateAction<boolean | undefined>>,
+  onPublishJob: (jobId: string) => void,
 ) {
   const id = ++statIdRef.current;
   let body = null;
@@ -546,6 +579,8 @@ async function execStat(
                   }
                   return prev;
                 });
+              } else if (message.type === "publish-job") {
+                onPublishJob(message.job.id);
               } else if (message.type === "subscribed") {
                 console.debug("Subscribed!");
               } else if (message.type === "commit") {

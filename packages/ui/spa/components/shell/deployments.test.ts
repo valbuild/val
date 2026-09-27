@@ -324,19 +324,18 @@ describe("isDeploymentNews", () => {
  * A managed project is narrated differently, and the difference is the whole
  * point of `studioIsDeployer`.
  *
- * There the Studio is the deployer: the build that makes a publish live happens
- * in the same browser that started it, so there is nothing outside to wait for.
- * `building` in that world is a spinner with no event that can ever end it --
- * not on a reload, not on a retry, not tomorrow -- and the reader has no way to
- * tell it from a deploy that is merely slow.
+ * There a publish is a job, and content records its commit at the seal --
+ * once its build is live (valbuild/home, docs/app-mode.md, "Publishing is a
+ * queued job"). So no managed commit is ever on its way out: one the site
+ * does not answer with yet is one that went live a moment ago, or one a later
+ * publish superseded. The wait is this tab's own publish, not a row.
  */
 describe("a managed project", () => {
   const unfinished = deployment({ commitSha: "a", state: "pending" });
 
   test("never says a publish is building", () => {
     expect(summarizeDeployments([unfinished], true)).toEqual({
-      state: "saved-not-live",
-      count: 1,
+      state: "live",
     });
   });
 
@@ -349,11 +348,9 @@ describe("a managed project", () => {
     });
   });
 
-  test("says Saved, not yet live on the row too", () => {
-    expect(describeDeploymentState(unfinished, true)).toBe(
-      "Saved, not yet live",
-    );
-    expect(deploymentProgress(unfinished, true)).toBe("saved-not-live");
+  test("says Published on the row too", () => {
+    expect(describeDeploymentState(unfinished, true)).toBe("Published");
+    expect(deploymentProgress(unfinished, true)).toBe("settled");
   });
 
   test("a live publish is live either way", () => {
@@ -364,9 +361,7 @@ describe("a managed project", () => {
     expect(describeDeploymentState(live, true)).toBe("Live");
   });
 
-  test("a failed publish still reads as failed, not as saved", () => {
-    // The two are different things to do about it: one is a build that ran and
-    // did not work, the other is a build that never happened.
+  test("a failed publish still reads as failed", () => {
     const failed = deployment({ commitSha: "a", state: "failure" });
     expect(summarizeDeployments([failed], true)).toEqual({ state: "failed" });
     expect(deploymentProgress(failed, true)).toBe("failed");

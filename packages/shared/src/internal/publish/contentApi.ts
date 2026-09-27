@@ -6,7 +6,7 @@
  * comments included, so that the two can be diffed by eye: the publish
  * lifecycle from branch `claude/new-project-studio-saves-0g9ksb`, commit
  * `ecf3b8d`; the publish-job routes (`/publish-requests`, `/publish-jobs`)
- * and `PublishRequestStatus` / `PublishTabJob` from `main`, commit `c39a294`.
+ * and `PublishRequestStatus` / `PublishTabJob` from `main`, commit `bd5c17d`.
  *
  * **Copied rather than imported, because it cannot be imported.** That file
  * lives in a private repository which publishes nothing to npm, and its own
@@ -315,6 +315,8 @@ export type PublishRequestStatus =
       kind: "failed";
       message: string;
       actions: ("try-again" | "discard" | "re-run-build")[];
+      /** The job that failed: what Discard is pressed on. */
+      job: string;
     }
   | { kind: "cancelled" }
   | { kind: "nothing-to-publish" };

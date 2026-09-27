@@ -349,6 +349,7 @@ const requestStatus: z.ZodType<PublishRequestStatus> = z.union([
     kind: z.literal("failed"),
     message: z.string(),
     actions: z.array(z.enum(["try-again", "discard", "re-run-build"])),
+    job: z.string(),
   }),
   z.object({ kind: z.literal("cancelled") }),
   z.object({ kind: z.literal("nothing-to-publish") }),

@@ -1361,62 +1361,6 @@ export const Api = {
       ]),
     },
   },
-  /**
-   * The `.val.ts` text of every module that changed since the RUNNING build,
-   * with every commit since it applied, for a build made in the browser.
-   *
-   * A Studio build starts from the source stored with the live build. A commit
-   * whose own publish failed -- or the first commit of a project that started
-   * as a copy of a template -- is in content and in no stored source, so a build
-   * that added only its own save's files shipped without it. Only this server
-   * can render those commits back into text: content keeps a managed project's
-   * content as Source, not as files.
-   *
-   * Committed patches only. A pending one is somebody's unpublished work, and
-   * is not this build's to ship. 409 where there is nothing to answer with: a
-   * project with a repository, or a build that did not embed its source.
-   */
-  "/built-source": {
-    GET: {
-      req: {
-        cookies: {
-          val_session: z.string().optional(),
-        },
-      },
-      res: z.union([
-        unauthorizedResponse,
-        z.object({
-          status: z.literal(409),
-          json: GenericError,
-        }),
-        z.object({
-          status: z.literal(500),
-          json: GenericError,
-        }),
-        z.object({
-          status: z.literal(200),
-          json: z.object({
-            /** By path, as `/save`'s `sourceFiles`. `null` is a deleted file. */
-            files: z.record(z.string(), z.string().nullable()),
-          }),
-        }),
-      ]),
-    },
-  },
-  /**
-   * A publish job's prepare, which only this server can do.
-   *
-   * The tab that is running a job (valbuild/home, docs/app-mode.md,
-   * "Publishing is a queued job") asks for it as its first step. The server
-   * turns the job's changes into source -- this build's embedded source, with
-   * every commit since and then the job's pending changes applied -- and sends
-   * content the part the job itself changes, which content archives before
-   * anything is built. It answers the tab with the whole of the job's source,
-   * which is what the tab builds.
-   *
-   * Only this server sends content a job's prepare: the content publish proxy
-   * refuses it, so no browser can hand content text to archive as a commit.
-   */
   "/publish-job-prepare": {
     POST: {
       req: {

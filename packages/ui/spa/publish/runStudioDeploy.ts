@@ -1,12 +1,13 @@
 /**
- * A publish, from the Studio, end to end.
+ * A build, from the Studio, handed to content.
  *
- * `/save` has already committed by the time this runs, and that order is the
- * design rather than an accident: the commit needs nothing from the builder, so
- * doing it first puts the 10.9 MB wait AFTER durability instead of in front of
- * it. What is left is the part a managed project has nobody else to do —
- * read what to build and what to build it from, build it, and hand the result
- * to content.
+ * Two callers. A publish JOB's tab builds the job's content and stops once
+ * its artifacts are confirmed (`until: "confirmed"`): content verifies and
+ * seals it, and mints the commit then (valbuild/home, docs/app-mode.md,
+ * "Publishing is a queued job"). An UPDATE builds the live content against a
+ * new dependency layer and takes it live itself. Either way what is here is
+ * the part a managed project has nobody else to do -- read what to build and
+ * what to build it from, build it, and hand the result to content.
  *
  * ## Everything it cannot do itself is a parameter
  *
@@ -19,7 +20,7 @@
  *   this repository's jest is CommonJS.
  * - **`generateRouteTree`** is TanStack's generator plus babel, which is 2.6 MB
  *   and is not on npm. See {@link StudioDeployOptions.generateRouteTree}.
- * - **`git`** is the commit `/save` just made, which only the caller saw.
+ * - **`commit`** is the commit an update is wired at, which only the caller has.
  *
  * So this module is testable without any of them, which is the point: the
  * sequence is where the mistakes are, and the sequence is what is left.
@@ -79,32 +80,20 @@ export type CommittedBinaryFiles = {
 };
 
 export type DeployPhase =
+  /**
+   * A publish job waiting its turn: queued behind the one before it. Never
+   * reported by the deploy itself -- it is how the Studio shows a press whose
+   * job has not started (see `publishProgress`).
+   */
+  | { kind: "queued" }
   /** Waiting for the bundler. Only ever seen when the preload has not landed. */
   | { kind: "getting-ready" }
   | { kind: "reading" }
   | { kind: "building" }
-  | PublishPhase
-  /**
-   * Live, and waiting for the site to SERVE it where this tab is.
-   *
-   * The loader reads which build is live from KV, which each Cloudflare
-   * location caches for up to a minute. So "live" and "what a visitor here
-   * gets" can be a minute apart, and that minute used to look like a publish
-   * that had not worked.
-   */
-  | { kind: "propagating" };
+  | PublishPhase;
 
 export type StudioDeployResult =
-  | {
-      status: "live";
-      url: string | null;
-      /**
-       * Whether the site, as this tab reaches it, serves the new build yet.
-       * `undefined` when there was no way to ask. Other locations can still
-       * be up to a minute behind -- see the `propagating` phase.
-       */
-      visible?: boolean;
-    }
+  | { status: "live"; url: string | null }
   | { status: "already-live"; url: string | null }
   /** A publish job's build, uploaded and confirmed: content does the rest. */
   | { status: "uploaded"; publishId: string }
@@ -141,14 +130,16 @@ export interface StudioDeployOptions {
    */
   commit: string | null;
   /**
-   * The source files that commit wrote, by path, or `null` when there are
-   * none to add -- a `Finish publishing` of a commit this tab did not make.
+   * The source files to build, by path, over the project's stored source --
+   * for a publish job, every file of the job's content, as the server's
+   * `/publish-job-prepare` rendered it -- or `null` when there are none to add
+   * (an update, which changes no content).
    *
-   * Laid over the project's stored source before anything else, because the
-   * stored source is what the LAST build was made from: without this the
-   * build publishes the site as it was before the save, under the save's
-   * commit. `null` values are files the commit deleted. Paths may carry a
-   * leading `/` (Val's module paths do) and are matched without it.
+   * Laid over the stored source before anything else, because the stored
+   * source is what the LAST build was made from: without this the build
+   * publishes the site as it was before the change. `null` values are files
+   * the change deleted. Paths may carry a leading `/` (Val's module paths do)
+   * and are matched without it.
    */
   committedFiles?: Record<string, string | null> | null;
   /**
@@ -171,17 +162,6 @@ export interface StudioDeployOptions {
    */
   branch?: string | null;
   /**
-   * The `.val.ts` text of every module changed since the live build, with every
-   * commit since it applied -- the server's `/built-source`. `null` when the
-   * server has none to give, and the build uses `committedFiles` alone.
-   *
-   * Why it exists: `committedFiles` is what THIS save wrote. A commit whose own
-   * publish failed, or the first one of a project copied from a template, is
-   * in content and in no stored source, and a build of the stored source plus
-   * this save's files shipped without it.
-   */
-  builtSource?: () => Promise<Record<string, string | null> | null>;
-  /**
    * The live site's compiled stylesheet, used when this build produced none.
    *
    * A build in the browser cannot run Tailwind `@plugin`s, and the stored
@@ -190,12 +170,6 @@ export interface StudioDeployOptions {
    * still the right CSS; without this every Studio publish shipped unstyled.
    */
   liveStylesheet?: () => Promise<string>;
-  /**
-   * Resolve once the site serves `buildHash` where this tab reaches it: `true`
-   * when it does, `false` when it gave up waiting, `undefined` when it cannot
-   * tell. Absent, a live publish is reported as soon as it is promoted.
-   */
-  waitUntilServed?: (buildHash: string) => Promise<boolean | undefined>;
   /**
    * One of the live site's public files, base64, by its URL path
    * (`favicon.ico` for `/favicon.ico`).
@@ -283,11 +257,10 @@ export async function runStudioDeploy(
      * Together, because they are one answer with two halves and neither is
      * useful alone -- and because the round trip is the cost, not the work.
      */
-    const [readTarget, readSource, readPublic, built] = await Promise.all([
+    const [readTarget, readSource, readPublic] = await Promise.all([
       options.target ?? client.buildTarget(),
       client.projectSource(),
       client.publicFiles(),
-      options.builtSource ? options.builtSource() : Promise.resolve(null),
     ]);
     if (readSource === null) {
       return failed(
@@ -344,10 +317,7 @@ export async function runStudioDeploy(
       );
     }
     target = readTarget;
-    source = withCommittedFiles(
-      withCommittedFiles(readSource, built),
-      options.committedFiles ?? null,
-    );
+    source = withCommittedFiles(readSource, options.committedFiles ?? null);
     if ("carried" in readPublic) {
       carried = readPublic.carried;
       refetched = {};
@@ -493,15 +463,7 @@ export async function runStudioDeploy(
     onPhase,
     ...(options.until !== undefined ? { until: options.until } : {}),
   });
-  const result = asDeployResult(published);
-  if (result.status !== "live" || !options.waitUntilServed) return result;
-  onPhase({ kind: "propagating" });
-  // Never a failure: the publish IS live, and this only says whether it can be
-  // seen from here yet.
-  const visible = await options
-    .waitUntilServed(build.hash)
-    .catch(() => undefined);
-  return visible === undefined ? result : { ...result, visible };
+  return asDeployResult(published);
 }
 
 /**

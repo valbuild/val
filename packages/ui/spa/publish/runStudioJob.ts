@@ -121,3 +121,43 @@ export async function runStudioJob(options: {
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+/**
+ * How many times one job is built in a row. Content counts the attempts at a
+ * step and fails the job after its last (`MAX_STEP_ATTEMPTS`, 3), so this is
+ * only a backstop for failures content never heard about.
+ */
+const MAX_RUNS = 5;
+
+/**
+ * Run a job until this tab's part of it is over: handed off, lost, or failed
+ * for good.
+ *
+ * A failed step is counted by content, which keeps the job at that step for
+ * the tab to run again -- until its last attempt, when it fails the job.
+ * Whether it is still this tab's is the renewal's answer, so a failure is
+ * followed by one, and a `true` runs it again.
+ */
+export async function runJobToEnd(options: {
+  client: Pick<StudioJobClient, "renew">;
+  job: PublishTabJob;
+  tab: string;
+  run: () => Promise<StudioJobResult>;
+}): Promise<StudioJobResult> {
+  let result: StudioJobResult = { status: "lost", jobId: options.job.id };
+  for (let runs = 0; runs < MAX_RUNS; runs++) {
+    result = await options.run().catch(
+      (error: unknown): StudioJobResult => ({
+        status: "failed",
+        jobId: options.job.id,
+        message: messageOf(error),
+      }),
+    );
+    if (result.status !== "failed") return result;
+    const again = await options.client
+      .renew(options.job.id, options.tab)
+      .catch(() => false);
+    if (!again) return result;
+  }
+  return result;
+}
