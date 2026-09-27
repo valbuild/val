@@ -1,4 +1,4 @@
-import { ModuleFilePath, PatchId, SourcePath } from "@valbuild/core";
+import { Internal, ModuleFilePath, PatchId, SourcePath } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { PatchRecord } from "../../../stores/types";
 import { changedPathsAmong } from "./changedFields";
@@ -100,6 +100,25 @@ describe("changedPathsAmong", () => {
         record([{ op: "add", path: ["/", "hero", "badge"], value: "x" }]),
       ]),
     ).toEqual([]);
+  });
+
+  test("a record key with characters JSON escapes", () => {
+    // The source path quotes the key and `splitModulePath` leaves `\\` and
+    // `\n` escaped, while the op carries the key raw.
+    const key = 'back\\slash\nnew "quoted" line';
+    const path = Internal.joinModuleFilePathAndModulePath(
+      MODULE,
+      Internal.patchPathToModulePath([key, "title"]),
+    );
+    expect(
+      Array.from(
+        changedPathsAmong(
+          [path],
+          [record([{ op: "replace", path: [key, "title"], value: "x" }])],
+          new Set(),
+        ),
+      ),
+    ).toEqual([path]);
   });
 
   test("only within the patch's own module", () => {

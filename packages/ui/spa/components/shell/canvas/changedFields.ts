@@ -90,7 +90,7 @@ export function changedFieldsAmong(
     let key = moduleFilePath;
     opPathsAndAbove.add(key);
     for (const segment of opPath) {
-      key += SEPARATOR + segment;
+      key += SEPARATOR + asFieldSegment(segment);
       opPathsAndAbove.add(key);
     }
     opPaths.add(key);
@@ -151,6 +151,26 @@ function structuralTarget(path: readonly string[]): readonly string[] {
   }
   return path;
 }
+
+/**
+ * A patch-path segment as the field side reads it.
+ *
+ * The two are not the same string for every key. A field's path is a source
+ * path, whose segments are JSON-quoted, and `splitModulePath` unquotes only
+ * `\"` — so a record key with a backslash or a newline comes back from it
+ * still escaped, while the op carries it raw. Round-tripping the segment
+ * through the same encoding makes the two agree by construction. Only for the
+ * segments that need it, since nearly none do and this is on every edit.
+ */
+function asFieldSegment(segment: string): string {
+  if (!NEEDS_ESCAPING.test(segment)) return segment;
+  return (
+    Internal.splitModulePath(Internal.patchPathToModulePath([segment]))[0] ??
+    segment
+  );
+}
+// eslint-disable-next-line no-control-regex
+const NEEDS_ESCAPING = /[\\\u0000-\u001f]/;
 
 /**
  * Joins segments into a key. A NUL cannot appear in a module file path, and a
