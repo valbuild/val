@@ -2839,18 +2839,29 @@ function substituteJsonEntries(
 /**
  * The `.jsonValues()` entry keys a patch edits or reads: the top-level keys of
  * its `path` (and a `move`'s or `copy`'s `from`) whose value in `source` is an
- * entry marker.
+ * entry marker — and every marker key for a path at the module root.
  */
 function entryKeysTouched(record: PatchRecord, source: Json): Set<string> {
   const keys = new Set<string>();
   if (!isJsonObject(source)) return keys;
+  const markerKeys = Object.keys(source).filter((key) =>
+    Internal.isJson(source[key]),
+  );
   for (const op of record.patch) {
     if (op.op === "file") continue;
     // A `move` or `copy` READS its `from` as well, so the entry it reads from
     // has to be current too.
-    const read = op.op === "move" || op.op === "copy" ? [op.from[0]] : [];
-    for (const key of [op.path[0], ...read]) {
-      if (key !== undefined && Internal.isJson(source[key])) keys.add(key);
+    const paths =
+      op.op === "move" || op.op === "copy" ? [op.path, op.from] : [op.path];
+    for (const path of paths) {
+      const key = path[0];
+      if (key === undefined) {
+        // The module root — "Put everything back" writes exactly this — so
+        // every entry is touched.
+        for (const marker of markerKeys) keys.add(marker);
+      } else if (Internal.isJson(source[key])) {
+        keys.add(key);
+      }
     }
   }
   return keys;

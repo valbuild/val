@@ -333,6 +333,47 @@ describe("peekBase counts what has shipped", () => {
     system.dispose();
   });
 
+  it("keeps a shipped root replace until every entry arrives", async () => {
+    /*
+     * A patch at the module root — what "Put everything back" writes for a
+     * `.jsonValues()` module — touches every entry, and has no first path
+     * segment to say so. Reading only `path[0]` retired it with the markers.
+     */
+    const { c, s } = initVal();
+    const BLOGS = "/blogs.val.ts" as ModuleFilePath;
+    const A_TITLE = '/blogs.val.ts?p="/a"."title"' as SourcePath;
+    const blogs = () => [
+      c.define(BLOGS, s.record(s.object({ title: s.string() })).jsonValues(), {
+        "/a": c.json(() => Promise.resolve({ default: { title: "Alpha" } })),
+        "/b": c.json(() => Promise.resolve({ default: { title: "Beta" } })),
+      }),
+    ];
+    const system = makeSystem({ mode: "http" });
+    system.host.receive(blogs());
+    system.sourceStore.receiveJsonEntry(BLOGS, "/a", { title: "Alpha" });
+    system.sourceStore.receiveJsonEntry(BLOGS, "/b", { title: "Beta" });
+
+    const res = await system.patchStore.createPatch(BLOGS, [
+      {
+        op: "replace",
+        path: [],
+        value: { "/a": { title: "Restored" }, "/b": { title: "Beta" } },
+      },
+    ]);
+    if (res.status !== "created") throw new Error(res.status);
+    await system.patchSync.flush();
+    await system.publish([res.record.patchId]);
+    system.stat.receiveStat({ patches: [], baseSha: "after-deploy" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    system.host.receive(blogs());
+
+    // The markers arrived; no entry has. The restore still counts.
+    expect(system.sourceStore.peekBase(A_TITLE)).toMatchObject({
+      data: "Restored",
+    });
+    system.dispose();
+  });
+
   it("keeps a shipped copy until the entry it reads from arrives too", async () => {
     /*
      * A `copy` reads its `from`. Retiring it once only the entry it WRITES had
