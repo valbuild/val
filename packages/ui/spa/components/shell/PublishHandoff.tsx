@@ -30,7 +30,8 @@ export type HandoffState =
   | { kind: "live"; ms: number }
   /** The browser refused to open the tab. The commit is saved. */
   | { kind: "blocked" }
-  | { kind: "failed"; message: string };
+  /** `message` is the sentence; `details` the technical text, folded away. */
+  | { kind: "failed"; message: string; details?: string };
 
 export function PublishHandoffCard({
   state,
@@ -58,6 +59,9 @@ export function PublishHandoffCard({
             {handoffTitle(state)}
           </p>
           <p className="mt-0.5 text-fg-secondary">{handoffBody(state)}</p>
+          {state.kind === "failed" && state.details && (
+            <FailureDetails details={state.details} />
+          )}
           <div className="mt-2.5 flex flex-wrap gap-2">
             {(state.kind === "opening" || state.kind === "running") &&
               onShowTab && (
@@ -187,7 +191,26 @@ export type PublishStep = {
 
 export type PublishPageResult =
   | { kind: "live"; ms: number; closingInS?: number }
-  | { kind: "failed"; message: string };
+  | { kind: "failed"; message: string; details?: string };
+
+/**
+ * The technical half of a failure, closed by default.
+ *
+ * Kept on the page rather than only in the console, because it is what someone
+ * reporting the failure has to paste -- and a phone has no console to open.
+ */
+export function FailureDetails({ details }: { details: string }) {
+  return (
+    <details className="mt-2 text-xs text-fg-secondary-alt">
+      <summary className="cursor-pointer select-none hover:text-fg-secondary">
+        Details
+      </summary>
+      <p className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">
+        {details}
+      </p>
+    </details>
+  );
+}
 
 /**
  * The Studio tab the overlay opened, while it builds and publishes one commit.
@@ -233,6 +256,9 @@ export function StudioPublishPage({
               ? result.message
               : `Started from the site ${seconds(elapsedMs)} ago. Keep this tab open until it is live.`}
         </p>
+        {result?.kind === "failed" && result.details && (
+          <FailureDetails details={result.details} />
+        )}
         <ol className="mt-5 space-y-2.5">
           {steps.map((step) => (
             <li key={step.label} className="flex items-center gap-2.5 text-sm">

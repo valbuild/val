@@ -51,6 +51,8 @@ export type StudioDeployState =
       phaseStartedAt: number;
       /** The steps finished so far, in order. */
       steps?: DeployStep[];
+      /** The commit being published, so the deploy list can show it on its row. */
+      commit: string | null;
     }
   | {
       status: "done";
@@ -58,6 +60,14 @@ export type StudioDeployState =
       /** The whole publish, and each step of it, in order. */
       ms: number;
       steps: DeployStep[];
+      /** The step it stopped at, when it failed. */
+      failedAt?: DeployPhase["kind"] | null;
+      /**
+       * The commit it published. A live one is a commit this Studio has seen
+       * the site serve, the same as `/stat` reporting it -- which, polled as
+       * rarely as it is in http mode, could otherwise be many minutes away.
+       */
+      commit: string | null;
     };
 
 export interface UseStudioDeploy {
@@ -79,8 +89,14 @@ export interface UseStudioDeploy {
       binaryFiles: CommittedBinaryFiles | null;
       branch: string | null;
     } | null,
-  ) => Promise<StudioDeployResult>;
+  ) => Promise<StudioDeployOutcome>;
 }
+
+/** What a deploy did, and -- when it failed -- the step it failed at. */
+export type StudioDeployOutcome = {
+  result: StudioDeployResult;
+  failedAt: DeployPhase["kind"] | null;
+};
 
 const ALREADY_RUNNING: StudioDeployResult = {
   status: "failed",
@@ -103,7 +119,7 @@ export function useStudioDeploy(options?: {
   const deploy = useCallback<UseStudioDeploy["deploy"]>(
     async (commit, committedFiles, details) => {
       if (running.current) {
-        return ALREADY_RUNNING;
+        return { result: ALREADY_RUNNING, failedAt: null };
       }
       running.current = true;
       const startedAt = Date.now();
@@ -130,6 +146,7 @@ export function useStudioDeploy(options?: {
           startedAt,
           phaseStartedAt: current.at,
           steps: [...steps],
+          commit,
         });
       };
       setState({
@@ -137,6 +154,7 @@ export function useStudioDeploy(options?: {
         phase: current.phase,
         startedAt,
         phaseStartedAt: startedAt,
+        commit,
       });
       /*
        * Read once per deploy, not per use: whether a deployment has injected
@@ -172,8 +190,10 @@ export function useStudioDeploy(options?: {
               .map((step) => `${step.kind} ${(step.ms / 1000).toFixed(1)}s`)
               .join(", "),
         );
-        setState({ status: "done", result, ms, steps });
-        return result;
+        // The step that was current when it returned is the one that failed.
+        const failedAt = result.status === "failed" ? current.phase.kind : null;
+        setState({ status: "done", result, ms, steps, commit, failedAt });
+        return { result, failedAt };
       } finally {
         running.current = false;
       }

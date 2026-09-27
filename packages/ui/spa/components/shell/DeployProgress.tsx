@@ -1,37 +1,52 @@
-import { useEffect, useState } from "react";
-import { CheckCircle2, Loader2 } from "lucide-react";
-import { describeDeploy } from "../../publish/deployProgress";
+import { Loader2 } from "lucide-react";
+import { deployPercent, describeDeploy } from "../../publish/deployProgress";
 import type { StudioDeployState } from "../../publish/useStudioDeploy";
 
 /**
- * The step a publish built in this tab is on, and how long it has run.
+ * A publish built in this tab, while it runs: "Publishing 42%" and a thin bar.
  *
- * The publish tracked every step all along and showed none of them, so a build
- * that took a minute looked exactly like one that had stalled. Ticks once a
- * second while it runs; afterwards it says how long the publish took.
+ * Only for a publish the deploy list has no row for yet: once its commit is in
+ * the list, the list's own summary says "Publishing 42%" instead, so the bar
+ * never shows it twice. Gone as soon as it is done. A publish that went live says so in the deploy
+ * summary beside it ("Live"), with the breakdown one click away in the list;
+ * one that failed has its own message. This line is only for the wait.
  */
 export function DeployProgress({ state }: { state: StudioDeployState }) {
-  const [now, setNow] = useState(() => Date.now());
-  const running = state.status === "running";
-  useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running]);
-  const line = describeDeploy(state, now);
-  if (line === null) return null;
+  const line = describeDeploy(state);
+  if (line === null || state.status !== "running") return null;
+  const percent = deployPercent(state.phase);
   return (
     <span
-      className="inline-flex items-center gap-1.5 truncate"
-      role="status"
-      aria-live="polite"
+      className="inline-flex items-center gap-2"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent}
+      aria-label={line}
     >
-      {running ? (
-        <Loader2 size={13} className="shrink-0 animate-spin" />
-      ) : (
-        <CheckCircle2 size={13} className="shrink-0 text-fg-brand-primary" />
-      )}
-      <span className="truncate">{line}</span>
+      <Loader2 size={13} className="shrink-0 animate-spin" />
+      <span className="tabular-nums">{line}</span>
+      <ProgressBar percent={percent} className="w-16" />
+    </span>
+  );
+}
+
+/** The thin bar a running publish draws beside its percentage. */
+export function ProgressBar({
+  percent,
+  className,
+}: {
+  percent: number;
+  className?: string;
+}) {
+  return (
+    <span
+      className={`block h-1 overflow-hidden rounded-full bg-border-primary ${className ?? ""}`}
+    >
+      <span
+        className="block h-full rounded-full bg-bg-brand-secondary transition-[width] duration-500"
+        style={{ width: `${percent}%` }}
+      />
     </span>
   );
 }

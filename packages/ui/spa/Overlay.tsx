@@ -106,6 +106,7 @@ function Overlay() {
             valModules={valModules}
             theme={theme}
             setTheme={setTheme}
+            handsOffPublish
           >
             <ErrorBoundary FallbackComponent={FallbackComponent}>
               <ValRouter overlay>

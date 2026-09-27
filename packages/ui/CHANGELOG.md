@@ -1,5 +1,34 @@
 # @valbuild/ui
 
+## 0.136.7
+
+### Patch Changes
+
+- [#735](https://github.com/valbuild/val/pull/735) [`5f7a4a5`](https://github.com/valbuild/val/commit/5f7a4a5f86dfe4581fbfb402059bba70e029afdc) Thanks [@freekh](https://github.com/freekh)! - Publishing no longer gets stuck at "Building", and a publish from Safari or an iPhone keeps the edit it was made for.
+
+  - **The site builder runs in a Web Worker.** It ran on the page, and rolldown's threaded WebAssembly sometimes has to wait for one of its own threads, which a page is not allowed to do. The build then stopped with no error and "Building" spun forever. How often depended on timing, and it happened in every browser, most visibly on iPhones. In a worker the same builds finish every time. If a build ever does stop answering, the publish now fails after five minutes with a message, instead of spinning.
+  - **The builder tab builds from the files the save wrote,** as a publish built in the Studio does. It used to rely on reading the project's current source back from the site, so a publish from Safari could go live without the edit it was made for.
+
+## 0.136.6
+
+### Patch Changes
+
+- [#733](https://github.com/valbuild/val/pull/733) [`562713a`](https://github.com/valbuild/val/commit/562713a2e972e603abb43259f40ccfbf06990fe5) Thanks [@freekh](https://github.com/freekh)! - Publishing works in Safari and on iPhone, and a failed publish says what happened in plain words.
+
+  - **Safari and iOS can publish.** WebKit does not support the header that lets the Studio build in place (`Cross-Origin-Embedder-Policy: credentialless`), so a Studio in Safari, or in any browser on an iPhone, could not build at all. Its Publish, and Finish publishing, now hand the build to a small builder tab. The Val platform isolates that tab in every browser, and it closes itself once the change is live. Chrome, Edge and Firefox still build in place and open no tab.
+  - **A failed publish leads with a sentence,** such as "This browser cannot build the site, so it could not be published from here", with the technical message under **Details**. This applies to the Studio's error, the builder tab and the overlay's card.
+
+## 0.136.5
+
+### Patch Changes
+
+- [#731](https://github.com/valbuild/val/pull/731) [`28a71c3`](https://github.com/valbuild/val/commit/28a71c3beb40d15d628b99959c5161cee09d1871) Thanks [@freekh](https://github.com/freekh)! - The Studio's publish shows how far it has got and what it cost, and a new image no longer disappears while it is being published.
+
+  - **An uploaded image stays visible through its publish.** Pressing Publish used to switch a new image to its published URL at once, before any build had it, so it showed as broken (and stayed broken across a reload) until the build went live. It is now served from the saved change until a deployment serves it, the same way the text of the edit is.
+  - **Publishing N%** replaces the separate progress line in the status bar while a publish runs, and goes away when it is done.
+  - **"Live"** once a publish is out (was "Deployed"), and a publish that went live from this browser is shown as live straight away instead of reading "Saved, not yet live" until the next status check.
+  - **The deployments list** shows the step and percentage of a running publish, and how long each step took once it is live.
+
 ## 0.136.4
 
 ### Patch Changes

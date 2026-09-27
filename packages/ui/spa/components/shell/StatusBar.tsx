@@ -123,9 +123,11 @@ export function StatusBar({
         </>
       )}
       <div className="ml-auto flex items-center gap-3">
-        {mode === "http" && deployState !== undefined && (
-          <DeployProgress state={deployState} />
-        )}
+        {mode === "http" &&
+          deployState !== undefined &&
+          !deployments?.some(
+            (deployment) => deployment.publish?.kind === "running",
+          ) && <DeployProgress state={deployState} />}
         {mode === "http" && deployments !== undefined && (
           <>
             <DeploymentsStatus

@@ -29,6 +29,12 @@ export type ToTab =
   | {
       type: "commit";
       commit: string | null;
+      /**
+       * The text the save wrote, path to contents (`null` for a deletion):
+       * what the in-place build passes as `committedFiles`. `null` when there
+       * is no save behind it -- a Finish publishing of a commit made earlier.
+       */
+      committedFiles?: Record<string, string | null> | null;
       binaryFiles: CommittedBinaryFiles | null;
       branch: string | null;
     }
@@ -40,7 +46,17 @@ export type ToSite =
   /** Listening. The site answers with the commit, if it has one yet. */
   | { type: "ready" }
   | { type: "phase"; label: string; elapsedMs: number }
-  | { type: "done"; result: StudioDeployResult; ms: number };
+  | {
+      type: "done";
+      result: StudioDeployResult;
+      ms: number;
+      /**
+       * What went wrong, in a sentence, when it failed -- decided in the tab,
+       * which knows the step it failed at and whether IT could build. The
+       * result's own message is the technical details.
+       */
+      summary?: string;
+    };
 
 type Envelope<T> = { id: string; message: T };
 
@@ -216,9 +232,35 @@ function asToTab(message: unknown): ToTab | null {
         : null;
     const binaryFiles =
       "binaryFiles" in message ? asBinaryFiles(message.binaryFiles) : null;
-    return { type: "commit", commit, branch, binaryFiles };
+    const committedFiles =
+      "committedFiles" in message
+        ? asCommittedFiles(message.committedFiles)
+        : null;
+    return {
+      type: "commit",
+      commit,
+      ...(committedFiles !== null ? { committedFiles } : {}),
+      branch,
+      binaryFiles,
+    };
   }
   return null;
+}
+
+function asCommittedFiles(
+  value: unknown,
+): Record<string, string | null> | null {
+  // An array is an object too, and would become files named "0", "1", ...
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const files: Record<string, string | null> = {};
+  for (const [path, contents] of Object.entries(value)) {
+    if (typeof contents === "string" || contents === null) {
+      files[path] = contents;
+    }
+  }
+  return files;
 }
 
 function asBinaryFiles(value: unknown): CommittedBinaryFiles | null {
@@ -266,7 +308,10 @@ function asToSite(message: unknown): ToSite | null {
     typeof message.ms === "number"
   ) {
     const result = asResult(message.result);
-    return result === null ? null : { type: "done", result, ms: message.ms };
+    if (result === null) return null;
+    return "summary" in message && typeof message.summary === "string"
+      ? { type: "done", result, ms: message.ms, summary: message.summary }
+      : { type: "done", result, ms: message.ms };
   }
   return null;
 }
