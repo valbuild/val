@@ -52,6 +52,12 @@ export type StudioPublishResult =
   | { status: "live"; publishId: string; url: string | null }
   /** Content had already taken this exact build. Not a failure. */
   | { status: "already-live"; publishId: string; url: string | null }
+  /**
+   * Stopped after the artifacts were confirmed, as `until: "confirmed"` asks:
+   * a publish JOB's tab does no more than that, and content runs verify and
+   * the seal (valbuild/home, docs/app-mode.md, "Publishing is a queued job").
+   */
+  | { status: "uploaded"; publishId: string }
   | {
       status: "failed";
       /** `null` when it failed before content had accepted anything. */
@@ -74,6 +80,8 @@ export async function runStudioPublish(args: {
   artifacts: PublishArtifact[];
   declare: DeclareBody;
   onPhase: (phase: PublishPhase) => void;
+  /** Stop once the artifacts are confirmed: for a publish job's tab. */
+  until?: "confirmed";
 }): Promise<StudioPublishResult> {
   const { client, artifacts, onPhase } = args;
   const bodyOf = new Map(artifacts.map((a) => [a.key, a.body]));
@@ -92,7 +100,12 @@ export async function runStudioPublish(args: {
          * overwrite the bytes of a live site, so this is a success rather than
          * something to retry -- a second publish of an unchanged build lands
          * here, and so does a retry after a lost response.
+         *
+         * For a job it is still the job's build: content verifies it (a
+         * no-op) and seals it.
          */
+        if (args.until === "confirmed")
+          return { status: "uploaded", publishId: declared.publishId };
         return {
           status: "already-live",
           publishId: declared.publishId,
@@ -169,6 +182,8 @@ export async function runStudioPublish(args: {
         problems: [],
       };
     }
+
+    if (args.until === "confirmed") return { status: "uploaded", publishId };
 
     onPhase({ kind: "verifying" });
     const verified = await client.verify(publishId);

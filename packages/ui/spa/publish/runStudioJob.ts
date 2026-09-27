@@ -1,0 +1,123 @@
+import type { PublishTabJob } from "@valbuild/shared/internal";
+import type { DeployPhase, StudioDeployResult } from "./runStudioDeploy";
+import type { PreparedJob, StudioJobClient } from "./jobClient";
+import { StudioPublishError } from "./publishClient";
+
+/**
+ * A publish job, as the tab that holds it runs it: prepare, build, upload --
+ * and then it is content's (valbuild/home, docs/app-mode.md, "Publishing is a
+ * queued job"). Content runs verify and the seal, and "Live" arrives on the
+ * websocket, so a tab that closes after its upload costs nothing.
+ *
+ * The tab holds the job by a lease, renewed on a timer while it works. A
+ * renewal answered `false` means the job is no longer this tab's -- its lease
+ * lapsed and its requests went back to the queue, or it was cancelled -- and
+ * the tab stops: another tab, or this one's next job, will build it.
+ *
+ * Every step is reported by name, so a report retried after a lost answer
+ * does nothing twice, and a failure is reported as the step's: content counts
+ * the attempts and, after the last, fails the job with Try again.
+ */
+
+export type JobPhase =
+  | { kind: "preparing" }
+  | { kind: "deploying"; phase: DeployPhase }
+  | { kind: "handing-off" };
+
+export type StudioJobResult =
+  /** Built and uploaded: content has the job. */
+  | { status: "handed-off"; jobId: string }
+  /** The job is no longer this tab's. Nothing to report. */
+  | { status: "lost"; jobId: string }
+  /** A step failed, and was reported as failed. */
+  | { status: "failed"; jobId: string; message: string };
+
+/** How often the tab renews its lease. Content's job lease is 30 s. */
+export const RENEW_EVERY_MS = 10_000;
+
+export async function runStudioJob(options: {
+  client: StudioJobClient;
+  job: PublishTabJob;
+  tab: string;
+  /**
+   * Build the job from its prepared sources, stopping once the artifacts are
+   * confirmed: `runStudioDeploy` with `until: "confirmed"` and no commit.
+   */
+  deploy: (
+    prepared: PreparedJob,
+    onPhase: (phase: DeployPhase) => void,
+  ) => Promise<StudioDeployResult>;
+  onPhase: (phase: JobPhase) => void;
+  renewEveryMs?: number;
+}): Promise<StudioJobResult> {
+  const { client, job, tab, onPhase } = options;
+  let lost = false;
+  const renewing = setInterval(() => {
+    client.renew(job.id, tab).then(
+      (renewed) => {
+        if (!renewed) lost = true;
+      },
+      // A renewal that did not get through is not a lost job: the lease is
+      // 30 s and the next one may.
+      () => {},
+    );
+  }, options.renewEveryMs ?? RENEW_EVERY_MS);
+  const lostResult: StudioJobResult = { status: "lost", jobId: job.id };
+
+  try {
+    onPhase({ kind: "preparing" });
+    let prepared: PreparedJob;
+    try {
+      prepared = await client.prepare(job, tab);
+    } catch (error) {
+      /*
+       * 502 is content answering the prepare with a failure, which content
+       * has already counted as an attempt at the step. Anything else never
+       * reached it, so the tab reports it.
+       */
+      if (!(error instanceof StudioPublishError && error.statusCode === 502)) {
+        await client
+          .step(job.id, { tab, step: "prepare", ok: false })
+          .catch(() => null);
+      }
+      return { status: "failed", jobId: job.id, message: messageOf(error) };
+    }
+    if (lost || prepared.job === null || prepared.job.step !== "build") {
+      return lostResult;
+    }
+
+    const deployed = await options.deploy(prepared, (phase) =>
+      onPhase({ kind: "deploying", phase }),
+    );
+    if (lost) return lostResult;
+    if (deployed.status !== "uploaded") {
+      await client
+        .step(job.id, { tab, step: "build", ok: false })
+        .catch(() => null);
+      return {
+        status: "failed",
+        jobId: job.id,
+        message:
+          deployed.status === "failed"
+            ? deployed.message
+            : "The build went further than a job's build should.",
+      };
+    }
+
+    onPhase({ kind: "handing-off" });
+    const built = await client.step(job.id, {
+      tab,
+      step: "build",
+      ok: true,
+      build: deployed.publishId,
+    });
+    if (built === null || built.step !== "upload") return lostResult;
+    await client.step(job.id, { tab, step: "upload", ok: true });
+    return { status: "handed-off", jobId: job.id };
+  } finally {
+    clearInterval(renewing);
+  }
+}
+
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);

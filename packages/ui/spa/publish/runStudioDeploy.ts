@@ -106,6 +106,8 @@ export type StudioDeployResult =
       visible?: boolean;
     }
   | { status: "already-live"; url: string | null }
+  /** A publish job's build, uploaded and confirmed: content does the rest. */
+  | { status: "uploaded"; publishId: string }
   | {
       status: "failed";
       message: string;
@@ -114,6 +116,14 @@ export type StudioDeployResult =
 
 export interface StudioDeployOptions {
   client: StudioPublishClient;
+  /**
+   * For a publish job's tab: stop once the artifacts are confirmed, and
+   * answer with the publish id. Content runs verify and the seal itself, and
+   * `commit` is `null` -- a job's build is wired at no commit, because its
+   * commit is minted at the seal (valbuild/home, docs/app-mode.md: "A
+   * platform build bakes nothing and asks content").
+   */
+  until?: "confirmed";
   /**
    * The commit `/save` just made, or `null` for a publish from no commit.
    *
@@ -481,6 +491,7 @@ export async function runStudioDeploy(
       artifacts: declared,
     },
     onPhase,
+    ...(options.until !== undefined ? { until: options.until } : {}),
   });
   const result = asDeployResult(published);
   if (result.status !== "live" || !options.waitUntilServed) return result;
@@ -603,6 +614,8 @@ const asDeployResult = (published: StudioPublishResult): StudioDeployResult => {
       return { status: "live", url: published.url };
     case "already-live":
       return { status: "already-live", url: published.url };
+    case "uploaded":
+      return { status: "uploaded", publishId: published.publishId };
     case "failed":
       return {
         status: "failed",
