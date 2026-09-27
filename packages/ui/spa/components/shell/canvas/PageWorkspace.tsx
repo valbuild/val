@@ -119,8 +119,12 @@ export type PageWorkspaceProps = {
      * canvas has to know one happened, because selecting on the page is a
      * request to go and edit the thing selected, and where that is is the
      * canvas's business: the fields column, and on a phone the pane holding it.
+     *
+     * Carries the path that was picked, because the column's "changed only"
+     * filter has to know whether it is hiding it. `null` where a pick has no
+     * source path behind it — the demo page's fields are not Val's.
      */
-    onPicked: () => void;
+    onPicked: (path: SourcePath | null) => void;
     /**
      * Bumped when the notice's "Turn on preview mode" is used.
      *
@@ -368,6 +372,20 @@ export function PageWorkspace({
   );
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [attachedFieldIds, setAttachedFieldIds] = useState<string[]>([]);
+  /**
+   * The fields view's "changed only" filter, held here rather than in the
+   * column: the column unmounts whenever the view switches to Structure and
+   * back, and a filter that forgets itself mid-review is one you set twice.
+   */
+  const [changedFieldsOnly, setChangedFieldsOnly] = useState(false);
+  /**
+   * A field picked on the page while the filter was on, not yet checked
+   * against it. Handed to the column, which is the one that knows what has
+   * changed, and which may not be mounted yet: a pick from Structure switches
+   * the view, so the check has to wait for the column rather than happen here.
+   */
+  const [pickToReveal, setPickToReveal] = useState<SourcePath | null>(null);
+  const clearPickToReveal = useCallback(() => setPickToReveal(null), []);
 
   /**
    * Leaving the canvas leaves nothing behind.
@@ -615,11 +633,17 @@ export function PageWorkspace({
    * in front of you and the field it was opened for missing from it, is the
    * state that reads as the canvas being broken.
    */
-  const onPicked = useCallback(() => {
-    if (!isPicking) return;
-    onViewChange("fields");
-    if (isPhone) onPaneChange("editor");
-  }, [isPicking, onViewChange, isPhone, onPaneChange]);
+  const onPicked = useCallback(
+    (path: SourcePath | null) => {
+      if (!isPicking) return;
+      onViewChange("fields");
+      if (isPhone) onPaneChange("editor");
+      // Pointing at something is asking to edit it, and a filter hiding it
+      // would answer with an empty column. See `pickToReveal`.
+      if (path !== null && changedFieldsOnly) setPickToReveal(path);
+    },
+    [isPicking, onViewChange, isPhone, onPaneChange, changedFieldsOnly],
+  );
 
   /**
    * Whether the page is re-rendering because of an edit.
@@ -838,6 +862,10 @@ export function PageWorkspace({
       ) : reportedPaths.length > 0 ? (
         <CanvasFields
           paths={reportedPaths}
+          changedOnly={changedFieldsOnly}
+          onChangedOnlyChange={setChangedFieldsOnly}
+          pickToReveal={pickToReveal}
+          onPickRevealed={clearPickToReveal}
           selectedPath={selectedCanvasPath}
           onSelect={onSelectCanvasPath}
         />
@@ -996,7 +1024,7 @@ export function PageWorkspace({
                     // The demo page's version of what a pick does on a real one:
                     // go to the field. Kept in step deliberately, since this is
                     // the copy the design is reviewed against.
-                    onPicked();
+                    onPicked(null);
                   }}
                   isSelectMode={isPicking}
                 />
