@@ -693,7 +693,9 @@ export class ValOpsHttp extends ValOps {
    * An allow list rather than a prefix check, because this method holds a
    * credential and the browser chooses the path. `/publish/{id}` and its three
    * steps are the publish conversation; `/build-target` is what a build needs
-   * to know before it starts; `/project-source` is what it builds.
+   * to know before it starts; `/project-source` is what it builds;
+   * `/update-target` is the same question as `/build-target` for a managed
+   * project moving onto its template's current dependencies.
    *
    * `/project-source` is here rather than on a route of its own because it is
    * one of the three things a publish asks for and none of them are useful
@@ -710,6 +712,7 @@ export class ValOpsHttp extends ValOps {
     if (
       path === "/build-target" ||
       path === "/project-source" ||
+      path === "/update-target" ||
       path === "/publish"
     ) {
       return true;

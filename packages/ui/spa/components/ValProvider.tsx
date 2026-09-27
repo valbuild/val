@@ -46,6 +46,16 @@ import {
 } from "../utils/mergeCommitsAndDeployments";
 import { TooltipProvider } from "./designSystem/tooltip";
 import { SchemaOutOfDateDialog } from "./SchemaOutOfDateDialog";
+import { StudioOutOfDateDialog } from "./StudioOutOfDateDialog";
+import {
+  STUDIO_OUT_OF_DATE_MESSAGE,
+  markStudioOutOfDate,
+  rememberLoadedLayer,
+  siteMovedSinceLoad,
+  studioOutOfDateRefusals,
+  subscribeStudioOutOfDate,
+} from "../publish/loadedLayer";
+import { beginSiteOperation, busyMessage } from "../publish/siteOperation";
 import { LocalModulesErrorBanner } from "./LocalModulesErrorBanner";
 import { useSchemas } from "./ValFieldProvider";
 import { ValThemeProvider, Themes } from "./ValThemeProvider";
@@ -1007,6 +1017,7 @@ export function ValProvider({
                             {children}
                           </ProjectLocalesProvider>
                           <SchemaOutOfDateGate />
+                          <StudioOutOfDateGate />
                         </ValFieldProvider>
                       </ValRemoteProvider>
                     </ValPortalProvider>
@@ -1021,6 +1032,29 @@ export function ValProvider({
       </TooltipProvider>
     </ValContext.Provider>
   );
+}
+
+/**
+ * The site moved onto other dependencies after this page loaded, and a publish
+ * was refused for it. See `publish/loadedLayer.ts`.
+ *
+ * Also where the page takes the reading it is compared against, because this
+ * is the first place inside the provider that knows the source mode: only a
+ * managed project's Studio is served by the build it publishes.
+ */
+function StudioOutOfDateGate() {
+  const studioIsDeployer = useStudioIsDeployer();
+  useEffect(() => {
+    if (studioIsDeployer) rememberLoadedLayer();
+  }, [studioIsDeployer]);
+  const refusals = useSyncExternalStore(
+    subscribeStudioOutOfDate,
+    studioOutOfDateRefusals,
+    studioOutOfDateRefusals,
+  );
+  const [dismissedAt, setDismissedAt] = useState(0);
+  if (refusals === 0 || refusals === dismissedAt) return null;
+  return <StudioOutOfDateDialog onClose={() => setDismissedAt(refusals)} />;
 }
 
 /**
@@ -2345,7 +2379,33 @@ export function usePublishSummary() {
         handoff.cancel("No store system is mounted");
         return { status: "error", message: "No store system is mounted" };
       }
+      /*
+       * Not while this page is updating the site: the update has already
+       * copied the new layer in, and a save now would find the deploy taken
+       * and stay saved and not live. See `publish/siteOperation.ts`.
+       */
+      const lock = beginSiteOperation("publish");
+      if (!lock.ok) {
+        const message = busyMessage(lock.busy);
+        handoff.cancel(message);
+        return { status: "error", message };
+      }
       setIsPublishing(true);
+      /*
+       * Before the save, so that -- unless the site moves in the instant
+       * between this read and the save -- nothing is committed that this Studio
+       * would then build with the wrong version of itself. In that instant the
+       * save lands and the deploy's own check refuses it: the change is saved
+       * and not live, and Finish publishing takes it live after the reload.
+       * See `publish/loadedLayer.ts`.
+       */
+      if (studioIsDeployer && (await siteMovedSinceLoad())) {
+        setIsPublishing(false);
+        lock.release();
+        markStudioOutOfDate();
+        handoff.cancel(STUDIO_OUT_OF_DATE_MESSAGE);
+        return { status: "error", message: STUDIO_OUT_OF_DATE_MESSAGE };
+      }
       /**
        * One retry for `chain-moved`, and no more.
        *
@@ -2454,6 +2514,7 @@ export function usePublishSummary() {
         })
         .finally(() => {
           setIsPublishing(false);
+          lock.release();
         });
     },
     [

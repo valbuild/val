@@ -100,6 +100,9 @@ function client(overrides: Partial<StudioPublishClient> = {}) {
     buildTarget: async () => target,
     projectSource: async () => dataRoutes,
     publicFiles: async () => ({ carried: [] }),
+    updateTarget: async () => {
+      throw new Error("a publish does not ask for an update");
+    },
     declare: async () => ({
       publishId: "pub_1",
       state: "awaiting-artifacts",
@@ -884,5 +887,118 @@ describe("after it is live", () => {
       },
     });
     expect(asked).toEqual([]);
+  });
+});
+
+describe("an update's build target", () => {
+  /*
+   * An update moves the site onto its template's dependency layer. The live
+   * build's target names the layer it is leaving, so a deploy that read that
+   * one would rebuild on the OLD dependencies and publish it as an update.
+   */
+  const updated = {
+    ...target,
+    project: {
+      ...target.project,
+      rev: "layer-2",
+      modules: { "@valbuild/core": "valbuild-core" },
+    },
+  };
+
+  test("is built against instead of the live build's, which is not read", async () => {
+    const built: unknown[] = [];
+    let declared: unknown = null;
+    await deploy({
+      target: updated,
+      client: client({
+        buildTarget: async () => {
+          throw new Error("an update does not read the live build's target");
+        },
+        declare: async (body) => {
+          declared = body;
+          return {
+            publishId: "pub_1",
+            state: "awaiting-artifacts",
+            project: { publicProjectId: "p", siteUrl: null },
+            uploads: [],
+            have: [],
+          };
+        },
+      }),
+      loadBuilder: async () =>
+        builder([], {
+          buildUserApp: async (input) => {
+            built.push(input.target);
+            return buildOutput;
+          },
+        }),
+    });
+    expect(built).toEqual([updated]);
+    // Named by rev, which is what moves the site onto it.
+    expect(declared).toMatchObject({ layerRev: "layer-2" });
+  });
+});
+
+describe("a Studio older than the site", () => {
+  /*
+   * The site was updated after this page loaded: the live build's layer is not
+   * the one this Studio came with. Publishing from here would build with the
+   * old builder, so it is refused and the page asks for a reload.
+   */
+  test("is refused before anything is built", async () => {
+    const calls: string[] = [];
+    const result = await deploy({
+      loadedLayer: "layer-0",
+      loadBuilder: async () => builder(calls),
+    });
+    expect(result).toMatchObject({
+      status: "failed",
+      problems: [{ code: "STUDIO_OUT_OF_DATE" }],
+    });
+    expect(calls).toEqual([]);
+  });
+
+  test("on the layer it loaded with, publishes", async () => {
+    await expect(deploy({ loadedLayer: "layer-1" })).resolves.toMatchObject({
+      status: "live",
+    });
+  });
+
+  test("that cannot say what it loaded on, publishes", async () => {
+    await expect(deploy({ loadedLayer: undefined })).resolves.toMatchObject({
+      status: "live",
+    });
+  });
+
+  test("the site moving WHILE it builds is caught before anything is declared", async () => {
+    const calls: string[] = [];
+    let declared = false;
+    const result = await deploy({
+      loadedLayer: "layer-1",
+      liveLayer: async () => "layer-2",
+      client: client({
+        declare: async () => {
+          declared = true;
+          throw new Error("must not declare");
+        },
+      }),
+      loadBuilder: async () => builder(calls),
+    });
+    expect(result).toMatchObject({
+      status: "failed",
+      problems: [{ code: "STUDIO_OUT_OF_DATE" }],
+    });
+    // It built -- the first check passed -- and stopped short of the publish.
+    expect(calls).toContain("buildUserApp");
+    expect(declared).toBe(false);
+  });
+
+  test("an update is not refused for moving the layer, which is its point", async () => {
+    await expect(
+      deploy({
+        loadedLayer: "layer-1",
+        target: { ...target, project: { ...target.project, rev: "layer-2" } },
+      }),
+    ).resolves.toMatchObject({ status: "live" });
   });
 });

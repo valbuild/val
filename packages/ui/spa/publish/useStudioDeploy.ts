@@ -23,6 +23,7 @@
  */
 
 import { useCallback, useRef, useState } from "react";
+import type { BuildTarget } from "@valbuild/tanstack-build";
 import { createStudioPublishClient } from "./publishClient";
 import {
   fetchBuiltSource,
@@ -31,6 +32,12 @@ import {
   waitUntilServed,
 } from "./fetchPublicFile";
 import { loadBuilder, routeTreeGenerator } from "./loadBuilder";
+import {
+  STUDIO_OUT_OF_DATE,
+  loadedLayer,
+  markStudioOutOfDate,
+  readLiveLayer,
+} from "./loadedLayer";
 import {
   CommittedBinaryFiles,
   DeployPhase,
@@ -88,6 +95,8 @@ export interface UseStudioDeploy {
     details?: {
       binaryFiles: CommittedBinaryFiles | null;
       branch: string | null;
+      /** An update's build target. See `target` on `runStudioDeploy`. */
+      target?: BuildTarget;
     } | null,
   ) => Promise<StudioDeployOutcome>;
 }
@@ -163,12 +172,16 @@ export function useStudioDeploy(options?: {
        */
       const generateRouteTree = routeTreeGenerator();
       try {
+        const loaded = await loadedLayer();
         const result = await runStudioDeploy({
+          loadedLayer: loaded,
+          liveLayer: () => readLiveLayer(),
           client: createStudioPublishClient({ api }),
           commit,
           committedFiles: committedFiles ?? null,
           committedBinaryFiles: details?.binaryFiles ?? null,
           branch: details?.branch ?? null,
+          ...(details?.target ? { target: details.target } : {}),
           fetchPublicFile: (path) => fetchPublicFile(path),
           builtSource: () => fetchBuiltSource(api),
           liveStylesheet: () => fetchLiveStylesheet(),
@@ -177,6 +190,12 @@ export function useStudioDeploy(options?: {
           ...(generateRouteTree !== null ? { generateRouteTree } : {}),
           onPhase: enter,
         });
+        if (
+          result.status === "failed" &&
+          result.problems.some((problem) => problem.code === STUDIO_OUT_OF_DATE)
+        ) {
+          markStudioOutOfDate();
+        }
         const now = Date.now();
         steps.push({ kind: current.phase.kind, ms: now - current.at });
         const ms = now - startedAt;

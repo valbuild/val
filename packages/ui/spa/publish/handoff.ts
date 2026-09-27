@@ -1,5 +1,7 @@
 import type { StudioDeployResult } from "./runStudioDeploy";
 import type { CommittedBinaryFiles } from "./runStudioDeploy";
+import type { SiteUpdateOutcome } from "./runSiteUpdate";
+import type { DependencyChange } from "@valbuild/shared/internal";
 
 /**
  * Publishing from a page that cannot build, by handing the build to a Studio
@@ -44,7 +46,13 @@ export type ToTab =
       branch: string | null;
     }
   /** The save did not happen, so there is nothing to build. */
-  | { type: "cancel"; message: string };
+  | { type: "cancel"; message: string }
+  /**
+   * Update the site's dependencies (`runSiteUpdate`) instead of publishing a
+   * commit. Nothing is saved first, so there is nothing to wait for: the page
+   * sends this at the press, and the tab starts as soon as it hears it.
+   */
+  | { type: "update" };
 
 /** Tab -> site. */
 export type ToSite =
@@ -61,7 +69,13 @@ export type ToSite =
        * result's own message is the technical details.
        */
       summary?: string;
-    };
+    }
+  /**
+   * How an update ended. Its own message rather than `done`, because an
+   * update can end without deploying anything at all -- already current, or
+   * refused by the platform -- and those are answers, not failed publishes.
+   */
+  | { type: "update-done"; outcome: SiteUpdateOutcome };
 
 type Envelope<T> = { id: string; message: T };
 
@@ -181,6 +195,8 @@ export type SiteHandoff = {
   opened: boolean;
   /** Hand the tab the commit to build. Re-sent whenever a tab says it is ready. */
   commit: (payload: Extract<ToTab, { type: "commit" }>) => void;
+  /** Ask the tab to run an update. Re-sent whenever a tab says it is ready. */
+  update: () => void;
   cancel: (message: string) => void;
   onMessage: (listener: (message: ToSite) => void) => () => void;
   close: () => void;
@@ -221,6 +237,10 @@ export function openHandoff(
     commit: (payload) => {
       pending = payload;
       send(payload);
+    },
+    update: () => {
+      pending = { type: "update" };
+      send(pending);
     },
     cancel: (message) => {
       pending = { type: "cancel", message };
@@ -307,6 +327,7 @@ function asToTab(message: unknown): ToTab | null {
       message: typeof message.message === "string" ? message.message : "",
     };
   }
+  if (message.type === "update") return { type: "update" };
   if (message.type === "commit" && "commit" in message) {
     const commit = typeof message.commit === "string" ? message.commit : null;
     const branch =
@@ -384,6 +405,10 @@ function asToSite(message: unknown): ToSite | null {
       elapsedMs: message.elapsedMs,
     };
   }
+  if (message.type === "update-done" && "outcome" in message) {
+    const outcome = asUpdateOutcome(message.outcome);
+    return outcome === null ? null : { type: "update-done", outcome };
+  }
   if (
     message.type === "done" &&
     "result" in message &&
@@ -397,6 +422,63 @@ function asToSite(message: unknown): ToSite | null {
       : { type: "done", result, ms: message.ms };
   }
   return null;
+}
+
+function asUpdateOutcome(value: unknown): SiteUpdateOutcome | null {
+  if (typeof value !== "object" || value === null || !("status" in value))
+    return null;
+  const message =
+    "message" in value && typeof value.message === "string"
+      ? value.message
+      : "";
+  switch (value.status) {
+    case "updated":
+      return {
+        status: "updated",
+        changes:
+          "changes" in value && Array.isArray(value.changes)
+            ? value.changes.flatMap(asDependencyChange)
+            : [],
+      };
+    case "current":
+      return { status: "current" };
+    case "unavailable":
+      return { status: "unavailable", message };
+    case "failed":
+      return {
+        status: "failed",
+        message: message || "The update could not be published.",
+        details:
+          "details" in value && typeof value.details === "string"
+            ? value.details
+            : "",
+        // The deploy's own record stays in the tab; the page shows the words.
+        deploy: null,
+      };
+  }
+  return null;
+}
+
+function asDependencyChange(change: unknown): DependencyChange[] {
+  if (
+    typeof change !== "object" ||
+    change === null ||
+    !("name" in change) ||
+    typeof change.name !== "string" ||
+    !("section" in change) ||
+    (change.section !== "dependencies" && change.section !== "devDependencies")
+  ) {
+    return [];
+  }
+  const from =
+    "from" in change && typeof change.from === "string" ? change.from : null;
+  // `null` is a removal. Anything else that is not a version is not a change.
+  if (
+    !("to" in change) ||
+    (typeof change.to !== "string" && change.to !== null)
+  )
+    return [];
+  return [{ name: change.name, section: change.section, from, to: change.to }];
 }
 
 function asResult(value: unknown): StudioDeployResult | null {

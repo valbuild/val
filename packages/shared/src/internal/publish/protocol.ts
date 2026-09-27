@@ -245,6 +245,60 @@ const projectSourceResponse = z.object({
 
 export type ProjectSourceResponse = z.infer<typeof projectSourceResponse>;
 
+/**
+ * Whether a managed project can be updated onto its template's current seed,
+ * and -- when it is asked with `POST`, the press -- what to build against.
+ *
+ * An update rebuilds the site as it is on newer dependencies. The loader
+ * decides whether there is one; content adds whether the project is managed at
+ * all, and the branch head the rebuild is wired at, because an update
+ * publishes no content of its own.
+ *
+ * `target` is a `/build-target` answer whose project half is the SEED's
+ * dependency layer, already copied into the project so a publish can name it.
+ * Only a `POST` carries it.
+ */
+const dependencyChange = z.object({
+  name: z.string(),
+  section: z.enum(["dependencies", "devDependencies"]),
+  /** `null` for a dependency the template added. */
+  from: z.string().nullable(),
+  /** `null` for a dependency the template dropped: it leaves `package.json`. */
+  to: z.string().nullable(),
+});
+
+const updateTargetResponse = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("current"),
+    template: z.string(),
+    layerRev: z.string(),
+  }),
+  z.object({
+    status: z.literal("available"),
+    template: z.string(),
+    /** Empty when only the dependency layer moved, and no version did. */
+    changes: z.array(dependencyChange),
+    layerRev: z.object({ from: z.string().nullable(), to: z.string() }),
+    /** The project's `package.json`, rewritten to the seed's versions. */
+    packageJson: z.string(),
+    /** The branch head to build at; `null` for a project with no commits. */
+    commit: z.string().nullable(),
+    branch: z.string(),
+    target: buildTargetResponse.optional(),
+  }),
+  z.object({
+    status: z.literal("unavailable"),
+    reason: z.string(),
+    message: z.string(),
+  }),
+]);
+
+export type UpdateTargetResponse = z.infer<typeof updateTargetResponse>;
+export type DependencyChange = z.infer<typeof dependencyChange>;
+
+export const parseUpdateTarget = (body: unknown): UpdateTargetResponse =>
+  parse(updateTargetResponse, body, "/v1/update-target");
+
 export const parseBuildTarget = (body: unknown): BuildTargetResponse =>
   parse(buildTargetResponse, body, "GET /v1/build-target");
 

@@ -42,6 +42,12 @@ import {
   runStudioPublish,
 } from "./runStudioPublish";
 import { StudioBuilder } from "./loadBuilder";
+import {
+  LayerReading,
+  STUDIO_OUT_OF_DATE,
+  STUDIO_OUT_OF_DATE_MESSAGE,
+  layerMoved,
+} from "./loadedLayer";
 
 /**
  * Where a project's route files live, if it has any.
@@ -189,6 +195,35 @@ export interface StudioDeployOptions {
    * like the one where nobody can say.
    */
   fetchPublicFile?: (path: string) => Promise<string>;
+  /**
+   * What to build against, when it is not what the live build was built
+   * against.
+   *
+   * Absent for every publish but one: an update, which moves the project onto
+   * its template's current dependency layer. The live build's target names the
+   * layer it is leaving, so the update's own answer is used instead -- and the
+   * publish then names the layer it carries, which is what moves the site.
+   */
+  target?: BuildTarget;
+  /**
+   * The dependency layer the live build had when this page loaded (see
+   * `loadedLayer.ts`), or `undefined` when it cannot say.
+   *
+   * A publish whose build target names a different one is refused: the site
+   * was updated since, this Studio is the old version, and building with it
+   * would use the old builder. Not asked of an update, whose whole point is a
+   * different layer.
+   */
+  loadedLayer?: LayerReading;
+  /**
+   * The live build's layer NOW. Asked once more after the build, just before
+   * the declare: an update that went live while this page was building would
+   * pass the check against the target read at the start, and this publish
+   * would then put the old dependencies back. Absent, only that first check
+   * is made. What closes the remaining window -- declare to promote -- is the
+   * seal in publish-jobs.
+   */
+  liveLayer?: () => Promise<LayerReading>;
   loadBuilder: () => Promise<StudioBuilder>;
   /**
    * Generates `src/routeTree.gen.ts` for a file-based project.
@@ -239,7 +274,7 @@ export async function runStudioDeploy(
      * useful alone -- and because the round trip is the cost, not the work.
      */
     const [readTarget, readSource, readPublic, built] = await Promise.all([
-      client.buildTarget(),
+      options.target ?? client.buildTarget(),
       client.projectSource(),
       client.publicFiles(),
       options.builtSource ? options.builtSource() : Promise.resolve(null),
@@ -261,6 +296,18 @@ export async function runStudioDeploy(
         "This project has no dependency layer yet, and one cannot be built " +
           "from the browser. Publish it once from a checkout, which builds it.",
       );
+    }
+    if (
+      options.target === undefined &&
+      layerMoved(options.loadedLayer, readTarget.project.rev)
+    ) {
+      return {
+        status: "failed",
+        message: STUDIO_OUT_OF_DATE_MESSAGE,
+        problems: [
+          { code: STUDIO_OUT_OF_DATE, message: STUDIO_OUT_OF_DATE_MESSAGE },
+        ],
+      };
     }
     if (
       readPublic === null ||
@@ -397,6 +444,19 @@ export async function runStudioDeploy(
     });
   } catch (error) {
     return failed(messageOf(error));
+  }
+
+  if (options.target === undefined && options.liveLayer !== undefined) {
+    const live = await options.liveLayer().catch(() => undefined);
+    if (layerMoved(options.loadedLayer, live)) {
+      return {
+        status: "failed",
+        message: STUDIO_OUT_OF_DATE_MESSAGE,
+        problems: [
+          { code: STUDIO_OUT_OF_DATE, message: STUDIO_OUT_OF_DATE_MESSAGE },
+        ],
+      };
+    }
   }
 
   const declared = [

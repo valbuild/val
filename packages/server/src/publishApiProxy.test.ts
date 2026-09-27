@@ -70,6 +70,7 @@ describe("what may be reached", () => {
     const allowed = [
       "/build-target",
       "/project-source",
+      "/update-target",
       "/publish",
       "/publish/pub_1",
       "/publish/pub_1/artifacts",
@@ -105,6 +106,7 @@ describe("what may be reached", () => {
       "/build-target?x=1",
       "/project-source/secrets",
       "/project-sources",
+      "/update-target/extra",
       "/publish-token",
       "",
     ];

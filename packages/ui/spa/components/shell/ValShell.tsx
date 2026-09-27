@@ -16,6 +16,7 @@ import {
 } from "./types";
 import { useShellData } from "./useShellData";
 import { ValSettingsSections } from "./ValSettingsSections";
+import { ValSiteUpdate } from "./ValSiteUpdate";
 import { ConnectedExternalPages } from "./ConnectedExternalPages";
 import { useValPortal } from "../ValPortalProvider";
 import { useContentSearch } from "./useContentSearch";
@@ -455,9 +456,17 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    */
   const renderSettings = useCallback(
     () => (
-      <ValSettingsSections moduleFilePath={data.settings?.moduleFilePath} />
+      <>
+        {/*
+         * First, and only where the Studio is what builds the site: an update
+         * is a rebuild and a publish, which is the Studio's job for a managed
+         * project and nobody's here for a connected one.
+         */}
+        {studioIsDeployer && <ValSiteUpdate />}
+        <ValSettingsSections moduleFilePath={data.settings?.moduleFilePath} />
+      </>
     ),
-    [data.settings?.moduleFilePath],
+    [data.settings?.moduleFilePath, studioIsDeployer],
   );
 
   /**

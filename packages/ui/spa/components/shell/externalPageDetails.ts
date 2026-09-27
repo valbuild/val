@@ -147,21 +147,6 @@ function describe(schema: SerializedSchema | undefined, value: Source): string {
       const tag = asFields(value)?.get(schema.key);
       return typeof tag === "string" ? tag : "";
     }
-    case "view":
-      /*
-       * Nothing. A view is a POINTER to another module, not a value — its own
-       * schema says so ("a view has no value of its own to preview"), and the
-       * only string in the source is the target's module file path, which is
-       * a file the reader has no checkout of.
-       *
-       * Listed rather than left to `default` so the exhaustiveness check below
-       * keeps working: `view` joined `SerializedSchema` in one PR while this
-       * switch arrived in another, and `main` went red on exactly this line
-       * because neither saw the other. An empty summary is what `default`
-       * returned anyway, so this restores the guarantee without deciding
-       * anything new about how a view should read.
-       */
-      return "";
     default: {
       const exhaustiveCheck: never = schema;
       void exhaustiveCheck;
