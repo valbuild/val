@@ -130,3 +130,46 @@ describe("countModules", () => {
     expect(countModules(tree)).toBe(2);
   });
 });
+
+/**
+ * A folder is structure, and its id says so.
+ *
+ * `buildDataTree` labels a directory with the path it stands for, which is
+ * deliberately NOT the `node:${sourcePath}` a pane is keyed by — there is no
+ * pane for a folder. `CompareNav` has to know that: it passed folder ids to
+ * `onSelect` anyway, so clicking a Data folder selected a pane that does not
+ * exist and blanked the right-hand side.
+ */
+describe("a folder node cannot name a pane", () => {
+  test("folders carry directory paths, modules carry pane ids", () => {
+    const nodes = buildDataTree([
+      {
+        moduleFilePath: "/content/blogs/posts.val.ts",
+        node: { id: "node:/content/blogs/posts.val.ts" },
+      },
+      {
+        moduleFilePath: "/content/blogs/authors.val.ts",
+        node: { id: "node:/content/blogs/authors.val.ts" },
+      },
+    ]);
+
+    const folders: string[] = [];
+    const leaves: string[] = [];
+    const walk = (list: typeof nodes): void => {
+      for (const node of list) {
+        if (node.kind === "folder") folders.push(node.id);
+        else leaves.push(node.id);
+        walk(node.children ?? []);
+      }
+    };
+    walk(nodes);
+
+    expect(folders.length).toBeGreaterThan(0);
+    for (const id of folders) {
+      expect(id.startsWith("node:")).toBe(false);
+    }
+    for (const id of leaves) {
+      expect(id.startsWith("node:")).toBe(true);
+    }
+  });
+});

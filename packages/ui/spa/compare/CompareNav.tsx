@@ -229,9 +229,30 @@ function NavRow({
         ) : (
           <span className="w-[20px] shrink-0" aria-hidden />
         )}
+        {/*
+         * A FOLDER opens; only a module or a page selects.
+         *
+         * `buildDataTree` gives a folder node a directory path as its id —
+         * `/content/blogs`, not `node:/content/blogs.val.ts` — because a
+         * folder is structure and has no pane. Passing that to `onSelect`
+         * anyway set `selectedId` to a pane that does not exist, so clicking
+         * a Data folder blanked the right-hand side to "Pick something on the
+         * left" while the row it had just been clicked sat there highlighted.
+         *
+         * Toggling is what a folder click means in a tree, and it is what the
+         * chevron beside it already does — so the whole row now agrees with
+         * the chevron rather than doing something that cannot work.
+         */}
         <button
-          onClick={() => onSelect(node.id)}
-          aria-current={isSelected ? "true" : undefined}
+          onClick={() =>
+            node.kind === "folder"
+              ? setOpen((prev) => !prev)
+              : onSelect(node.id)
+          }
+          aria-current={
+            isSelected && node.kind !== "folder" ? "true" : undefined
+          }
+          {...(node.kind === "folder" ? { "aria-expanded": open } : {})}
           className="flex min-w-0 flex-1 items-center gap-2 py-1 pr-2 text-left"
         >
           <Icon

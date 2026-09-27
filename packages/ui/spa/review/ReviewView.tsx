@@ -358,8 +358,8 @@ export function ReviewView({
               title="Unstaged"
               explanation={
                 model.mode === "fs"
-                  ? "Held out of the next save. They stay pending, and stay yours — nothing writes them until you stage them again."
-                  : "Held out of the next publish. They stay pending and can be staged again — by you, or by whoever publishes next, so this is not a way to keep work private."
+                  ? "Unstaged, so the next save leaves them alone. They stay pending, and stay yours — nothing writes them until you stage them again."
+                  : "Unstaged, so the next publish leaves them alone. They stay pending and can be staged again — by you, or by whoever publishes next, so this is not a way to keep work private."
               }
               count={unstagedCount}
               groups={unstagedGroups}
