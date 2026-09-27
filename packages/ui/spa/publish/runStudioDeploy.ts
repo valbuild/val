@@ -189,6 +189,16 @@ export interface StudioDeployOptions {
    * like the one where nobody can say.
    */
   fetchPublicFile?: (path: string) => Promise<string>;
+  /**
+   * What to build against, when it is not what the live build was built
+   * against.
+   *
+   * Absent for every publish but one: an update, which moves the project onto
+   * its template's current dependency layer. The live build's target names the
+   * layer it is leaving, so the update's own answer is used instead -- and the
+   * publish then names the layer it carries, which is what moves the site.
+   */
+  target?: BuildTarget;
   loadBuilder: () => Promise<StudioBuilder>;
   /**
    * Generates `src/routeTree.gen.ts` for a file-based project.
@@ -239,7 +249,7 @@ export async function runStudioDeploy(
      * useful alone -- and because the round trip is the cost, not the work.
      */
     const [readTarget, readSource, readPublic, built] = await Promise.all([
-      client.buildTarget(),
+      options.target ?? client.buildTarget(),
       client.projectSource(),
       client.publicFiles(),
       options.builtSource ? options.builtSource() : Promise.resolve(null),

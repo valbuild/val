@@ -23,6 +23,7 @@
  */
 
 import { useCallback, useRef, useState } from "react";
+import type { BuildTarget } from "@valbuild/tanstack-build";
 import { createStudioPublishClient } from "./publishClient";
 import {
   fetchBuiltSource,
@@ -88,6 +89,8 @@ export interface UseStudioDeploy {
     details?: {
       binaryFiles: CommittedBinaryFiles | null;
       branch: string | null;
+      /** An update's build target. See `target` on `runStudioDeploy`. */
+      target?: BuildTarget;
     } | null,
   ) => Promise<StudioDeployOutcome>;
 }
@@ -169,6 +172,7 @@ export function useStudioDeploy(options?: {
           committedFiles: committedFiles ?? null,
           committedBinaryFiles: details?.binaryFiles ?? null,
           branch: details?.branch ?? null,
+          ...(details?.target ? { target: details.target } : {}),
           fetchPublicFile: (path) => fetchPublicFile(path),
           builtSource: () => fetchBuiltSource(api),
           liveStylesheet: () => fetchLiveStylesheet(),

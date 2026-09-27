@@ -100,6 +100,9 @@ function client(overrides: Partial<StudioPublishClient> = {}) {
     buildTarget: async () => target,
     projectSource: async () => dataRoutes,
     publicFiles: async () => ({ carried: [] }),
+    updateTarget: async () => {
+      throw new Error("a publish does not ask for an update");
+    },
     declare: async () => ({
       publishId: "pub_1",
       state: "awaiting-artifacts",
@@ -884,5 +887,54 @@ describe("after it is live", () => {
       },
     });
     expect(asked).toEqual([]);
+  });
+});
+
+describe("an update's build target", () => {
+  /*
+   * An update moves the site onto its template's dependency layer. The live
+   * build's target names the layer it is leaving, so a deploy that read that
+   * one would rebuild on the OLD dependencies and publish it as an update.
+   */
+  const updated = {
+    ...target,
+    project: {
+      ...target.project,
+      rev: "layer-2",
+      modules: { "@valbuild/core": "valbuild-core" },
+    },
+  };
+
+  test("is built against instead of the live build's, which is not read", async () => {
+    const built: unknown[] = [];
+    let declared: unknown = null;
+    await deploy({
+      target: updated,
+      client: client({
+        buildTarget: async () => {
+          throw new Error("an update does not read the live build's target");
+        },
+        declare: async (body) => {
+          declared = body;
+          return {
+            publishId: "pub_1",
+            state: "awaiting-artifacts",
+            project: { publicProjectId: "p", siteUrl: null },
+            uploads: [],
+            have: [],
+          };
+        },
+      }),
+      loadBuilder: async () =>
+        builder([], {
+          buildUserApp: async (input) => {
+            built.push(input.target);
+            return buildOutput;
+          },
+        }),
+    });
+    expect(built).toEqual([updated]);
+    // Named by rev, which is what moves the site onto it.
+    expect(declared).toMatchObject({ layerRev: "layer-2" });
   });
 });

@@ -31,6 +31,7 @@ import {
   ProjectSourceResponse,
   PromoteResponse,
   StatusResponse,
+  UpdateTargetResponse,
   UploadSlot,
   VerifyResponse,
   parseArtifacts,
@@ -39,6 +40,7 @@ import {
   parseProjectSource,
   parsePromote,
   parseStatus,
+  parseUpdateTarget,
   parseVerify,
 } from "@valbuild/shared/internal";
 
@@ -94,6 +96,12 @@ export type StudioPublishClient = {
    * reads with {@link projectSource} in one request.
    */
   publicFiles(): Promise<LivePublicFiles>;
+  /**
+   * Whether this project can move onto its template's current dependencies
+   * (`check`), or start doing so (`start`, which also answers with the build
+   * target to use). See `parseUpdateTarget`.
+   */
+  updateTarget(mode: "check" | "start"): Promise<UpdateTargetResponse>;
   declare(body: DeclareBody): Promise<DeclareResponse>;
   confirmArtifacts(publishId: string): Promise<ArtifactsResponse>;
   verify(publishId: string): Promise<VerifyResponse>;
@@ -182,6 +190,10 @@ export function createStudioPublishClient(options: {
       if (publicPaths) return { paths: publicPaths };
       return null;
     },
+    updateTarget: async (mode) =>
+      parseUpdateTarget(
+        await call("/update-target", mode === "check" ? "GET" : "POST"),
+      ),
     declare: async (body) => parseDeclare(await call("/publish", "POST", body)),
     confirmArtifacts: async (publishId) =>
       parseArtifacts(await call(publishStep(publishId, "artifacts"), "POST")),
