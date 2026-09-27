@@ -222,18 +222,16 @@ describe("peekBase counts what has shipped", () => {
     system.dispose();
   });
 
-  it("keeps a shipped patch until the deployed base arrives, then drops it", async () => {
+  it("keeps counting a shipped patch after the deploy is reported", async () => {
     /*
-     * The deploy and the new base arrive by different routes, and the stat
-     * comes first. On a hosted project the base is the bundle this tab loaded,
-     * so between the stat and the next intake the base is still the
-     * pre-deploy text.
+     * The stat reports the deploy; the base does not move with it. On a hosted
+     * project the base is the bundle this tab loaded, so it stays the
+     * pre-deploy text until a reload — and the shipped patch has to go on
+     * counting until then.
      *
-     * Dropping the shipped patch on the stat put its effect in neither base
-     * nor chain: `peekBase` fell back to the pre-publish value, and the next
-     * rebuild of the module reverted it on screen. Keeping it past the intake
-     * replays it on a base that already has it. A `replace` would hide both;
-     * an array `add` shows them as a missing or a doubled item.
+     * Dropping it on the stat put its effect in neither base nor chain:
+     * `peekBase` fell back to the pre-publish value, and the next rebuild of the
+     * module reverted it on screen. An array `add` shows both as a missing item.
      */
     const system = makeSystem({ mode: "http" });
     const res = await system.patchStore.createPatch(MODULE, [
@@ -242,15 +240,11 @@ describe("peekBase counts what has shipped", () => {
     if (res.status !== "created") throw new Error(res.status);
     await system.patchSync.flush();
     await system.publish([res.record.patchId]);
-    expect(system.sourceStore.peekBase(TAGS)).toMatchObject({
-      data: ["shipped"],
-    });
 
     // The stat: the deployment moved, and the patch is no longer listed.
     system.stat.receiveStat({ patches: [], baseSha: "after-deploy" });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Still the pre-deploy base here, so the shipped patch still counts.
     expect(system.sourceStore.peekBase(TAGS)).toMatchObject({
       data: ["shipped"],
     });
@@ -261,125 +255,15 @@ describe("peekBase counts what has shipped", () => {
     expect(system.sourceStore.peek(TAGS)).toMatchObject({
       data: ["shipped"],
     });
-
-    // The deployed base arrives, with the item already in it.
-    system.host.receive(project({ title: "Old Value", tags: ["shipped"] }));
-
-    expect(system.sourceStore.peekBase(TAGS)).toMatchObject({
-      data: ["shipped"],
-    });
-    expect(system.sourceStore.peek(TAGS)).toMatchObject({
-      data: ["shipped"],
-    });
     system.dispose();
   });
-
-  it("keeps a shipped entry edit until the entry's own content arrives", async () => {
-    /*
-     * A `.jsonValues()` module's source is markers; each entry's content is a
-     * separate intake that arrives after it. Retiring the patch with the
-     * markers left the pre-publish entry content as the base, and the compare
-     * reported an already-deployed entry edit as outstanding again.
-     */
-    const { c, s } = initVal();
-    const BLOGS = "/blogs.val.ts" as ModuleFilePath;
-    const BLOG_TITLE = '/blogs.val.ts?p="/a"."title"' as SourcePath;
-    const blogs = () => [
-      c.define(BLOGS, s.record(s.object({ title: s.string() })).jsonValues(), {
-        "/a": c.json(() => Promise.resolve({ default: { title: "Alpha" } })),
-      }),
-    ];
-    const system = makeSystem({ mode: "http" });
-    system.host.receive(blogs());
-    system.sourceStore.receiveJsonEntry(BLOGS, "/a", { title: "Alpha" });
-
-    const res = await system.patchStore.createPatch(BLOGS, [
-      { op: "replace", path: ["/a", "title"], value: "Beta" },
-    ]);
-    if (res.status !== "created") throw new Error(res.status);
-    await system.patchSync.flush();
-    await system.publish([res.record.patchId]);
-    expect(system.sourceStore.peekBase(BLOG_TITLE)).toMatchObject({
-      data: "Beta",
-    });
-
-    // The deploy, then the deployed markers: the entry content is still the
-    // pre-publish text, so the shipped edit has to go on counting.
-    system.stat.receiveStat({ patches: [], baseSha: "after-deploy" });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    system.host.receive(blogs());
-    expect(system.sourceStore.peekBase(BLOG_TITLE)).toMatchObject({
-      data: "Beta",
-    });
-
-    // Typing carries on in the same entry before its content is refreshed.
-    const pending = await system.patchStore.createPatch(BLOGS, [
-      { op: "replace", path: ["/a", "title"], value: "Pending" },
-    ]);
-    if (pending.status !== "created") throw new Error(pending.status);
-    await system.patchSync.flush();
-
-    // The deployed entry content arrives, and the patch is retired with it:
-    // what the server sends is what counts from here on.
-    system.sourceStore.receiveJsonEntry(BLOGS, "/a", { title: "Deployed" });
-    expect(system.sourceStore.peekBase(BLOG_TITLE)).toMatchObject({
-      data: "Deployed",
-    });
-    // And the pending edit is still on screen: the intake overwrote the live
-    // entry, so only replaying what survives puts it back.
-    expect(system.sourceStore.peek(BLOG_TITLE)).toMatchObject({
-      data: "Pending",
-    });
-    system.dispose();
-  });
-
-  it("keeps a shipped root replace until every entry arrives", async () => {
-    /*
-     * A patch at the module root — what "Put everything back" writes for a
-     * `.jsonValues()` module — touches every entry, and has no first path
-     * segment to say so. Reading only `path[0]` retired it with the markers.
-     */
-    const { c, s } = initVal();
-    const BLOGS = "/blogs.val.ts" as ModuleFilePath;
-    const A_TITLE = '/blogs.val.ts?p="/a"."title"' as SourcePath;
-    const blogs = () => [
-      c.define(BLOGS, s.record(s.object({ title: s.string() })).jsonValues(), {
-        "/a": c.json(() => Promise.resolve({ default: { title: "Alpha" } })),
-        "/b": c.json(() => Promise.resolve({ default: { title: "Beta" } })),
-      }),
-    ];
-    const system = makeSystem({ mode: "http" });
-    system.host.receive(blogs());
-    system.sourceStore.receiveJsonEntry(BLOGS, "/a", { title: "Alpha" });
-    system.sourceStore.receiveJsonEntry(BLOGS, "/b", { title: "Beta" });
-
-    const res = await system.patchStore.createPatch(BLOGS, [
-      {
-        op: "replace",
-        path: [],
-        value: { "/a": { title: "Restored" }, "/b": { title: "Beta" } },
-      },
-    ]);
-    if (res.status !== "created") throw new Error(res.status);
-    await system.patchSync.flush();
-    await system.publish([res.record.patchId]);
-    system.stat.receiveStat({ patches: [], baseSha: "after-deploy" });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    system.host.receive(blogs());
-
-    // The markers arrived; no entry has. The restore still counts.
-    expect(system.sourceStore.peekBase(A_TITLE)).toMatchObject({
-      data: "Restored",
-    });
-    system.dispose();
-  });
-
   it("does not re-apply an entry edit on every intake of the module", async () => {
     /*
      * An intake replays the whole chain onto the base. It reset the module's
      * source but left the entry content patched, so each intake applied every
-     * edit inside an entry once more. A shipped patch waiting for its entry is
-     * replayed exactly like a pending one, so this is the same bug twice.
+     * edit inside an entry once more. A shipped patch stays in the chain until
+     * a reload and is replayed exactly like a pending one, so this is the same
+     * bug twice.
      */
     const { c, s } = initVal();
     const BLOGS = "/blogs.val.ts" as ModuleFilePath;
@@ -403,8 +287,8 @@ describe("peekBase counts what has shipped", () => {
     system.stat.receiveStat({ patches: [], baseSha: "after-deploy" });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // The entry's content never arrives again: the patch waits, and is
-    // replayed onto the base's copy of the entry, which is still pre-deploy.
+    // Each intake replays the shipped patch onto the base's copy of the entry,
+    // which is still pre-deploy — once, not once more per intake.
     system.host.receive(blogs());
     system.host.receive(blogs());
     system.host.receive(blogs());
@@ -414,50 +298,6 @@ describe("peekBase counts what has shipped", () => {
     });
     expect(system.sourceStore.peekBase(TAGS_A)).toMatchObject({
       data: ["shipped"],
-    });
-    system.dispose();
-  });
-
-  it("keeps a shipped copy until the entry it reads from arrives too", async () => {
-    /*
-     * A `copy` reads its `from`. Retiring it once only the entry it WRITES had
-     * been refreshed replays it — or drops it — against a source entry that is
-     * still the pre-deploy text.
-     */
-    const { c, s } = initVal();
-    const BLOGS = "/blogs.val.ts" as ModuleFilePath;
-    const B_TITLE = '/blogs.val.ts?p="/b"."title"' as SourcePath;
-    const blogs = () => [
-      c.define(BLOGS, s.record(s.object({ title: s.string() })).jsonValues(), {
-        "/a": c.json(() => Promise.resolve({ default: { title: "Alpha" } })),
-        "/b": c.json(() => Promise.resolve({ default: { title: "Beta" } })),
-      }),
-    ];
-    const system = makeSystem({ mode: "http" });
-    system.host.receive(blogs());
-    system.sourceStore.receiveJsonEntry(BLOGS, "/a", { title: "Alpha" });
-    system.sourceStore.receiveJsonEntry(BLOGS, "/b", { title: "Beta" });
-
-    const res = await system.patchStore.createPatch(BLOGS, [
-      { op: "copy", from: ["/a"], path: ["/b"] },
-    ]);
-    if (res.status !== "created") throw new Error(res.status);
-    await system.patchSync.flush();
-    await system.publish([res.record.patchId]);
-    system.stat.receiveStat({ patches: [], baseSha: "after-deploy" });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    system.host.receive(blogs());
-
-    // Only the entry it writes: still waiting on the one it reads.
-    system.sourceStore.receiveJsonEntry(BLOGS, "/b", { title: "Deployed" });
-    expect(system.sourceStore.peekBase(B_TITLE)).toMatchObject({
-      data: "Alpha",
-    });
-
-    // Both are current now, so the deployed content is the answer.
-    system.sourceStore.receiveJsonEntry(BLOGS, "/a", { title: "Alpha" });
-    expect(system.sourceStore.peekBase(B_TITLE)).toMatchObject({
-      data: "Deployed",
     });
     system.dispose();
   });

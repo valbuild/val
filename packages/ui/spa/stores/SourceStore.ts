@@ -362,21 +362,6 @@ export class SourceStore {
   >();
   /** Per module, so a publish in one does not invalidate every other's cache. */
   private appliedVersions = new Map<ModuleFilePath, number>();
-  /** Shipped patches to drop at the next base intake. See {@link retireWithNextBase}. */
-  private retiring = new Set<PatchId>();
-  /**
-   * Retiring patches that edit inside a `.jsonValues()` entry, waiting for that
-   * entry's content, keyed by patch with the entry keys still outstanding.
-   *
-   * The module's source carries only markers; entry content is a separate base
-   * intake (`receiveJsonEntry`) that arrives after it. Dropping such a patch
-   * with the source left the pre-publish entry content as the base, so
-   * `peekBase` reported an already-deployed entry edit as outstanding again.
-   */
-  private retiringOnEntries = new Map<
-    PatchId,
-    { moduleFilePath: ModuleFilePath; keys: Set<string> }
-  >();
   /** In-flight entry fetches, so N readers of one entry cause ONE fetch. */
   private loadingEntries = new Map<string, Promise<void>>();
   /**
@@ -666,7 +651,6 @@ export class SourceStore {
     }
     baseByKey.set(key, deepClone(content as JSONValue));
     this.bumpBase(moduleFilePath);
-    this.retireOnEntry(moduleFilePath, key);
     this.activity.work("source:receive-json-entry", moduleFilePath);
     this.bump(moduleFilePath);
     if (this.batchDepth > 0) {
@@ -1551,63 +1535,6 @@ export class SourceStore {
     }
   }
 
-  /**
-   * These shipped patches are in the deployed base now: drop them from the
-   * chain when a base for their module next arrives, and not before.
-   *
-   * Deferred because the deploy and the base arrive by different routes. The
-   * stat says a deployment moved the base; the base itself comes from the
-   * host's modules, and until those are received again the base here is the
-   * pre-deploy text. Dropping at once would leave the published effect in
-   * neither — `peekBase` back on the pre-publish value, and the next rebuild
-   * reverting it on screen. Keeping them past the intake would replay them on
-   * top of a base that already has them, which an array `add` shows as a
-   * doubled item.
-   *
-   * No rebuild, and no wake: until the base arrives nothing has changed.
-   */
-  retireWithNextBase(patchIds: readonly PatchId[]): void {
-    for (const patchId of patchIds) {
-      this.retiring.add(patchId);
-    }
-  }
-
-  /**
-   * An entry's content arrived: retire the patches that were waiting for it,
-   * once every entry each of them touches has arrived.
-   *
-   * Then REBUILD, from the base that now includes that content. The intake
-   * overwrote the live entry with the deployed text, so a pending edit inside
-   * it — typing that carried on after the publish — is no longer on screen;
-   * only a replay of the surviving chain puts it back.
-   */
-  private retireOnEntry(moduleFilePath: ModuleFilePath, key: string): void {
-    if (this.retiringOnEntries.size === 0) return;
-    const done = new Set<PatchId>();
-    for (const [patchId, waiting] of this.retiringOnEntries) {
-      if (waiting.moduleFilePath !== moduleFilePath) continue;
-      waiting.keys.delete(key);
-      if (waiting.keys.size === 0) done.add(patchId);
-    }
-    if (done.size === 0) return;
-    for (const patchId of done) {
-      this.retiringOnEntries.delete(patchId);
-    }
-    const chain = this.chains.get(moduleFilePath);
-    if (chain === undefined) return;
-    const touched: SourcePath[] = [];
-    const surviving = chain.filter((entry) => {
-      if (!done.has(entry.record.patchId)) return true;
-      touched.push(...touchedSourcePaths(entry.record));
-      return false;
-    });
-    this.chains.set(moduleFilePath, surviving);
-    for (const entry of surviving) {
-      touched.push(...touchedSourcePaths(entry.record));
-    }
-    this.rebuildModules([moduleFilePath], touched);
-  }
-
   /** Where this module's source has got to. */
   revisionOf(moduleFilePath: ModuleFilePath): Revision {
     return {
@@ -2086,34 +2013,6 @@ export class SourceStore {
       type: "source:init",
       sources: Object.keys(sources) as ModuleFilePath[],
     });
-    // Shipped patches the deploy put into this base leave the chain BEFORE the
-    // replay below, or it applies them to a base that already contains them.
-    // See `retireWithNextBase`.
-    if (this.retiring.size > 0) {
-      for (const moduleFilePath of Object.keys(sources) as ModuleFilePath[]) {
-        const chain = this.chains.get(moduleFilePath);
-        if (chain === undefined) continue;
-        const incoming = sources[moduleFilePath];
-        const surviving = chain.filter((entry) => {
-          if (!this.retiring.has(entry.record.patchId)) return true;
-          this.retiring.delete(entry.record.patchId);
-          // A patch inside an entry waits for that entry's content, not for
-          // the markers. See `retiringOnEntries`.
-          const keys = entryKeysTouched(entry.record, incoming);
-          if (keys.size > 0) {
-            this.retiringOnEntries.set(entry.record.patchId, {
-              moduleFilePath,
-              keys,
-            });
-            return true;
-          }
-          return false;
-        });
-        if (surviving.length !== chain.length) {
-          this.chains.set(moduleFilePath, surviving);
-        }
-      }
-    }
     // The rebase. Base source has just been replaced under whatever patches
     // already exist, so the chain has to be re-applied on top of it or the new
     // base silently wins and the user's pending edits vanish.
@@ -2857,37 +2756,6 @@ function substituteJsonEntries(
  * the union — the checks read as though they narrow and then do not. Mirrors
  * `isRecordSource` in `validation/customValidate.ts`.
  */
-/**
- * The `.jsonValues()` entry keys a patch edits or reads: the top-level keys of
- * its `path` (and a `move`'s or `copy`'s `from`) whose value in `source` is an
- * entry marker — and every marker key for a path at the module root.
- */
-function entryKeysTouched(record: PatchRecord, source: Json): Set<string> {
-  const keys = new Set<string>();
-  if (!isJsonObject(source)) return keys;
-  const markerKeys = Object.keys(source).filter((key) =>
-    Internal.isJson(source[key]),
-  );
-  for (const op of record.patch) {
-    if (op.op === "file") continue;
-    // A `move` or `copy` READS its `from` as well, so the entry it reads from
-    // has to be current too.
-    const paths =
-      op.op === "move" || op.op === "copy" ? [op.path, op.from] : [op.path];
-    for (const path of paths) {
-      const key = path[0];
-      if (key === undefined) {
-        // The module root — "Put everything back" writes exactly this — so
-        // every entry is touched.
-        for (const marker of markerKeys) keys.add(marker);
-      } else if (Internal.isJson(source[key])) {
-        keys.add(key);
-      }
-    }
-  }
-  return keys;
-}
-
 function isJsonObject(value: Json): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

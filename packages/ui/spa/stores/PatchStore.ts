@@ -279,7 +279,6 @@ export class PatchStore {
   /** Told when a record becomes applied, so the chain it holds keeps up. */
   private appliedSource: {
     markApplied(patchIds: readonly PatchId[]): void;
-    retireWithNextBase(patchIds: readonly PatchId[]): void;
   } | null = null;
   /**
    * Patches the source store reported as HELD — outside the reader's patch
@@ -858,27 +857,24 @@ export class PatchStore {
            */
           this.forgetPublished(gone);
           /*
-           * And out of the SOURCE store's chain — but not yet.
+           * The SOURCE store keeps its copy in the chain, marked shipped.
            *
            * `baseMoved` is the stat's base sha, not the source store's base.
            * That comes from the host's modules, which on a hosted project are
-           * the bundle this tab loaded, so it can stay the pre-deploy text for
-           * the life of the tab. Taking the patch out of the chain now would
-           * leave its effect in neither base nor chain: `peekBase` would fall
-           * back to the pre-publish text, and the next rebuild of the module
-           * would revert the value on screen.
+           * the bundle this tab loaded, so it stays the pre-deploy text until
+           * a reload — and a reload starts from a chain the server no longer
+           * lists this patch in. Taking it out of the source chain before then
+           * leaves its effect in neither base nor chain: `peekBase` falls back
+           * to the pre-publish text, and the next rebuild of the module reverts
+           * the value on screen.
            *
-           * So it leaves when a base arrives, which is the base that contains
-           * it. See `SourceStore.retireWithNextBase`.
-           *
-           * Marked applied FIRST. The server's `appliedPatches` may never have
-           * named it — somebody else's publish, deployed before this tab heard
-           * about it — and a record that reads as pending is left out of
-           * `peekBase` in the meantime, which is the stale comparison this is
-           * all for. `markApplied` also brings a held one into view.
+           * Marked applied, because the server's `appliedPatches` may never
+           * have named it — somebody else's publish, deployed before this tab
+           * heard about it — and a record that reads as pending is left out of
+           * `peekBase`, which is the stale comparison this is all for.
+           * `markApplied` also brings a held one into view.
            */
           this.appliedSource?.markApplied(gone);
-          this.appliedSource?.retireWithNextBase(gone);
         } else {
           this.drop(gone);
         }
