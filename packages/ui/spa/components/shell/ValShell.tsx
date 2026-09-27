@@ -893,7 +893,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
          * the broken-looking state this used to leave behind.
          */
         onPick={(paths) => {
-          if (openPickedPath(paths)) onPicked();
+          if (openPickedPath(paths)) onPicked(paths[0] ?? null);
         }}
         onPinch={onPinch}
         onZoom={onZoom}
