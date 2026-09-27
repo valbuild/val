@@ -823,7 +823,13 @@ export function PageWorkspace({
       // catch a pane that pads itself on top of the track's own clearance.
       data-val-pane="fields"
       style={railPadding}
-      className={cn("h-full px-4 md:px-6 pb-14", paneTopPadding)}
+      className={cn(
+        "h-full px-4 md:px-6",
+        // Clear of whatever is along the bottom: the status bar, or on a phone
+        // the floating bottom bar, which ends 62px up rather than 56px.
+        isPhone ? "pb-[4.5rem]" : "pb-14",
+        paneTopPadding,
+      )}
     >
       {page ? (
         <FieldsPanel
@@ -1108,7 +1114,9 @@ export function PageWorkspace({
               // this pane adding another put the address bar 38px under it.
               <div
                 data-val-pane="canvas"
-                className="h-full w-full shrink-0 px-3 pb-14"
+                // `pb-[4.5rem]` clears the floating bottom bar - see
+                // `MobileBottomBar`.
+                className="h-full w-full shrink-0 px-3 pb-[4.5rem]"
               >
                 {canvasPane}
               </div>

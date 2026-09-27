@@ -219,8 +219,16 @@ function CanvasFieldRow({
       onFocusCapture={() => onSelect?.(path)}
       className={cn(
         "rounded-lg border px-2.5 py-2",
+        // The accent border says which row the page selected — until a control
+        // inside it takes focus and draws its own ring. Focusing the input is
+        // also what selects the row (`onFocusCapture` above), so without the
+        // `has-[:focus-visible]` the one field being typed into had two accent
+        // outlines, one inside the other. `:focus-visible` rather than
+        // `focus-within` for the reason `CommandInput` gives: clicking the
+        // label button focuses it without a ring, and the row must not go
+        // dark then.
         selected
-          ? "border-border-brand-primary bg-bg-float-raised"
+          ? "border-border-brand-primary bg-bg-float-raised has-[:focus-visible]:border-border-float"
           : "border-border-float",
       )}
     >
