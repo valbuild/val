@@ -1,4 +1,4 @@
-import type { Json, ModuleFilePath } from "@valbuild/core";
+import type { Json, ModuleFilePath, PatchId } from "@valbuild/core";
 import type { HostStore } from "./HostStore";
 import type { PatchStore } from "./PatchStore";
 import type { SourceStore } from "./SourceStore";
@@ -114,28 +114,38 @@ export class BaseAlignment {
         : this.fetched?.sourcesSha === wanted
           ? this.fetched
           : null;
-    if (known !== null) {
-      // Nothing to fetch for the base; the records this chain adds may still
-      // be missing, and showing the base without them is the flash this is for.
-      return this.patchStore
-        .stage(snapshot.patches)
-        .then((complete) =>
-          complete
-            ? this.commit(snapshot, known.sources, wanted, adopt)
-            : unaligned("could not fetch every change a change list names", {}),
-        );
+    const omitted = this.patchStore.omittedUnplaced(snapshot.patches);
+    const incomplete = "could not settle every change the swap depends on";
+
+    // Everything already here: swap in this turn. This is the re-intake case
+    // (HMR) -- the bundle's source was just put back under another build's
+    // chain, and waiting even one turn to undo that is a frame of it on screen.
+    if (
+      known !== null &&
+      omitted.length === 0 &&
+      this.patchStore.holdsAll(snapshot.patches)
+    ) {
+      return this.commit(snapshot, known.sources, wanted, adopt, []);
     }
-    if (this.fetchBase === undefined) return adopt;
+    if (known === null && this.fetchBase === undefined) return adopt;
+
+    // The base, the records this chain adds, and where the patches it leaves
+    // out stand -- all three before anything moves, because the base without
+    // any one of them is a state that is wrong on screen.
+    const fetchBase = this.fetchBase;
     return Promise.all([
-      this.fetchBase(wanted).catch((error: unknown) => {
-        console.warn("Val: could not fetch the base a change list belongs on", {
-          sourcesSha: wanted,
-          error,
-        });
-        return null;
-      }),
+      known !== null || fetchBase === undefined
+        ? Promise.resolve(known)
+        : fetchBase(wanted).catch((error: unknown) => {
+            console.warn(
+              "Val: could not fetch the base a change list belongs on",
+              { sourcesSha: wanted, error },
+            );
+            return null;
+          }),
       this.patchStore.stage(snapshot.patches),
-    ]).then(([base, complete]) => {
+      this.patchStore.resolveOmitted(omitted),
+    ]).then(([base, staged, resolved]) => {
       if (base === null) {
         return unaligned("no base for a change list from another build", {});
       }
@@ -146,14 +156,15 @@ export class BaseAlignment {
           got: base.sourcesSha,
         });
       }
-      this.fetched = base;
-      if (!complete) {
-        return unaligned(
-          "could not fetch every change a change list names",
-          {},
-        );
-      }
-      return this.commit(snapshot, base.sources, wanted, adopt);
+      if (base !== known) this.fetched = base;
+      if (!staged || !resolved.complete) return unaligned(incomplete, {});
+      return this.commit(
+        snapshot,
+        base.sources,
+        wanted,
+        adopt,
+        resolved.leaving,
+      );
     });
   }
 
@@ -162,12 +173,17 @@ export class BaseAlignment {
     sources: Record<ModuleFilePath, Json>,
     sourcesSha: string,
     adopt: () => boolean,
+    /** Omitted patches the server says have shipped or are gone. */
+    leaving: readonly PatchId[],
   ): () => boolean {
     return () => {
-      // The patches this base already contains leave the chain, from both
-      // stores; then the base goes in with the chain that belongs on it, in the
-      // server's order, fetched records included.
-      const shipped = this.patchStore.shippedOutside(snapshot.patches);
+      // The patches this base already contains -- or that no longer exist --
+      // leave the chain, from both stores; then the base goes in with the chain
+      // that belongs on it, in the server's order, fetched records included.
+      const shipped = [
+        ...this.patchStore.shippedOutside(snapshot.patches),
+        ...leaving,
+      ];
       if (shipped.length > 0) {
         this.sourceStore.forgetPublished(shipped);
         this.patchStore.forgetPublished(shipped);

@@ -143,6 +143,10 @@ function studioOnBundle(
   const { c, s } = initVal();
   const baseFetches: string[] = [];
   let created = 0;
+  // What this session saved, which the server then holds -- pending, so with
+  // no `appliedAt` -- and hands back to a fetch, as content does.
+  const saved = new Map<PatchId, PatchRecord>();
+  const fetchContent = options.fetchPatches ?? fetchFromContent;
   const system = createSystem({
     // `PUT /sources/~?apply_patches=false`, answered by the build whose sha is
     // asked for: the base that build's chain is relative to.
@@ -155,21 +159,45 @@ function studioOnBundle(
         sources: { [MODULE]: { keywords: CONTENT_AT[commit] } },
       };
     },
-    fetchPatches: options.fetchPatches ?? fetchFromContent,
+    fetchPatches: async (patchIds) => {
+      const res = await fetchContent(patchIds);
+      return {
+        ...res,
+        patches: [
+          ...res.patches,
+          ...patchIds.flatMap((patchId) => saved.get(patchId) ?? []),
+        ],
+      };
+    },
     createPatchId: () => brand(`local-${++created}`, isPatchId),
-    savePatches: async ({ patches, parentRef }) => ({
-      status: "saved",
-      newPatchIds: patches.map((patch) => patch.patchId),
-      parentRef,
-    }),
+    savePatches: async ({ patches, parentRef }) => {
+      for (const { path, patchId, patch } of patches) {
+        saved.set(patchId, {
+          patchId,
+          moduleFilePath: path,
+          patch,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          authorId: "someone",
+          appliedAt: null,
+        });
+      }
+      return {
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      };
+    },
     publishPatches: async () => ({ status: "published" }),
   });
-  system.host.receive([
+  const modules = [
     c.define(MODULE, s.object({ keywords: s.array(s.string()) }), {
       keywords: CONTENT_AT[bundle],
     }),
-  ]);
-  return Object.assign(system, { baseFetches });
+  ];
+  system.host.receive(modules);
+  // The bundle handing its modules in again, as HMR does.
+  const reintake = () => system.host.receive(modules);
+  return Object.assign(system, { baseFetches, reintake });
 }
 
 const settle = async (system: ReturnType<typeof studioOnBundle>) => {
@@ -420,5 +448,81 @@ describe("the swap never rebases onto a chain with a hole in it", () => {
     await settle(failing);
     expect(peekKeywords(failing)).toEqual(HEAD_PLUS_PENDING);
     expect(failing.stat.currentPatchIds()).toEqual(statFor("C0").patches);
+  });
+
+  test("a patch another session published, not yet known here as shipped, is not applied twice", async () => {
+    // This Studio learned of p1 as PENDING -- before it was published -- and
+    // holds it without `appliedAt`. Then it ships in C1, whose stat leaves it
+    // out without saying why.
+    const pendingP1 = { ...CHAIN[0].record, appliedAt: null };
+    let published = false;
+    const system = studioOnBundle("C0", {
+      fetchPatches: async (patchIds) => ({
+        patches: CHAIN.map(({ record }) =>
+          record.patchId === "p1" && !published ? pendingP1 : record,
+        ).filter((record) => patchIds.includes(record.patchId)),
+      }),
+    });
+    system.stat.receiveStat({
+      patches: statFor("C0").patches,
+      appliedPatches: [],
+      baseSha: "sources-at-C0",
+      sourcesSha: sourcesShaAt("C0"),
+    });
+    await settle(system);
+    expect(peekKeywords(system)).toEqual(HEAD_PLUS_PENDING);
+
+    published = true;
+    system.stat.receiveStat({
+      ...statFor("C1"),
+      appliedPatches: [],
+    });
+    await settle(system);
+    // C1's base has p1 in it; replaying p1 on top would move "b" to the end.
+    expect(peekKeywords(system)).toEqual(HEAD_PLUS_PENDING);
+  });
+
+  test("a patch discarded elsewhere leaves with the swap", async () => {
+    // p3 was discarded by its author; C2's stat does not name it and the
+    // server no longer has it.
+    let discarded = false;
+    const system = studioOnBundle("C0", {
+      fetchPatches: async (patchIds) => {
+        const res = await fetchFromContent(patchIds);
+        return discarded
+          ? {
+              patches: res.patches.filter((r) => r.patchId !== "p3"),
+            }
+          : res;
+      },
+    });
+    system.stat.receiveStat(statFor("C0"));
+    await settle(system);
+    discarded = true;
+    system.stat.receiveStat({
+      ...statFor("C2"),
+      patches: [],
+      appliedPatches: [],
+    });
+    await settle(system);
+    expect(peekKeywords(system)).toEqual(CONTENT_AT.C2);
+  });
+
+  test("a re-intake under another build's chain puts that build's base back in the same turn", async () => {
+    const system = studioOnBundle("C0");
+    system.stat.receiveStat(statFor("C2"));
+    await settle(system);
+    expect(peekKeywords(system)).toEqual(HEAD_PLUS_PENDING);
+
+    const seen: unknown[] = [];
+    system.sourceStore.events.on("source:change", () => {
+      queueMicrotask(() => seen.push(peekKeywords(system)));
+    });
+    system.reintake();
+    await settle(system);
+    expect(peekKeywords(system)).toEqual(HEAD_PLUS_PENDING);
+    for (const value of seen) {
+      expect(value).toEqual(HEAD_PLUS_PENDING);
+    }
   });
 });

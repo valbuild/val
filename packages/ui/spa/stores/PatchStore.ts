@@ -881,6 +881,13 @@ export class PatchStore {
   /** See {@link stage}. */
   private staged = new Map<PatchId, PatchRecord>();
 
+  /** Whether every one of `patchIds` is held, so {@link stage} has nothing to do. */
+  holdsAll(patchIds: readonly PatchId[]): boolean {
+    return patchIds.every(
+      (patchId) => this.dataById.has(patchId) || this.staged.has(patchId),
+    );
+  }
+
   /**
    * Hold the staged records for `named`, WITHOUT announcing them, and return
    * the new chain as records: `named` in order, then every patch of the chain
@@ -945,10 +952,75 @@ export class PatchStore {
       (patchId) =>
         !keep.has(patchId) &&
         !this.pendingIds.has(patchId) &&
-        (this.serverAppliedIds.has(patchId) ||
-          this.publishedIds.has(patchId) ||
-          this.dataById.get(patchId)?.appliedAt != null),
+        this.knownShipped(patchId),
     );
+  }
+
+  private knownShipped(patchId: PatchId): boolean {
+    return (
+      this.serverAppliedIds.has(patchId) ||
+      this.publishedIds.has(patchId) ||
+      this.dataById.get(patchId)?.appliedAt != null
+    );
+  }
+
+  /**
+   * The patches `named` leaves out that this client cannot place: saved, not
+   * known to have shipped. For `BaseAlignment`, before it puts another build's
+   * base in.
+   *
+   * A stat that omits a patch does not say why. It may have shipped in the
+   * build that answered -- published by another session, whose `appliedAt`
+   * this client never saw -- and then replaying it on that build's base applies
+   * it twice. It may have been discarded. Or the stat may simply predate the
+   * save. Without a base swap none of that mattered, because the base never
+   * moved; with one it decides what the new base shows, so the server is asked
+   * ({@link resolveOmitted}) rather than guessed at.
+   */
+  omittedUnplaced(named: readonly PatchId[]): PatchId[] {
+    const keep = new Set(named);
+    return this.ordered.filter(
+      (patchId) =>
+        !keep.has(patchId) &&
+        !this.pendingIds.has(patchId) &&
+        !this.knownShipped(patchId),
+    );
+  }
+
+  /**
+   * Ask the server where {@link omittedUnplaced} patches stand. A record back
+   * with `appliedAt` has shipped; no record and no error means it is gone; a
+   * record without `appliedAt` is still pending and stays in the chain.
+   *
+   * `complete` is false when the answer is not conclusive for every id -- an
+   * error, or the request failing -- and then nothing should be rebased on it.
+   */
+  async resolveOmitted(patchIds: readonly PatchId[]): Promise<{
+    leaving: PatchId[];
+    complete: boolean;
+  }> {
+    if (patchIds.length === 0) return { leaving: [], complete: true };
+    this.activity.work("patch:verify-vanished", undefined, patchIds.length);
+    const res = await this.fetchPatches([...patchIds]).catch((): null => null);
+    if (res === null || res.error !== undefined) {
+      return { leaving: [], complete: false };
+    }
+    const errored = new Set<string>(Object.keys(res.errors ?? {}));
+    const records = new Map<PatchId, PatchRecord>();
+    for (const record of res.patches) records.set(record.patchId, record);
+    const leaving: PatchId[] = [];
+    let complete = true;
+    for (const patchId of patchIds) {
+      if (errored.has(patchId)) {
+        complete = false;
+        continue;
+      }
+      const record = records.get(patchId);
+      if (record === undefined || record.appliedAt != null) {
+        leaving.push(patchId);
+      }
+    }
+    return { leaving, complete };
   }
 
   /**
