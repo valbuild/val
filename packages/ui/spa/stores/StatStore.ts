@@ -185,15 +185,12 @@ export class StatStore {
    * meanwhile, since a newer answer is the one to believe.
    */
   receiveStat(snapshot: StatSnapshot): void {
+    if (this.isOlderThanNewest(snapshot)) {
+      // Older than an answer already in hand. Dropped before the ticket
+      // moves, so it cannot cancel a newer stat still being prepared.
+      return;
+    }
     if (snapshot.headVersion !== undefined) {
-      if (
-        this.newestHeadVersion !== undefined &&
-        snapshot.headVersion < this.newestHeadVersion
-      ) {
-        // Older than an answer already in hand. Dropped before the ticket
-        // moves, so it cannot cancel a newer stat still being prepared.
-        return;
-      }
       this.newestHeadVersion = snapshot.headVersion;
     }
     const ticket = ++this.received;
@@ -208,11 +205,24 @@ export class StatStore {
       void prepared.then((commit) => {
         if (ticket !== this.received) return;
         this.preparing = false;
+        // The floor can have risen while this was being prepared — our own
+        // save lands in between and says, through noteHeadVersion, that the
+        // chain is past this answer. Checked again here, since it was only
+        // true on arrival.
+        if (this.isOlderThanNewest(snapshot)) return;
         // Same turn: nothing renders between the base moving and the chain
         // that belongs on it arriving.
         if (commit()) this.adopt(snapshot);
       });
     }
+  }
+
+  private isOlderThanNewest(snapshot: StatSnapshot): boolean {
+    return (
+      snapshot.headVersion !== undefined &&
+      this.newestHeadVersion !== undefined &&
+      snapshot.headVersion < this.newestHeadVersion
+    );
   }
 
   /** A stat is waiting on its preparation. See {@link readopt}. */
