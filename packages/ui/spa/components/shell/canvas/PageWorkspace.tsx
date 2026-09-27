@@ -826,8 +826,11 @@ export function PageWorkspace({
       className={cn(
         "h-full px-4 md:px-6",
         // Clear of whatever is along the bottom: the status bar, or on a phone
-        // the floating bottom bar, which ends 62px up rather than 56px.
-        isPhone ? "pb-[4.5rem]" : "pb-14",
+        // the floating bottom bar, which ends 62px up (more under a large
+        // safe area) rather than 56px - see `MobileBottomBar`.
+        isPhone
+          ? "pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.75rem)]"
+          : "pb-14",
         paneTopPadding,
       )}
     >
@@ -1114,9 +1117,9 @@ export function PageWorkspace({
               // this pane adding another put the address bar 38px under it.
               <div
                 data-val-pane="canvas"
-                // `pb-[4.5rem]` clears the floating bottom bar - see
-                // `MobileBottomBar`.
-                className="h-full w-full shrink-0 px-3 pb-[4.5rem]"
+                // Clears the floating bottom bar, which rises with the safe
+                // area - see `MobileBottomBar`.
+                className="h-full w-full shrink-0 px-3 pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.75rem)]"
               >
                 {canvasPane}
               </div>

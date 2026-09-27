@@ -37,6 +37,8 @@ import type { SerializedPatchSet } from "../../utils/PatchSets";
 import { isPathWithin } from "../../utils/sourcePath";
 import type { Profile } from "../ValProvider";
 import { canBuildHere } from "../../publish/handoff";
+import { cn } from "../designSystem/cn";
+import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
 import { PublishHandoffCard } from "./PublishHandoff";
 import { LoginDialog } from "../LoginDialog";
 import { PatchErrorsDialog } from "../PatchErrorsDialog";
@@ -1236,9 +1238,10 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       {handoff.state !== null && (
         /*
          * A publish this Studio handed to a builder tab, because it cannot
-         * build here. Above the status bar, where the deploy item is.
+         * build here. Above the status bar, where the deploy item is, or
+         * above the phone's bottom bar.
          */
-        <div className="fixed bottom-16 right-4 z-window">
+        <div className={cn("fixed right-4 z-window", CLEAR_OF_BOTTOM_BARS)}>
           <PublishHandoffCard
             state={handoff.state}
             onReload={() => window.location.reload()}

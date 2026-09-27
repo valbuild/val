@@ -5,6 +5,19 @@ import { PreviewButton, PublishButton } from "./TopBar";
 import { LocaleFilter } from "./LocaleFilter";
 
 /**
+ * Where a note floating over the bottom of the Studio is anchored, so it
+ * clears whichever bar is along the bottom edge.
+ *
+ * `4rem` - what these notes always sat at, above the status bar - wherever the
+ * safe area is under `0.75rem`, which is every desktop. On a phone whose page
+ * opts into `viewport-fit=cover` the bottom bar rises with the safe area (see
+ * `MobileBottomBar`: `max(0.75rem, safe area)` up, 50px tall), and a fixed
+ * `bottom-16` ended up under it. This rises with it, 2px clear.
+ */
+export const CLEAR_OF_BOTTOM_BARS =
+  "bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.25rem)]";
+
+/**
  * The floating mobile bottom bar. Preview and Publish are always reachable
  * here; auto save, dev mode and branch move behind the status button rather
  * than taking a permanent row.
@@ -81,8 +94,8 @@ export function MobileBottomBar({
      * `viewport-fit=cover` does not put it under the home indicator.
      *
      * `p-1.5` + `rounded-xl` keeps the corners concentric with the buttons'
-     * `rounded-md`, and keeps the bar's top edge (12px + 50px) under the
-     * `bottom-16` that the notes floating above it are anchored at. `gap-1.5`
+     * `rounded-md`, and keeps the bar's top edge (12px + 50px) under
+     * `CLEAR_OF_BOTTOM_BARS`, where the notes floating above it are anchored. `gap-1.5`
      * rather than `gap-2` gives back the width the inset took, so the row
      * still fits a 320px phone - see the `min-w-0` note below.
      */
