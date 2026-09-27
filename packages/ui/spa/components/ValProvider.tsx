@@ -521,6 +521,12 @@ export function ValProvider({
   const statHead =
     "data" in stat && stat.data ? stat.data.headCommitSha : undefined;
   /**
+   * The head of the PATCH chain, which is not `statHead` (that is the publish
+   * head). What the next write names as its parent — see `PatchSync`.
+   */
+  const statPatchHead =
+    "data" in stat && stat.data ? stat.data.headPatchId : undefined;
+  /**
    * Which build answered: its chain is relative to the source with this sha.
    * See `BaseAlignment`.
    */
@@ -535,10 +541,19 @@ export function ValProvider({
             removed: statRemoved,
             appliedPatches: statApplied,
             headCommitSha: statHead,
+            headPatchId: statPatchHead,
             sourcesSha: statSourcesSha,
           }
         : null,
-    [baseSha, statPatches, statRemoved, statApplied, statHead, statSourcesSha],
+    [
+      baseSha,
+      statPatches,
+      statRemoved,
+      statApplied,
+      statHead,
+      statPatchHead,
+      statSourcesSha,
+    ],
   );
 
   const getDirectFileUploadSettings = useCallback(async (): Promise<

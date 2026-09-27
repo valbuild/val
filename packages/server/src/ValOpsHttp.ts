@@ -46,6 +46,7 @@ import {
   PatchGroup,
   type PatchGroupT,
   JSONValue as JSONValueSchema,
+  PatchId as PatchIdSchema,
 } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import {
@@ -92,6 +93,11 @@ const GetApplicablePatches = z.object({
         .nullable(),
     }),
   ),
+  /**
+   * The head of the chain. See `OrderedPatches.headPatchId`. Optional because
+   * a content service that predates it sends nothing.
+   */
+  headPatchId: PatchIdSchema.nullable().optional(),
   commits: z
     .array(
       z.object({
@@ -872,6 +878,8 @@ export class ValOpsHttp extends ValOps {
         patches: PatchId[];
         /** Of `patches`, the ones that have shipped. See the implementation. */
         appliedPatches: PatchId[];
+        /** The head of the chain. See {@link OrderedPatchesMetadata.headPatchId}. */
+        headPatchId?: PatchId | null;
         /** The newest commit, which is the publish head. */
         headCommitSha?: string;
       }
@@ -962,6 +970,13 @@ export class ValOpsHttp extends ValOps {
       deployments: allPatchData.deployments || [],
       patches,
       appliedPatches,
+      /*
+       * The CHAIN head, not the publish head below. Spread: absent is a content
+       * service that does not report it, which is not the same as `null`.
+       */
+      ...(allPatchData.headPatchId !== undefined
+        ? { headPatchId: allPatchData.headPatchId }
+        : {}),
       /*
        * The PUBLISH head, which is not `commitSha`.
        *
@@ -1112,6 +1127,9 @@ export class ValOpsHttp extends ValOps {
      * the same treatment and a home on `OrderedPatches` first.
      */
     let commits: OrderedPatches["commits"];
+    // A fact about the branch too, so taken from the first chunk that has it
+    // for the same reason `commits` is.
+    let headPatchId: OrderedPatches["headPatchId"];
     if (patchIds === undefined || patchIds.length === 0) {
       return this.fetchPatchesInternal({
         patchIds: patchIds,
@@ -1135,6 +1153,9 @@ export class ValOpsHttp extends ValOps {
       }
       if (commits === undefined && res.commits !== undefined) {
         commits = res.commits;
+      }
+      if (headPatchId === undefined && res.headPatchId !== undefined) {
+        headPatchId = res.headPatchId;
       }
     }
     // Chunking is a query-string-length workaround, NOT a filter: the content
@@ -1167,6 +1188,7 @@ export class ValOpsHttp extends ValOps {
       // "absent" from "empty" — `newestCommitSha` does not, but the annotation
       // readers do — sees the same shape the unchunked path gives it.
       ...(commits !== undefined ? { commits } : {}),
+      ...(headPatchId !== undefined ? { headPatchId } : {}),
     } as ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches;
   }
 
@@ -1286,6 +1308,9 @@ export class ValOpsHttp extends ValOps {
             deployments,
             patches,
             errors,
+            ...(data.headPatchId !== undefined
+              ? { headPatchId: data.headPatchId }
+              : {}),
           } as ExcludePatchOps extends true
             ? OrderedPatchesMetadata
             : OrderedPatches;

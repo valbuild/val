@@ -471,6 +471,13 @@ chain head, and `PUT /patches` would answer 409 `patch-head-conflict` forever. A
 filtering variant would have to add an explicit chain-head field and rework
 `currentParentRef` — real work, for no benefit.
 
+> **Update.** The explicit chain-head field exists now (`headPatchId`), and not
+> because of a filtering variant: the listing was ALREADY filtered — by commit
+> window, it leaves out what the caller's build contains — and a group publish is
+> what made that matter. Published patches stopped being a prefix of the chain,
+> the last listed id fell behind the head, and every write was refused. See
+> `architecture/quirks.md`, under Patches.
+
 So the endpoint stays a full listing and gains annotations. This is safe for old
 clients because `GetApplicablePatches` in `ValOpsHttp.ts` is a plain (non-strict)
 zod object, and zod **strips** unknown keys rather than failing — an old server

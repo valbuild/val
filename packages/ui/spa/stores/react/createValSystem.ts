@@ -718,6 +718,10 @@ export function createValSystem(
               patches: res.json.patches,
               appliedPatches: res.json.appliedPatches,
               headCommitSha: res.json.headCommitSha,
+              // The new head is the whole point of this call: a conflict means
+              // the parent we named was not it. `fs` answers without one.
+              headPatchId:
+                "headPatchId" in res.json ? res.json.headPatchId : undefined,
             });
           },
         }
