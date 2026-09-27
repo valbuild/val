@@ -120,8 +120,10 @@ export function useSiteHandoff(
     const handoff = current.current;
     if (handoff !== null) {
       // The same id, so the tab finds the commit this page is holding.
-      openBuilderWindow(handoff.url, `val-publish-${handoff.id}`);
-      setState({ kind: "opening" });
+      const opened =
+        openBuilderWindow(handoff.url, `val-publish-${handoff.id}`) !== null;
+      // Blocked again: keep offering the button rather than claiming it opened.
+      if (opened) setState({ kind: "opening" });
       return;
     }
     window.open("/val", "_blank");

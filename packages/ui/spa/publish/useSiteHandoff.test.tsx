@@ -106,3 +106,30 @@ test("the builder opens as a popup window, and a re-open reuses it", () => {
   }
   act(() => result.current.cancel(""));
 });
+
+test("a re-open the browser blocks too keeps offering the button", () => {
+  jest.spyOn(window, "open").mockImplementation(() => null);
+  const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+  act(() => result.current.prepare(true));
+  try {
+    expect(result.current.state).toEqual({ kind: "blocked" });
+    act(() => result.current.openStudio());
+    expect(result.current.state).toEqual({ kind: "blocked" });
+  } finally {
+    // An open channel keeps jest alive, and a failure would hang instead.
+    act(() => result.current.cancel(""));
+  }
+});
+
+test("a re-open the browser allows says it is opening", () => {
+  const open = jest.spyOn(window, "open").mockImplementation(() => null);
+  const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+  act(() => result.current.prepare(true));
+  try {
+    open.mockImplementation(() => window);
+    act(() => result.current.openStudio());
+    expect(result.current.state).toEqual({ kind: "opening" });
+  } finally {
+    act(() => result.current.cancel(""));
+  }
+});
