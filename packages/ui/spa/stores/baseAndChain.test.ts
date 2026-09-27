@@ -140,7 +140,9 @@ function statFor(commit: Commit) {
 function studioOnBundle(
   bundle: Commit,
   options: {
-    fetchPatches?: FetchPatches;
+    fetchPatches?: (
+      patchIds: PatchId[],
+    ) => Promise<Awaited<ReturnType<FetchPatches>> & { skipSaved?: true }>;
     /** Held until resolved, to keep a base fetch in flight. */
     baseGate?: () => Promise<void>;
   } = {},
@@ -167,6 +169,9 @@ function studioOnBundle(
     },
     fetchPatches: async (patchIds) => {
       const res = await fetchContent(patchIds);
+      // `skipSaved`: the content fetch answering as if the server had
+      // momentarily lost what this session saved.
+      if ("skipSaved" in res) return { patches: res.patches };
       return {
         ...res,
         patches: [
@@ -505,13 +510,47 @@ describe("the swap never rebases onto a chain with a hole in it", () => {
     system.stat.receiveStat(statFor("C0"));
     await settle(system);
     discarded = true;
-    system.stat.receiveStat({
-      ...statFor("C2"),
-      patches: [],
-      appliedPatches: [],
-    });
+    const withoutP3 = { ...statFor("C2"), patches: [], appliedPatches: [] };
+    system.stat.receiveStat(withoutP3);
+    await settle(system);
+    // One empty answer is not proof it is gone: the swap waits for a second.
+    expect(peekKeywords(system)).toEqual(HEAD_PLUS_PENDING);
+    expect(system.stat.currentPatchIds()).toEqual(statFor("C0").patches);
+
+    system.stat.receiveStat(withoutP3);
     await settle(system);
     expect(peekKeywords(system)).toEqual(CONTENT_AT.C2);
+  });
+
+  test("a saved edit one answer comes back without is not dropped by the swap", async () => {
+    // The server's answer about the saved edit is empty once -- stale or
+    // partial -- and then has it again.
+    let emptyOnce = true;
+    const system = studioOnBundle("C0", {
+      fetchPatches: async (patchIds) => {
+        const res = await fetchFromContent(patchIds);
+        if (emptyOnce && patchIds.some((id) => id.startsWith("local-"))) {
+          emptyOnce = false;
+          return { patches: [], skipSaved: true };
+        }
+        return res;
+      },
+    });
+    system.stat.receiveStat(statFor("C0"));
+    await settle(system);
+    const created = await system.patchStore.createPatch(MODULE, [
+      { op: "add", path: ["keywords", "4"], value: "y" },
+    ]);
+    if (!("record" in created)) throw new Error("createPatch failed");
+    await settle(system);
+
+    system.stat.receiveStat(statFor("C2"));
+    await settle(system);
+    expect(peekKeywords(system)).toEqual([...HEAD_PLUS_PENDING, "y"]);
+    system.stat.receiveStat(statFor("C2"));
+    await settle(system);
+    expect(peekKeywords(system)).toEqual([...HEAD_PLUS_PENDING, "y"]);
+    expect(system.stat.currentPatchIds()).toEqual(statFor("C2").patches);
   });
 
   test("a re-intake under another build's chain puts that build's base back in the same turn", async () => {

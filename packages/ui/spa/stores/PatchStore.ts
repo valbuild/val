@@ -881,6 +881,9 @@ export class PatchStore {
   /** See {@link stage}. */
   private staged = new Map<PatchId, PatchRecord>();
 
+  /** Omitted patches one answer came back without. See {@link resolveOmitted}. */
+  private absentOnce = new Set<PatchId>();
+
   /** The chain as it stands, as records, in order. */
   chainRecords(): PatchRecord[] {
     return this.recordsFor(this.ordered);
@@ -1035,7 +1038,22 @@ export class PatchStore {
         continue;
       }
       const record = records.get(patchId);
-      if (record === undefined || record.appliedAt != null) {
+      if (record === undefined) {
+        // One empty answer is not evidence, for the reason
+        // {@link notDeliveredOnce} gives: an answer can be older than a write
+        // or be partial. The first holds the swap back; only a second, asked
+        // afterwards, lets the patch go.
+        if (this.absentOnce.has(patchId)) {
+          this.absentOnce.delete(patchId);
+          leaving.push(patchId);
+        } else {
+          this.absentOnce.add(patchId);
+          complete = false;
+        }
+        continue;
+      }
+      this.absentOnce.delete(patchId);
+      if (record.appliedAt != null) {
         leaving.push(patchId);
       } else if (!this.dataById.has(patchId)) {
         // Still pending, and this client never got its record: staged, so the
