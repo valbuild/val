@@ -687,6 +687,13 @@ export const Api = {
                * carries back to `/save` to say which world it decided against.
                */
               headCommitSha: z.string().optional(),
+              /**
+               * The head of the PATCH CHAIN: the last patch registered on the
+               * branch, published or not. `null` when there is none. What a
+               * new patch names as its parent — see `chainHeadOf`. Optional: a
+               * content service that predates it sends nothing.
+               */
+              headPatchId: PatchId.nullable().optional(),
               commits: z.array(ValCommit),
               /**
                * The publishes the content service knows about.

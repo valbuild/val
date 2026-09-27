@@ -748,3 +748,88 @@ test("a data: URL in that field is NOT the same bytes, which is why it broke", a
     restore();
   }
 });
+
+/**
+ * `home` — `Api["/applicable/patches"]["GET"]["res"]`, as a build that contains
+ * a publish is answered: the other author's pending patch is listed, and the
+ * head is a published patch that is not.
+ */
+const HOME_APPLICABLE_PATCHES = {
+  patches: [
+    {
+      path: "/content/page.val.ts",
+      patch: null,
+      patchId: "44444444-4444-4444-8444-444444444444",
+      authorId: "22222222-2222-4222-8222-222222222222",
+      baseSha: "base",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      applied: null,
+      patchGroupIds: [],
+    },
+  ],
+  headPatchId: "55555555-5555-4555-8555-555555555555",
+  patchGroups: [],
+  commits: [],
+  deployments: [],
+  project: { sourceMode: "connected", branch: "main" },
+};
+
+test("home's chain head is carried, and it is not the last listed patch", async () => {
+  const { ops, restore } = opsAnswering(HOME_APPLICABLE_PATCHES);
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: true });
+
+    expect(res.patches.map((patch) => patch.patchId)).toEqual([
+      "44444444-4444-4444-8444-444444444444",
+    ]);
+    // The whole point: a writer names THIS, and the list cannot tell it.
+    expect(res.headPatchId).toBe("55555555-5555-4555-8555-555555555555");
+  } finally {
+    restore();
+  }
+});
+
+test("a filtered fetch carries the head too", async () => {
+  const { ops, restore } = opsAnswering(HOME_APPLICABLE_PATCHES);
+  try {
+    const res = await ops.fetchPatches({
+      excludePatchOps: true,
+      patchIds: ["44444444-4444-4444-8444-444444444444" as PatchId],
+    });
+
+    expect(res.headPatchId).toBe("55555555-5555-4555-8555-555555555555");
+  } finally {
+    restore();
+  }
+});
+
+test("an empty chain is a null head, not an absent one", async () => {
+  const { ops, restore } = opsAnswering({
+    ...HOME_APPLICABLE_PATCHES,
+    patches: [],
+    headPatchId: null,
+  });
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: true });
+
+    expect("headPatchId" in res).toBe(true);
+    expect(res.headPatchId).toBeNull();
+  } finally {
+    restore();
+  }
+});
+
+test("an older content server, which reports no head, leaves it absent", async () => {
+  const { headPatchId: _dropped, ...older } = HOME_APPLICABLE_PATCHES;
+  const { ops, restore } = opsAnswering(older);
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: true });
+
+    // Absent, so callers fall back to the last listed id rather than reading
+    // `undefined` as an empty chain.
+    expect("headPatchId" in res).toBe(false);
+    expect(res.patches).toHaveLength(1);
+  } finally {
+    restore();
+  }
+});
