@@ -18,9 +18,21 @@
 //      their import specifiers, so the router devtools are not bundled for an
 //      element nobody renders.
 //
-// Deliberately NOT a port: upstream rewrites a partly-removed import as
-// `import { ...rest }`, which turns a default specifier into a named one. This
-// keeps the default where it was.
+// Where this is deliberately NOT a port, because upstream can emit a module
+// that does not parse or does not link -- a build error on a valid project:
+//
+//   - a `null` stand-in ends at the element. Upstream swallows the newline
+//     after it too, so semicolonless `const p = <Devtools />\nconst n = 1`
+//     became `const p = nullconst n = 1`.
+//   - a panel keeps its import while anything outside the removed elements
+//     still refers to it, and a devtools name that is referred to outside JSX
+//     (`const D = TanStackDevtools`) becomes a stub instead of vanishing.
+//     Upstream deletes both imports and leaves the references dangling.
+//   - a bare `import "@tanstack/react-devtools"` goes too. It has no names, and
+//     upstream returned early on "no names" after deciding to remove it.
+//   - a partly-removed import keeps its default specifier where it was, and a
+//     default-imported panel is removed like a named one. Upstream rewrote the
+//     rest as `import { ... }`, which turns a default into a named import.
 import { applyEdits, parse, walk, type Edit, type Node } from "./ast";
 
 /** `TANSTACK_DEVTOOLS_PACKAGES` upstream. Exact specifiers, not prefixes. */
@@ -119,6 +131,64 @@ function outermost(edits: Array<Edit>) {
 }
 
 /**
+ * Whether `node` -- an identifier named like a binding -- is a READ of it,
+ * rather than a name in some other role: a non-computed property or key, a JSX
+ * attribute name, the right half of `<A.B>`.
+ */
+function isReference(node: Node, parent: Node | undefined) {
+  if (!parent) return true;
+  switch (parent.type) {
+    case "MemberExpression":
+      return parent.object === node || parent.computed;
+    case "JSXMemberExpression":
+      return parent.object === node;
+    case "Property":
+    case "MethodDefinition":
+    case "PropertyDefinition":
+      // A shorthand `{ X }` has its own value node, which is the read.
+      return parent.key !== node || parent.computed;
+    case "JSXAttribute":
+      return parent.name !== node;
+    default:
+      return true;
+  }
+}
+
+/**
+ * The local names in `names` read anywhere outside `removed`.
+ *
+ * Import declarations are not walked: a specifier is a binding, not a read, and
+ * every one of them is either being removed or being kept anyway.
+ */
+function readOutside(ast: Node, names: Set<string>, removed: Array<Edit>) {
+  const found = new Set<string>();
+  const inRemoved = (node: Node) =>
+    removed.some((edit) => edit.start <= node.start && node.end <= edit.end);
+  for (const statement of ast.body as Array<Node>) {
+    if (statement.type === "ImportDeclaration") continue;
+    walk(statement, (node, stack) => {
+      if (node.type !== "Identifier" && node.type !== "JSXIdentifier") return;
+      const name = String(node.name);
+      if (!names.has(name) || found.has(name)) return;
+      if (!isReference(node, stack[stack.length - 1])) return;
+      if (!inRemoved(node)) found.add(name);
+    });
+  }
+  return found;
+}
+
+/**
+ * What a devtools binding becomes when something besides a removed element
+ * still reads it: a component that renders nothing, or a namespace of them.
+ */
+function stubFor(specifier: Node) {
+  const local = String(specifier.local.name);
+  return specifier.type === "ImportNamespaceSpecifier"
+    ? `const ${local} = new Proxy({}, { get: () => () => null });`
+    : `const ${local} = () => null;`;
+}
+
+/**
  * Strips TanStack Devtools from one module.
  *
  * Both targets, as upstream does: the plugin applies to the client and the SSR
@@ -141,51 +211,75 @@ export async function transformRemoveDevtools(
     return null;
   }
 
-  const edits: Array<Edit> = [];
+  const devtoolsImports = (ast.body as Array<Node>).filter(
+    (statement) =>
+      statement.type === "ImportDeclaration" &&
+      isDevtoolsImport(statement.source?.value),
+  );
+  if (devtoolsImports.length === 0) return null;
   const devtoolsNames = new Set<string>();
-  for (const statement of ast.body as Array<Node>) {
-    if (statement.type !== "ImportDeclaration") continue;
-    if (!isDevtoolsImport(statement.source?.value)) continue;
+  for (const statement of devtoolsImports)
     for (const specifier of (statement.specifiers ?? []) as Array<Node>)
       devtoolsNames.add(String(specifier.local.name));
-    edits.push({
-      start: statement.start,
-      end: endOfLine(code, statement),
-      text: "",
+
+  // The elements first: whether an import can simply go depends on whether
+  // anything outside them still reads its names.
+  const elements: Array<Edit> = [];
+  const panels = new Set<string>();
+  if (devtoolsNames.size > 0) {
+    walk(ast, (node, stack) => {
+      if (node.type !== "JSXElement") return;
+      const opening = node.openingElement as Node;
+      if (!isDevtoolsElement(opening, devtoolsNames)) return;
+      for (const panel of pluginReferences(opening)) panels.add(panel);
+      const parent = stack[stack.length - 1];
+      // Only a JSX child can simply vanish, and take its line with it.
+      // Anywhere else -- a return, a `&&`, an initialiser -- the element is an
+      // expression and needs a stand-in, which must end where the element
+      // did: the newline after it may be the only thing ending the statement.
+      const inJsx =
+        parent?.type === "JSXElement" || parent?.type === "JSXFragment";
+      elements.push(
+        inJsx
+          ? { start: node.start, end: endOfLine(code, node), text: "" }
+          : { start: node.start, end: node.end, text: "null" },
+      );
     });
   }
-  if (devtoolsNames.size === 0) return null;
+  const removed = outermost(elements);
+  const stillRead = readOutside(
+    ast,
+    new Set([...devtoolsNames, ...panels]),
+    removed,
+  );
 
-  const panels: Array<string> = [];
-  walk(ast, (node, stack) => {
-    if (node.type !== "JSXElement") return;
-    const opening = node.openingElement as Node;
-    if (!isDevtoolsElement(opening, devtoolsNames)) return;
-    panels.push(...pluginReferences(opening));
-    const parent = stack[stack.length - 1];
-    // Only a JSX child can simply vanish. Anywhere else -- a return, a `&&`,
-    // an argument -- the element is an expression and needs a stand-in.
-    const inJsx =
-      parent?.type === "JSXElement" || parent?.type === "JSXFragment";
-    edits.push({
-      start: node.start,
-      end: endOfLine(code, node),
-      text: inJsx ? "" : "null",
-    });
-  });
+  const edits: Array<Edit> = [...removed];
+  for (const statement of devtoolsImports) {
+    const stubs = ((statement.specifiers ?? []) as Array<Node>)
+      .filter((specifier) => stillRead.has(String(specifier.local.name)))
+      .map(stubFor);
+    edits.push(
+      stubs.length > 0
+        ? { start: statement.start, end: statement.end, text: stubs.join(" ") }
+        : { start: statement.start, end: endOfLine(code, statement), text: "" },
+    );
+  }
 
-  if (panels.length > 0) {
+  if (panels.size > 0) {
     for (const statement of ast.body as Array<Node>) {
       if (statement.type !== "ImportDeclaration") continue;
       if (isDevtoolsImport(statement.source?.value)) continue;
       const specifiers = (statement.specifiers ?? []) as Array<Node>;
-      const removed = specifiers.filter(
-        (specifier) =>
-          specifier.type === "ImportSpecifier" &&
-          panels.includes(String(specifier.local.name)),
-      );
-      if (removed.length === 0) continue;
-      const remaining = specifiers.filter((s) => !removed.includes(s));
+      const dropped = specifiers.filter((specifier) => {
+        const local = String(specifier.local.name);
+        return (
+          specifier.type !== "ImportNamespaceSpecifier" &&
+          panels.has(local) &&
+          !stillRead.has(local)
+        );
+      });
+      if (dropped.length === 0) continue;
+      const remaining = specifiers.filter((s) => !dropped.includes(s));
       if (remaining.length === 0) {
         edits.push({
           start: statement.start,
@@ -213,5 +307,5 @@ export async function transformRemoveDevtools(
     }
   }
 
-  return { code: applyEdits(code, outermost(edits)) };
+  return { code: applyEdits(code, edits) };
 }
