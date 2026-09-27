@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ModuleFilePath } from "@valbuild/core";
 import { useNavMenuData } from "../NavMenu/useNavMenuData";
 import {
@@ -17,7 +17,7 @@ import { useFilePatchIds, useValConfig } from "../ValFieldProvider";
 import { useCreatableRouters } from "../useCreateRouteEntry";
 import { ShellData, ShellMediaGallery } from "./types";
 import { useThemeSettings } from "../../hooks/useThemeSettings";
-import { msUntilNextStale } from "../../utils/deploymentStatus";
+import { useDeploymentStaleTick } from "../../hooks/useDeploymentStaleTick";
 import {
   toActivity,
   toAdminLinks,
@@ -238,32 +238,4 @@ export function useShellData(): ShellDataState {
     shellDeployments,
     studioIsDeployer,
   ]);
-}
-
-/**
- * A counter that moves when a deploy in the feed crosses the hour after which
- * it stops being shown as in progress.
- *
- * The feed alone does not re-render for it: a deploy nobody reports on is
- * exactly one whose row never changes. One timeout, for the next crossing, and
- * none at all when nothing is building.
- */
-function useDeploymentStaleTick(
-  deployments: readonly { deploymentState: string; updatedAt: string }[],
-): number {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const delay = msUntilNextStale(
-      deployments.map((deployment) => ({
-        state: deployment.deploymentState,
-        updatedAt: deployment.updatedAt,
-      })),
-      Date.now(),
-    );
-    if (delay === null) return;
-    // Just past the line, so the render it wakes finds the deploy stale.
-    const timeout = setTimeout(() => setTick((n) => n + 1), delay + 1000);
-    return () => clearTimeout(timeout);
-  }, [deployments, tick]);
-  return tick;
 }

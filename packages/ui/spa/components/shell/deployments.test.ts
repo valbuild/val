@@ -511,3 +511,30 @@ describe("msUntilNextStale", () => {
     ).toBeNull();
   });
 });
+
+/**
+ * A publish running in this tab reads as progress, whatever the host last said.
+ *
+ * The row checks `publish.kind === "running"` first and says "Publishing"; the
+ * activity list takes its icon from `deploymentProgress`, which did not — so a
+ * running publish over a stale host report was "Publishing" beside the help
+ * icon, and in a managed project beside the saved-not-live warning.
+ */
+describe("a publish running in this tab", () => {
+  const running = (state: ShellDeployment["state"]) =>
+    deployment({
+      commitSha: "a",
+      state,
+      publish: { kind: "running", percent: 40, step: "Building" },
+    });
+
+  test("is progress even when the host's report has gone stale", () => {
+    expect(deploymentProgress(running("unknown"))).toBe("building");
+    expect(describeDeploymentState(running("unknown"))).toBe("Publishing");
+  });
+
+  test("is progress in a managed project too", () => {
+    expect(deploymentProgress(running("unknown"), true)).toBe("building");
+    expect(deploymentProgress(running("pending"), true)).toBe("building");
+  });
+});

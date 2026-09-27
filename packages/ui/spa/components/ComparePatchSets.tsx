@@ -7,6 +7,7 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import { isDeploymentStatusStale } from "../utils/deploymentStatus";
+import { useDeploymentStaleTick } from "../hooks/useDeploymentStaleTick";
 import { HotspotMarker } from "./fields/HotspotMarker";
 import { deepEqual, ReadonlyJSONValue } from "@valbuild/core/patch";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
@@ -1012,11 +1013,23 @@ function DeployedDividerPure({
   /*
    * A build reported as running over an hour ago is not shown as running. See
    * `isDeploymentStatusStale`: the deploy feed says "Status unknown" for the
-   * same deploy, and this line must not contradict it.
+   * same deploy, and this line must not contradict it — nor lag it, so it is
+   * decided against the clock NOW, and woken at the crossing, rather than
+   * against `now` above, which is only the anchor for the relative date.
    */
-  const isUnknown =
-    latest !== null &&
-    isDeploymentStatusStale(latest.deploymentState, latest.updatedAt, +now);
+  const watched = useMemo(() => (latest === null ? [] : [latest]), [latest]);
+  const staleTick = useDeploymentStaleTick(watched);
+  const isUnknown = useMemo(() => {
+    void staleTick;
+    return (
+      latest !== null &&
+      isDeploymentStatusStale(
+        latest.deploymentState,
+        latest.updatedAt,
+        Date.now(),
+      )
+    );
+  }, [latest, staleTick]);
   const isBuilding = !isUnknown && (state === "created" || state === "pending");
   const isFailed = state === "failure" || state === "error";
   const isLive = state === "success";

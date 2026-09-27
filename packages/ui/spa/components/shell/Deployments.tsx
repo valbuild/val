@@ -202,6 +202,12 @@ export function deploymentProgress(
   deployment: ShellDeployment,
   studioIsDeployer = false,
 ): DeploymentProgress {
+  // A publish running in this tab is progress whatever the host last said, and
+  // whether or not that report has gone stale: the row shows a spinner and says
+  // "Publishing", so this must agree. Same order as `describeDeploymentState`.
+  if (!deployment.isLive && deployment.publish?.kind === "running") {
+    return "building";
+  }
   if (studioIsDeployer && isUnfinished(deployment)) return "saved-not-live";
   if (isBuilding(deployment)) return "building";
   if (isFailed(deployment)) return "failed";
