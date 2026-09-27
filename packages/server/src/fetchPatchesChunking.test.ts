@@ -87,6 +87,45 @@ describe("ValOpsHttp.fetchPatches chunking", () => {
     ]);
   });
 
+  test("the head is the newest any chunk saw, with its own version", async () => {
+    // Each chunk is its own request, so a later one can have seen a write an
+    // earlier one had not. Taking the first head would report the older one.
+    const allPatches = Array.from({ length: 150 }, (_, i) => patchOf(i));
+    const heads = [
+      { headPatchId: "head-seen-first" as PatchId, headVersion: 4 },
+      { headPatchId: "head-seen-later" as PatchId, headVersion: 5 },
+    ];
+    let call = 0;
+    const ops = new ValOpsHttp(
+      "https://content.example",
+      "org/project",
+      { commit: "commit", branch: "main" },
+      { apiKey: "test" },
+      { config, modules: [] },
+      { config },
+    );
+    ops.fetchPatchesInternal = async <
+      ExcludePatchOps extends boolean,
+    >(_filters: {
+      patchIds?: PatchId[];
+      excludePatchOps: ExcludePatchOps;
+    }) => {
+      const head = heads[Math.min(call++, heads.length - 1)];
+      // Cast for the reason given above.
+      return { patches: allPatches, ...head } as ExcludePatchOps extends true
+        ? OrderedPatchesMetadata
+        : OrderedPatches;
+    };
+
+    const res = await ops.fetchPatches({
+      patchIds: allPatches.map((patch) => patch.patchId),
+      excludePatchOps: true,
+    });
+
+    expect(res.headPatchId).toBe("head-seen-later");
+    expect(res.headVersion).toBe(5);
+  });
+
   test("a single chunk is unaffected", async () => {
     const allPatches = Array.from({ length: 42 }, (_, i) => patchOf(i));
     const requests: (PatchId[] | undefined)[] = [];

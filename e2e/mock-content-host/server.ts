@@ -598,6 +598,15 @@ function headPatchId(): string | null {
  * sending only the new id would announce that every other patch had vanished.
  * Anything that adds to or removes from the chain has to call this.
  */
+/**
+ * The chain's version, as `home` keeps it in `val_patch_chains`: bumped by
+ * every write and every delete, and reported with the head. Never reset, so it
+ * only ever goes up across `/__test__/reset` too — as a real one would.
+ */
+let chainVersion = 0;
+/** The version each save made, so a retried save answers with its own. */
+const versionOfPatch = new Map<string, number>();
+
 function broadcastChain(): void {
   broadcast({
     type: "patches",
@@ -606,6 +615,7 @@ function broadcastChain(): void {
     // mock lists the whole chain — but a client that stopped reading the head
     // would fall back to the list and nothing here could tell.
     headPatchId: headPatchId(),
+    headVersion: chainVersion,
   });
 }
 
@@ -825,6 +835,7 @@ const getApplicablePatches: Handler = (req, res, url) => {
      * the whole chain's last patch whatever `patch_id` filter was asked for.
      */
     headPatchId: headPatchId(),
+    headVersion: chainVersion,
     commits: state.commits,
     /**
      * Newest update first, as the content service returns them.
@@ -903,6 +914,7 @@ const savePatch: Handler = async (req, res) => {
     json(res, 200, {
       patchId: body.patchId,
       ...groupOfPatch(body.patchId),
+      headVersion: versionOfPatch.get(body.patchId) ?? chainVersion,
     });
     return;
   }
@@ -994,11 +1006,16 @@ const savePatch: Handler = async (req, res) => {
     }
     patchGroupId = group.patchGroupId;
   }
+  // The chain moved; the broadcast reads it at this version.
+  chainVersion += 1;
+  versionOfPatch.set(body.patchId, chainVersion);
+  const headVersion = chainVersion;
   broadcastChain();
   json(res, 200, {
     patchId: body.patchId,
     createdAt: nowIso(),
     ...(patchGroupId !== undefined ? { patchGroupId } : {}),
+    headVersion,
   });
 };
 
@@ -1202,6 +1219,11 @@ const deletePatches: Handler = async (req, res) => {
     unstagePatchIds?: string[];
   }>(req);
   const ids = body?.patchIds ?? [];
+  // A delete can move the head backwards, so the chain moves on a version.
+  const moved = ids.some((patchId) => state.patches.has(patchId));
+  if (moved) {
+    chainVersion += 1;
+  }
   for (const patchId of ids) {
     state.patches.delete(patchId);
     state.patchFiles.delete(patchId);
@@ -1232,7 +1254,11 @@ const deletePatches: Handler = async (req, res) => {
   // Every id comes back as deleted, including ones that were already gone: a
   // patch someone else removed first is absent either way, and reporting that
   // as a failure would make an ordinary discard look broken.
-  json(res, 200, { deleted: ids });
+  json(res, 200, {
+    deleted: ids,
+    // Per branch, as `home` answers, since a delete there can span branches.
+    headVersions: moved ? { [PROJECT_BRANCH]: chainVersion } : {},
+  });
 };
 
 /**
@@ -1530,6 +1556,11 @@ const commit: Handler = async (req, res) => {
       patch.applied = { commitSha };
     }
   }
+  // What `/stat` reports just changed (these are applied now), so the chain
+  // moves a version, as `home` bumps it in the transaction that marks them.
+  if (appliedPatchIds.size > 0) {
+    chainVersion += 1;
+  }
   /*
    * The archive and the snapshot: what history reads.
    *
@@ -1657,6 +1688,7 @@ const commit: Handler = async (req, res) => {
     updatedFiles: Object.keys(body.patchedSourceFiles ?? {}),
     commit: commitSha,
     branch: record.branch,
+    ...(appliedPatchIds.size > 0 ? { headVersion: chainVersion } : {}),
   });
 };
 

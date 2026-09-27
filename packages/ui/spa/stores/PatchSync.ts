@@ -92,6 +92,12 @@ export type SaveResult =
        * API that predates groups.
        */
       patchGroupId?: string;
+      /**
+       * The chain version the last of these made. See
+       * {@link PatchSync.headVersion}. Absent in `fs` mode and from a
+       * content service that predates it.
+       */
+      headVersion?: number;
     }
   | { status: "conflict"; message: string }
   | {
@@ -279,6 +285,19 @@ export class PatchSync {
    */
   private statHeadPatchId: PatchId | null | undefined = undefined;
   /**
+   * The chain version of the head this sync names — from a stat, or from our
+   * own save. `undefined` where the server does not version its chain.
+   *
+   * `/stat` has more than one caller, so an answer can land after a newer one.
+   * Adopting it put the parent back behind a head this client already knew
+   * about, and the next write was refused. A stat at a lower version than this
+   * is ignored, and our own save reports the version it made, so a stat read
+   * before that save cannot rewind past it either. Where there are versions,
+   * that is also what {@link savedNotInStat} was approximating, and it is no
+   * longer needed.
+   */
+  private headVersion: number | undefined = undefined;
+  /**
    * Patches the server has acknowledged that the last stat did not list yet.
    *
    * This list is the whole reason the parent ref is computed rather than stored.
@@ -364,7 +383,20 @@ export class PatchSync {
     serverPatchIds: readonly PatchId[],
     /** The chain head the server reported. See {@link statHeadPatchId}. */
     headPatchId?: PatchId | null,
+    /** The chain version of that head. See {@link headVersion}. */
+    headVersion?: number,
   ): void {
+    if (
+      headVersion !== undefined &&
+      this.headVersion !== undefined &&
+      headVersion < this.headVersion
+    ) {
+      // Older than a head we already hold. Nothing in it is news.
+      return;
+    }
+    if (headVersion !== undefined) {
+      this.headVersion = headVersion;
+    }
     this.baseSha = headBaseSha;
     this.statPatchIds = [...serverPatchIds];
     this.statHeadPatchId = headPatchId;
@@ -638,11 +670,25 @@ export class PatchSync {
     if (result.status === "saved") {
       this.attempt = 0;
       this.reportedStuck = false;
-      if (this.savedNotInStat.length === 0) {
-        this.savedOnHead =
-          parentRef.type === "patch" ? parentRef.patchId : null;
+      const lastSaved = result.newPatchIds[result.newPatchIds.length - 1];
+      if (result.headVersion !== undefined) {
+        // Versioned: our last patch is the head as of this version, unless a
+        // stat at a later version has already said otherwise.
+        if (
+          lastSaved !== undefined &&
+          (this.headVersion === undefined ||
+            result.headVersion >= this.headVersion)
+        ) {
+          this.statHeadPatchId = lastSaved;
+          this.headVersion = result.headVersion;
+        }
+      } else {
+        if (this.savedNotInStat.length === 0) {
+          this.savedOnHead =
+            parentRef.type === "patch" ? parentRef.patchId : null;
+        }
+        this.savedNotInStat.push(...result.newPatchIds);
       }
-      this.savedNotInStat.push(...result.newPatchIds);
       // The ids the SERVER named, not the ids we sent — see `markSaved`.
       this.patchStore.markSaved(result.newPatchIds);
       if (result.patchGroupId !== undefined) {
@@ -654,6 +700,9 @@ export class PatchSync {
         type: "patch:saved",
         patches: result.newPatchIds,
         parentRef: result.parentRef,
+        ...(result.headVersion !== undefined
+          ? { headVersion: result.headVersion }
+          : {}),
       });
       // Keep looping. More may have been created while this request was in
       // flight, and the loop's own emptiness check is what terminates it — a

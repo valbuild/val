@@ -182,6 +182,12 @@ export type CommitResult =
        */
       tree?: string;
       branch: string;
+      /**
+       * The chain version the publish moved the branch to, where the content
+       * service versions its chain and the publish applied anything. Passed
+       * on to the Studio, so a `/stat` read before the publish is dropped.
+       */
+      headVersion?: number;
       error?: undefined;
     }
   | { isNotFastForward?: boolean; error: GenericErrorMessage };
@@ -1421,6 +1427,13 @@ export const ValServer = (
          * re-read when a fetch has missing ids to ask for.
          */
         let patchGroupIdFromStore: string | undefined;
+        /*
+         * The chain version the LAST patch made — the head this batch leaves.
+         * The client keeps the highest version it has seen, so a `/stat` read
+         * before this write cannot put its parent back behind it. Absent in
+         * `fs` mode and from an older content API.
+         */
+        let headVersion: number | undefined;
         for (const patch of patches) {
           const createPatchRes = await serverOps.createPatch(
             patch.path,
@@ -1468,6 +1481,7 @@ export const ValServer = (
             if (createPatchRes.value.patchGroupId !== undefined) {
               patchGroupIdFromStore = createPatchRes.value.patchGroupId;
             }
+            headVersion = createPatchRes.value.headVersion;
           }
         }
         return {
@@ -1481,6 +1495,7 @@ export const ValServer = (
             ...(patchGroupIdFromStore !== undefined
               ? { patchGroupId: patchGroupIdFromStore }
               : {}),
+            ...(headVersion !== undefined ? { headVersion } : {}),
           },
         };
       },
@@ -1688,6 +1703,18 @@ export const ValServer = (
                 patchId: id as PatchId,
                 ...error,
               })),
+            },
+          };
+        }
+        if (req.body?.reportHeadVersion === true) {
+          return {
+            status: 200,
+            json: {
+              deleted: ids,
+              ...("headVersion" in deleteRes &&
+              deleteRes.headVersion !== undefined
+                ? { headVersion: deleteRes.headVersion }
+                : {}),
             },
           };
         }
@@ -2813,6 +2840,9 @@ export const ValServer = (
                   ? { sourceFiles: preparedCommit.patchedSourceFiles }
                   : {}),
                 ...(managedBranch !== null ? { branch: managedBranch } : {}),
+                ...(commitRes.headVersion !== undefined
+                  ? { headVersion: commitRes.headVersion }
+                  : {}),
                 ...(committedBinaries !== null
                   ? {
                       binaryFiles: committedBinaries.files,

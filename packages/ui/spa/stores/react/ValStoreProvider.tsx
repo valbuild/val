@@ -61,6 +61,8 @@ export function ValStoreProvider({
     headCommitSha?: string;
     /** See {@link StatSnapshot.headPatchId}. The head of the patch chain. */
     headPatchId?: PatchId | null;
+    /** See {@link StatSnapshot.headVersion}. The chain version of that head. */
+    headVersion?: number;
     /** See {@link StatSnapshot.sourcesSha}. Which build answered. */
     sourcesSha?: string;
   } | null;
@@ -139,6 +141,7 @@ export function ValStoreProvider({
       headCommitSha: stat.headCommitSha,
       // What the next write names as its parent. See `PatchSync`.
       headPatchId: stat.headPatchId,
+      headVersion: stat.headVersion,
       // Which build answered, so a chain from a build other than the bundle's
       // is put on that build's base. See `BaseAlignment`.
       sourcesSha: stat.sourcesSha,

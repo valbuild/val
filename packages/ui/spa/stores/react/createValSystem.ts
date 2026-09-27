@@ -430,6 +430,9 @@ export function createValSystem(
             : {}),
           ...(res.json.branch !== undefined ? { branch: res.json.branch } : {}),
           removed: res.json.removed,
+          ...(res.json.headVersion !== undefined
+            ? { headVersion: res.json.headVersion }
+            : {}),
         };
       }
       if (res.status === 409) {
@@ -504,6 +507,9 @@ export function createValSystem(
        * that depends on it, not in the splitter, which has no opinion on order.)
        */
       const deleted: PatchId[] = [];
+      // The highest any chunk reported: each delete moves the chain on, so the
+      // last is the newest, and taking the max says so without relying on it.
+      let headVersion: number | undefined = undefined;
       for (const chunk of chunkPatchIds(patchIds, "id")) {
         const res = await client("/patches", "DELETE", {
           query: { id: chunk },
@@ -516,10 +522,12 @@ export function createValSystem(
            * and the closure is about the whole discard rather than about this
            * slice of it.
            */
-          body:
-            unstagePatchIds !== undefined && unstagePatchIds.length > 0
+          body: {
+            ...(unstagePatchIds !== undefined && unstagePatchIds.length > 0
               ? { unstagePatchIds }
-              : undefined,
+              : {}),
+            reportHeadVersion: true,
+          },
         });
         if (res.status !== 200) {
           return {
@@ -532,9 +540,26 @@ export function createValSystem(
         }
         // The ids the server says it deleted. A partial delete must not make the
         // client forget a patch that still exists.
-        deleted.push(...res.json);
+        if (Array.isArray(res.json)) {
+          // A server that predates `reportHeadVersion` answers with the bare
+          // ids, and says nothing about the version.
+          deleted.push(...res.json);
+        } else {
+          deleted.push(...res.json.deleted);
+          const reported = res.json.headVersion;
+          if (
+            reported !== undefined &&
+            (headVersion === undefined || reported > headVersion)
+          ) {
+            headVersion = reported;
+          }
+        }
       }
-      return { status: "discarded", patchIds: deleted };
+      return {
+        status: "discarded",
+        patchIds: deleted,
+        ...(headVersion !== undefined ? { headVersion } : {}),
+      };
     },
 
     ...(options?.writes === true
@@ -679,6 +704,9 @@ export function createValSystem(
               ...(res.json.patchGroupId !== undefined
                 ? { patchGroupId: res.json.patchGroupId }
                 : {}),
+              ...(res.json.headVersion !== undefined
+                ? { headVersion: res.json.headVersion }
+                : {}),
             };
           },
         }
@@ -722,6 +750,8 @@ export function createValSystem(
               // the parent we named was not it. `fs` answers without one.
               headPatchId:
                 "headPatchId" in res.json ? res.json.headPatchId : undefined,
+              headVersion:
+                "headVersion" in res.json ? res.json.headVersion : undefined,
             });
           },
         }

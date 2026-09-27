@@ -87,6 +87,12 @@ export type PublishOutcome =
       /** See `branch` on the `/save` route. */
       branch?: string;
       removed?: RemovedPatch[];
+      /**
+       * The chain version the publish moved the branch to. See `headVersion`
+       * on the `/save` route: what floors the stat store past a `/stat` read
+       * before this publish.
+       */
+      headVersion?: number;
     }
   | { status: "not-fast-forward"; message: string }
   /**
@@ -135,7 +141,16 @@ export type DiscardPatches = (
    */
   unstagePatchIds?: PatchId[],
 ) => Promise<
-  | { status: "discarded"; patchIds: PatchId[] }
+  | {
+      status: "discarded";
+      patchIds: PatchId[];
+      /**
+       * The chain version the delete moved the branch to, where the server
+       * reports one. Same purpose as a publish's: a `/stat` read before the
+       * delete would put the discarded head back.
+       */
+      headVersion?: number;
+    }
   | { status: "error"; message: string }
 >;
 

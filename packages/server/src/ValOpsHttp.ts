@@ -98,6 +98,11 @@ const GetApplicablePatches = z.object({
    * a content service that predates it sends nothing.
    */
   headPatchId: PatchIdSchema.nullable().optional(),
+  /**
+   * The chain version of that head. See `OrderedPatches.headVersion`.
+   * Optional for the same reason.
+   */
+  headVersion: z.number().optional(),
   commits: z
     .array(
       z.object({
@@ -196,6 +201,11 @@ const SavePatchResponse = z.object({
    * absence has to keep meaning "no groups here" rather than failing the save.
    */
   patchGroupId: z.string().optional(),
+  /**
+   * The chain version this write made, comparable with `headVersion` on the
+   * listing. Optional: a content service that predates it sends nothing.
+   */
+  headVersion: z.number().optional(),
 });
 const DeletePatchesResponse = z.object({
   deleted: z.array(PatchId),
@@ -207,7 +217,30 @@ const DeletePatchesResponse = z.object({
       }),
     )
     .optional(),
+  /**
+   * The chain version each branch the delete changed is now at, keyed by
+   * branch. Optional: a content service that predates it sends none.
+   */
+  headVersions: z.record(z.string(), z.number()).optional(),
 });
+/**
+ * This client's own branch's entry in a per-branch version map.
+ *
+ * A delete can span branches, so the content service answers per branch. With
+ * no branch of its own (a build with no repository, where the service resolves
+ * it), the only entry is ours when there is exactly one; with several, none can
+ * be picked, and a wrong one would floor this client at another chain's count.
+ */
+export function ownBranchVersion(
+  headVersions: Record<string, number> | undefined,
+  branch: string | undefined,
+): number | undefined {
+  if (headVersions === undefined) return undefined;
+  if (branch !== undefined) return headVersions[branch];
+  const versions = Object.values(headVersions);
+  return versions.length === 1 ? versions[0] : undefined;
+}
+
 const SavePatchFileResponse = z.object({
   patchId: PatchId,
   filePath: ModuleFilePath,
@@ -228,6 +261,8 @@ const CommitResponse = z.object({
   parent: z.string().optional(),
   tree: z.string().optional(),
   branch: z.string(),
+  /** The chain version the publish moved the branch to; absent if it applied nothing. */
+  headVersion: z.number().optional(),
 });
 // #region history wire schemas
 //
@@ -880,6 +915,8 @@ export class ValOpsHttp extends ValOps {
         appliedPatches: PatchId[];
         /** The head of the chain. See {@link OrderedPatchesMetadata.headPatchId}. */
         headPatchId?: PatchId | null;
+        /** The chain version of that head. See {@link OrderedPatchesMetadata.headVersion}. */
+        headVersion?: number;
         /** The newest commit, which is the publish head. */
         headCommitSha?: string;
       }
@@ -976,6 +1013,9 @@ export class ValOpsHttp extends ValOps {
        */
       ...(allPatchData.headPatchId !== undefined
         ? { headPatchId: allPatchData.headPatchId }
+        : {}),
+      ...(allPatchData.headVersion !== undefined
+        ? { headVersion: allPatchData.headVersion }
         : {}),
       /*
        * The PUBLISH head, which is not `commitSha`.
@@ -1130,6 +1170,7 @@ export class ValOpsHttp extends ValOps {
     // A fact about the branch too, so taken from the first chunk that has it
     // for the same reason `commits` is.
     let headPatchId: OrderedPatches["headPatchId"];
+    let headVersion: OrderedPatches["headVersion"];
     if (patchIds === undefined || patchIds.length === 0) {
       return this.fetchPatchesInternal({
         patchIds: patchIds,
@@ -1154,8 +1195,20 @@ export class ValOpsHttp extends ValOps {
       if (commits === undefined && res.commits !== undefined) {
         commits = res.commits;
       }
-      if (headPatchId === undefined && res.headPatchId !== undefined) {
+      /*
+       * The NEWEST head among the chunks: each is its own request, so a later
+       * one can have seen a write an earlier one did not. Taken with its own
+       * version, so the two always describe one read. Without versions (an
+       * older content service) the first head stands, as before.
+       */
+      if (
+        res.headPatchId !== undefined &&
+        (headPatchId === undefined ||
+          (res.headVersion !== undefined &&
+            (headVersion === undefined || res.headVersion > headVersion)))
+      ) {
         headPatchId = res.headPatchId;
+        headVersion = res.headVersion;
       }
     }
     // Chunking is a query-string-length workaround, NOT a filter: the content
@@ -1189,6 +1242,7 @@ export class ValOpsHttp extends ValOps {
       // readers do — sees the same shape the unchunked path gives it.
       ...(commits !== undefined ? { commits } : {}),
       ...(headPatchId !== undefined ? { headPatchId } : {}),
+      ...(headVersion !== undefined ? { headVersion } : {}),
     } as ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches;
   }
 
@@ -1310,6 +1364,9 @@ export class ValOpsHttp extends ValOps {
             errors,
             ...(data.headPatchId !== undefined
               ? { headPatchId: data.headPatchId }
+              : {}),
+            ...(data.headVersion !== undefined
+              ? { headVersion: data.headVersion }
               : {}),
           } as ExcludePatchOps extends true
             ? OrderedPatchesMetadata
@@ -1774,6 +1831,9 @@ export class ValOpsHttp extends ValOps {
               ...(parsed.data.patchGroupId !== undefined
                 ? { patchGroupId: parsed.data.patchGroupId }
                 : {}),
+              ...(parsed.data.headVersion !== undefined
+                ? { headVersion: parsed.data.headVersion }
+                : {}),
             });
           }
           return result.err({
@@ -2228,10 +2288,16 @@ export class ValOpsHttp extends ValOps {
      */
     unstagePatchIds?: PatchId[],
   ): Promise<
-    | { deleted: PatchId[]; errors?: undefined; error?: undefined }
+    | {
+        deleted: PatchId[];
+        errors?: undefined;
+        error?: undefined;
+        headVersion?: number;
+      }
     | {
         deleted: PatchId[];
         errors: Record<PatchId, GenericErrorMessage>;
+        headVersion?: number;
       }
     | { error: GenericErrorMessage; errors?: undefined; deleted?: undefined }
   > {
@@ -2256,15 +2322,22 @@ export class ValOpsHttp extends ValOps {
             for (const err of parsed.data.errors || []) {
               errors[err.patchId] = err;
             }
+            const headVersion = ownBranchVersion(
+              parsed.data.headVersions,
+              this.git?.branch,
+            );
+            const version = headVersion !== undefined ? { headVersion } : {};
 
             if (Object.keys(errors).length === 0) {
               return {
                 deleted: parsed.data.deleted,
+                ...version,
               };
             }
             return {
               deleted: parsed.data.deleted,
               errors,
+              ...version,
             };
           }
           return {
@@ -2327,6 +2400,8 @@ export class ValOpsHttp extends ValOps {
         /** See `CommitResult.tree`: absent means not reported. */
         tree?: string;
         branch: string;
+        /** The chain version the publish moved the branch to, where reported. */
+        headVersion?: number;
         error?: undefined;
       }
     | {
@@ -2421,6 +2496,9 @@ export class ValOpsHttp extends ValOps {
               : {}),
             ...(parsed.data.tree !== undefined
               ? { tree: parsed.data.tree }
+              : {}),
+            ...(parsed.data.headVersion !== undefined
+              ? { headVersion: parsed.data.headVersion }
               : {}),
           };
         }

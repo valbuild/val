@@ -478,6 +478,25 @@ emptying the list so the Studio sent no parent. The content service now reports
 and the MCP's `deriveParentRef` name it, and fall back to the last listed id only
 for a server that reports no head. `patchSyncHead.test.ts` pins it.
 
+**…and the head is versioned, because `/stat` answers land out of order.** The
+poll, the websocket, the re-sync after a 409 and React re-announcing what it
+last held can all have an answer in flight at once, and adopting the late one
+rewound the chain: the list, and the parent the next write names — one refused
+write every time. The content service keeps a version per branch
+(`val_patch_chains`), bumped by every write and every delete inside the
+transaction that makes the change, and reports it with the head
+(`headVersion`, read in the same statement) and from every write, delete and
+publish. `StatStore` drops a snapshot at a lower version than one already
+received — and than any version this client's own save, discard or publish
+answered with (`noteHeadVersion`), checked again when a stat's preparation
+finishes — and `PatchSync` ignores a stat older than the head it holds. A
+delete answers per branch, since one can span several; `DELETE /patches` on
+`ValServer` answers `{ deleted, headVersion }` only when asked
+(`reportHeadVersion`), because an open tab's older bundle parses the bare id
+array. Not `seq_num`: discarding the head LOWERS it and the next write
+reuses the number. Not a clock either: a timestamp read after the commit can
+outrank a newer answer, and reading it can fail after the patch is saved.
+
 **A discard is `source:patch-drop` and, usually, nothing else.** The source
 store announces a drop as its own event and then re-applies whatever survives
 in the module's chain, which is what emits `source:patch-apply` — so a discard

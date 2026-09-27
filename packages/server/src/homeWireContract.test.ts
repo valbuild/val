@@ -768,6 +768,7 @@ const HOME_APPLICABLE_PATCHES = {
     },
   ],
   headPatchId: "55555555-5555-4555-8555-555555555555",
+  headVersion: 42,
   patchGroups: [],
   commits: [],
   deployments: [],
@@ -784,6 +785,8 @@ test("home's chain head is carried, and it is not the last listed patch", async 
     ]);
     // The whole point: a writer names THIS, and the list cannot tell it.
     expect(res.headPatchId).toBe("55555555-5555-4555-8555-555555555555");
+    // And the chain version it was read at, so a late answer can be told apart.
+    expect(res.headVersion).toBe(42);
   } finally {
     restore();
   }
@@ -798,6 +801,7 @@ test("a filtered fetch carries the head too", async () => {
     });
 
     expect(res.headPatchId).toBe("55555555-5555-4555-8555-555555555555");
+    expect(res.headVersion).toBe(42);
   } finally {
     restore();
   }
@@ -820,7 +824,11 @@ test("an empty chain is a null head, not an absent one", async () => {
 });
 
 test("an older content server, which reports no head, leaves it absent", async () => {
-  const { headPatchId: _dropped, ...older } = HOME_APPLICABLE_PATCHES;
+  const {
+    headPatchId: _dropped,
+    headVersion: _droppedVersion,
+    ...older
+  } = HOME_APPLICABLE_PATCHES;
   const { ops, restore } = opsAnswering(older);
   try {
     const res = await ops.fetchPatches({ excludePatchOps: true });
@@ -828,7 +836,103 @@ test("an older content server, which reports no head, leaves it absent", async (
     // Absent, so callers fall back to the last listed id rather than reading
     // `undefined` as an empty chain.
     expect("headPatchId" in res).toBe(false);
+    expect("headVersion" in res).toBe(false);
     expect(res.patches).toHaveLength(1);
+  } finally {
+    restore();
+  }
+});
+
+/** `home` — `Api["/patches"]["DELETE"]["res"]`, keyed by branch. */
+const HOME_DELETE = {
+  deleted: ["44444444-4444-4444-8444-444444444444"],
+  headVersions: { main: 43, feature: 7 },
+};
+
+test("a delete's chain version is this branch's, not another's", async () => {
+  const { ops, restore } = opsAnswering(HOME_DELETE);
+  try {
+    const res = await ops.deletePatches([
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+    ]);
+
+    expect(res.deleted).toEqual(["44444444-4444-4444-8444-444444444444"]);
+    expect("headVersion" in res && res.headVersion).toBe(43);
+  } finally {
+    restore();
+  }
+});
+
+test("a delete on a build with no branch takes the only version, and no guess among several", async () => {
+  const one = opsAnswering(
+    { ...HOME_DELETE, headVersions: { main: 43 } },
+    200,
+    {
+      git: null,
+    },
+  );
+  try {
+    const res = await one.ops.deletePatches([
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+    ]);
+    expect("headVersion" in res && res.headVersion).toBe(43);
+  } finally {
+    one.restore();
+  }
+  const several = opsAnswering(HOME_DELETE, 200, { git: null });
+  try {
+    const res = await several.ops.deletePatches([
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+    ]);
+    expect("headVersion" in res).toBe(false);
+  } finally {
+    several.restore();
+  }
+});
+
+test("a delete from an older content server, with no versions, still parses", async () => {
+  const { ops, restore } = opsAnswering({ deleted: HOME_DELETE.deleted });
+  try {
+    const res = await ops.deletePatches([
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+    ]);
+    expect(res.deleted).toEqual(HOME_DELETE.deleted);
+    expect("headVersion" in res).toBe(false);
+  } finally {
+    restore();
+  }
+});
+
+test("a publish carries the chain version it moved to", async () => {
+  const { ops, restore } = opsAnswering({
+    updatedFiles: [],
+    commit: "abc1234",
+    branch: "main",
+    headVersion: 44,
+  });
+  try {
+    const res = await ops.commit(
+      {
+        patchedSourceFiles: {},
+        patchedJsonEntries: {},
+        previousSourceFiles: {},
+        partiallyPatchedSourceFiles: {},
+        patchedBinaryFilesDescriptors: {},
+        appliedPatches: {},
+        hasErrors: false,
+        sourceFilePatchErrors: {},
+        binaryFilePatchErrors: {},
+        unappliablePatches: {},
+        skippedPatches: {},
+        triedPatches: {},
+        moduleVersions: {},
+      },
+      "ship it",
+      PROFILE,
+      "/public/val",
+    );
+    expect(res.error).toBeUndefined();
+    expect("headVersion" in res && res.headVersion).toBe(44);
   } finally {
     restore();
   }

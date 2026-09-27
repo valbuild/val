@@ -1251,6 +1251,9 @@ export function createSystem(options: SystemOptions): System {
       toDelete,
       await computeDiscardClosure(toDelete),
     );
+    if (res.status === "discarded" && res.headVersion !== undefined) {
+      stat.noteHeadVersion(res.headVersion);
+    }
     if (res.status === "error") {
       // Left for the next round: if the patch is still on the server it will be
       // announced again, fail again, and be attempted again — which is what the
@@ -1443,6 +1446,16 @@ export function createSystem(options: SystemOptions): System {
      * by title there — which is why `describeStuckSave` keeps the attempt count
      * out of the title and in the detail.
      */
+    /*
+     * A save's version is a floor for the stat store too, not only the sync:
+     * without it a stat read before the save was adopted — its list lacking
+     * the patch just saved — and only the parent was protected.
+     */
+    patchSync.events.on("patch:saved", (event) => {
+      if (event.headVersion !== undefined) {
+        stat.noteHeadVersion(event.headVersion);
+      }
+    }),
     patchSync.events.on("patch:save-stuck", (event) => {
       const report = describeStuckSave(
         event.reason,
@@ -1458,7 +1471,12 @@ export function createSystem(options: SystemOptions): System {
     stat.events.on("stat:receive", (event) => {
       const baseSha = stat.currentBaseSha();
       if (baseSha === null) return;
-      patchSync.receiveStat(baseSha, event.patches, stat.currentHeadPatchId());
+      patchSync.receiveStat(
+        baseSha,
+        event.patches,
+        stat.currentHeadPatchId(),
+        stat.currentHeadVersion(),
+      );
       // A stat can unblock a save that had no honest parent to name. Nothing
       // else would retry it: `patch:create` already fired and found no base.
       void patchSync.flush();
@@ -2332,6 +2350,12 @@ export function createSystem(options: SystemOptions): System {
         if (outcome.commitSha !== undefined) {
           stat.setHeadCommitSha(outcome.commitSha);
         }
+        // And the chain version it moved to, for the same reason as a save's:
+        // a `/stat` read before this publish still lists these patches as
+        // pending, and would otherwise be adopted after it.
+        if (outcome.headVersion !== undefined) {
+          stat.noteHeadVersion(outcome.headVersion);
+        }
 
         /*
          * Changes the save threw away to be able to write anything at all.
@@ -2445,6 +2469,11 @@ export function createSystem(options: SystemOptions): System {
       );
       if (res.status === "error") {
         return { status: "failed", message: res.message };
+      }
+      // A `/stat` read before the delete still names the discarded patches —
+      // and, if one was the head, would hand it back as the next parent.
+      if (res.headVersion !== undefined) {
+        stat.noteHeadVersion(res.headVersion);
       }
       // The ids the SERVER says it deleted, not the ids we asked about: a partial
       // delete must not make the client forget a patch that still exists.

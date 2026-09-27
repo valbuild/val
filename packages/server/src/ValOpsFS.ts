@@ -1055,10 +1055,17 @@ export class ValOpsFS extends ValOps {
   }
 
   override async deletePatches(patchIds: PatchId[]): Promise<
-    | { deleted: PatchId[]; errors?: undefined; error?: undefined }
+    // No `headVersion`: the patch directory is not a versioned chain.
+    | {
+        deleted: PatchId[];
+        errors?: undefined;
+        error?: undefined;
+        headVersion?: undefined;
+      }
     | {
         deleted: PatchId[];
         errors: Record<PatchId, GenericErrorMessage>;
+        headVersion?: undefined;
       }
     | { error: GenericErrorMessage; errors?: undefined; deleted?: undefined }
   > {
