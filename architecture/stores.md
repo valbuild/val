@@ -89,6 +89,26 @@ number is needed anywhere.
 A patch that cannot be applied is **deleted** (server included) and logged: it can
 never produce a value, and leaving it blocks every later save to its module.
 
+## Base and chain come from ONE build
+
+What the Studio shows is base + chain. The base is the source in the bundle it
+loaded; the chain is what `/stat` lists, and `/stat` lists the patches THE
+BUILD THAT ANSWERED does not contain. After a publish those can be two builds
+for a while (a tab opened before it, a managed project's pointer lagging per
+location), and one build's chain on another's source drops edits or applies
+them twice — invisible for a `replace`, a reordered list for a `move`.
+
+`BaseAlignment` holds the line. `/stat` carries the answering build's
+`sourcesSha`; `HostStore` folds the bundle's source with the same
+`computeSourcesSha` the server uses. On a mismatch the stat is not adopted until
+that build's base (`PUT /sources/~?apply_patches=false`) and the records its
+chain names are here; then, in one turn, shipped patches leave the chain,
+`SourceStore.rebase` replaces base AND chain in the server's order, and the stat
+is adopted. Order matters in the backward direction: an older base needs patches
+that come BEFORE the ones already held, so appending them (what `receive` + a
+plain `patch:receive` would do) is wrong. `baseAndChain.test.ts` is every
+combination, over time, sampled at the end of each turn.
+
 ## Where things live
 
 | you want                                   | look at                                           |
