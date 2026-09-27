@@ -443,8 +443,9 @@ export function MobileDeployments({
   return (
     <div
       ref={containerRef}
-      // Clear of the bottom bar, which is `py-2.5` around a 36px row.
-      className="absolute z-full inset-x-3 bottom-[3.75rem]"
+      // Clear of the bottom bar, which floats `0.75rem` (or the safe area) up
+      // and is `p-1.5` plus a border around a 36px row: 50px tall.
+      className="absolute z-full inset-x-2 bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.625rem)]"
     >
       <DeploymentsList
         deployments={deployments}

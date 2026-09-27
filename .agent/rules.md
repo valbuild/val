@@ -775,6 +775,28 @@ cd examples/next && ./node_modules/.bin/val validate   # the `val` bin is linked
 
 The example app might have known pre-existing content errors (missing image files, stale image metadata), so a non-zero error count can be expected. What you are verifying is that the modules **load and validate at all** — a regression in the loader shows up as a thrown error or `0 valid` files, not as a changed error count.
 
+## Proxy mode, and why the Studio's history UI is hard to reach locally
+
+`pnpm run dev:example-next` gives you **fs mode**, where the content host is a
+directory and the server is `ValOpsFS`. A deployed app runs **proxy mode**, and
+several things exist only there: a publish is a git commit, published patches
+are marked applied rather than deleted, deployments arrive over a WebSocket —
+and **history and restore**, which `ValOpsFS` answers
+`not-supported-in-fs-mode` for. `ValShell` hides the History button entirely in
+fs mode (`historyEnabled` is false, so `/val/history` is never linked to), and
+no amount of clicking in the normal dev loop reaches that UI.
+
+What DOES exercise it is the `chromium-http` Playwright project, which starts
+`e2e/mock-content-host` — a faithful stand-in for `home` implementing all five
+history endpoints — alongside a second `examples/next` in proxy mode. Ports and
+secrets live in `e2e/http/config.ts`.
+
+**Do not add a second history implementation to `ValOpsFS`.** The mock content
+host is already a full stand-in for `home`, pinned by `homeWireContract.test.ts`
+and driven by `e2e/http/history.spec.ts`, so CI keeps it honest on every push. A
+fake commit store behind an env flag in `packages/server` would be a second
+fake of the same service, in shipped product code, with nothing testing it.
+
 ## Working with Images
 
 ### ImageSource Shape

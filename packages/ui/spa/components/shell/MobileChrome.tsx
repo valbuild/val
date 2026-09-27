@@ -5,7 +5,20 @@ import { PreviewButton, PublishButton } from "./TopBar";
 import { LocaleFilter } from "./LocaleFilter";
 
 /**
- * The sticky mobile bottom bar. Preview and Publish are always reachable
+ * Where a note floating over the bottom of the Studio is anchored, so it
+ * clears whichever bar is along the bottom edge.
+ *
+ * `4rem` - what these notes always sat at, above the status bar - wherever the
+ * safe area is under `0.75rem`, which is every desktop. On a phone whose page
+ * opts into `viewport-fit=cover` the bottom bar rises with the safe area (see
+ * `MobileBottomBar`: `max(0.75rem, safe area)` up, 50px tall), and a fixed
+ * `bottom-16` ended up under it. This rises with it, 2px clear.
+ */
+export const CLEAR_OF_BOTTOM_BARS =
+  "bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.25rem)]";
+
+/**
+ * The floating mobile bottom bar. Preview and Publish are always reachable
  * here; auto save, dev mode and branch move behind the status button rather
  * than taking a permanent row.
  *
@@ -71,7 +84,22 @@ export function MobileBottomBar({
   onExitCanvas?: () => void;
 }) {
   return (
-    <div className="absolute z-full bottom-0 inset-x-0 flex items-center gap-2 px-3 py-2.5 bg-bg-float border-t border-border-float">
+    /*
+     * Floating, like the top bar, rather than a strip across the bottom edge.
+     *
+     * Flush with the edge, the bar's left and right ends and its buttons'
+     * bottom borders ran into the phone's rounded screen corners and were cut
+     * off. Inset on all sides with its own full border, the whole of it is on
+     * screen. `max(…, env(safe-area-inset-bottom))` so a page that opts into
+     * `viewport-fit=cover` does not put it under the home indicator.
+     *
+     * `p-1.5` + `rounded-xl` keeps the corners concentric with the buttons'
+     * `rounded-md`, and keeps the bar's top edge (12px + 50px) under
+     * `CLEAR_OF_BOTTOM_BARS`, where the notes floating above it are anchored. `gap-1.5`
+     * rather than `gap-2` gives back the width the inset took, so the row
+     * still fits a 320px phone - see the `min-w-0` note below.
+     */
+    <div className="absolute z-full inset-x-2 bottom-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-1.5 p-1.5 bg-bg-float border border-border-float rounded-xl shadow-lg">
       <button
         type="button"
         onClick={onOpenStatus}

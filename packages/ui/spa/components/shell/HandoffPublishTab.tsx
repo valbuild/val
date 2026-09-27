@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useStudioDeployState } from "../ValProvider";
-import { joinHandoff, type TabHandoff } from "../../publish/handoff";
+import { joinHandoff, leaveTo, type TabHandoff } from "../../publish/handoff";
 import {
   describeDeployFailure,
   describeDeployPhase,
@@ -183,12 +183,8 @@ export function HandoffPublishTab({ id }: { id: string }) {
         steps={steps}
         elapsedMs={elapsedMs}
         result={result}
-        onViewSite={() => {
-          window.location.href = "/";
-        }}
-        onOpenStudio={() => {
-          window.location.href = "/val";
-        }}
+        onViewSite={() => leaveTo("/")}
+        onOpenStudio={() => leaveTo("/val")}
         onClose={() => window.close()}
       />
     </div>

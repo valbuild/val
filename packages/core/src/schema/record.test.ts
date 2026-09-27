@@ -163,33 +163,117 @@ describe("RecordSchema", () => {
     expect(
       schema["executeValidate"]("/external.val.ts" as SourcePath, {
         "https://www.google.com": { title: "Test" },
+        "http://www.google.com": { title: "Insecure but absolute" },
       }),
-    ).toBe(false); // No validation errors for valid path
+    ).toBe(false); // No validation errors for valid paths
   });
 
-  test("router validation: src/app directory structure", () => {
-    const schema = record(object({ title: string() })).router(nextAppRouter);
-    const result = schema["executeValidate"](
-      "/src/app/blogs/[blog]/page.val.ts" as SourcePath,
-      {
-        "/blogs/test": { title: "Test" }, // Valid
-        "/blog/test": { title: "Invalid" }, // Wrong path
-      },
+  /**
+   * The external router's rule, which for a long time was not enforced at all:
+   * `validate` collected its errors and then returned an empty list.
+   *
+   * The rule itself is now wider than "starts with http". An external page is
+   * whatever a site links OUT to, and `mailto:` on a contact page is the same
+   * kind of thing to whoever maintains the list. What is refused is a key with
+   * no scheme, and the handful of schemes that are not links at all.
+   */
+  test("router validation: external keys with no scheme", () => {
+    const schema = record(object({ title: string() })).router(
+      externalPageRouter,
     );
+    const result = schema["executeValidate"]("/external.val.ts" as SourcePath, {
+      "https://www.google.com": { title: "Valid" },
+      "mailto:hi@example.com": { title: "Also valid" },
+      "tel:+4712345678": { title: "Also valid" },
+      "discord.gg/val": { title: "No scheme" },
+      "/about": { title: "A path, not a URL" },
+    });
 
     expect(result).not.toBe(false);
     if (result !== false) {
+      const flagged = Object.values(result)
+        .flat()
+        .map((error) => error.value);
+      expect(flagged).toContain("discord.gg/val");
+      expect(flagged).toContain("/about");
+      expect(flagged).not.toContain("https://www.google.com");
+      expect(flagged).not.toContain("mailto:hi@example.com");
+      expect(flagged).not.toContain("tel:+4712345678");
+      // Reported against the KEY rather than the module, which is what
+      // `keyError` means.
       expect(
-        Object.values(result).some((errors) =>
-          errors.some((error) => error.message.includes("/blog/test")),
-        ),
+        Object.values(result)
+          .flat()
+          .every((error) => error.keyError === true),
       ).toBe(true);
-      const error = Object.values(result).find((errors) =>
-        errors.find((error) => error.value === "/blog/test"),
-      )?.[0];
-      expect(error?.value).toStrictEqual("/blog/test");
-      expect(error?.keyError).toBe(true);
     }
+  });
+
+  /**
+   * The schemes that stay refused however wide the policy is.
+   *
+   * An external page key ends up in an `href` in the consuming site's own
+   * markup, so `javascript:` there is stored XSS on that site.
+   */
+  test("router validation: schemes that are not links", () => {
+    const schema = record(object({ title: string() })).router(
+      externalPageRouter,
+    );
+    const result = schema["executeValidate"]("/external.val.ts" as SourcePath, {
+      "javascript:alert(1)": { title: "Script" },
+      "data:text/html,<script>alert(1)</script>": { title: "A document" },
+      "file:///etc/passwd": { title: "The visitor's own machine" },
+    });
+
+    expect(result).not.toBe(false);
+    if (result !== false) {
+      expect(Object.values(result).flat()).toHaveLength(3);
+    }
+  });
+
+  test("router validation: a project that narrows the schemes", () => {
+    const schema = record(object({ title: string() })).router(
+      externalPageRouter({ schemes: ["https"] }),
+    );
+    const result = schema["executeValidate"]("/external.val.ts" as SourcePath, {
+      "https://www.google.com": { title: "Allowed" },
+      "mailto:hi@example.com": { title: "Not here" },
+      "http://www.google.com": { title: "Not here either" },
+    });
+
+    expect(result).not.toBe(false);
+    if (result !== false) {
+      const flagged = Object.values(result)
+        .flat()
+        .map((error) => error.value);
+      expect(flagged).toEqual(
+        expect.arrayContaining([
+          "mailto:hi@example.com",
+          "http://www.google.com",
+        ]),
+      );
+      expect(flagged).not.toContain("https://www.google.com");
+    }
+  });
+
+  test("the narrowed schemes are serialized, so the Studio can apply them", () => {
+    expect(
+      record(object({ title: string() }))
+        .router(externalPageRouter({ schemes: ["https", "mailto"] }))
+        ["executeSerialize"](),
+    ).toMatchObject({
+      router: "external-url-router",
+      routerSchemes: ["https", "mailto"],
+    });
+    // The wide default carries no list: the Studio knows that one already, and
+    // an explicit `undefined` would show up in every schema diff.
+    expect(
+      Object.keys(
+        record(object({ title: string() }))
+          .router(externalPageRouter)
+          ["executeSerialize"](),
+      ),
+    ).not.toContain("routerSchemes");
   });
 
   test("router validation: with groups", () => {

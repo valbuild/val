@@ -21,6 +21,11 @@ import type { DependencyChange } from "@valbuild/shared/internal";
  * The tab opens at the PRESS, before the save: a window opened after an await
  * has lost the click that allowed it, and the browser blocks it. So the tab
  * starts out waiting, and is told the commit when the save has made one.
+ *
+ * On a desktop it is a small popup window rather than a tab, sized to the
+ * publish card: see `openBuilderWindow`. iPadOS ignores the window features
+ * and opens a tab, and so does a browser told to open popups as tabs, which
+ * is why the rest of this file still says "tab".
  */
 
 export const HANDOFF_PARAM = "publish-handoff";
@@ -92,6 +97,85 @@ export function handoffUrl(id: string, studioPath = "/val"): string {
   return `${studioPath}?${HANDOFF_PARAM}=${encodeURIComponent(id)}`;
 }
 
+/** The publish card is `max-w-md` (448px) with a 24px gutter each side. */
+const WINDOW_WIDTH = 480;
+/** Ten steps, the heading and the result's buttons, without a scrollbar. */
+const WINDOW_HEIGHT = 680;
+
+type ScreenScope = {
+  screenX?: number;
+  screenY?: number;
+  outerWidth?: number;
+  outerHeight?: number;
+};
+
+/**
+ * The features that make `window.open` a popup window over the page rather
+ * than a tab: centred across it, a third of the way down.
+ *
+ * Never `noopener`. With it `window.open` returns `null`, which is how
+ * `openHandoff` learns the browser blocked the window, so every handoff would
+ * read as blocked. The opener's handle is severed anyway: the Studio document
+ * is COOP `same-origin`.
+ */
+export function builderWindowFeatures(scope: ScreenScope = globalThis): string {
+  const at = (
+    origin: number | undefined,
+    outer: number | undefined,
+    size: number,
+    share: number,
+  ) =>
+    typeof origin === "number" && typeof outer === "number" && outer > size
+      ? Math.round(origin + (outer - size) * share)
+      : null;
+  const left = at(scope.screenX, scope.outerWidth, WINDOW_WIDTH, 1 / 2);
+  const top = at(scope.screenY, scope.outerHeight, WINDOW_HEIGHT, 1 / 3);
+  return [
+    "popup",
+    `width=${WINDOW_WIDTH}`,
+    `height=${WINDOW_HEIGHT}`,
+    ...(left !== null ? [`left=${left}`] : []),
+    ...(top !== null ? [`top=${top}`] : []),
+  ].join(",");
+}
+
+/**
+ * Open (or re-open: the name is the handoff's, so a second press reuses the
+ * window) the builder at `url`. `null` when the browser refused.
+ */
+export function openBuilderWindow(url: string, target: string): Window | null {
+  return window.open(url, target, builderWindowFeatures());
+}
+
+/**
+ * Go on to the site or the Studio from the builder: in a tab of its own, and
+ * close the builder.
+ *
+ * On a desktop the builder is a popup the size of the publish card, which is
+ * no place to read a site in. It cannot tell that it is one: the COOP swap
+ * into the Studio document drops "is popup", so `locationbar.visible` reads
+ * true in the popup too (measured in Chromium, headed and headless). It does
+ * not need to. The builder is always opened by script -- at the press, or by
+ * "Open the Studio to publish" -- so it may close itself, and where it is a
+ * tab after all (iPadOS) this lands on the same page a navigation would.
+ *
+ * In place only when the browser refuses the new tab.
+ */
+export function leaveTo(
+  href: string,
+  scope: {
+    open: (url: string, target: string) => unknown;
+    close: () => void;
+    location: { href: string };
+  } = window,
+) {
+  if (scope.open(href, "_blank") !== null) {
+    scope.close();
+    return;
+  }
+  scope.location.href = href;
+}
+
 function channelOf(): BroadcastChannel | null {
   return typeof BroadcastChannel === "undefined"
     ? null
@@ -126,8 +210,7 @@ export function openHandoff(
 ): SiteHandoff {
   const id = newId();
   const url = handoffUrl(id, options.studioPath);
-  const open =
-    options.open ?? ((u: string, target: string) => window.open(u, target));
+  const open = options.open ?? openBuilderWindow;
   const opened = open(url, `val-publish-${id}`) !== null;
   const channel = channelOf();
   let pending: ToTab | null = null;

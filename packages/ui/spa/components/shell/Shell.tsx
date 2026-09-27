@@ -11,6 +11,8 @@ import type { StudioDeployState } from "../../publish/useStudioDeploy";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
+import { checkExternalUrls } from "./externalUrlChecks";
+import { toRows } from "./externalPageGroups";
 import { ShellPanelProvider } from "./shellPanelLink";
 import { EmptyEditorState, PageEditor } from "./EditorCanvas";
 import {
@@ -38,7 +40,6 @@ import { NavSwitcher, needsNavSwitcher } from "./NavSwitcher";
 import { PendingChangesGate } from "./PendingChangesGate";
 import type { ChainProgress } from "../../utils/describePendingChangesStall";
 
-import { FloatingPanel } from "./FloatingPanel";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { PagesPanel } from "./PagesPanel";
 import { AccountPanel } from "./AccountPanel";
@@ -58,6 +59,7 @@ import {
 import { servedPath } from "../../utils/mediaPath";
 import { useShellBreakpoint } from "./useShellBreakpoint";
 import {
+  ShellBreakpoint,
   ShellChangeActivity,
   ShellData,
   ShellDataModule,
@@ -302,6 +304,33 @@ export type ShellProps = {
    */
   renderSettings?: () => ReactNode;
   /**
+   * The external pages dialog, connected to the store.
+   *
+   * A render prop, and called only while the dialog is open — which is the
+   * point. Reading what is behind every external URL and who links to it means
+   * an index over the whole project (`useRouteReferenceIndex`), and nothing
+   * should build that for a Studio nobody has opened this dialog in. The shell
+   * owns the open state; the app owns the data.
+   *
+   * Absent — in Storybook, or in a project with no external router — and the
+   * Pages panel has no external pages button.
+   */
+  renderExternalPages?: (props: {
+    close: () => void;
+    /**
+     * Open one URL's entry in the editor.
+     *
+     * Handed down rather than done by the app, because selection is the
+     * shell's: it owns which row is current and what the editor column shows.
+     * Opening one of the PLACES a URL is linked from is the app's — that is a
+     * field inside a module, deeper than any navigation row, and the same
+     * reason `onOpenSearchResult` exists.
+     */
+    onSelectExternalPage: (page: ShellExternalPage) => void;
+    /** The shell is what knows it — see `renderHistory`. */
+    breakpoint: ShellBreakpoint;
+  }) => ReactNode;
+  /**
    * Something to show in the editor column instead of the selection's editor.
    *
    * The compare and errors views are not items: they take the whole column and
@@ -367,15 +396,23 @@ export type ShellProps = {
    */
   aiSlot?: ReactNode;
   /**
-   * The list of publishes, for the History panel.
+   * Whether this project HAS a published history, which decides whether the
+   * top bar offers the button at all.
    *
-   * A slot for the same reason `aiSlot` is one: the list has to fetch commits
-   * and set `?commit=`, and the shell is deliberately free of Val hooks so it
-   * can be rendered from a story with mock data. Absent means Val has no
-   * published history here (FS mode), and the button is hidden with it — see
-   * `historyEnabled`.
+   * False in FS mode: local dev has git rather than a commit archive, and
+   * `/history/commits` answers `not-supported-in-fs-mode`. A button that can
+   * only open an apology is worse than no button.
+   *
+   * There is no `historySlot` any more. The list of publishes used to be a
+   * floating panel here and is now a page of its own — see
+   * `VAL_HISTORY_ROUTE` — so what the shell needs is permission to show a
+   * button and somewhere to send it, not the list itself.
    */
-  historySlot?: ReactNode;
+  historyEnabled?: boolean;
+  /** Whether that page is the one currently on screen. */
+  historyActive?: boolean;
+  /** Go to it. */
+  onOpenHistory?: () => void;
   /**
    * Mention a source path in the assistant. From the canvas's field menu.
    *
@@ -496,6 +533,7 @@ export function Shell({
   onSelectionChange,
   renderEditor,
   renderSettings,
+  renderExternalPages,
   editorOverride,
   renderHistory,
   onPublish,
@@ -506,7 +544,9 @@ export function Shell({
   accountError,
   aiEnabled = false,
   aiSlot,
-  historySlot,
+  historyEnabled = false,
+  historyActive = false,
+  onOpenHistory,
   onMentionField,
   pendingChangesLoaded = true,
   pendingChangesProgress,
@@ -545,6 +585,32 @@ export function Shell({
     [selectionId, data],
   );
   const selection = isControlled ? controlledSelection : internalSelection;
+  const [isExternalPagesOpen, setIsExternalPagesOpen] = useState(false);
+  /**
+   * How many external URLs want looking at, for the button's badge.
+   *
+   * Computed here rather than passed in because the shape checks are pure and
+   * cheap — they read the URLs and nothing else — and because the button has to
+   * say something about what is behind it before anyone opens it. The
+   * reachability half is not here: that needs the network, and it only runs
+   * when someone presses Check.
+   */
+  const externalIssueCount = useMemo(() => {
+    // Through `toRows`, so this counts exactly what the dialog's own badges,
+    // Flagged filter and totals count. Counting the URL checks alone here put
+    // a red badge on a row whose entry does not validate while the footer said
+    // there was nothing to look at.
+    const issues = checkExternalUrls(
+      data.externalPages.map((p) => p.url),
+      // The project's own policy, the same one the dialog applies. Counting
+      // with the wide default under a router narrowed to `https` said there
+      // was nothing to look at over a dialog full of flagged `mailto:` rows.
+      data.externalSchemes ? { schemes: data.externalSchemes } : {},
+    );
+    return toRows(data.externalPages, issues).filter(
+      (row) => row.status !== "ok",
+    ).length;
+  }, [data.externalPages, data.externalSchemes]);
   const [isSearchOpen, setIsSearchOpen] = useState(initialSearchOpen);
   const [isCanvasOpen, setIsCanvasOpen] = useState(initialCanvasOpen);
   const [canvasView, setCanvasView] = useState<CanvasView>(initialCanvasView);
@@ -769,12 +835,6 @@ export function Shell({
       setOpenPanel(null);
     }
   }, [openPanel, aiEnabled]);
-
-  useEffect(() => {
-    if (openPanel === "history" && historySlot === undefined) {
-      setOpenPanel(null);
-    }
-  }, [openPanel, historySlot]);
 
   const validationErrorCount = useMemo(
     () => data.validationErrors.reduce((sum, e) => sum + e.count, 0),
@@ -1093,7 +1153,9 @@ export function Shell({
           accountError={breakpoint === "desktop" ? undefined : accountError}
           isLoading={isLoading}
           aiEnabled={aiEnabled}
-          historyEnabled={historySlot !== undefined}
+          historyEnabled={historyEnabled}
+          historyActive={historyActive}
+          onOpenHistory={onOpenHistory}
           onPreview={onPreview ?? (() => undefined)}
           previewHref={previewHref}
           onToggleCanvas={canCanvas ? togglePreview : undefined}
@@ -1202,10 +1264,13 @@ export function Shell({
               const next = toPageSelection(page);
               if (next) select(next);
             }}
-            onSelectExternalPage={(page) => {
-              const next = toExternalSelection(page);
-              if (next) select(next);
-            }}
+            onOpenExternalPages={
+              renderExternalPages
+                ? () => setIsExternalPagesOpen(true)
+                : undefined
+            }
+            externalIssueCount={externalIssueCount}
+            externalPagesLoading={data.externalPagesLoading}
             onNewPage={onNewPage ?? (() => undefined)}
             onDuplicatePage={onDuplicatePage}
             onRenamePage={onRenamePage}
@@ -1218,6 +1283,16 @@ export function Shell({
             loadError={loadError}
           />
         )}
+
+        {isExternalPagesOpen &&
+          renderExternalPages?.({
+            close: () => setIsExternalPagesOpen(false),
+            onSelectExternalPage: (page) => {
+              const next = toExternalSelection(page);
+              if (next) select(next);
+            },
+            breakpoint,
+          })}
 
         {openPanel === "media" && (
           <MediaPanel
@@ -1348,19 +1423,6 @@ export function Shell({
           >
             {aiSlot ?? <NoAssistantConfigured />}
           </AIChatPanel>
-        )}
-
-        {openPanel === "history" && (
-          <FloatingPanel
-            side="right"
-            width={340}
-            title="History"
-            mobileVariant="bottom-sheet"
-            breakpoint={breakpoint}
-            onClose={closePanel}
-          >
-            {historySlot}
-          </FloatingPanel>
         )}
 
         {openPanel === "notifications" && (

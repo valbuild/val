@@ -164,6 +164,48 @@ describe("toExternalPages", () => {
     expect(toExternalPages(undefined)).toEqual([]);
     expect(toExternalPages(null)).toEqual([]);
   });
+
+  test("counts validation errors against the entry they are inside", () => {
+    // Every external page lives in the same module, so a module-level count
+    // would put the same number on every row. A `.validate(...)` an editor
+    // wrote on the item schema reports at the entry, or at a field of it.
+    const a = source('/external.val.ts?p="https://a.example.com"');
+    const b = source('/external.val.ts?p="https://b.example.com"');
+    const pages = toExternalPages(
+      { "https://a.example.com": a, "https://b.example.com": b },
+      {
+        [a]: [{ message: "Needs a title" }],
+        [source(`${a}."title"`)]: [
+          { message: "Too short" },
+          { message: "Not sentence case" },
+        ],
+        [b]: [],
+      },
+    );
+    expect(pages.map((page) => page.errorCount)).toEqual([3, 0]);
+  });
+
+  test("a URL's own dots and slashes do not split the path", () => {
+    // The record key is JSON-encoded into the module path, so everything in
+    // the URL is inside one segment - which is the thing a hand-rolled split
+    // on "." gets wrong.
+    const url = "https://example.com/a.b/c?q=1#frag";
+    const entry = source(`/external.val.ts?p=${JSON.stringify(url)}`);
+    const pages = toExternalPages(
+      { [url]: entry },
+      { [source(`${entry}."title"`)]: [{ message: "Needs a title" }] },
+    );
+    expect(pages[0].errorCount).toBe(1);
+  });
+
+  test("no error map at all means no count, which is not zero", () => {
+    // Zero says "checked, nothing wrong". Before the errors have loaded the
+    // honest answer is that nobody has looked.
+    const entry = source('/external.val.ts?p="https://a.example.com"');
+    expect(
+      toExternalPages({ "https://a.example.com": entry })[0].errorCount,
+    ).toBeUndefined();
+  });
 });
 
 describe("hostLabel", () => {

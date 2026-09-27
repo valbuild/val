@@ -11,7 +11,11 @@ const disabledVariant =
 
 const buttonVariants = cva(
   cn(
-    "inline-flex items-center justify-center whitespace-nowrap rounded-md text-fg-primary text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+    // `gap-1.5` so an icon and a label do not touch. It is on the base rather
+    // than added per call site because nothing here can want them flush, and
+    // a button with one child is unaffected — which is every button that
+    // existed before the compare dialog put an icon next to a word.
+    "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-fg-primary text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
     disabledBase,
   ),
   {

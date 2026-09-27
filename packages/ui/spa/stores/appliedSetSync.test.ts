@@ -132,7 +132,7 @@ test("an applied patch is visible under a scope that does not hold it", async ()
   const system = makeSystem();
   await deliver(system);
   system.setPatchGroup([]);
-  // Held: pending, and outside this client's group.
+  // Unstaged: pending, and outside this client's group.
   expect(system.sourceStore.peek(TITLE)).toMatchObject({ data: "base" });
 
   await deliver(system, [THEIRS]);

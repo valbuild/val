@@ -14,7 +14,12 @@ import { createStudioPublishClient } from "./publishClient";
 import { runSiteUpdate, type SiteUpdateOutcome } from "./runSiteUpdate";
 import { describeDeployPhase } from "./deployProgress";
 import type { UseStudioDeploy } from "./useStudioDeploy";
-import { canBuildHere, openHandoff, type SiteHandoff } from "./handoff";
+import {
+  canBuildHere,
+  openBuilderWindow,
+  openHandoff,
+  type SiteHandoff,
+} from "./handoff";
 import { beginSiteOperation, busyMessage } from "./siteOperation";
 
 /**
@@ -185,9 +190,13 @@ export function useSiteUpdate(options: {
   const openBuilderTab = useCallback(() => {
     const tab = handoff.current;
     if (tab === null) return;
-    // The same id, so the tab finds the `update` this page is holding.
-    window.open(tab.url, `val-publish-${tab.id}`);
-    setView({ status: "updating", step: "Opening a tab to build the site" });
+    // The same id, so the tab finds the `update` this page is holding. A
+    // popup, like the publish's builder -- see `openBuilderWindow`.
+    const opened = openBuilderWindow(tab.url, `val-publish-${tab.id}`) !== null;
+    // Blocked again: keep offering the button rather than claiming it opened.
+    if (opened) {
+      setView({ status: "updating", step: "Opening a tab to build the site" });
+    }
   }, []);
 
   /*

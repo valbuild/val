@@ -262,12 +262,65 @@ test.describe("patch groups in http mode", () => {
  * than "Review 1 change". Requiring the digits made this test unable to reach
  * the one screen a held change can be put back from.
  */
-async function openCompare(page: Page, studio: Locator): Promise<void> {
+async function openReview(page: Page, studio: Locator): Promise<void> {
   const review = studio.getByRole("button", {
     name: /^Review( \d+)? changes?$/,
   });
   await expect(review).toBeVisible({ timeout: 30_000 });
   await review.click();
+}
+
+/**
+ * The rows of one half of the review page.
+ *
+ * SCOPED, and that is the whole point of this helper. The page lists staged
+ * rows above unstaged ones, so "the first checkbox" is whichever half happens
+ * to be non-empty — and pressing Stage on an already-staged row is a no-op
+ * that leaves the assertion to fail three steps later, naming the group rather
+ * than the click. The old per-row buttons could not be got wrong this way: a
+ * Stage button only existed on a row that was unstaged.
+ */
+function rowsIn(studio: Locator, section: "Staged" | "Unstaged"): Locator {
+  /*
+   * By the info button's label, through CSS `:has()`.
+   *
+   * Not `filter({ has: getByRole("heading") })`: an inner locator built from
+   * the shadow-root handle does not re-root onto the section, so it matched
+   * nothing and the failure read as "no staging control" over a screenshot
+   * plainly showing one. And not `:has-text("Staged")` either — that matches
+   * "Unstaged" as a substring, which is the same bug the other way round. An
+   * attribute selector is exact.
+   */
+  return studio
+    .locator(`section:has([aria-label="What ${section.toLowerCase()} means"])`)
+    .getByRole("checkbox");
+}
+
+/**
+ * Act on one change, through the controls an editor actually has.
+ *
+ * The review page separates SELECTING from ACTING — a tick box per row, and
+ * one button for whatever is ticked — because one control cannot answer both
+ * "is this going out" and "am I about to change that". So this is two
+ * gestures, and it has to be: a test that reached past the selection would be
+ * asserting on a button the user cannot press without first choosing what it
+ * applies to.
+ */
+async function actOnFirstRow(
+  studio: Locator,
+  action: "Stage" | "Unstage",
+  absentMessage: string,
+): Promise<void> {
+  // Stage acts on an UNSTAGED row and vice versa.
+  const row = rowsIn(
+    studio,
+    action === "Stage" ? "Unstaged" : "Staged",
+  ).first();
+  await expect(row, absentMessage).toBeVisible({ timeout: 30_000 });
+  await row.click();
+  const button = studio.getByRole("button", { name: action, exact: true });
+  await expect(button).toBeEnabled({ timeout: 30_000 });
+  await button.click();
 }
 
 /**
@@ -294,14 +347,12 @@ test.describe("the staging controls", () => {
     expect(state.patchGroups[0].patchIds).toEqual([patchId]);
 
     const studio = page.locator("#val-shadow-root");
-    await openCompare(page, studio);
-
-    const unstage = studio.getByRole("button", { name: /^Unstage / }).first();
-    await expect(
-      unstage,
+    await openReview(page, studio);
+    await actOnFirstRow(
+      studio,
+      "Unstage",
       "the review screen offered no staging control, so groups never reached the UI",
-    ).toBeVisible({ timeout: 30_000 });
-    await unstage.click();
+    );
 
     // The SERVER lost it, which is the half a screenshot cannot show.
     await expect
@@ -346,10 +397,12 @@ test.describe("the staging controls", () => {
       .toMatchObject({ status: "ready", data: "Theodor René Carlsen" });
 
     // Staging it again brings it back, and then it ships.
-    await openCompare(page, studio);
-    const stage = studio.getByRole("button", { name: /^Stage / }).first();
-    await expect(stage).toBeVisible({ timeout: 30_000 });
-    await stage.click();
+    await openReview(page, studio);
+    await actOnFirstRow(
+      studio,
+      "Stage",
+      "the change could not be staged again",
+    );
     await expect
       .poll(
         async () =>
@@ -444,13 +497,12 @@ test.describe("the staging controls", () => {
       .toBe(undefined);
 
     const studio = page.locator("#val-shadow-root");
-    await openCompare(page, studio);
-    const stage = studio.getByRole("button", { name: /^Stage / }).first();
-    await expect(
-      stage,
+    await openReview(page, studio);
+    await actOnFirstRow(
+      studio,
+      "Stage",
       "the staging controls disappeared after the publish",
-    ).toBeVisible({ timeout: 30_000 });
-    await stage.click();
+    );
 
     /*
      * Nowhere to send it yet, so Bob's group must be untouched — and no group

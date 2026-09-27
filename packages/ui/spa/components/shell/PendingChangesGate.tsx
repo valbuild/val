@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { ChevronRight, Loader2, TriangleAlert, X } from "lucide-react";
 import { cn } from "../designSystem/cn";
+import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
 import {
   ChainProgress,
   describePendingChangesStall,
@@ -139,7 +140,12 @@ export function PendingChangesGate({
  */
 function LoadingNote({ onDismiss }: { onDismiss: () => void }) {
   return (
-    <div className="pointer-events-none absolute bottom-16 left-1/2 z-hover -translate-x-1/2">
+    <div
+      className={cn(
+        "pointer-events-none absolute left-1/2 z-hover -translate-x-1/2",
+        CLEAR_OF_BOTTOM_BARS,
+      )}
+    >
       <span className="inline-flex items-center gap-1.5 rounded-md border border-border-float bg-bg-float px-2.5 py-1 text-xs text-fg-secondary shadow-sm">
         <Loader2 size={12} className="animate-spin" aria-hidden />
         Loading unpublished changes…
@@ -177,7 +183,10 @@ function StallReport({
   return (
     <div
       role="alert"
-      className="absolute bottom-16 left-1/2 z-hover w-[min(28rem,calc(100%-2rem))] -translate-x-1/2"
+      className={cn(
+        "absolute left-1/2 z-hover w-[min(28rem,calc(100%-2rem))] -translate-x-1/2",
+        CLEAR_OF_BOTTOM_BARS,
+      )}
     >
       <div className="rounded-md border border-border-float bg-bg-float p-3 shadow-md">
         <div className="flex items-start gap-2">

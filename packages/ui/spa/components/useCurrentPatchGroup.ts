@@ -77,8 +77,8 @@ export function useCurrentPatchGroup(): CurrentPatchGroup {
        * seeds the scope from those empty members, `seedPatchGroup([])` scopes
        * the client to nothing, and the seed never runs again because the scope
        * is no longer `null`. The user's own pending patches from an earlier
-       * session stay held for the life of the tab — base on screen, Publish
-       * disabled, "N changes are held back".
+       * session stay unstaged for the life of the tab — base on screen, Publish
+       * disabled, "N changes are unstaged".
        *
        * So: not enabled until we know whose group to ask for. Matching the
        * annotation anyway would be worse — `null === null` would adopt a group

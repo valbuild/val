@@ -59,7 +59,11 @@ export type PublishButtonInput = {
    */
   publishRefusal: string | null;
   validationErrorCount: number;
-  /** Changes the server will refuse: they have to be discarded first. */
+  /**
+   * Changes the server refused on the last attempt.
+   *
+   * Information, never a block: see the `ready` state below.
+   */
   conflictingChangeCount: number;
   isPublishing: boolean;
   /** Refused by the publish gate itself — see `createSystem`. */
@@ -79,17 +83,17 @@ export type PublishButtonInput = {
    */
   netChangesEmpty: boolean;
   /**
-   * Pending changes this client is holding BACK — outside its patch group.
+   * Pending changes this client has UNSTAGED — outside its patch group.
    *
    * Distinguishes two states that look identical from `netChangesEmpty` alone,
-   * because a held patch is not applied to the scoped source and so leaves it
-   * equal to base, exactly as an undone edit does. The button is off either
-   * way; what differs is what the reader should do about it. Telling someone
-   * their work "has been reverted" and offering Discard, when in fact they held
-   * it back on purpose and need only stage it, is the more expensive of the two
-   * mistakes: one instruction throws the change away.
+   * because an unstaged patch is not applied to the scoped source and so
+   * leaves it equal to base, exactly as an undone edit does. The button is off
+   * either way; what differs is what the reader should do about it. Telling
+   * someone their work "has been reverted" and offering Discard, when in fact
+   * they unstaged it on purpose and need only stage it again, is the more
+   * expensive of the two mistakes: one instruction throws the change away.
    */
-  heldChangeCount: number;
+  unstagedChangeCount: number;
 };
 
 function plural(count: number, one: string, many: string): string {
@@ -110,7 +114,7 @@ export function describePublishButton(
     pendingServerSidePatchCount,
     pendingClientSidePatchCount,
     netChangesEmpty,
-    heldChangeCount,
+    unstagedChangeCount,
   } = input;
   const saving = mode === "fs";
 
@@ -134,22 +138,18 @@ export function describePublishButton(
   }
 
   /*
-   * Errors first, and pressable.
+   * Validation errors first, and pressable.
    *
-   * Both reasons can hold at once and each is separately actionable, so the
-   * reason names every one that applies rather than only the first.
+   * These block because publishing them WOULD publish something wrong: content
+   * the schema says is invalid. Nothing else in this function gets to disable
+   * the button on the content's behalf.
    */
-  if (validationErrorCount > 0 || conflictingChangeCount > 0) {
-    const reasons: string[] = [];
-    if (validationErrorCount > 0) {
-      reasons.push(
-        `${validationErrorCount} validation ${plural(validationErrorCount, "error", "errors")} to fix.`,
-      );
-    }
+  if (validationErrorCount > 0) {
+    const reasons: string[] = [
+      `${validationErrorCount} validation ${plural(validationErrorCount, "error", "errors")} to fix.`,
+    ];
     if (conflictingChangeCount > 0) {
-      reasons.push(
-        `${conflictingChangeCount} ${plural(conflictingChangeCount, "change", "changes")} cannot be applied. Remove ${plural(conflictingChangeCount, "it", "them")} to continue.`,
-      );
+      reasons.push(conflictNote(conflictingChangeCount));
     }
     return {
       kind: "blocked",
@@ -157,17 +157,11 @@ export function describePublishButton(
       // number someone can go and work through. Past 9 the exact number stops
       // being one — and a fourth digit would push the button wider than the
       // width every other state is sized to — so it caps at "Fix 9+".
-      label:
-        validationErrorCount > 0
-          ? `Fix ${validationErrorCount > 9 ? "9+" : validationErrorCount}`
-          : "Fix errors",
-      description:
-        validationErrorCount > 0
-          ? "Show the validation errors"
-          : "Show the changes that cannot be applied",
+      label: `Fix ${validationErrorCount > 9 ? "9+" : validationErrorCount}`,
+      description: "Show the validation errors",
       reason: reasons.join(" "),
       // Pressing it goes to the errors rather than doing nothing.
-      action: validationErrorCount > 0 ? "show-errors" : "none",
+      action: "show-errors",
     };
   }
 
@@ -209,19 +203,40 @@ export function describePublishButton(
           : nothingToSend
             ? "Nothing to send."
             : revertedToNothing
-              ? heldChangeCount > 0
-                ? `${heldChangeCount} ${plural(heldChangeCount, "change is", "changes are")} held back, so there is nothing to publish. Stage ${plural(heldChangeCount, "it", "them")} in Review to publish.`
+              ? unstagedChangeCount > 0
+                ? `${unstagedChangeCount} ${plural(unstagedChangeCount, "change is", "changes are")} unstaged, so there is nothing to publish. Stage ${plural(unstagedChangeCount, "it", "them")} in Review to publish.`
                 : "Every change has been reverted, so there is nothing to publish. Discard them to clear."
               : null,
       action: "none",
     };
   }
 
+  /*
+   * A change the server refused LAST time does not disable the button.
+   *
+   * It used to: the button became a disabled "Fix errors" that nothing could
+   * clear short of discarding the change. But a refusal is a statement about
+   * the attempt that got it, not about the next one — the deployment may have
+   * caught up with a commit it had not seen, the change it depended on may
+   * have shipped — and the server refuses the whole commit when a change does
+   * not apply, so pressing again cannot publish anything wrong. The worst it
+   * can do is be refused again, and say why. So the button stays pressable,
+   * and the refusal is what its tooltip says.
+   */
   return {
     kind: "ready",
     label: saving ? "Save" : "Publish",
-    description: saving ? "Save to disk" : "Publish pending changes",
+    description:
+      conflictingChangeCount > 0
+        ? `${conflictNote(conflictingChangeCount)} ${saving ? "Save" : "Publish"} again to retry.`
+        : saving
+          ? "Save to disk"
+          : "Publish pending changes",
     reason: null,
     action: saving ? "save" : "publish",
   };
+}
+
+function conflictNote(conflictingChangeCount: number): string {
+  return `The last attempt could not apply ${conflictingChangeCount} ${plural(conflictingChangeCount, "change", "changes")}.`;
 }

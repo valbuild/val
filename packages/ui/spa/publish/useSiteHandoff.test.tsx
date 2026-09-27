@@ -88,3 +88,48 @@ test("a page that cannot build -- WebKit's Studio -- opens the builder tab", () 
   expect(String(open.mock.calls[0]?.[0])).toMatch(/\/val\?publish-handoff=/);
   act(() => result.current.cancel(""));
 });
+
+test("the builder opens as a popup window, and a re-open reuses it", () => {
+  const open = jest.spyOn(window, "open").mockImplementation(() => null);
+  open.mockClear();
+  const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+  act(() => result.current.prepare(true));
+  // Blocked: the card offers the button, which opens the SAME window.
+  act(() => result.current.openStudio());
+  expect(open).toHaveBeenCalledTimes(2);
+  const [first, again] = open.mock.calls;
+  expect(again?.[0]).toBe(first?.[0]);
+  expect(again?.[1]).toBe(first?.[1]);
+  for (const call of [first, again]) {
+    expect(String(call?.[2]).split(",")).toContain("popup");
+    expect(String(call?.[2])).not.toMatch(/noopener/);
+  }
+  act(() => result.current.cancel(""));
+});
+
+test("a re-open the browser blocks too keeps offering the button", () => {
+  jest.spyOn(window, "open").mockImplementation(() => null);
+  const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+  act(() => result.current.prepare(true));
+  try {
+    expect(result.current.state).toEqual({ kind: "blocked" });
+    act(() => result.current.openStudio());
+    expect(result.current.state).toEqual({ kind: "blocked" });
+  } finally {
+    // An open channel keeps jest alive, and a failure would hang instead.
+    act(() => result.current.cancel(""));
+  }
+});
+
+test("a re-open the browser allows says it is opening", () => {
+  const open = jest.spyOn(window, "open").mockImplementation(() => null);
+  const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+  act(() => result.current.prepare(true));
+  try {
+    open.mockImplementation(() => window);
+    act(() => result.current.openStudio());
+    expect(result.current.state).toEqual({ kind: "opening" });
+  } finally {
+    act(() => result.current.cancel(""));
+  }
+});

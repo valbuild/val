@@ -254,7 +254,7 @@ export function StudioPublishPage({
             ? "Your change is on the site."
             : result?.kind === "failed"
               ? result.message
-              : `Started from the site ${seconds(elapsedMs)} ago. Keep this tab open until it is live.`}
+              : `Started from the site ${seconds(elapsedMs)} ago. Keep this open until it is live.`}
         </p>
         {result?.kind === "failed" && result.details && (
           <FailureDetails details={result.details} />
@@ -307,7 +307,7 @@ export function StudioPublishPage({
                 onClick={onClose}
                 className="inline-flex items-center h-8 px-3 rounded-md text-xs font-medium border border-border-float hover:bg-bg-secondary"
               >
-                Close this tab
+                Close
               </button>
             )}
             {result.kind === "live" && result.closingInS !== undefined && (

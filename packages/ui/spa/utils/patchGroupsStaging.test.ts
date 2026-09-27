@@ -3,7 +3,7 @@ import { Operation } from "@valbuild/core/patch";
 import { PatchSets } from "./PatchSets";
 import {
   editWouldRestage,
-  heldPatchSets,
+  unstagedPatchSets,
   inChainOrder,
   indexPatchSets,
   stageClosure,
@@ -220,15 +220,15 @@ describe("validateGroup", () => {
   });
 });
 
-describe("heldPatchSets", () => {
+describe("unstagedPatchSets", () => {
   test("reports each patch set with something left out", () => {
-    expect(heldPatchSets(arrayChain(), ids("p1", "p2"))).toEqual([
+    expect(unstagedPatchSets(arrayChain(), ids("p1", "p2"))).toEqual([
       { patchSet: `${MODULE}?items`, unstaged: ["p3"] },
     ]);
   });
 
   test("a fully staged group holds nothing", () => {
-    expect(heldPatchSets(arrayChain(), ids("p1", "p2", "p3"))).toEqual([]);
+    expect(unstagedPatchSets(arrayChain(), ids("p1", "p2", "p3"))).toEqual([]);
   });
 });
 

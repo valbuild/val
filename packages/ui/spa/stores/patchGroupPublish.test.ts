@@ -172,7 +172,7 @@ test("renders base + the group, so what is shown is what would ship", async () =
   expect(read(system, OTHER_TITLE)).toBe("base B");
 });
 
-test("a held patch is hidden, not discarded — re-staging brings it back", async () => {
+test("an unstaged patch is hidden, not discarded — re-staging brings it back", async () => {
   const { system } = makeSystem();
 
   const mine = await edit(system, MODULE, "mine");
@@ -181,7 +181,7 @@ test("a held patch is hidden, not discarded — re-staging brings it back", asyn
   system.setPatchGroup([mine]);
   expect(read(system, OTHER_TITLE)).toBe("base B");
   // Still in the chain. Hiding a patch must not be a one-way trapdoor: the
-  // patch is held, not gone, and nothing has to be re-fetched to restore it.
+  // patch is unstaged, not gone, and nothing has to be re-fetched to restore it.
   expect(system.patchStore.allRecords().map((r) => r.patchId)).toContain(
     theirs,
   );
@@ -190,13 +190,13 @@ test("a held patch is hidden, not discarded — re-staging brings it back", asyn
   expect(read(system, OTHER_TITLE)).toBe("theirs");
 });
 
-test("a patch held before it ever applies still settles the chain", async () => {
+test("a patch unstaged before it ever applies still settles the chain", async () => {
   /*
    * The failure this pins is severe and completely invisible from the value.
    *
    * `chainSettled()` waits for every patch in the chain to be accounted for as
    * applied, failed or pending, and the editor holds EVERY field inert until it
-   * is true (`useInitialPatchesApplied`). A held patch is none of those three,
+   * is true (`useInitialPatchesApplied`). An unstaged patch is none of those three,
    * so a source store that simply skips it leaves the chain unsettled and the
    * whole Studio dimmed for the life of the tab — while rendering exactly the
    * right content, which is what makes it so hard to spot.
@@ -204,7 +204,7 @@ test("a patch held before it ever applies still settles the chain", async () => 
    * The ORDER here is the whole test. Applying a patch and then holding it
    * leaves a stale `appliedIds` entry that keeps the chain looking settled, so
    * that version passes with the bug present — it did, and it was worthless.
-   * The real path is a foreign patch that is held from the moment it arrives
+   * The real path is a foreign patch that is unstaged from the moment it arrives
    * and therefore never applies at all: the Studio opens with a group set, and
    * somebody else's pending work comes down from the server.
    */
@@ -236,13 +236,13 @@ test("a patch held before it ever applies still settles the chain", async () => 
 
   await new Promise((resolve) => setTimeout(resolve, 20));
 
-  // Held, so not in the view...
+  // Unstaged, so not in the view...
   expect(read(system, OTHER_TITLE)).toBe("base B");
   // ...and yet the chain is finished with it.
   expect(system.patchStore.chainSettled()).toBe(true);
 });
 
-test("later patches in a module survive an earlier one being held", async () => {
+test("later patches in a module survive an earlier one being unstaged", async () => {
   const { system } = makeSystem();
 
   // Two edits to the SAME module, so holding the first means the second has to
@@ -258,7 +258,7 @@ test("later patches in a module survive an earlier one being held", async () => 
 
   expect(read(system, TITLE)).toBe("second");
   expect(system.patchGroup()).toEqual([second.record.patchId]);
-  // The held one is untouched in the chain.
+  // The unstaged one is untouched in the chain.
   expect(system.patchStore.allRecords().map((r) => r.patchId)).toContain(first);
 });
 
@@ -424,7 +424,7 @@ test("a write carries the patches its own edit is entangled with", async () => {
     withPatchIds: await system.computeWriteClosure(patchIds),
   }));
 
-  // An earlier edit to the same path, held back — so it is in this client's
+  // An earlier edit to the same path, unstaged — so it is in this client's
   // chain, in the same patch set as what comes next, and NOT in its group.
   const earlier = await edit(system, MODULE, "earlier");
   await system.patchSync.flush();
