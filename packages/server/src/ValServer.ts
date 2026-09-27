@@ -180,6 +180,12 @@ export type CommitResult =
        */
       tree?: string;
       branch: string;
+      /**
+       * The chain version the publish moved the branch to, where the content
+       * service versions its chain and the publish applied anything. Passed
+       * on to the Studio, so a `/stat` read before the publish is dropped.
+       */
+      headVersion?: number;
       error?: undefined;
     }
   | { isNotFastForward?: boolean; error: GenericErrorMessage };
@@ -1663,6 +1669,18 @@ export const ValServer = (
             },
           };
         }
+        if (req.body?.reportHeadVersion === true) {
+          return {
+            status: 200,
+            json: {
+              deleted: ids,
+              ...("headVersion" in deleteRes &&
+              deleteRes.headVersion !== undefined
+                ? { headVersion: deleteRes.headVersion }
+                : {}),
+            },
+          };
+        }
         return {
           status: 200,
           json: ids,
@@ -2785,6 +2803,9 @@ export const ValServer = (
                   ? { sourceFiles: preparedCommit.patchedSourceFiles }
                   : {}),
                 ...(managedBranch !== null ? { branch: managedBranch } : {}),
+                ...(commitRes.headVersion !== undefined
+                  ? { headVersion: commitRes.headVersion }
+                  : {}),
                 ...(committedBinaries !== null
                   ? {
                       binaryFiles: committedBinaries.files,

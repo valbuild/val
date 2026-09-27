@@ -2713,10 +2713,17 @@ export abstract class ValOps {
     type: T,
   ): Promise<OpsMetadata<T>>;
   abstract deletePatches(patchIds: PatchId[]): Promise<
-    | { deleted: PatchId[]; errors?: undefined; error?: undefined }
+    | {
+        deleted: PatchId[];
+        errors?: undefined;
+        error?: undefined;
+        /** The chain version the delete moved the branch to, where reported. */
+        headVersion?: number;
+      }
     | {
         deleted: PatchId[];
         errors: Record<PatchId, GenericErrorMessage>;
+        headVersion?: number;
       }
     | { error: GenericErrorMessage; errors?: undefined; deleted?: undefined }
   >;

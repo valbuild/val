@@ -1220,7 +1220,8 @@ const deletePatches: Handler = async (req, res) => {
   }>(req);
   const ids = body?.patchIds ?? [];
   // A delete can move the head backwards, so the chain moves on a version.
-  if (ids.some((patchId) => state.patches.has(patchId))) {
+  const moved = ids.some((patchId) => state.patches.has(patchId));
+  if (moved) {
     chainVersion += 1;
   }
   for (const patchId of ids) {
@@ -1253,7 +1254,11 @@ const deletePatches: Handler = async (req, res) => {
   // Every id comes back as deleted, including ones that were already gone: a
   // patch someone else removed first is absent either way, and reporting that
   // as a failure would make an ordinary discard look broken.
-  json(res, 200, { deleted: ids });
+  json(res, 200, {
+    deleted: ids,
+    // Per branch, as `home` answers, since a delete there can span branches.
+    headVersions: moved ? { [PROJECT_BRANCH]: chainVersion } : {},
+  });
 };
 
 /**
@@ -1683,6 +1688,7 @@ const commit: Handler = async (req, res) => {
     updatedFiles: Object.keys(body.patchedSourceFiles ?? {}),
     commit: commitSha,
     branch: record.branch,
+    ...(appliedPatchIds.size > 0 ? { headVersion: chainVersion } : {}),
   });
 };
 

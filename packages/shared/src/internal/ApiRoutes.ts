@@ -907,6 +907,13 @@ export const Api = {
              * just not repairing.
              */
             unstagePatchIds: z.array(PatchId).optional(),
+            /*
+             * Answer with `{ deleted, headVersion }` rather than the bare id
+             * array. Asked for rather than always sent, because the array is
+             * what a Studio bundle from before this parses — and a tab left
+             * open across a deploy still runs one.
+             */
+            reportHeadVersion: z.literal(true).optional(),
           })
           .optional(),
         cookies: {
@@ -924,7 +931,19 @@ export const Api = {
         }),
         z.object({
           status: z.literal(200),
-          json: z.array(PatchId),
+          json: z.union([
+            z.array(PatchId),
+            z.object({
+              deleted: z.array(PatchId),
+              /**
+               * The chain version this delete moved the branch to. Absent when
+               * it moved nothing, or the content service does not version its
+               * chain. Compared with `headVersion` on `/stat`: an answer read
+               * before the delete would put the deleted head back.
+               */
+              headVersion: z.number().optional(),
+            }),
+          ]),
         }),
       ]),
     },
@@ -1484,6 +1503,13 @@ export const Api = {
                 }),
               )
               .optional(),
+            /**
+             * The chain version this publish moved the branch to, where the
+             * content service versions its chain and the publish applied
+             * anything. See `headVersion` on `/stat`: a `/stat` answer read
+             * before the publish would put its patches back to pending.
+             */
+            headVersion: z.number().optional(),
           }),
         }),
         /*

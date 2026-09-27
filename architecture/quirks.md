@@ -485,10 +485,15 @@ rewound the chain: the list, and the parent the next write names — one refused
 write every time. The content service keeps a version per branch
 (`val_patch_chains`), bumped by every write and every delete inside the
 transaction that makes the change, and reports it with the head
-(`headVersion`, read in the same statement) and from every write. `StatStore`
-drops a snapshot at a lower version than one already received, and
-`PatchSync` ignores a stat older than the head it holds, its own last save
-included. Not `seq_num`: discarding the head LOWERS it and the next write
+(`headVersion`, read in the same statement) and from every write, delete and
+publish. `StatStore` drops a snapshot at a lower version than one already
+received — and than any version this client's own save, discard or publish
+answered with (`noteHeadVersion`), checked again when a stat's preparation
+finishes — and `PatchSync` ignores a stat older than the head it holds. A
+delete answers per branch, since one can span several; `DELETE /patches` on
+`ValServer` answers `{ deleted, headVersion }` only when asked
+(`reportHeadVersion`), because an open tab's older bundle parses the bare id
+array. Not `seq_num`: discarding the head LOWERS it and the next write
 reuses the number. Not a clock either: a timestamp read after the commit can
 outrank a newer answer, and reading it can fail after the patch is saved.
 
