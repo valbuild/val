@@ -162,14 +162,8 @@ export const StatData = z.object({
    */
   appliedPatches: z.array(PatchId).optional(),
   /**
-   * The head of the PATCH CHAIN: the last patch registered, published or not.
-   * `null` when there is none.
-   *
-   * `http` only. It is what a new patch names as its parent, and it is NOT the
-   * last of `patches`: that list leaves out what this deployment already
-   * contains, and since patch groups a published patch can come after a pending
-   * one. Absent is "not reported" — `fs`, or a content service that predates it
-   * — and the sync then falls back to the last listed id.
+   * The head of the PATCH CHAIN, which a new patch names as its parent — see
+   * `chainHeadOf`. `http` only; absent is "not reported", not `null`.
    */
   headPatchId: PatchId.nullable().optional(),
   /**

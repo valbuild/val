@@ -1,3 +1,4 @@
+import { chainHeadOf } from "@valbuild/shared/internal";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import type { ParentRef, Patch } from "@valbuild/core/patch";
 import { StoreBus } from "./StoreBus";
@@ -203,15 +204,10 @@ export type SyncState =
  * guaranteed 409.
  *
  * The head is what the last stat REPORTED (`headPatchId`), and not the last id
- * it listed. The list leaves out patches the running deployment already
- * contains, and since patch groups a publish can ship later patches and leave an
- * earlier one pending — another author's edit that nets to nothing can never be
- * published at all. The last listed id is then behind the head for good: every
- * write naming it is refused, and re-syncing returns the same list. The parent
- * is a fact about the whole chain, so it is taken from the server rather than
- * inferred from what this client is shown. The last listed id is only the
- * fallback for a server that does not report a head (`fs`, which ignores the
- * parent anyway, and an older content service).
+ * it listed — see `chainHeadOf` in `@valbuild/shared` for why the two differ for
+ * good once patch groups are in play. The parent is a fact about the whole
+ * chain, so it is taken from the server rather than inferred from what this
+ * client is shown.
  *
  * Joined with the ids our own 200s named that the stat has not caught up to. A
  * stat can be older than our own write, so using it alone would walk the parent
@@ -279,9 +275,7 @@ export class PatchSync {
   private statPatchIds: PatchId[] = [];
   /**
    * The head of the server's chain as the last stat reported it: `null` for an
-   * empty chain, `undefined` when the server does not report one. See the
-   * parent-ref section above for why this, and not the last of
-   * {@link statPatchIds}, is the parent.
+   * empty chain, `undefined` when the server does not report one.
    */
   private statHeadPatchId: PatchId | null | undefined = undefined;
   /**
@@ -461,13 +455,8 @@ export class PatchSync {
     }
     const patchId =
       this.savedNotInStat[this.savedNotInStat.length - 1] ??
-      // The reported head when there is one — `null` included, which is an
-      // empty chain and not "unknown" — and the last listed id only when the
-      // server does not report a head at all.
-      (this.statHeadPatchId !== undefined
-        ? this.statHeadPatchId
-        : this.statPatchIds[this.statPatchIds.length - 1]);
-    if (patchId === undefined || patchId === null) {
+      chainHeadOf(this.statHeadPatchId, this.statPatchIds);
+    if (patchId === null) {
       return { type: "head", headBaseSha: this.baseSha };
     }
     return { type: "patch", patchId };

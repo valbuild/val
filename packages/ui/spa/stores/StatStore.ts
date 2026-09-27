@@ -64,11 +64,7 @@ export type StatSnapshot = {
    * The head of the PATCH CHAIN: the last patch registered, published or not.
    * `null` when there is none.
    *
-   * What the next write names as its parent — see `PatchSync.currentParentRef`.
-   * Not the last of {@link patches}: that list leaves out what the running
-   * deployment already contains, and since patch groups a published patch can
-   * come after a pending one, so the last listed id can be behind the head for
-   * good.
+   * What the next write names as its parent — see `chainHeadOf`.
    *
    * Replaced with every snapshot, absent included, and never kept from an
    * earlier one: the head is a fact about the same moment as the list, and a

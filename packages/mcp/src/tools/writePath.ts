@@ -17,7 +17,10 @@ import {
   type JSONValue,
 } from "@valbuild/core/patch";
 import { result } from "@valbuild/core/fp";
-import { filterBlockingValidationErrors } from "@valbuild/shared/internal";
+import {
+  chainHeadOf,
+  filterBlockingValidationErrors,
+} from "@valbuild/shared/internal";
 import type { PatchAnalysis, Sources, ValOps } from "@valbuild/server";
 import type { ValToolDeps, ValToolState } from "./defineTool";
 import type { ValToolError } from "./types";
@@ -46,14 +49,8 @@ export function mintPatchId(): PatchId {
 }
 
 /**
- * What the new patch should hang off: the HEAD of the chain.
- *
- * The head the store reports (`headPatchId`) when it reports one, and not the
- * last listed patch. The list leaves out patches this deployment already
- * contains, and since patch groups a published patch can come after a pending
- * one, so the last listed id can be behind the head for good — and a write
- * naming it is refused on every retry. The last listed id is only the fallback
- * for a store that reports no head.
+ * What the new patch should hang off: the HEAD of the chain, by the same rule
+ * the Studio uses — see `chainHeadOf`.
  *
  * Note the asymmetry between the two backends: `ValOpsFS` ignores `parentRef`
  * entirely because its append-only ordering log defines order, while
@@ -72,13 +69,11 @@ export async function deriveParentRef(
     headPatchId?: PatchId | null;
   },
 ): Promise<ParentRef> {
-  // `null` is a reported EMPTY chain, not "unknown", so it goes to the head
-  // branch below rather than falling back to the list.
-  const patchId =
-    patches.headPatchId !== undefined
-      ? patches.headPatchId
-      : patches.patches[patches.patches.length - 1]?.patchId;
-  if (patchId !== undefined && patchId !== null) {
+  const patchId = chainHeadOf(
+    patches.headPatchId,
+    patches.patches.map((patch) => patch.patchId),
+  );
+  if (patchId !== null) {
     return { type: "patch", patchId };
   }
   return { type: "head", headBaseSha: await ops.getBaseSha() };

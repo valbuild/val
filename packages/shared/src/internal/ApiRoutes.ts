@@ -689,16 +689,9 @@ export const Api = {
               headCommitSha: z.string().optional(),
               /**
                * The head of the PATCH CHAIN: the last patch registered on the
-               * branch, published or not. `null` when there is none.
-               *
-               * What a new patch names as its parent, and not the last of
-               * `patches`: that list leaves out what this deployment already
-               * contains, and since patch groups a published patch can come
-               * after a pending one — so the last listed id can be behind the
-               * head for good, and every write naming it is refused.
-               *
-               * Optional: a content service that predates it sends nothing, and
-               * the Studio then falls back to the last listed id.
+               * branch, published or not. `null` when there is none. What a
+               * new patch names as its parent — see `chainHeadOf`. Optional: a
+               * content service that predates it sends nothing.
                */
               headPatchId: PatchId.nullable().optional(),
               commits: z.array(ValCommit),

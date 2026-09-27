@@ -94,15 +94,8 @@ const GetApplicablePatches = z.object({
     }),
   ),
   /**
-   * The head of the chain: the branch's last registered patch, published or
-   * not. `null` when the branch has none.
-   *
-   * What a new patch names as its parent, and NOT the last of `patches`: that
-   * list leaves out what this build already contains, and since patch groups a
-   * published patch can come after a pending one. Optional because a content
-   * service that predates it sends nothing, and absent means "not reported" --
-   * the callers then fall back to the last listed id, which is what they did
-   * before.
+   * The head of the chain. See `OrderedPatches.headPatchId`. Optional because
+   * a content service that predates it sends nothing.
    */
   headPatchId: PatchIdSchema.nullable().optional(),
   commits: z
@@ -978,10 +971,8 @@ export class ValOpsHttp extends ValOps {
       patches,
       appliedPatches,
       /*
-       * The CHAIN head, which is not the last of `patches` -- see
-       * `OrderedPatchesMetadata.headPatchId`. Spread: absent is a content
-       * service that does not report it, and the Studio then falls back to the
-       * last listed id rather than reading `undefined` as "no head".
+       * The CHAIN head, not the publish head below. Spread: absent is a content
+       * service that does not report it, which is not the same as `null`.
        */
       ...(allPatchData.headPatchId !== undefined
         ? { headPatchId: allPatchData.headPatchId }
