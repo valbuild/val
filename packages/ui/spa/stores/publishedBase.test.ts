@@ -92,8 +92,18 @@ describe("peekBase counts what has shipped", () => {
   it("sees this session's own publish in http mode", async () => {
     const system = makeSystem({ mode: "http" });
     const published = await edit(system, "New Value");
+    // Read before the publish too, so nothing it caches can outlive the
+    // publish that makes it wrong.
+    expect(system.sourceStore.peekBase(TITLE)).toMatchObject({
+      data: "Old Value",
+    });
     expect(await system.publish([published])).toMatchObject({
       status: "published",
+    });
+    // Straight after, before any edit moves the chain: only the shipped
+    // record changed, and that alone has to move the answer.
+    expect(system.sourceStore.peekBase(TITLE)).toMatchObject({
+      data: "New Value",
     });
 
     await edit(system, "Old Value");
@@ -142,6 +152,46 @@ describe("peekBase counts what has shipped", () => {
     expect(system.sourceStore.peek(TITLE)).toMatchObject({
       data: "Old Value",
     });
+    expect(system.sourceStore.peekBase(TITLE)).toMatchObject({
+      data: "New Value",
+    });
+    system.dispose();
+  });
+
+  it("counts a patch somebody else's deploy shipped", async () => {
+    /*
+     * Another author's patch, pending as far as this tab was told, disappears
+     * from the stat as the base moves: published and deployed elsewhere, and
+     * no `appliedPatches` ever named it. It is in the repository, so it is
+     * published — and until the deployed base arrives, the chain is the only
+     * place that says so.
+     */
+    const theirs: PatchRecord = {
+      patchId: "theirs" as PatchId,
+      moduleFilePath: MODULE,
+      patch: [{ op: "replace", path: ["title"], value: "New Value" }],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      authorId: "someone-else",
+      appliedAt: null,
+    };
+    const fetched: PatchRecord[] = [theirs];
+    const system = makeSystem({ mode: "http", fetched });
+    system.stat.receiveStat({
+      patches: [theirs.patchId],
+      baseSha: "before-deploy",
+    });
+    await system.patchSync.flush();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(system.sourceStore.peekBase(TITLE)).toMatchObject({
+      data: "Old Value",
+    });
+
+    // Their deploy: the base moves and the patch is gone from the server.
+    fetched.length = 0;
+    system.stat.receiveStat({ patches: [], baseSha: "after-deploy" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await edit(system, "Old Value");
     expect(system.sourceStore.peekBase(TITLE)).toMatchObject({
       data: "New Value",
     });

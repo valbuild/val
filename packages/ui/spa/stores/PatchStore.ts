@@ -870,7 +870,14 @@ export class PatchStore {
            *
            * So it leaves when a base arrives, which is the base that contains
            * it. See `SourceStore.retireWithNextBase`.
+           *
+           * Marked applied FIRST. The server's `appliedPatches` may never have
+           * named it — somebody else's publish, deployed before this tab heard
+           * about it — and a record that reads as pending is left out of
+           * `peekBase` in the meantime, which is the stale comparison this is
+           * all for. `markApplied` also brings a held one into view.
            */
+          this.appliedSource?.markApplied(gone);
           this.appliedSource?.retireWithNextBase(gone);
         } else {
           this.drop(gone);

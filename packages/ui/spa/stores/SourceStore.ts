@@ -341,6 +341,26 @@ export class SourceStore {
    * changed.
    */
   private baseRevisions = new Map<ModuleFilePath, number>();
+  /**
+   * Each module's shipped chain entries, so {@link peekBase} — called once per
+   * subscribed path — does not scan the whole chain on every call.
+   *
+   * Valid while the chain is the same array at the same length and no record's
+   * `appliedAt` has moved. That is every way a chain changes: removals replace
+   * the array, intake pushes onto it, and only {@link markApplied} rewrites a
+   * record, which bumps {@link appliedVersion}.
+   */
+  private shippedCache = new Map<
+    ModuleFilePath,
+    {
+      chain: readonly unknown[];
+      length: number;
+      appliedVersion: number;
+      shipped: { record: PatchRecord }[];
+      applied: string;
+    }
+  >();
+  private appliedVersion = 0;
   /** Shipped patches to drop at the next base intake. See {@link retireWithNextBase}. */
   private retiring = new Set<PatchId>();
   /** In-flight entry fetches, so N readers of one entry cause ONE fetch. */
@@ -1126,6 +1146,34 @@ export class SourceStore {
       : { status: "error", message: failure };
   }
 
+  /** This module's shipped chain entries, in chain order. See {@link shippedCache}. */
+  private shippedEntries(moduleFilePath: ModuleFilePath): {
+    shipped: { record: PatchRecord }[];
+    applied: string;
+  } {
+    const chain = this.chains.get(moduleFilePath);
+    if (chain === undefined) return { shipped: [], applied: "" };
+    const cached = this.shippedCache.get(moduleFilePath);
+    if (
+      cached !== undefined &&
+      cached.chain === chain &&
+      cached.length === chain.length &&
+      cached.appliedVersion === this.appliedVersion
+    ) {
+      return cached;
+    }
+    const shipped = chain.filter((entry) => isApplied(entry.record));
+    const applied = shipped.map((entry) => entry.record.patchId).join("\0");
+    this.shippedCache.set(moduleFilePath, {
+      chain,
+      length: chain.length,
+      appliedVersion: this.appliedVersion,
+      shipped,
+      applied,
+    });
+    return { shipped, applied };
+  }
+
   /**
    * The realm {@link peekBase} reads: the base, with every SHIPPED patch still in
    * the chain applied on top of it.
@@ -1154,9 +1202,7 @@ export class SourceStore {
       entries: this.baseJsonEntries,
     };
     const base = this.baseSources[moduleFilePath];
-    const shipped = (this.chains.get(moduleFilePath) ?? []).filter((entry) =>
-      isApplied(entry.record),
-    );
+    const { shipped, applied } = this.shippedEntries(moduleFilePath);
     if (base === undefined || shipped.length === 0) {
       return baseRealm;
     }
@@ -1165,7 +1211,6 @@ export class SourceStore {
       entries: this.publishedJsonEntries,
     };
     const baseN = this.baseRevisions.get(moduleFilePath) ?? 0;
-    const applied = shipped.map((entry) => entry.record.patchId).join("\0");
     const from = this.publishedFrom.get(moduleFilePath);
     if (
       from !== undefined &&
@@ -1704,6 +1749,7 @@ export class SourceStore {
           ...entry.record,
           appliedAt: { commitSha: APPLIED_ELSEWHERE_SHA },
         };
+        this.appliedVersion++;
       }
       if (differs) unheld.push(moduleFilePath);
     }
