@@ -3,6 +3,7 @@ export { modules, type ValModules } from "./modules";
 export {
   extractValModules,
   computeValModuleShas,
+  computeSourcesSha,
   type ExtractedValModules,
   type ValModuleShaEntry,
   type ValModuleShas,

@@ -168,13 +168,34 @@ export type ValModuleShas = {
  * exactly. That is the property the promotion relies on: only the modules whose
  * source actually moved change anything.
  */
+/**
+ * The `sourcesSha` fold on its own: path and source, in `val.modules` order.
+ *
+ * Separate from {@link computeValModuleShas} because the Studio needs it and
+ * has nothing else that fold takes. It is how a client tells whether the base
+ * it is showing is the base a server's `/stat` answer is relative to: the chain
+ * a server announces is the patches ITS build does not contain, so applying it
+ * to another build's source loses edits or applies them twice. Both sides call
+ * this one implementation, so the comparison is only ever between two runs of
+ * the same code.
+ */
+export function computeSourcesSha(
+  entries: readonly { path: string; source: unknown }[],
+): string {
+  let sourcesSha = "";
+  for (const { path, source } of entries) {
+    sourcesSha = hash(sourcesSha + JSON.stringify({ path, source }));
+  }
+  return sourcesSha;
+}
+
 export function computeValModuleShas(
   config: ValModules["config"],
   entries: readonly ValModuleShaEntry[],
   moduleErrors: readonly ExtractedModuleError[],
 ): ValModuleShas {
   const configSha = hash(JSON.stringify(config));
-  let sourcesSha = "";
+  const sourcesSha = computeSourcesSha(entries);
   let baseSha = configSha;
   // NOTE: schemaSha is deliberately NOT seeded with configSha. It is compared
   // across bundles (the server extracts from the Node bundle, the editor SPA
@@ -187,7 +208,6 @@ export function computeValModuleShas(
   let schemaSha = "";
   for (const entry of entries) {
     const { path, source, serializedSchema } = entry;
-    sourcesSha = hash(sourcesSha + JSON.stringify({ path, source }));
     baseSha = hash(
       baseSha +
         JSON.stringify({
