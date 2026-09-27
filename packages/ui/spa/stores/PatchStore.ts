@@ -664,7 +664,19 @@ export class PatchStore {
     // being watched here is the request, and a test asserting "one fetch, five
     // ids" would be unable to tell that from five fetches otherwise.
     this.activity.work("patch:fetch", undefined, missing.length);
-    const res = await this.fetchPatches(missing);
+    // Settles once the records are IN, not when the response arrives: `stage`
+    // waits on it, and a record that is still between the two is not here yet.
+    let settle = () => {};
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    for (const patchId of missing) {
+      this.inFlight.set(patchId, settled);
+    }
+    const res = await this.fetchPatches(missing).catch((error: unknown) => {
+      this.releaseInFlight(missing, settled, settle);
+      throw error;
+    });
     if (res.error !== undefined) {
       this.events.emit({
         type: "patch:fetch-failed",
@@ -782,6 +794,21 @@ export class PatchStore {
         patches: notDelivered,
       });
     }
+    this.releaseInFlight(missing, settled, settle);
+  }
+
+  /** Fetches {@link onStatPatchIds} has running, by id, for {@link stage}. */
+  private inFlight = new Map<PatchId, Promise<void>>();
+
+  private releaseInFlight(
+    patchIds: readonly PatchId[],
+    settled: Promise<void>,
+    settle: () => void,
+  ): void {
+    for (const patchId of patchIds) {
+      if (this.inFlight.get(patchId) === settled) this.inFlight.delete(patchId);
+    }
+    settle();
   }
 
   /**
@@ -791,22 +818,43 @@ export class PatchStore {
    * For `BaseAlignment`: a stat from another build comes with a base swap, and
    * the swap and the chain have to land together. Were the records fetched the
    * usual way, after adoption, an older base would show without the patches
-   * that bring it forward for as long as the request took. The next stat to
-   * run through {@link onStatPatchIds} consumes them.
+   * that bring it forward for as long as the request took. {@link takeStaged}
+   * hands them over.
+   *
+   * Resolves to whether EVERY one of `patchIds` is now here. A fetch already
+   * running for one is waited on rather than counted as done, and one that
+   * errored or came back without a record makes this `false`: a rebase onto a
+   * chain with a hole in it would take that patch's effect out of source, and
+   * nothing would bring it back, because the stat that named it would already
+   * have been adopted.
    */
-  async stage(patchIds: readonly PatchId[]): Promise<void> {
+  async stage(patchIds: readonly PatchId[]): Promise<boolean> {
+    const running = new Set<Promise<void>>();
+    for (const patchId of patchIds) {
+      const settled = this.inFlight.get(patchId);
+      if (settled !== undefined) running.add(settled);
+    }
     const ask = patchIds.filter(
       (patchId) =>
         !this.dataById.has(patchId) &&
         !this.staged.has(patchId) &&
         !this.fetching.has(patchId),
     );
-    if (ask.length === 0) return;
-    this.activity.work("patch:fetch", undefined, ask.length);
-    const res = await this.fetchPatches(ask);
-    for (const record of res.patches) {
-      this.staged.set(record.patchId, record);
-    }
+    const fetched =
+      ask.length === 0
+        ? Promise.resolve()
+        : (() => {
+            this.activity.work("patch:fetch", undefined, ask.length);
+            return this.fetchPatches(ask).then((res) => {
+              for (const record of res.patches) {
+                this.staged.set(record.patchId, record);
+              }
+            });
+          })();
+    await Promise.all([...running, fetched]);
+    return patchIds.every(
+      (patchId) => this.dataById.has(patchId) || this.staged.has(patchId),
+    );
   }
 
   /** See {@link stage}. */
@@ -814,9 +862,14 @@ export class PatchStore {
 
   /**
    * Hold the staged records for `named`, WITHOUT announcing them, and return
-   * the new chain as records: `named` in order, then this client's own patches
-   * the server has not listed yet -- the order {@link onStatPatchIds} will
-   * adopt.
+   * the new chain as records: `named` in order, then every patch of the chain
+   * it does not name -- the order {@link onStatPatchIds} will adopt.
+   *
+   * EVERY one, not only the unsaved. A saved patch a stale stat has not caught
+   * up with is in that tail too, and is not ours to judge here: dropping it from
+   * the rebase took its edit out of source for good, since its record is held
+   * and nothing receives it again. {@link reconcileVanished} decides it, as it
+   * does for any stat. The shipped ones left before this was called.
    *
    * No `patch:receive`: the caller hands the whole chain to
    * `SourceStore.rebase`, in order, together with the base it belongs on.
@@ -843,9 +896,7 @@ export class PatchStore {
     const listed = new Set(named);
     const order = [
       ...named,
-      ...this.ordered.filter(
-        (patchId) => !listed.has(patchId) && this.pendingIds.has(patchId),
-      ),
+      ...this.ordered.filter((patchId) => !listed.has(patchId)),
     ];
     const records: PatchRecord[] = [];
     for (const patchId of order) {

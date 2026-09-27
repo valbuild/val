@@ -55,6 +55,15 @@ export class BaseAlignment {
     private readonly fetchBase: FetchBaseSources | undefined,
   ) {}
 
+  /**
+   * The build whose stat was last held back because its chain could not be
+   * completed. Held back ONCE: the next stat from that build tries again, and
+   * if that fails too it is adopted as it stands -- the old behaviour, and the
+   * one whose own reporting names a record the server will not send. A Studio
+   * that stops taking stats is worse than one that is briefly wrong.
+   */
+  private heldBack: string | null = null;
+
   listenTo(stat: StatStore): () => void {
     stat.setPreparer((snapshot) => this.prepare(snapshot));
     return this.host.events.on("host:base-received", (event) => {
@@ -76,14 +85,27 @@ export class BaseAlignment {
     });
   }
 
-  private prepare(snapshot: StatSnapshot): (() => void) | Promise<() => void> {
-    const record = () => {
+  private prepare(
+    snapshot: StatSnapshot,
+  ): (() => boolean) | Promise<() => boolean> {
+    const adopt = () => {
       this.lastStat = snapshot;
+      return true;
     };
     const wanted = snapshot.sourcesSha;
     // Not reported, or no base yet: intake will compare when it lands.
-    if (wanted === undefined || this.current === null) return record;
-    if (wanted === this.current) return record;
+    if (wanted === undefined || this.current === null) return adopt;
+    if (wanted === this.current) return adopt;
+
+    const unaligned = (why: string, detail: Record<string, unknown>) => {
+      console.warn(`Val: ${why}`, { sourcesSha: wanted, ...detail });
+      if (this.heldBack === wanted) {
+        this.heldBack = null;
+        return adopt;
+      }
+      this.heldBack = wanted;
+      return () => false;
+    };
 
     const bundle = this.host.bundleBase();
     const known =
@@ -97,9 +119,13 @@ export class BaseAlignment {
       // be missing, and showing the base without them is the flash this is for.
       return this.patchStore
         .stage(snapshot.patches)
-        .then(() => this.commit(snapshot, known.sources, wanted, record));
+        .then((complete) =>
+          complete
+            ? this.commit(snapshot, known.sources, wanted, adopt)
+            : unaligned("could not fetch every change a change list names", {}),
+        );
     }
-    if (this.fetchBase === undefined) return record;
+    if (this.fetchBase === undefined) return adopt;
     return Promise.all([
       this.fetchBase(wanted).catch((error: unknown) => {
         console.warn("Val: could not fetch the base a change list belongs on", {
@@ -109,21 +135,25 @@ export class BaseAlignment {
         return null;
       }),
       this.patchStore.stage(snapshot.patches),
-    ]).then(([base]) => {
-      if (base === null || base.sourcesSha !== wanted) {
-        // Answered by a third build, or not at all. The stat is still adopted
-        // -- a Studio that stops listening is worse than one that is briefly
-        // wrong -- and the next one from that build tries again.
-        if (base !== null) {
-          console.warn(
-            "Val: the base fetched for a change list came from another build",
-            { wanted, got: base.sourcesSha },
-          );
-        }
-        return record;
+    ]).then(([base, complete]) => {
+      if (base === null) {
+        return unaligned("no base for a change list from another build", {});
+      }
+      if (base.sourcesSha !== wanted) {
+        // Answered by a third build: the pointer that made this stat differ
+        // moved again.
+        return unaligned("the base fetched came from yet another build", {
+          got: base.sourcesSha,
+        });
       }
       this.fetched = base;
-      return this.commit(snapshot, base.sources, wanted, record);
+      if (!complete) {
+        return unaligned(
+          "could not fetch every change a change list names",
+          {},
+        );
+      }
+      return this.commit(snapshot, base.sources, wanted, adopt);
     });
   }
 
@@ -131,8 +161,8 @@ export class BaseAlignment {
     snapshot: StatSnapshot,
     sources: Record<ModuleFilePath, Json>,
     sourcesSha: string,
-    record: () => void,
-  ): () => void {
+    adopt: () => boolean,
+  ): () => boolean {
     return () => {
       // The patches this base already contains leave the chain, from both
       // stores; then the base goes in with the chain that belongs on it, in the
@@ -145,7 +175,8 @@ export class BaseAlignment {
       const chain = this.patchStore.takeStaged(snapshot.patches);
       this.sourceStore.rebase(sources, chain);
       this.current = sourcesSha;
-      record();
+      this.heldBack = null;
+      return adopt();
     };
   }
 }

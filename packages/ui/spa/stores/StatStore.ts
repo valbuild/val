@@ -79,11 +79,13 @@ export type StatSnapshot = {
  * Readies the system for a stat BEFORE the stat is adopted.
  *
  * Returns what has to happen in the same turn as the adoption -- or a promise of
- * it, when something must be fetched first. See `BaseAlignment`.
+ * it, when something must be fetched first -- and that returns whether to adopt
+ * the stat at all. `false` holds it back; the next stat is asked again. See
+ * `BaseAlignment`.
  */
 export type StatPreparer = (
   snapshot: StatSnapshot,
-) => (() => void) | Promise<() => void>;
+) => (() => boolean) | Promise<() => boolean>;
 
 /**
  * Owns "what does the server say exists right now".
@@ -150,15 +152,13 @@ export class StatStore {
     if (prepared === null) {
       this.adopt(snapshot);
     } else if (typeof prepared === "function") {
-      prepared();
-      this.adopt(snapshot);
+      if (prepared()) this.adopt(snapshot);
     } else {
       void prepared.then((commit) => {
         if (ticket !== this.received) return;
         // Same turn: nothing renders between the base moving and the chain
         // that belongs on it arriving.
-        commit();
-        this.adopt(snapshot);
+        if (commit()) this.adopt(snapshot);
       });
     }
   }

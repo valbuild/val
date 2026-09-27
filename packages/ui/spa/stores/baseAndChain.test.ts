@@ -6,6 +6,7 @@ import {
   type SourcePath,
 } from "@valbuild/core";
 import { createSystem } from "./createSystem";
+import type { FetchPatches } from "./PatchStore";
 import type { PatchRecord } from "./types";
 
 /**
@@ -34,8 +35,23 @@ import type { PatchRecord } from "./types";
  *   --  pending:    add "z" at the end  -> [c, d, a, z]   <- what must show
  */
 
-const MODULE = "/lists.val.ts" as ModuleFilePath;
-const KEYWORDS = '/lists.val.ts?p="keywords"' as SourcePath;
+// Branded ids, by guard rather than assertion: each guard checks the shape it
+// claims, so a typo in a fixture fails here rather than in the store.
+const isModuleFilePath = (path: string): path is ModuleFilePath =>
+  path.startsWith("/") && path.endsWith(".val.ts");
+const isSourcePath = (path: string): path is SourcePath =>
+  /^\/.+\.val\.ts(\?p=.*)?$/.test(path);
+const isPatchId = (id: string): id is PatchId => id.length > 0;
+function brand<T extends string>(
+  value: string,
+  guard: (value: string) => value is T,
+): T {
+  if (!guard(value)) throw new Error(`not a valid id: ${value}`);
+  return value;
+}
+
+const MODULE = brand("/lists.val.ts", isModuleFilePath);
+const KEYWORDS = brand('/lists.val.ts?p="keywords"', isSourcePath);
 
 type Commit = "C0" | "C1" | "C2";
 const COMMITS: Commit[] = ["C0", "C1", "C2"];
@@ -53,7 +69,7 @@ const record = (
   patch: PatchRecord["patch"],
   appliedAt: Commit | null,
 ): PatchRecord => ({
-  patchId: patchId as PatchId,
+  patchId: brand(patchId, isPatchId),
   moduleFilePath: MODULE,
   patch,
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -85,6 +101,13 @@ const CHAIN: { record: PatchRecord; committedIn: Commit | null }[] = [
   },
 ];
 
+/** `GET /patches`, as content answers it: every record it was asked for. */
+const fetchFromContent: FetchPatches = async (patchIds) => ({
+  patches: CHAIN.map(({ record }) => record).filter((record) =>
+    patchIds.includes(record.patchId),
+  ),
+});
+
 /** The `sourcesSha` a build at `commit` reports: the fold over its source. */
 const sourcesShaAt = (commit: Commit) =>
   computeSourcesSha([
@@ -113,9 +136,13 @@ function statFor(commit: Commit) {
   };
 }
 
-function studioOnBundle(bundle: Commit) {
+function studioOnBundle(
+  bundle: Commit,
+  options: { fetchPatches?: FetchPatches } = {},
+) {
   const { c, s } = initVal();
   const baseFetches: string[] = [];
+  let created = 0;
   const system = createSystem({
     // `PUT /sources/~?apply_patches=false`, answered by the build whose sha is
     // asked for: the base that build's chain is relative to.
@@ -128,12 +155,8 @@ function studioOnBundle(bundle: Commit) {
         sources: { [MODULE]: { keywords: CONTENT_AT[commit] } },
       };
     },
-    fetchPatches: async (patchIds) => ({
-      patches: CHAIN.map(({ record }) => record).filter((record) =>
-        patchIds.includes(record.patchId),
-      ),
-    }),
-    createPatchId: () => "local" as PatchId,
+    fetchPatches: options.fetchPatches ?? fetchFromContent,
+    createPatchId: () => brand(`local-${++created}`, isPatchId),
     savePatches: async ({ patches, parentRef }) => ({
       status: "saved",
       newPatchIds: patches.map((patch) => patch.patchId),
@@ -198,12 +221,13 @@ describe("the Studio's base and chain, when the answering build changes", () => 
     return seen;
   };
 
-  for (const [from, to] of [
+  const transitions: [Commit, Commit][] = [
     ["C0", "C2"],
     ["C2", "C0"],
     ["C1", "C2"],
     ["C0", "C1"],
-  ] as const) {
+  ];
+  for (const [from, to] of transitions) {
     test(`on the ${from} bundle, /stat from ${from} and then from ${to}`, async () => {
       const system = studioOnBundle(from);
       system.stat.receiveStat(statFor(from));
@@ -261,5 +285,98 @@ describe("the Studio's base and chain, when the answering build changes", () => 
       data: HEAD_PLUS_PENDING,
     });
     expect(system.stat.currentPatchIds()).toEqual(statFor("C0").patches);
+  });
+});
+
+/**
+ * The three ways the swap could leave a hole in the chain, each found in
+ * review. In each, the chain the new base gets must be the whole chain.
+ */
+describe("the swap never rebases onto a chain with a hole in it", () => {
+  const peekKeywords = (system: ReturnType<typeof studioOnBundle>) => {
+    const peeked = system.sourceStore.peek(KEYWORDS);
+    return "data" in peeked ? peeked.data : peeked.status;
+  };
+
+  test("a record the server did not send holds the stat back, and the next one lands", async () => {
+    // The C2 bundle holds p3. A stat from C0 needs p1 and p2 as well, and the
+    // first fetch comes back without p1.
+    let dropP1 = true;
+    const system = studioOnBundle("C2", {
+      fetchPatches: async (patchIds) => {
+        const res = await fetchFromContent(patchIds);
+        if (!dropP1 || !patchIds.some((id) => id === "p1")) return res;
+        dropP1 = false;
+        return {
+          patches: res.patches.filter((record) => record.patchId !== "p1"),
+        };
+      },
+    });
+    system.stat.receiveStat(statFor("C2"));
+    await settle(system);
+    system.stat.receiveStat(statFor("C0"));
+    await settle(system);
+    // Not rebased onto C0 with p1 missing -- which would show [b, c, z, a, d]
+    // minus a move, and never recover. Still C2 + p3.
+    expect(peekKeywords(system)).toEqual(HEAD_PLUS_PENDING);
+    expect(system.stat.currentPatchIds()).toEqual(statFor("C2").patches);
+
+    system.stat.receiveStat(statFor("C0"));
+    await settle(system);
+    expect(peekKeywords(system)).toEqual(HEAD_PLUS_PENDING);
+    expect(system.stat.currentPatchIds()).toEqual(statFor("C0").patches);
+  });
+
+  test("a fetch already running is waited for, not counted as done", async () => {
+    // A stat from the bundle's own build starts fetching p3 the ordinary way;
+    // before it answers, a stat from C0 arrives and needs p3 too.
+    const answers: (() => void)[] = [];
+    const system = studioOnBundle("C2", {
+      fetchPatches: async (patchIds) => {
+        await new Promise<void>((resolve) => answers.push(resolve));
+        return fetchFromContent(patchIds);
+      },
+    });
+    const seen: unknown[] = [];
+    system.sourceStore.events.on("source:change", () => {
+      queueMicrotask(() => seen.push(peekKeywords(system)));
+    });
+    system.stat.receiveStat(statFor("C2"));
+    system.stat.receiveStat(statFor("C0"));
+    for (let i = 0; i < 10 && answers.length > 0; i++) {
+      // Newest first: the staging fetch answers while the ordinary one is
+      // still out, which is the order that exposes a fetch counted as done.
+      answers.pop()?.();
+      await settle(system);
+    }
+    await settle(system);
+
+    // And the stat from C0 is ADOPTED, rather than held back as incomplete:
+    // the record was on its way, not missing.
+    expect(system.stat.currentPatchIds()).toEqual(statFor("C0").patches);
+    expect(peekKeywords(system)).toEqual(HEAD_PLUS_PENDING);
+    // Nothing after the first value that is on screen for C0 may be missing p3:
+    // the base and a chain without it is the flash.
+    const afterSwap = seen.slice(seen.findIndex((v) => Array.isArray(v)));
+    for (const value of afterSwap) {
+      expect(value).toEqual(HEAD_PLUS_PENDING);
+    }
+  });
+
+  test("a saved edit a stale stat has not caught up with survives the swap", async () => {
+    const system = studioOnBundle("C0");
+    system.stat.receiveStat(statFor("C0"));
+    await settle(system);
+    const created = await system.patchStore.createPatch(MODULE, [
+      { op: "add", path: ["keywords", "4"], value: "y" },
+    ]);
+    if (!("record" in created)) throw new Error("createPatch failed");
+    await settle(system);
+    expect(peekKeywords(system)).toEqual([...HEAD_PLUS_PENDING, "y"]);
+
+    // From C2, and too old to name the edit that was just saved.
+    system.stat.receiveStat(statFor("C2"));
+    await settle(system);
+    expect(peekKeywords(system)).toEqual([...HEAD_PLUS_PENDING, "y"]);
   });
 });
