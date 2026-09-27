@@ -302,6 +302,14 @@ export type PagesPanelProps = {
    */
   externalIssueCount?: number;
   /**
+   * Whether the external record is still being fetched.
+   *
+   * Separate from the panel's own `isLoading`, which is about the site map:
+   * the two arrive independently, and the footer button must not print a
+   * count of 0 over a record that has not come back.
+   */
+  externalPagesLoading?: boolean;
+  /**
    * Create a page under a route, given the URL that was built for it.
    *
    * The panel does not know what an empty page looks like — that comes from the
@@ -457,6 +465,7 @@ export function PagesPanel({
   onSelectPage,
   onOpenExternalPages,
   externalIssueCount,
+  externalPagesLoading,
   onNewPage,
   onDuplicatePage,
   onRenamePage,
@@ -719,6 +728,7 @@ export function PagesPanel({
             <ExternalPagesButton
               count={externalPages.length}
               issueCount={externalIssueCount}
+              isLoading={externalPagesLoading}
               onClick={onOpenExternalPages}
             />
           </div>

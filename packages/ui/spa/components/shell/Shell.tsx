@@ -1242,6 +1242,7 @@ export function Shell({
                 : undefined
             }
             externalIssueCount={externalIssueCount}
+            externalPagesLoading={data.externalPagesLoading}
             onNewPage={onNewPage ?? (() => undefined)}
             onDuplicatePage={onDuplicatePage}
             onRenamePage={onRenamePage}

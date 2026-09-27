@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ExternalPagesDialog } from "./ExternalPagesDialog";
+import { ExternalPagesButton } from "./ExternalPagesButton";
 import { ShellExternalPage } from "./types";
 import { SourcePath } from "@valbuild/core";
 
@@ -228,5 +229,42 @@ describe("the open-in-a-new-tab link under a narrowed policy", () => {
   test("an https URL stays clickable under that same policy", () => {
     openDetail("https://example.com/a", ["https"]);
     expect(screen.queryAllByRole("link")).toHaveLength(1);
+  });
+});
+
+/**
+ * The footer button while the record is still coming back.
+ *
+ * Zero external pages and zero problems is what a clean project looks like,
+ * and it is also what a project looks like before anyone has read it. The
+ * button must not say the first about the second.
+ */
+describe("the external pages button", () => {
+  test("shows its counts once they mean something", () => {
+    render(
+      <ExternalPagesButton
+        count={12}
+        issueCount={3}
+        onClick={() => undefined}
+      />,
+    );
+    expect(screen.getByText("12")).not.toBeNull();
+    expect(screen.getByText("3")).not.toBeNull();
+  });
+
+  test("shows neither while the record is loading", () => {
+    render(
+      <ExternalPagesButton
+        count={0}
+        issueCount={0}
+        isLoading
+        onClick={() => undefined}
+      />,
+    );
+    expect(screen.queryByText("0")).toBeNull();
+    // Still a button you can press: the dialog shows the loading state.
+    expect(
+      screen.getByRole("button", { name: /External pages/ }),
+    ).not.toBeNull();
   });
 });

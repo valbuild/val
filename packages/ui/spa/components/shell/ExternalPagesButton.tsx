@@ -13,6 +13,15 @@ export type ExternalPagesButtonProps = {
    * is that they are a list you visit, not a list you scroll past.
    */
   issueCount?: number;
+  /**
+   * Whether the record is still being fetched.
+   *
+   * Both counts are zero before it arrives and zero when the project is
+   * clean, and those are different things to say on a button. So neither is
+   * shown while this is true: an honest nothing beats a confident 0, which is
+   * a claim about content nobody has read yet.
+   */
+  isLoading?: boolean;
   onClick: () => void;
 };
 
@@ -30,6 +39,7 @@ export type ExternalPagesButtonProps = {
 export function ExternalPagesButton({
   count,
   issueCount = 0,
+  isLoading,
   onClick,
 }: ExternalPagesButtonProps) {
   return (
@@ -44,9 +54,18 @@ export function ExternalPagesButton({
     >
       <Earth size={14} className="shrink-0 text-fg-secondary-alt" aria-hidden />
       <span className="font-medium">External pages</span>
-      <span className="text-fg-secondary-alt tabular-nums">{count}</span>
+      {isLoading ? (
+        // The width of a two-digit count, so the button does not jump when the
+        // number arrives.
+        <span
+          aria-hidden
+          className="w-4 h-3 rounded bg-bg-float-raised animate-pulse"
+        />
+      ) : (
+        <span className="text-fg-secondary-alt tabular-nums">{count}</span>
+      )}
       <span className="ml-auto flex items-center gap-1.5 shrink-0">
-        {issueCount > 0 && (
+        {!isLoading && issueCount > 0 && (
           <span
             className="min-w-[1rem] h-4 px-1 grid place-items-center rounded bg-bg-warning-primary text-fg-warning-primary text-[0.625rem] font-semibold tabular-nums"
             title={`${issueCount} URL${issueCount === 1 ? "" : "s"} to look at`}
