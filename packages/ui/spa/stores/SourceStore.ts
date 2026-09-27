@@ -212,6 +212,13 @@ function sameEntriesStatus(a: EntriesStatus, b: EntriesStatus): boolean {
   return true;
 }
 
+/** One patch in a module's chain, and who made it. */
+type ChainEntry = {
+  record: PatchRecord;
+  origin: PatchOrigin;
+  creatorFieldId?: string;
+};
+
 /**
  * Has this patch shipped?
  *
@@ -258,10 +265,7 @@ export class SourceStore {
    * patch announced before its module loaded was dropped and could never land,
    * and re-intake silently discarded the user's pending edits.
    */
-  private chains = new Map<
-    ModuleFilePath,
-    { record: PatchRecord; origin: PatchOrigin; creatorFieldId?: string }[]
-  >();
+  private chains = new Map<ModuleFilePath, ChainEntry[]>();
 
   /**
    * How far each module's source has moved. THE comparator for reads.
@@ -1344,6 +1348,51 @@ export class SourceStore {
         this.chains.set(moduleFilePath, surviving);
       }
     }
+  }
+
+  /**
+   * Replace the base AND the chain on it, in one step.
+   *
+   * For a base from another build (`BaseAlignment`). {@link receive} alone
+   * replays the chain this store already holds and leaves new patches to
+   * arrive after it, which is right when the base moves forward and wrong when
+   * it moves back: an older build's base needs patches that come BEFORE the
+   * ones held here, and appending them applies them on top of edits that were
+   * made on top of them.
+   *
+   * So the chain of every module in `sources` is replaced by the one given,
+   * in its order. An entry that was already here keeps its origin and creator,
+   * so a field is not woken by its own edit being replayed. A module outside
+   * `sources` keeps its base, and only gains the patches it has never had.
+   */
+  rebase(sources: Record<ModuleFilePath, Json>, chain: PatchRecord[]): void {
+    const previous = new Map<PatchId, ChainEntry>();
+    for (const entries of this.chains.values()) {
+      for (const entry of entries) {
+        previous.set(entry.record.patchId, entry);
+      }
+    }
+    const rebased = new Set<string>(Object.keys(sources));
+    for (const moduleFilePath of [...this.chains.keys()]) {
+      if (rebased.has(moduleFilePath)) this.chains.delete(moduleFilePath);
+    }
+    this.receive(sources);
+    const entries: ChainEntry[] = [];
+    for (const record of chain) {
+      const known = previous.get(record.patchId);
+      if (!rebased.has(record.moduleFilePath) && known !== undefined) continue;
+      entries.push(known ?? { record, origin: "external" });
+    }
+    for (const entry of entries) {
+      const moduleFilePath = entry.record.moduleFilePath;
+      const moduleChain = this.chains.get(moduleFilePath);
+      if (moduleChain === undefined) {
+        this.chains.set(moduleFilePath, [entry]);
+      } else {
+        moduleChain.push(entry);
+      }
+    }
+    this.applyEntries(entries);
   }
 
   /** Where this module's source has got to. */

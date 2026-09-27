@@ -483,8 +483,9 @@ export function ValProvider({
    *
    * Two fields only. The store system needs the ordered patch ids to learn about
    * another session's work, and `baseSha` so a write has an honest `parentRef` —
-   * without it `PatchSync` reports every edit unsaveable. `schemaSha` /
-   * `sourcesSha` / `jsonEntriesSha` are inputs to a refetch it does not do yet.
+   * without it `PatchSync` reports every edit unsaveable. `sourcesSha` says
+   * which build answered; `schemaSha` / `jsonEntriesSha` are inputs to a
+   * refetch it does not do yet.
    */
   const statPatches =
     "data" in stat && stat.data ? stat.data.patches : undefined;
@@ -519,6 +520,12 @@ export function ValProvider({
   /** The publish head, carried to `/save`. See `newestCommitSha`. */
   const statHead =
     "data" in stat && stat.data ? stat.data.headCommitSha : undefined;
+  /**
+   * Which build answered: its chain is relative to the source with this sha.
+   * See `BaseAlignment`.
+   */
+  const statSourcesSha =
+    "data" in stat && stat.data ? stat.data.sourcesSha : undefined;
   const storeStat = useMemo(
     () =>
       baseSha !== undefined && statPatches !== undefined
@@ -528,9 +535,10 @@ export function ValProvider({
             removed: statRemoved,
             appliedPatches: statApplied,
             headCommitSha: statHead,
+            sourcesSha: statSourcesSha,
           }
         : null,
-    [baseSha, statPatches, statRemoved, statApplied, statHead],
+    [baseSha, statPatches, statRemoved, statApplied, statHead, statSourcesSha],
   );
 
   const getDirectFileUploadSettings = useCallback(async (): Promise<

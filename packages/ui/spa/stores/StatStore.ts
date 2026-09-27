@@ -60,7 +60,30 @@ export type StatSnapshot = {
    * and absent leaves the last known head alone rather than clearing it.
    */
   headCommitSha?: string;
+  /**
+   * WHICH BUILD answered: the `sourcesSha` of the source its chain is relative to.
+   *
+   * `patches` are the ones that build does not contain, so they are right only
+   * on top of that build's source. The Studio's own source came from ITS bundle,
+   * which after a publish can be another build for a while -- the platform's
+   * pointer lags per location, and a tab opened before the publish keeps its
+   * bundle. See `BaseAlignment`, which reads this.
+   *
+   * Optional: absent means "not reported", and the chain is applied to whatever
+   * base the Studio has, as it always was.
+   */
+  sourcesSha?: string;
 };
+
+/**
+ * Readies the system for a stat BEFORE the stat is adopted.
+ *
+ * Returns what has to happen in the same turn as the adoption -- or a promise of
+ * it, when something must be fetched first. See `BaseAlignment`.
+ */
+export type StatPreparer = (
+  snapshot: StatSnapshot,
+) => (() => void) | Promise<() => void>;
 
 /**
  * Owns "what does the server say exists right now".
@@ -104,11 +127,43 @@ export class StatStore {
    */
   private supersededHead: string | null = null;
 
+  private preparer: StatPreparer | null = null;
+  /** Bumped per stat, so a prepared stat that a newer one overtook is dropped. */
+  private received = 0;
+
+  /** See {@link StatPreparer}. One, set by `createSystem`. */
+  setPreparer(preparer: StatPreparer): void {
+    this.preparer = preparer;
+  }
+
   /**
    * Adopt a `/stat` result. The id list is authoritative and replaces what we
    * had, rather than being merged into it — the server can reorder.
+   *
+   * Through the {@link StatPreparer} when there is one. When it has to fetch,
+   * this stat is adopted after the fetch -- and only if no newer stat arrived
+   * meanwhile, since a newer answer is the one to believe.
    */
   receiveStat(snapshot: StatSnapshot): void {
+    const ticket = ++this.received;
+    const prepared = this.preparer?.(snapshot) ?? null;
+    if (prepared === null) {
+      this.adopt(snapshot);
+    } else if (typeof prepared === "function") {
+      prepared();
+      this.adopt(snapshot);
+    } else {
+      void prepared.then((commit) => {
+        if (ticket !== this.received) return;
+        // Same turn: nothing renders between the base moving and the chain
+        // that belongs on it arriving.
+        commit();
+        this.adopt(snapshot);
+      });
+    }
+  }
+
+  private adopt(snapshot: StatSnapshot): void {
     this.patches = [...snapshot.patches];
     if (snapshot.baseSha !== undefined) {
       this.baseSha = snapshot.baseSha;

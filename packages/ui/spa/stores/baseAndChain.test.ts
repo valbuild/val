@@ -1,4 +1,5 @@
 import {
+  computeSourcesSha,
   initVal,
   type ModuleFilePath,
   type PatchId,
@@ -84,10 +85,17 @@ const CHAIN: { record: PatchRecord; committedIn: Commit | null }[] = [
   },
 ];
 
+/** The `sourcesSha` a build at `commit` reports: the fold over its source. */
+const sourcesShaAt = (commit: Commit) =>
+  computeSourcesSha([
+    { path: MODULE, source: { keywords: CONTENT_AT[commit] } },
+  ]);
+
 /**
  * What content answers a build at `commit`: the patches it does not contain.
  * Those committed after it, and the pending ones -- as `/applicable/patches`
- * does for a build that names its commit.
+ * does for a build that names its commit. And which build it is, as `/stat`
+ * says with `sourcesSha`.
  */
 function statFor(commit: Commit) {
   const after = COMMITS.indexOf(commit);
@@ -101,12 +109,25 @@ function statFor(commit: Commit) {
       .filter(({ committedIn }) => committedIn !== null)
       .map(({ record }) => record.patchId),
     baseSha: `sources-at-${commit}`,
+    sourcesSha: sourcesShaAt(commit),
   };
 }
 
 function studioOnBundle(bundle: Commit) {
   const { c, s } = initVal();
+  const baseFetches: string[] = [];
   const system = createSystem({
+    // `PUT /sources/~?apply_patches=false`, answered by the build whose sha is
+    // asked for: the base that build's chain is relative to.
+    fetchBaseSources: async (sourcesSha) => {
+      baseFetches.push(sourcesSha);
+      const commit = COMMITS.find((at) => sourcesShaAt(at) === sourcesSha);
+      if (commit === undefined) return null;
+      return {
+        sourcesSha,
+        sources: { [MODULE]: { keywords: CONTENT_AT[commit] } },
+      };
+    },
     fetchPatches: async (patchIds) => ({
       patches: CHAIN.map(({ record }) => record).filter((record) =>
         patchIds.includes(record.patchId),
@@ -125,7 +146,7 @@ function studioOnBundle(bundle: Commit) {
       keywords: CONTENT_AT[bundle],
     }),
   ]);
-  return system;
+  return Object.assign(system, { baseFetches });
 }
 
 const settle = async (system: ReturnType<typeof studioOnBundle>) => {
@@ -152,4 +173,93 @@ describe("the Studio's base and chain, when two builds answer", () => {
       });
     }
   }
+});
+
+/**
+ * The same rule over TIME, which is what an open Studio sees: one build answers,
+ * then another. Every value a reader could be handed along the way is recorded,
+ * because a Studio that ends up right after showing the wrong list for a moment
+ * is the bug as the user saw it -- the settled value alone would not catch it.
+ */
+describe("the Studio's base and chain, when the answering build changes", () => {
+  // Sampled at the end of the turn that announced the change, which is the
+  // earliest a render can read: React answers a store notification by
+  // scheduling a render, never inside the notification. A value that exists
+  // only between two writes of one synchronous step is never on screen; one
+  // that survives to the end of a turn is.
+  const observe = (system: ReturnType<typeof studioOnBundle>) => {
+    const seen: unknown[] = [];
+    system.sourceStore.events.on("source:change", () => {
+      queueMicrotask(() => {
+        const peeked = system.sourceStore.peek(KEYWORDS);
+        seen.push("data" in peeked ? peeked.data : peeked.status);
+      });
+    });
+    return seen;
+  };
+
+  for (const [from, to] of [
+    ["C0", "C2"],
+    ["C2", "C0"],
+    ["C1", "C2"],
+    ["C0", "C1"],
+  ] as const) {
+    test(`on the ${from} bundle, /stat from ${from} and then from ${to}`, async () => {
+      const system = studioOnBundle(from);
+      system.stat.receiveStat(statFor(from));
+      await settle(system);
+      expect(system.sourceStore.peek(KEYWORDS)).toMatchObject({
+        data: HEAD_PLUS_PENDING,
+      });
+
+      const seen = observe(system);
+      system.stat.receiveStat(statFor(to));
+      await settle(system);
+
+      expect(system.sourceStore.peek(KEYWORDS)).toMatchObject({
+        data: HEAD_PLUS_PENDING,
+      });
+      for (const value of seen) {
+        expect(value).toEqual(HEAD_PLUS_PENDING);
+      }
+    });
+  }
+
+  test("and back to the bundle's own build, with no fetch", async () => {
+    const system = studioOnBundle("C0");
+    system.stat.receiveStat(statFor("C2"));
+    await settle(system);
+    const seen = observe(system);
+    system.stat.receiveStat(statFor("C0"));
+    await settle(system);
+
+    expect(system.sourceStore.peek(KEYWORDS)).toMatchObject({
+      data: HEAD_PLUS_PENDING,
+    });
+    for (const value of seen) {
+      expect(value).toEqual(HEAD_PLUS_PENDING);
+    }
+    // One fetch, for C2's base. C0's is the bundle's own, and is kept.
+    expect(system.baseFetches).toEqual([sourcesShaAt("C2")]);
+  });
+
+  test("a stat from the bundle's own build fetches nothing", async () => {
+    const system = studioOnBundle("C1");
+    system.stat.receiveStat(statFor("C1"));
+    await settle(system);
+    expect(system.baseFetches).toEqual([]);
+  });
+
+  test("a newer stat overtakes one still fetching its base", async () => {
+    const system = studioOnBundle("C0");
+    // C2's base is fetched; before it lands, C0 answers again. C0 is the newer
+    // answer, and the one to believe.
+    system.stat.receiveStat(statFor("C2"));
+    system.stat.receiveStat(statFor("C0"));
+    await settle(system);
+    expect(system.sourceStore.peek(KEYWORDS)).toMatchObject({
+      data: HEAD_PLUS_PENDING,
+    });
+    expect(system.stat.currentPatchIds()).toEqual(statFor("C0").patches);
+  });
 });

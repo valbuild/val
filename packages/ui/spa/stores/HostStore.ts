@@ -1,4 +1,5 @@
 import {
+  computeSourcesSha,
   Internal,
   previewScope,
   type Json,
@@ -159,7 +160,40 @@ export class HostStore implements HostBridge {
     // read after intake say `module-loading`.
     this.schemaStore.receive(serializedSchemas);
     this.sourceStore.receive(sources);
+    this.bundle = {
+      sourcesSha: computeSourcesSha(
+        adopted.map((path) => ({ path, source: sources[path] })),
+      ),
+      sources,
+    };
+    // After the source store has the bundle's source, so a listener that puts
+    // another build's base back on top (`BaseAlignment`) has the last word.
+    this.events.emit({
+      type: "host:base-received",
+      sourcesSha: this.bundle.sourcesSha,
+    });
   }
+
+  /**
+   * The source this intake brought, and its `sourcesSha`.
+   *
+   * The same fold the server runs over ITS build's modules, so the two can be
+   * compared: a `/stat` answer is relative to the build that answered it, and
+   * this is how the Studio knows whether that build is the one whose source it
+   * holds. Hashed over the JSON round-tripped source, which stringifies the same
+   * as the module's own.
+   */
+  bundleBase(): {
+    sourcesSha: string;
+    sources: Record<ModuleFilePath, Json>;
+  } | null {
+    return this.bundle;
+  }
+
+  private bundle: {
+    sourcesSha: string;
+    sources: Record<ModuleFilePath, Json>;
+  } | null = null;
 
   async preview(
     moduleFilePath: ModuleFilePath,

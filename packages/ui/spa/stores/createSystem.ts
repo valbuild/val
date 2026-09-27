@@ -1,3 +1,4 @@
+import { BaseAlignment, type FetchBaseSources } from "./BaseAlignment";
 import type {
   ModuleFilePath,
   PatchId,
@@ -498,6 +499,14 @@ export type SystemOptions = {
    * parent and can only fail again.
    */
   resyncChain?: ResyncChain;
+  /**
+   * Another build's base source, for a `/stat` answered by that build.
+   *
+   * Without it a stat from a build other than the bundle's is applied to the
+   * bundle's source, which is the mismatch `BaseAlignment` exists to prevent --
+   * so absent is the old behaviour, for a driver with no server.
+   */
+  fetchBaseSources?: FetchBaseSources;
   /**
    * How long `publish` waits for local edits to reach the server.
    *
@@ -1289,7 +1298,14 @@ export function createSystem(options: SystemOptions): System {
     });
   }
 
+  const baseAlignment = new BaseAlignment(
+    host,
+    sourceStore,
+    patchStore,
+    options.fetchBaseSources,
+  );
   const unsubscribe = [
+    baseAlignment.listenTo(stat),
     patchStore.listenTo(stat, sourceStore),
     /*
      * A patch this client just wrote joins the scope — BEFORE the source store

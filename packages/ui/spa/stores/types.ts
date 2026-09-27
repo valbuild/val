@@ -195,6 +195,7 @@ export type PatchErrorEntry = {
 export type SystemEvent =
   /** The host app handed over modules (intake, or an HMR re-run). */
   | { type: "host:receive"; modules: ModuleFilePath[] }
+  | { type: "host:base-received"; sourcesSha: string }
   | { type: "schema:init"; modules: ModuleFilePath[] }
   | { type: "source:init"; sources: ModuleFilePath[] }
   /**

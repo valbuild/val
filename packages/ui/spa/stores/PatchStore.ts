@@ -785,6 +785,101 @@ export class PatchStore {
   }
 
   /**
+   * Fetch the records a stat about to be adopted will need, without adopting
+   * anything.
+   *
+   * For `BaseAlignment`: a stat from another build comes with a base swap, and
+   * the swap and the chain have to land together. Were the records fetched the
+   * usual way, after adoption, an older base would show without the patches
+   * that bring it forward for as long as the request took. The next stat to
+   * run through {@link onStatPatchIds} consumes them.
+   */
+  async stage(patchIds: readonly PatchId[]): Promise<void> {
+    const ask = patchIds.filter(
+      (patchId) =>
+        !this.dataById.has(patchId) &&
+        !this.staged.has(patchId) &&
+        !this.fetching.has(patchId),
+    );
+    if (ask.length === 0) return;
+    this.activity.work("patch:fetch", undefined, ask.length);
+    const res = await this.fetchPatches(ask);
+    for (const record of res.patches) {
+      this.staged.set(record.patchId, record);
+    }
+  }
+
+  /** See {@link stage}. */
+  private staged = new Map<PatchId, PatchRecord>();
+
+  /**
+   * Hold the staged records for `named`, WITHOUT announcing them, and return
+   * the new chain as records: `named` in order, then this client's own patches
+   * the server has not listed yet -- the order {@link onStatPatchIds} will
+   * adopt.
+   *
+   * No `patch:receive`: the caller hands the whole chain to
+   * `SourceStore.rebase`, in order, together with the base it belongs on.
+   * Announcing would add them to source a second time, at the END of the chain
+   * -- which for a base older than the one being replaced puts them after
+   * patches that were made on top of them.
+   */
+  takeStaged(named: readonly PatchId[]): PatchRecord[] {
+    let took = false;
+    for (const patchId of named) {
+      const record = this.staged.get(patchId);
+      if (record === undefined || this.dataById.has(patchId)) continue;
+      this.dataById.set(patchId, record);
+      if (!this.originById.has(patchId)) {
+        this.originById.set(patchId, "external");
+      }
+      took = true;
+    }
+    this.staged.clear();
+    if (took) {
+      this.bump();
+      this.applyServerApplied();
+    }
+    const listed = new Set(named);
+    const order = [
+      ...named,
+      ...this.ordered.filter(
+        (patchId) => !listed.has(patchId) && this.pendingIds.has(patchId),
+      ),
+    ];
+    const records: PatchRecord[] = [];
+    for (const patchId of order) {
+      const record = this.dataById.get(patchId);
+      if (record !== undefined) records.push(record);
+    }
+    return records;
+  }
+
+  /**
+   * Of the chain, the patches that have SHIPPED and that `named` leaves out.
+   *
+   * Shipped: committed, as the server said (`appliedAt`, `appliedPatches`) or
+   * because this client published it. Those are the patches a newer build's
+   * base already contains, which is why its stat does not name them -- so when
+   * that base is put in, they have to leave the chain in the same turn or they
+   * are applied a second time on top of themselves.
+   *
+   * Only shipped ones. A patch that is merely absent may be one stat has not
+   * caught up with, and {@link reconcileVanished} is what decides those.
+   */
+  shippedOutside(named: readonly PatchId[]): PatchId[] {
+    const keep = new Set(named);
+    return this.ordered.filter(
+      (patchId) =>
+        !keep.has(patchId) &&
+        !this.pendingIds.has(patchId) &&
+        (this.serverAppliedIds.has(patchId) ||
+          this.publishedIds.has(patchId) ||
+          this.dataById.get(patchId)?.appliedAt != null),
+    );
+  }
+
+  /**
    * Ask the server about patches stat stopped naming, and drop the ones it does
    * not have.
    *
