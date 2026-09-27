@@ -135,6 +135,12 @@ function describe(schema: SerializedSchema | undefined, value: Source): string {
       if (fields === null) return "";
       return `${fields.size} field${fields.size === 1 ? "" : "s"}`;
     }
+    case "view": {
+      // A view's source is a pointer, `{ view: "/foo.val.ts" }`: the module it
+      // names is the one line worth showing, the way an image shows its path.
+      const target = asFields(value)?.get("view");
+      return typeof target === "string" ? target : "";
+    }
     case "discriminated-union": {
       // The tag is the useful half: "video" says more about a block than
       // "4 fields" does.
