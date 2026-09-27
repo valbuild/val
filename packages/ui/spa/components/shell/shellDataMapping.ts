@@ -8,6 +8,7 @@ import {
   ValEnrichedDeployment,
 } from "../../utils/mergeCommitsAndDeployments";
 import { deploymentProgress, describeDeploymentState } from "./Deployments";
+import { isDeploymentStatusStale } from "../../utils/deploymentStatus";
 import {
   deployPercent,
   describeDeployPhase,
@@ -380,7 +381,15 @@ export function toDeployments(
   return deployments.slice(0, DEPLOYMENT_LIMIT).map(
     (deployment): ShellDeployment => ({
       commitSha: deployment.commitSha,
-      state: deployment.deploymentState,
+      state:
+        !observedCommitShas.has(deployment.commitSha) &&
+        isDeploymentStatusStale(
+          deployment.deploymentState,
+          deployment.updatedAt,
+          now,
+        )
+          ? "unknown"
+          : deployment.deploymentState,
       message: commitSubject(deployment.commitMessage),
       author: deployment.creator
         ? profilesByAuthorId[deployment.creator]?.fullName

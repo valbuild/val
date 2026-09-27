@@ -6,6 +6,7 @@ import {
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
+import { isDeploymentStatusStale } from "../utils/deploymentStatus";
 import { HotspotMarker } from "./fields/HotspotMarker";
 import { deepEqual, ReadonlyJSONValue } from "@valbuild/core/patch";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
@@ -1008,17 +1009,27 @@ function DeployedDividerPure({
 }) {
   const [now] = useState(() => new Date());
   const state = latest?.deploymentState;
-  const isBuilding = state === "created" || state === "pending";
+  /*
+   * A build reported as running over an hour ago is not shown as running. See
+   * `isDeploymentStatusStale`: the deploy feed says "Status unknown" for the
+   * same deploy, and this line must not contradict it.
+   */
+  const isUnknown =
+    latest !== null &&
+    isDeploymentStatusStale(latest.deploymentState, latest.updatedAt, +now);
+  const isBuilding = !isUnknown && (state === "created" || state === "pending");
   const isFailed = state === "failure" || state === "error";
   const isLive = state === "success";
 
   const title = isFailed
     ? "Published — deploy failed"
-    : isBuilding
-      ? "Published & deploying"
-      : isLive
-        ? "Published — live"
-        : "Published";
+    : isUnknown
+      ? "Published — deploy status unknown"
+      : isBuilding
+        ? "Published & deploying"
+        : isLive
+          ? "Published — live"
+          : "Published";
   const shas =
     commitShas.length > 0 ? commitShas : latest ? [latest.commitSha] : [];
   const detail =

@@ -5,6 +5,7 @@ import {
   Check,
   ChevronUp,
   CircleAlert,
+  CircleHelp,
   Loader2,
   Rocket,
   X,
@@ -48,6 +49,11 @@ export type DeploymentSummary =
    */
   | { state: "saved-not-live"; count: number }
   | { state: "failed" }
+  /**
+   * The newest publish was last reported as building, over an hour ago. Not a
+   * phase either: nothing is known to be happening, so nothing spins.
+   */
+  | { state: "unknown" }
   | { state: "live" }
   | { state: "none" };
 
@@ -73,17 +79,27 @@ export function summarizeDeployments(
       return { state: "publishing", percent: deployment.publish.percent };
     }
   }
-  const unfinished = deployments.filter(isBuilding);
-  if (unfinished.length > 0) {
-    return studioIsDeployer
-      ? { state: "saved-not-live", count: unfinished.length }
-      : { state: "building", count: unfinished.length };
+  if (studioIsDeployer) {
+    // Managed: a stale build and a fresh one are the same condition, saved and
+    // not served, and both keep the way out of it.
+    const unfinished = deployments.filter(isUnfinished);
+    if (unfinished.length > 0) {
+      return { state: "saved-not-live", count: unfinished.length };
+    }
+  } else {
+    const building = deployments.filter(isBuilding);
+    if (building.length > 0) {
+      return { state: "building", count: building.length };
+    }
   }
   // Only the newest publish decides the resting state: an older failure that
   // a later publish has already fixed is history, not a warning.
   const latest = deployments[0];
   if (isFailed(latest)) {
     return { state: "failed" };
+  }
+  if (isUnknown(latest)) {
+    return { state: "unknown" };
   }
   return { state: "live" };
 }
@@ -147,6 +163,19 @@ function isBuilding(deployment: ShellDeployment): boolean {
 }
 
 /**
+ * Last reported as building, over an hour ago — see `toDeployments`, which
+ * is where that is decided. Never live: a commit the site serves has an answer.
+ */
+function isUnknown(deployment: ShellDeployment): boolean {
+  return !deployment.isLive && deployment.state === "unknown";
+}
+
+/** Building, or was and stopped being reported: either way, not out yet. */
+function isUnfinished(deployment: ShellDeployment): boolean {
+  return isBuilding(deployment) || isUnknown(deployment);
+}
+
+/**
  * Whether a publish failed to go out.
  *
  * A commit the site is serving did go out, so a failure reported for it is
@@ -173,10 +202,10 @@ export function deploymentProgress(
   deployment: ShellDeployment,
   studioIsDeployer = false,
 ): DeploymentProgress {
-  if (isBuilding(deployment)) {
-    return studioIsDeployer ? "saved-not-live" : "building";
-  }
+  if (studioIsDeployer && isUnfinished(deployment)) return "saved-not-live";
+  if (isBuilding(deployment)) return "building";
   if (isFailed(deployment)) return "failed";
+  if (isUnknown(deployment)) return "unknown";
   return "settled";
 }
 
@@ -377,6 +406,8 @@ function describeSummary(summary: DeploymentSummary): string {
       return "Saved, not yet live";
     case "failed":
       return "Build failed";
+    case "unknown":
+      return "Deploy status unknown";
     case "live":
       return "Live";
     case "none":
@@ -401,6 +432,9 @@ function SummaryIcon({ summary }: { summary: DeploymentSummary }) {
   }
   if (summary.state === "failed") {
     return <CircleAlert size={13} />;
+  }
+  if (summary.state === "unknown") {
+    return <CircleHelp size={13} className="text-fg-secondary" />;
   }
   if (summary.state === "live") {
     return <Check size={13} className="text-fg-secondary-alt" />;
@@ -570,6 +604,7 @@ function DeploymentRow({
   const failed = progress === "failed";
   const running = deployment.publish?.kind === "running";
   const savedNotLive = progress === "saved-not-live" && !running;
+  const unknown = progress === "unknown" && !running;
   return (
     <li className="flex items-start gap-2.5 px-3 py-2.5 border-b border-border-float last:border-b-0">
       <span className="mt-0.5 shrink-0">
@@ -582,7 +617,8 @@ function DeploymentRow({
         {savedNotLive && (
           <CircleAlert size={13} className="text-fg-secondary" />
         )}
-        {!building && !running && !failed && !savedNotLive && (
+        {unknown && <CircleHelp size={13} className="text-fg-secondary" />}
+        {!building && !running && !failed && !savedNotLive && !unknown && (
           <span className="block w-1.5 h-1.5 m-[3px] rounded-full bg-bg-brand-secondary" />
         )}
       </span>
@@ -710,7 +746,7 @@ export function describeDeploymentState(
    * change that -- so the row says the state it is actually in rather than
    * naming a step that is not happening.
    */
-  if (studioIsDeployer && isBuilding(deployment)) {
+  if (studioIsDeployer && isUnfinished(deployment)) {
     return "Saved, not yet live";
   }
   switch (deployment.state) {
@@ -721,6 +757,8 @@ export function describeDeploymentState(
     case "failure":
     case "error":
       return "Build failed";
+    case "unknown":
+      return "Status unknown";
     case "success":
       // A green build is not the same as a page you can load: Val watches for
       // the commit to answer from the site before saying it is live.
