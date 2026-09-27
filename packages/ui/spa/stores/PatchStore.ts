@@ -1999,6 +1999,8 @@ export class PatchStore {
    *
    * Cleared for a patch that leaves the chain, that is published, or that a
    * later refused attempt sent: each of those is a newer answer than this one.
+   * And never reported for a patch that has shipped from anywhere — see
+   * {@link publishErrors}.
    */
   private publishErrorById = new Map<PatchId, string>();
 
@@ -2066,6 +2068,15 @@ export class PatchStore {
     for (const [patchId, message] of this.publishErrorById) {
       const record = this.dataById.get(patchId);
       if (record === undefined) continue;
+      /*
+       * Shipped, by any route: this tab's publish, another tab's, or another
+       * author's whose closure carried it. `markPublished` clears the first,
+       * but only the server's applied set knows about the other two, and in
+       * `http` mode the record stays in the chain — so without this a change
+       * that is in a commit went on being reported as one that cannot be
+       * applied. The same test `pendingAmong` makes.
+       */
+      if (record.appliedAt || this.publishedIds.has(patchId)) continue;
       const forModule = byModule[record.moduleFilePath] ?? {};
       forModule[patchId] = { message, source: "server" };
       byModule[record.moduleFilePath] = forModule;

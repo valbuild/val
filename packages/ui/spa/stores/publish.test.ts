@@ -242,6 +242,28 @@ describe("a refused change", () => {
     system.dispose();
   });
 
+  it("is forgotten once the change ships from somewhere else", async () => {
+    // Another tab, or another author's publish whose closure carried it. This
+    // tab never publishes it, so only the server's applied set says it shipped.
+    const system = sequence([refused({ "pub-1": "cannot apply" })], "http");
+    system.stat.receiveStat({ patches: [], baseSha: "sha" });
+    await edit(system, "value");
+    await system.publish([]);
+    expect(Object.keys(system.patchErrors())).toEqual(["/a.val.ts"]);
+
+    system.stat.receiveStat({
+      patches: ["pub-1" as PatchId],
+      baseSha: "sha",
+      appliedPatches: ["pub-1" as PatchId],
+    });
+    await system.patchSync.flush();
+
+    // Still in the chain — http mode keeps it — and no longer blamed.
+    expect(system.patchStore.allRecords()).toHaveLength(1);
+    expect(system.patchErrors()).toEqual({});
+    system.dispose();
+  });
+
   it("is replaced by the next refusal of the same attempt, not added to", async () => {
     const system = sequence(
       [
