@@ -1,5 +1,53 @@
 # @valbuild/shared
 
+## 0.137.0
+
+### Minor Changes
+
+- [#676](https://github.com/valbuild/val/pull/676) [`48ac9f0`](https://github.com/valbuild/val/commit/48ac9f06dd59a5b4ca60232b1ef198cf42f23aa6) Thanks [@freekh](https://github.com/freekh)! - A link-check endpoint, so the Studio can find out whether an external page is
+  still there.
+
+  `POST /external-urls/check` opens up to twenty URLs and reports what answered:
+  the final status after redirects, where it ended up, and how long it took. The
+  Studio's Check button in the external pages dialog is the only caller, and it
+  cannot do this itself — a cross-origin `fetch` from a browser cannot read a
+  response status without CORS headers no ordinary site sends.
+
+  It is an endpoint that makes outbound requests to addresses your content
+  supplies, so it is built as one:
+
+  - It is behind the same session check as every other authenticated route —
+    which, in fs mode, means the same anonymous access every other route allows
+    on a developer's own machine. It is not a new way in; it is the same door.
+  - It refuses to connect to anything that is not a public internet address —
+    loopback, link-local, the private ranges, the carrier-grade NAT range, and
+    the cloud metadata service that hands out instance credentials. The check is
+    on the RESOLVED address rather than the hostname, so a name that resolves to
+    `127.0.0.1` is refused, and it runs again at every redirect hop.
+  - It answers with one generic message for anything it refused, so the endpoint
+    cannot be used to find out what a hostname resolves to from inside your
+    network. The reason is logged on the server.
+  - `HEAD` first, `GET` only where a site answers 405 or 501 to it, and no
+    connection reuse between targets.
+
+- [#746](https://github.com/valbuild/val/pull/746) [`e2bfc0e`](https://github.com/valbuild/val/commit/e2bfc0e40383fe25d3ec0473d1032f6264a8939f) Thanks [@freekh](https://github.com/freekh)! - A site hosted on Val (a managed project, with no repository of its own) can now be updated from the Studio. **Settings → Updates** says whether a newer version of the software the site runs on is available, lists the packages that move and their versions, and offers **Update site**.
+
+  Updating rebuilds the site in the browser on the new versions and publishes it through the ordinary publish, so it is checked before it goes live: if the updated site does not render, nothing changes and the site keeps running the old versions. Unpublished changes are kept and are **not** published by an update. After it goes live, reload the Studio to use the new one.
+
+  In Safari, which cannot build the site in the Studio's own page, Update site opens a tab that builds and publishes it, the same way a publish does there, and the Studio follows its progress.
+
+  A Studio that was opened before the site was updated no longer publishes: pressing Publish asks you to reload first, and nothing is saved until you do. Your unpublished changes are kept. Without this, a Studio left open from before an update would have built the site with the previous version of itself.
+
+  The versions come from the template the project was made from, as the platform last built it. A project whose code lives in a repository is not offered this; its dependencies are updated there.
+
+  For hosts: `@valbuild/server` forwards `GET` and `POST /api/val/publish-api/update-target` to the content service, beside `/build-target` and `/project-source`.
+
+### Patch Changes
+
+- [#748](https://github.com/valbuild/val/pull/748) [`beda04b`](https://github.com/valbuild/val/commit/beda04bd326cbab18ed103e8d43917b16f43bd8c) Thanks [@freekh](https://github.com/freekh)! - A save is no longer refused once because an older answer from the server arrived after a newer one. The content service now reports a version of its list of changes, which goes up with every save, discard and publish. The Studio ignores any answer older than one it already has, including the answer to its own last save, discard or publish, so a discarded change can no longer briefly come back, and a published one can no longer briefly show as unpublished.
+- Updated dependencies [[`43b58f2`](https://github.com/valbuild/val/commit/43b58f2962840883badf91950da2c51b89d1c7cb)]:
+  - @valbuild/core@0.137.0
+
 ## 0.136.10
 
 ### Patch Changes

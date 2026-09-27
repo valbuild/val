@@ -1,5 +1,134 @@
 # @valbuild/ui
 
+## 0.137.0
+
+### Minor Changes
+
+- [#676](https://github.com/valbuild/val/pull/676) [`daecf41`](https://github.com/valbuild/val/commit/daecf416f51990569a47a6a9ee9174b1a57f98c2) Thanks [@freekh](https://github.com/freekh)! - External pages have their own place in Val Studio.
+
+  They used to be a second list under the site map in the Pages panel: two dozen
+  flat rows that pushed the site map out of view and answered none of the
+  questions anyone opens them with. There is now a button at the bottom of the
+  Pages panel — with a count, and a second count for how many want looking at —
+  and behind it a dialog built around what external pages actually are: a list of
+  URLs.
+
+  - **Grouped by domain**, so a project's `status.`, `portal.` and `shop.` links
+    read as one cluster rather than three strangers. Flat is a toggle away. A
+    `mailto:` groups under the domain it writes to, beside that organisation's
+    web pages; a `tel:` gets a heading of its own.
+  - **Where each URL is used.** Every row says how many places link to it, and
+    opening one lists them and takes you there. A link nothing points at is the
+    one you can delete; a link twenty things point at is the one you cannot
+    rename casually — and until now neither was visible.
+  - **What is behind it**, without leaving the list: the entry's own fields in a
+    detail pane beside the URLs.
+  - **Add and remove.** A URL can be added from the dialog — which then opens and
+    scrolls to what it added, rather than dropping it somewhere in a list sorted
+    by a grouping you were not thinking about — and removed from it, but only
+    once nothing links to it, which is a thing you could not previously find out
+    without reading the project.
+  - **Validation errors per entry.** A `.validate(...)` your project wrote on the
+    external router's item schema now shows on the row it is about, and says what
+    it found in the detail pane. Every external page lives in one module, so a
+    module-level count said the same thing on every row and was left off
+    entirely.
+  - **Checks.** Press Check on a selection, or on everything, and Val reads the
+    URLs for the mistakes that get made while typing and then never looked at
+    again: a key the router will refuse, a password pasted into a URL, the same
+    page listed twice, an `http://` link whose `https://` twin is already in the
+    list, a localhost address someone added from their laptop, tracking
+    parameters.
+  - **Link checking.** The same button also opens each URL through your own
+    server and reports what answered: 404 and 410 as errors, a redirect that
+    still works as a warning naming where it went, and 401/403/429 as "may be
+    fine for a visitor, cannot be checked from here" rather than as broken. URLs
+    go up ten at a time and failures are retried, so checking a few hundred links
+    is polite to the sites on the other end. A `mailto:` or `tel:` is reported as
+    having nothing to open, never as unreachable.
+
+    The report is the findings, not a transcript: the clean rows are a number,
+    and each flagged one is one line, worst first. Twenty clean URLs are "All 20
+    look fine."
+
+    The endpoint this adds makes outbound requests to addresses your content
+    supplies, so it refuses to connect to anything that is not a public internet
+    address - loopback, private ranges, and the cloud metadata service that hands
+    out credentials - checked on the resolved address, at every redirect hop.
+
+- [#746](https://github.com/valbuild/val/pull/746) [`e2bfc0e`](https://github.com/valbuild/val/commit/e2bfc0e40383fe25d3ec0473d1032f6264a8939f) Thanks [@freekh](https://github.com/freekh)! - A site hosted on Val (a managed project, with no repository of its own) can now be updated from the Studio. **Settings → Updates** says whether a newer version of the software the site runs on is available, lists the packages that move and their versions, and offers **Update site**.
+
+  Updating rebuilds the site in the browser on the new versions and publishes it through the ordinary publish, so it is checked before it goes live: if the updated site does not render, nothing changes and the site keeps running the old versions. Unpublished changes are kept and are **not** published by an update. After it goes live, reload the Studio to use the new one.
+
+  In Safari, which cannot build the site in the Studio's own page, Update site opens a tab that builds and publishes it, the same way a publish does there, and the Studio follows its progress.
+
+  A Studio that was opened before the site was updated no longer publishes: pressing Publish asks you to reload first, and nothing is saved until you do. Your unpublished changes are kept. Without this, a Studio left open from before an update would have built the site with the previous version of itself.
+
+  The versions come from the template the project was made from, as the platform last built it. A project whose code lives in a repository is not offered this; its dependencies are updated there.
+
+  For hosts: `@valbuild/server` forwards `GET` and `POST /api/val/publish-api/update-target` to the content service, beside `/build-target` and `/project-source`.
+
+### Patch Changes
+
+- [#738](https://github.com/valbuild/val/pull/738) [`8f60073`](https://github.com/valbuild/val/commit/8f60073e5490971a615cebbe8ea1243c67e43530) Thanks [@freekh](https://github.com/freekh)! - When a publish has to be handed to the builder (a publish from the page overlay, or from the Studio in desktop Safari), the builder now opens as a small window over the page instead of a full browser tab. It is sized to the progress card and still closes itself once the change is live. "View the site" and "Open the Studio" open a normal tab and close the builder window. On an iPad the builder is still a tab, because iPadOS always opens one.
+
+- [#717](https://github.com/valbuild/val/pull/717) [`af7a4ba`](https://github.com/valbuild/val/commit/af7a4baa63da5d8a226166377a354cf2fc0c1d77) Thanks [@freekh](https://github.com/freekh)! - **See what has changed on a page.** The fields view of the preview ("On page")
+  now marks every field with an unpublished change, and a **Changed** chip beside
+  the title filters the list down to just those, so you can scan a page's edits
+  before you publish. The chip shows how many fields have changed and fits on the
+  title row, so it takes no extra room on a phone. A field counts as changed when
+  its value differs from the published one, which is the same comparison the
+  review screen makes: an edit typed back to the original is not listed, and
+  neither is a field in a module nobody has touched.
+
+- [#722](https://github.com/valbuild/val/pull/722) [`9b09bf3`](https://github.com/valbuild/val/commit/9b09bf38c9d5912f41fec1c18aa87455fd32f616) Thanks [@freekh](https://github.com/freekh)! - A review page for what is about to be published, and a compare dialog beside it
+
+  Review used to open a diff. A diff answers "what changed"; the decision in
+  front of an editor about to publish is "what is going out", which is made over
+  the whole list at once — so Review now opens `/val/review`, a page of exactly
+  that, with the diff one click away.
+
+  - **Staged and unstaged, everywhere.** Two sections, with one vocabulary
+    behind them: a change is staged or it is unstaged, and nothing is "held
+    back" any more. What each means is in a tooltip on the heading rather than a
+    paragraph under it.
+  - **Selection, filters and authors.** Rows are multi-select with presets, the
+    list can be narrowed to one author, and an author is shown with the same
+    avatar the rest of the Studio uses.
+  - **Revert without leaving the page**, over the current selection or over
+    everything.
+  - **Compare works in `fs` mode.** The dialog compares the staged changes
+    against what is on disk — there is no published history to compare against
+    there, so it does not offer one, and it says "save" where a deployed project
+    says "publish".
+  - **History is a route** (`/val/history`) rather than a panel, so a commit — or
+    the list you pick one from — can be linked to. It stays hidden in `fs` mode,
+    where restore is not supported.
+
+  Nothing in any of these screens shows a module file path. A page is named by
+  its URL and located by it; a data module is named by its own name and located
+  by its folders, spelled the way the left nav spells them.
+
+- [#745](https://github.com/valbuild/val/pull/745) [`8e49bf4`](https://github.com/valbuild/val/commit/8e49bf41ad6a8ad3b01e502fb7ce0369baa316db) Thanks [@freekh](https://github.com/freekh)! - On a phone, the Studio's bottom bar now floats above the bottom edge, with its full border and rounded corners, instead of running into the screen's rounded corners, which cut off its ends and its buttons' bottom borders.
+
+  In the canvas's On page view, the field you are typing in is outlined once. Before, the input's focus ring was drawn inside a second accent border on the field's card.
+
+- [#729](https://github.com/valbuild/val/pull/729) [`370d0df`](https://github.com/valbuild/val/commit/370d0df7ea45aeeafb4520318018d7c4e1c040d6) Thanks [@freekh](https://github.com/freekh)! - Publish is no longer disabled after the server refuses a change. Previously a refused change turned the button into a disabled "Fix errors" that only discarding the change could clear, even when publishing again would have worked (for example once the deployment had caught up with the previous publish). The server still refuses the whole commit when a change does not apply, so retrying cannot publish anything wrong. The refusal is still shown, and it is now cleared once a retry publishes the change. Validation errors still block publishing.
+
+- [#676](https://github.com/valbuild/val/pull/676) [`14877a8`](https://github.com/valbuild/val/commit/14877a85c5add4daa16836470b8739180a9fe8c6) Thanks [@freekh](https://github.com/freekh)! - Finding out where a route is linked from is no longer slow on a large project.
+
+  The scan walked the full source tree of every module in the project looking for
+  `s.route()` fields, including the modules whose schema has no route field in it
+  anywhere — which on a real project is most of them. It now asks the schema
+  first, and only walks the source of a module that could actually hold a
+  reference.
+
+  Measured on a synthetic project of 41 modules and 4.5 MB of source: 18.2 ms per
+  scan before, 0.10 ms after. The scan runs once per route key, so anything asking
+  about several routes at once saves that much again per route.
+
+- [#748](https://github.com/valbuild/val/pull/748) [`beda04b`](https://github.com/valbuild/val/commit/beda04bd326cbab18ed103e8d43917b16f43bd8c) Thanks [@freekh](https://github.com/freekh)! - A save is no longer refused once because an older answer from the server arrived after a newer one. The content service now reports a version of its list of changes, which goes up with every save, discard and publish. The Studio ignores any answer older than one it already has, including the answer to its own last save, discard or publish, so a discarded change can no longer briefly come back, and a published one can no longer briefly show as unpublished.
+
 ## 0.136.10
 
 ### Patch Changes
