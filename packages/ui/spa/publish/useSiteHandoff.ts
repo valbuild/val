@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import type { HandoffState } from "../components/shell/PublishHandoff";
 import {
   canBuildHere,
+  openBuilderWindow,
   openHandoff,
   type SiteHandoff,
   type ToTab,
@@ -119,7 +120,7 @@ export function useSiteHandoff(
     const handoff = current.current;
     if (handoff !== null) {
       // The same id, so the tab finds the commit this page is holding.
-      window.open(handoff.url, `val-publish-${handoff.id}`);
+      openBuilderWindow(handoff.url, `val-publish-${handoff.id}`);
       setState({ kind: "opening" });
       return;
     }
