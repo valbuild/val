@@ -59,6 +59,8 @@ export function ValStoreProvider({
     appliedPatches?: PatchId[];
     /** See {@link StatSnapshot.headCommitSha}. The publish head. */
     headCommitSha?: string;
+    /** See {@link StatSnapshot.headPatchId}. The head of the patch chain. */
+    headPatchId?: PatchId | null;
   } | null;
   children: ReactNode;
 }) {
@@ -133,6 +135,8 @@ export function ValStoreProvider({
       // `PatchStore.receiveApplied`.
       appliedPatches: stat.appliedPatches,
       headCommitSha: stat.headCommitSha,
+      // What the next write names as its parent. See `PatchSync`.
+      headPatchId: stat.headPatchId,
     });
   }, [system, stat, received]);
 

@@ -1442,7 +1442,7 @@ export function createSystem(options: SystemOptions): System {
     stat.events.on("stat:receive", (event) => {
       const baseSha = stat.currentBaseSha();
       if (baseSha === null) return;
-      patchSync.receiveStat(baseSha, event.patches);
+      patchSync.receiveStat(baseSha, event.patches, stat.currentHeadPatchId());
       // A stat can unblock a save that had no honest parent to name. Nothing
       // else would retry it: `patch:create` already fired and found no base.
       void patchSync.flush();

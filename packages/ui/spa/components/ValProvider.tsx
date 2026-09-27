@@ -519,6 +519,12 @@ export function ValProvider({
   /** The publish head, carried to `/save`. See `newestCommitSha`. */
   const statHead =
     "data" in stat && stat.data ? stat.data.headCommitSha : undefined;
+  /**
+   * The head of the PATCH chain, which is not `statHead` (that is the publish
+   * head). What the next write names as its parent — see `PatchSync`.
+   */
+  const statPatchHead =
+    "data" in stat && stat.data ? stat.data.headPatchId : undefined;
   const storeStat = useMemo(
     () =>
       baseSha !== undefined && statPatches !== undefined
@@ -528,9 +534,10 @@ export function ValProvider({
             removed: statRemoved,
             appliedPatches: statApplied,
             headCommitSha: statHead,
+            headPatchId: statPatchHead,
           }
         : null,
-    [baseSha, statPatches, statRemoved, statApplied, statHead],
+    [baseSha, statPatches, statRemoved, statApplied, statHead, statPatchHead],
   );
 
   const getDirectFileUploadSettings = useCallback(async (): Promise<

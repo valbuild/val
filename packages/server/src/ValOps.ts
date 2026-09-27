@@ -268,6 +268,11 @@ export abstract class ValOps {
         commitSha?: CommitSha;
         sourcesSha: SourcesSha;
         patches: PatchId[];
+        /**
+         * The head of the chain, when the store reports one. See
+         * {@link OrderedPatches.headPatchId}.
+         */
+        headPatchId?: PatchId | null;
       }
     | {
         type: "error";
@@ -3074,6 +3079,20 @@ export type OrderedPatches = {
     } | null;
   }[];
   commits?: ValCommit[];
+  /**
+   * The head of the patch chain: the last patch registered on the branch,
+   * published or not. `null` when there is none.
+   *
+   * What a new patch names as its parent -- and NOT the last of `patches`. The
+   * list leaves out patches this deployment already contains, and since patch
+   * groups a published patch can come after one that is still pending, so the
+   * last listed id can be behind the head for good.
+   *
+   * Absent means the store does not report one: `ValOpsFS` (whose ordering log
+   * defines order, and which ignores the parent) and a content service that
+   * predates the field. Callers then fall back to the last listed id.
+   */
+  headPatchId?: PatchId | null;
   error?: GenericErrorMessage;
   errors?: PatchReadError[];
   unauthorized?: boolean;
@@ -3086,6 +3105,8 @@ export type OrderedPatchesMetadata = {
   })[];
   commits?: ValCommit[];
   deployments?: ValDeployment[];
+  /** See {@link OrderedPatches.headPatchId}. */
+  headPatchId?: OrderedPatches["headPatchId"];
   error?: GenericErrorMessage;
   errors?: OrderedPatches["errors"];
   unauthorized?: boolean;

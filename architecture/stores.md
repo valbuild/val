@@ -73,6 +73,13 @@ The server keeps one linear patch chain and checks every `parentRef`; two writer
 would 409 on every keystroke. One patch per edit, not per typing burst — merging
 is what made the two chains disagree.
 
+The parent is the chain's **head** as the server reports it (`headPatchId` on
+`/stat`), never the last id `/stat` listed. The list leaves out what the running
+deployment already contains, and since patch groups a published patch can come
+after a pending one — so "the last patch I was shown" can be behind the head for
+good. The head is a fact about the whole chain and only the server has it; see
+`PatchSync`'s docblock and the entry in `quirks.md`.
+
 `/stat` is polled and is the authority on **order**, not on existence. A response
 describes the server as it was when the request was _issued_, so a stat can omit a
 patch that exists. A patch that disappears from stat is therefore **verified**

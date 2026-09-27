@@ -599,7 +599,14 @@ function headPatchId(): string | null {
  * Anything that adds to or removes from the chain has to call this.
  */
 function broadcastChain(): void {
-  broadcast({ type: "patches", patches: [...state.patches.keys()] });
+  broadcast({
+    type: "patches",
+    patches: [...state.patches.keys()],
+    // Beside the list, as `home` sends it. Here the two always agree — this
+    // mock lists the whole chain — but a client that stopped reading the head
+    // would fall back to the list and nothing here could tell.
+    headPatchId: headPatchId(),
+  });
 }
 
 function broadcast(message: unknown): void {
@@ -811,6 +818,13 @@ const getApplicablePatches: Handler = (req, res, url) => {
   }
   json(res, 200, {
     patches,
+    /*
+     * The head of the chain, which a writer names as its parent. `home` reports
+     * it because its list leaves out what the caller's build contains; this
+     * mock's list does not, so the head is simply the last patch — and it is
+     * the whole chain's last patch whatever `patch_id` filter was asked for.
+     */
+    headPatchId: headPatchId(),
     commits: state.commits,
     /**
      * Newest update first, as the content service returns them.
@@ -898,6 +912,11 @@ const savePatch: Handler = async (req, res) => {
     // exist again. JSON with a `message`, because that is what `ValOpsHttp`
     // reads a non-409 body as — a text body would reach the user as the status
     // line instead of as this sentence.
+    //
+    // `home` answers this 409 now (a vanished parent is a head that moved), but
+    // a content service deployed before that still answers 404, and the Studio
+    // has to survive it. So the mock keeps the harsher answer: it is the one
+    // that loses an edit if the client regresses.
     json(res, 404, { message: "Parent patch not found" });
     return;
   }

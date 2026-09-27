@@ -196,15 +196,26 @@ export type SyncState =
  *
  * ## The parent ref
  *
- * `{ type: "patch", patchId }` of the last patch the SERVER has acknowledged,
- * falling back to `{ type: "head", headBaseSha }` when it has acknowledged none.
- * Deliberately not the local head: the local head includes patches the server has
- * never seen, and naming one of those as a parent is a guaranteed 409.
+ * `{ type: "patch", patchId }` of the HEAD of the server's chain — its last
+ * registered patch — falling back to `{ type: "head", headBaseSha }` when the
+ * chain is empty. Deliberately not the local head: the local head includes
+ * patches the server has never seen, and naming one of those as a parent is a
+ * guaranteed 409.
  *
- * "What the server has acknowledged" is two things joined, not one: the last
- * stat's id list, plus the ids our own 200s named that the stat has not caught up
- * to. A stat can be older than our own write, so using it alone would walk the
- * parent backwards and conflict with ourselves.
+ * The head is what the last stat REPORTED (`headPatchId`), and not the last id
+ * it listed. The list leaves out patches the running deployment already
+ * contains, and since patch groups a publish can ship later patches and leave an
+ * earlier one pending — another author's edit that nets to nothing can never be
+ * published at all. The last listed id is then behind the head for good: every
+ * write naming it is refused, and re-syncing returns the same list. The parent
+ * is a fact about the whole chain, so it is taken from the server rather than
+ * inferred from what this client is shown. The last listed id is only the
+ * fallback for a server that does not report a head (`fs`, which ignores the
+ * parent anyway, and an older content service).
+ *
+ * Joined with the ids our own 200s named that the stat has not caught up to. A
+ * stat can be older than our own write, so using it alone would walk the parent
+ * backwards and conflict with ourselves.
  */
 /**
  * Is this the same queue state?
@@ -266,6 +277,13 @@ export class PatchSync {
   private baseSha: string | null = null;
   /** The server's ordered patch ids, as of the last stat. */
   private statPatchIds: PatchId[] = [];
+  /**
+   * The head of the server's chain as the last stat reported it: `null` for an
+   * empty chain, `undefined` when the server does not report one. See the
+   * parent-ref section above for why this, and not the last of
+   * {@link statPatchIds}, is the parent.
+   */
+  private statHeadPatchId: PatchId | null | undefined = undefined;
   /**
    * Patches the server has acknowledged that the last stat did not list yet.
    *
@@ -334,12 +352,25 @@ export class PatchSync {
    * sources of truth have converged on those, so keeping them would be keeping a
    * duplicate.
    */
-  receiveStat(headBaseSha: string, serverPatchIds: readonly PatchId[]): void {
+  receiveStat(
+    headBaseSha: string,
+    serverPatchIds: readonly PatchId[],
+    /** The chain head the server reported. See {@link statHeadPatchId}. */
+    headPatchId?: PatchId | null,
+  ): void {
     this.baseSha = headBaseSha;
     this.statPatchIds = [...serverPatchIds];
+    this.statHeadPatchId = headPatchId;
     const known = new Set(serverPatchIds);
+    // A reported head the server holds is caught up to as well, with everything
+    // we saved before it — the chain is linear. It matters when the head is not
+    // listed: a patch this deployment already contains is left out of the list.
+    const headAt =
+      headPatchId === undefined || headPatchId === null
+        ? -1
+        : this.savedNotInStat.indexOf(headPatchId);
     this.savedNotInStat = this.savedNotInStat.filter(
-      (patchId) => !known.has(patchId),
+      (patchId, index) => index > headAt && !known.has(patchId),
     );
   }
 
@@ -385,6 +416,19 @@ export class PatchSync {
     this.statPatchIds = this.statPatchIds.filter(
       (patchId) => !gone.has(patchId),
     );
+    // And the head, when it is one of them: a head that has been deleted is a
+    // parent the server no longer holds. What replaced it is not known until the
+    // next stat, so this falls back to the list — which may be behind the head
+    // and cost one 409 and a re-sync, where naming a deleted patch would cost
+    // the same round trip against a server that refuses a vanished parent, and
+    // the patches themselves against one that predates that.
+    if (
+      this.statHeadPatchId !== undefined &&
+      this.statHeadPatchId !== null &&
+      gone.has(this.statHeadPatchId)
+    ) {
+      this.statHeadPatchId = undefined;
+    }
   }
 
   currentState(): SyncState {
@@ -417,8 +461,13 @@ export class PatchSync {
     }
     const patchId =
       this.savedNotInStat[this.savedNotInStat.length - 1] ??
-      this.statPatchIds[this.statPatchIds.length - 1];
-    if (patchId === undefined) {
+      // The reported head when there is one — `null` included, which is an
+      // empty chain and not "unknown" — and the last listed id only when the
+      // server does not report a head at all.
+      (this.statHeadPatchId !== undefined
+        ? this.statHeadPatchId
+        : this.statPatchIds[this.statPatchIds.length - 1]);
+    if (patchId === undefined || patchId === null) {
       return { type: "head", headBaseSha: this.baseSha };
     }
     return { type: "patch", patchId };
