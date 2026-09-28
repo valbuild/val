@@ -34,6 +34,7 @@ import type { ReadImageEncode } from "../../utils/readImage";
 import { resolveEncodeSettings } from "../../utils/encodeImage";
 import { createFilePatch } from "./FileField";
 import { FIELD_WRITE_MAX_WAIT_MS } from "./useDebouncedFieldWrite";
+import { useRoutesOf } from "../useRoutesOf";
 
 const DEBOUNCE_MS = 400;
 
@@ -169,6 +170,21 @@ export function RichTextField({
     useRichTextEditorConfig(schemaOptions);
 
   const hasImageEnabled = !!schemaOptions?.img;
+
+  /**
+   * "This site", for turning a pasted `https://blank.no/jobb` into `/jobb`.
+   *
+   * The Studio is served by the app it edits, so the page it is open on IS the
+   * site. Which also means a local dev server only recognises its own
+   * `localhost` URLs: a URL copied from production is treated as external
+   * there, since nothing in the project says what the production domain is.
+   */
+  const siteOrigins = useMemo(
+    () => (typeof window === "undefined" ? [] : [window.location.origin]),
+    [],
+  );
+  // Shared and reference-stable across fields; see `useRoutesOf`.
+  const routes = useRoutesOf();
 
   const imageReferencedModule = imageSchema?.referencedModule as
     | ModuleFilePath
@@ -529,6 +545,8 @@ export function RichTextField({
         imageAccept={imageAcceptOptions}
         uploadProgress={uploadProgress}
         portalContainer={portalContainer}
+        siteOrigins={siteOrigins}
+        routes={routes}
       />
     </div>
   );

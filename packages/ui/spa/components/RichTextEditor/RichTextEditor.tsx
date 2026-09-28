@@ -10,7 +10,7 @@ import {
   type Ref,
 } from "react";
 import { createPortal } from "react-dom";
-import { EditorState, Selection } from "prosemirror-state";
+import { EditorState, Selection, TextSelection } from "prosemirror-state";
 import type { Node as PMNode, MarkType } from "prosemirror-model";
 import { EditorView } from "prosemirror-view";
 import { history } from "prosemirror-history";
@@ -66,6 +66,26 @@ import {
   createButtonEditableNodeView,
 } from "./plugins/buttonNodeView";
 import { createDetailsNodeView } from "./plugins/detailsNodeView";
+import {
+  applyLinkFixes,
+  clearAutoLinked,
+  createLinkifyPlugin,
+  linkifyPluginKey,
+  rescanLinks,
+  unlinkAutoLinked,
+} from "./plugins/linkifyPlugin";
+import {
+  AutoLinkChip,
+  findingKey,
+  LinkSuggestionsBar,
+} from "./plugins/LinkSuggestionsComponent";
+import {
+  EMPTY_LINK_SCAN,
+  resolveUrl,
+  type LinkContext,
+  type LinkFinding,
+  type LinkScan,
+} from "./linkify";
 import type { ModuleFilePath } from "@valbuild/core";
 
 function LinkPickerOverlay({
@@ -196,6 +216,16 @@ export interface RichTextEditorProps {
   detailsVariants?: EditorDetailsVariant[];
   className?: string;
   portalContainer?: HTMLElement | null;
+  /**
+   * The origins that are this site, so a pasted `https://blank.no/jobb`
+   * becomes the internal link `/jobb`. See `LinkContext.siteOrigins`.
+   */
+  siteOrigins?: string[];
+  /**
+   * The project's routes, so a link to a page on this site that does not exist
+   * is an error rather than a link. See `LinkContext.routes`.
+   */
+  routes?: string[];
 }
 
 export const RichTextEditor = forwardRef(function RichTextEditor(
@@ -223,6 +253,8 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     detailsVariants,
     className,
     portalContainer,
+    siteOrigins,
+    routes,
   } = props;
 
   const {
@@ -232,6 +264,7 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
   } = useModuleMediaEntries(imageModulePath);
   const hasGalleryImages = imageModuleReady && !!imageModuleEntries;
 
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const fixedToolbarMountRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -267,6 +300,36 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
    * answer is whatever is current then.
    */
   const portalContainerRef = useRef(portalContainer);
+  const siteOriginsRef = useRef(siteOrigins);
+  const routesRef = useRef(routes);
+  /**
+   * What a URL typed into this field links to. Read at USE time, like the
+   * portal container: the routes arrive after mount and change as pages are
+   * added, and none of that should rebuild the view.
+   */
+  const getLinkContext = useCallback((): LinkContext => {
+    const catalog = linkCatalogRef.current;
+    return {
+      siteOrigins: siteOriginsRef.current ?? [],
+      routes: routesRef.current,
+      // An empty catalog is not enforced by `createLinkCatalogPlugin`, so it
+      // must not be enforced here either.
+      allowedHrefs:
+        catalog && catalog.length > 0
+          ? catalog.map((item) => item.href.trim())
+          : undefined,
+    };
+  }, []);
+  const [linkScan, setLinkScan] = useState<LinkScan>(EMPTY_LINK_SCAN);
+  const [autoLinkChip, setAutoLinkChip] = useState<{
+    id: number;
+    count: number;
+    position: { left: number; top: number };
+  } | null>(null);
+  /** URLs someone chose to leave as text. Per mounted editor, on purpose: it is a "not now". */
+  const [dismissedUrls, setDismissedUrls] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   /**
    * The live document, carried across a view REBUILD.
    *
@@ -297,6 +360,8 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     buttonVariantsRef.current = buttonVariants;
     detailsVariantsRef.current = detailsVariants;
     portalContainerRef.current = portalContainer;
+    siteOriginsRef.current = siteOrigins;
+    routesRef.current = routes;
     if (hasGalleryImages) {
       imageSelectRendererRef.current = (currentSrc, onSelectUrl) => (
         <MediaPickerList
@@ -429,6 +494,50 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
       },
       isPickerOpen: () => pickerStateRef.current !== null,
     });
+
+    // BEFORE the catalog plugin: a pasted `https://blank.no/jobb` link is
+    // rewritten to `/jobb` here, in time for the catalog plugin to see a link
+    // it allows rather than one it strips.
+    if (features.link && schema.marks.link) {
+      plugins.push(
+        createLinkifyPlugin({
+          linkType: schema.marks.link,
+          getContext: getLinkContext,
+          getLinkCatalog,
+          linkHelper,
+          readOnly,
+          onChange: ({ scan, autoLinked }, linkView) => {
+            setLinkScan(scan);
+            const last = autoLinked?.ranges[autoLinked.ranges.length - 1];
+            const wrapper = wrapperRef.current;
+            if (!autoLinked || !last || !wrapper) {
+              setAutoLinkChip(null);
+              return;
+            }
+            setAutoLinkChip((prev) => {
+              if (prev?.id === autoLinked.id) return prev;
+              let position: { left: number; top: number };
+              try {
+                const coords = linkView.coordsAtPos(last.to);
+                const rect = wrapper.getBoundingClientRect();
+                position = {
+                  left: Math.max(0, coords.left - rect.left),
+                  top: coords.bottom - rect.top + 4,
+                };
+              } catch {
+                // No layout (jsdom, or a view being torn down): under the field.
+                position = { left: 0, top: wrapper.offsetHeight };
+              }
+              return {
+                id: autoLinked.id,
+                count: autoLinked.ranges.length,
+                position,
+              };
+            });
+          },
+        }),
+      );
+    }
 
     plugins.push(createLinkCatalogPlugin({ getLinkCatalog }));
 
@@ -638,6 +747,67 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     view.dispatch(tr);
   }, [errors, errorKindClassName]);
 
+  /** The site, the routes or the catalog moved: what each URL links to may have too. */
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    rescanLinks(view);
+  }, [siteOrigins, routes, linkCatalog]);
+
+  const handleApplyLinkFixes = useCallback(
+    (keys: ReadonlySet<string> | null) => {
+      const view = viewRef.current;
+      if (!view) return;
+      applyLinkFixes(
+        view,
+        (finding) => keys === null || keys.has(findingKey(finding)),
+      );
+      view.focus();
+    },
+    [],
+  );
+
+  const handleDismissUrls = useCallback((urls: string[]) => {
+    setDismissedUrls((prev) => new Set([...prev, ...urls]));
+  }, []);
+
+  const handleRevealFinding = useCallback((finding: LinkFinding) => {
+    const view = viewRef.current;
+    if (!view) return;
+    const max = view.state.doc.content.size;
+    view.dispatch(
+      view.state.tr
+        .setSelection(
+          TextSelection.create(
+            view.state.doc,
+            Math.min(finding.from, max),
+            Math.min(finding.to, max),
+          ),
+        )
+        .scrollIntoView(),
+    );
+    view.focus();
+  }, []);
+
+  const handleKeepAsText = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    // Left as text on purpose, so the bar below must not ask about them again.
+    const ranges = linkifyPluginKey.getState(view.state)?.autoLinked?.ranges;
+    const urls = (ranges ?? [])
+      .filter(({ from, to }) => from < to)
+      .map(({ from, to }) => view.state.doc.textBetween(from, to));
+    setDismissedUrls((prev) => new Set([...prev, ...urls]));
+    unlinkAutoLinked(view);
+    view.focus();
+  }, []);
+
+  const handleCloseChip = useCallback(() => {
+    const view = viewRef.current;
+    if (view) clearAutoLinked(view);
+    else setAutoLinkChip(null);
+  }, []);
+
   const getDocument = useCallback((): EditorDocument => {
     if (!viewRef.current) return [];
     return serializeEditorDocument(viewRef.current.state.doc);
@@ -709,9 +879,16 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
 
   const handlePickerApplyUrl = useCallback(
     (href: string) => {
-      applyLink(href);
+      // A full address on this site, typed into the URL box, is the same
+      // internal link it would have become if it had been pasted.
+      const resolution = resolveUrl(href, getLinkContext());
+      applyLink(
+        resolution?.status === "linkable" && resolution.internal
+          ? resolution.href
+          : href,
+      );
     },
-    [applyLink],
+    [applyLink, getLinkContext],
   );
 
   const handlePickerUnlink = useCallback(() => {
@@ -725,6 +902,7 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
 
   return (
     <div
+      ref={wrapperRef}
       className={[
         "rich-text-editor relative flex flex-col",
         readOnly ? "cursor-default" : "",
@@ -767,6 +945,25 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
           readOnly ? "opacity-80" : "",
         ].join(" ")}
       />
+      {!readOnly && features.link && (
+        <LinkSuggestionsBar
+          scan={linkScan}
+          dismissed={dismissedUrls}
+          onApply={handleApplyLinkFixes}
+          onDismiss={handleDismissUrls}
+          onReveal={handleRevealFinding}
+          portalContainer={portalContainer}
+        />
+      )}
+      {!readOnly && autoLinkChip && (
+        <AutoLinkChip
+          key={autoLinkChip.id}
+          count={autoLinkChip.count}
+          position={autoLinkChip.position}
+          onKeepAsText={handleKeepAsText}
+          onClose={handleCloseChip}
+        />
+      )}
       {pickerState &&
         (portalContainer ? (
           createPortal(

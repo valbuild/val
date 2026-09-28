@@ -1217,3 +1217,51 @@ export const SchemaViolationWithExternalErrors: Story = {
     ],
   },
 };
+
+/**
+ * URLs written as text, on a site at `https://blank.no` with the pages `/`,
+ * `/jobb` and `/om-oss`. Paste a URL (or several), type one followed by a
+ * space, or put the cursor in one and press Ctrl/⌘+K.
+ */
+const pastedUrlsDoc: EditorDocument = [
+  {
+    tag: "p",
+    children: [
+      "Kilder: https://ssb.no/statistikk og https://www.nav.no/arbeid.",
+    ],
+  },
+  {
+    tag: "p",
+    children: [
+      "Se ledige stillinger på https://blank.no/jobb, eller les ",
+      { tag: "a", href: "https://blank.no/om-oss", children: ["om oss"] },
+      ".",
+    ],
+  },
+  {
+    tag: "p",
+    children: ["Denne siden finnes ikke: https://blank.no/finnes-ikke"],
+  },
+];
+
+export const PastedUrls: Story = {
+  args: {
+    defaultValue: pastedUrlsDoc,
+    siteOrigins: ["https://blank.no"],
+    routes: ["/", "/jobb", "/om-oss"],
+  },
+};
+
+/** `s.richtext({ a: true })`: only the project's routes can be linked. */
+export const PastedUrlsRouteLinksOnly: Story = {
+  args: {
+    defaultValue: pastedUrlsDoc,
+    siteOrigins: ["https://blank.no"],
+    routes: ["/", "/jobb", "/om-oss"],
+    linkCatalog: [
+      { title: "Forsiden", subtitle: "/", href: "/" },
+      { title: "Jobb", subtitle: "/jobb", href: "/jobb" },
+      { title: "Om oss", subtitle: "/om-oss", href: "/om-oss" },
+    ],
+  },
+};

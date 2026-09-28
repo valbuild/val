@@ -53,7 +53,7 @@ export function getFormattingButtons(
   if (schema.marks.link && (!features || features.link))
     buttons.push({
       label: "\u{1F517}",
-      title: "Link",
+      title: "Link (Ctrl+K)",
       markType: schema.marks.link,
     });
   return buttons;
