@@ -137,6 +137,30 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       });
       return { [path]: errors } as ValidationErrors;
     }
+    // The bounds below are compared as strings, which only orders days when
+    // every side is a real `YYYY-MM-DD`: "19f81-12-30" sorts between
+    // "1900-01-01" and "2024-01-01" and would pass them.
+    if (!isCalendarDay(src)) {
+      errors.push({
+        message: `Value '${src}' is not a valid date (expected YYYY-MM-DD)`,
+        value: src,
+      });
+      return { [path]: errors } as ValidationErrors;
+    }
+    const bounds: [label: string, bound: string | undefined][] = [
+      ["From", this.options?.from],
+      ["To", this.options?.to],
+    ];
+    for (const [name, bound] of bounds) {
+      if (bound !== undefined && !isCalendarDay(bound)) {
+        errors.push({
+          message: `${name} date '${bound}' is not a valid date (expected YYYY-MM-DD)`,
+          value: src,
+          typeError: true,
+        });
+        return { [path]: errors } as ValidationErrors;
+      }
+    }
     if (this.options?.from && this.options?.to) {
       if (this.options.from > this.options.to) {
         errors.push({
@@ -384,6 +408,32 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       description: this.description,
     };
   }
+}
+
+const CALENDAR_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Whether `value` is a `YYYY-MM-DD` day that exists on the calendar — so
+ * "2023-02-29" and "2024-13-01" are not, even though they have the shape.
+ */
+function isCalendarDay(value: string): boolean {
+  const match = CALENDAR_DAY.exec(value);
+  if (!match) {
+    return false;
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  // Out-of-range fields roll over (Feb 30 -> Mar 2) instead of failing, so a
+  // day is real only if it survives the round trip. setUTCFullYear, not
+  // Date.UTC: the latter maps years 0-99 to 1900-1999.
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
 }
 
 export const date = (
