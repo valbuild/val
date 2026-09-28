@@ -110,3 +110,62 @@ describe("DateSchema", () => {
     });
   });
 });
+
+describe("DateSchema: shape", () => {
+  test.each([
+    "19f81-12-30",
+    "1981-12-30foo",
+    "1981-1-30",
+    "81-12-30",
+    "1981-12-30T00:00:00Z",
+    "2023-02-29",
+    "2024-13-01",
+    "2024-04-31",
+    "",
+  ])("validate: should error on '%s'", (value) => {
+    const schema = date().from("1900-01-01").to("2024-01-01");
+    expect(schema["executeValidate"]("path" as SourcePath, raw(value))).toEqual(
+      {
+        path: [
+          {
+            message: `Value '${value}' is not a valid date (expected YYYY-MM-DD)`,
+            value,
+          },
+        ],
+      },
+    );
+  });
+
+  test.each(["1981-12-30", "2024-02-29", "0050-01-01", "9999-12-31"])(
+    "validate: should accept '%s'",
+    (value) => {
+      expect(
+        date()["executeValidate"]("path" as SourcePath, raw(value)),
+      ).toEqual(false);
+    },
+  );
+
+  test("validate: should allow null when nullable", () => {
+    expect(
+      date()
+        .nullable()
+        ["executeValidate"]("path" as SourcePath, null),
+    ).toEqual(false);
+  });
+
+  test("validate: should error if a bound is not a date", () => {
+    const schema = date().from("2012-1-1");
+    expect(
+      schema["executeValidate"]("path" as SourcePath, raw("2012-06-15")),
+    ).toEqual({
+      path: [
+        {
+          message:
+            "From date '2012-1-1' is not a valid date (expected YYYY-MM-DD)",
+          value: "2012-06-15",
+          typeError: true,
+        },
+      ],
+    });
+  });
+});

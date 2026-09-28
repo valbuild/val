@@ -49,9 +49,9 @@ export function formatLocalDay(date: LocalCalendarFields): string {
  * date part is taken - the day as written, never shifted into another timezone.
  * Anything else, including a day with trailing characters, is not a date.
  *
- * Returns `null` for a value that is not a date. `s.date()` validates the
- * bounds of its value but not the shape, so content can legitimately hold a
- * string that is not a day at all, and the field has to render anyway.
+ * Returns `null` for a value that is not a date. `s.date()` reports such a
+ * value as a validation error, but content can still hold one (hand-edited,
+ * or written before that check existed), and the field has to render anyway.
  */
 export function parseLocalDay(value: string): Date | null {
   const match = DAY_ONLY.exec(value) ?? ISO_DATETIME.exec(value);
