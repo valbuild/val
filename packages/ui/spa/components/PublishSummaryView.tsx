@@ -112,9 +112,6 @@ export function PublishSummaryView({
           onChange={(e) => onChange(e.currentTarget.value)}
         />
       </div>
-      <p className="text-xs text-fg-secondary">
-        This project asks for a message on every publish.
-      </p>
       <div className="flex items-center justify-end gap-2">
         <Button variant="outline" onClick={onClose}>
           Close
