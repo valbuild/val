@@ -528,10 +528,10 @@ Two things follow, and they are the ones that get forgotten:
   `examples/next` is the FIXTURE app: it carries the awkward shapes the e2e
   suite and the language server drive, and it is allowed to hold things the
   showcase does not.
-- **The TanStack checks have no CI job yet**, so they are yours to run. See the
-  CI section: `pnpm exec playwright test --project=tanstack` and
-  `cd examples/tanstack && pnpm run build`. Neither is optional for a change the
-  Studio loads through.
+- **The TanStack checks are CI jobs** (`build-tanstack`, and the `tanstack`
+  project in the blocking `smoke` job), and still yours to run before pushing
+  a change the Studio loads through: `pnpm exec playwright test --project=tanstack`
+  and `cd examples/tanstack && pnpm run build`.
 
 The showcase covers, as of writing: every `s.*` factory except `s.union`
 (deprecated); `describe` / `preview` / `render` /
@@ -717,15 +717,14 @@ pnpm run -r typecheck                  # tsc --noEmit per package
 pnpm test                              # jest
 pnpm run build                         # top-level: preconstruct + pnpm --filter @valbuild/ui build
 cd examples/next && pnpm run build     # next build for the example app
-cd examples/tanstack && pnpm run build # vite build for the TanStack example (no CI job yet)
+cd examples/tanstack && pnpm run build # vite build for the TanStack example
 ```
 
-Two more checks have no CI job YET — `check.yml` has no `smoke` job and its
-`e2e` matrix selects only `chromium` and `chromium-http` — so for now they are
-yours to run. They are the gate for "the Studio does not come up at all", on
-both frameworks and in an insecure context, which is the one class of failure
-that reaches every user at once, so run them before shipping anything the
-Studio loads through:
+Two more checks are the blocking `smoke` job — separate from the `e2e` matrix,
+which selects only `chromium` and `chromium-http` and does not block. They are
+the gate for "the Studio does not come up at all", on both frameworks and in an
+insecure context, which is the one class of failure that reaches every user at
+once, so run them before pushing anything the Studio loads through:
 
 ```bash
 pnpm exec playwright test --project=tanstack                         # ~1 min
@@ -737,7 +736,7 @@ Notes:
 
 - `pnpm run build` at the root is NOT recursive — it only runs `preconstruct build && pnpm --filter @valbuild/ui build`. Do not use `pnpm -r build` to verify CI; recursive build pulls in example-project fixtures that aren't part of CI and have unrelated pre-existing issues.
 - `examples/next` build is its own CI job and must be run separately. It is also the only job that type-checks with `next-env.d.ts` present, so a green `pnpm run -r typecheck` does not imply a green example build — see "'X' cannot be used as a JSX component" under Common Fixes.
-- The `tanstack` Playwright project and the `examples/tanstack` build are the only things that run that app at all, and both were added after `crypto.randomUUID is not a function` shipped: nothing exercised TanStack, and nothing ran outside a secure context. Neither has a CI job yet — the workflow change adding `build-tanstack` and a blocking `smoke` job is pending a maintainer (the session that wrote them had no `workflow` scope). Until then a green CI does NOT mean the Studio comes up on TanStack. See `e2e/tanstack/studio.spec.ts`.
+- The `tanstack` Playwright project and the `examples/tanstack` build are the only things that run that app at all, and both were added after `crypto.randomUUID is not a function` shipped: nothing exercised TanStack, and nothing ran outside a secure context. `build-tanstack` and the blocking `smoke` job are what run them in CI. See `e2e/tanstack/studio.spec.ts`.
 - `prettier --check .` walks the whole tree; untracked local files (e.g. `.claude/settings.local.json`) can show as warnings locally but won't affect CI since CI only sees tracked files.
 
 ### Don't run `pnpm run build` during development
