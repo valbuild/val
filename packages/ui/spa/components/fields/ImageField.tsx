@@ -32,6 +32,7 @@ import type { ReadImageEncode } from "../../utils/readImage";
 import { useImageUpload } from "./useImageUpload";
 import { MediaSummaryRow, Section } from "./MediaSummaryRow";
 import { HotspotMarker } from "./HotspotMarker";
+import { FocalPointPicker } from "./FocalPointPicker";
 import { Dialog, DialogContent, DialogTitle } from "../designSystem/dialog";
 
 export function ImageField({
@@ -544,7 +545,7 @@ export function ImageField({
         {source && url && (
           <Section
             label="Focal point"
-            hint="Click the image to say what must stay in frame when the page crops it."
+            hint="Click or drag on the image to say what must stay in frame when the page crops it."
             collapsible
             summary={
               hotspot
@@ -552,9 +553,26 @@ export function ImageField({
                 : "Not set"
             }
           >
-            {source && url && (
-              <div className="relative rounded-lg bg-bg-secondary">
-                {loading && (
+            <FocalPointPicker
+              url={url}
+              hotspot={hotspot}
+              alt={altText}
+              readonly={readonly}
+              id={hotspotPath}
+              onChange={(hotspot) => {
+                addPatch(
+                  [
+                    {
+                      op: "add",
+                      path: patchPath.concat(["hotspot"]),
+                      value: hotspot,
+                    },
+                  ],
+                  "object",
+                );
+              }}
+              overlay={
+                loading && (
                   <div className="flex absolute inset-0 flex-col justify-center items-center">
                     <div className="absolute inset-0 w-full h-full opacity-50 bg-bg-secondary" />
                     <Loader2 size={24} className="animate-spin" />
@@ -564,40 +582,11 @@ export function ImageField({
                         : ""}
                     </div>
                   </div>
-                )}
-                <img
-                  src={url}
-                  draggable={false}
-                  className="object-contain max-h-[500px] w-full"
-                  style={{
-                    cursor: readonly ? "default" : "crosshair",
-                  }}
-                  id={hotspotPath}
-                  onClick={(ev) => {
-                    if (readonly) return;
-                    const { width, height, left, top } =
-                      ev.currentTarget.getBoundingClientRect();
-                    const hotspot = {
-                      x: Math.max((ev.clientX - 6 - left) / width, 0),
-                      y: Math.max((ev.clientY - 6 - top) / height, 0),
-                    };
-                    addPatch(
-                      [
-                        {
-                          op: "add",
-                          path: patchPath.concat(["hotspot"]),
-                          value: hotspot,
-                        },
-                      ],
-                      "object",
-                    );
-                  }}
-                />
-                {hotspot && <HotspotMarker hotspot={hotspot} />}
-              </div>
-            )}
+                )
+              }
+            />
             {source && url && (
-              <div className="flex items-center gap-2">
+              <div className="mt-3 flex items-center gap-2">
                 <Checkbox
                   id={`hotspot_toggle:${path}`}
                   checked={!!hotspot}
@@ -652,20 +641,49 @@ export function ImageField({
       </div>
       {url && (
         <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+          {/*
+           * Sized by the image, not by the viewport.
+           *
+           * `DialogContent` is `w-full`, so this was a 90vw box with the image
+           * pinned to its left edge — a portrait photo sat in a corner beside
+           * a wide empty panel. Worse, the focal point was drawn in that box
+           * rather than on the photo: a `grid` child is stretched, so the
+           * "shrink-wrapping" wrapper was as wide as the dialog, and a marker
+           * at 70% of it landed on the empty panel. `w-max` makes the dialog
+           * exactly the image's width (the image is capped in viewport units,
+           * so that cannot overflow), and `justify-self-center` stops the
+           * wrapper being stretched.
+           */}
           <DialogContent
             container={portalContainer}
-            className="max-h-[90vh] max-w-[90vw] overflow-hidden p-0"
+            className="w-max max-w-[90vw] gap-0 overflow-hidden p-0 md:w-max"
           >
             <DialogTitle className="sr-only">{fileName ?? "Image"}</DialogTitle>
             {/* The focal point is drawn here too: it is a property of the
                 image, and the large view is where it is actually legible. */}
-            <div className="relative inline-flex bg-bg-secondary">
+            <div className="relative justify-self-center">
               <img
                 src={url}
                 alt={altText}
-                className="max-h-[85vh] max-w-full object-contain"
+                draggable={false}
+                className="block h-auto max-h-[80vh] w-auto max-w-[90vw]"
               />
               {hotspot && <HotspotMarker hotspot={hotspot} />}
+            </div>
+            <div className="flex min-w-0 items-baseline gap-2 border-t border-border-secondary px-4 py-2.5 pr-10">
+              <p className="truncate text-xs font-medium text-fg-primary">
+                {fileName}
+              </p>
+              <p className="shrink-0 text-[0.6875rem] text-fg-secondary-alt">
+                {[
+                  fileDetail,
+                  hotspot
+                    ? `Focal point ${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
             </div>
           </DialogContent>
         </Dialog>

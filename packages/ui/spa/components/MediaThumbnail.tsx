@@ -1,6 +1,5 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "./designSystem/cn";
-import { HotspotMarker } from "./fields/HotspotMarker";
 
 /**
  * How many times a failed thumbnail is re-requested, and how long apart.
@@ -21,22 +20,23 @@ const RETRY_DELAY_MS = 400;
 /**
  * A file preview that never claims to be bigger than the file is.
  *
- * The tiles used to be `h-full w-full object-cover`, which fills the box
- * whatever is in it — so an 8×8 favicon was drawn at 120×72 as a blurry smear,
- * and looked identical to a large image that had merely been cropped. At a
- * glance the two are the same picture; the difference is exactly the thing
- * someone browsing a media collection is trying to find out.
+ * The tile is filled — `object-cover` — and the crop is centred on the image's
+ * focal point, so the thumbnail frames the picture the way the page will. It
+ * used to shrink the whole image into the box and draw the focal point on top
+ * instead, and that went wrong twice: `max-h-full` inside a shrink-wrapping
+ * span resolves against an `auto` height, so a portrait image was not scaled
+ * at all and showed as its top strip; and a letterboxed 120×72 tile of a
+ * landscape photo is a line with a dot on it, which says nothing about what
+ * the crop keeps.
  *
- * So: the image lays out at its intrinsic size, capped by the box. `max-w-full`
- * and `max-h-full` with no width or height is what does it — an image smaller
- * than the box sits at its own size, centred, and a larger one is scaled down
- * whole rather than cropped.
- *
- * The hotspot goes over the image and not over the box. The marker is
- * positioned in percentages, so it is only in the right place if its container
- * is the image — which is why the inner element shrink-wraps rather than
- * stretching. Showing the focal point beats silently applying it at this size:
- * a crop of a thumbnail is not a preview of anything.
+ * What survives of the old rule is the part that was right: an image SMALLER
+ * than the tile is not enlarged to fill it. An 8×8 favicon drawn at 120×72 is
+ * a blurry smear that looks identical to a large photo that merely got cropped,
+ * and telling those apart is exactly what someone browsing media is doing. So
+ * once the image has loaded and it turns out covering would scale it UP, it
+ * switches to `object-scale-down` — its own size, centred. That needs the
+ * natural size, which only `onLoad` knows; the first frame of a tiny image is
+ * the one frame that may be enlarged.
  */
 export function MediaThumbnail({
   url,
@@ -49,7 +49,7 @@ export function MediaThumbnail({
 }: {
   url: string;
   alt?: string;
-  /** Drawn as a marker over the image, when there is one. */
+  /** Where the crop is centred. The middle of the image when there is none. */
   hotspot?: { x: number; y: number };
   /** For the box: its size, its background, its corners. */
   className?: string;
@@ -66,10 +66,14 @@ export function MediaThumbnail({
   loading?: "lazy" | "eager";
 }): ReactNode {
   const [attempt, setAttempt] = useState(0);
+  /** Whether covering the tile would enlarge the image. See above. */
+  const [smallerThanBox, setSmallerThanBox] = useState(false);
+  const box = useRef<HTMLSpanElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // A new file starts over: the attempt count belongs to the URL, not the tile.
   useEffect(() => {
     setAttempt(0);
+    setSmallerThanBox(false);
   }, [url]);
   useEffect(
     () => () => {
@@ -102,23 +106,41 @@ export function MediaThumbnail({
       : `${url}${url.includes("?") ? "&" : "?"}val_retry=${attempt}`;
   return (
     <span
-      className={cn(
-        "grid h-full w-full place-items-center overflow-hidden",
-        className,
-      )}
+      ref={box}
+      className={cn("relative block h-full w-full overflow-hidden", className)}
     >
-      <span className="relative inline-flex max-h-full max-w-full">
-        <img
-          src={src}
-          alt={alt}
-          draggable={false}
-          loading={loading}
-          decoding="async"
-          onError={handleError}
-          className={cn("max-h-full max-w-full object-contain", imageClassName)}
-        />
-        {hotspot && <HotspotMarker hotspot={hotspot} />}
-      </span>
+      <img
+        src={src}
+        alt={alt}
+        draggable={false}
+        loading={loading}
+        decoding="async"
+        onError={handleError}
+        onLoad={(ev) => {
+          const { naturalWidth, naturalHeight } = ev.currentTarget;
+          const tile = box.current;
+          if (!tile || naturalWidth === 0 || naturalHeight === 0) return;
+          setSmallerThanBox(
+            Math.max(
+              tile.clientWidth / naturalWidth,
+              tile.clientHeight / naturalHeight,
+            ) > 1,
+          );
+        }}
+        className={cn(
+          // Absolute, so the box is the tile whatever the tile is: a
+          // percentage height on a grid or flex child can resolve against an
+          // `auto` track, and the image then lays out at its own aspect ratio.
+          "absolute inset-0 h-full w-full",
+          smallerThanBox ? "object-scale-down" : "object-cover",
+          imageClassName,
+        )}
+        style={
+          hotspot && !smallerThanBox
+            ? { objectPosition: `${hotspot.x * 100}% ${hotspot.y * 100}%` }
+            : undefined
+        }
+      />
     </span>
   );
 }
