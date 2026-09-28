@@ -31,10 +31,10 @@ export type CollectedArtifacts = {
  * imports it at, so a normalised name produces a bundle whose imports resolve
  * to nothing, at runtime, in the isolate.
  *
- * **This is the seam with the build.** `val publish` uploads artifacts; it does
- * not produce them. Whatever builds the project - today the platform's own
- * builder, which is where the wire, rolldown and dependency-layer steps live -
- * writes this directory, and this reads it.
+ * **This is the seam with the build.** Whatever built the project writes this
+ * directory, and this reads it: `buildArtifacts` when `val publish` builds the
+ * checkout itself, or anything else that lays out the same keys, handed over
+ * with `--artifacts`. One path for bytes to leave by, whoever built them.
  */
 export async function collectArtifacts(
   dir: string,

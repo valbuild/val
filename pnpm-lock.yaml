@@ -290,9 +290,21 @@ importers:
       '@prettier/sync':
         specifier: ^0.6.1
         version: 0.6.1(prettier@3.8.5)
+      '@tanstack/router-generator':
+        specifier: 1.167.32
+        version: 1.167.32
+      '@tanstack/router-plugin':
+        specifier: 1.168.34
+        version: 1.168.34(@tanstack/react-router@1.170.33(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(esbuild@0.28.2)(rolldown@1.2.6)(rollup@4.63.1)(vite@8.2.2(@types/node@26.4.0)(esbuild@0.28.2)(jiti@2.7.0)(less@4.5.1)(terser@5.46.0)(tsx@4.23.12)(yaml@2.9.0))(webpack@5.104.1(esbuild@0.28.2))
+      '@valbuild/tanstack-build':
+        specifier: workspace:*
+        version: link:../tanstack-build
       prettier:
         specifier: ~3.8.5
         version: 3.8.5
+      rolldown:
+        specifier: ^1.2.5
+        version: 1.2.6
       tsx:
         specifier: ^4.23.12
         version: 4.23.12
