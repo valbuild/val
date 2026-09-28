@@ -18,7 +18,7 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../designSystem/input";
-import { Loader2, Upload, X } from "lucide-react";
+import { Upload, X } from "lucide-react";
 import { Button } from "../designSystem/button";
 import { Checkbox } from "../designSystem/checkbox";
 import { useValPortal } from "../ValPortalProvider";
@@ -30,7 +30,9 @@ import { array } from "@valbuild/core/fp";
 import { resolveEncodeSettings } from "../../utils/encodeImage";
 import type { ReadImageEncode } from "../../utils/readImage";
 import { useImageUpload } from "./useImageUpload";
-import { MediaSummaryRow, Section } from "./MediaSummaryRow";
+import { Section } from "./MediaSummaryRow";
+import { ImageCard } from "./ImageCard";
+import { mayBeTransparent } from "../MediaThumbnail";
 import { HotspotMarker } from "./HotspotMarker";
 import { FocalPointPicker } from "./FocalPointPicker";
 import { Dialog, DialogContent, DialogTitle } from "../designSystem/dialog";
@@ -75,6 +77,8 @@ export function ImageField({
    * field mounts with no value — which is every empty image field.
    */
   const [previewOpen, setPreviewOpen] = useState(false);
+  /** Why the last dropped file was refused, until the next upload. */
+  const [dropError, setDropError] = useState<string | null>(null);
   const portalContainer = useValPortal();
   /**
    * The hidden file input, clicked by name.
@@ -333,6 +337,140 @@ export function ImageField({
     );
   };
 
+  /**
+   * What the card offers: choosing a file, and removing it. The same set
+   * whether the field is empty or not; which of them shows depends on `source`.
+   */
+  const actions = (
+    <>
+      {/*
+       * One control for "which file", not two.
+       *
+       * A field that owns its file has nothing to choose between, so
+       * Choose asset opens the file dialog directly. A field pointing
+       * into a collection has a list, so it opens that — with the upload
+       * inside it, because picking a file for the field and adding one to
+       * the collection are the same decision from the editor's side and
+       * splitting them means finding out only after opening the list
+       * that what you want is not in it.
+       */}
+      {!hideUpload && referencedModule && (
+        <ModuleMediaPicker
+          compact
+          footer={
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => fileInputRef.current?.click()}
+              className={cn(
+                "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs",
+                "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
+                "disabled:pointer-events-none disabled:opacity-50",
+              )}
+            >
+              <Upload size={13} />
+              Upload into {prettyModuleName(referencedModule)}
+            </button>
+          }
+          modulePath={referencedModule as ModuleFilePath}
+          selectedRef={source?.path ?? null}
+          onSelect={(entry: GalleryEntry) => {
+            // Only the path: the dimensions and mime type stay in the
+            // gallery, which is the one place that has them.
+            addPatch(
+              [
+                {
+                  op: "replace",
+                  path: patchPath,
+                  value: { path: entry.filePath },
+                },
+              ],
+              "image",
+            );
+          }}
+          isImage
+          disabled={disabled}
+          portalContainer={portalContainer}
+        />
+      )}
+      {/* The field's own file, so there is nothing to pick from:
+          Choose asset IS the file dialog. Hidden when the field
+          points into a collection, where the picker offers it. */}
+      {!hideUpload && !referencedModule && (
+        <Button
+          variant={"outline"}
+          size="sm"
+          disabled={disabled}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <Upload className="mr-1.5 h-3.5 w-3.5" />
+          {url ? "Replace" : "Choose asset"}
+        </Button>
+      )}
+      {/*
+       * Clearing the field, for a schema that allows it.
+       *
+       * The field itself has to offer this, not only the `Field`
+       * wrapper's nullable checkbox: an image opened on its own — an
+       * array item, a record entry, a gallery-backed field — has no
+       * wrapper, so without it a `.nullable()` image could be replaced
+       * but never emptied.
+       *
+       * Gated on `readonly` alone rather than on `disabled`: the other
+       * things that disable this field (remote uploads not ready, the
+       * referenced gallery missing from `val.modules`) stop a file
+       * going IN. Taking one out needs none of them, and a field
+       * pointing at a gallery that is gone is exactly when an editor
+       * wants to.
+       *
+       * An upload IN FLIGHT is the exception, and it is an ordering
+       * bug rather than a permission: `uploadImage` reads, encodes and
+       * hashes the file before it enqueues its `replace`, so a Remove
+       * clicked inside that window writes `null` first and the upload
+       * lands afterwards and puts the file back. Only reachable while
+       * REPLACING — an empty field has nothing to remove — which is
+       * exactly when it looks like the removal was ignored.
+       */}
+      {schemaAtPath.data.opt && source && !readonly && (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={loading}
+          onClick={() => {
+            addPatch([{ op: "replace", path: patchPath, value: null }], type);
+          }}
+        >
+          <X className="mr-1.5 h-3.5 w-3.5" />
+          Remove
+        </Button>
+      )}
+    </>
+  );
+  const upload = (imageFile: File) => {
+    setDropError(null);
+    const prevUrl: string | null = url;
+    uploadImage(imageFile).then((result) => {
+      if (!result) {
+        setUrl(prevUrl);
+      }
+    });
+  };
+  /**
+   * A dropped file skips the file dialog, and with it the dialog's `accept`
+   * filter — so the one thing checked here is that it is an image at all.
+   * Whether it is the RIGHT kind of image is validation's job, the same as
+   * for a file that came through the dialog.
+   */
+  const dropFile = (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setDropError(`${file.name} is not an image.`);
+      return;
+    }
+    upload(file);
+  };
+
+  const mimeType =
+    typeof source?.mimeType === "string" ? source.mimeType : undefined;
   const altPath = Internal.createValPathOfItem(path, "alt");
   const hotspotPath = Internal.createValPathOfItem(path, "hotspot");
   return (
@@ -364,153 +502,53 @@ export function ImageField({
        * without, so it sits directly under the file; the focal point only
        * matters once there is a file to crop.
        *
-       * The summary row is what changed: the image used to be rendered full
-       * width at the top, which meant the answer to "which image is this"
-       * needed the whole field's height and told you nothing about the file —
-       * not its name, not its size, not whether the page is using the copy you
-       * think it is.
+       * The card is the image as a page would show it — a crop around the
+       * focal point — with the file's name and particulars under it, so both
+       * "what does the page get" and "which copy is this" are answered before
+       * anything is clicked. See `ImageCard`.
        */}
+      {!hideUpload && (
+        <input
+          disabled={disabled}
+          hidden
+          ref={fileInputRef}
+          id={`img_input:${path}`}
+          type="file"
+          accept={acceptOptions ?? "image/*"}
+          onChange={(ev) => {
+            const imageFile = ev.currentTarget.files?.[0];
+            if (!imageFile) return;
+            upload(imageFile);
+            ev.target.value = "";
+          }}
+        />
+      )}
       <div className="flex flex-col gap-5">
-        <MediaSummaryRow
+        <ImageCard
           url={url}
+          alt={altText}
           name={fileName}
-          detail={fileDetail}
+          detail={[
+            fileDetail,
+            hotspot
+              ? `focal point ${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          mimeType={mimeType}
           hotspot={hotspot}
           onOpenPreview={url ? () => setPreviewOpen(true) : undefined}
           uploading={loading}
           progressPercentage={progressPercentage}
-          actions={
-            <>
-              {/*
-               * One control for "which file", not two.
-               *
-               * A field that owns its file has nothing to choose between, so
-               * Choose asset opens the file dialog directly. A field pointing
-               * into a collection has a list, so it opens that — with the upload
-               * inside it, because picking a file for the field and adding one to
-               * the collection are the same decision from the editor's side and
-               * splitting them means finding out only after opening the list
-               * that what you want is not in it.
-               */}
-              {!hideUpload && referencedModule && (
-                <ModuleMediaPicker
-                  compact
-                  footer={
-                    <button
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => fileInputRef.current?.click()}
-                      className={cn(
-                        "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs",
-                        "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
-                        "disabled:pointer-events-none disabled:opacity-50",
-                      )}
-                    >
-                      <Upload size={13} />
-                      Upload into {prettyModuleName(referencedModule)}
-                    </button>
-                  }
-                  modulePath={referencedModule as ModuleFilePath}
-                  selectedRef={source?.path ?? null}
-                  onSelect={(entry: GalleryEntry) => {
-                    // Only the path: the dimensions and mime type stay in the
-                    // gallery, which is the one place that has them.
-                    addPatch(
-                      [
-                        {
-                          op: "replace",
-                          path: patchPath,
-                          value: { path: entry.filePath },
-                        },
-                      ],
-                      "image",
-                    );
-                  }}
-                  isImage
-                  disabled={disabled}
-                  portalContainer={portalContainer}
-                />
-              )}
-              {!hideUpload && (
-                <>
-                  {/* The field's own file, so there is nothing to pick from:
-                      Choose asset IS the file dialog. Hidden when the field
-                      points into a collection, where the picker offers it. */}
-                  {!referencedModule && (
-                    <Button
-                      variant={"outline"}
-                      size="sm"
-                      disabled={disabled}
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <Upload className="mr-1.5 h-3.5 w-3.5" />
-                      {url ? "Replace" : "Choose asset"}
-                    </Button>
-                  )}
-                  <input
-                    disabled={disabled}
-                    hidden
-                    ref={fileInputRef}
-                    id={`img_input:${path}`}
-                    type="file"
-                    accept={acceptOptions ?? "image/*"}
-                    onChange={(ev) => {
-                      const imageFile = ev.currentTarget.files?.[0];
-                      if (!imageFile) return;
-                      const prevUrl: string | null = url;
-                      uploadImage(imageFile).then((result) => {
-                        if (!result) {
-                          setUrl(prevUrl);
-                        }
-                      });
-                      ev.target.value = "";
-                    }}
-                  />
-                </>
-              )}
-              {/*
-               * Clearing the field, for a schema that allows it.
-               *
-               * The field itself has to offer this, not only the `Field`
-               * wrapper's nullable checkbox: an image opened on its own — an
-               * array item, a record entry, a gallery-backed field — has no
-               * wrapper, so without it a `.nullable()` image could be replaced
-               * but never emptied.
-               *
-               * Gated on `readonly` alone rather than on `disabled`: the other
-               * things that disable this field (remote uploads not ready, the
-               * referenced gallery missing from `val.modules`) stop a file
-               * going IN. Taking one out needs none of them, and a field
-               * pointing at a gallery that is gone is exactly when an editor
-               * wants to.
-               *
-               * An upload IN FLIGHT is the exception, and it is an ordering
-               * bug rather than a permission: `uploadImage` reads, encodes and
-               * hashes the file before it enqueues its `replace`, so a Remove
-               * clicked inside that window writes `null` first and the upload
-               * lands afterwards and puts the file back. Only reachable while
-               * REPLACING — an empty field has nothing to remove — which is
-               * exactly when it looks like the removal was ignored.
-               */}
-              {schemaAtPath.data.opt && source && !readonly && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={loading}
-                  onClick={() => {
-                    addPatch(
-                      [{ op: "replace", path: patchPath, value: null }],
-                      type,
-                    );
-                  }}
-                >
-                  <X className="mr-1.5 h-3.5 w-3.5" />
-                  Remove
-                </Button>
-              )}
-            </>
-          }
+          onDropFile={hideUpload ? undefined : dropFile}
+          dropDisabled={disabled || loading}
+          emptyActions={actions}
+          actions={actions}
         />
+        {dropError && (
+          <p className="-mt-3 text-xs text-fg-error-primary">{dropError}</p>
+        )}
         {/*
          * Only for a field that is NOT gallery-backed. A gallery keeps alt on
          * its entry, so a field referencing one must not offer a second place
@@ -555,6 +593,7 @@ export function ImageField({
           >
             <FocalPointPicker
               url={url}
+              checkerboard={mayBeTransparent(mimeType)}
               hotspot={hotspot}
               alt={altText}
               readonly={readonly}
@@ -571,19 +610,6 @@ export function ImageField({
                   "object",
                 );
               }}
-              overlay={
-                loading && (
-                  <div className="flex absolute inset-0 flex-col justify-center items-center">
-                    <div className="absolute inset-0 w-full h-full opacity-50 bg-bg-secondary" />
-                    <Loader2 size={24} className="animate-spin" />
-                    <div className="mt-2 text-xs font-thin text-[white] z-5">
-                      {progressPercentage !== null
-                        ? `${progressPercentage}%`
-                        : ""}
-                    </div>
-                  </div>
-                )
-              }
             />
             {source && url && (
               <div className="mt-3 flex items-center gap-2">
@@ -666,7 +692,10 @@ export function ImageField({
                 src={url}
                 alt={altText}
                 draggable={false}
-                className="block h-auto max-h-[80vh] w-auto max-w-[90vw]"
+                className={cn(
+                  "block h-auto max-h-[80vh] w-auto max-w-[90vw]",
+                  mayBeTransparent(mimeType) && "val-checkerboard",
+                )}
               />
               {hotspot && <HotspotMarker hotspot={hotspot} />}
             </div>

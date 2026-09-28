@@ -1,4 +1,4 @@
-import { PointerEvent, ReactNode, useEffect, useState } from "react";
+import { PointerEvent, useEffect, useState } from "react";
 import { cn } from "../designSystem/cn";
 import { HotspotMarker } from "./HotspotMarker";
 
@@ -29,7 +29,7 @@ export function FocalPointPicker({
   alt,
   readonly,
   id,
-  overlay,
+  checkerboard,
   onChange,
 }: {
   url: string;
@@ -38,8 +38,8 @@ export function FocalPointPicker({
   readonly?: boolean;
   /** Put on the `<img>`, so the field's own path can find it. */
   id?: string;
-  /** Drawn over the image, e.g. an upload in progress. */
-  overlay?: ReactNode;
+  /** Draw a checkerboard behind a picture that may be transparent. */
+  checkerboard?: boolean;
   onChange: (hotspot: Hotspot) => void;
 }) {
   /** The point being dragged, before it is written. */
@@ -91,10 +91,12 @@ export function FocalPointPicker({
           src={url}
           alt={alt ?? ""}
           draggable={false}
-          className="block h-auto max-h-[500px] w-auto max-w-full rounded"
+          className={cn(
+            "block h-auto max-h-[500px] w-auto max-w-full rounded",
+            checkerboard && "val-checkerboard",
+          )}
         />
         {shown && <HotspotMarker hotspot={shown} />}
-        {overlay}
       </div>
     </div>
   );

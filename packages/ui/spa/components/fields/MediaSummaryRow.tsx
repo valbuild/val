@@ -23,9 +23,9 @@ import { MediaThumbnail } from "../MediaThumbnail";
  * An 8x8 image stretched to fill the box looks exactly like a large one that
  * happens to be blurry.
  *
- * Shared by the image and file fields. A non-image has no thumbnail to show, so
- * it gets its type's icon; everything else about the row is the same, and two
- * versions of it would drift.
+ * The file field's row. The image field used it too until it got `ImageCard`,
+ * which shows the picture as the page crops it — a file has no picture, so its
+ * row keeps the type's icon and the name beside it.
  */
 export function MediaSummaryRow({
   url,

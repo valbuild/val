@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   clearPatchChain,
@@ -592,6 +593,49 @@ test.describe("single media fields", () => {
     expect(markerAt.y).toBeCloseTo(0.25, 1);
 
     await page.keyboard.press("Escape");
+    await discardAll(page);
+    await expectNoPatchesOnServer(request);
+  });
+
+  /**
+   * An empty image field is a drop zone, and a dropped file is uploaded.
+   *
+   * A drop skips the file dialog, so it is a separate path into `uploadImage`
+   * from `setInputFiles` above — and a drop zone that highlights and then does
+   * nothing looks exactly like one that works until someone tries it.
+   */
+  test("uploads an image dropped on the empty field", async ({
+    page,
+    request,
+  }) => {
+    await openStudio(page, `/val/~${MODULE}?p=%22image%22`);
+    const studio = page.locator("#val-shadow-root");
+    const zone = studio.getByText("Drop an image here, or").locator("..");
+    await expect(zone).toBeVisible({ timeout: 30_000 });
+    const bytes = readFileSync(IMAGE).toString("base64");
+    await zone.evaluate((el, base64) => {
+      const data = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+      const transfer = new DataTransfer();
+      transfer.items.add(
+        new File([data], "blue-8x8.png", { type: "image/png" }),
+      );
+      for (const type of ["dragenter", "dragover", "drop"]) {
+        el.dispatchEvent(
+          new DragEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            dataTransfer: transfer,
+          }),
+        );
+      }
+    }, bytes);
+    await expect
+      .poll(() => uploadedRefs(page), { timeout: 30_000 })
+      .toEqual(["/public/val/blue-8x8_8b441.png"]);
+    await expect(
+      studio.getByRole("button", { name: "View image" }),
+    ).toBeVisible();
+
     await discardAll(page);
     await expectNoPatchesOnServer(request);
   });

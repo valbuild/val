@@ -34,7 +34,7 @@ const RETRY_DELAY_MS = 400;
  * a blurry smear that looks identical to a large photo that merely got cropped,
  * and telling those apart is exactly what someone browsing media is doing. So
  * once the image has loaded and it turns out covering would scale it UP, it
- * switches to `object-scale-down` — its own size, centred. That needs the
+ * is drawn at its own size (or scaled down to fit), centred. That needs the
  * natural size, which only `onLoad` knows; the first frame of a tiny image is
  * the one frame that may be enlarged.
  */
@@ -46,6 +46,7 @@ export function MediaThumbnail({
   imageClassName,
   onError,
   loading,
+  checkerboard,
 }: {
   url: string;
   alt?: string;
@@ -55,6 +56,11 @@ export function MediaThumbnail({
   className?: string;
   /** For the image itself, e.g. `image-render-pixel` for tiny sprites. */
   imageClassName?: string;
+  /**
+   * Draw a checkerboard behind the picture, for a format that can be
+   * transparent. See `mayBeTransparent`.
+   */
+  checkerboard?: boolean;
   /**
    * Called when the image could not be loaded — after the retries, not before.
    *
@@ -131,8 +137,16 @@ export function MediaThumbnail({
           // Absolute, so the box is the tile whatever the tile is: a
           // percentage height on a grid or flex child can resolve against an
           // `auto` track, and the image then lays out at its own aspect ratio.
-          "absolute inset-0 h-full w-full",
-          smallerThanBox ? "object-scale-down" : "object-cover",
+          //
+          // Scaled down, the element shrinks to the picture and is centred by
+          // `inset-0 m-auto` rather than by `object-position`: the element's
+          // box is then the picture's box, which is what a checkerboard has
+          // to be drawn on.
+          "absolute inset-0",
+          smallerThanBox
+            ? "m-auto h-auto max-h-full w-auto max-w-full"
+            : "h-full w-full object-cover",
+          checkerboard && "val-checkerboard",
           imageClassName,
         )}
         style={
@@ -142,5 +156,23 @@ export function MediaThumbnail({
         }
       />
     </span>
+  );
+}
+
+/**
+ * Whether an image of this type can have transparent pixels, and so needs a
+ * checkerboard behind it to show where its edges are.
+ *
+ * By type rather than by looking at the pixels: a JPEG never can, and reading
+ * back every thumbnail through a canvas to find out whether a PNG actually
+ * does is a lot of work for a background.
+ */
+export function mayBeTransparent(mimeType: string | undefined): boolean {
+  return (
+    mimeType === "image/png" ||
+    mimeType === "image/webp" ||
+    mimeType === "image/gif" ||
+    mimeType === "image/avif" ||
+    mimeType === "image/svg+xml"
   );
 }
