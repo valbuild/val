@@ -84,12 +84,21 @@ const AI_TEXT = "The hero now leads with the product name";
 const PLACEHOLDER =
   "Describe your changes. For example: Update hero.title in /content/home.val.ts";
 
-function Harness({ onPublish }: { onPublish: (summary: string) => void }) {
+type SummaryState =
+  | { type: "not-asked" }
+  | { type: "manual" | "ai"; text: string };
+
+function Harness({
+  onPublish,
+  restored = { type: "not-asked" },
+}: {
+  onPublish: (summary: string) => void;
+  /** What the persisted summary state held when the popover opened. */
+  restored?: SummaryState;
+}) {
   // The real summary lives in a provider and is persisted; all this flow needs
   // of it is that reads see the last write.
-  const [summary, setSummaryState] = useState<
-    { type: "not-asked" } | { type: "manual" | "ai"; text: string }
-  >({ type: "not-asked" });
+  const [summary, setSummaryState] = useState<SummaryState>(restored);
   mockPublishSummaryHook = { summary, setSummary: setSummaryState };
   return (
     <TooltipProvider>
@@ -192,6 +201,30 @@ describe("PublishSummary", () => {
       rerender(<Harness onPublish={onPublish} />),
     );
     expect(summaryBox().value).toBe("Fix the typo in the footer");
+  });
+
+  // The persisted summary is restored whenever there are pending changes, and
+  // the old flow seeded its default into it as `manual`. Neither may reach a
+  // box that exists so someone reads what goes out.
+  test.each<[string, SummaryState]>([
+    ["an earlier visit's AI message", { type: "ai", text: "Last visit's AI" }],
+    ["the old flow's seeded default", { type: "manual", text: "Update Home" }],
+  ])("%s is not restored into the box", (_, restored) => {
+    render(<Harness onPublish={jest.fn()} restored={restored} />);
+    expect(summaryBox().value).toBe("");
+    expect(publishButton().disabled).toBe(true);
+  });
+
+  test("and the AI still fills the box it cleared", () => {
+    const restored: SummaryState = { type: "ai", text: "Last visit's AI" };
+    const onPublish = jest.fn();
+    const { rerender } = render(
+      <Harness onPublish={onPublish} restored={restored} />,
+    );
+    setAiState({ status: "ready", text: AI_TEXT, sessionId: null }, () =>
+      rerender(<Harness onPublish={onPublish} restored={restored} />),
+    );
+    expect(summaryBox().value).toBe(AI_TEXT);
   });
 
   test("a failed AI leaves the box to the reader", () => {

@@ -117,6 +117,9 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
   const tourValue = useSettingsBooleanField(
     sourcePathOfItem(studioPath, "tour"),
   );
+  const commitMessageValue = useCommitMessageField(
+    sourcePathOfItem(studioPath, "commitMessage"),
+  );
   const writeStudioSetting = useWriteSettingsSection(
     moduleFilePath,
     "studio",
@@ -231,7 +234,10 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
               />
               <SettingsSectionDivider />
               <StudioSettingsFields
-                value={{ tour: tourValue }}
+                value={{
+                  tour: tourValue,
+                  commitMessage: commitMessageValue,
+                }}
                 onChange={(field, next) =>
                   writeStudioSetting({ [field]: next })
                 }
@@ -341,7 +347,24 @@ function useLocalesErrors(
  * difference is what the whole setting is for — see `assistantAvailability`.
  */
 /** Every field of the `studio` section. See `useWriteSettingsSection`. */
-const STUDIO_FIELDS = ["tour"] as const;
+const STUDIO_FIELDS = ["tour", "commitMessage"] as const;
+
+/**
+ * `studio.commitMessage`, checked against the values that exist — anything
+ * else, a hand-edited typo included, reads as unset, which is `"automatic"`.
+ */
+function useCommitMessageField(
+  path: SourcePath,
+): "automatic" | "required" | null {
+  const source = useShallowSourceAtPath(path, "enum");
+  if (
+    "data" in source &&
+    (source.data === "automatic" || source.data === "required")
+  ) {
+    return source.data;
+  }
+  return null;
+}
 
 /**
  * A settings boolean, or `null` where it is unset.

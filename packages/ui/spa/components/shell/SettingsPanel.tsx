@@ -237,6 +237,11 @@ export type StudioSettingsValue = {
    * explicit `false` turns it off.
    */
   tour: boolean | null;
+  /**
+   * Whether publishing asks for a commit message. `null` (and absent) is
+   * unset, which means `"automatic"` — see `isCommitMessageRequired`.
+   */
+  commitMessage?: "automatic" | "required" | null;
 };
 
 /**
@@ -257,32 +262,69 @@ export function StudioSettingsFields({
   readonly,
 }: {
   value: StudioSettingsValue;
-  onChange: (field: keyof StudioSettingsValue, next: boolean) => void;
+  onChange: <Field extends keyof StudioSettingsValue>(
+    field: Field,
+    next: NonNullable<StudioSettingsValue[Field]>,
+  ) => void;
   readonly?: boolean;
 }) {
   const isOff = value.tour === false;
+  const messageRequired = value.commitMessage === "required";
   return (
-    <SettingsSection
-      title="Tour"
-      description="The one-minute walkthrough of the Studio, for somebody opening it for the first time."
-    >
-      <div className="flex items-center justify-between gap-3">
-        <label htmlFor="val-studio-tour" className="text-xs font-medium">
-          Offer the tour
-          <span className="block mt-0.5 text-[0.6875rem] font-normal text-fg-secondary-alt">
-            {isOff
-              ? "Off. Nobody is prompted. The tour is still in Quick actions for anyone who wants it."
-              : "Editors who have not been through the guided tour are offered it once."}
-          </span>
-        </label>
-        <Switch
-          id="val-studio-tour"
-          checked={!isOff}
-          disabled={readonly}
-          onCheckedChange={(next) => onChange("tour", next)}
-        />
-      </div>
-    </SettingsSection>
+    <>
+      <SettingsSection
+        title="Tour"
+        description="The one-minute walkthrough of the Studio, for somebody opening it for the first time."
+      >
+        <div className="flex items-center justify-between gap-3">
+          <label htmlFor="val-studio-tour" className="text-xs font-medium">
+            Offer the tour
+            <span className="block mt-0.5 text-[0.6875rem] font-normal text-fg-secondary-alt">
+              {isOff
+                ? "Off. Nobody is prompted. The tour is still in Quick actions for anyone who wants it."
+                : "Editors who have not been through the guided tour are offered it once."}
+            </span>
+          </label>
+          <Switch
+            id="val-studio-tour"
+            checked={!isOff}
+            disabled={readonly}
+            onCheckedChange={(next) => onChange("tour", next)}
+          />
+        </div>
+      </SettingsSection>
+      {/*
+       * Here rather than with the AI settings: it decides whether a person is
+       * asked, which holds with or without a model. The AI only decides who
+       * writes the words.
+       */}
+      <SettingsSection
+        title="Commit messages"
+        description="What is written in the history when someone publishes."
+      >
+        <div className="flex items-center justify-between gap-3">
+          <label
+            htmlFor="val-studio-commit-message"
+            className="text-xs font-medium"
+          >
+            Ask for a commit message
+            <span className="block mt-0.5 text-[0.6875rem] font-normal text-fg-secondary-alt">
+              {messageRequired
+                ? "Every publish opens a box for the message. The AI fills it in where it can, and nothing is published until someone presses Publish."
+                : "Publish publishes straight away. The AI writes the message, or it names what changed."}
+            </span>
+          </label>
+          <Switch
+            id="val-studio-commit-message"
+            checked={messageRequired}
+            disabled={readonly}
+            onCheckedChange={(next) =>
+              onChange("commitMessage", next ? "required" : "automatic")
+            }
+          />
+        </div>
+      </SettingsSection>
+    </>
   );
 }
 

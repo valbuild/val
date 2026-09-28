@@ -18,7 +18,10 @@ import { collectFieldChanges } from "../components/publish/collectFieldChanges";
 export const AUTOMATIC_SUMMARY_TIMEOUT_MS = 15_000;
 
 export type UseAutomaticPublishResult = {
-  /** The AI is writing the message; the publish goes out when it is done. */
+  /**
+   * Publish was pressed and its message is being prepared — the changes read,
+   * and the AI asked where there is one. The publish goes out when it is done.
+   */
   isSummarising: boolean;
   /** Publish now, with a message nobody is asked to write. */
   publishAutomatically: () => void;
@@ -129,7 +132,12 @@ export function useAutomaticPublish({
       sent: false,
     };
     pendingRef.current = claim;
-    setIsSummarising(model !== null);
+    // In flight from the press, AI or not: reading what changed is part of
+    // preparing the message too. A button that looked ready while the read was
+    // under way swallowed a second press, and in the overlay let the menu
+    // collapse and unmount it — publishing "Update content" before the paths
+    // it was about to name had arrived.
+    setIsSummarising(true);
     // The deadline runs from the PRESS, not from when the prompt went out:
     // reading the patch sets is part of the wait too, and a read that never
     // settles must not leave the button on "Preparing" for good. The fallback

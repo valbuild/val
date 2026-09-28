@@ -109,6 +109,31 @@ describe("useAutomaticPublish", () => {
     expect(hook.result.current.isSummarising).toBe(false);
   });
 
+  test("without AI it is still in flight while the changes are read", async () => {
+    let resolve: (value: typeof patchSets) => void = () => {};
+    const getPatchSets = mockValSystem.system.getPatchSets;
+    mockValSystem.system.getPatchSets = () =>
+      new Promise((r) => {
+        resolve = r;
+      });
+    try {
+      const { publish, hook } = setup();
+      act(() => {
+        hook.result.current.publishAutomatically();
+      });
+      // Busy, so the button is disabled and the overlay holds the menu open.
+      expect(hook.result.current.isSummarising).toBe(true);
+      expect(publish).not.toHaveBeenCalled();
+      await act(async () => {
+        resolve(patchSets);
+      });
+      expect(publish).toHaveBeenCalledWith(DEFAULT_TEXT);
+      expect(hook.result.current.isSummarising).toBe(false);
+    } finally {
+      mockValSystem.system.getPatchSets = getPatchSets;
+    }
+  });
+
   test("a failed AI publishes with the default", async () => {
     mockModel = { id: "m", provider: "p" };
     const { publish, hook } = setup();

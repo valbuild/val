@@ -68,7 +68,30 @@ export function PublishSummary({
     [patchSets],
   );
 
-  const value = "text" in summary ? summary.text : "";
+  /*
+   * Every opening starts empty.
+   *
+   * The summary is persisted, and restored whenever there are pending
+   * changes — so without this the box could open already filled, and be
+   * published unread: with an earlier visit's AI text, with the default the
+   * old flow seeded into every box (stored as `manual`, so it cannot be told
+   * from typing), or with a draft written for a publish that has since
+   * changed. "Required" means someone reads what goes out, so what goes out
+   * is written in this opening. Writing `not-asked` overwrites the stored
+   * copy too, which is what stops the restore bringing it back.
+   *
+   * Until the clear has happened the box reads empty, so a restored value is
+   * never on screen even for the one render before the effect.
+   */
+  const [cleared, setCleared] = useState(false);
+  useEffect(() => {
+    if (cleared) {
+      return;
+    }
+    setSummary({ type: "not-asked" });
+    setCleared(true);
+  }, [cleared, setSummary]);
+  const value = cleared && "text" in summary ? summary.text : "";
 
   // Start the AI when the popover opens. The changes go in the prompt as field
   // paths with before/after values — cheaper than a source diff, and the
@@ -96,9 +119,7 @@ export function PublishSummary({
   // made. It happens at most once — one arrival, one chance to take over, and
   // after that the suggestion is offered rather than applied.
   //
-  // The untouched box is the EMPTY one now, so that is what it may replace. A
-  // box restored with text from an earlier visit is somebody's words, and is
-  // left alone.
+  // The untouched box is the EMPTY one, so that is what it may replace.
   const [hasEdited, setHasEdited] = useState(false);
   const appliedRef = useRef(false);
   useEffect(() => {
