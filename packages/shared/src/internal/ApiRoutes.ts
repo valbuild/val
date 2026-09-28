@@ -661,6 +661,13 @@ export const Api = {
               sourceMode: z
                 .union([z.literal("managed"), z.literal("connected")])
                 .optional(),
+              /**
+               * A press of Publish is a publish JOB: every managed project,
+               * and a connected one hosted on the platform. Absent from a
+               * server that predates it: managed projects publish as jobs,
+               * connected ones by commit.
+               */
+              publishJobs: z.boolean().optional(),
               publishRefusal: PublishRefusal.optional(),
             }),
             z.object({
@@ -761,6 +768,13 @@ export const Api = {
               sourceMode: z
                 .union([z.literal("managed"), z.literal("connected")])
                 .optional(),
+              /**
+               * A press of Publish is a publish JOB: every managed project,
+               * and a connected one hosted on the platform. Absent from a
+               * server that predates it: managed projects publish as jobs,
+               * connected ones by commit.
+               */
+              publishJobs: z.boolean().optional(),
               publishRefusal: PublishRefusal.optional(),
             }),
           ]),

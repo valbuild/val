@@ -55,7 +55,10 @@ export function publishProgress(
       return running({ kind: "queued" }, latest.pressedAt);
     }
     if (latest.handedOffAt !== undefined) {
-      return running({ kind: "verifying" }, latest.handedOffAt, built);
+      // Content checks what this tab built; CI builds what content pushed.
+      return latest.builtBy === "ci"
+        ? running({ kind: "building" }, latest.handedOffAt)
+        : running({ kind: "verifying" }, latest.handedOffAt, built);
     }
     // Being built somewhere else: a builder tab, or a tab that took it.
     return running({ kind: "building" }, latest.pressedAt);

@@ -396,6 +396,22 @@ export const parseCancel = (body: unknown): JobCancelResponse =>
 export const parseDiscard = (body: unknown): JobDiscardResponse =>
   parse(discardResponse, body, "POST /v1/publish-jobs/{id}/discard");
 
+export type CiRunReportBody = ContentPublishApi["/ci-runs"]["POST"]["body"];
+export type NewestCiRunResponse =
+  ContentPublishApi["/ci-runs/newest"]["GET"]["res"];
+
+const newestCiRunResponse: z.ZodType<NewestCiRunResponse> = z.object({
+  run: z
+    .object({
+      commit: z.string(),
+      status: z.enum(["failed", "succeeded"]),
+      url: z.string().nullable(),
+    })
+    .nullable(),
+});
+export const parseNewestCiRun = (body: unknown): NewestCiRunResponse =>
+  parse(newestCiRunResponse, body, "GET /v1/ci-runs/newest");
+
 /**
  * The `details` of a refusal, when it carries a list of problems.
  *

@@ -43,6 +43,7 @@ function fakeClient(over: Partial<StudioJobClient> = {}) {
     },
     cancel: async () => true,
     discard: async () => [],
+    newestCiRun: async () => null,
     ...over,
   };
   return { client, steps, renewals, prepared };
@@ -63,7 +64,7 @@ test("prepare, build and upload -- then the job is content's", async () => {
     },
     onPhase: () => {},
   });
-  expect(result).toEqual({ status: "handed-off", jobId: "J1" });
+  expect(result).toEqual({ status: "handed-off", jobId: "J1", built: true });
   expect(deployedWith).toEqual([prepared]); // built from what the server prepared
   // The build step names the publish it declared; then the upload.
   expect(steps).toEqual([
@@ -201,4 +202,23 @@ test("the lease is renewed while the tab works, and not after", async () => {
   } finally {
     jest.useRealTimers();
   }
+});
+
+test("a job that is content's once prepared is handed off unbuilt -- a connected one", async () => {
+  const { client, steps, prepared } = fakeClient();
+  client.prepare = async () => ({ ...prepared, job: { ...job, step: null } });
+  const deployed: PreparedJob[] = [];
+  const result = await runStudioJob({
+    client,
+    job,
+    tab: "ada",
+    deploy: async (p) => {
+      deployed.push(p);
+      return uploaded;
+    },
+    onPhase: () => {},
+  });
+  expect(result).toEqual({ status: "handed-off", jobId: "J1", built: false });
+  expect(deployed).toEqual([]); // CI builds it
+  expect(steps).toEqual([]);
 });

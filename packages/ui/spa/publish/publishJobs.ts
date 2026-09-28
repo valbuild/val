@@ -35,10 +35,15 @@ export type TrackedPublish = {
   pressedAt: number;
   status: PublishRequestStatus;
   /**
-   * When this tab's own build of it was handed to content. Set only for a
-   * request whose job this tab built; the wait after it is content's.
+   * When this tab handed its job to content. Set only for a request whose
+   * job this tab ran; the wait after it is content's.
    */
   handedOffAt?: number;
+  /**
+   * Who builds it after the hand-off: this tab already did (`studio`), or CI
+   * will, after content's push (`ci`, a connected project).
+   */
+  builtBy?: "studio" | "ci";
   /** When this tab first saw it settled. */
   settledAt?: number;
 };
@@ -164,12 +169,13 @@ export function createPublishJobs(options: {
       });
       if (result.status === "handed-off") {
         const at = now();
+        const builtBy = result.built ? "studio" : "ci";
         set({
           ...state,
           requests: state.requests.map((request) =>
             isSettled(request.status) || request.handedOffAt !== undefined
               ? request
-              : { ...request, handedOffAt: at },
+              : { ...request, handedOffAt: at, builtBy },
           ),
         });
       }

@@ -490,7 +490,11 @@ function asJobResult(value: unknown): StudioJobResult | null {
     return null;
   switch (value.status) {
     case "handed-off":
-      return { status: "handed-off", jobId: value.jobId };
+      return {
+        status: "handed-off",
+        jobId: value.jobId,
+        built: !("built" in value) || value.built !== false,
+      };
     case "lost":
       return { status: "lost", jobId: value.jobId };
     case "failed":

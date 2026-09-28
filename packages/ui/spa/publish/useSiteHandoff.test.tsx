@@ -55,11 +55,12 @@ test("the tab runs the job as this page, and answers with its part of it", async
     );
     tab.report({
       type: "job-result",
-      result: { status: "handed-off", jobId: "J1" },
+      result: { status: "handed-off", jobId: "J1", built: true },
     });
     await expect(running).resolves.toEqual({
       status: "handed-off",
       jobId: "J1",
+      built: true,
     });
     tab.report({
       type: "done",

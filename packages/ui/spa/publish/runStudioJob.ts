@@ -25,8 +25,12 @@ export type JobPhase =
   | { kind: "handing-off" };
 
 export type StudioJobResult =
-  /** Built and uploaded: content has the job. */
-  | { status: "handed-off"; jobId: string }
+  /**
+   * The tab's part is done, and content has the job. `built`: this tab built
+   * and uploaded it. `false` is a job whose build is CI's -- a connected
+   * project's, where the tab's part is the prepare alone.
+   */
+  | { status: "handed-off"; jobId: string; built: boolean }
   /** The job is no longer this tab's. Nothing to report. */
   | { status: "lost"; jobId: string }
   /** A step failed, and was reported as failed. */
@@ -82,9 +86,12 @@ export async function runStudioJob(options: {
       }
       return { status: "failed", jobId: job.id, message: messageOf(error) };
     }
-    if (lost || prepared.job === null || prepared.job.step !== "build") {
-      return lostResult;
+    if (lost || prepared.job === null) return lostResult;
+    // Content's already: nothing for this tab to build (connected).
+    if (prepared.job.step === null) {
+      return { status: "handed-off", jobId: job.id, built: false };
     }
+    if (prepared.job.step !== "build") return lostResult;
 
     const deployed = await options.deploy(prepared, (phase) =>
       onPhase({ kind: "deploying", phase }),
@@ -113,7 +120,7 @@ export async function runStudioJob(options: {
     });
     if (built === null || built.step !== "upload") return lostResult;
     await client.step(job.id, { tab, step: "upload", ok: true });
-    return { status: "handed-off", jobId: job.id };
+    return { status: "handed-off", jobId: job.id, built: true };
   } finally {
     clearInterval(renewing);
   }

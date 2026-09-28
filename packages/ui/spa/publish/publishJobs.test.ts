@@ -40,6 +40,7 @@ function fakeClient(over: Partial<StudioJobClient> = {}) {
       calls.push(`discard ${jobId}`);
       return [];
     },
+    newestCiRun: async () => null,
     ...over,
   };
   return { client, statuses, calls };
@@ -48,6 +49,7 @@ function fakeClient(over: Partial<StudioJobClient> = {}) {
 const handedOff = (jobId: string): StudioJobResult => ({
   status: "handed-off",
   jobId,
+  built: true,
 });
 
 test("a press with a job is built, and is then content's until it is Live", async () => {
@@ -79,6 +81,7 @@ test("a press with a job is built, and is then content's until it is Live", asyn
       pressedAt: 1_000,
       status: { kind: "publishing" },
       handedOffAt: 1_000,
+      builtBy: "studio",
     },
   ]);
 
@@ -283,4 +286,22 @@ test("a job that ended here is not taken again when content hands it back", asyn
   await flush();
   jobs.stop();
   expect(runs).toBe(1);
+});
+
+test("a job CI builds is handed off unbuilt, and shown as CI's", async () => {
+  const { client } = fakeClient();
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => ({ status: "handed-off", jobId: j.id, built: false }),
+    takesQueuedWork: () => false,
+    now: () => 1_000,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: job("J1"),
+  });
+  await flush();
+  expect(jobs.get().requests[0]).toMatchObject({ builtBy: "ci" });
 });

@@ -2,6 +2,7 @@ import {
   parseCancel,
   parseDiscard,
   parseJob,
+  parseNewestCiRun,
   parsePress,
   parseRenew,
   parseRequestStatus,
@@ -41,6 +42,14 @@ export type StudioJobClient = {
   cancel(jobId: string): Promise<boolean>;
   /** Discard a failed job's changes; answers what another job still holds. */
   discard(jobId: string, unstagePatchIds?: string[]): Promise<string[]>;
+  /**
+   * Connected: the newest CI run the branch's workflow reported -- where
+   * "View run" goes for a build that failed. `null` when none was reported.
+   */
+  newestCiRun(): Promise<{
+    status: "failed" | "succeeded";
+    url: string | null;
+  } | null>;
 };
 
 /** What the tab builds a job from: `/api/val/publish-job-prepare`'s answer. */
@@ -112,6 +121,8 @@ export function createStudioJobClient(options: {
           unstagePatchIds ? { unstagePatchIds } : {},
         ),
       ).stillHeld,
+    newestCiRun: async () =>
+      parseNewestCiRun(await proxy("/ci-runs/newest", "GET")).run,
   };
 }
 

@@ -10,6 +10,7 @@ import { lsp } from "./lsp";
 import { debug } from "./debug";
 import { deleteUnappliablePatches } from "./deleteUnappliablePatches";
 import { publish } from "./publish";
+import { ciReport } from "./ciReport";
 
 async function main(): Promise<void> {
   const { input, flags, showHelp } = meow(
@@ -49,6 +50,17 @@ async function main(): Promise<void> {
       Description: connect your local project to a Val Build project at admin.val.build
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
+
+      Command: ci-report
+      Description: tell content how CI's build of a commit went, for a connected
+                   project's workflow. Run as its last step, whatever the build did:
+                   a failed build then reads "Published, not on the site yet" in the
+                   Studio, with a link to the run. Never fails the job.
+      Options:
+        --status [failed|succeeded]  How the build went
+        --commit [sha]           The commit built (default GITHUB_SHA)
+        --branch [name]          Its branch (default GITHUB_REF_NAME, else the project's)
+        --url [url]              The run (default this GitHub Actions run)
 
       Command: publish
       Description: publish this project's build through content.val.build.
@@ -173,6 +185,12 @@ async function main(): Promise<void> {
         verbose: {
           type: "boolean",
         },
+        status: {
+          type: "string",
+        },
+        url: {
+          type: "string",
+        },
       },
       hardRejection: false,
     },
@@ -220,6 +238,14 @@ async function main(): Promise<void> {
         dryRun: flags.dryRun,
         yes: flags.yes,
         verbose: flags.verbose,
+      });
+    case "ci-report":
+      return ciReport({
+        root: flags.root,
+        status: flags.status,
+        commit: flags.commit,
+        branch: flags.branch,
+        url: flags.url,
       });
     case "publish":
       return publish({

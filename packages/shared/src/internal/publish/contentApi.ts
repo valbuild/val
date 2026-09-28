@@ -6,7 +6,7 @@
  * comments included, so that the two can be diffed by eye: the publish
  * lifecycle from branch `claude/new-project-studio-saves-0g9ksb`, commit
  * `ecf3b8d`; the publish-job routes (`/publish-requests`, `/publish-jobs`)
- * and `PublishRequestStatus` / `PublishTabJob` from `main`, commit `bd5c17d`.
+ * and `PublishRequestStatus` / `PublishTabJob` from `main`, commit `acb4a49`, with `/ci-runs`.
  *
  * **Copied rather than imported, because it cannot be imported.** That file
  * lives in a private repository which publishes nothing to npm, and its own
@@ -204,6 +204,32 @@ export type ContentPublishApi = {
    * report names its step, so one retried after a lost answer does nothing
    * twice.
    */
+  /**
+   * CI's own report of how a build of a git commit went, sent by the
+   * connected workflow's last step with its project token. See `ciRuns.ts`.
+   */
+  "/ci-runs": {
+    POST: {
+      body: {
+        commit: string;
+        branch?: string;
+        status: "failed" | "succeeded";
+        url?: string;
+      };
+      res: { recorded: true };
+    };
+  };
+  "/ci-runs/newest": {
+    GET: {
+      res: {
+        run: {
+          commit: string;
+          status: "failed" | "succeeded";
+          url: string | null;
+        } | null;
+      };
+    };
+  };
   "/publish-requests": {
     POST: {
       body: { requestId: string; tab: string };
@@ -239,6 +265,11 @@ export type ContentPublishApi = {
           { patchId: string; remote?: boolean }
         >;
         modules: Record<string, { source: Json; schema: Json }>;
+        /**
+         * Connected: the git commit the Studio's deployment was built from. A
+         * branch whose tip is that commit has nothing it has not seen.
+         */
+        gitCommit?: string;
       };
       res: { job: PublishTabJob | null };
     };

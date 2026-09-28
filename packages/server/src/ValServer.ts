@@ -1019,6 +1019,7 @@ export const ValServer = (
             mode,
             ...(publishRefusal ? { publishRefusal } : {}),
             ...(sourceMode ? { sourceMode } : {}),
+            ...(sourceMode ? { publishJobs: serverOps.publishesAsJobs() } : {}),
             // Not `options.config` verbatim: in proxy mode the branch the
             // server resolved is filled in where the file did not name one.
             // See `clientConfig`.
@@ -2191,14 +2192,14 @@ export const ValServer = (
         }
         if (
           !(serverOps instanceof ValOpsHttp) ||
-          serverOps.sourceMode() !== "managed" ||
-          !serverOps.embedsSource()
+          !serverOps.publishesAsJobs() ||
+          (serverOps.sourceMode() === "managed" && !serverOps.embedsSource())
         ) {
           return {
             status: 409,
             json: {
               message:
-                "Only a managed project's own deployment can prepare a publish job.",
+                "This deployment cannot prepare a publish job for this project.",
             },
           };
         }
@@ -2207,6 +2208,72 @@ export const ValServer = (
           return { status: 409, json: { message: refusal.message } };
         }
         const { jobId, tab, patchIds } = req.body;
+        /*
+         * CONNECTED: the job's sources are what `/save` would commit -- its
+         * own changes, applied as `/save` applies them -- and content pushes
+         * them at the seal. Nothing is built here: CI builds after the push,
+         * so the answer carries the job and no sources.
+         */
+        if (serverOps.sourceMode() === "connected") {
+          const jobPatches = await serverOps.fetchPatches({
+            patchIds,
+            excludePatchOps: false,
+          });
+          if (jobPatches.error) {
+            return {
+              status: 500,
+              json: { message: jobPatches.error.message },
+            };
+          }
+          const found = new Set<string>(
+            jobPatches.patches.map((patch) => patch.patchId),
+          );
+          const gone = patchIds.filter((id) => !found.has(id));
+          if (gone.length > 0) {
+            return {
+              status: 409,
+              json: {
+                message: `This publish's changes are no longer all there (${gone.length} discarded).`,
+              },
+            };
+          }
+          const prepared = await serverOps.prepare({
+            ...serverOps.analyzePatches(
+              jobPatches.patches,
+              jobPatches.commits,
+              commit,
+            ),
+            ...jobPatches,
+          });
+          if (prepared.hasErrors) {
+            return {
+              status: 500,
+              json: {
+                message:
+                  "This publish's changes could not be rendered into source: " +
+                  JSON.stringify(prepared.sourceFilePatchErrors).slice(0, 500),
+              },
+            };
+          }
+          const split = splitJobPrepare({
+            // Every file the job's changes wrote is what the push writes.
+            chainOnly: { patchedSourceFiles: {} },
+            withJob: prepared,
+            jobPatchIds: patchIds,
+          });
+          const sent = await serverOps.prepareJob(jobId, {
+            tab,
+            filesDirectory: options.config.files?.directory || "/public/val",
+            ...split.archive,
+            ...(commit !== undefined ? { gitCommit: commit } : {}),
+          });
+          return jobPrepareAnswer(sent, {
+            sourceFiles: {},
+            binaryFiles: {},
+            binaryFilesUnread: [],
+            branch: serverOps.projectBranch(),
+          });
+        }
         const chain = await serverOps.fetchPatches({
           patchIds: undefined,
           excludePatchOps: false,
@@ -2278,50 +2345,12 @@ export const ValServer = (
           filesDirectory: options.config.files?.directory || "/public/val",
           ...split.archive,
         });
-        if (sent.status !== 200) {
-          let message = `The content service did not prepare the publish (${sent.status}).`;
-          try {
-            const parsed: unknown = JSON.parse(sent.body);
-            if (
-              typeof parsed === "object" &&
-              parsed !== null &&
-              "message" in parsed &&
-              typeof parsed.message === "string"
-            ) {
-              message = parsed.message;
-            }
-          } catch {
-            // not JSON: the status says enough
-          }
-          return {
-            status: sent.status === 409 ? 409 : 502,
-            json: { message },
-          };
-        }
-        let prepared: ReturnType<typeof parseJob>;
-        try {
-          prepared = parseJob(
-            JSON.parse(sent.body),
-            "POST /v1/publish-jobs/{id}/prepare",
-          );
-        } catch (e) {
-          return {
-            status: 502,
-            json: {
-              message: e instanceof Error ? e.message : String(e),
-            },
-          };
-        }
-        return {
-          status: 200,
-          json: {
-            job: prepared.job,
-            sourceFiles: split.buildSourceFiles,
-            binaryFiles: binaries.files,
-            binaryFilesUnread: binaries.unread,
-            branch: serverOps.projectBranch(),
-          },
-        };
+        return jobPrepareAnswer(sent, {
+          sourceFiles: split.buildSourceFiles,
+          binaryFiles: binaries.files,
+          binaryFilesUnread: binaries.unread,
+          branch: serverOps.projectBranch(),
+        });
       },
     },
     "/profiles": {
@@ -4666,4 +4695,61 @@ function getIsRemoteRequired(
     }
   }
   return false;
+}
+
+/**
+ * `/publish-job-prepare`'s answer from content's: the job as content has it
+ * now, and what the tab builds from. Content's refusal is passed on -- 409
+ * as 409, anything else as 502, which the tab reads as "content answered,
+ * and has counted the attempt" (see `runStudioJob`).
+ */
+function jobPrepareAnswer(
+  sent: { status: number; body: string },
+  build: {
+    sourceFiles: Record<string, string | null>;
+    binaryFiles: Record<string, string>;
+    binaryFilesUnread: string[];
+    branch: string | null;
+  },
+):
+  | { status: 409 | 502; json: { message: string } }
+  | {
+      status: 200;
+      json: {
+        job: ReturnType<typeof parseJob>["job"];
+        sourceFiles: Record<string, string | null>;
+        binaryFiles: Record<string, string>;
+        binaryFilesUnread: string[];
+        branch: string | null;
+      };
+    } {
+  if (sent.status !== 200) {
+    let message = `The content service did not prepare the publish (${sent.status}).`;
+    try {
+      const parsed: unknown = JSON.parse(sent.body);
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        "message" in parsed &&
+        typeof parsed.message === "string"
+      ) {
+        message = parsed.message;
+      }
+    } catch {
+      // not JSON: the status says enough
+    }
+    return { status: sent.status === 409 ? 409 : 502, json: { message } };
+  }
+  try {
+    const prepared = parseJob(
+      JSON.parse(sent.body),
+      "POST /v1/publish-jobs/{id}/prepare",
+    );
+    return { status: 200, json: { job: prepared.job, ...build } };
+  } catch (e) {
+    return {
+      status: 502,
+      json: { message: e instanceof Error ? e.message : String(e) },
+    };
+  }
 }

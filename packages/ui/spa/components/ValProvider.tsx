@@ -220,6 +220,11 @@ type ValContextValue = {
    */
   publishJobs: PublishJobs;
   publishJobsState: PublishJobsState;
+  /**
+   * Whether a press of Publish is a publish job here: every managed project,
+   * and a connected one hosted on the platform (the server says, on `/stat`).
+   */
+  publishesAsJobs: boolean;
   serviceUnavailable: boolean | undefined;
   baseSha: string | undefined;
   config: ValConfig | undefined;
@@ -946,7 +951,10 @@ export function ValProvider({
        * a builder tab it opened is waiting for work.
        */
       takesQueuedWork: () =>
-        handsOffPublish && (canBuildHere() || handoffRef.current.active()),
+        handsOffPublish &&
+        (connectedJobsRef.current ||
+          canBuildHere() ||
+          handoffRef.current.active()),
       onSettled: (request) => onPublishSettled.current(request),
     });
     return jobs;
@@ -960,6 +968,40 @@ export function ValProvider({
       return;
     }
     if (status.kind !== "failed") return;
+    /*
+     * After the seal (connected): the change is published, and CI's build of
+     * it failed. Nothing to try again or discard -- the next publish builds
+     * again -- so the one action is the run itself.
+     */
+    if (status.actions.includes("re-run-build")) {
+      toast.error("Published, not on the site yet", {
+        id,
+        description: "The build failed. The next publish builds it again.",
+        duration: Infinity,
+        action: {
+          label: "View run",
+          onClick: () => {
+            void createStudioJobClient({ api: "/api/val" })
+              .newestCiRun()
+              .then((run) => {
+                if (run?.url) window.open(run.url, "_blank", "noopener");
+                else
+                  system.status.reportError(
+                    "The build's run could not be found",
+                    "The workflow did not say where its run is.",
+                  );
+              })
+              .catch((e: unknown) =>
+                system.status.reportError(
+                  "The build's run could not be found",
+                  e instanceof Error ? e.message : String(e),
+                ),
+              );
+          },
+        },
+      });
+      return;
+    }
     const reportOutcome = (
       outcome: Awaited<ReturnType<PublishJobs["discard"]>>,
     ) => {
@@ -1010,16 +1052,28 @@ export function ValProvider({
     publishJobs.get,
     publishJobs.get,
   );
-  const managed = "data" in stat && stat.data?.sourceMode === "managed";
+  const statSourceMode =
+    "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null;
+  const publishesAsJobs =
+    "data" in stat && stat.data
+      ? (stat.data.publishJobs ?? statSourceMode === "managed")
+      : false;
+  /*
+   * A connected job is built by CI: the tab's part is the prepare, which any
+   * tab can do -- so a free tab takes queued work whether or not it could
+   * build a site.
+   */
+  const connectedJobsRef = useRef(false);
+  connectedJobsRef.current = publishesAsJobs && statSourceMode === "connected";
   useEffect(() => {
-    if (!managed) return;
+    if (!publishesAsJobs) return;
     publishJobs.start();
     const off = subscribePublishJobs(() => publishJobs.nudge());
     return () => {
       off();
       publishJobs.stop();
     };
-  }, [managed, publishJobs, subscribePublishJobs]);
+  }, [publishesAsJobs, publishJobs, subscribePublishJobs]);
   /**
    * What every progress surface reads: the deploy, seen through the publish
    * jobs. See `publishProgress`. A clock is not a dependency -- a settled
@@ -1080,6 +1134,7 @@ export function ValProvider({
         handoff,
         publishJobs,
         publishJobsState,
+        publishesAsJobs,
         profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
         publishRefusal:
@@ -2507,7 +2562,7 @@ export function usePublishSummary() {
    */
   const studioIsDeployer = useStudioIsDeployer();
   const { state: deployState } = useContext(ValContext).deploy;
-  const { handoff, publishJobs } = useContext(ValContext);
+  const { handoff, publishJobs, publishesAsJobs } = useContext(ValContext);
   const publish = useCallback(
     async (summary: string) => {
       /*
@@ -2562,12 +2617,13 @@ export function usePublishSummary() {
         return { status: "error", message: STUDIO_OUT_OF_DATE_MESSAGE };
       }
       /*
-       * In managed mode a press is a REQUEST for a publish job: nothing is
-       * committed here, and the build, the check and the seal all follow it
-       * (valbuild/home, docs/app-mode.md, "Publishing is a queued job"). A
-       * connected project commits, and its host picks the commit up.
+       * Where publishes are jobs, a press is a REQUEST: nothing is committed
+       * here, and the build (the tab's, or CI's), the check and the seal all
+       * follow it (valbuild/home, docs/app-mode.md, "Publishing is a queued
+       * job"). A connected project on a host of its own commits, and its host
+       * picks the commit up.
        */
-      const publishOptions = studioIsDeployer ? { request: true } : undefined;
+      const publishOptions = publishesAsJobs ? { request: true } : undefined;
       /**
        * One retry for `chain-moved`, and no more.
        *
@@ -2664,6 +2720,7 @@ export function usePublishSummary() {
       studioIsDeployer,
       handoff,
       publishJobs,
+      publishesAsJobs,
     ],
   );
   const setSummary = useCallback(

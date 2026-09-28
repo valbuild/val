@@ -157,6 +157,8 @@ export const StatData = z.object({
   sourceMode: z
     .union([z.literal("managed"), z.literal("connected")])
     .optional(),
+  /** See `publishJobs` in `ApiRoutes`. */
+  publishJobs: z.boolean().optional(),
   /**
    * FS mode only: fingerprint of the `.jsonValues()` entry files on disk. No
    * other sha here can see an entry edit, because a jsonValues module's source is

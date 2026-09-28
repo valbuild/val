@@ -171,7 +171,7 @@ test("the tab's part of the job reaches the site, before the publish is Live", a
   const tab = joinHandoff(site.id, () => undefined, { retryMs: 10 });
   tab.report({
     type: "job-result",
-    result: { status: "handed-off", jobId: "J1" },
+    result: { status: "handed-off", jobId: "J1", built: true },
   });
   tab.report({
     type: "job-result",
@@ -181,7 +181,10 @@ test("the tab's part of the job reaches the site, before the publish is Live", a
     () => heard.filter((message) => message.type === "job-result").length > 1,
   );
   expect(heard.filter((message) => message.type === "job-result")).toEqual([
-    { type: "job-result", result: { status: "handed-off", jobId: "J1" } },
+    {
+      type: "job-result",
+      result: { status: "handed-off", jobId: "J1", built: true },
+    },
     {
       type: "job-result",
       result: { status: "failed", jobId: "J2", message: "rolldown" },

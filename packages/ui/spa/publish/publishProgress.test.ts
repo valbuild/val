@@ -125,3 +125,16 @@ test("an update after the last press is the update's story", () => {
     ),
   ).toBe(updated);
 });
+
+test("a job CI builds is building after the hand-off, not being checked", () => {
+  const view = publishProgress(
+    idle,
+    jobs({ kind: "publishing" }, { handedOffAt: 5_000, builtBy: "ci" }),
+    6_000,
+  );
+  expect(view).toMatchObject({
+    status: "running",
+    phase: { kind: "building" },
+    phaseStartedAt: 5_000,
+  });
+});
