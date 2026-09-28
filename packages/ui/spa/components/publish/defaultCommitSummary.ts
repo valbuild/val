@@ -1,12 +1,13 @@
 import type { ModuleFilePath } from "@valbuild/core";
 
 /**
- * The commit summary you get without asking anyone.
+ * The commit message you get without asking anyone.
  *
- * Publishing must never wait on a model. The box is filled with this the
- * moment the publish popover opens, it is editable straight away, and it is
- * what gets committed unless the user edits it or takes an AI suggestion. It
- * is also the whole story when no AI is configured.
+ * Publishing must never depend on a model. By default nobody is asked for a
+ * message at all, and {@link buildDefaultCommitMessage} is what gets committed
+ * whenever the AI is not configured, fails, or takes too long. Where the
+ * project requires a message it is the placeholder of the box instead — a hint,
+ * never a value, so that "required" cannot be satisfied without reading.
  */
 
 /** How many names fit in a title before a count reads better. */
@@ -61,6 +62,114 @@ export function buildDefaultCommitSummary(
   return `Update content in ${names.length} places\n\nChanged: ${changed}`;
 }
 
+/** How many fields of one module to name in the body before counting. */
+const MAX_FIELDS_LISTED = 5;
+
+/** One place a publish changes: a module, and the field within it. */
+export type ChangedPlace = {
+  moduleFilePath: ModuleFilePath | string;
+  /** Empty for the module as a whole. */
+  patchPath: readonly string[];
+};
+
+/**
+ * The commit message for a publish nobody wrote a message for.
+ *
+ * {@link buildDefaultCommitSummary}'s title, with the places spelled out. A
+ * commit that nobody described is read later by someone asking "what did this
+ * touch", and a module's display name does not answer that: two modules can
+ * share one, and a field is not in it at all. So the exact module file paths
+ * and field paths go in — in the title, where a single field changed, since
+ * that is the whole story and it fits; in the body otherwise.
+ *
+ * The body is capped — {@link MAX_LISTED} modules and
+ * {@link MAX_FIELDS_LISTED} fields each, then a count of the rest — rather
+ * than exhaustive. A publish of a few hundred fields would otherwise be a
+ * commit message of a few hundred lines, and past a handful a list stops
+ * being read; the patches themselves, in history, are the complete record.
+ *
+ * The AI summary is written for a different reader and keeps its rule against
+ * paths. This is the fallback, and a fallback that names things precisely is
+ * worth more than one that reads nicely and says less.
+ */
+export function buildDefaultCommitMessage(
+  places: readonly ChangedPlace[],
+): string {
+  const fieldsByModule = new Map<string, string[][]>();
+  for (const place of places) {
+    const fields = fieldsByModule.get(place.moduleFilePath) ?? [];
+    fields.push([...place.patchPath]);
+    fieldsByModule.set(place.moduleFilePath, fields);
+  }
+  const modules = Array.from(fieldsByModule.keys()).sort((a, b) =>
+    a.localeCompare(b),
+  );
+  if (modules.length === 0) {
+    return "Update content";
+  }
+  const fieldNamesOf = (moduleFilePath: string): string[] =>
+    outermostFields(fieldsByModule.get(moduleFilePath) ?? []).map((field) =>
+      field.join("."),
+    );
+
+  if (modules.length === 1) {
+    const moduleFilePath = modules[0];
+    const fields = fieldNamesOf(moduleFilePath);
+    // The module itself changed: there is no field to name, so the path is
+    // the precise part and the display name is the readable one.
+    if (fields.length === 0 || fields.includes("")) {
+      return `Update ${moduleDisplayName(moduleFilePath)}\n\nChanged: ${moduleFilePath}`;
+    }
+    if (fields.length === 1) {
+      return `Update ${fields[0]} in ${moduleFilePath}`;
+    }
+    return `Update ${moduleDisplayName(moduleFilePath)}\n\nChanged in ${moduleFilePath}: ${listFields(fields)}`;
+  }
+
+  const title = buildDefaultCommitSummary(modules).split("\n")[0];
+  const lines = modules.slice(0, MAX_LISTED).map((moduleFilePath) => {
+    const fields = fieldNamesOf(moduleFilePath).filter((field) => field !== "");
+    return fields.length === 0
+      ? `- ${moduleFilePath}`
+      : `- ${moduleFilePath}: ${listFields(fields)}`;
+  });
+  const remaining = modules.length - MAX_LISTED;
+  if (remaining > 0) {
+    lines.push(`- and ${remaining} more`);
+  }
+  return `${title}\n\nChanged:\n${lines.join("\n")}`;
+}
+
+/**
+ * The fields to name, with anything inside another changed field dropped.
+ *
+ * Replacing `hero` and editing `hero.title` is one change to `hero` — naming
+ * both reads as two. An empty path is the module itself and swallows the rest.
+ */
+function outermostFields(fields: string[][]): string[][] {
+  const unique = new Map<string, string[]>();
+  for (const field of fields) {
+    unique.set(JSON.stringify(field), field);
+  }
+  const all = Array.from(unique.values());
+  return all
+    .filter(
+      (field) =>
+        !all.some(
+          (other) =>
+            other.length < field.length &&
+            other.every((segment, i) => field[i] === segment),
+        ),
+    )
+    .sort((a, b) => a.join(".").localeCompare(b.join(".")));
+}
+
+function listFields(fields: string[]): string {
+  const listed = fields.slice(0, MAX_FIELDS_LISTED).join(", ");
+  const remaining = fields.length - MAX_FIELDS_LISTED;
+  return remaining > 0 ? `${listed} and ${remaining} more` : listed;
+}
+
 /** "A", "A and B", "A, B and C" — no Oxford comma, matching the UI's copy. */
 function joinNames(names: string[]): string {
   if (names.length === 1) {
@@ -91,32 +200,4 @@ export function shouldAutoApplyAiSummary(args: {
     return false;
   }
   return args.currentValue.trim() === args.defaultSummary.trim();
-}
-
-/**
- * The text to commit, decided at the moment publishing actually goes through.
- *
- * The box is React state, and publishing is not always triggered by the render
- * that holds the newest of it: pressing Publish while the AI is still writing
- * stores a callback, and the grace period fires that callback later — after the
- * summary has arrived and been applied to the box, but from a closure created
- * before either happened. Reading the text off that closure committed the
- * default while the box on screen said the AI's summary.
- *
- * So the same rule `shouldAutoApplyAiSummary` applies to the box is applied
- * once more here, against the latest values, and its answer is what gets
- * committed. `aiText` is null whenever there is no finished summary — no AI
- * configured, still writing, or failed — which is the case where the box is
- * already the whole answer.
- */
-export function resolvePublishText(args: {
-  hasEdited: boolean;
-  currentValue: string;
-  defaultSummary: string;
-  aiText: string | null;
-}): string {
-  if (args.aiText !== null && shouldAutoApplyAiSummary(args)) {
-    return args.aiText;
-  }
-  return args.currentValue;
 }

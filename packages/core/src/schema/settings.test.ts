@@ -3,6 +3,7 @@ import {
   assistantAvailability,
   ASSISTANT_SETTINGS_MAX_LENGTH,
   THEME_RADIUS_LENGTHS,
+  type StudioCommitMessageMode,
   THEME_RADIUS_STEPS,
 } from "../source/settings";
 import { ModuleFilePath, SourcePath } from "../val";
@@ -349,6 +350,30 @@ describe("the studio section", () => {
       studio: { tour: "false" },
     });
     expect(Object.keys(res || {})).toEqual(['path?p="studio"."tour"']);
+  });
+
+  test("commitMessage takes 'automatic', 'required' or null", () => {
+    const schema = settings();
+    const values: (StudioCommitMessageMode | null)[] = [
+      "automatic",
+      "required",
+      null,
+    ];
+    for (const commitMessage of values) {
+      expect(
+        schema["executeValidate"]("path" as SourcePath, {
+          studio: { commitMessage },
+        }),
+      ).toEqual(false);
+    }
+  });
+
+  test("a commitMessage outside the enum is reported, through deserialize", () => {
+    const schema = deserializeSchema(settings()["executeSerialize"]());
+    const res = schema["executeValidate"]("path" as SourcePath, {
+      studio: { commitMessage: "always" },
+    });
+    expect(Object.keys(res || {})).toEqual(['path?p="studio"."commitMessage"']);
   });
 
   test("serializes as a nullable boolean", () => {

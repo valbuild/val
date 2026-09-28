@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { ASSISTANT_SETTINGS_MAX_LENGTH } from "@valbuild/core";
 import {
   AssistantSettingsFields,
@@ -115,5 +115,46 @@ describe("the Studio tab's sections", () => {
     );
     expect(screen.queryByText("Appearance")).not.toBeNull();
     expect(screen.queryByText("Tour")).not.toBeNull();
+  });
+});
+
+/**
+ * `studio.commitMessage`: off (unset, or "automatic") publishes without asking;
+ * on writes "required".
+ */
+describe("the commit message switch", () => {
+  function commitSwitch() {
+    return screen.getByRole("switch", { name: /Ask for a commit message/ });
+  }
+
+  test("unset draws as off, because unset means automatic", () => {
+    render(
+      <StudioSettingsFields
+        value={{ tour: null }}
+        onChange={() => undefined}
+      />,
+    );
+    expect(commitSwitch().getAttribute("data-state")).toBe("unchecked");
+  });
+
+  test("turning it on writes 'required', and off writes 'automatic'", () => {
+    const onChange = jest.fn();
+    const { rerender } = render(
+      <StudioSettingsFields
+        value={{ tour: null, commitMessage: null }}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.click(commitSwitch());
+    expect(onChange).toHaveBeenLastCalledWith("commitMessage", "required");
+    rerender(
+      <StudioSettingsFields
+        value={{ tour: null, commitMessage: "required" }}
+        onChange={onChange}
+      />,
+    );
+    expect(commitSwitch().getAttribute("data-state")).toBe("checked");
+    fireEvent.click(commitSwitch());
+    expect(onChange).toHaveBeenLastCalledWith("commitMessage", "automatic");
   });
 });

@@ -54,7 +54,22 @@ export type StudioSettingsSource = {
    * that browser and is not here.
    */
   tour?: boolean | null;
+  /**
+   * Whether publishing asks for a commit message.
+   *
+   * Unset means `"automatic"`: pressing Publish publishes, with a summary the
+   * AI writes where one is available and one assembled from what changed where
+   * it is not. Nobody is shown a box. `"required"` opens the box on every
+   * publish and will not publish it empty — the AI still fills it in, where
+   * there is one, but a person has to read it and press Publish.
+   *
+   * Only the HTTP (remote) mode commits, so this changes nothing in local
+   * development, where Save writes to disk.
+   */
+  commitMessage?: StudioCommitMessageMode | null;
 };
+
+export type StudioCommitMessageMode = "automatic" | "required";
 
 /**
  * How the Studio looks in this project.

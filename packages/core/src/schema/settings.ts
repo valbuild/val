@@ -450,6 +450,11 @@ export function settings(): SettingsSchema<SettingsSource> {
         .describe(
           "Whether editors are offered the guided tour of the Studio. Unset means yes. Off hides the offer for everyone on this project — the tour stays in Quick actions for anyone who wants it.",
         ),
+      commitMessage: enumSchema("automatic", "required")
+        .nullable()
+        .describe(
+          "Whether publishing asks for a commit message. Unset is the same as 'automatic': Publish publishes straight away, with a message the AI writes (or one listing what changed). 'required' asks every time, and will not publish an empty one.",
+        ),
     }),
     locales: new SettingsSchema<LocalesSettingsSource>(
       {

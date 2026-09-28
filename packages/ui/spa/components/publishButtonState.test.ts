@@ -122,6 +122,20 @@ describe("describePublishButton", () => {
     ).toMatchObject({ kind: "in-flight", label: "Pushing" });
   });
 
+  test("writing the commit message is in flight, and named apart from pushing", () => {
+    expect(
+      describePublishButton(input({ isSummarising: true, mode: "http" })),
+    ).toMatchObject({ kind: "in-flight", label: "Preparing", action: "none" });
+  });
+
+  test("once the push starts it says pushing, not preparing", () => {
+    expect(
+      describePublishButton(
+        input({ isSummarising: true, isPublishing: true, mode: "http" }),
+      ),
+    ).toMatchObject({ kind: "in-flight", label: "Pushing" });
+  });
+
   test("in flight beats nothing-to-send", () => {
     // The chain empties as the publish lands, and the button must not flip to
     // "idle" mid-flight.

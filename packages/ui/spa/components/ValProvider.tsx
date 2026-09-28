@@ -2585,11 +2585,10 @@ export function usePublishSummary() {
     /**
      * Call in the press that starts a publish. On a page that cannot build it
      * opens the Studio tab that will, which a browser only allows in the press
-     * itself -- not after the summary's countdown. See `publish/handoff.ts`.
+     * itself -- not after the AI has written the commit message. See
+     * `publish/handoff.ts`.
      */
     preparePublish: () => handoff.prepare(studioIsDeployer),
-    /** The summary was closed before it published: close what was prepared. */
-    abandonPublish: () => handoff.cancel("The publish was cancelled."),
     /**
      * Whether the project wants AI to write its commit messages.
      *

@@ -39,8 +39,19 @@ Guidance:
 
 export type UseCommitSummaryResult = {
   state: AiSummaryState;
-  /** Start writing. Safe to call once per mount; later calls are ignored. */
-  start: (changeDescription: string) => void;
+  /**
+   * Start writing. Safe to call once per mount; later calls are ignored until
+   * {@link reset}. Answers whether a request actually went out — `false` when
+   * there is no model, no socket, or one was already sent.
+   */
+  start: (changeDescription: string) => boolean;
+  /**
+   * Forget the last summary, cancelling it if it is still being written, so
+   * `start` can be called again. For a caller that publishes more than once
+   * per mount: the publish button, which never shows a box, stays mounted
+   * across publishes where the popover did not.
+   */
+  reset: () => void;
   /** Stop the request, aborting it on the server so it stops billing. */
   cancel: () => void;
   /**
@@ -157,7 +168,7 @@ export function useCommitSummary(
       // the only attempt there would ever be — the summary then sat at "off" or
       // "not connected" with nothing to retry it.
       if (startedRef.current || model === null || !isWsConnected) {
-        return;
+        return false;
       }
       startedRef.current = true;
       const promptId = randomUUID();
@@ -189,9 +200,17 @@ export function useCommitSummary(
           message: "Could not reach the AI service.",
         });
       }
+      return sent;
     },
     [isWsConnected, model, sendWsMessage],
   );
+
+  const reset = useCallback(() => {
+    cancel();
+    startedRef.current = false;
+    streamedRef.current = "";
+    setState({ status: model === null ? "off" : "idle" });
+  }, [cancel, model]);
 
   const reveal = useCallback(async (): Promise<string | null> => {
     const sessionId = sessionIdRef.current;
@@ -227,5 +246,5 @@ export function useCommitSummary(
     });
   }, [sendWsMessage, subscribeToWsMessages]);
 
-  return { state, start, cancel, reveal };
+  return { state, start, reset, cancel, reveal };
 }
