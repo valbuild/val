@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   CircleAlert,
+  CircleHelp,
   Clock,
   Compass,
   FilePlus2,
@@ -334,6 +335,8 @@ function deployIcon(progress: ShellDeployActivity["progress"]) {
       return <Loader2 size={13} className="animate-spin text-fg-secondary" />;
     case "failed":
       return <CircleAlert size={13} className="text-fg-error-on-surface" />;
+    case "unknown":
+      return <CircleHelp size={13} className="text-fg-secondary" />;
     case "settled":
       return <Rocket size={13} className="text-fg-secondary-alt" />;
   }

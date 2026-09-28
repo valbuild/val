@@ -53,7 +53,7 @@ http://localhost:3458/api/val/enable?redirect_to=/
 
 | Module                          | What it shows                                                                                                                                                                       |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `settings.val.ts`               | `s.settings()`: `locales`, `theme`, `assistant`. At the root, one per project                                                                                                       |
+| `settings.val.ts`               | `s.settings()`: `locales`, `theme`, `studio`, `assistant`. At the root, one per project                                                                                             |
 | `src/content/site.val.ts`       | `s.object`, `s.array` of inline-rendered objects, `s.route()`                                                                                                                       |
 | `src/content/authors.val.ts`    | `s.record(key, item)` with a described KEY, `.preview()`, `.validate()`, `s.enum`, `s.date`                                                                                         |
 | `src/content/theme.val.ts`      | `s.color()` in hsl / hex / rgb / oklch, with alpha and nullable                                                                                                                     |

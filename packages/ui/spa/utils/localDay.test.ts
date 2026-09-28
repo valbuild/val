@@ -86,15 +86,17 @@ describe("parseLocalDay", () => {
       "2026-03-08", // DST starts at midnight in America/Havana
       "1900-01-01",
       "2100-12-31",
+      "0050-01-01", // years 0-99 must not be read as 1900-1999
+      "0000-01-01",
     ]) {
       expect(formatLocalDay(parseDayOrThrow(day))).toStrictEqual(day);
     }
   });
 
   test("takes only the date part of a full ISO datetime", () => {
-    // s.date() does not validate the shape of its value, so content can hold a
-    // datetime. The day is taken as written rather than shifted into the
-    // browser's timezone.
+    // s.date() reports a datetime as invalid, but content can still hold one.
+    // The day is taken as written rather than shifted into the browser's
+    // timezone.
     expect(
       formatLocalDay(parseDayOrThrow("2026-08-20T23:30:00Z")),
     ).toStrictEqual("2026-08-20");

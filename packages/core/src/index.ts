@@ -170,6 +170,7 @@ export {
   type AssistantAvailability,
   type ThemeSettingsSource,
   type StudioSettingsSource,
+  type StudioCommitMessageMode,
   type ThemeRadius,
   ASSISTANT_SETTINGS_MAX_LENGTH,
   THEME_LOGO_DIRECTORY,

@@ -66,6 +66,13 @@ export type PublishButtonInput = {
    */
   conflictingChangeCount: number;
   isPublishing: boolean;
+  /**
+   * Publish was pressed and the AI is writing the commit message it will go
+   * out with. In flight as far as the reader is concerned — nothing more to
+   * press — but named apart from pushing, because a button that says
+   * "Pushing" for fifteen seconds while nothing is being pushed is lying.
+   */
+  isSummarising?: boolean;
   /** Refused by the publish gate itself — see `createSystem`. */
   publishDisabled: boolean;
   /** Saving is automatic, so there is nothing to press. */
@@ -109,6 +116,7 @@ export function describePublishButton(
     validationErrorCount,
     conflictingChangeCount,
     isPublishing,
+    isSummarising = false,
     publishDisabled,
     autoPublish,
     pendingServerSidePatchCount,
@@ -162,6 +170,16 @@ export function describePublishButton(
       reason: reasons.join(" "),
       // Pressing it goes to the errors rather than doing nothing.
       action: "show-errors",
+    };
+  }
+
+  if (isSummarising && !isPublishing) {
+    return {
+      kind: "in-flight",
+      label: "Preparing",
+      description: "Writing the commit message, then publishing",
+      reason: null,
+      action: "none",
     };
   }
 

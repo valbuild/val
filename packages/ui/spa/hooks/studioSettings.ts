@@ -18,9 +18,17 @@ export type StudioSettings = {
    * {@link isTourOffered}.
    */
   tour: boolean | null;
+  /**
+   * Whether publishing asks for a commit message. `null` is unset, which means
+   * `"automatic"`; see {@link isCommitMessageRequired}.
+   */
+  commitMessage: "automatic" | "required" | null;
 };
 
-export const NO_STUDIO_SETTINGS: StudioSettings = { tour: null };
+export const NO_STUDIO_SETTINGS: StudioSettings = {
+  tour: null,
+  commitMessage: null,
+};
 
 /** Reads the `studio` section out of a settings module's source. */
 export function readStudioSettings(source: Json | undefined): StudioSettings {
@@ -33,6 +41,11 @@ export function readStudioSettings(source: Json | undefined): StudioSettings {
   }
   return {
     tour: typeof studio["tour"] === "boolean" ? studio["tour"] : null,
+    commitMessage:
+      studio["commitMessage"] === "automatic" ||
+      studio["commitMessage"] === "required"
+        ? studio["commitMessage"]
+        : null,
   };
 }
 
@@ -47,4 +60,16 @@ export function readStudioSettings(source: Json | undefined): StudioSettings {
  */
 export function isTourOffered(settings: StudioSettings): boolean {
   return settings.tour !== false;
+}
+
+/**
+ * Whether publishing has to stop and ask for a commit message.
+ *
+ * Only an explicit `"required"` does. The other direction would be the
+ * expensive mistake: a settings module that is still loading, missing or
+ * invalid would put a box in front of every publish on every project that
+ * never asked for one.
+ */
+export function isCommitMessageRequired(settings: StudioSettings): boolean {
+  return settings.commitMessage === "required";
 }

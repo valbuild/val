@@ -304,7 +304,15 @@ export type ShellDeployActivity = {
  * How a publish is doing, reduced to the three states anything rendering one
  * cares about. See `deploymentProgress`.
  */
-export type DeploymentProgress = "building" | "failed" | "settled";
+export type DeploymentProgress =
+  | "building"
+  | "failed"
+  | "settled"
+  /**
+   * The host last said this was building, and said so over an hour ago. See
+   * `isDeploymentStatusStale`.
+   */
+  | "unknown";
 
 /**
  * A destination: what the left rail switches between.
@@ -501,8 +509,12 @@ export type ShellDeployment = {
   /**
    * `created` is a commit Val has made but no deployment has claimed yet,
    * so it reads as queued rather than as a state of its own.
+   *
+   * `unknown` is not the host's: it is `created` or `pending` that has not
+   * moved for over an hour, which the Studio stops calling in progress. Decided
+   * once, in `toDeployments`, so every surface agrees on it.
    */
-  state: "created" | "pending" | "success" | "failure" | "error";
+  state: "created" | "pending" | "success" | "failure" | "error" | "unknown";
   /** Val's commit message. Null when only the deployment is known. */
   message: string | null;
   /** Who published, when known. */

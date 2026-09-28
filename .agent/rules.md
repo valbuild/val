@@ -540,8 +540,8 @@ The showcase covers, as of writing: every `s.*` factory except `s.union`
 dates, `include` / `exclude` on routes; `s.record(key, item)` and the
 three-argument `s.router(router, key, item)` so a KEY can carry its own
 description; `.jsonValues()` with `c.json()`; `tanstackRouter` and
-`externalPageRouter`; and the settings sections `locales`, `theme` and
-`assistant`. What it does NOT cover, and why: `.remote()` on media and
+`externalPageRouter`; and the settings sections `locales`, `theme`, `studio`
+(`commitMessage`) and `assistant`. What it does NOT cover, and why: `.remote()` on media and
 `.external()` on a record, because both need credentials or an adapter a plain
 `pnpm dev` does not have — `examples/next` gates the remote one behind
 `NEXT_PUBLIC_VAL_EXAMPLE_REMOTE_MEDIA`. When you add to the list, add to that
