@@ -7,7 +7,8 @@ import { renderChangeDescription } from "../components/publish/changeDescription
 import { collectFieldChanges } from "../components/publish/collectFieldChanges";
 
 /**
- * How long a publish waits for the AI to write its commit message.
+ * How long a publish waits for the AI to write its commit message, from the
+ * press.
  *
  * Nobody is looking at a box — pressing Publish was the whole of what they
  * asked for — so this is the longest the button may say "Preparing" before it
@@ -123,20 +124,34 @@ export function useAutomaticPublish({
     const system = val.system;
     // Claimed before the await, so a second press in the meantime is a no-op
     // rather than a second publish.
-    pendingRef.current = {
+    const claim = {
       fallback: buildDefaultCommitMessage([]),
       sent: false,
     };
+    pendingRef.current = claim;
     setIsSummarising(model !== null);
+    // The deadline runs from the PRESS, not from when the prompt went out:
+    // reading the patch sets is part of the wait too, and a read that never
+    // settles must not leave the button on "Preparing" for good. The fallback
+    // is whatever is known by then — the paths once they have been read, a
+    // plain "Update content" if they never were.
+    timeoutRef.current = setTimeout(() => {
+      timeoutRef.current = null;
+      if (pendingRef.current !== claim) {
+        return;
+      }
+      cancel();
+      finish(claim.fallback);
+    }, AUTOMATIC_SUMMARY_TIMEOUT_MS);
     void system
       .getPatchSets()
       .then((patchSets) => {
-        const pending = pendingRef.current;
-        if (pending === null) {
-          // Unmounted while reading, and the cleanup already published.
+        // Another publish, or none: the deadline or an unmount already
+        // settled this one, and a later press is not this read's to answer.
+        if (pendingRef.current !== claim) {
           return;
         }
-        pending.fallback = buildDefaultCommitMessage(patchSets);
+        claim.fallback = buildDefaultCommitMessage(patchSets);
         const changes =
           model === null
             ? []
@@ -144,23 +159,20 @@ export function useAutomaticPublish({
         // Nothing readable to describe, or nobody to describe it: sending "No
         // changes." would spend the user's own key to be told what we know.
         if (changes.length === 0) {
-          finish(pending.fallback);
+          finish(claim.fallback);
           return;
         }
         reset();
         if (!start(renderChangeDescription(changes))) {
-          finish(pending.fallback);
+          finish(claim.fallback);
           return;
         }
-        pending.sent = true;
-        timeoutRef.current = setTimeout(() => {
-          timeoutRef.current = null;
-          cancel();
-          finish(pendingRef.current?.fallback ?? pending.fallback);
-        }, AUTOMATIC_SUMMARY_TIMEOUT_MS);
+        claim.sent = true;
       })
       .catch(() => {
-        finish(pendingRef.current?.fallback ?? buildDefaultCommitMessage([]));
+        if (pendingRef.current === claim) {
+          finish(claim.fallback);
+        }
       });
   }, [cancel, finish, model, reset, start, val]);
 

@@ -82,6 +82,12 @@ export type ChangedPlace = {
  * and field paths go in — in the title, where a single field changed, since
  * that is the whole story and it fits; in the body otherwise.
  *
+ * The body is capped — {@link MAX_LISTED} modules and
+ * {@link MAX_FIELDS_LISTED} fields each, then a count of the rest — rather
+ * than exhaustive. A publish of a few hundred fields would otherwise be a
+ * commit message of a few hundred lines, and past a handful a list stops
+ * being read; the patches themselves, in history, are the complete record.
+ *
  * The AI summary is written for a different reader and keeps its rule against
  * paths. This is the fallback, and a fallback that names things precisely is
  * worth more than one that reads nicely and says less.

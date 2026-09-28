@@ -130,6 +130,27 @@ describe("useAutomaticPublish", () => {
     expect(publish).toHaveBeenCalledWith(DEFAULT_TEXT);
   });
 
+  test("the deadline runs from the press, even if the patch sets never arrive", async () => {
+    mockModel = { id: "m", provider: "p" };
+    const getPatchSets = mockValSystem.system.getPatchSets;
+    mockValSystem.system.getPatchSets = () => new Promise(() => {});
+    try {
+      const { publish, hook } = setup();
+      act(() => {
+        hook.result.current.publishAutomatically();
+      });
+      expect(hook.result.current.isSummarising).toBe(true);
+      act(() => {
+        jest.advanceTimersByTime(AUTOMATIC_SUMMARY_TIMEOUT_MS);
+      });
+      expect(publish).toHaveBeenCalledTimes(1);
+      expect(publish).toHaveBeenCalledWith("Update content");
+      expect(hook.result.current.isSummarising).toBe(false);
+    } finally {
+      mockValSystem.system.getPatchSets = getPatchSets;
+    }
+  });
+
   test("a prompt that could not be sent publishes with the default", async () => {
     mockModel = { id: "m", provider: "p" };
     mockAiHook.start.mockImplementation(() => false);
