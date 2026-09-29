@@ -35,6 +35,7 @@ const mockGalleryEntry = jest.fn<unknown, [string]>(() => ({
 const mockUpload = jest.fn(() => ({
   loading: false,
   progressPercentage: null as number | null,
+  error: null as string | null,
 }));
 
 jest.mock("../ValFieldProvider", () => ({
@@ -76,7 +77,6 @@ jest.mock("./useImageUpload", () => ({
   __esModule: true,
   useImageUpload: () => ({
     uploadImage: mockUploadImage,
-    error: null,
     ...mockUpload(),
   }),
 }));
@@ -126,7 +126,11 @@ beforeEach(() => {
   mockUploadImage.mockClear();
   mockGalleryEntry.mockClear();
   mockGalleryEntry.mockReturnValue({ status: "loading" });
-  mockUpload.mockReturnValue({ loading: false, progressPercentage: null });
+  mockUpload.mockReturnValue({
+    loading: false,
+    progressPercentage: null,
+    error: null,
+  });
 });
 
 describe("an image as a value in an array row", () => {
@@ -285,14 +289,22 @@ describe("the upload progress bar", () => {
 
   test("announces no value while it has nothing to measure", () => {
     given(null);
-    mockUpload.mockReturnValue({ loading: true, progressPercentage: 0 });
+    mockUpload.mockReturnValue({
+      loading: true,
+      progressPercentage: 0,
+      error: null,
+    });
     render(<ImageField path={PATH} />);
     expect(progressbar().getAttribute("aria-valuenow")).toBeNull();
   });
 
   test("announces the percentage once bytes are moving", () => {
     given(null);
-    mockUpload.mockReturnValue({ loading: true, progressPercentage: 42 });
+    mockUpload.mockReturnValue({
+      loading: true,
+      progressPercentage: 42,
+      error: null,
+    });
     render(<ImageField path={PATH} />);
     expect(progressbar().getAttribute("aria-valuenow")).toBe("42");
   });
@@ -306,7 +318,11 @@ describe("while an upload is in flight", () => {
    */
   test("the focal point cannot be moved or switched", () => {
     given(IMAGE);
-    mockUpload.mockReturnValue({ loading: true, progressPercentage: 10 });
+    mockUpload.mockReturnValue({
+      loading: true,
+      progressPercentage: 10,
+      error: null,
+    });
     render(<ImageField path={PATH} />);
     fireEvent.click(screen.getByRole("button", { name: /^Focal point/ }));
     expect(
@@ -365,4 +381,41 @@ describe("choosing a file in the dialog", () => {
       "notes.txt is not an image.",
     );
   });
+});
+
+/**
+ * A card that will not take a file still cancels the drop. Left to the
+ * browser, a dropped file is OPENED, which navigates the Studio away and
+ * loses the session — and a read-only field, or one mid-upload, is exactly
+ * where someone drags a file expecting it to go somewhere.
+ */
+test("a card that cannot take a drop still keeps the browser from opening it", () => {
+  given(IMAGE);
+  render(<ImageField path={PATH} readonly />);
+  const notCancelled = fireEvent.drop(screen.getByText("cover_a1b2c.jpg"), {
+    dataTransfer: {
+      files: [new File(["x"], "photo.png", { type: "image/png" })],
+      types: ["Files"],
+    },
+  });
+  expect(notCancelled).toBe(false);
+  expect(mockUploadImage).not.toHaveBeenCalled();
+});
+
+/**
+ * An upload refused for its type, or for not being readable, is refused a
+ * moment after the drop or the pick, with nothing taking focus: an alert, or
+ * it is never heard.
+ */
+test("announces an upload that was refused", () => {
+  given(IMAGE);
+  mockUpload.mockReturnValue({
+    loading: false,
+    progressPercentage: null,
+    error: "photo.png is image/png, and this field only accepts image/webp.",
+  });
+  render(<ImageField path={PATH} />);
+  expect(screen.getByRole("alert").textContent).toBe(
+    "photo.png is image/png, and this field only accepts image/webp.",
+  );
 });

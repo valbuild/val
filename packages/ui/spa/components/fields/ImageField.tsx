@@ -506,7 +506,13 @@ export function ImageField({
           </div>
         )}
         {error && (
-          <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
+          // An alert: an upload refused for its type, or for not being
+          // readable, is refused after the drop or the pick, with nothing
+          // taking focus — so without this it is silent.
+          <div
+            role="alert"
+            className="p-4 rounded bg-bg-error-primary text-fg-error-primary"
+          >
             {error}
           </div>
         )}
@@ -807,7 +813,58 @@ function GalleryEntryMetadata({
   children: (entry: ImageMetadataLike | undefined) => ReactNode;
 }) {
   const split = Internal.remote.splitRemoteRef(filePath);
-  const localFilePath = split.status === "success" ? split.filePath : filePath;
+  // Two components rather than two reads everywhere: for a local path the
+  // second key IS the first, and `useSourceAtPath` gives every call its own
+  // listener and demand, so reading it twice doubled the common case. The
+  // cost is a remount if one field's value goes from a local path to a remote
+  // ref, which a field's refs do not normally do.
+  return split.status === "success" ? (
+    <RemoteGalleryEntry
+      modulePath={modulePath}
+      filePath={filePath}
+      localFilePath={split.filePath}
+    >
+      {children}
+    </RemoteGalleryEntry>
+  ) : (
+    <LocalGalleryEntry modulePath={modulePath} filePath={filePath}>
+      {children}
+    </LocalGalleryEntry>
+  );
+}
+
+function LocalGalleryEntry({
+  modulePath,
+  filePath,
+  children,
+}: {
+  modulePath: ModuleFilePath;
+  filePath: string;
+  children: (entry: ImageMetadataLike | undefined) => ReactNode;
+}) {
+  const entry = useSourceAtPath(
+    Internal.createValPathOfItem(modulePath, filePath) ?? modulePath,
+  );
+  return (
+    <>
+      {children(
+        entry.status === "success" ? metadataFrom(entry.data) : undefined,
+      )}
+    </>
+  );
+}
+
+function RemoteGalleryEntry({
+  modulePath,
+  filePath,
+  localFilePath,
+  children,
+}: {
+  modulePath: ModuleFilePath;
+  filePath: string;
+  localFilePath: string;
+  children: (entry: ImageMetadataLike | undefined) => ReactNode;
+}) {
   const exact = useSourceAtPath(
     Internal.createValPathOfItem(modulePath, filePath) ?? modulePath,
   );

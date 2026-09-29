@@ -69,28 +69,38 @@ export function ImageCard({
 }) {
   const [dragOver, setDragOver] = useState(false);
   const canDrop = !!onDropFile && !dropDisabled;
-  const dropHandlers = canDrop
-    ? {
-        onDragOver: (ev: DragEvent) => {
-          if (!ev.dataTransfer.types.includes("Files")) return;
-          ev.preventDefault();
-          ev.dataTransfer.dropEffect = "copy";
-          setDragOver(true);
-        },
-        onDragLeave: (ev: DragEvent) => {
-          // Leaving for a child is not leaving the card.
-          const next = ev.relatedTarget;
-          if (next instanceof Node && ev.currentTarget.contains(next)) return;
-          setDragOver(false);
-        },
-        onDrop: (ev: DragEvent) => {
-          ev.preventDefault();
-          setDragOver(false);
-          const file = ev.dataTransfer.files?.[0];
-          if (file) onDropFile?.(file);
-        },
-      }
-    : {};
+  /**
+   * Always installed, even when this card will not take the file.
+   *
+   * A file dropped on an element that does not cancel the drop is the
+   * BROWSER's: it opens it, which navigates the Studio away and drops the
+   * editing session. So a drag with files is always cancelled here, and only
+   * the highlight and the hand-over depend on whether a drop is allowed — a
+   * read-only field, or one with an upload already in flight, says "none" and
+   * takes nothing.
+   */
+  const dropHandlers = {
+    onDragOver: (ev: DragEvent) => {
+      if (!ev.dataTransfer.types.includes("Files")) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = canDrop ? "copy" : "none";
+      if (canDrop) setDragOver(true);
+    },
+    onDragLeave: (ev: DragEvent) => {
+      // Leaving for a child is not leaving the card.
+      const next = ev.relatedTarget;
+      if (next instanceof Node && ev.currentTarget.contains(next)) return;
+      setDragOver(false);
+    },
+    onDrop: (ev: DragEvent) => {
+      if (!ev.dataTransfer.types.includes("Files")) return;
+      ev.preventDefault();
+      setDragOver(false);
+      if (!canDrop) return;
+      const file = ev.dataTransfer.files?.[0];
+      if (file) onDropFile?.(file);
+    },
+  };
   const progress = uploading && (
     <UploadProgress progressPercentage={progressPercentage ?? null} />
   );
