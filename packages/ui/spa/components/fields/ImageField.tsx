@@ -1,4 +1,4 @@
-import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
+import { Internal, Json, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -9,6 +9,7 @@ import {
   useValConfig,
   useModuleSchema,
   useFilePatchIds,
+  useSourceAtPath,
 } from "../ValFieldProvider";
 import {
   useCurrentRemoteFileBucket,
@@ -16,7 +17,7 @@ import {
 } from "../ValRemoteProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../designSystem/input";
 import { Upload, X } from "lucide-react";
 import { Button } from "../designSystem/button";
@@ -34,6 +35,7 @@ import { Section } from "./MediaSummaryRow";
 import { ImageCard } from "./ImageCard";
 import { MediaThumbnail, mayBeTransparent } from "../MediaThumbnail";
 import { useMediaUrl } from "../../utils/mediaUrl";
+import { isJsonArray } from "../../utils/isJsonArray";
 import { HotspotMarker } from "./HotspotMarker";
 import { FocalPointPicker } from "./FocalPointPicker";
 import { Dialog, DialogContent, DialogTitle } from "../designSystem/dialog";
@@ -147,6 +149,9 @@ export function ImageField({
       ? schemaAtPath.data
       : undefined;
   const referencedModule = imageSchema?.referencedModule;
+  const referencedModuleFilePath = referencedModule as
+    | ModuleFilePath
+    | undefined;
   /**
    * The referenced GALLERY's schema, not the project's.
    *
@@ -154,9 +159,7 @@ export function ImageField({
    * anywhere; this component is mounted once per media field. See
    * `perFieldSubscriptions.test.ts`.
    */
-  const referencedModuleSchema = useModuleSchema(
-    referencedModule as ModuleFilePath | undefined,
-  );
+  const referencedModuleSchema = useModuleSchema(referencedModuleFilePath);
   const acceptOptions = useMemo(() => {
     if (!imageSchema) {
       return undefined;
@@ -299,16 +302,26 @@ export function ImageField({
   const fileName = source
     ? (source.path.split("/").pop() ?? source.path)
     : null;
-  const fileDetail = (() => {
-    if (!source) return null;
-    const { width, height, mimeType } = source;
+  /**
+   * The dimensions and type, from the field's own value or — for a field
+   * backed by a gallery, whose value carries only `path`, `alt` and
+   * `hotspot` — from the gallery's entry. See `GalleryEntryMetadata`.
+   */
+  const metadataOf = (entry: ImageMetadataLike | undefined) => {
+    const width = source?.width ?? entry?.width;
+    const height = source?.height ?? entry?.height;
+    const mimeType =
+      typeof source?.mimeType === "string" ? source.mimeType : entry?.mimeType;
     const parts: string[] = [];
     if (typeof width === "number" && typeof height === "number") {
       parts.push(`${width} × ${height}`);
     }
     if (typeof mimeType === "string") parts.push(mimeType);
-    return parts.length > 0 ? parts.join(" · ") : null;
-  })();
+    return {
+      mimeType,
+      fileDetail: parts.length > 0 ? parts.join(" · ") : null,
+    };
+  };
 
   /**
    * The description, as one place rather than inline in the input.
@@ -357,7 +370,7 @@ export function ImageField({
        * splitting them means finding out only after opening the list
        * that what you want is not in it.
        */}
-      {!hideUpload && referencedModule && (
+      {!hideUpload && referencedModuleFilePath && (
         <ModuleMediaPicker
           compact
           footer={
@@ -372,10 +385,10 @@ export function ImageField({
               )}
             >
               <Upload size={13} />
-              Upload into {prettyModuleName(referencedModule)}
+              Upload into {prettyModuleName(referencedModuleFilePath)}
             </button>
           }
-          modulePath={referencedModule as ModuleFilePath}
+          modulePath={referencedModuleFilePath}
           selectedRef={source?.path ?? null}
           onSelect={(entry: GalleryEntry) => {
             // Only the path: the dimensions and mime type stay in the
@@ -472,257 +485,323 @@ export function ImageField({
     upload(file);
   };
 
-  const mimeType =
-    typeof source?.mimeType === "string" ? source.mimeType : undefined;
   const altPath = Internal.createValPathOfItem(path, "alt");
   const hotspotPath = Internal.createValPathOfItem(path, "hotspot");
-  return (
-    <div id={path}>
-      {missingModules.length > 0 && (
-        <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
-          {missingModules.length === 1
-            ? `The module '${missingModules[0]}' is referenced by this field but is not added to val.modules. Add it to val.modules to enable uploads.`
-            : `The following modules are referenced by this field but are not added to val.modules: ${missingModules.join(", ")}. Add them to val.modules to enable uploads.`}
-        </div>
-      )}
-      {error && (
-        <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
-          {error}
-        </div>
-      )}
-      {schemaAtPath.data.type === "image" &&
-        schemaAtPath.data.remote &&
-        remoteFiles.status === "inactive" && (
+  const render = (entry: ImageMetadataLike | undefined) => {
+    const { mimeType, fileDetail } = metadataOf(entry);
+    return (
+      <div id={path}>
+        {missingModules.length > 0 && (
           <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
-            {getRemoteFilesError(remoteFiles.reason)}
+            {missingModules.length === 1
+              ? `The module '${missingModules[0]}' is referenced by this field but is not added to val.modules. Add it to val.modules to enable uploads.`
+              : `The following modules are referenced by this field but are not added to val.modules: ${missingModules.join(", ")}. Add them to val.modules to enable uploads.`}
           </div>
         )}
-      {/*
-       * The file, then what it is of, then where to look at it.
-       *
-       * Deliberately in that order and not in tabs. The description is the one
-       * an editor is most likely to skip and the one a page is least able to do
-       * without, so it sits directly under the file; the focal point only
-       * matters once there is a file to crop.
-       *
-       * The card is the image as a page would show it — a crop around the
-       * focal point — with the file's name and particulars under it, so both
-       * "what does the page get" and "which copy is this" are answered before
-       * anything is clicked. See `ImageCard`.
-       */}
-      {!hideUpload && (
-        <input
-          disabled={disabled}
-          hidden
-          ref={fileInputRef}
-          id={`img_input:${path}`}
-          type="file"
-          accept={acceptOptions ?? "image/*"}
-          onChange={(ev) => {
-            const imageFile = ev.currentTarget.files?.[0];
-            if (!imageFile) return;
-            upload(imageFile);
-            ev.target.value = "";
-          }}
-        />
-      )}
-      <div className="flex flex-col gap-5">
-        <ImageCard
-          url={url}
-          alt={altText}
-          name={fileName}
-          detail={[
-            fileDetail,
-            hotspot
-              ? `focal point ${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
-              : null,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-          mimeType={mimeType}
-          hotspot={hotspot}
-          onOpenPreview={url ? () => setPreviewOpen(true) : undefined}
-          uploading={loading}
-          progressPercentage={progressPercentage}
-          onDropFile={hideUpload ? undefined : dropFile}
-          dropDisabled={disabled || loading}
-          emptyActions={actions}
-          actions={actions}
-          compact={compact}
-        />
-        {dropError && (
-          <p className="-mt-3 text-xs text-fg-error-primary">{dropError}</p>
+        {error && (
+          <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
+            {error}
+          </div>
         )}
+        {schemaAtPath.data.type === "image" &&
+          schemaAtPath.data.remote &&
+          remoteFiles.status === "inactive" && (
+            <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
+              {getRemoteFilesError(remoteFiles.reason)}
+            </div>
+          )}
         {/*
-         * Only for a field that is NOT gallery-backed. A gallery keeps alt on
-         * its entry, so a field referencing one must not offer a second place
-         * to write it.
+         * The file, then what it is of, then where to look at it.
          *
-         * This asked `!moduleDirectory` when that was only ever set for a
-         * referenced module. It is not any more — a field's own `directory`
-         * option sets it too — so the question is asked directly.
+         * Deliberately in that order and not in tabs. The description is the one
+         * an editor is most likely to skip and the one a page is least able to do
+         * without, so it sits directly under the file; the focal point only
+         * matters once there is a file to crop.
+         *
+         * The card is the image as a page would show it — a crop around the
+         * focal point — with the file's name and particulars under it, so both
+         * "what does the page get" and "which copy is this" are answered before
+         * anything is clicked. See `ImageCard`.
          */}
-        {source && !referencedModule && (
-          <Section
-            label="Description"
-            hint="What the image shows, for people who cannot see it."
-          >
-            <span id={altPath} className="sr-only">
-              Description
-            </span>
-            {/*
-             * No "Missing" marker and no fill-it-from-the-filename shortcut:
-             * Val has no rule that alt text is required, so an empty field is
-             * not an error and must not be dressed as one. If a schema ever
-             * does require it, the validation error says so through the
-             * normal error path rather than through a badge invented here.
-             */}
-            <Input
-              value={altText}
-              disabled={disabled}
-              onChange={(ev) => setAltText(ev.target.value)}
-            />
-          </Section>
+        {!hideUpload && (
+          <input
+            disabled={disabled}
+            hidden
+            ref={fileInputRef}
+            id={`img_input:${path}`}
+            type="file"
+            accept={acceptOptions ?? "image/*"}
+            onChange={(ev) => {
+              const imageFile = ev.currentTarget.files?.[0];
+              if (!imageFile) return;
+              upload(imageFile);
+              ev.target.value = "";
+            }}
+          />
         )}
-        {source && url && (
-          <Section
-            label="Focal point"
-            hint="Click or drag on the image to say what must stay in frame when the page crops it."
-            collapsible
-            summary={
+        <div className="flex flex-col gap-5">
+          <ImageCard
+            url={url}
+            alt={altText}
+            name={fileName}
+            detail={[
+              fileDetail,
               hotspot
-                ? `${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
-                : "Not set"
-            }
-          >
-            <FocalPointPicker
-              url={url}
-              checkerboard={mayBeTransparent(mimeType)}
-              hotspot={hotspot}
-              alt={altText}
-              readonly={readonly}
-              id={hotspotPath}
-              onChange={(hotspot) => {
-                addPatch(
-                  [
-                    {
-                      op: "add",
-                      path: patchPath.concat(["hotspot"]),
-                      value: hotspot,
-                    },
-                  ],
-                  "object",
-                );
-              }}
-            />
-            {source && url && (
-              <div className="mt-3 flex items-center gap-2">
-                <Checkbox
-                  id={`hotspot_toggle:${path}`}
-                  checked={!!hotspot}
-                  disabled={disabled}
-                  onCheckedChange={(checked) => {
-                    if (checked) {
-                      // "add" regardless of whether hotspot is already set: see
-                      // the alt field above for why choosing "replace" from the
-                      // optimistic source is a publish failure waiting to happen.
-                      addPatch(
-                        [
-                          {
-                            op: "add",
-                            path: patchPath.concat(["hotspot"]),
-                            value: { x: 0.5, y: 0.5 },
-                          },
-                        ],
-                        "object",
-                      );
-                    } else if (source.hotspot) {
-                      addPatch(
-                        [
-                          {
-                            op: "remove",
-                            path: patchPath.concat([
-                              "hotspot",
-                            ]) as array.NonEmptyArray<string>,
-                          },
-                        ],
-                        "object",
-                      );
-                    }
-                  }}
-                />
-                <label
-                  htmlFor={`hotspot_toggle:${path}`}
-                  className="text-xs text-fg-secondary select-none"
-                >
-                  Hotspot
-                  {hotspot && (
-                    <span className="ml-1 text-fg-tertiary">
-                      ({Math.round(hotspot.x * 100)}%,{" "}
-                      {Math.round(hotspot.y * 100)}
-                      %)
-                    </span>
+                ? `focal point ${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+            mimeType={mimeType}
+            hotspot={hotspot}
+            onOpenPreview={url ? () => setPreviewOpen(true) : undefined}
+            uploading={loading}
+            progressPercentage={progressPercentage}
+            onDropFile={hideUpload ? undefined : dropFile}
+            dropDisabled={disabled || loading}
+            emptyActions={actions}
+            actions={actions}
+            compact={compact}
+          />
+          {dropError && (
+            <p className="-mt-3 text-xs text-fg-error-primary">{dropError}</p>
+          )}
+          {/*
+           * Only for a field that is NOT gallery-backed. A gallery keeps alt on
+           * its entry, so a field referencing one must not offer a second place
+           * to write it.
+           *
+           * This asked `!moduleDirectory` when that was only ever set for a
+           * referenced module. It is not any more — a field's own `directory`
+           * option sets it too — so the question is asked directly.
+           */}
+          {source && !referencedModule && (
+            <Section
+              label="Description"
+              hint="What the image shows, for people who cannot see it."
+            >
+              <span id={altPath} className="sr-only">
+                Description
+              </span>
+              {/*
+               * No "Missing" marker and no fill-it-from-the-filename shortcut:
+               * Val has no rule that alt text is required, so an empty field is
+               * not an error and must not be dressed as one. If a schema ever
+               * does require it, the validation error says so through the
+               * normal error path rather than through a badge invented here.
+               */}
+              <Input
+                value={altText}
+                disabled={disabled}
+                onChange={(ev) => setAltText(ev.target.value)}
+              />
+            </Section>
+          )}
+          {source && url && (
+            <Section
+              label="Focal point"
+              hint="Click or drag on the image to say what must stay in frame when the page crops it."
+              collapsible
+              summary={
+                hotspot
+                  ? `${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
+                  : "Not set"
+              }
+            >
+              <FocalPointPicker
+                url={url}
+                checkerboard={mayBeTransparent(mimeType)}
+                hotspot={hotspot}
+                alt={altText}
+                readonly={readonly}
+                id={hotspotPath}
+                onChange={(hotspot) => {
+                  addPatch(
+                    [
+                      {
+                        op: "add",
+                        path: patchPath.concat(["hotspot"]),
+                        value: hotspot,
+                      },
+                    ],
+                    "object",
+                  );
+                }}
+              />
+              {source && url && (
+                <div className="mt-3 flex items-center gap-2">
+                  <Checkbox
+                    id={`hotspot_toggle:${path}`}
+                    checked={!!hotspot}
+                    disabled={disabled}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        // "add" regardless of whether hotspot is already set: see
+                        // the alt field above for why choosing "replace" from the
+                        // optimistic source is a publish failure waiting to happen.
+                        addPatch(
+                          [
+                            {
+                              op: "add",
+                              path: patchPath.concat(["hotspot"]),
+                              value: { x: 0.5, y: 0.5 },
+                            },
+                          ],
+                          "object",
+                        );
+                      } else if (source.hotspot) {
+                        addPatch(
+                          [
+                            {
+                              op: "remove",
+                              path: patchPath.concat([
+                                "hotspot",
+                              ]) as array.NonEmptyArray<string>,
+                            },
+                          ],
+                          "object",
+                        );
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor={`hotspot_toggle:${path}`}
+                    className="text-xs text-fg-secondary select-none"
+                  >
+                    Hotspot
+                    {hotspot && (
+                      <span className="ml-1 text-fg-tertiary">
+                        ({Math.round(hotspot.x * 100)}%,{" "}
+                        {Math.round(hotspot.y * 100)}
+                        %)
+                      </span>
+                    )}
+                  </label>
+                </div>
+              )}
+            </Section>
+          )}
+        </div>
+        {url && (
+          <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+            {/*
+             * Sized by the image, not by the viewport.
+             *
+             * `DialogContent` is `w-full`, so this was a 90vw box with the image
+             * pinned to its left edge — a portrait photo sat in a corner beside
+             * a wide empty panel. Worse, the focal point was drawn in that box
+             * rather than on the photo: a `grid` child is stretched, so the
+             * "shrink-wrapping" wrapper was as wide as the dialog, and a marker
+             * at 70% of it landed on the empty panel. `w-max` makes the dialog
+             * exactly the image's width (the image is capped in viewport units,
+             * so that cannot overflow), and `justify-self-center` stops the
+             * wrapper being stretched.
+             */}
+            <DialogContent
+              container={portalContainer}
+              className="w-max max-w-[90vw] gap-0 overflow-hidden p-0 md:w-max"
+            >
+              <DialogTitle className="sr-only">
+                {fileName ?? "Image"}
+              </DialogTitle>
+              {/* The focal point is drawn here too: it is a property of the
+                  image, and the large view is where it is actually legible. */}
+              <div className="relative justify-self-center">
+                <img
+                  src={url}
+                  alt={altText}
+                  draggable={false}
+                  className={cn(
+                    "block h-auto max-h-[80vh] w-auto max-w-[90vw]",
+                    mayBeTransparent(mimeType) && "val-checkerboard",
                   )}
-                </label>
+                />
+                {hotspot && <HotspotMarker hotspot={hotspot} />}
               </div>
-            )}
-          </Section>
+              <div className="flex min-w-0 items-baseline gap-2 border-t border-border-secondary px-4 py-2.5 pr-10">
+                <p className="truncate text-xs font-medium text-fg-primary">
+                  {fileName}
+                </p>
+                <p className="shrink-0 text-[0.6875rem] text-fg-secondary-alt">
+                  {[
+                    fileDetail,
+                    hotspot
+                      ? `Focal point ${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              </div>
+            </DialogContent>
+          </Dialog>
         )}
       </div>
-      {url && (
-        <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-          {/*
-           * Sized by the image, not by the viewport.
-           *
-           * `DialogContent` is `w-full`, so this was a 90vw box with the image
-           * pinned to its left edge — a portrait photo sat in a corner beside
-           * a wide empty panel. Worse, the focal point was drawn in that box
-           * rather than on the photo: a `grid` child is stretched, so the
-           * "shrink-wrapping" wrapper was as wide as the dialog, and a marker
-           * at 70% of it landed on the empty panel. `w-max` makes the dialog
-           * exactly the image's width (the image is capped in viewport units,
-           * so that cannot overflow), and `justify-self-center` stops the
-           * wrapper being stretched.
-           */}
-          <DialogContent
-            container={portalContainer}
-            className="w-max max-w-[90vw] gap-0 overflow-hidden p-0 md:w-max"
-          >
-            <DialogTitle className="sr-only">{fileName ?? "Image"}</DialogTitle>
-            {/* The focal point is drawn here too: it is a property of the
-                image, and the large view is where it is actually legible. */}
-            <div className="relative justify-self-center">
-              <img
-                src={url}
-                alt={altText}
-                draggable={false}
-                className={cn(
-                  "block h-auto max-h-[80vh] w-auto max-w-[90vw]",
-                  mayBeTransparent(mimeType) && "val-checkerboard",
-                )}
-              />
-              {hotspot && <HotspotMarker hotspot={hotspot} />}
-            </div>
-            <div className="flex min-w-0 items-baseline gap-2 border-t border-border-secondary px-4 py-2.5 pr-10">
-              <p className="truncate text-xs font-medium text-fg-primary">
-                {fileName}
-              </p>
-              <p className="shrink-0 text-[0.6875rem] text-fg-secondary-alt">
-                {[
-                  fileDetail,
-                  hotspot
-                    ? `Focal point ${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
-    </div>
+    );
+  };
+  return referencedModuleFilePath && source ? (
+    <GalleryEntryMetadata
+      modulePath={referencedModuleFilePath}
+      filePath={source.path}
+    >
+      {render}
+    </GalleryEntryMetadata>
+  ) : (
+    render(undefined)
   );
+}
+
+type ImageMetadataLike = {
+  width?: number;
+  height?: number;
+  mimeType?: string;
+};
+
+/**
+ * The gallery entry a gallery-backed field points at, read on its own.
+ *
+ * A gallery-backed value is `{ path, alt?, hotspot? }` — the dimensions and
+ * type live on the gallery's entry, keyed by the path — so without this the
+ * card said nothing about the file and never drew the checkerboard for a
+ * transparent one. A component rather than a hook in `ImageField` because the
+ * hook needs a path to read, and a field that is not gallery-backed has none:
+ * mounting this only when there is one keeps the hook unconditional.
+ *
+ * One entry, by path: `useSourceAtPath` peeks and demands that entry alone, so
+ * a field does not subscribe to the whole gallery. See
+ * `perFieldSubscriptions.test.ts`.
+ */
+function GalleryEntryMetadata({
+  modulePath,
+  filePath,
+  children,
+}: {
+  modulePath: ModuleFilePath;
+  filePath: string;
+  children: (entry: ImageMetadataLike | undefined) => ReactNode;
+}) {
+  const entryPath =
+    Internal.createValPathOfItem(modulePath, filePath) ?? modulePath;
+  const entry = useSourceAtPath(entryPath);
+  return (
+    <>
+      {children(
+        entry.status === "success" ? metadataFrom(entry.data) : undefined,
+      )}
+    </>
+  );
+}
+
+function metadataFrom(data: Json): ImageMetadataLike | undefined {
+  if (typeof data !== "object" || data === null || isJsonArray(data)) {
+    return undefined;
+  }
+  const { width, height, mimeType } = data;
+  return {
+    width: typeof width === "number" ? width : undefined,
+    height: typeof height === "number" ? height : undefined,
+    mimeType: typeof mimeType === "string" ? mimeType : undefined,
+  };
 }
 
 export function getRemoteFilesError(

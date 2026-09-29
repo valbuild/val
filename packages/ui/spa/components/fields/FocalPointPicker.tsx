@@ -22,6 +22,16 @@ type Hotspot = { x: number; y: number };
  *
  * A drag moves the marker live, and writes ONE patch when it ends: a patch per
  * `pointermove` would put a hundred entries in the history for one decision.
+ *
+ * The marker is a BUTTON, so the point can be set without a pointer: tab to
+ * it, and the arrow keys move it by 1% (10% with Shift), each press one patch,
+ * the way the shell's `HotspotPicker` does it. Its label says where it is,
+ * and does NOT start with "Focal point": the section's own toggle is named
+ * that, and two buttons with one name are two buttons a screen reader cannot
+ * tell apart (the e2e suite, which finds the toggle by name, said so first).
+ * With no focal point yet it sits, invisible until focused, in the middle —
+ * the point an unset focal point already means — so the first arrow press
+ * starts from there.
  */
 export function FocalPointPicker({
   url,
@@ -97,9 +107,58 @@ export function FocalPointPicker({
           )}
         />
         {shown && <HotspotMarker hotspot={shown} />}
+        <button
+          type="button"
+          disabled={readonly}
+          aria-label={
+            shown
+              ? `Point to keep in frame, ${percent(shown.x)} across and ${percent(shown.y)} down. Use the arrow keys to move it.`
+              : "Point to keep in frame, not set. Use the arrow keys to set it."
+          }
+          onKeyDown={(ev) => {
+            const step = ev.shiftKey ? 0.1 : 0.01;
+            const moves: Record<string, [number, number]> = {
+              ArrowLeft: [-step, 0],
+              ArrowRight: [step, 0],
+              ArrowUp: [0, -step],
+              ArrowDown: [0, step],
+            };
+            const move = moves[ev.key];
+            if (!move) return;
+            ev.preventDefault();
+            const from = shown ?? CENTRE;
+            onChange({
+              x: round(clamp01(from.x + move[0])),
+              y: round(clamp01(from.y + move[1])),
+            });
+          }}
+          style={{
+            left: `${(shown ?? CENTRE).x * 100}%`,
+            top: `${(shown ?? CENTRE).y * 100}%`,
+          }}
+          className={cn(
+            "absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full",
+            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus",
+            readonly ? "cursor-default" : "cursor-crosshair",
+          )}
+        />
       </div>
     </div>
   );
+}
+
+const CENTRE: Hotspot = { x: 0.5, y: 0.5 };
+
+function percent(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+/**
+ * Keyboard steps land on whole hundredths. Adding 0.01 to a float drifts
+ * (0.7 + 0.01 is 0.7100000000000001), and the drift is what would be saved.
+ */
+function round(value: number): number {
+  return Math.round(value * 10000) / 10000;
 }
 
 function clamp01(value: number): number {

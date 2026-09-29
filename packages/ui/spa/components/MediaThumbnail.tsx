@@ -37,6 +37,12 @@ const RETRY_DELAY_MS = 400;
  * is drawn at its own size (or scaled down to fit), centred. That needs the
  * natural size, which only `onLoad` knows; the first frame of a tiny image is
  * the one frame that may be enlarged.
+ *
+ * And it is asked again whenever the TILE changes size, not only on load: the
+ * image card is as wide as its panel, so a portrait that loaded in a wide card
+ * stayed letterboxed after the panel narrowed, and a small image loaded in a
+ * narrow one was enlarged once it widened. A `ResizeObserver` on the tile
+ * re-asks with the natural size kept from the load.
  */
 export function MediaThumbnail({
   url,
@@ -75,12 +81,32 @@ export function MediaThumbnail({
   /** Whether covering the tile would enlarge the image. See above. */
   const [smallerThanBox, setSmallerThanBox] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
+  /** The loaded picture's own size, kept so a resize can re-ask. */
+  const natural = useRef<{ width: number; height: number } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const measure = useCallback(() => {
+    const tile = box.current;
+    const size = natural.current;
+    if (!tile || !size) return;
+    setSmallerThanBox(
+      Math.max(tile.clientWidth / size.width, tile.clientHeight / size.height) >
+        1,
+    );
+  }, []);
   // A new file starts over: the attempt count belongs to the URL, not the tile.
   useEffect(() => {
     setAttempt(0);
     setSmallerThanBox(false);
+    natural.current = null;
   }, [url]);
+  useEffect(() => {
+    const tile = box.current;
+    // Absent under jsdom; the load-time answer is all there is there.
+    if (!tile || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(tile);
+    return () => observer.disconnect();
+  }, [measure]);
   useEffect(
     () => () => {
       if (timer.current !== null) clearTimeout(timer.current);
@@ -124,14 +150,9 @@ export function MediaThumbnail({
         onError={handleError}
         onLoad={(ev) => {
           const { naturalWidth, naturalHeight } = ev.currentTarget;
-          const tile = box.current;
-          if (!tile || naturalWidth === 0 || naturalHeight === 0) return;
-          setSmallerThanBox(
-            Math.max(
-              tile.clientWidth / naturalWidth,
-              tile.clientHeight / naturalHeight,
-            ) > 1,
-          );
+          if (naturalWidth === 0 || naturalHeight === 0) return;
+          natural.current = { width: naturalWidth, height: naturalHeight };
+          measure();
         }}
         className={cn(
           // Absolute, so the box is the tile whatever the tile is: a
@@ -175,4 +196,21 @@ export function mayBeTransparent(mimeType: string | undefined): boolean {
     mimeType === "image/avif" ||
     mimeType === "image/svg+xml"
   );
+}
+
+/**
+ * The focal point in a gallery entry's metadata, when it has a usable one.
+ *
+ * A gallery entry is untyped metadata on the way to the picker (`Record<string,
+ * unknown>`), so the shape is checked rather than assumed: a hotspot with a
+ * string in it would otherwise reach `objectPosition` as `NaN%`.
+ */
+export function hotspotOf(
+  metadata: Record<string, unknown> | undefined,
+): { x: number; y: number } | undefined {
+  const hotspot = metadata?.hotspot;
+  if (typeof hotspot !== "object" || hotspot === null) return undefined;
+  if (!("x" in hotspot) || !("y" in hotspot)) return undefined;
+  const { x, y } = hotspot;
+  return typeof x === "number" && typeof y === "number" ? { x, y } : undefined;
 }

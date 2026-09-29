@@ -281,7 +281,11 @@ function UploadProgress({
       aria-label="Uploading"
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={progressPercentage ?? undefined}
+      // No value while indeterminate: a 0 here is announced as "0%", a
+      // measurement, for a bar that is saying it has none yet.
+      aria-valuenow={
+        indeterminate ? undefined : (progressPercentage ?? undefined)
+      }
       className="absolute inset-x-0 bottom-0 h-1 overflow-hidden bg-bg-tertiary"
     >
       <div

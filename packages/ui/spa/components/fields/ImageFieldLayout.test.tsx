@@ -24,6 +24,13 @@ const mockSchema = jest.fn();
 const mockSource = jest.fn();
 const mockFilePatchIds = jest.fn(() => new Map<string, string>());
 const mockUploadImage = jest.fn(() => Promise.resolve(null));
+const mockGalleryEntry = jest.fn<unknown, [string]>(() => ({
+  status: "loading",
+}));
+const mockUpload = jest.fn(() => ({
+  loading: false,
+  progressPercentage: null as number | null,
+}));
 
 jest.mock("../ValFieldProvider", () => ({
   __esModule: true,
@@ -40,6 +47,7 @@ jest.mock("../ValFieldProvider", () => ({
   useValConfig: () => ({}),
   useModuleSchema: () => undefined,
   useFilePatchIds: () => mockFilePatchIds(),
+  useSourceAtPath: (path: string) => mockGalleryEntry(path),
 }));
 jest.mock("../ValRemoteProvider", () => ({
   __esModule: true,
@@ -63,15 +71,14 @@ jest.mock("./useImageUpload", () => ({
   __esModule: true,
   useImageUpload: () => ({
     uploadImage: mockUploadImage,
-    loading: false,
     error: null,
-    progressPercentage: null,
+    ...mockUpload(),
   }),
 }));
 
 import { ImageField, ImagePreview } from "./ImageField";
 
-const { s } = initVal();
+const { s, c } = initVal();
 const PATH = '/content/page.val.ts?p="cover"' as SourcePath;
 const IMAGE = {
   path: "/public/val/cover_a1b2c.jpg",
@@ -81,8 +88,10 @@ const IMAGE = {
   hotspot: { x: 0.7, y: 0.25 },
 };
 
-function given(source: typeof IMAGE | null) {
-  const schema: SerializedSchema = s.image().nullable()["executeSerialize"]();
+function given(
+  source: Partial<typeof IMAGE> | null,
+  schema: SerializedSchema = s.image().nullable()["executeSerialize"](),
+) {
   mockSchema.mockReturnValue({ status: "success", data: schema });
   mockSource.mockReturnValue({
     status: "success",
@@ -101,6 +110,9 @@ function picture(container: HTMLElement): HTMLImageElement {
 beforeEach(() => {
   mockFilePatchIds.mockReturnValue(new Map());
   mockUploadImage.mockClear();
+  mockGalleryEntry.mockClear();
+  mockGalleryEntry.mockReturnValue({ status: "loading" });
+  mockUpload.mockReturnValue({ loading: false, progressPercentage: null });
 });
 
 describe("an image as a value in an array row", () => {
@@ -166,5 +178,61 @@ describe("dropping a file on an empty image field", () => {
     drop(new File(["x"], "notes.txt", { type: "text/plain" }));
     expect(mockUploadImage).not.toHaveBeenCalled();
     expect(screen.getByText("notes.txt is not an image.")).toBeTruthy();
+  });
+});
+
+describe("a gallery-backed image field", () => {
+  const GALLERY = "/content/media.val.ts";
+  const gallery = c.define(GALLERY, s.imageset({ dir: "/public/val" }), {});
+  const schema: SerializedSchema = s
+    .image(gallery)
+    .nullable()
+    ["executeSerialize"]();
+
+  /**
+   * Its value is `{ path, hotspot }`: the size and type are on the gallery's
+   * entry. Read from the value alone, the card said nothing about the file
+   * and never drew a checkerboard behind a transparent one.
+   */
+  test("shows the size and type from the gallery's entry", () => {
+    given({ path: "/public/val/logo.png", hotspot: IMAGE.hotspot }, schema);
+    mockGalleryEntry.mockReturnValue({
+      status: "success",
+      data: { width: 900, height: 500, mimeType: "image/png", alt: "A logo" },
+    });
+    const { container } = render(<ImageField path={PATH} />);
+    expect(mockGalleryEntry).toHaveBeenCalledWith(
+      `${GALLERY}?p="/public/val/logo.png"`,
+    );
+    expect(
+      screen.getByText("900 × 500 · image/png · focal point 70%, 25%"),
+    ).toBeTruthy();
+    expect(picture(container).className).toContain("val-checkerboard");
+  });
+
+  test("does not read a gallery for a field that has none", () => {
+    given(IMAGE);
+    render(<ImageField path={PATH} />);
+    expect(mockGalleryEntry).not.toHaveBeenCalled();
+  });
+});
+
+describe("the upload progress bar", () => {
+  function progressbar() {
+    return screen.getByRole("progressbar", { name: "Uploading" });
+  }
+
+  test("announces no value while it has nothing to measure", () => {
+    given(null);
+    mockUpload.mockReturnValue({ loading: true, progressPercentage: 0 });
+    render(<ImageField path={PATH} />);
+    expect(progressbar().getAttribute("aria-valuenow")).toBeNull();
+  });
+
+  test("announces the percentage once bytes are moving", () => {
+    given(null);
+    mockUpload.mockReturnValue({ loading: true, progressPercentage: 42 });
+    render(<ImageField path={PATH} />);
+    expect(progressbar().getAttribute("aria-valuenow")).toBe("42");
   });
 });

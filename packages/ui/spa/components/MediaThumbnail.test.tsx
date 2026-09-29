@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MediaThumbnail } from "./MediaThumbnail";
+import { MediaThumbnail, hotspotOf } from "./MediaThumbnail";
 
 /**
  * A thumbnail that loses the race with its own upload.
@@ -77,5 +77,74 @@ describe("a thumbnail whose image fails to load", () => {
     failLoad();
     expect(onError).not.toHaveBeenCalled();
     expect(image().getAttribute("src")).toContain("val_retry=1");
+  });
+});
+
+/**
+ * Whether the tile crops or shows the image at its own size is asked again
+ * when the TILE changes size, not only when the image loads: the image card is
+ * as wide as its panel, and a decision made at load time outlived the width it
+ * was made for.
+ */
+describe("a thumbnail whose tile is resized after its image loaded", () => {
+  let resize: () => void = () => {};
+  const original = globalThis.ResizeObserver;
+  beforeEach(() => {
+    globalThis.ResizeObserver = class implements ResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resize = () => callback([], this);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  });
+  afterEach(() => {
+    globalThis.ResizeObserver = original;
+  });
+
+  function sizeTile(tile: HTMLElement, width: number, height: number) {
+    Object.defineProperty(tile, "clientWidth", {
+      configurable: true,
+      value: width,
+    });
+    Object.defineProperty(tile, "clientHeight", {
+      configurable: true,
+      value: height,
+    });
+  }
+
+  test("switches between its own size and the crop as the tile changes", () => {
+    render(<MediaThumbnail url={URL_A} />);
+    const img = image();
+    const tile = img.parentElement;
+    if (!tile) throw new Error("no tile");
+    Object.defineProperty(img, "naturalWidth", { value: 100 });
+    Object.defineProperty(img, "naturalHeight", { value: 100 });
+
+    // Loaded in a tile bigger than the picture: covering would enlarge it.
+    sizeTile(tile, 400, 200);
+    fireEvent.load(img);
+    expect(img.className).not.toContain("object-cover");
+
+    // The tile narrows below the picture's size: now it can be cropped.
+    sizeTile(tile, 80, 45);
+    act(() => resize());
+    expect(img.className).toContain("object-cover");
+  });
+});
+
+describe("hotspotOf", () => {
+  test("reads a well-formed focal point from gallery metadata", () => {
+    expect(hotspotOf({ hotspot: { x: 0.2, y: 0.7 } })).toEqual({
+      x: 0.2,
+      y: 0.7,
+    });
+  });
+  test("ignores one that is missing or malformed", () => {
+    expect(hotspotOf({})).toBeUndefined();
+    expect(hotspotOf(undefined)).toBeUndefined();
+    expect(hotspotOf({ hotspot: { x: "0.2", y: 0.7 } })).toBeUndefined();
+    expect(hotspotOf({ hotspot: null })).toBeUndefined();
   });
 });

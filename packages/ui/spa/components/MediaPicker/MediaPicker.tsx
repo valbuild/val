@@ -19,7 +19,7 @@ import { prettyModuleName } from "./GalleryUploadTarget";
 import { ModuleFilePath } from "@valbuild/core";
 import { useModuleMediaEntries } from "./useModuleMediaEntries";
 import { servedPath } from "../../utils/mediaPath";
-import { MediaThumbnail } from "../MediaThumbnail";
+import { MediaThumbnail, hotspotOf } from "../MediaThumbnail";
 
 export interface GalleryEntry {
   /** The file path key (e.g. "/public/val/images/logo.png") */
@@ -322,6 +322,7 @@ export function MediaPickerList({
                         getUrl ? getUrl(row.filePath) : servedPath(row.filePath)
                       }
                       alt={alt || filename}
+                      hotspot={hotspotOf(row.metadata)}
                       loading="lazy"
                       className="h-8 w-8 shrink-0 rounded bg-bg-secondary"
                     />
