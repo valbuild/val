@@ -2,7 +2,12 @@
 // FIRST, and it must stay first: see the note in `testPolyfills`.
 import "../../stores/react/testPolyfills";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { initVal, SerializedSchema, SourcePath } from "@valbuild/core";
+import {
+  initVal,
+  Internal,
+  SerializedSchema,
+  SourcePath,
+} from "@valbuild/core";
 
 /**
  * How an image is drawn where there is little room, and what a drop does.
@@ -88,8 +93,17 @@ const IMAGE = {
   hotspot: { x: 0.7, y: 0.25 },
 };
 
+type TestImage = {
+  path: string;
+  width?: number;
+  height?: number;
+  mimeType?: string;
+  alt?: string;
+  hotspot?: { x: number; y: number };
+};
+
 function given(
-  source: Partial<typeof IMAGE> | null,
+  source: TestImage | null,
   schema: SerializedSchema = s.image().nullable()["executeSerialize"](),
 ) {
   mockSchema.mockReturnValue({ status: "success", data: schema });
@@ -208,6 +222,53 @@ describe("a gallery-backed image field", () => {
       screen.getByText("900 × 500 · image/png · focal point 70%, 25%"),
     ).toBeTruthy();
     expect(picture(container).className).toContain("val-checkerboard");
+  });
+
+  /**
+   * A remote upload puts the remote ref in the field and files the gallery's
+   * metadata under the LOCAL path inside that ref, so the exact key misses.
+   * `fillFromGallery` in core looks under both; so does the card.
+   */
+  test("finds a remote ref's entry under the local path it came from", () => {
+    const ref = Internal.remote.createRemoteRef("https://remote.val.build", {
+      publicProjectId: "p",
+      coreVersion: "1.0.0",
+      validationHash: "v",
+      fileHash: "f",
+      filePath: "public/val/hero_a1b2c.png",
+      bucket: "b",
+    });
+    given({ path: ref }, schema);
+    mockGalleryEntry.mockImplementation((path: string) =>
+      path === `${GALLERY}?p="public/val/hero_a1b2c.png"`
+        ? {
+            status: "success",
+            data: { width: 640, height: 360, mimeType: "image/webp" },
+          }
+        : { status: "not-found" },
+    );
+    render(<ImageField path={PATH} />);
+    expect(screen.getByText("640 × 360 · image/webp")).toBeTruthy();
+  });
+
+  /**
+   * The field hides its own Description input when a gallery owns the text,
+   * so the gallery's `alt` is what the image is drawn with — unless the value
+   * carries one of its own, which wins, as in `fillFromGallery`.
+   */
+  test("is drawn with the gallery's alt, unless it has its own", () => {
+    mockGalleryEntry.mockReturnValue({
+      status: "success",
+      data: { width: 900, height: 500, mimeType: "image/png", alt: "A logo" },
+    });
+    given({ path: "/public/val/logo.png" }, schema);
+    const first = render(<ImageField path={PATH} />);
+    expect(picture(first.container).getAttribute("alt")).toBe("A logo");
+    first.unmount();
+
+    given({ path: "/public/val/logo.png", alt: "Our logo" }, schema);
+    const second = render(<ImageField path={PATH} />);
+    expect(picture(second.container).getAttribute("alt")).toBe("Our logo");
   });
 
   test("does not read a gallery for a field that has none", () => {

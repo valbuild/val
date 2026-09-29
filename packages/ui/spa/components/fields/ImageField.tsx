@@ -320,6 +320,12 @@ export function ImageField({
     return {
       mimeType,
       fileDetail: parts.length > 0 ? parts.join(" · ") : null,
+      // What the image is DRAWN with. The field's own description wins, then
+      // the gallery's — the same order as `fillFromGallery` — because a
+      // gallery-backed field hides its Description input: the gallery owns the
+      // text, and without this every preview of it was `alt=""`.
+      renderedAlt:
+        typeof source?.alt === "string" ? source.alt : (entry?.alt ?? ""),
     };
   };
 
@@ -488,7 +494,7 @@ export function ImageField({
   const altPath = Internal.createValPathOfItem(path, "alt");
   const hotspotPath = Internal.createValPathOfItem(path, "hotspot");
   const render = (entry: ImageMetadataLike | undefined) => {
-    const { mimeType, fileDetail } = metadataOf(entry);
+    const { mimeType, fileDetail, renderedAlt } = metadataOf(entry);
     return (
       <div id={path}>
         {missingModules.length > 0 && (
@@ -542,7 +548,7 @@ export function ImageField({
         <div className="flex flex-col gap-5">
           <ImageCard
             url={url}
-            alt={altText}
+            alt={renderedAlt}
             name={fileName}
             detail={[
               fileDetail,
@@ -612,7 +618,7 @@ export function ImageField({
                 url={url}
                 checkerboard={mayBeTransparent(mimeType)}
                 hotspot={hotspot}
-                alt={altText}
+                alt={renderedAlt}
                 readonly={readonly}
                 id={hotspotPath}
                 onChange={(hotspot) => {
@@ -709,7 +715,7 @@ export function ImageField({
               <div className="relative justify-self-center">
                 <img
                   src={url}
-                  alt={altText}
+                  alt={renderedAlt}
                   draggable={false}
                   className={cn(
                     "block h-auto max-h-[80vh] w-auto max-w-[90vw]",
@@ -755,6 +761,7 @@ type ImageMetadataLike = {
   width?: number;
   height?: number;
   mimeType?: string;
+  alt?: string;
 };
 
 /**
@@ -770,6 +777,12 @@ type ImageMetadataLike = {
  * One entry, by path: `useSourceAtPath` peeks and demands that entry alone, so
  * a field does not subscribe to the whole gallery. See
  * `perFieldSubscriptions.test.ts`.
+ *
+ * Under TWO keys, the way `fillFromGallery` looks it up. A remote upload
+ * stores the remote ref in the field but files the metadata under the local
+ * `filePath` inside that ref, so the exact key misses and the split one hits.
+ * Both reads are always made — a hook cannot be conditional — and for a local
+ * path the second is the same path again.
  */
 function GalleryEntryMetadata({
   modulePath,
@@ -780,27 +793,30 @@ function GalleryEntryMetadata({
   filePath: string;
   children: (entry: ImageMetadataLike | undefined) => ReactNode;
 }) {
-  const entryPath =
-    Internal.createValPathOfItem(modulePath, filePath) ?? modulePath;
-  const entry = useSourceAtPath(entryPath);
-  return (
-    <>
-      {children(
-        entry.status === "success" ? metadataFrom(entry.data) : undefined,
-      )}
-    </>
+  const split = Internal.remote.splitRemoteRef(filePath);
+  const localFilePath = split.status === "success" ? split.filePath : filePath;
+  const exact = useSourceAtPath(
+    Internal.createValPathOfItem(modulePath, filePath) ?? modulePath,
   );
+  const local = useSourceAtPath(
+    Internal.createValPathOfItem(modulePath, localFilePath) ?? modulePath,
+  );
+  const entry =
+    (exact.status === "success" ? metadataFrom(exact.data) : undefined) ??
+    (local.status === "success" ? metadataFrom(local.data) : undefined);
+  return <>{children(entry)}</>;
 }
 
 function metadataFrom(data: Json): ImageMetadataLike | undefined {
   if (typeof data !== "object" || data === null || isJsonArray(data)) {
     return undefined;
   }
-  const { width, height, mimeType } = data;
+  const { width, height, mimeType, alt } = data;
   return {
     width: typeof width === "number" ? width : undefined,
     height: typeof height === "number" ? height : undefined,
     mimeType: typeof mimeType === "string" ? mimeType : undefined,
+    alt: typeof alt === "string" ? alt : undefined,
   };
 }
 
