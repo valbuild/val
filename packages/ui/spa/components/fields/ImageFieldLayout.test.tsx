@@ -419,3 +419,37 @@ test("announces an upload that was refused", () => {
     "photo.png is image/png, and this field only accepts image/webp.",
   );
 });
+
+/**
+ * A browser reports an empty type for a format it does not recognise (HEIC on
+ * some systems), which is not the same as "not an image". It goes on to the
+ * decoder, which says whether it can read it.
+ */
+test("hands a file with no reported type on to be read", () => {
+  given(null);
+  render(<ImageField path={PATH} />);
+  const zone = screen.getByText("Drop an image here, or").closest("div");
+  if (!zone) throw new Error("no drop zone");
+  const file = new File(["x"], "photo.heic", { type: "" });
+  fireEvent.drop(zone, { dataTransfer: { files: [file], types: ["Files"] } });
+  expect(mockUploadImage).toHaveBeenCalledWith(file);
+});
+
+/**
+ * The upload writes its whole-image `replace` only once the bytes are up,
+ * carrying the alt text it started with — so a second file chosen, or a
+ * description typed, in the meantime would be written and then overwritten.
+ */
+test("replacing the file and the description wait for an upload in flight", () => {
+  given(IMAGE);
+  mockUpload.mockReturnValue({
+    loading: true,
+    progressPercentage: 10,
+    error: null,
+  });
+  render(<ImageField path={PATH} />);
+  expect(
+    screen.getByRole("button", { name: /Replace/ }).hasAttribute("disabled"),
+  ).toBe(true);
+  expect(screen.getByRole("textbox").hasAttribute("disabled")).toBe(true);
+});

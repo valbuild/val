@@ -362,6 +362,12 @@ export function ImageField({
   /**
    * What the card offers: choosing a file, and removing it. The same set
    * whether the field is empty or not; which of them shows depends on `source`.
+   *
+   * Every way of changing the file — and the description, below — waits while
+   * an upload is in flight. The upload writes its whole-image `replace` only
+   * once the bytes are up, carrying the alt text it started with, so a gallery
+   * entry picked, a second file chosen or a description typed in between is
+   * written first and then overwritten.
    */
   const actions = (
     <>
@@ -382,7 +388,7 @@ export function ImageField({
           footer={
             <button
               type="button"
-              disabled={disabled}
+              disabled={disabled || loading}
               onClick={() => fileInputRef.current?.click()}
               className={cn(
                 "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs",
@@ -411,7 +417,7 @@ export function ImageField({
             );
           }}
           isImage
-          disabled={disabled}
+          disabled={disabled || loading}
           portalContainer={portalContainer}
         />
       )}
@@ -422,7 +428,7 @@ export function ImageField({
         <Button
           variant={"outline"}
           size="sm"
-          disabled={disabled}
+          disabled={disabled || loading}
           onClick={() => fileInputRef.current?.click()}
         >
           <Upload className="mr-1.5 h-3.5 w-3.5" />
@@ -485,7 +491,10 @@ export function ImageField({
    * check, made after re-encoding, where the stored type is known.
    */
   const acceptFile = (file: File) => {
-    if (!file.type.startsWith("image/")) {
+    // An EMPTY type is not "not an image": a browser reports "" for a format
+    // it does not recognise (HEIC on some systems), which may still decode.
+    // `readImageFromFile` settles that, and says so if it cannot.
+    if (file.type !== "" && !file.type.startsWith("image/")) {
       setFileError(`${file.name} is not an image.`);
       return;
     }
@@ -538,7 +547,7 @@ export function ImageField({
          */}
         {!hideUpload && (
           <input
-            disabled={disabled}
+            disabled={disabled || loading}
             hidden
             ref={fileInputRef}
             id={`img_input:${path}`}
@@ -611,7 +620,7 @@ export function ImageField({
                */}
               <Input
                 value={altText}
-                disabled={disabled}
+                disabled={disabled || loading}
                 onChange={(ev) => setAltText(ev.target.value)}
               />
             </Section>
