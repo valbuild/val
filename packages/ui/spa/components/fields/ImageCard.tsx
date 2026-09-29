@@ -219,9 +219,11 @@ export function ImageCard({
   }
 
   return (
-    <div className="flex w-full max-w-xl flex-col gap-2">
+    // The drop target is the whole card, the name under the picture as much
+    // as the picture: it all reads as one thing, and a drop that lands on the
+    // name used to fall through to the browser, which opened the file.
+    <div {...dropHandlers} className="flex w-full max-w-xl flex-col gap-2">
       <div
-        {...dropHandlers}
         className={cn(
           "group relative aspect-video w-full overflow-hidden rounded-lg",
           "border border-border-primary bg-bg-secondary",

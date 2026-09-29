@@ -571,7 +571,11 @@ export function ImageField({
             compact={compact}
           />
           {dropError && (
-            <p className="-mt-3 text-xs text-fg-error-primary">{dropError}</p>
+            // An alert, so a refused drop is announced: the message appears
+            // with nothing having taken focus, and is otherwise silent.
+            <p role="alert" className="-mt-3 text-xs text-fg-error-primary">
+              {dropError}
+            </p>
           )}
           {/*
            * Only for a field that is NOT gallery-backed. A gallery keeps alt on
@@ -620,7 +624,11 @@ export function ImageField({
                 checkerboard={mayBeTransparent(mimeType)}
                 hotspot={hotspot}
                 alt={renderedAlt}
-                readonly={readonly}
+                // Not while an upload is in flight, for the same reason as
+                // Remove: the upload writes its whole-image `replace` only
+                // once the bytes are up, so a focal point set in between is
+                // written first and then overwritten — it moves, then vanishes.
+                readonly={readonly || loading}
                 id={hotspotPath}
                 onChange={(hotspot) => {
                   addPatch(
@@ -640,7 +648,9 @@ export function ImageField({
                   <Checkbox
                     id={`hotspot_toggle:${path}`}
                     checked={!!hotspot}
-                    disabled={disabled}
+                    // See the picker above: an upload in flight would
+                    // overwrite whatever this writes.
+                    disabled={disabled || loading}
                     onCheckedChange={(checked) => {
                       if (checked) {
                         // "add" regardless of whether hotspot is already set: see

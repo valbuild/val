@@ -127,10 +127,16 @@ export function FocalPointPicker({
             if (!move) return;
             ev.preventDefault();
             const from = shown ?? CENTRE;
-            onChange({
+            const next = {
               x: round(clamp01(from.x + move[0])),
               y: round(clamp01(from.y + move[1])),
-            });
+            };
+            // Held locally, as a drag's end is: a field is not woken by its
+            // own patch (`useValField`'s per-instance suppression), so the
+            // `hotspot` prop can lag, and a second press counted from it
+            // wrote the same point twice.
+            setDragging(next);
+            onChange(next);
           }}
           style={{
             left: `${(shown ?? CENTRE).x * 100}%`,

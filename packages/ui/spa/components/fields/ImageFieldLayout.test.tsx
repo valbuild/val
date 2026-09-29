@@ -297,3 +297,51 @@ describe("the upload progress bar", () => {
     expect(progressbar().getAttribute("aria-valuenow")).toBe("42");
   });
 });
+
+describe("while an upload is in flight", () => {
+  /**
+   * The upload writes its whole-image `replace` only once the bytes are up,
+   * so a focal point set in between is written first and then overwritten.
+   * Remove was already held back for this; the focal point is too.
+   */
+  test("the focal point cannot be moved or switched", () => {
+    given(IMAGE);
+    mockUpload.mockReturnValue({ loading: true, progressPercentage: 10 });
+    render(<ImageField path={PATH} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Focal point/ }));
+    expect(
+      screen
+        .getByRole("button", { name: /Point to keep in frame/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      screen.getByRole("checkbox").hasAttribute("disabled") ||
+        screen.getByRole("checkbox").getAttribute("data-disabled") !== null,
+    ).toBe(true);
+  });
+});
+
+describe("dropping onto a filled card", () => {
+  test("accepts the drop on the file's name as well as on the picture", () => {
+    given(IMAGE);
+    render(<ImageField path={PATH} />);
+    const name = screen.getByText("cover_a1b2c.jpg");
+    const file = new File(["x"], "photo.png", { type: "image/png" });
+    fireEvent.drop(name, { dataTransfer: { files: [file], types: ["Files"] } });
+    expect(mockUploadImage).toHaveBeenCalledWith(file);
+  });
+
+  test("announces a refused drop", () => {
+    given(IMAGE);
+    render(<ImageField path={PATH} />);
+    fireEvent.drop(screen.getByText("cover_a1b2c.jpg"), {
+      dataTransfer: {
+        files: [new File(["x"], "notes.txt", { type: "text/plain" })],
+        types: ["Files"],
+      },
+    });
+    expect(screen.getByRole("alert").textContent).toBe(
+      "notes.txt is not an image.",
+    );
+  });
+});

@@ -38,7 +38,28 @@ test("moves by 1% per arrow press, and 10% with Shift", () => {
   fireEvent.keyDown(marker(), { key: "ArrowRight" });
   expect(onChange).toHaveBeenLastCalledWith({ x: 0.71, y: 0.25 });
   fireEvent.keyDown(marker(), { key: "ArrowDown", shiftKey: true });
-  expect(onChange).toHaveBeenLastCalledWith({ x: 0.7, y: 0.35 });
+  expect(onChange).toHaveBeenLastCalledWith({ x: 0.71, y: 0.35 });
+});
+
+/**
+ * A field is not woken by its own patch, so the `hotspot` prop does not move
+ * after a press. Each press has to count from where the LAST one put the
+ * point — counted from the prop, two presses wrote the same point twice — and
+ * the marker and its label have to be there too.
+ */
+test("keeps counting from its last press while the prop has not caught up", () => {
+  const onChange = jest.fn();
+  render(
+    <FocalPointPicker
+      url="/val/a.jpg"
+      hotspot={{ x: 0.7, y: 0.25 }}
+      onChange={onChange}
+    />,
+  );
+  fireEvent.keyDown(marker(), { key: "ArrowRight" });
+  fireEvent.keyDown(marker(), { key: "ArrowRight" });
+  expect(onChange).toHaveBeenLastCalledWith({ x: 0.72, y: 0.25 });
+  expect(marker().getAttribute("aria-label")).toContain("72% across");
 });
 
 test("an unset point starts from the middle, and stops at the edge", () => {
