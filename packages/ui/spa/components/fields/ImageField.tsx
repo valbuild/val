@@ -479,9 +479,10 @@ export function ImageField({
   };
   /**
    * A dropped file skips the file dialog, and with it the dialog's `accept`
-   * filter — so the one thing checked here is that it is an image at all.
-   * Whether it is the RIGHT kind of image is validation's job, the same as
-   * for a file that came through the dialog.
+   * filter. What is refused here is only what is not an image at all, with a
+   * message that says so; whether it is an image this field ACCEPTS is
+   * `useImageUpload`'s check, made after re-encoding, where the stored type is
+   * known.
    */
   const dropFile = (file: File) => {
     if (!file.type.startsWith("image/")) {
