@@ -32,7 +32,8 @@ import type { ReadImageEncode } from "../../utils/readImage";
 import { useImageUpload } from "./useImageUpload";
 import { Section } from "./MediaSummaryRow";
 import { ImageCard } from "./ImageCard";
-import { mayBeTransparent } from "../MediaThumbnail";
+import { MediaThumbnail, mayBeTransparent } from "../MediaThumbnail";
+import { useMediaUrl } from "../../utils/mediaUrl";
 import { HotspotMarker } from "./HotspotMarker";
 import { FocalPointPicker } from "./FocalPointPicker";
 import { Dialog, DialogContent, DialogTitle } from "../designSystem/dialog";
@@ -41,9 +42,11 @@ export function ImageField({
   path,
   readonly,
   hideUpload,
+  compact,
 }: {
   path: SourcePath;
   readonly?: boolean;
+  /** Where there are many or there is little room. See `ImageCard`. */
   compact?: boolean;
   hideUpload?: boolean;
 }) {
@@ -545,6 +548,7 @@ export function ImageField({
           dropDisabled={disabled || loading}
           emptyActions={actions}
           actions={actions}
+          compact={compact}
         />
         {dropError && (
           <p className="-mt-3 text-xs text-fg-error-primary">{dropError}</p>
@@ -760,23 +764,52 @@ export function getRemoteFilesError(
   }
 }
 
+/**
+ * An image as one value in a summary — an array row that lists an object's
+ * fields ("Type: image / Image: …"), for one.
+ *
+ * A fixed square cropped at the focal point, the way record rows
+ * (`ListPreviewItem`) and the heading already draw an image. It was the whole
+ * picture shrunk to fit 60×60, so a portrait was a sliver and a landscape a
+ * strip: each row a different shape, and none of them what the page shows.
+ *
+ * The URL goes through `useMediaUrl` for the same reason as everywhere else: a
+ * just-uploaded image is served from its patch, and `Internal.mediaUrl` of the
+ * value alone drew a broken picture until the editor saved.
+ */
 export function ImagePreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "image");
+  const source =
+    "data" in sourceAtPath && sourceAtPath.data ? sourceAtPath.data : null;
+  // Above the early returns: a hook below one is a hook-order crash the
+  // first time the value goes from loading to present.
+  const url = useMediaUrl(source);
   if (sourceAtPath.status === "error") {
     return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;
   }
-  if (sourceAtPath.data === null) {
+  if (sourceAtPath.data === null || !url) {
     return <PreviewNull path={path} />;
   }
-  const source = sourceAtPath.data;
+  const hotspot = source?.hotspot;
   return (
-    <img
-      src={Internal.mediaUrl(source)}
-      draggable={false}
-      className="object-contain max-w-[60px] max-h-[60px] rounded-lg"
+    <MediaThumbnail
+      url={url}
+      alt={typeof source?.alt === "string" ? source.alt : ""}
+      hotspot={
+        hotspot &&
+        typeof hotspot.x === "number" &&
+        typeof hotspot.y === "number"
+          ? { x: hotspot.x, y: hotspot.y }
+          : undefined
+      }
+      checkerboard={mayBeTransparent(
+        typeof source?.mimeType === "string" ? source.mimeType : undefined,
+      )}
+      loading="lazy"
+      className="h-12 w-12 shrink-0 rounded-md border border-border-primary bg-bg-secondary"
     />
   );
 }

@@ -11,3 +11,5 @@ The focal point of an image is now saved where you click, images are shown centr
 - **Drop an image onto an image field** to upload it. An empty field is a drop zone, and dropping onto a filled one replaces the image.
 - **Upload progress** is a bar along the bottom edge of the field instead of a spinner over the picture.
 - **Transparent images show a checkerboard** behind them (PNG, WebP, GIF, AVIF and SVG), in the field, the focal point picker and the large preview, so a logo on a transparent background is visible in dark mode too.
+- **Where there are many images or little room** — a list whose items are edited inline, the canvas side panel and the in-page editor — the field is a smaller card, with the file name and buttons beside the picture instead of a full-width card per item.
+- **Images in list rows are square thumbnails cropped at the focal point**, the same as in record rows. They used to be the whole image shrunk to fit, so every row was a different shape. A just-uploaded image in a row now shows straight away instead of appearing broken until saved.
