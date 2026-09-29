@@ -115,3 +115,23 @@ test("a wildcard accepts any image", async () => {
   expect(result.current.error).toBeNull();
   expect(upload).toHaveBeenCalled();
 });
+
+/**
+ * A file that cannot be decoded ends the upload with a reason, rather than
+ * "could not upload" — nothing was sent — or, before `readImageFromFile`
+ * rejected, no end at all.
+ */
+test("says a file could not be read, and stops loading", async () => {
+  mockReadImage.mockRejectedValue({ message: "Could not read" });
+  const { result } = setup(undefined);
+  let returned: unknown;
+  await act(async () => {
+    returned = await result.current.uploadImage(
+      new File(["x"], "broken.jpg", { type: "image/jpeg" }),
+    );
+  });
+  expect(returned).toBeNull();
+  expect(result.current.loading).toBe(false);
+  expect(result.current.error).toBe("Could not read broken.jpg as an image.");
+  expect(upload).not.toHaveBeenCalled();
+});

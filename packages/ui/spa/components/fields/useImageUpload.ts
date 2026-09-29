@@ -82,7 +82,17 @@ export function useImageUpload(
       setProgressPercentage(0);
 
       try {
-        const res = await readImageFromFile(file, config.encode);
+        const res = await readImageFromFile(file, config.encode).catch(
+          () => null,
+        );
+        if (res === null) {
+          // Not "could not upload": nothing was sent. The file could not be
+          // decoded, which is a thing about the file the editor can act on.
+          setLoading(false);
+          setProgressPercentage(null);
+          setError(`Could not read ${file.name} as an image.`);
+          return null;
+        }
 
         /**
          * `accept`, checked on what will be STORED — after any re-encoding,

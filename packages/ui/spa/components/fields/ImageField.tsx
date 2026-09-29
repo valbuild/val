@@ -82,8 +82,8 @@ export function ImageField({
    * field mounts with no value — which is every empty image field.
    */
   const [previewOpen, setPreviewOpen] = useState(false);
-  /** Why the last dropped file was refused, until the next upload. */
-  const [dropError, setDropError] = useState<string | null>(null);
+  /** Why the last file was refused, until the next upload. */
+  const [fileError, setFileError] = useState<string | null>(null);
   const portalContainer = useValPortal();
   /**
    * The hidden file input, clicked by name.
@@ -469,7 +469,7 @@ export function ImageField({
     </>
   );
   const upload = (imageFile: File) => {
-    setDropError(null);
+    setFileError(null);
     const prevUrl: string | null = url;
     uploadImage(imageFile).then((result) => {
       if (!result) {
@@ -478,15 +478,15 @@ export function ImageField({
     });
   };
   /**
-   * A dropped file skips the file dialog, and with it the dialog's `accept`
-   * filter. What is refused here is only what is not an image at all, with a
-   * message that says so; whether it is an image this field ACCEPTS is
-   * `useImageUpload`'s check, made after re-encoding, where the stored type is
-   * known.
+   * Every file the editor hands this field — dropped, or chosen in the dialog,
+   * whose "All files" option lets anything through just as a drop does. What
+   * is refused here is only what is not an image at all, with a message that
+   * says so; whether it is an image this field ACCEPTS is `useImageUpload`'s
+   * check, made after re-encoding, where the stored type is known.
    */
-  const dropFile = (file: File) => {
+  const acceptFile = (file: File) => {
     if (!file.type.startsWith("image/")) {
-      setDropError(`${file.name} is not an image.`);
+      setFileError(`${file.name} is not an image.`);
       return;
     }
     upload(file);
@@ -541,7 +541,9 @@ export function ImageField({
             onChange={(ev) => {
               const imageFile = ev.currentTarget.files?.[0];
               if (!imageFile) return;
-              upload(imageFile);
+              // Through the same door as a drop: the dialog's "All files"
+              // lets anything through, just as a drop does.
+              acceptFile(imageFile);
               ev.target.value = "";
             }}
           />
@@ -564,17 +566,17 @@ export function ImageField({
             onOpenPreview={url ? () => setPreviewOpen(true) : undefined}
             uploading={loading}
             progressPercentage={progressPercentage}
-            onDropFile={hideUpload ? undefined : dropFile}
+            onDropFile={hideUpload ? undefined : acceptFile}
             dropDisabled={disabled || loading}
             emptyActions={actions}
             actions={actions}
             compact={compact}
           />
-          {dropError && (
-            // An alert, so a refused drop is announced: the message appears
+          {fileError && (
+            // An alert, so a refused file is announced: the message appears
             // with nothing having taken focus, and is otherwise silent.
             <p role="alert" className="-mt-3 text-xs text-fg-error-primary">
-              {dropError}
+              {fileError}
             </p>
           )}
           {/*

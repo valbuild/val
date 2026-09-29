@@ -345,3 +345,24 @@ describe("dropping onto a filled card", () => {
     );
   });
 });
+
+describe("choosing a file in the dialog", () => {
+  /**
+   * The dialog's "All files" lets anything through, as a drop does, and a
+   * text file handed to the image decoder used to leave the field saying
+   * "Uploading…" for good. It goes through the same check as a drop.
+   */
+  test("refuses a file that is not an image, and says why", () => {
+    given(null);
+    const { container } = render(<ImageField path={PATH} />);
+    const input = container.querySelector('input[type="file"]');
+    if (!input) throw new Error("no file input");
+    fireEvent.change(input, {
+      target: { files: [new File(["x"], "notes.txt", { type: "text/plain" })] },
+    });
+    expect(mockUploadImage).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toBe(
+      "notes.txt is not an image.",
+    );
+  });
+});
