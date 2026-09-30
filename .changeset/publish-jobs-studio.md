@@ -13,6 +13,6 @@ Pressing **Publish** in a managed project no longer commits first and builds aft
 - A publish that fails before it goes live says so, with **Try again** and **Discard changes**. Your changes are kept either way.
 - Publishing from the site (a page that cannot build) still opens a Studio window to build it; the window now runs the publish job for the page.
 
-Connected projects (with a repository) publish exactly as before.
+Connected projects (with a repository) that are hosted on the Val platform publish as a queued job too — see the note on connected projects. Those hosted elsewhere, for example on Vercel, publish exactly as before.
 
 For the Val server: the publish proxy now forwards the publish-job routes, `/api/val/publish-job-prepare` renders a job's sources and hands content its archive, and `/api/val/built-source` is removed.

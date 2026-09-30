@@ -125,6 +125,8 @@ export function createPublishJobs(options: {
   let refreshAgain = false;
   /** Jobs this tab has run to the end of its part. See `takeQueuedWork`. */
   const ended = new Set<string>();
+  /** The job a press started, when content answered it with one. */
+  const jobOfRequest = new Map<string, string>();
 
   const set = (next: PublishJobsState) => {
     state = next;
@@ -170,10 +172,15 @@ export function createPublishJobs(options: {
       if (result.status === "handed-off") {
         const at = now();
         const builtBy = result.built ? "studio" : "ci";
+        // Where each press is now, so one still queued behind this job is
+        // not taken for one of its own.
+        await refresh();
         set({
           ...state,
           requests: state.requests.map((request) =>
-            isSettled(request.status) || request.handedOffAt !== undefined
+            isSettled(request.status) ||
+            request.handedOffAt !== undefined ||
+            !carries(job.id, request)
               ? request
               : { ...request, handedOffAt: at, builtBy },
           ),
@@ -185,6 +192,17 @@ export function createPublishJobs(options: {
     }
     await refresh();
     await takeQueuedWork();
+  }
+
+  /**
+   * Whether a press is one this job carries. A press answered with a job is
+   * that job's; one answered without is whichever job content gives its
+   * changes to, which a status still `queued` is not.
+   */
+  function carries(jobId: string, request: TrackedPublish): boolean {
+    const known = jobOfRequest.get(request.requestId);
+    if (known !== undefined) return known === jobId;
+    return request.status.kind !== "queued";
   }
 
   async function takeQueuedWork() {
@@ -256,6 +274,7 @@ export function createPublishJobs(options: {
         ? state.requests.map((r) => (r.requestId === requestId ? tracked : r))
         : [...state.requests, tracked],
     });
+    if (job !== null) jobOfRequest.set(requestId, job.id);
     if (isSettled(request)) options.onSettled?.(tracked);
     if (job !== null && job.step !== null) void run(job);
   }

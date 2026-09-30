@@ -305,3 +305,32 @@ test("a job CI builds is handed off unbuilt, and shown as CI's", async () => {
   await flush();
   expect(jobs.get().requests[0]).toMatchObject({ builtBy: "ci" });
 });
+
+test("a press queued behind the job being built is not handed off with it", async () => {
+  const { client, statuses } = fakeClient();
+  let finish!: () => void;
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: (j) =>
+      new Promise((resolve) => {
+        finish = () => resolve(handedOff(j.id));
+      }),
+    takesQueuedWork: () => false,
+    now: () => 1_000,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: job("J1"),
+  });
+  await flush();
+  // Pressed again while J1 builds: content queues it for the next job.
+  jobs.track({ requestId: "r2", request: { kind: "queued" }, job: null });
+  statuses.set("r2", { kind: "queued" });
+  finish();
+  await flush();
+  const [first, second] = jobs.get().requests;
+  expect(first).toMatchObject({ requestId: "r1", handedOffAt: 1_000 });
+  expect(second!.handedOffAt).toBeUndefined();
+});

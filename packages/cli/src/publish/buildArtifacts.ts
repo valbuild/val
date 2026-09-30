@@ -72,39 +72,42 @@ async function loadBuilder(): Promise<
   }
 }
 
-const IGNORED_DIRS = new Set([
-  "node_modules",
-  ".git",
-  "dist",
-  "build",
-  ".output",
-  ".tanstack",
-  ".val",
-]);
+/**
+ * Never the project's own files, at any depth: installed packages. Dot
+ * directories (`.git`, `.tanstack`, `.val`, `.output`) are tooling too.
+ */
+const IGNORED_DIRS = new Set(["node_modules"]);
 
 /**
- * `.val.json` holds a `.jsonValues()` entry's content, which no import points
- * at -- the module carries a marker -- so a reader that follows code would
- * never find it, and the built site could not edit that entry.
+ * Build output, at the project's root only: `src/routes/build/` is a route
+ * called "build", not a previous build.
  */
-const CONTENT_FILE = /\.val\.json$/;
+const ROOT_OUTPUT_DIRS = new Set(["dist", "build"]);
 
-/**
- * Configuration the build reads out of the record, at the root only: the
- * record ships into the isolate, and a blanket `.json` would carry every
- * lockfile with it.
- */
-const CONFIG_FILE = new Set([
-  "tsconfig.json",
-  "package.json",
-  "tsr.config.json",
-]);
+/** Lockfiles are JSON, and nothing imports them. */
+const ROOT_LOCKFILES = new Set(["package-lock.json"]);
 
 const CODE_FILE = /\.(tsx?|jsx?|mjs|cjs|css)$/;
 
-/** The project's own source: its code, its content files and its configuration. */
-export function readProjectSource(root: string): Record<string, string> {
-  const files: Record<string, string> = {};
+/**
+ * JSON is the project's too: `tsconfig.json` and `tsr.config.json` are read
+ * by the build, a `.val.json` holds a `.jsonValues()` entry no import points
+ * at, and a module may import one -- the starter's `val.server.ts` imports
+ * `.prettierrc.json`, which is also why a dot FILE is read.
+ */
+const JSON_FILE = /\.json$/;
+
+/**
+ * The project's own files: its source as text, and the binaries it imports
+ * (an image, a font) base64, as `BuildInput.assets` takes them. `public/` is
+ * neither: it is served as is, and read by `readPublicFiles`.
+ */
+export function readProjectFiles(
+  root: string,
+  isAsset: (path: string) => boolean,
+): { sources: Record<string, string>; assets: Record<string, string> } {
+  const sources: Record<string, string> = {};
+  const assets: Record<string, string> = {};
   const walk = (dir: string) => {
     let entries: fs.Dirent[];
     try {
@@ -117,21 +120,25 @@ export function readProjectSource(root: string): Record<string, string> {
       if (entry.isDirectory()) {
         if (entry.name.startsWith(".") || IGNORED_DIRS.has(entry.name))
           continue;
-        // Served as is, not built: read by `readPublicFiles`.
+        if (dir === root && ROOT_OUTPUT_DIRS.has(entry.name)) continue;
         if (dir === root && entry.name === "public") continue;
         walk(full);
         continue;
       }
       const key = path.relative(root, full).split(path.sep).join("/");
-      const wanted =
-        CODE_FILE.test(entry.name) ||
-        CONTENT_FILE.test(entry.name) ||
-        CONFIG_FILE.has(key);
-      if (wanted) files[key] = fs.readFileSync(full, "utf8");
+      if (CODE_FILE.test(entry.name)) {
+        sources[key] = fs.readFileSync(full, "utf8");
+      } else if (JSON_FILE.test(entry.name)) {
+        if (!ROOT_LOCKFILES.has(key)) {
+          sources[key] = fs.readFileSync(full, "utf8");
+        }
+      } else if (isAsset(key)) {
+        assets[key] = fs.readFileSync(full).toString("base64");
+      }
     }
   };
   walk(root);
-  return files;
+  return { sources, assets };
 }
 
 /** Files under `public/`, base64, keyed `public/<path>` as the build takes them. */
@@ -221,7 +228,7 @@ export async function buildArtifacts(options: {
      * no checkout can carry it. `rebakeGit` would be the tab's spelling of the
      * same thing for a record that is already wired.
      */
-    const onDisk = readProjectSource(root);
+    const { sources: onDisk, assets } = readProjectFiles(root, builder.isAsset);
     const wiring =
       builder.isValProject(onDisk) && !builder.isWired(onDisk)
         ? builder.wireUp(onDisk, {
@@ -287,6 +294,7 @@ export async function buildArtifacts(options: {
       target: targetWithLayer(target, layer),
       env: publicEnv(options.env ?? process.env),
       publicFiles: readPublicFiles(root),
+      assets,
       // The project's own files, without the generated tree: what the next
       // publish -- the Studio's included -- starts from.
       projectSource: sources,

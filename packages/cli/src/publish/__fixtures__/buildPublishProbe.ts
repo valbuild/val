@@ -51,8 +51,20 @@ export const Route = createRootRoute({ component: () => <Outlet /> });
 `,
   "src/routes/index.tsx": `import { createFileRoute } from "@tanstack/react-router";
 import pc from "picocolors";
+import logo from "../logo.png";
 export const Route = createFileRoute("/")({
-  component: () => <h1>{pc.bold("hello from the checkout")}</h1>,
+  component: () => (
+    <h1>
+      <img src={logo} alt="" />
+      {pc.bold("hello from the checkout")}
+    </h1>
+  ),
+});
+`,
+  // A route in a folder called "build": the project's, not a build's output.
+  "src/routes/build/index.tsx": `import { createFileRoute } from "@tanstack/react-router";
+export const Route = createFileRoute("/build/")({
+  component: () => <p>the build page</p>,
 });
 `,
   "src/styles.css": `h1 { color: rebeccapurple; }\n`,
@@ -76,9 +88,19 @@ type Report = {
   sourceHasRoute: boolean;
   /** Whether the client build carries the page's text. */
   clientHasPage: boolean;
+  /** Whether the imported image reached the build, inlined. */
+  clientHasLogo: boolean;
+  /** Whether the route in `src/routes/build/` was built and stored. */
+  buildRouteBuilt: boolean;
   /** Whether the checkout was left exactly as it was found. */
   checkoutUntouched: boolean;
 };
+
+/** A 1x1 PNG: small enough to inline, so the page carries it as a data URI. */
+const LOGO = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==",
+  "base64",
+);
 
 function writeProject(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "val-publish-probe-"));
@@ -87,6 +109,7 @@ function writeProject(): string {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, text);
   }
+  fs.writeFileSync(path.join(root, "src", "logo.png"), LOGO);
   fs.symlinkSync(
     path.join(__dirname, "..", "..", "..", "node_modules"),
     path.join(root, "node_modules"),
@@ -161,6 +184,15 @@ async function publishOnce(
         (JSON.parse(source.toString("utf8")) as Record<string, string>)
       : false,
     clientHasPage: clientText.includes("hello from the checkout"),
+    clientHasLogo: clientText.includes(
+      `data:image/png;base64,${LOGO.toString("base64")}`,
+    ),
+    buildRouteBuilt:
+      clientText.includes("the build page") &&
+      (source
+        ? "src/routes/build/index.tsx" in
+          (JSON.parse(source.toString("utf8")) as Record<string, string>)
+        : false),
     checkoutUntouched: JSON.stringify(listed(root)) === JSON.stringify(before),
   };
 }

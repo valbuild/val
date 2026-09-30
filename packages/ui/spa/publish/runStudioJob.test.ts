@@ -222,3 +222,20 @@ test("a job that is content's once prepared is handed off unbuilt -- a connected
   expect(deployed).toEqual([]); // CI builds it
   expect(steps).toEqual([]);
 });
+
+test("an upload content did not take is not a hand-off", async () => {
+  // The lease went elsewhere while the upload was reported: content answers
+  // with the job still at a tab's step, and it is not this tab's to wait on.
+  const { client } = fakeClient();
+  const step = client.step;
+  client.step = async (id, body) =>
+    body.step === "upload" ? { ...job, step: "build" } : step(id, body);
+  const result = await runStudioJob({
+    client,
+    job,
+    tab: "ada",
+    deploy: async () => uploaded,
+    onPhase: () => {},
+  });
+  expect(result).toEqual({ status: "lost", jobId: "J1" });
+});

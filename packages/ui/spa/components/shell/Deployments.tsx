@@ -238,11 +238,14 @@ function useDeploymentsList({
   open,
   onOpenChange,
   autoClose,
+  studioIsDeployer,
 }: {
   deployments: ShellDeployment[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   autoClose: boolean;
+  /** The same rule the summary reads by: see {@link summarizeDeployments}. */
+  studioIsDeployer: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isReading, setIsReading] = useState(false);
@@ -254,7 +257,7 @@ function useDeploymentsList({
     open &&
     autoClose &&
     !isReading &&
-    summarizeDeployments(deployments).state === "live";
+    summarizeDeployments(deployments, studioIsDeployer).state === "live";
   useEffect(() => {
     if (!shouldAutoClose) {
       return;
@@ -327,6 +330,7 @@ export function DeploymentsStatus({
     open,
     onOpenChange,
     autoClose,
+    studioIsDeployer,
   });
 
   return (
@@ -428,6 +432,7 @@ export function MobileDeployments({
     open,
     onOpenChange,
     autoClose,
+    studioIsDeployer,
   });
   if (!open) {
     return null;

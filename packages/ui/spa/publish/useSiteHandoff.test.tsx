@@ -1,7 +1,8 @@
 /** @jest-environment jsdom */
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { joinHandoff } from "./handoff";
-import { useSiteHandoff } from "./useSiteHandoff";
+import { LOST_GRACE_MS, useSiteHandoff } from "./useSiteHandoff";
+import { RENEW_EVERY_MS } from "./runStudioJob";
 import { BroadcastChannel as NodeBroadcastChannel } from "node:worker_threads";
 
 // jsdom has no BroadcastChannel; Node's is the same API.
@@ -11,6 +12,9 @@ if (typeof globalThis.BroadcastChannel === "undefined") {
     configurable: true,
   });
 }
+
+/** A renewal content accepts. */
+const renewed = async () => true;
 
 const job = {
   id: "J1",
@@ -38,7 +42,7 @@ test("the tab runs the job as this page, and answers with its part of it", async
   expect(id).not.toBeNull();
   let running!: Promise<unknown>;
   act(() => {
-    running = result.current.runJob(job, "site-tab", "r1", () => {});
+    running = result.current.runJob(job, "site-tab", "r1", renewed);
   });
   const heard: unknown[] = [];
   const tab = joinHandoff(id ?? "", (message) => heard.push(message), {
@@ -83,11 +87,58 @@ test("a handoff given up on answers `lost`, so the job goes back to the queue", 
   act(() => result.current.prepare(true));
   let running!: Promise<unknown>;
   act(() => {
-    running = result.current.runJob(job, "site-tab", "r1", () => {});
+    running = result.current.runJob(job, "site-tab", "r1", renewed);
   });
   act(() => result.current.dismiss());
   await expect(running).resolves.toEqual({ status: "lost", jobId: "J1" });
   expect(result.current.active()).toBe(false);
+});
+
+test("a lease content refuses to renew ends the wait as `lost`", async () => {
+  jest.useFakeTimers();
+  try {
+    jest.spyOn(window, "open").mockImplementation(() => null);
+    const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+    act(() => result.current.prepare(true));
+    let settled: unknown = null;
+    act(() => {
+      void result.current
+        .runJob(job, "site-tab", "r1", async () => false)
+        .then((r) => (settled = r));
+    });
+    // The renewal is refused; the tab gets its grace to report first.
+    await act(() => jest.advanceTimersByTimeAsync(RENEW_EVERY_MS));
+    expect(settled).toBeNull();
+    await act(() => jest.advanceTimersByTimeAsync(LOST_GRACE_MS));
+    expect(settled).toEqual({ status: "lost", jobId: "J1" });
+    act(() => result.current.cancel(""));
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test("a renewal that did not get through is not a lost job", async () => {
+  jest.useFakeTimers();
+  try {
+    jest.spyOn(window, "open").mockImplementation(() => null);
+    const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+    act(() => result.current.prepare(true));
+    let settled: unknown = null;
+    act(() => {
+      void result.current
+        .runJob(job, "site-tab", "r1", () =>
+          Promise.reject(new Error("offline")),
+        )
+        .then((r) => (settled = r));
+    });
+    await act(() => jest.advanceTimersByTimeAsync(3 * RENEW_EVERY_MS));
+    expect(settled).toBeNull();
+    act(() => result.current.cancel(""));
+    await act(() => Promise.resolve());
+    expect(settled).toEqual({ status: "lost", jobId: "J1" });
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test("a provider that may not hand off never opens a tab", () => {

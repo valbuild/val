@@ -119,7 +119,17 @@ export async function runStudioJob(options: {
       build: deployed.publishId,
     });
     if (built === null || built.step !== "upload") return lostResult;
-    await client.step(job.id, { tab, step: "upload", ok: true });
+    const uploaded = await client.step(job.id, {
+      tab,
+      step: "upload",
+      ok: true,
+    });
+    /*
+     * Handed off only if content took it: the job comes back with no step for
+     * a tab. Anything else -- a lease lost while the report was in flight, a
+     * job content left at the upload -- is not this tab's to wait on.
+     */
+    if (lost || uploaded === null || uploaded.step !== null) return lostResult;
     return { status: "handed-off", jobId: job.id, built: true };
   } finally {
     clearInterval(renewing);

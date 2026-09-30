@@ -10,6 +10,11 @@ import {
 import { RENEW_EVERY_MS, type StudioJobResult } from "./runStudioJob";
 
 /**
+ * How long a refused renewal waits for the tab's own report. See `runJob`.
+ */
+export const LOST_GRACE_MS = 3_000;
+
+/**
  * The site's side of a publish handed to a Studio tab. See `handoff.ts`.
  *
  * One per provider, like the deploy, so the button that starts it and the card
@@ -33,13 +38,16 @@ export interface UseSiteHandoff {
    *
    * The lease is renewed from here while the tab is not running it yet: a
    * blocked tab waits for the press on "Open the Studio to publish", and the
-   * job must still be this page's when it does.
+   * job must still be this page's when it does. A renewal answered `false`
+   * means it no longer is -- the lease lapsed, and its requests went back to
+   * the queue -- so the wait ends as `lost` rather than for a tab that will
+   * never report. A renewal that did not get through is not an answer.
    */
   runJob: (
     job: PublishTabJob,
     tab: string,
     requestId: string | null,
-    renew: () => void,
+    renew: () => Promise<boolean>,
   ) => Promise<StudioJobResult>;
   /** The publish did not happen: the tab has nothing to build. */
   cancel: (message: string) => void;
@@ -127,11 +135,31 @@ export function useSiteHandoff(
       }
       settleWaiting("lost");
       return new Promise<StudioJobResult>((resolve) => {
-        const renewing = setInterval(renew, RENEW_EVERY_MS);
+        let grace: ReturnType<typeof setTimeout> | null = null;
+        const renewing = setInterval(() => {
+          renew().then(
+            (renewed) => {
+              if (renewed || grace !== null) return;
+              /*
+               * Not this page's any more. A tab that just handed the job to
+               * content also stops holding it, and its `job-result` may be a
+               * moment behind the renewal that says so -- so it gets that
+               * moment before the wait ends as lost.
+               */
+              grace = setTimeout(() => {
+                if (waiting.current?.jobId === job.id) settleWaiting("lost");
+              }, LOST_GRACE_MS);
+            },
+            () => {},
+          );
+        }, RENEW_EVERY_MS);
         waiting.current = {
           jobId: job.id,
           resolve,
-          stop: () => clearInterval(renewing),
+          stop: () => {
+            clearInterval(renewing);
+            if (grace !== null) clearTimeout(grace);
+          },
         };
         handoff.job({ type: "job", job, tab, requestId });
       });

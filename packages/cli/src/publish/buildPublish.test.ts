@@ -30,6 +30,8 @@ type Run = {
   uploadedLayerRev: string | null;
   sourceHasRoute: boolean;
   clientHasPage: boolean;
+  clientHasLogo: boolean;
+  buildRouteBuilt: boolean;
   checkoutUntouched: boolean;
 };
 
@@ -72,6 +74,14 @@ test("asks content what to build against, and publishes what it built", () => {
 
 test("the stored source is the project's own files", () => {
   expect(probe.fresh.sourceHasRoute).toBe(true);
+});
+
+test("an image the project imports reaches the build", () => {
+  expect(probe.fresh.clientHasLogo).toBe(true);
+});
+
+test("a folder called `build` below the root is source, not output", () => {
+  expect(probe.fresh.buildRouteBuilt).toBe(true);
 });
 
 test("a layer content does not hold is built and sent, and named by its own rev", () => {
