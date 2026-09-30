@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import http from "http";
-import { PublishProblem } from "@valbuild/shared/internal";
+import { BuildTargetResponse, PublishProblem } from "@valbuild/shared/internal";
 
 /**
  * A local stand-in for the publish API on content.val.build.
@@ -50,6 +50,50 @@ export type FakeContentOptions = {
    * worth being able to drive from both sides.
    */
   head?: string;
+  /** What `GET /v1/build-target` answers. {@link FAKE_BUILD_TARGET} by default. */
+  buildTarget?: BuildTargetResponse;
+};
+
+/**
+ * The smallest platform a build accepts: the base set, and no project layer
+ * yet -- a project that has never published one.
+ */
+export const FAKE_BUILD_TARGET: BuildTargetResponse = {
+  base: {
+    rev: "base",
+    shellRev: "shell",
+    rscShellRev: "rsc",
+    // The platform's base set, as its vendor package declares it.
+    modules: {
+      react: "react",
+      "react/jsx-runtime": "jsx-runtime",
+      "react/jsx-dev-runtime": "jsx-dev-runtime",
+      "react-dom": "react-dom",
+      "react-dom/client": "react-dom-client",
+      "react-dom/server": "react-dom-server",
+      "@tanstack/react-router": "tanstack-react-router",
+      "@tanstack/react-start": "tanstack-react-start",
+      "@tanstack/react-start/server-rpc": "tanstack-react-start-server-rpc",
+      "@tanstack/react-start/client-rpc": "tanstack-react-start-client-rpc",
+      "@tanstack/router-core": "tanstack-router-core",
+      "@tanstack/start-client-core": "tanstack-start-client-core",
+      "@tanstack/start-storage-context": "tanstack-start-storage-context",
+      "@tanstack/history": "tanstack-history",
+      "@tanstack/store": "tanstack-store",
+      "@tanstack/react-store": "tanstack-react-store",
+    },
+    rscModules: {},
+    paths: {
+      baseFromProject: "../vendor/",
+      projectVendorDir: "pvendor",
+      rscVendorBase: "../vendor-rsc/",
+      rscRuntimeSpecifier: "@tanstack/react-start/rsc",
+      rscRuntimePath: "./runtime.js",
+      flightServer: "@vitejs/plugin-rsc/vendor/react-server-dom/server.edge",
+      serverFnBase: "/_serverFn/",
+    },
+  },
+  project: { rev: null, rsc: false, modules: {}, css: {}, workerOnly: [] },
 };
 
 export type FakeContentService = {
@@ -166,10 +210,6 @@ export async function startFakeContentService(
       return;
     }
 
-    if (parts[1] !== "publish") {
-      send(res, 404, { statusCode: 404, message: "No such route" });
-      return;
-    }
     if (!authorization?.startsWith("Bearer val_pt_")) {
       send(res, 401, {
         statusCode: 401,
@@ -185,6 +225,21 @@ export async function startFakeContentService(
         statusCode: 401,
         message: "This project token is not valid. It may have been revoked.",
       });
+      return;
+    }
+
+    // GET /v1/build-target - what a build links against.
+    if (
+      parts.length === 2 &&
+      parts[1] === "build-target" &&
+      req.method === "GET"
+    ) {
+      send(res, 200, options.buildTarget ?? FAKE_BUILD_TARGET);
+      return;
+    }
+
+    if (parts[1] !== "publish") {
+      send(res, 404, { statusCode: 404, message: "No such route" });
       return;
     }
 

@@ -181,15 +181,6 @@ export type ShellProps = {
    */
   reviewCount?: number;
   publishState?: PublishState;
-  /**
-   * Finish a publish whose commit landed and whose build did not.
-   *
-   * Managed projects only — a connected one never reaches that state, because
-   * a host picks the commit up. See `FinishPublishing` in `Deployments.tsx`.
-   */
-  onFinishPublishing?: (commitSha: string) => void;
-  /** A browser-side build is already running, so every row's action is held. */
-  finishingPublish?: boolean;
   /** The step that build is on, for the status bar. */
   deployState?: StudioDeployState;
   /** Show placeholder rows in the nav panels instead of content. */
@@ -506,8 +497,6 @@ export function Shell({
   pendingChanges = 12,
   reviewCount,
   publishState = "idle",
-  onFinishPublishing,
-  finishingPublish = false,
   deployState,
   isLoading = false,
   loadError,
@@ -1185,8 +1174,6 @@ export function Shell({
               <MobileDeployments
                 deployments={deployments}
                 studioIsDeployer={studioIsDeployer}
-                onFinishPublishing={onFinishPublishing}
-                publishing={finishingPublish}
                 open={deploymentsOpen}
                 onOpenChange={setDeploymentsOpenByUser}
                 autoClose={deploymentsAutoOpened}
@@ -1242,8 +1229,6 @@ export function Shell({
             branch={data.branch}
             deployments={deployments}
             studioIsDeployer={studioIsDeployer}
-            onFinishPublishing={onFinishPublishing}
-            finishingPublish={finishingPublish}
             deployState={deployState}
             deploymentsOpen={deploymentsOpen}
             onDeploymentsOpenChange={setDeploymentsOpenByUser}

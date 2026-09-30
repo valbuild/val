@@ -1,3 +1,17 @@
+import { createRequestPublish } from "../publish/requestPublish";
+import { createStudioJobClient } from "../publish/jobClient";
+import {
+  createPublishJobs,
+  isSettled,
+  type PublishJobs,
+  type PublishJobsState,
+  type TrackedPublish,
+} from "../publish/publishJobs";
+import { publishProgress } from "../publish/publishProgress";
+import { runStudioJob } from "../publish/runStudioJob";
+import { PUBLISH_TAB_ID } from "../publish/tabId";
+import { canBuildHere } from "../publish/handoff";
+import { toast } from "./designSystem/sonner";
 import React, {
   createContext,
   Dispatch,
@@ -69,11 +83,11 @@ import type { StatusSnapshot } from "../stores/StatusStore";
 import type { PatchErrorEntry, PatchRecord } from "../stores/types";
 import type { PatchAtPath } from "../stores/PatchStore";
 import {
+  deployPreparedJob,
   useStudioDeploy,
   type UseStudioDeploy,
 } from "../publish/useStudioDeploy";
 import { useSiteHandoff, type UseSiteHandoff } from "../publish/useSiteHandoff";
-import { describeDeployFailure } from "../publish/deployProgress";
 import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
@@ -199,6 +213,18 @@ type ValContextValue = {
    * that reports on it have to read one state. See `publish/handoff.ts`.
    */
   handoff: UseSiteHandoff;
+  /**
+   * A managed project's publish jobs: this tab's presses, and the job it
+   * builds. One here for the same reason as `deploy`. See
+   * `publish/publishJobs.ts`.
+   */
+  publishJobs: PublishJobs;
+  publishJobsState: PublishJobsState;
+  /**
+   * Whether a press of Publish is a publish job here: every managed project,
+   * and a connected one hosted on the platform (the server says, on `/stat`).
+   */
+  publishesAsJobs: boolean;
   serviceUnavailable: boolean | undefined;
   baseSha: string | undefined;
   config: ValConfig | undefined;
@@ -340,6 +366,7 @@ export function ValProvider({
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     setIsAuthenticated,
     serviceUnavailable,
+    subscribePublishJobs,
   ] = useStatus(client);
 
   const isStatConnected = "data" in stat && !!stat.data;
@@ -630,6 +657,14 @@ export function ValProvider({
       createValSystem(client, {
         writes: true,
         uploadSettings: getDirectFileUploadSettings,
+        /*
+         * A managed project's Publish is a request for a publish job, which
+         * `usePublishSummary` asks for. Offered to every system: only the
+         * managed path calls it.
+         */
+        requestPublish: createRequestPublish(
+          createStudioJobClient({ api: "/api/val" }),
+        ),
       }),
     [client, getDirectFileUploadSettings],
   );
@@ -852,7 +887,7 @@ export function ValProvider({
   /**
    * A publish that went live is a commit this Studio has seen the site serve.
    * `/stat` says the same thing eventually, but in http mode it is polled so
-   * rarely that the list said "Saved, not yet live" long after it was.
+   * rarely that the list lagged the site by minutes.
    */
   const markObserved = useCallback((commit: string) => {
     setObservedCommitShas((prev) => {
@@ -872,10 +907,185 @@ export function ValProvider({
     }
   }, [deploy.state, markObserved]);
   /** See {@link ValContextValue.handoff}. */
-  const handoff = useSiteHandoff({
-    onLive: markObserved,
-    enabled: handsOffPublish,
-  });
+  const handoff = useSiteHandoff({ enabled: handsOffPublish });
+
+  /*
+   * The publish jobs, made once. The tracker outlives renders, so what it
+   * calls back into -- the deploy, the handoff, what a settled request does --
+   * is read through refs.
+   */
+  const deployRef = useRef(deploy.deploy);
+  deployRef.current = deploy.deploy;
+  const handoffRef = useRef(handoff);
+  handoffRef.current = handoff;
+  const onPublishSettled = useRef<(request: TrackedPublish) => void>(() => {});
+  const publishJobs = useMemo(() => {
+    const client = createStudioJobClient({ api: "/api/val" });
+    const jobs = createPublishJobs({
+      client,
+      tab: PUBLISH_TAB_ID,
+      build: (job, onPhase) => {
+        const handoff = handoffRef.current;
+        if (handoff.active()) {
+          // This page cannot build: the tab it opened runs the job, as this tab.
+          const pressed =
+            jobs
+              .get()
+              .requests.filter((request) => !isSettled(request.status))
+              .at(-1)?.requestId ?? null;
+          return handoff.runJob(job, PUBLISH_TAB_ID, pressed, () =>
+            client.renew(job.id, PUBLISH_TAB_ID),
+          );
+        }
+        return runStudioJob({
+          client,
+          job,
+          tab: PUBLISH_TAB_ID,
+          deploy: (prepared) => deployPreparedJob(deployRef.current, prepared),
+          onPhase,
+        });
+      },
+      /*
+       * Not the builder tab a page opened: it runs the one job it was handed,
+       * as that page's tab. Elsewhere, where this page can build -- or while
+       * a builder tab it opened is waiting for work.
+       */
+      takesQueuedWork: () =>
+        handsOffPublish &&
+        (connectedJobsRef.current ||
+          canBuildHere() ||
+          handoffRef.current.active()),
+      onSettled: (request) => onPublishSettled.current(request),
+    });
+    return jobs;
+  }, [handsOffPublish]);
+  onPublishSettled.current = (request) => {
+    const status = request.status;
+    const id = `publish:${request.requestId}`;
+    if (status.kind === "live") {
+      markObserved(status.commit);
+      toast("Published", { id, description: "Your changes are live." });
+      return;
+    }
+    if (status.kind !== "failed") return;
+    /*
+     * After the seal (connected): the change is published, and CI's build of
+     * it failed. Nothing to try again or discard -- the next publish builds
+     * again -- so the one action is the run itself.
+     */
+    if (status.actions.includes("re-run-build")) {
+      toast.error("Published, not on the site yet", {
+        id,
+        description: "The build failed. The next publish builds it again.",
+        duration: Infinity,
+        action: {
+          label: "View run",
+          onClick: () => {
+            void createStudioJobClient({ api: "/api/val" })
+              .newestCiRun()
+              .then((run) => {
+                if (run?.url) window.open(run.url, "_blank", "noopener");
+                else
+                  system.status.reportError(
+                    "The build's run could not be found",
+                    "The workflow did not say where its run is.",
+                  );
+              })
+              .catch((e: unknown) =>
+                system.status.reportError(
+                  "The build's run could not be found",
+                  e instanceof Error ? e.message : String(e),
+                ),
+              );
+          },
+        },
+      });
+      return;
+    }
+    const reportOutcome = (
+      outcome: Awaited<ReturnType<PublishJobs["discard"]>>,
+    ) => {
+      if (!outcome.ok) {
+        system.status.reportError("Could not publish", outcome.message);
+      } else if (outcome.stillHeld !== undefined) {
+        system.status.reportError(
+          `${outcome.stillHeld.length} of these changes were kept`,
+          "Another publish that is under way includes them.",
+        );
+      }
+    };
+    toast.error("Could not publish", {
+      id,
+      description: status.message,
+      // Until it is acted on: nothing else says this publish is not live.
+      duration: Infinity,
+      ...(status.actions.includes("try-again")
+        ? {
+            action: {
+              label: "Try again",
+              onClick: () => {
+                // In the click, where a page that cannot build may open the
+                // tab that will. A no-op where this page can build.
+                handoffRef.current.prepare(true);
+                void publishJobs.tryAgain(request.requestId).then((done) => {
+                  if (!done.ok) handoffRef.current.cancel(done.message);
+                  reportOutcome(done);
+                });
+              },
+            },
+          }
+        : {}),
+      ...(status.actions.includes("discard")
+        ? {
+            cancel: {
+              label: "Discard changes",
+              onClick: () => {
+                void publishJobs.discard(request.requestId).then(reportOutcome);
+              },
+            },
+          }
+        : {}),
+    });
+  };
+  const publishJobsState = useSyncExternalStore(
+    publishJobs.subscribe,
+    publishJobs.get,
+    publishJobs.get,
+  );
+  const statSourceMode =
+    "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null;
+  const publishesAsJobs =
+    "data" in stat && stat.data
+      ? (stat.data.publishJobs ?? statSourceMode === "managed")
+      : false;
+  /*
+   * A connected job is built by CI: the tab's part is the prepare, which any
+   * tab can do -- so a free tab takes queued work whether or not it could
+   * build a site.
+   */
+  const connectedJobsRef = useRef(false);
+  connectedJobsRef.current = publishesAsJobs && statSourceMode === "connected";
+  useEffect(() => {
+    if (!publishesAsJobs) return;
+    publishJobs.start();
+    const off = subscribePublishJobs(() => publishJobs.nudge());
+    return () => {
+      off();
+      publishJobs.stop();
+    };
+  }, [publishesAsJobs, publishJobs, subscribePublishJobs]);
+  /**
+   * What every progress surface reads: the deploy, seen through the publish
+   * jobs. See `publishProgress`. A clock is not a dependency -- a settled
+   * request carries its own times.
+   */
+  const deployView = useMemo<UseStudioDeploy>(
+    () => ({
+      deploy: deploy.deploy,
+      state: publishProgress(deploy.state, publishJobsState, Date.now()),
+    }),
+    [deploy.deploy, deploy.state, publishJobsState],
+  );
 
   /**
    * Warn before leaving with edits that have not reached the server.
@@ -920,8 +1130,11 @@ export function ValProvider({
         client,
         publishSummaryState,
         setPublishSummaryState,
-        deploy,
+        deploy: deployView,
         handoff,
+        publishJobs,
+        publishJobsState,
+        publishesAsJobs,
         profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
         publishRefusal:
@@ -2230,20 +2443,19 @@ export function useStudioIsDeployer(): boolean {
   return useSourceMode() === "managed";
 }
 
-/**
- * The browser-side build: what it is doing, and how to start one.
- *
- * The one in the provider, so every caller shares the guard and the phase —
- * see {@link ValContextValue.deploy}. `Finish publishing` and the publish
- * button are the two callers, and they are deliberately the same deploy: a
- * publish whose build failed and a retry of that build are one operation seen
- * at two moments.
- */
 /** See {@link ValContextValue.handoff}. */
 export function useSiteHandoffState(): UseSiteHandoff {
   return useContext(ValContext).handoff;
 }
 
+/**
+ * The browser-side build: what it is doing, and how to start one.
+ *
+ * The one in the provider, so every caller shares the guard and the phase —
+ * see {@link ValContextValue.deploy}. The state is the deploy SEEN THROUGH the
+ * publish jobs (`publishProgress`), so a press queued behind another, or one
+ * content is verifying, reads as a publish under way like a build does.
+ */
 export function useStudioDeployState(): UseStudioDeploy {
   return useContext(ValContext).deploy;
 }
@@ -2349,8 +2561,8 @@ export function usePublishSummary() {
    * has always meant.
    */
   const studioIsDeployer = useStudioIsDeployer();
-  const { state: deployState, deploy } = useContext(ValContext).deploy;
-  const { handoff } = useContext(ValContext);
+  const { state: deployState } = useContext(ValContext).deploy;
+  const { handoff, publishJobs, publishesAsJobs } = useContext(ValContext);
   const publish = useCallback(
     async (summary: string) => {
       /*
@@ -2381,8 +2593,8 @@ export function usePublishSummary() {
       }
       /*
        * Not while this page is updating the site: the update has already
-       * copied the new layer in, and a save now would find the deploy taken
-       * and stay saved and not live. See `publish/siteOperation.ts`.
+       * copied the new layer in, and a job built now would be refused by the
+       * layer check. See `publish/siteOperation.ts`.
        */
       const lock = beginSiteOperation("publish");
       if (!lock.ok) {
@@ -2392,12 +2604,10 @@ export function usePublishSummary() {
       }
       setIsPublishing(true);
       /*
-       * Before the save, so that -- unless the site moves in the instant
-       * between this read and the save -- nothing is committed that this Studio
-       * would then build with the wrong version of itself. In that instant the
-       * save lands and the deploy's own check refuses it: the change is saved
-       * and not live, and Finish publishing takes it live after the reload.
-       * See `publish/loadedLayer.ts`.
+       * Before the request, so that nothing is requested that this Studio
+       * would then build with the wrong version of itself: the job's build
+       * would be refused by the layer check, and fail its attempts. See
+       * `publish/loadedLayer.ts`.
        */
       if (studioIsDeployer && (await siteMovedSinceLoad())) {
         setIsPublishing(false);
@@ -2406,6 +2616,14 @@ export function usePublishSummary() {
         handoff.cancel(STUDIO_OUT_OF_DATE_MESSAGE);
         return { status: "error", message: STUDIO_OUT_OF_DATE_MESSAGE };
       }
+      /*
+       * Where publishes are jobs, a press is a REQUEST: nothing is committed
+       * here, and the build (the tab's, or CI's), the check and the seal all
+       * follow it (valbuild/home, docs/app-mode.md, "Publishing is a queued
+       * job"). A connected project on a host of its own commits, and its host
+       * picks the commit up.
+       */
+      const publishOptions = publishesAsJobs ? { request: true } : undefined;
       /**
        * One retry for `chain-moved`, and no more.
        *
@@ -2420,73 +2638,49 @@ export function usePublishSummary() {
         const first = await val.system.publish(
           globalServerSidePatchIds,
           summary,
+          publishOptions,
         );
         if (first.status === "refused" && first.reason === "chain-moved") {
-          return val.system.publish(globalServerSidePatchIds, summary);
+          return val.system.publish(
+            globalServerSidePatchIds,
+            summary,
+            publishOptions,
+          );
         }
         return first;
       };
       return attempt()
-        .then(async (res) => {
-          if (res.status === "published") {
+        .then((res) => {
+          if (res.status === "published" || res.status === "requested") {
             deleteSummaryStateFromLocalStorage(runtimeConfig?.project);
             setPublishSummaryState((prev) => ({
               type: "not-asked",
               isGenerating: prev.isGenerating,
             }));
-            const committedBinaries =
-              res.binaryFiles !== undefined
-                ? {
-                    files: res.binaryFiles,
-                    unread: res.binaryFilesUnread ?? [],
-                  }
-                : null;
-            if (handoff.active()) {
-              /*
-               * This page cannot build, and a builder tab is waiting for this
-               * commit. It gets everything the in-place build below gets --
-               * the text this save wrote as well as its images and branch --
-               * so the two build the same site from the same save. The tab
-               * used to rely on `/built-source` for the text alone, and a
-               * publish from Safari could go live with the edit missing.
-               */
-              handoff.commit({
-                commit: res.commitSha ?? null,
-                committedFiles: res.sourceFiles ?? null,
-                binaryFiles: committedBinaries,
-                branch: res.branch ?? null,
-              });
-            } else if (studioIsDeployer) {
-              /*
-               * The commit has landed, so nothing here can lose an edit -- the
-               * worst case is a project that is saved and not yet live, which
-               * is a state the deploy feed shows and `Finish publishing`
-               * resolves. Reported rather than thrown for the same reason: a
-               * publish whose build failed is not a publish that did nothing.
-               */
-              const { result: deployed, failedAt } = await deploy(
-                res.commitSha ?? null,
-                res.sourceFiles ?? null,
-                {
-                  binaryFiles: committedBinaries,
-                  branch: res.branch ?? null,
-                },
+          }
+          if (res.status === "requested") {
+            /*
+             * Tracked until it is Live. The job it came with is built here, or
+             * by the tab this page opened; a press queued behind another is
+             * built when its turn comes, by whichever free tab asks first.
+             */
+            publishJobs.track(res);
+            /*
+             * No job for the tab this page opened. Queued: it waits, and is
+             * handed the job when its turn comes. Otherwise there is nothing
+             * for it to build -- the changes went with a job in flight, or
+             * there were none.
+             */
+            if (
+              res.job === null &&
+              handoff.active() &&
+              res.request.kind !== "queued"
+            ) {
+              handoff.cancel(
+                res.request.kind === "publishing"
+                  ? "Your changes are publishing with the publish before them."
+                  : "There was nothing to publish.",
               );
-              if (deployed.status === "failed") {
-                // The sentence leads; the technical text is the details.
-                val.system.status.reportError(
-                  `Saved, but not published. ${describeDeployFailure(failedAt ?? undefined)}`,
-                  [
-                    deployed.message,
-                    ...deployed.problems.map(
-                      (problem) =>
-                        `${problem.code}: ${problem.message}${
-                          problem.hint ? ` (${problem.hint})` : ""
-                        }`,
-                    ),
-                  ].join("\n"),
-                );
-              }
             }
           } else if (res.status === "refused") {
             // Said out loud rather than swallowed: a publish button that does
@@ -2524,8 +2718,9 @@ export function usePublishSummary() {
       runtimeConfig?.project,
       setPublishSummaryState,
       studioIsDeployer,
-      deploy,
       handoff,
+      publishJobs,
+      publishesAsJobs,
     ],
   );
   const setSummary = useCallback(

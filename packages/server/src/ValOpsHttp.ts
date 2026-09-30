@@ -151,6 +151,12 @@ const GetApplicablePatches = z.object({
     .object({
       sourceMode: z.union([z.literal("managed"), z.literal("connected")]),
       branch: z.string(),
+      /**
+       * Whether a press of Publish is a publish JOB. Absent from a content
+       * service that predates connected jobs: then managed projects publish
+       * as jobs, and connected ones by commit, as they did.
+       */
+      publishJobs: z.boolean().optional(),
     })
     .optional(),
 });
@@ -469,6 +475,7 @@ export class ValOpsHttp extends ValOps {
   private projectExpectation: {
     sourceMode: "managed" | "connected";
     branch: string;
+    publishJobs?: boolean;
   } | null = null;
 
   constructor(
@@ -578,6 +585,17 @@ export class ValOpsHttp extends ValOps {
   /** Remembered with {@link sourceMode}, from the same response. */
   override projectBranch(): string | null {
     return this.projectExpectation?.branch ?? null;
+  }
+
+  /**
+   * Does a press of Publish run as a publish job? Every managed project, and
+   * a connected one content says is hosted on the platform (its CI publishes
+   * through content). `false` before anything has been heard.
+   */
+  override publishesAsJobs(): boolean {
+    const expected = this.projectExpectation;
+    if (expected === null) return false;
+    return expected.publishJobs ?? expected.sourceMode === "managed";
   }
 
   /**
@@ -713,7 +731,27 @@ export class ValOpsHttp extends ValOps {
       path === "/build-target" ||
       path === "/project-source" ||
       path === "/update-target" ||
-      path === "/publish"
+      path === "/publish" ||
+      // Where "View run" goes, for a connected build CI reported failed.
+      // Read only: reporting a run is CI's, with its own token.
+      path === "/ci-runs/newest"
+    ) {
+      return true;
+    }
+    /*
+     * Publishing as a queued job: a press, where it is, Try again, and the
+     * tab's reports about the job it runs. NOT `/publish-jobs/{id}/prepare`:
+     * its body is the job's source files and modules, which this server
+     * computes (`prepareJob`) -- a browser allowed to send it could publish
+     * any text at all as a commit's archive.
+     */
+    if (/^\/publish-requests(\/[A-Za-z0-9_-]{1,100})?$/.test(path)) {
+      return true;
+    }
+    if (
+      /^\/publish-jobs\/(next|[A-Za-z0-9_-]{1,100}\/(steps|renew|cancel|discard))$/.test(
+        path,
+      )
     ) {
       return true;
     }
@@ -726,17 +764,54 @@ export class ValOpsHttp extends ValOps {
     path: string,
     init: { method: string; body?: string },
   ): Promise<{ status: number; body: string; contentType: string }> {
-    const json = "application/json";
     if (!ValOpsHttp.publishApiPathAllowed(path)) {
       return {
         status: 403,
-        contentType: json,
+        contentType: "application/json",
         body: JSON.stringify({
           message: `'${path}' is not part of the publish API.`,
         }),
       };
     }
+    return this.callPublishApi(path, init);
+  }
 
+  /**
+   * A publish job's prepare, sent to content: the job's sources, archived
+   * there before the job is built (valbuild/home, docs/app-mode.md, "The
+   * archive, before the seal"). With this server's publish token, as every
+   * publish call is, and never through `publishApi` -- see the allowlist.
+   */
+  async prepareJob(
+    jobId: string,
+    body: {
+      tab: string;
+      filesDirectory: string;
+      patchedSourceFiles: Record<string, string | null>;
+      patchedBinaryFilesDescriptors: PreparedCommit["patchedBinaryFilesDescriptors"];
+      modules: PreparedCommit["moduleVersions"];
+      /** Connected: the git commit this deployment was built from. */
+      gitCommit?: string;
+    },
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    if (!/^[A-Za-z0-9_-]{1,100}$/.test(jobId)) {
+      return {
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ message: `'${jobId}' is not a job id.` }),
+      };
+    }
+    return this.callPublishApi(`/publish-jobs/${jobId}/prepare`, {
+      method: "POST",
+      body: JSON.stringify({ ...body, root: this.root }),
+    });
+  }
+
+  private async callPublishApi(
+    path: string,
+    init: { method: string; body?: string },
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
     const send = async (token: string) =>
       fetch(`${this.contentUrl}/v1${path}`, {
         method: init.method,

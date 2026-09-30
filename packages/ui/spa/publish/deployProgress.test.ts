@@ -23,7 +23,7 @@ describe("the publish line", () => {
     expect(
       describeDeploy({
         status: "done",
-        result: { status: "live", url: null, visible: true },
+        result: { status: "live", url: null },
         ms: 29_000,
         steps: [],
         commit: "c",
@@ -63,11 +63,11 @@ describe("the percentage", () => {
   });
 
   test("never says 100 — done is the line going away", () => {
-    expect(deployPercent({ kind: "propagating" })).toBeLessThan(100);
+    expect(deployPercent({ kind: "promoting" })).toBeLessThan(100);
   });
 
-  test("the tab still names each step", () => {
-    expect(describeDeployPhase({ kind: "propagating" })).toMatch(/waiting/);
+  test("a press queued behind another says so", () => {
+    expect(describeDeployPhase({ kind: "queued" })).toMatch(/Waiting/);
   });
 });
 

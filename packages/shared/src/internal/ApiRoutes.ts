@@ -661,6 +661,13 @@ export const Api = {
               sourceMode: z
                 .union([z.literal("managed"), z.literal("connected")])
                 .optional(),
+              /**
+               * A press of Publish is a publish JOB: every managed project,
+               * and a connected one hosted on the platform. Absent from a
+               * server that predates it: managed projects publish as jobs,
+               * connected ones by commit.
+               */
+              publishJobs: z.boolean().optional(),
               publishRefusal: PublishRefusal.optional(),
             }),
             z.object({
@@ -761,6 +768,13 @@ export const Api = {
               sourceMode: z
                 .union([z.literal("managed"), z.literal("connected")])
                 .optional(),
+              /**
+               * A press of Publish is a publish JOB: every managed project,
+               * and a connected one hosted on the platform. Absent from a
+               * server that predates it: managed projects publish as jobs,
+               * connected ones by commit.
+               */
+              publishJobs: z.boolean().optional(),
               publishRefusal: PublishRefusal.optional(),
             }),
           ]),
@@ -1361,43 +1375,45 @@ export const Api = {
       ]),
     },
   },
-  /**
-   * The `.val.ts` text of every module that changed since the RUNNING build,
-   * with every commit since it applied, for a build made in the browser.
-   *
-   * A Studio build starts from the source stored with the live build. A commit
-   * whose own publish failed -- or the first commit of a project that started
-   * as a copy of a template -- is in content and in no stored source, so a build
-   * that added only its own save's files shipped without it. Only this server
-   * can render those commits back into text: content keeps a managed project's
-   * content as Source, not as files.
-   *
-   * Committed patches only. A pending one is somebody's unpublished work, and
-   * is not this build's to ship. 409 where there is nothing to answer with: a
-   * project with a repository, or a build that did not embed its source.
-   */
-  "/built-source": {
-    GET: {
+  "/publish-job-prepare": {
+    POST: {
       req: {
+        body: z.object({
+          jobId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+          tab: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+          /** The job's changes, as content handed them to the tab. */
+          patchIds: z.array(PatchId),
+        }),
         cookies: {
           val_session: z.string().optional(),
         },
       },
       res: z.union([
         unauthorizedResponse,
-        z.object({
-          status: z.literal(409),
-          json: GenericError,
-        }),
-        z.object({
-          status: z.literal(500),
-          json: GenericError,
-        }),
+        z.object({ status: z.literal(400), json: GenericError }),
+        z.object({ status: z.literal(409), json: GenericError }),
+        z.object({ status: z.literal(500), json: GenericError }),
+        z.object({ status: z.literal(502), json: GenericError }),
         z.object({
           status: z.literal(200),
           json: z.object({
-            /** By path, as `/save`'s `sourceFiles`. `null` is a deleted file. */
-            files: z.record(z.string(), z.string().nullable()),
+            /** The job as content has it now: its next step is the build. */
+            job: z
+              .object({
+                id: z.string(),
+                step: z.enum(["prepare", "build", "upload"]).nullable(),
+                base: z.string().nullable(),
+                patches: z.array(z.string()),
+              })
+              .nullable(),
+            /** Every source file of the job's content, by path. `null` is deleted. */
+            sourceFiles: z.record(z.string(), z.string().nullable()),
+            /** The job's own local binary files, base64, by path. */
+            binaryFiles: z.record(z.string(), z.string()),
+            /** Binary files whose bytes could not be read back. */
+            binaryFilesUnread: z.array(z.string()),
+            /** The branch the job publishes to. */
+            branch: z.string().nullable(),
           }),
         }),
       ]),

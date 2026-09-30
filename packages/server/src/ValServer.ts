@@ -28,6 +28,7 @@ import {
   ValServerError,
   ValServerErrorStatus,
   type PatchGroupT,
+  parseJob,
 } from "@valbuild/shared/internal";
 import {
   decodeJwtWithoutVerifying,
@@ -41,6 +42,7 @@ import { z } from "zod";
 import { probeUrl } from "./linkCheck/probeUrl";
 import { ValOpsFS } from "./ValOpsFS";
 import { readCommittedBinaryFiles } from "./readCommittedBinaryFiles";
+import { splitJobPrepare } from "./jobPrepare";
 import { computePatchesToDrop, DroppedPatch } from "./computePatchesToDrop";
 import {
   AuthorId,
@@ -1017,6 +1019,7 @@ export const ValServer = (
             mode,
             ...(publishRefusal ? { publishRefusal } : {}),
             ...(sourceMode ? { sourceMode } : {}),
+            ...(sourceMode ? { publishJobs: serverOps.publishesAsJobs() } : {}),
             // Not `options.config` verbatim: in proxy mode the branch the
             // server resolved is filled in where the file did not name one.
             // See `clientConfig`.
@@ -2181,20 +2184,95 @@ export const ValServer = (
       },
     },
 
-    "/built-source": {
-      GET: async (req) => {
+    "/publish-job-prepare": {
+      POST: async (req) => {
         const auth = getAuth(req.cookies);
         if (auth.error) {
           return { status: 401, json: { message: auth.error } };
         }
-        if (!(serverOps instanceof ValOpsHttp) || !serverOps.embedsSource()) {
+        if (
+          !(serverOps instanceof ValOpsHttp) ||
+          !serverOps.publishesAsJobs() ||
+          (serverOps.sourceMode() === "managed" && !serverOps.embedsSource())
+        ) {
           return {
             status: 409,
             json: {
               message:
-                "This server has no source of its own to render commits into.",
+                "This deployment cannot prepare a publish job for this project.",
             },
           };
+        }
+        const refusal = serverOps.publishRefusal();
+        if (refusal) {
+          return { status: 409, json: { message: refusal.message } };
+        }
+        const { jobId, tab, patchIds } = req.body;
+        /*
+         * CONNECTED: the job's sources are what `/save` would commit -- its
+         * own changes, applied as `/save` applies them -- and content pushes
+         * them at the seal. Nothing is built here: CI builds after the push,
+         * so the answer carries the job and no sources.
+         */
+        if (serverOps.sourceMode() === "connected") {
+          const jobPatches = await serverOps.fetchPatches({
+            patchIds,
+            excludePatchOps: false,
+          });
+          if (jobPatches.error) {
+            return {
+              status: 500,
+              json: { message: jobPatches.error.message },
+            };
+          }
+          const found = new Set<string>(
+            jobPatches.patches.map((patch) => patch.patchId),
+          );
+          const gone = patchIds.filter((id) => !found.has(id));
+          if (gone.length > 0) {
+            return {
+              status: 409,
+              json: {
+                message: `This publish's changes are no longer all there (${gone.length} discarded).`,
+              },
+            };
+          }
+          const prepared = await serverOps.prepare({
+            ...serverOps.analyzePatches(
+              jobPatches.patches,
+              jobPatches.commits,
+              commit,
+            ),
+            ...jobPatches,
+          });
+          if (prepared.hasErrors) {
+            return {
+              status: 500,
+              json: {
+                message:
+                  "This publish's changes could not be rendered into source: " +
+                  JSON.stringify(prepared.sourceFilePatchErrors).slice(0, 500),
+              },
+            };
+          }
+          const split = splitJobPrepare({
+            // Every file the job's changes wrote is what the push writes.
+            chainOnly: { patchedSourceFiles: {} },
+            withJob: prepared,
+            jobPatchIds: patchIds,
+          });
+          const sent = await serverOps.prepareJob(jobId, {
+            tab,
+            filesDirectory: options.config.files?.directory || "/public/val",
+            ...split.archive,
+            ...(commit !== undefined ? { gitCommit: commit } : {}),
+          });
+          return jobPrepareAnswer(sent, {
+            sourceFiles: {},
+            binaryFiles: {},
+            binaryFilesUnread: [],
+            branch: serverOps.projectBranch(),
+          });
         }
         const chain = await serverOps.fetchPatches({
           patchIds: undefined,
@@ -2204,33 +2282,75 @@ export const ValServer = (
           return { status: 500, json: { message: chain.error.message } };
         }
         /*
-         * The patches committed SINCE this build, as though pending.
+         * The job's content, in two steps from this build's embedded source.
          *
-         * `applicable/patches` answers with the ones applied at a commit after
-         * the one this build was made from, which is exactly what the text
-         * embedded in it is missing. `analyzePatches` skips applied patches --
-         * for a save they are already in the file it reads -- so they are
-         * handed over unapplied: here the file predates them.
+         * The commits since this build, as though pending, are the branch's
+         * head. The job's pending changes on top of them are its content: whatever was applied since the job started came
+         * out of its own changes (docs/app-mode.md, "Publishing is a queued
+         * job"), and were that ever not so, the seal would restart the job
+         * rather than publish it. Chain order, both times.
          */
+        const job = new Set<string>(patchIds);
         const committed = chain.patches
           .filter((patch) => patch.appliedAt !== null)
           .map((patch) => ({ ...patch, appliedAt: null }));
-        const prepared = await serverOps.prepare({
-          ...serverOps.analyzePatches(committed, chain.commits, commit),
-          ...chain,
-          patches: committed,
-        });
-        if (prepared.hasErrors) {
+        const pending = chain.patches.filter(
+          (patch) => patch.appliedAt === null && job.has(patch.patchId),
+        );
+        const known = new Set<string>(
+          chain.patches.map((patch) => patch.patchId),
+        );
+        const gone = patchIds.filter((id) => !known.has(id));
+        if (gone.length > 0) {
+          return {
+            status: 409,
+            json: {
+              message: `This publish's changes are no longer all there (${gone.length} discarded).`,
+            },
+          };
+        }
+        const prepareOf = (patches: typeof chain.patches) =>
+          serverOps.prepare({
+            ...serverOps.analyzePatches(patches, chain.commits, commit),
+            ...chain,
+            patches,
+          });
+        const chainOnly = await prepareOf(committed);
+        const withJob = await prepareOf([...committed, ...pending]);
+        if (chainOnly.hasErrors || withJob.hasErrors) {
           return {
             status: 500,
             json: {
               message:
-                "The commits since this build could not be rendered into source: " +
-                JSON.stringify(prepared.sourceFilePatchErrors).slice(0, 500),
+                "This publish's changes could not be rendered into source: " +
+                JSON.stringify(
+                  (withJob.hasErrors ? withJob : chainOnly)
+                    .sourceFilePatchErrors,
+                ).slice(0, 500),
             },
           };
         }
-        return { status: 200, json: { files: prepared.patchedSourceFiles } };
+        const split = splitJobPrepare({
+          chainOnly,
+          withJob,
+          jobPatchIds: patchIds,
+        });
+        // Read now, while the job's changes still hold their files.
+        const binaries = await readCommittedBinaryFiles(
+          serverOps,
+          split.archive.patchedBinaryFilesDescriptors,
+        );
+        const sent = await serverOps.prepareJob(jobId, {
+          tab,
+          filesDirectory: options.config.files?.directory || "/public/val",
+          ...split.archive,
+        });
+        return jobPrepareAnswer(sent, {
+          sourceFiles: split.buildSourceFiles,
+          binaryFiles: binaries.files,
+          binaryFilesUnread: binaries.unread,
+          branch: serverOps.projectBranch(),
+        });
       },
     },
     "/profiles": {
@@ -4575,4 +4695,61 @@ function getIsRemoteRequired(
     }
   }
   return false;
+}
+
+/**
+ * `/publish-job-prepare`'s answer from content's: the job as content has it
+ * now, and what the tab builds from. Content's refusal is passed on -- 409
+ * as 409, anything else as 502, which the tab reads as "content answered,
+ * and has counted the attempt" (see `runStudioJob`).
+ */
+function jobPrepareAnswer(
+  sent: { status: number; body: string },
+  build: {
+    sourceFiles: Record<string, string | null>;
+    binaryFiles: Record<string, string>;
+    binaryFilesUnread: string[];
+    branch: string | null;
+  },
+):
+  | { status: 409 | 502; json: { message: string } }
+  | {
+      status: 200;
+      json: {
+        job: ReturnType<typeof parseJob>["job"];
+        sourceFiles: Record<string, string | null>;
+        binaryFiles: Record<string, string>;
+        binaryFilesUnread: string[];
+        branch: string | null;
+      };
+    } {
+  if (sent.status !== 200) {
+    let message = `The content service did not prepare the publish (${sent.status}).`;
+    try {
+      const parsed: unknown = JSON.parse(sent.body);
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        "message" in parsed &&
+        typeof parsed.message === "string"
+      ) {
+        message = parsed.message;
+      }
+    } catch {
+      // not JSON: the status says enough
+    }
+    return { status: sent.status === 409 ? 409 : 502, json: { message } };
+  }
+  try {
+    const prepared = parseJob(
+      JSON.parse(sent.body),
+      "POST /v1/publish-jobs/{id}/prepare",
+    );
+    return { status: 200, json: { job: prepared.job, ...build } };
+  } catch (e) {
+    return {
+      status: 502,
+      json: { message: e instanceof Error ? e.message : String(e) },
+    };
+  }
 }

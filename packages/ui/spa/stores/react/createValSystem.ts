@@ -5,6 +5,7 @@ import { createSystem, type System } from "../createSystem";
 import type { SchemaValidationBridge } from "../bridges";
 import { createSchemaValidationBridge } from "../../validation/schemaValidationBridge";
 import type { PatchRecord } from "../types";
+import type { RequestPublish } from "../PublishSeam";
 import { chunkPatchIds } from "./patchIdChunks";
 
 /**
@@ -64,6 +65,8 @@ export function createValSystem(
      * jest, and a test that had to stub `Worker` would be testing the stub.
      */
     schemaValidation?: SchemaValidationBridge;
+    /** A press of Publish as a publish job, for a managed project. See `RequestPublish`. */
+    requestPublish?: RequestPublish;
   },
 ): System {
   /**
@@ -374,6 +377,10 @@ export function createValSystem(
     },
 
     mode: options?.mode,
+
+    ...(options?.requestPublish !== undefined
+      ? { requestPublish: options.requestPublish }
+      : {}),
 
     /**
      * `POST /save`.

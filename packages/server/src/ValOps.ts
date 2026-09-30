@@ -2506,6 +2506,15 @@ export abstract class ValOps {
   }
 
   /**
+   * Does a press of Publish run as a publish job (valbuild/home,
+   * docs/app-mode.md, "Publishing is a queued job")? Never for a project
+   * with no content service.
+   */
+  publishesAsJobs(): boolean {
+    return false;
+  }
+
+  /**
    * The branch the content service keeps this project's commits on, or `null`
    * where there is no such service, or it has not said yet.
    *

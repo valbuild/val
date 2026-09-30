@@ -63,6 +63,7 @@ import type {
   PublishPatches,
   PublishResult,
   PublishOptions,
+  RequestPublish,
 } from "./PublishSeam";
 import type {
   PatchSetBridge,
@@ -517,6 +518,11 @@ export type SystemOptions = {
   saveFlushTimeoutMs?: number;
   /** `POST /save`. Omitting it means this system cannot publish. */
   publishPatches?: PublishPatches;
+  /**
+   * A press of Publish as a publish JOB, for a managed project. What `publish`
+   * calls, after its gate, when asked to `request`. See `RequestPublish`.
+   */
+  requestPublish?: RequestPublish;
   /**
    * `PUT` / `DELETE /patch-groups/~/patches` — stage and unstage.
    *
@@ -2282,6 +2288,32 @@ export function createSystem(options: SystemOptions): System {
             status: "refused",
             reason: "chain-moved",
           };
+        }
+
+        /*
+         * A publish JOB: requested, not committed. The gate above is the same --
+         * it is what makes the press worth sending -- and nothing below it
+         * applies: no change is published until content seals the job, and
+         * `stat` says so when it does. The job takes every pending change, so
+         * `toPublish` is what was checked, not what is sent.
+         */
+        if (publishOptions?.request === true) {
+          if (options.requestPublish === undefined) {
+            return {
+              status: "failed",
+              message: "This system cannot request a publish.",
+              retryable: false,
+            };
+          }
+          const requested = await options.requestPublish();
+          if (requested.status !== "requested") {
+            return {
+              status: "failed",
+              message: requested.message,
+              retryable: true,
+            };
+          }
+          return requested;
         }
 
         const headCommitSha = stat.currentHeadCommitSha();

@@ -1,13 +1,17 @@
 import { safeReadGit } from "@valbuild/server";
+import fs from "fs";
 import path from "path";
 import { findAndEvalValConfigFile } from "../utils/evalValConfigFile";
 import {
   Artifact,
+  CollectedArtifacts,
+  DEFAULT_ARTIFACTS_DIR,
   buildHashOf,
   collectArtifacts,
   layerRevOf,
   resolveArtifactsDir,
 } from "./artifacts";
+import { BuiltArtifacts, buildArtifacts } from "./buildArtifacts";
 import {
   PublishClient,
   UploadError,
@@ -31,7 +35,10 @@ import {
 
 export type PublishOptions = {
   root?: string;
-  /** The directory whose layout is the artifact namespace. */
+  /**
+   * The directory whose layout is the artifact namespace: publish a build made
+   * elsewhere. Without it (and without a `.val/publish`), the checkout is built.
+   */
   artifacts?: string;
   commit?: string;
   branch?: string;
@@ -108,29 +115,33 @@ export async function runPublish(
     ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const root = options.root ? path.resolve(options.root) : process.cwd();
 
-  const dir = resolveArtifactsDir({
-    root,
-    ...(options.artifacts ? { dir: options.artifacts } : {}),
-  });
-  if (dir.status === "error") {
-    return { status: "error", message: dir.message };
-  }
-  const collected = await collectArtifacts(dir.dir);
-  for (const skipped of collected.skipped) {
-    log(`Skipped ${skipped}`);
-  }
-  if (collected.artifacts.length === 0) {
+  /*
+   * Upload-only when there is a build to upload: `--artifacts`, or the
+   * directory it defaults to. Otherwise this builds the checkout -- which is
+   * what a CI runner has, and `.val/` is never committed, so a fresh checkout
+   * always builds.
+   */
+  const prebuilt =
+    options.artifacts !== undefined ||
+    fs.existsSync(path.join(root, DEFAULT_ARTIFACTS_DIR));
+  if (!prebuilt && !fs.existsSync(path.join(root, "package.json"))) {
     return {
       status: "error",
-      message: `There is nothing in ${dir.dir}. Build the project before publishing it.`,
+      message:
+        `Nothing to publish: ${root} has no package.json to build, and no --artifacts were given.\n\n` +
+        "Run this in the project, or point at a build made elsewhere:\n\n" +
+        "    npx val publish --artifacts <directory>",
     };
   }
 
-  const layer = await layerRevOf(collected.artifacts);
-  if (layer.status === "error") {
-    return { status: "error", message: layer.message };
+  let collected: CollectedArtifacts | null = null;
+  let layerRev: string | null = null;
+  if (prebuilt) {
+    const fromDir = await collectPrebuilt(root, options.artifacts, log);
+    if (fromDir.status === "error") return fromDir;
+    collected = fromDir.collected;
+    layerRev = fromDir.layerRev;
   }
-  const layerRev = options.layerRev ?? layer.layerRev;
 
   const git = await resolveGit({ root, options, env });
   if (git.status === "error") {
@@ -138,9 +149,10 @@ export async function runPublish(
   }
 
   const config = await findAndEvalValConfigFile(root).catch(() => null);
+  const project = config?.project ?? env.VAL_PROJECT ?? null;
   const credential = await resolvePublishCredential({
     root,
-    project: config?.project ?? env.VAL_PROJECT ?? null,
+    project,
     env,
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
@@ -148,13 +160,45 @@ export async function runPublish(
     return { status: "error", message: credential.message };
   }
 
+  const contentHost = getContentHost(env);
   const client = createPublishClient({
-    host: getContentHost(env),
+    host: contentHost,
     token: credential.credential.token,
     ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
 
-  const buildHash = options.buildHash ?? buildHashOf(collected.artifacts);
+  let built: Extract<BuiltArtifacts, { status: "built" }> | null = null;
+  try {
+    if (collected === null) {
+      log("Asking content what to build against");
+      const target = await client.buildTarget();
+      const build = await buildArtifacts({
+        root,
+        target,
+        project: project ?? "",
+        contentHost,
+        git: { commit: git.commit, branch: git.branch },
+        env,
+        log,
+      });
+      if (build.status === "error") {
+        return { status: "error", message: build.message };
+      }
+      built = build;
+      for (const warning of build.warnings) log(`warn: ${warning}`);
+      const fromBuild = await collectPrebuilt(root, build.dir, log);
+      if (fromBuild.status === "error") return fromBuild;
+      collected = fromBuild.collected;
+      // Named when content already holds it; otherwise it is in the directory.
+      layerRev =
+        build.layerRev !== undefined ? build.layerRev : fromBuild.layerRev;
+    }
+  } catch (err) {
+    return errorFrom(err);
+  }
+
+  const buildHash =
+    options.buildHash ?? built?.buildHash ?? buildHashOf(collected.artifacts);
   log(
     `${count(collected.artifacts.length, "artifact")}, ${formatBytes(collected.totalBytes)}` +
       `, at ${git.commit.slice(0, 7)} on ${git.branch}`,
@@ -171,8 +215,8 @@ export async function runPublish(
         buildHash,
         commit: git.commit,
         branch: git.branch,
-        layerRev,
-        linksOwnCss: options.linksOwnCss ?? null,
+        layerRev: options.layerRev ?? layerRev,
+        linksOwnCss: options.linksOwnCss ?? built?.linksOwnCss ?? null,
         artifacts: collected.artifacts.map(({ key, sha256, bytes }) => ({
           key,
           sha256,
@@ -183,7 +227,45 @@ export async function runPublish(
     });
   } catch (err) {
     return errorFrom(err);
+  } finally {
+    // Ours to remove: a build is written to a fresh temporary directory.
+    if (built !== null) {
+      fs.rmSync(built.dir, { recursive: true, force: true });
+    }
   }
+}
+
+/** A build on disk: its artifacts, and the layer it sends or names. */
+async function collectPrebuilt(
+  root: string,
+  artifacts: string | undefined,
+  log: (line: string) => void,
+): Promise<
+  | { status: "ok"; collected: CollectedArtifacts; layerRev: string | null }
+  | { status: "error"; message: string }
+> {
+  const dir = resolveArtifactsDir({
+    root,
+    ...(artifacts ? { dir: artifacts } : {}),
+  });
+  if (dir.status === "error") {
+    return { status: "error", message: dir.message };
+  }
+  const collected = await collectArtifacts(dir.dir);
+  for (const skipped of collected.skipped) {
+    log(`Skipped ${skipped}`);
+  }
+  if (collected.artifacts.length === 0) {
+    return {
+      status: "error",
+      message: `There is nothing in ${dir.dir}. Build the project before publishing it.`,
+    };
+  }
+  const layer = await layerRevOf(collected.artifacts);
+  if (layer.status === "error") {
+    return { status: "error", message: layer.message };
+  }
+  return { status: "ok", collected, layerRev: layer.layerRev };
 }
 
 async function publishDeclaredBuild(args: {

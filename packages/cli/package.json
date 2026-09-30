@@ -38,7 +38,25 @@
   },
   "peerDependencies": {
     "prettier": "*",
-    "typescript": ">=5.0.0"
+    "typescript": ">=5.0.0",
+    "@valbuild/tanstack-build": "workspace:^",
+    "rolldown": ">=1.2.5",
+    "@tanstack/router-generator": ">=1.167.0",
+    "@tanstack/router-plugin": ">=1.168.0"
+  },
+  "peerDependenciesMeta": {
+    "@valbuild/tanstack-build": {
+      "optional": true
+    },
+    "rolldown": {
+      "optional": true
+    },
+    "@tanstack/router-generator": {
+      "optional": true
+    },
+    "@tanstack/router-plugin": {
+      "optional": true
+    }
   },
   "preconstruct": {
     "entrypoints": [
@@ -51,7 +69,11 @@
   "devDependencies": {
     "@jest/globals": "^30.5.0",
     "@prettier/sync": "^0.6.1",
+    "@tanstack/router-generator": "1.167.32",
+    "@tanstack/router-plugin": "1.168.34",
+    "@valbuild/tanstack-build": "workspace:*",
     "prettier": "~3.8.5",
+    "rolldown": "^1.2.5",
     "tsx": "^4.23.12"
   }
 }

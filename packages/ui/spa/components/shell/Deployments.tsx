@@ -26,28 +26,18 @@ import {
  * and `building` really does become `live` because something outside the
  * browser moves it.
  *
- * A MANAGED project has no repository and no host watching one. The Studio is
- * the deployer -- the build that makes a publish live happens in the same
- * browser that started it -- so there is nothing left to wait for afterwards,
- * and `building` there is a spinner with no event that can ever end it. It does
- * not resolve on a reload, on a retry, or tomorrow. See
- * {@link saved-not-live} below for what is shown instead.
+ * A MANAGED project has no repository and no host watching one. Its publish
+ * is a job: built in a Studio tab, then verified and SEALED by content, which
+ * records the commit only once its build is live (valbuild/home,
+ * docs/app-mode.md, "Publishing is a queued job"). So a managed commit is
+ * never on its way out -- there is nothing to show as `building`, and a row
+ * the site does not serve is one a later publish superseded. The wait before
+ * the seal is this tab's own publish, `publishing`, and has no row.
  */
 export type DeploymentSummary =
   | { state: "building"; count: number }
   /** This tab is publishing one of them right now: the percentage is the summary. */
   | { state: "publishing"; percent: number }
-  /**
-   * The commit landed and the build did not.
-   *
-   * A managed project's version of `building`, and deliberately not a phase:
-   * it is a FAILURE state wearing a calm name, and it exists precisely because
-   * nothing else will ever resolve it. A failed build, a browser closed
-   * mid-publish, a builder that never loaded and a refused verification all
-   * land here. Showing it as something that clears itself would be the same lie
-   * as `building`, one step later.
-   */
-  | { state: "saved-not-live"; count: number }
   | { state: "failed" }
   /**
    * The newest publish was last reported as building, over an hour ago. Not a
@@ -58,8 +48,8 @@ export type DeploymentSummary =
   | { state: "none" };
 
 /**
- * @param studioIsDeployer Whether this project is MANAGED -- the Studio builds
- * it in the tab, so no publish is ever merely on its way. Defaults to false,
+ * @param studioIsDeployer Whether this project is MANAGED -- a commit is
+ * recorded once it is live, so no publish is ever merely on its way. Defaults to false,
  * which is the connected story, and that default is load-bearing: a server that
  * does not report a source mode is not evidence that a project has no
  * repository, and guessing managed would take the deploy feed away from every
@@ -73,20 +63,13 @@ export function summarizeDeployments(
     return { state: "none" };
   }
   // A publish running here is what the editor is waiting on, and it outranks
-  // "Saved, not yet live": that is the state it is in the middle of ending.
+  // whatever the feed says about the ones before it.
   for (const deployment of deployments) {
     if (deployment.publish?.kind === "running") {
       return { state: "publishing", percent: deployment.publish.percent };
     }
   }
-  if (studioIsDeployer) {
-    // Managed: a stale build and a fresh one are the same condition, saved and
-    // not served, and both keep the way out of it.
-    const unfinished = deployments.filter(isUnfinished);
-    if (unfinished.length > 0) {
-      return { state: "saved-not-live", count: unfinished.length };
-    }
-  } else {
+  if (!studioIsDeployer) {
     const building = deployments.filter(isBuilding);
     if (building.length > 0) {
       return { state: "building", count: building.length };
@@ -98,7 +81,8 @@ export function summarizeDeployments(
   if (isFailed(latest)) {
     return { state: "failed" };
   }
-  if (isUnknown(latest)) {
+  // Connected only: a managed row is never stale, for the reason above.
+  if (!studioIsDeployer && isUnknown(latest)) {
     return { state: "unknown" };
   }
   return { state: "live" };
@@ -208,26 +192,16 @@ export function deploymentProgress(
   if (!deployment.isLive && deployment.publish?.kind === "running") {
     return "building";
   }
-  if (studioIsDeployer && isUnfinished(deployment)) return "saved-not-live";
+  // Managed: recorded at the seal, so never on its way, and a report of one
+  // that went stale is still one a later publish superseded. See the summary.
+  if (studioIsDeployer && isUnfinished(deployment)) {
+    return "settled";
+  }
   if (isBuilding(deployment)) return "building";
   if (isFailed(deployment)) return "failed";
   if (isUnknown(deployment)) return "unknown";
   return "settled";
 }
-
-/**
- * Finishing a publish whose build did not run, threaded down as props.
- *
- * Optional throughout: a connected project never reaches `saved-not-live`, and
- * a surface that only lists publishes (the settings sheet) has no reason to
- * offer an action. Absent, the row says the state and offers nothing — which
- * is what it did before this existed.
- */
-export type FinishPublishingProps = {
-  onFinishPublishing?: (commitSha: string) => void;
-  /** A deploy is already running, so every row's action is held. */
-  publishing?: boolean;
-};
 
 export type DeploymentsStatusProps = {
   deployments: ShellDeployment[];
@@ -245,7 +219,7 @@ export type DeploymentsStatusProps = {
    * should not disappear while you are looking at it.
    */
   autoClose?: boolean;
-} & FinishPublishingProps;
+};
 
 /** How long a finished publish stays on screen before the list closes. */
 export const DEPLOYMENTS_AUTO_CLOSE_MS = 5000;
@@ -264,11 +238,14 @@ function useDeploymentsList({
   open,
   onOpenChange,
   autoClose,
+  studioIsDeployer,
 }: {
   deployments: ShellDeployment[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   autoClose: boolean;
+  /** The same rule the summary reads by: see {@link summarizeDeployments}. */
+  studioIsDeployer: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isReading, setIsReading] = useState(false);
@@ -280,7 +257,7 @@ function useDeploymentsList({
     open &&
     autoClose &&
     !isReading &&
-    summarizeDeployments(deployments).state === "live";
+    summarizeDeployments(deployments, studioIsDeployer).state === "live";
   useEffect(() => {
     if (!shouldAutoClose) {
       return;
@@ -346,8 +323,6 @@ export function DeploymentsStatus({
   onOpenChange,
   autoClose = false,
   studioIsDeployer = false,
-  onFinishPublishing,
-  publishing = false,
 }: DeploymentsStatusProps) {
   const summary = summarizeDeployments(deployments, studioIsDeployer);
   const { containerRef, setIsReading } = useDeploymentsList({
@@ -355,6 +330,7 @@ export function DeploymentsStatus({
     open,
     onOpenChange,
     autoClose,
+    studioIsDeployer,
   });
 
   return (
@@ -386,8 +362,6 @@ export function DeploymentsStatus({
         <DeploymentsList
           deployments={deployments}
           studioIsDeployer={studioIsDeployer}
-          onFinishPublishing={onFinishPublishing}
-          publishing={publishing}
           onClose={() => onOpenChange(false)}
           onReadingChange={setIsReading}
           className="absolute bottom-full right-0 mb-2 w-80"
@@ -405,11 +379,6 @@ function describeSummary(summary: DeploymentSummary): string {
         : "Building";
     case "publishing":
       return `Publishing ${summary.percent}%`;
-    case "saved-not-live":
-      // Not "Building 2 publishes": there is no plural of a thing that is not
-      // happening. What the count says is how many commits are saved and not
-      // being served, which is one condition however many commits are in it.
-      return "Saved, not yet live";
     case "failed":
       return "Build failed";
     case "unknown":
@@ -424,17 +393,6 @@ function describeSummary(summary: DeploymentSummary): string {
 function SummaryIcon({ summary }: { summary: DeploymentSummary }) {
   if (summary.state === "building" || summary.state === "publishing") {
     return <Loader2 size={13} className="animate-spin" />;
-  }
-  /*
-   * Deliberately not a spinner, and deliberately not the error colour.
-   *
-   * Not a spinner because nothing is turning: the whole point is that no event
-   * will ever end it. Not red because this is not something that just went
-   * wrong in front of the editor -- it is a durable condition they can fix, and
-   * a project that sat in it overnight should not greet them with an alarm.
-   */
-  if (summary.state === "saved-not-live") {
-    return <CircleAlert size={13} className="text-fg-secondary" />;
   }
   if (summary.state === "failed") {
     return <CircleAlert size={13} />;
@@ -468,14 +426,13 @@ export function MobileDeployments({
   onOpenChange,
   autoClose = false,
   studioIsDeployer = false,
-  onFinishPublishing,
-  publishing = false,
 }: DeploymentsStatusProps) {
   const { containerRef, setIsReading } = useDeploymentsList({
     deployments,
     open,
     onOpenChange,
     autoClose,
+    studioIsDeployer,
   });
   if (!open) {
     return null;
@@ -490,8 +447,6 @@ export function MobileDeployments({
       <DeploymentsList
         deployments={deployments}
         studioIsDeployer={studioIsDeployer}
-        onFinishPublishing={onFinishPublishing}
-        publishing={publishing}
         onClose={() => onOpenChange(false)}
         onReadingChange={setIsReading}
       />
@@ -515,8 +470,6 @@ export function DeploymentsList({
   onReadingChange,
   className,
   studioIsDeployer = false,
-  onFinishPublishing,
-  publishing = false,
 }: {
   deployments: ShellDeployment[];
   /** See {@link DeploymentsStatusProps.studioIsDeployer}. */
@@ -525,7 +478,7 @@ export function DeploymentsList({
   /** True while the pointer is on the list, which holds off auto-close. */
   onReadingChange?: (isReading: boolean) => void;
   className?: string;
-} & FinishPublishingProps) {
+}) {
   return (
     <div
       role="dialog"
@@ -552,8 +505,6 @@ export function DeploymentsList({
       <DeploymentRows
         deployments={deployments}
         studioIsDeployer={studioIsDeployer}
-        onFinishPublishing={onFinishPublishing}
-        publishing={publishing}
       />
     </div>
   );
@@ -566,13 +517,11 @@ export function DeploymentsList({
 export function DeploymentRows({
   deployments,
   studioIsDeployer = false,
-  onFinishPublishing,
-  publishing = false,
 }: {
   deployments: ShellDeployment[];
   /** See {@link DeploymentsStatusProps.studioIsDeployer}. */
   studioIsDeployer?: boolean;
-} & FinishPublishingProps) {
+}) {
   if (deployments.length === 0) {
     return (
       <p className="px-3 py-4 text-xs text-fg-secondary-alt">
@@ -588,8 +537,6 @@ export function DeploymentRows({
           key={deployment.commitSha}
           deployment={deployment}
           studioIsDeployer={studioIsDeployer}
-          onFinishPublishing={onFinishPublishing}
-          publishing={publishing}
         />
       ))}
     </ul>
@@ -599,17 +546,14 @@ export function DeploymentRows({
 function DeploymentRow({
   deployment,
   studioIsDeployer = false,
-  onFinishPublishing,
-  publishing = false,
 }: {
   deployment: ShellDeployment;
   studioIsDeployer?: boolean;
-} & FinishPublishingProps) {
+}) {
   const progress = deploymentProgress(deployment, studioIsDeployer);
   const building = progress === "building";
   const failed = progress === "failed";
   const running = deployment.publish?.kind === "running";
-  const savedNotLive = progress === "saved-not-live" && !running;
   const unknown = progress === "unknown" && !running;
   return (
     <li className="flex items-start gap-2.5 px-3 py-2.5 border-b border-border-float last:border-b-0">
@@ -620,11 +564,8 @@ function DeploymentRow({
         {failed && (
           <CircleAlert size={13} className="text-fg-error-on-surface" />
         )}
-        {savedNotLive && (
-          <CircleAlert size={13} className="text-fg-secondary" />
-        )}
         {unknown && <CircleHelp size={13} className="text-fg-secondary" />}
-        {!building && !running && !failed && !savedNotLive && !unknown && (
+        {!building && !running && !failed && !unknown && (
           <span className="block w-1.5 h-1.5 m-[3px] rounded-full bg-bg-brand-secondary" />
         )}
       </span>
@@ -639,13 +580,6 @@ function DeploymentRow({
         </div>
         {deployment.publish !== undefined && (
           <PublishBreakdown publish={deployment.publish} />
-        )}
-        {savedNotLive && onFinishPublishing !== undefined && (
-          <FinishPublishing
-            commitSha={deployment.commitSha}
-            onFinishPublishing={onFinishPublishing}
-            publishing={publishing}
-          />
         )}
       </div>
     </li>
@@ -684,51 +618,6 @@ function PublishBreakdown({ publish }: { publish: ShellDeploymentPublish }) {
 }
 
 /**
- * The way out of `Saved, not yet live`.
- *
- * Offered on the ROW rather than as a banner because the row is what names the
- * commit that is stuck, and a project can have more than one — a browser
- * closed mid-publish on Monday and a failed build on Tuesday are two rows and
- * two commits, and a single button could only ever mean one of them.
- *
- * It is the same pipeline as a publish with the gate and the commit skipped:
- * the commit already exists, so there is nothing to validate and nothing to
- * write. In managed mode nothing else will ever resolve this state — there is
- * no host to notice the commit — which is why the state needs an action at all
- * rather than a sentence telling someone to wait.
- *
- * A PROP rather than a hook, like `studioIsDeployer` beside it and for the
- * same reason: this file is rendered by tests that mount rows on their own,
- * and reaching into `ValProvider` from here pulls the whole store system —
- * and an ESM-only module jest cannot load — in behind it.
- */
-function FinishPublishing({
-  commitSha,
-  onFinishPublishing,
-  publishing = false,
-}: {
-  commitSha: string;
-  onFinishPublishing: (commitSha: string) => void;
-  publishing?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={publishing}
-      onClick={() => onFinishPublishing(commitSha)}
-      className={cn(
-        "mt-1.5 text-[11px] font-medium",
-        publishing
-          ? "text-fg-secondary-alt"
-          : "text-fg-brand-primary hover:underline",
-      )}
-    >
-      {publishing ? "Publishing…" : "Finish publishing"}
-    </button>
-  );
-}
-
-/**
  * What happened to a publish, in a word or two.
  *
  * Exported for the same reason as {@link deploymentProgress}: the activity list
@@ -747,13 +636,12 @@ export function describeDeploymentState(
     return "Publishing";
   }
   /*
-   * Managed: there is no queue and nothing is building. The commit is saved and
-   * the site is not serving it, and only another publish from a browser will
-   * change that -- so the row says the state it is actually in rather than
-   * naming a step that is not happening.
+   * Managed: there is no build host, and a commit is recorded at its seal --
+   * once its build is live. One the site does not serve is one a later
+   * publish superseded, not one on its way out.
    */
   if (studioIsDeployer && isUnfinished(deployment)) {
-    return "Saved, not yet live";
+    return "Published";
   }
   switch (deployment.state) {
     case "created":

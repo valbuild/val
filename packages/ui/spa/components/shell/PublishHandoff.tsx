@@ -17,7 +17,7 @@ import { seconds } from "../../publish/deployProgress";
  *
  * The bundler needs a cross-origin isolated document, and only the Studio is
  * one: isolating the customer's own pages would break their embeds. So a
- * Publish on the site commits there and hands the build to a Studio tab, which
+ * Publish on the site requests a publish job and hands its build to a Studio tab, which
  * reports back. These are the two ends of that: the card on the site, and the
  * page in the tab.
  */
@@ -28,7 +28,7 @@ export type HandoffState =
   /** The tab is building or publishing; `step` is `describeDeployPhase`. */
   | { kind: "running"; step: string; elapsedMs: number }
   | { kind: "live"; ms: number }
-  /** The browser refused to open the tab. The commit is saved. */
+  /** The browser refused to open the tab. The changes are kept. */
   | { kind: "blocked" }
   /** `message` is the sentence; `details` the technical text, folded away. */
   | { kind: "failed"; message: string; details?: string };
@@ -133,9 +133,9 @@ function handoffTitle(state: HandoffState): string {
     case "live":
       return `Live after ${seconds(state.ms)}`;
     case "blocked":
-      return "Saved — publishing needs the Studio";
+      return "Publishing needs the Studio";
     case "failed":
-      return "Saved, but not published";
+      return "Not published";
   }
 }
 
@@ -148,7 +148,7 @@ function handoffBody(state: HandoffState): string {
     case "live":
       return "Your change is on the site. This page still shows the version it loaded with.";
     case "blocked":
-      return "Your browser blocked the Studio tab that builds the site. Your change is saved and nothing is lost.";
+      return "Your browser blocked the Studio tab that builds the site. Your changes are kept and nothing is lost.";
     case "failed":
       return state.message;
   }
@@ -246,7 +246,7 @@ export function StudioPublishPage({
           {result?.kind === "live"
             ? `Live after ${seconds(result.ms)}`
             : result?.kind === "failed"
-              ? "Saved, but not published"
+              ? "Not published"
               : "Publishing your change"}
         </h1>
         <p className="mt-1 text-sm text-fg-secondary">

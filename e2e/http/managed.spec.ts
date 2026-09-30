@@ -125,22 +125,23 @@ test.describe("a project with no repository", () => {
  *
  * The rest of this directory runs against a connected project: a commit lands,
  * a host picks it up, and `Building` becomes `Live` because something outside
- * moves it. Here there is no repository and no host watching one, so a
- * `Building` state would be a spinner with no event that could ever end it --
- * it would not resolve on a reload, on a retry, or tomorrow, and the reader
- * would have no way to tell it from a deploy that is merely slow.
+ * moves it. Here there is no repository and no host watching one, and a
+ * managed publish is a JOB whose commit content records at the seal -- once
+ * its build is live (valbuild/home, docs/app-mode.md, "Publishing is a queued
+ * job"). So a managed commit is never on its way out, and the feed never says
+ * `Building` for one: the wait is the tab's own publish, not a row.
  *
  * This is the only place that difference can be seen in a browser, because it
  * is the only run where the content service calls the project managed. The unit
  * tests pin the rule; this pins that the rule reaches the screen.
  */
 test.describe("a publish nobody else will finish", () => {
-  test("says it is saved rather than that it is building", async ({ page }) => {
+  test("is never shown as building", async ({ page }) => {
     await openHttpStudio(page);
     await writePatch(page, "/content/authors.val.ts", [
-      { op: "replace", path: ["teddy", "name"], value: "Saved not live" },
+      { op: "replace", path: ["teddy", "name"], value: "Recorded, so live" },
     ]);
-    const published = await publishAll(page, "Saved, not deployed");
+    const published = await publishAll(page, "Recorded at the seal");
     expect(published.status, published.message ?? "").toBe("published");
 
     const summary = page
@@ -158,6 +159,6 @@ test.describe("a publish nobody else will finish", () => {
       )
       // Not "Building", which is what the same feed says for a connected
       // project from the same rows -- see `deployments.spec.ts`.
-      .toBe("Saved, not yet live");
+      .toBe("Live");
   });
 });
