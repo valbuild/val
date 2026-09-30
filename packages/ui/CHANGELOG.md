@@ -1,5 +1,51 @@
 # @valbuild/ui
 
+## 0.138.0
+
+### Minor Changes
+
+- [#754](https://github.com/valbuild/val/pull/754) [`6216172`](https://github.com/valbuild/val/commit/62161729aa40f737590b0a8093c0394385fffd8d) Thanks [@freekh](https://github.com/freekh)! - Connected projects hosted on the Val platform publish as a queued job too.
+
+  For a project with a GitHub repository whose site runs on the Val platform, pressing **Publish** is now a request, just as it is for a managed project. The Studio sends the job's changes; the content service pushes them as one commit on top of whatever is on the branch at that moment, so a developer's code push in between is kept. CI then builds it. A developer's change to the site's content files that this deployment has not seen stops the publish before anything is pushed, and says so.
+
+  - A build that CI reports as failed shows "Published, not on the site yet", with **View run**. The next publish builds again.
+  - New CLI command, `val ci-report --status failed|succeeded`, for a workflow's last step. It reads the commit, the branch and the run's address from GitHub Actions, uses the same `VAL_PROJECT_TOKEN` as `val publish`, and never fails the job.
+
+  Connected projects on a host of their own (for example Vercel) publish exactly as before.
+
+- [#754](https://github.com/valbuild/val/pull/754) [`40e933d`](https://github.com/valbuild/val/commit/40e933da7fe01cfe1c3f4a43c156f0b2f8a11f62) Thanks [@freekh](https://github.com/freekh)! - Publishing a managed project is now a queued job, and a publish is either live or it did not happen.
+
+  Pressing **Publish** in a managed project no longer commits first and builds after. It asks the content service for a publish job and returns at once; the Studio tab that pressed builds the job and uploads it, and the content service checks the build renders and makes it live — recording the commit only then. So there is no longer a "Saved, not yet live" state to get stuck in, and no **Finish publishing** button to get out of it.
+
+  - A press made while another publish is going out is queued behind it, and built when its turn comes by whichever open Studio tab is free.
+  - A tab that closes after uploading costs nothing: the rest of the publish is the content service's.
+  - A publish that fails before it goes live says so, with **Try again** and **Discard changes**. Your changes are kept either way.
+  - Publishing from the site (a page that cannot build) still opens a Studio window to build it; the window now runs the publish job for the page.
+
+  Connected projects (with a repository) that are hosted on the Val platform publish as a queued job too — see the note on connected projects. Those hosted elsewhere, for example on Vercel, publish exactly as before.
+
+  For the Val server: the publish proxy now forwards the publish-job routes, `/api/val/publish-job-prepare` renders a job's sources and hands content its archive, and `/api/val/built-source` is removed.
+
+- [#751](https://github.com/valbuild/val/pull/751) [`5876fe0`](https://github.com/valbuild/val/commit/5876fe075fdee1f76f1cdaa2488ac52c58c894a8) Thanks [@freekh](https://github.com/freekh)! - Publishing no longer asks for a commit message by default.
+
+  - **Publish publishes.** In HTTP mode, pressing Publish goes straight to publishing, just as Save already did in local development. Where an AI model is available it writes the commit message (the button reads "Preparing" meanwhile, for up to 15 seconds). Otherwise the message is built from what changed, and names the exact path when a single field changed, e.g. `Update hero.title in /content/home.val.ts`. When several things changed, the message body lists the changed modules and their fields: up to six modules and five fields each, then how many more.
+  - **`studio.commitMessage: "required"`** in `s.settings()` brings the box back, redesigned. Editors can turn it on from the Studio too: Settings → Studio → "Ask for a commit message". It opens empty rather than pre-filled, so a message cannot be published unread. The AI fills it in when it can, and Publish stays disabled until there is a message. Nothing publishes on its own: the countdown that published while the AI was still writing is gone.
+  - **The overlay menu stays open** while the commit message popover is open, or a publish is under way. Before, moving onto the popover collapsed the menu and the popover moved with it.
+
+### Patch Changes
+
+- [#752](https://github.com/valbuild/val/pull/752) [`57af895`](https://github.com/valbuild/val/commit/57af8959cc46519a405b1ed7441623f8bf2e6d27) Thanks [@freekh](https://github.com/freekh)! - `s.date()` now reports a value that is not a real `YYYY-MM-DD` day as a validation error. It used to check only `from` / `to`, and compared those as plain strings, so a typo like `"19f81-12-30"` passed a `.from("1900-01-01").to("2024-01-01")` range without a word. Impossible days such as `"2023-02-29"` are rejected too, and a `from` / `to` bound that is not a valid date is reported as a schema error.
+
+  The Studio's date field no longer shows a year below 100 (`"0050-01-01"`) as empty: it was read as 1950 and discarded.
+
+- [#744](https://github.com/valbuild/val/pull/744) [`c523506`](https://github.com/valbuild/val/commit/c523506c8b5e148864f401c005b913330e436499) Thanks [@freekh](https://github.com/freekh)! - A deploy that has reported itself as queued or building for more than an hour is now shown as **Status unknown** instead of building.
+
+  The build state comes from the hosting provider. When those updates stop arriving, a publish used to show a spinner indefinitely. The status bar, the deploy list, Recent activity and the compare view now all say "Status unknown" once the hour has passed, and switch over at that moment without needing a reload. A publish the site is already serving still shows as live. In a project the Studio deploys itself, a commit is recorded only once its build is live, so a row the site does not serve was superseded and reads "Published".
+
+- [#744](https://github.com/valbuild/val/pull/744) [`c523506`](https://github.com/valbuild/val/commit/c523506c8b5e148864f401c005b913330e436499) Thanks [@freekh](https://github.com/freekh)! - The first edit after a publish no longer says "1 change was added to your changes".
+
+  A published patch stays in the list of changes until the deploy lands. The Studio took it for an earlier edit that yours depended on, sent it along with your save, and showed the toast. Published patches are now treated as already shipped, which is how the publish check already treats them.
+
 ## 0.137.0
 
 ### Minor Changes
