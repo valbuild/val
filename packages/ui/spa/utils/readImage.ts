@@ -76,6 +76,12 @@ function readDecodedImage(file: File): Promise<ReadImageResult> {
             });
           }
         });
+        // A file that is not an image, or is a broken one, fires `error` and
+        // never `load`. Without this the promise never settled, and an image
+        // field waiting on it said "Uploading…" for as long as it was open.
+        image.addEventListener("error", () => {
+          reject({ message: `Could not read ${file.name} as an image` });
+        });
         image.src = result;
       } else if (!result) {
         reject({ message: "Empty result" });

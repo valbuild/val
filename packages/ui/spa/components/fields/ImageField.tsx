@@ -1,4 +1,4 @@
-import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
+import { Internal, Json, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -9,6 +9,7 @@ import {
   useValConfig,
   useModuleSchema,
   useFilePatchIds,
+  useSourceAtPath,
 } from "../ValFieldProvider";
 import {
   useCurrentRemoteFileBucket,
@@ -16,9 +17,9 @@ import {
 } from "../ValRemoteProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../designSystem/input";
-import { Loader2, Upload, X } from "lucide-react";
+import { Upload, X } from "lucide-react";
 import { Button } from "../designSystem/button";
 import { Checkbox } from "../designSystem/checkbox";
 import { useValPortal } from "../ValPortalProvider";
@@ -30,17 +31,24 @@ import { array } from "@valbuild/core/fp";
 import { resolveEncodeSettings } from "../../utils/encodeImage";
 import type { ReadImageEncode } from "../../utils/readImage";
 import { useImageUpload } from "./useImageUpload";
-import { MediaSummaryRow, Section } from "./MediaSummaryRow";
+import { Section } from "./MediaSummaryRow";
+import { ImageCard } from "./ImageCard";
+import { MediaThumbnail, mayBeTransparent } from "../MediaThumbnail";
+import { useMediaUrl } from "../../utils/mediaUrl";
+import { isJsonArray } from "../../utils/isJsonArray";
 import { HotspotMarker } from "./HotspotMarker";
+import { FocalPointPicker } from "./FocalPointPicker";
 import { Dialog, DialogContent, DialogTitle } from "../designSystem/dialog";
 
 export function ImageField({
   path,
   readonly,
   hideUpload,
+  compact,
 }: {
   path: SourcePath;
   readonly?: boolean;
+  /** Where there are many or there is little room. See `ImageCard`. */
   compact?: boolean;
   hideUpload?: boolean;
 }) {
@@ -74,6 +82,8 @@ export function ImageField({
    * field mounts with no value — which is every empty image field.
    */
   const [previewOpen, setPreviewOpen] = useState(false);
+  /** Why the last file was refused, until the next upload. */
+  const [fileError, setFileError] = useState<string | null>(null);
   const portalContainer = useValPortal();
   /**
    * The hidden file input, clicked by name.
@@ -139,6 +149,9 @@ export function ImageField({
       ? schemaAtPath.data
       : undefined;
   const referencedModule = imageSchema?.referencedModule;
+  const referencedModuleFilePath = referencedModule as
+    | ModuleFilePath
+    | undefined;
   /**
    * The referenced GALLERY's schema, not the project's.
    *
@@ -146,9 +159,7 @@ export function ImageField({
    * anywhere; this component is mounted once per media field. See
    * `perFieldSubscriptions.test.ts`.
    */
-  const referencedModuleSchema = useModuleSchema(
-    referencedModule as ModuleFilePath | undefined,
-  );
+  const referencedModuleSchema = useModuleSchema(referencedModuleFilePath);
   const acceptOptions = useMemo(() => {
     if (!imageSchema) {
       return undefined;
@@ -291,16 +302,32 @@ export function ImageField({
   const fileName = source
     ? (source.path.split("/").pop() ?? source.path)
     : null;
-  const fileDetail = (() => {
-    if (!source) return null;
-    const { width, height, mimeType } = source;
+  /**
+   * The dimensions and type, from the field's own value or — for a field
+   * backed by a gallery, whose value carries only `path`, `alt` and
+   * `hotspot` — from the gallery's entry. See `GalleryEntryMetadata`.
+   */
+  const metadataOf = (entry: ImageMetadataLike | undefined) => {
+    const width = source?.width ?? entry?.width;
+    const height = source?.height ?? entry?.height;
+    const mimeType =
+      typeof source?.mimeType === "string" ? source.mimeType : entry?.mimeType;
     const parts: string[] = [];
     if (typeof width === "number" && typeof height === "number") {
       parts.push(`${width} × ${height}`);
     }
     if (typeof mimeType === "string") parts.push(mimeType);
-    return parts.length > 0 ? parts.join(" · ") : null;
-  })();
+    return {
+      mimeType,
+      fileDetail: parts.length > 0 ? parts.join(" · ") : null,
+      // What the image is DRAWN with. The field's own description wins, then
+      // the gallery's — the same order as `fillFromGallery` — because a
+      // gallery-backed field hides its Description input: the gallery owns the
+      // text, and without this every preview of it was `alt=""`.
+      renderedAlt:
+        typeof source?.alt === "string" ? source.alt : (entry?.alt ?? ""),
+    };
+  };
 
   /**
    * The description, as one place rather than inline in the input.
@@ -332,346 +359,544 @@ export function ImageField({
     );
   };
 
+  /**
+   * What the card offers: choosing a file, and removing it. The same set
+   * whether the field is empty or not; which of them shows depends on `source`.
+   *
+   * Every way of changing the file — and the description, below — waits while
+   * an upload is in flight. The upload writes its whole-image `replace` only
+   * once the bytes are up, carrying the alt text it started with, so a gallery
+   * entry picked, a second file chosen or a description typed in between is
+   * written first and then overwritten.
+   */
+  const actions = (
+    <>
+      {/*
+       * One control for "which file", not two.
+       *
+       * A field that owns its file has nothing to choose between, so
+       * Choose asset opens the file dialog directly. A field pointing
+       * into a collection has a list, so it opens that — with the upload
+       * inside it, because picking a file for the field and adding one to
+       * the collection are the same decision from the editor's side and
+       * splitting them means finding out only after opening the list
+       * that what you want is not in it.
+       */}
+      {!hideUpload && referencedModuleFilePath && (
+        <ModuleMediaPicker
+          compact
+          footer={
+            <button
+              type="button"
+              disabled={disabled || loading}
+              onClick={() => fileInputRef.current?.click()}
+              className={cn(
+                "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs",
+                "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
+                "disabled:pointer-events-none disabled:opacity-50",
+              )}
+            >
+              <Upload size={13} />
+              Upload into {prettyModuleName(referencedModuleFilePath)}
+            </button>
+          }
+          modulePath={referencedModuleFilePath}
+          selectedRef={source?.path ?? null}
+          onSelect={(entry: GalleryEntry) => {
+            // Only the path: the dimensions and mime type stay in the
+            // gallery, which is the one place that has them.
+            addPatch(
+              [
+                {
+                  op: "replace",
+                  path: patchPath,
+                  value: { path: entry.filePath },
+                },
+              ],
+              "image",
+            );
+          }}
+          isImage
+          disabled={disabled || loading}
+          portalContainer={portalContainer}
+        />
+      )}
+      {/* The field's own file, so there is nothing to pick from:
+          Choose asset IS the file dialog. Hidden when the field
+          points into a collection, where the picker offers it. */}
+      {!hideUpload && !referencedModule && (
+        <Button
+          variant={"outline"}
+          size="sm"
+          disabled={disabled || loading}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <Upload className="mr-1.5 h-3.5 w-3.5" />
+          {url ? "Replace" : "Choose asset"}
+        </Button>
+      )}
+      {/*
+       * Clearing the field, for a schema that allows it.
+       *
+       * The field itself has to offer this, not only the `Field`
+       * wrapper's nullable checkbox: an image opened on its own — an
+       * array item, a record entry, a gallery-backed field — has no
+       * wrapper, so without it a `.nullable()` image could be replaced
+       * but never emptied.
+       *
+       * Gated on `readonly` alone rather than on `disabled`: the other
+       * things that disable this field (remote uploads not ready, the
+       * referenced gallery missing from `val.modules`) stop a file
+       * going IN. Taking one out needs none of them, and a field
+       * pointing at a gallery that is gone is exactly when an editor
+       * wants to.
+       *
+       * An upload IN FLIGHT is the exception, and it is an ordering
+       * bug rather than a permission: `uploadImage` reads, encodes and
+       * hashes the file before it enqueues its `replace`, so a Remove
+       * clicked inside that window writes `null` first and the upload
+       * lands afterwards and puts the file back. Only reachable while
+       * REPLACING — an empty field has nothing to remove — which is
+       * exactly when it looks like the removal was ignored.
+       */}
+      {schemaAtPath.data.opt && source && !readonly && (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={loading}
+          onClick={() => {
+            addPatch([{ op: "replace", path: patchPath, value: null }], type);
+          }}
+        >
+          <X className="mr-1.5 h-3.5 w-3.5" />
+          Remove
+        </Button>
+      )}
+    </>
+  );
+  const upload = (imageFile: File) => {
+    setFileError(null);
+    const prevUrl: string | null = url;
+    uploadImage(imageFile).then((result) => {
+      if (!result) {
+        setUrl(prevUrl);
+      }
+    });
+  };
+  /**
+   * Every file the editor hands this field — dropped, or chosen in the dialog,
+   * whose "All files" option lets anything through just as a drop does. What
+   * is refused here is only what is not an image at all, with a message that
+   * says so; whether it is an image this field ACCEPTS is `useImageUpload`'s
+   * check, made after re-encoding, where the stored type is known.
+   */
+  const acceptFile = (file: File) => {
+    // An EMPTY type is not "not an image": a browser reports "" for a format
+    // it does not recognise (HEIC on some systems), which may still decode.
+    // `readImageFromFile` settles that, and says so if it cannot.
+    if (file.type !== "" && !file.type.startsWith("image/")) {
+      setFileError(`${file.name} is not an image.`);
+      return;
+    }
+    upload(file);
+  };
+
   const altPath = Internal.createValPathOfItem(path, "alt");
   const hotspotPath = Internal.createValPathOfItem(path, "hotspot");
-  return (
-    <div id={path}>
-      {missingModules.length > 0 && (
-        <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
-          {missingModules.length === 1
-            ? `The module '${missingModules[0]}' is referenced by this field but is not added to val.modules. Add it to val.modules to enable uploads.`
-            : `The following modules are referenced by this field but are not added to val.modules: ${missingModules.join(", ")}. Add them to val.modules to enable uploads.`}
-        </div>
-      )}
-      {error && (
-        <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
-          {error}
-        </div>
-      )}
-      {schemaAtPath.data.type === "image" &&
-        schemaAtPath.data.remote &&
-        remoteFiles.status === "inactive" && (
+  const render = (entry: ImageMetadataLike | undefined) => {
+    const { mimeType, fileDetail, renderedAlt } = metadataOf(entry);
+    return (
+      <div id={path}>
+        {missingModules.length > 0 && (
           <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
-            {getRemoteFilesError(remoteFiles.reason)}
+            {missingModules.length === 1
+              ? `The module '${missingModules[0]}' is referenced by this field but is not added to val.modules. Add it to val.modules to enable uploads.`
+              : `The following modules are referenced by this field but are not added to val.modules: ${missingModules.join(", ")}. Add them to val.modules to enable uploads.`}
           </div>
         )}
-      {/*
-       * The file, then what it is of, then where to look at it.
-       *
-       * Deliberately in that order and not in tabs. The description is the one
-       * an editor is most likely to skip and the one a page is least able to do
-       * without, so it sits directly under the file; the focal point only
-       * matters once there is a file to crop.
-       *
-       * The summary row is what changed: the image used to be rendered full
-       * width at the top, which meant the answer to "which image is this"
-       * needed the whole field's height and told you nothing about the file —
-       * not its name, not its size, not whether the page is using the copy you
-       * think it is.
-       */}
-      <div className="flex flex-col gap-5">
-        <MediaSummaryRow
-          url={url}
-          name={fileName}
-          detail={fileDetail}
-          hotspot={hotspot}
-          onOpenPreview={url ? () => setPreviewOpen(true) : undefined}
-          uploading={loading}
-          progressPercentage={progressPercentage}
-          actions={
-            <>
+        {error && (
+          // An alert: an upload refused for its type, or for not being
+          // readable, is refused after the drop or the pick, with nothing
+          // taking focus — so without this it is silent.
+          <div
+            role="alert"
+            className="p-4 rounded bg-bg-error-primary text-fg-error-primary"
+          >
+            {error}
+          </div>
+        )}
+        {schemaAtPath.data.type === "image" &&
+          schemaAtPath.data.remote &&
+          remoteFiles.status === "inactive" && (
+            <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
+              {getRemoteFilesError(remoteFiles.reason)}
+            </div>
+          )}
+        {/*
+         * The file, then what it is of, then where to look at it.
+         *
+         * Deliberately in that order and not in tabs. The description is the one
+         * an editor is most likely to skip and the one a page is least able to do
+         * without, so it sits directly under the file; the focal point only
+         * matters once there is a file to crop.
+         *
+         * The card is the image as a page would show it — a crop around the
+         * focal point — with the file's name and particulars under it, so both
+         * "what does the page get" and "which copy is this" are answered before
+         * anything is clicked. See `ImageCard`.
+         */}
+        {!hideUpload && (
+          <input
+            disabled={disabled || loading}
+            hidden
+            ref={fileInputRef}
+            id={`img_input:${path}`}
+            type="file"
+            accept={acceptOptions ?? "image/*"}
+            onChange={(ev) => {
+              const imageFile = ev.currentTarget.files?.[0];
+              if (!imageFile) return;
+              // Through the same door as a drop: the dialog's "All files"
+              // lets anything through, just as a drop does.
+              acceptFile(imageFile);
+              ev.target.value = "";
+            }}
+          />
+        )}
+        <div className="flex flex-col gap-5">
+          <ImageCard
+            url={url}
+            alt={renderedAlt}
+            name={fileName}
+            detail={[
+              fileDetail,
+              hotspot
+                ? `focal point ${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+            mimeType={mimeType}
+            hotspot={hotspot}
+            onOpenPreview={url ? () => setPreviewOpen(true) : undefined}
+            uploading={loading}
+            progressPercentage={progressPercentage}
+            onDropFile={hideUpload ? undefined : acceptFile}
+            dropDisabled={disabled || loading}
+            emptyActions={actions}
+            actions={actions}
+            compact={compact}
+          />
+          {fileError && (
+            // An alert, so a refused file is announced: the message appears
+            // with nothing having taken focus, and is otherwise silent.
+            <p role="alert" className="-mt-3 text-xs text-fg-error-primary">
+              {fileError}
+            </p>
+          )}
+          {/*
+           * Only for a field that is NOT gallery-backed. A gallery keeps alt on
+           * its entry, so a field referencing one must not offer a second place
+           * to write it.
+           *
+           * This asked `!moduleDirectory` when that was only ever set for a
+           * referenced module. It is not any more — a field's own `directory`
+           * option sets it too — so the question is asked directly.
+           */}
+          {source && !referencedModule && (
+            <Section
+              label="Description"
+              hint="What the image shows, for people who cannot see it."
+            >
+              <span id={altPath} className="sr-only">
+                Description
+              </span>
               {/*
-               * One control for "which file", not two.
-               *
-               * A field that owns its file has nothing to choose between, so
-               * Choose asset opens the file dialog directly. A field pointing
-               * into a collection has a list, so it opens that — with the upload
-               * inside it, because picking a file for the field and adding one to
-               * the collection are the same decision from the editor's side and
-               * splitting them means finding out only after opening the list
-               * that what you want is not in it.
+               * No "Missing" marker and no fill-it-from-the-filename shortcut:
+               * Val has no rule that alt text is required, so an empty field is
+               * not an error and must not be dressed as one. If a schema ever
+               * does require it, the validation error says so through the
+               * normal error path rather than through a badge invented here.
                */}
-              {!hideUpload && referencedModule && (
-                <ModuleMediaPicker
-                  compact
-                  footer={
-                    <button
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => fileInputRef.current?.click()}
-                      className={cn(
-                        "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs",
-                        "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
-                        "disabled:pointer-events-none disabled:opacity-50",
-                      )}
-                    >
-                      <Upload size={13} />
-                      Upload into {prettyModuleName(referencedModule)}
-                    </button>
-                  }
-                  modulePath={referencedModule as ModuleFilePath}
-                  selectedRef={source?.path ?? null}
-                  onSelect={(entry: GalleryEntry) => {
-                    // Only the path: the dimensions and mime type stay in the
-                    // gallery, which is the one place that has them.
-                    addPatch(
-                      [
-                        {
-                          op: "replace",
-                          path: patchPath,
-                          value: { path: entry.filePath },
-                        },
-                      ],
-                      "image",
-                    );
-                  }}
-                  isImage
-                  disabled={disabled}
-                  portalContainer={portalContainer}
-                />
-              )}
-              {!hideUpload && (
-                <>
-                  {/* The field's own file, so there is nothing to pick from:
-                      Choose asset IS the file dialog. Hidden when the field
-                      points into a collection, where the picker offers it. */}
-                  {!referencedModule && (
-                    <Button
-                      variant={"outline"}
-                      size="sm"
-                      disabled={disabled}
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <Upload className="mr-1.5 h-3.5 w-3.5" />
-                      {url ? "Replace" : "Choose asset"}
-                    </Button>
-                  )}
-                  <input
-                    disabled={disabled}
-                    hidden
-                    ref={fileInputRef}
-                    id={`img_input:${path}`}
-                    type="file"
-                    accept={acceptOptions ?? "image/*"}
-                    onChange={(ev) => {
-                      const imageFile = ev.currentTarget.files?.[0];
-                      if (!imageFile) return;
-                      const prevUrl: string | null = url;
-                      uploadImage(imageFile).then((result) => {
-                        if (!result) {
-                          setUrl(prevUrl);
-                        }
-                      });
-                      ev.target.value = "";
+              <Input
+                value={altText}
+                disabled={disabled || loading}
+                onChange={(ev) => setAltText(ev.target.value)}
+              />
+            </Section>
+          )}
+          {source && url && (
+            <Section
+              label="Focal point"
+              hint="Click or drag on the image to say what must stay in frame when the page crops it."
+              collapsible
+              summary={
+                hotspot
+                  ? `${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
+                  : "Not set"
+              }
+            >
+              <FocalPointPicker
+                url={url}
+                checkerboard={mayBeTransparent(mimeType)}
+                hotspot={hotspot}
+                alt={renderedAlt}
+                // Not while an upload is in flight, for the same reason as
+                // Remove: the upload writes its whole-image `replace` only
+                // once the bytes are up, so a focal point set in between is
+                // written first and then overwritten — it moves, then vanishes.
+                readonly={readonly || loading}
+                id={hotspotPath}
+                onChange={(hotspot) => {
+                  addPatch(
+                    [
+                      {
+                        op: "add",
+                        path: patchPath.concat(["hotspot"]),
+                        value: hotspot,
+                      },
+                    ],
+                    "object",
+                  );
+                }}
+              />
+              {source && url && (
+                <div className="mt-3 flex items-center gap-2">
+                  <Checkbox
+                    id={`hotspot_toggle:${path}`}
+                    checked={!!hotspot}
+                    // See the picker above: an upload in flight would
+                    // overwrite whatever this writes.
+                    disabled={disabled || loading}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        // "add" regardless of whether hotspot is already set: see
+                        // the alt field above for why choosing "replace" from the
+                        // optimistic source is a publish failure waiting to happen.
+                        addPatch(
+                          [
+                            {
+                              op: "add",
+                              path: patchPath.concat(["hotspot"]),
+                              value: { x: 0.5, y: 0.5 },
+                            },
+                          ],
+                          "object",
+                        );
+                      } else if (source.hotspot) {
+                        addPatch(
+                          [
+                            {
+                              op: "remove",
+                              path: patchPath.concat([
+                                "hotspot",
+                              ]) as array.NonEmptyArray<string>,
+                            },
+                          ],
+                          "object",
+                        );
+                      }
                     }}
                   />
-                </>
+                  <label
+                    htmlFor={`hotspot_toggle:${path}`}
+                    className="text-xs text-fg-secondary select-none"
+                  >
+                    Hotspot
+                    {hotspot && (
+                      <span className="ml-1 text-fg-tertiary">
+                        ({Math.round(hotspot.x * 100)}%,{" "}
+                        {Math.round(hotspot.y * 100)}
+                        %)
+                      </span>
+                    )}
+                  </label>
+                </div>
               )}
-              {/*
-               * Clearing the field, for a schema that allows it.
-               *
-               * The field itself has to offer this, not only the `Field`
-               * wrapper's nullable checkbox: an image opened on its own — an
-               * array item, a record entry, a gallery-backed field — has no
-               * wrapper, so without it a `.nullable()` image could be replaced
-               * but never emptied.
-               *
-               * Gated on `readonly` alone rather than on `disabled`: the other
-               * things that disable this field (remote uploads not ready, the
-               * referenced gallery missing from `val.modules`) stop a file
-               * going IN. Taking one out needs none of them, and a field
-               * pointing at a gallery that is gone is exactly when an editor
-               * wants to.
-               *
-               * An upload IN FLIGHT is the exception, and it is an ordering
-               * bug rather than a permission: `uploadImage` reads, encodes and
-               * hashes the file before it enqueues its `replace`, so a Remove
-               * clicked inside that window writes `null` first and the upload
-               * lands afterwards and puts the file back. Only reachable while
-               * REPLACING — an empty field has nothing to remove — which is
-               * exactly when it looks like the removal was ignored.
-               */}
-              {schemaAtPath.data.opt && source && !readonly && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={loading}
-                  onClick={() => {
-                    addPatch(
-                      [{ op: "replace", path: patchPath, value: null }],
-                      type,
-                    );
-                  }}
-                >
-                  <X className="mr-1.5 h-3.5 w-3.5" />
-                  Remove
-                </Button>
-              )}
-            </>
-          }
-        />
-        {/*
-         * Only for a field that is NOT gallery-backed. A gallery keeps alt on
-         * its entry, so a field referencing one must not offer a second place
-         * to write it.
-         *
-         * This asked `!moduleDirectory` when that was only ever set for a
-         * referenced module. It is not any more — a field's own `directory`
-         * option sets it too — so the question is asked directly.
-         */}
-        {source && !referencedModule && (
-          <Section
-            label="Description"
-            hint="What the image shows, for people who cannot see it."
-          >
-            <span id={altPath} className="sr-only">
-              Description
-            </span>
+            </Section>
+          )}
+        </div>
+        {url && (
+          <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
             {/*
-             * No "Missing" marker and no fill-it-from-the-filename shortcut:
-             * Val has no rule that alt text is required, so an empty field is
-             * not an error and must not be dressed as one. If a schema ever
-             * does require it, the validation error says so through the
-             * normal error path rather than through a badge invented here.
+             * Sized by the image, not by the viewport.
+             *
+             * `DialogContent` is `w-full`, so this was a 90vw box with the image
+             * pinned to its left edge — a portrait photo sat in a corner beside
+             * a wide empty panel. Worse, the focal point was drawn in that box
+             * rather than on the photo: a `grid` child is stretched, so the
+             * "shrink-wrapping" wrapper was as wide as the dialog, and a marker
+             * at 70% of it landed on the empty panel. `w-max` makes the dialog
+             * exactly the image's width (the image is capped in viewport units,
+             * so that cannot overflow), and `justify-self-center` stops the
+             * wrapper being stretched.
              */}
-            <Input
-              value={altText}
-              disabled={disabled}
-              onChange={(ev) => setAltText(ev.target.value)}
-            />
-          </Section>
-        )}
-        {source && url && (
-          <Section
-            label="Focal point"
-            hint="Click the image to say what must stay in frame when the page crops it."
-            collapsible
-            summary={
-              hotspot
-                ? `${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
-                : "Not set"
-            }
-          >
-            {source && url && (
-              <div className="relative rounded-lg bg-bg-secondary">
-                {loading && (
-                  <div className="flex absolute inset-0 flex-col justify-center items-center">
-                    <div className="absolute inset-0 w-full h-full opacity-50 bg-bg-secondary" />
-                    <Loader2 size={24} className="animate-spin" />
-                    <div className="mt-2 text-xs font-thin text-[white] z-5">
-                      {progressPercentage !== null
-                        ? `${progressPercentage}%`
-                        : ""}
-                    </div>
-                  </div>
-                )}
+            <DialogContent
+              container={portalContainer}
+              className="w-max max-w-[90vw] gap-0 overflow-hidden p-0 md:w-max"
+            >
+              <DialogTitle className="sr-only">
+                {fileName ?? "Image"}
+              </DialogTitle>
+              {/* The focal point is drawn here too: it is a property of the
+                  image, and the large view is where it is actually legible. */}
+              <div className="relative justify-self-center">
                 <img
                   src={url}
+                  alt={renderedAlt}
                   draggable={false}
-                  className="object-contain max-h-[500px] w-full"
-                  style={{
-                    cursor: readonly ? "default" : "crosshair",
-                  }}
-                  id={hotspotPath}
-                  onClick={(ev) => {
-                    if (readonly) return;
-                    const { width, height, left, top } =
-                      ev.currentTarget.getBoundingClientRect();
-                    const hotspot = {
-                      x: Math.max((ev.clientX - 6 - left) / width, 0),
-                      y: Math.max((ev.clientY - 6 - top) / height, 0),
-                    };
-                    addPatch(
-                      [
-                        {
-                          op: "add",
-                          path: patchPath.concat(["hotspot"]),
-                          value: hotspot,
-                        },
-                      ],
-                      "object",
-                    );
-                  }}
+                  className={cn(
+                    "block h-auto max-h-[80vh] w-auto max-w-[90vw]",
+                    mayBeTransparent(mimeType) && "val-checkerboard",
+                  )}
                 />
                 {hotspot && <HotspotMarker hotspot={hotspot} />}
               </div>
-            )}
-            {source && url && (
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id={`hotspot_toggle:${path}`}
-                  checked={!!hotspot}
-                  disabled={disabled}
-                  onCheckedChange={(checked) => {
-                    if (checked) {
-                      // "add" regardless of whether hotspot is already set: see
-                      // the alt field above for why choosing "replace" from the
-                      // optimistic source is a publish failure waiting to happen.
-                      addPatch(
-                        [
-                          {
-                            op: "add",
-                            path: patchPath.concat(["hotspot"]),
-                            value: { x: 0.5, y: 0.5 },
-                          },
-                        ],
-                        "object",
-                      );
-                    } else if (source.hotspot) {
-                      addPatch(
-                        [
-                          {
-                            op: "remove",
-                            path: patchPath.concat([
-                              "hotspot",
-                            ]) as array.NonEmptyArray<string>,
-                          },
-                        ],
-                        "object",
-                      );
-                    }
-                  }}
-                />
-                <label
-                  htmlFor={`hotspot_toggle:${path}`}
-                  className="text-xs text-fg-secondary select-none"
-                >
-                  Hotspot
-                  {hotspot && (
-                    <span className="ml-1 text-fg-tertiary">
-                      ({Math.round(hotspot.x * 100)}%,{" "}
-                      {Math.round(hotspot.y * 100)}
-                      %)
-                    </span>
-                  )}
-                </label>
+              <div className="flex min-w-0 items-baseline gap-2 border-t border-border-secondary px-4 py-2.5 pr-10">
+                <p className="truncate text-xs font-medium text-fg-primary">
+                  {fileName}
+                </p>
+                <p className="shrink-0 text-[0.6875rem] text-fg-secondary-alt">
+                  {[
+                    fileDetail,
+                    hotspot
+                      ? `Focal point ${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
               </div>
-            )}
-          </Section>
+            </DialogContent>
+          </Dialog>
         )}
       </div>
-      {url && (
-        <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-          <DialogContent
-            container={portalContainer}
-            className="max-h-[90vh] max-w-[90vw] overflow-hidden p-0"
-          >
-            <DialogTitle className="sr-only">{fileName ?? "Image"}</DialogTitle>
-            {/* The focal point is drawn here too: it is a property of the
-                image, and the large view is where it is actually legible. */}
-            <div className="relative inline-flex bg-bg-secondary">
-              <img
-                src={url}
-                alt={altText}
-                className="max-h-[85vh] max-w-full object-contain"
-              />
-              {hotspot && <HotspotMarker hotspot={hotspot} />}
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
-    </div>
+    );
+  };
+  return referencedModuleFilePath && source ? (
+    <GalleryEntryMetadata
+      modulePath={referencedModuleFilePath}
+      filePath={source.path}
+    >
+      {render}
+    </GalleryEntryMetadata>
+  ) : (
+    render(undefined)
   );
+}
+
+type ImageMetadataLike = {
+  width?: number;
+  height?: number;
+  mimeType?: string;
+  alt?: string;
+};
+
+/**
+ * The gallery entry a gallery-backed field points at, read on its own.
+ *
+ * A gallery-backed value is `{ path, alt?, hotspot? }` — the dimensions and
+ * type live on the gallery's entry, keyed by the path — so without this the
+ * card said nothing about the file and never drew the checkerboard for a
+ * transparent one. A component rather than a hook in `ImageField` because the
+ * hook needs a path to read, and a field that is not gallery-backed has none:
+ * mounting this only when there is one keeps the hook unconditional.
+ *
+ * One entry, by path: `useSourceAtPath` peeks and demands that entry alone, so
+ * a field does not subscribe to the whole gallery. See
+ * `perFieldSubscriptions.test.ts`.
+ *
+ * Under TWO keys, the way `fillFromGallery` looks it up. A remote upload
+ * stores the remote ref in the field but files the metadata under the local
+ * `filePath` inside that ref, so the exact key misses and the split one hits.
+ * Both reads are always made — a hook cannot be conditional — and for a local
+ * path the second is the same path again.
+ */
+function GalleryEntryMetadata({
+  modulePath,
+  filePath,
+  children,
+}: {
+  modulePath: ModuleFilePath;
+  filePath: string;
+  children: (entry: ImageMetadataLike | undefined) => ReactNode;
+}) {
+  const split = Internal.remote.splitRemoteRef(filePath);
+  // Two components rather than two reads everywhere: for a local path the
+  // second key IS the first, and `useSourceAtPath` gives every call its own
+  // listener and demand, so reading it twice doubled the common case. The
+  // cost is a remount if one field's value goes from a local path to a remote
+  // ref, which a field's refs do not normally do.
+  return split.status === "success" ? (
+    <RemoteGalleryEntry
+      modulePath={modulePath}
+      filePath={filePath}
+      localFilePath={split.filePath}
+    >
+      {children}
+    </RemoteGalleryEntry>
+  ) : (
+    <LocalGalleryEntry modulePath={modulePath} filePath={filePath}>
+      {children}
+    </LocalGalleryEntry>
+  );
+}
+
+function LocalGalleryEntry({
+  modulePath,
+  filePath,
+  children,
+}: {
+  modulePath: ModuleFilePath;
+  filePath: string;
+  children: (entry: ImageMetadataLike | undefined) => ReactNode;
+}) {
+  const entry = useSourceAtPath(
+    Internal.createValPathOfItem(modulePath, filePath) ?? modulePath,
+  );
+  return (
+    <>
+      {children(
+        entry.status === "success" ? metadataFrom(entry.data) : undefined,
+      )}
+    </>
+  );
+}
+
+function RemoteGalleryEntry({
+  modulePath,
+  filePath,
+  localFilePath,
+  children,
+}: {
+  modulePath: ModuleFilePath;
+  filePath: string;
+  localFilePath: string;
+  children: (entry: ImageMetadataLike | undefined) => ReactNode;
+}) {
+  const exact = useSourceAtPath(
+    Internal.createValPathOfItem(modulePath, filePath) ?? modulePath,
+  );
+  const local = useSourceAtPath(
+    Internal.createValPathOfItem(modulePath, localFilePath) ?? modulePath,
+  );
+  const entry =
+    (exact.status === "success" ? metadataFrom(exact.data) : undefined) ??
+    (local.status === "success" ? metadataFrom(local.data) : undefined);
+  return <>{children(entry)}</>;
+}
+
+function metadataFrom(data: Json): ImageMetadataLike | undefined {
+  if (typeof data !== "object" || data === null || isJsonArray(data)) {
+    return undefined;
+  }
+  const { width, height, mimeType, alt } = data;
+  return {
+    width: typeof width === "number" ? width : undefined,
+    height: typeof height === "number" ? height : undefined,
+    mimeType: typeof mimeType === "string" ? mimeType : undefined,
+    alt: typeof alt === "string" ? alt : undefined,
+  };
 }
 
 export function getRemoteFilesError(
@@ -713,23 +938,52 @@ export function getRemoteFilesError(
   }
 }
 
+/**
+ * An image as one value in a summary — an array row that lists an object's
+ * fields ("Type: image / Image: …"), for one.
+ *
+ * A fixed square cropped at the focal point, the way record rows
+ * (`ListPreviewItem`) and the heading already draw an image. It was the whole
+ * picture shrunk to fit 60×60, so a portrait was a sliver and a landscape a
+ * strip: each row a different shape, and none of them what the page shows.
+ *
+ * The URL goes through `useMediaUrl` for the same reason as everywhere else: a
+ * just-uploaded image is served from its patch, and `Internal.mediaUrl` of the
+ * value alone drew a broken picture until the editor saved.
+ */
 export function ImagePreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "image");
+  const source =
+    "data" in sourceAtPath && sourceAtPath.data ? sourceAtPath.data : null;
+  // Above the early returns: a hook below one is a hook-order crash the
+  // first time the value goes from loading to present.
+  const url = useMediaUrl(source);
   if (sourceAtPath.status === "error") {
     return <FieldSourceError path={path} error={sourceAtPath.error} />;
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;
   }
-  if (sourceAtPath.data === null) {
+  if (sourceAtPath.data === null || !url) {
     return <PreviewNull path={path} />;
   }
-  const source = sourceAtPath.data;
+  const hotspot = source?.hotspot;
   return (
-    <img
-      src={Internal.mediaUrl(source)}
-      draggable={false}
-      className="object-contain max-w-[60px] max-h-[60px] rounded-lg"
+    <MediaThumbnail
+      url={url}
+      alt={typeof source?.alt === "string" ? source.alt : ""}
+      hotspot={
+        hotspot &&
+        typeof hotspot.x === "number" &&
+        typeof hotspot.y === "number"
+          ? { x: hotspot.x, y: hotspot.y }
+          : undefined
+      }
+      checkerboard={mayBeTransparent(
+        typeof source?.mimeType === "string" ? source.mimeType : undefined,
+      )}
+      loading="lazy"
+      className="h-12 w-12 shrink-0 rounded-md border border-border-primary bg-bg-secondary"
     />
   );
 }

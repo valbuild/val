@@ -18,14 +18,14 @@ import { MediaThumbnail } from "../MediaThumbnail";
  * So: a thumbnail at a size that identifies rather than displays, the file's
  * particulars beside it, and the controls that change it on the same line.
  *
- * The thumbnail shows the focal point rather than cropping to it, and is never
- * enlarged past the file's own size — see `MediaThumbnail`. Cropping at this
- * size is not a preview of anything, and an 8x8 image stretched to fill the box
- * looks exactly like a large one that happens to be blurry.
+ * The thumbnail is cropped around the focal point, the way a page would crop
+ * it, and is never enlarged past the file's own size — see `MediaThumbnail`.
+ * An 8x8 image stretched to fill the box looks exactly like a large one that
+ * happens to be blurry.
  *
- * Shared by the image and file fields. A non-image has no thumbnail to show, so
- * it gets its type's icon; everything else about the row is the same, and two
- * versions of it would drift.
+ * The file field's row. The image field used it too until it got `ImageCard`,
+ * which shows the picture as the page crops it — a file has no picture, so its
+ * row keeps the type's icon and the name beside it.
  */
 export function MediaSummaryRow({
   url,
@@ -69,9 +69,8 @@ export function MediaSummaryRow({
   const thumbnail = (
     <>
       {isImage && url ? (
-        // Never enlarged, and the focal point drawn rather than applied: see
-        // `MediaThumbnail`. An 8x8 image blown up to fill this box is
-        // indistinguishable from a large one that was merely cropped.
+        // Cropped around the focal point, and never enlarged: see
+        // `MediaThumbnail`.
         <MediaThumbnail url={url} hotspot={hotspot} />
       ) : (
         <Icon size={20} strokeWidth={1.5} className="text-fg-secondary-alt" />

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   clearPatchChain,
@@ -53,6 +54,13 @@ const LARGE_IMAGE = "e2e/fixtures/large-1200x900.png";
  * 200x400 image.
  */
 const ROTATED_IMAGE = "e2e/fixtures/rotated-600x300.jpg";
+/**
+ * A portrait image, i.e. one narrower than the field it is picked in: the case
+ * where the focal point used to be measured against the letterboxed box rather
+ * than the picture. A flat colour, because the test reads coordinates, not
+ * pixels.
+ */
+const PORTRAIT_IMAGE = "e2e/fixtures/portrait-300x600.png";
 
 /** The gallery/field picker — never the AI chat's, which is the `multiple` one. */
 function picker(studio: Locator): Locator {
@@ -75,6 +83,38 @@ function moduleSource(page: Page, moduleFilePath: string): Promise<unknown> {
     ).__VAL_STORES__.system.sourceStore.peek(mfp);
     return peek.status === "ready" ? peek.data : peek.status;
   }, moduleFilePath);
+}
+
+/**
+ * Where the PICTURE is on screen, as opposed to its `<img>` element.
+ *
+ * They differ under `object-fit: contain`, which letterboxes the picture inside
+ * the element — and measuring against the element instead of the picture is
+ * the focal point bug this is used to test, so the test must not make it too.
+ */
+function pictureRect(
+  img: Locator,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  return img.evaluate((node) => {
+    const i = node as HTMLImageElement;
+    const r = i.getBoundingClientRect();
+    const fit = getComputedStyle(i).objectFit;
+    const scale =
+      fit === "contain" || fit === "scale-down"
+        ? Math.min(r.width / i.naturalWidth, r.height / i.naturalHeight)
+        : NaN;
+    if (Number.isNaN(scale)) {
+      return { x: r.left, y: r.top, width: r.width, height: r.height };
+    }
+    const width = i.naturalWidth * scale;
+    const height = i.naturalHeight * scale;
+    return {
+      x: r.left + (r.width - width) / 2,
+      y: r.top + (r.height - height) / 2,
+      width,
+      height,
+    };
+  });
 }
 
 /** A gallery's entries as [ref, metadata] pairs, once the store has them. */
@@ -483,6 +523,119 @@ test.describe("single media fields", () => {
       .toBeGreaterThan(0);
 
     await page.keyboard.press("Escape");
+    await discardAll(page);
+    await expectNoPatchesOnServer(request);
+  });
+
+  /**
+   * The focal point is where the editor clicked, and is drawn there.
+   *
+   * A portrait image was letterboxed inside a full-width `<img>`, so a click
+   * was measured against the letterbox and then shifted 6px: a click at 70%
+   * across saved about 55%. The large preview then drew the marker against a
+   * dialog-wide box rather than the image, so it landed beside the picture.
+   * Both are measured here against the IMAGE's own rect, which is the frame
+   * the page crops in.
+   */
+  test("saves the focal point where it was clicked, and shows it there", async ({
+    page,
+    request,
+  }) => {
+    await openStudio(page, `/val/~${MODULE}?p=%22image%22`);
+    const studio = page.locator("#val-shadow-root");
+    await picker(studio).first().setInputFiles(PORTRAIT_IMAGE);
+    await expect
+      .poll(() => uploadedRefs(page), { timeout: 30_000 })
+      .toHaveLength(1);
+
+    await studio.getByRole("button", { name: "Focal point" }).click();
+    const target = studio.locator("img[id$='\"hotspot\"']");
+    await expect
+      .poll(() => target.evaluate((i) => (i as HTMLImageElement).naturalWidth))
+      .toBeGreaterThan(0);
+    const box = await pictureRect(target);
+    await page.mouse.click(box.x + box.width * 0.7, box.y + box.height * 0.25);
+
+    await expect
+      .poll(
+        async () => {
+          const source = (await moduleSource(page, MODULE)) as {
+            image?: { hotspot?: { x: number; y: number } } | null;
+          } | null;
+          const hotspot = source?.image?.hotspot;
+          return hotspot
+            ? [hotspot.x.toFixed(2), hotspot.y.toFixed(2)].join(", ")
+            : "not set";
+        },
+        { message: "the focal point was not saved where it was clicked" },
+      )
+      .toBe("0.70, 0.25");
+
+    await studio.getByRole("button", { name: "View image" }).click();
+    const dialog = studio.getByRole("dialog");
+    const large = dialog.locator("img").first();
+    await expect
+      .poll(() => large.evaluate((i) => (i as HTMLImageElement).naturalWidth))
+      .toBeGreaterThan(0);
+    const image = await pictureRect(large);
+    const marker = await dialog.locator("img + div").first().boundingBox();
+    if (!marker) throw new Error("the preview has no marker");
+    const markerAt = {
+      x: (marker.x + marker.width / 2 - image.x) / image.width,
+      y: (marker.y + marker.height / 2 - image.y) / image.height,
+    };
+    // Within half a percent-ish of rounding: the marker is centred by a
+    // transform, so its box lands on subpixels.
+    expect(
+      markerAt.x,
+      "the large preview drew the focal point somewhere else on the image",
+    ).toBeCloseTo(0.7, 1);
+    expect(markerAt.y).toBeCloseTo(0.25, 1);
+
+    await page.keyboard.press("Escape");
+    await discardAll(page);
+    await expectNoPatchesOnServer(request);
+  });
+
+  /**
+   * An empty image field is a drop zone, and a dropped file is uploaded.
+   *
+   * A drop skips the file dialog, so it is a separate path into `uploadImage`
+   * from `setInputFiles` above — and a drop zone that highlights and then does
+   * nothing looks exactly like one that works until someone tries it.
+   */
+  test("uploads an image dropped on the empty field", async ({
+    page,
+    request,
+  }) => {
+    await openStudio(page, `/val/~${MODULE}?p=%22image%22`);
+    const studio = page.locator("#val-shadow-root");
+    const zone = studio.getByText("Drop an image here, or").locator("..");
+    await expect(zone).toBeVisible({ timeout: 30_000 });
+    const bytes = readFileSync(IMAGE).toString("base64");
+    await zone.evaluate((el, base64) => {
+      const data = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+      const transfer = new DataTransfer();
+      transfer.items.add(
+        new File([data], "blue-8x8.png", { type: "image/png" }),
+      );
+      for (const type of ["dragenter", "dragover", "drop"]) {
+        el.dispatchEvent(
+          new DragEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            dataTransfer: transfer,
+          }),
+        );
+      }
+    }, bytes);
+    await expect
+      .poll(() => uploadedRefs(page), { timeout: 30_000 })
+      .toEqual(["/public/val/blue-8x8_8b441.png"]);
+    await expect(
+      studio.getByRole("button", { name: "View image" }),
+    ).toBeVisible();
+
     await discardAll(page);
     await expectNoPatchesOnServer(request);
   });

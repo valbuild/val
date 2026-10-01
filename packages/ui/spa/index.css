@@ -706,6 +706,27 @@
   animation: val-scroll-highlight 2.5s ease-out forwards;
 }
 
+/*
+ * What is behind a transparent image: the conventional grey checkerboard.
+ *
+ * Without it a PNG with a transparent background and one with a background
+ * the same colour as the Studio's look identical — and a logo that is dark on
+ * transparent vanishes entirely in dark mode. Theme tokens, so the squares are
+ * a quiet step apart in either mode rather than a bright white board inside a
+ * dark UI. Put it on the element whose box IS the picture, never on a
+ * letterboxed one, or it draws squares around the image as well as behind it.
+ */
+.val-checkerboard {
+  background-color: var(--bg-primary);
+  background-image: conic-gradient(
+    var(--bg-tertiary) 25%,
+    transparent 0 50%,
+    var(--bg-tertiary) 0 75%,
+    transparent 0
+  );
+  background-size: 12px 12px;
+}
+
 #val-overlay-container {
   visibility: visible;
 }
