@@ -2,6 +2,7 @@ import fs from "fs";
 import { getJson, postJson } from "./contentHost";
 import {
   ArtifactsResponse,
+  BuildTargetResponse,
   DeclareBody,
   DeclareResponse,
   PromoteResponse,
@@ -9,6 +10,7 @@ import {
   UploadSlot,
   VerifyResponse,
   parseArtifacts,
+  parseBuildTarget,
   parseDeclare,
   parsePromote,
   parseStatus,
@@ -16,6 +18,8 @@ import {
 } from "@valbuild/shared/internal";
 
 export type PublishClient = {
+  /** What to build against: the platform's base and this project's layer. */
+  buildTarget(): Promise<BuildTargetResponse>;
   declare(body: DeclareBody): Promise<DeclareResponse>;
   confirmArtifacts(publishId: string): Promise<ArtifactsResponse>;
   verify(publishId: string): Promise<VerifyResponse>;
@@ -38,6 +42,10 @@ export function createPublishClient(options: {
     `${host}/v1/publish/${encodeURIComponent(publishId)}${step ? `/${step}` : ""}`;
 
   return {
+    buildTarget: async () =>
+      parseBuildTarget(
+        await getJson({ url: `${host}/v1/build-target`, headers, fetchImpl }),
+      ),
     declare: async (body) =>
       parseDeclare(
         await postJson({ url: `${host}/v1/publish`, headers, body, fetchImpl }),

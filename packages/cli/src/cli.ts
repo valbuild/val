@@ -10,6 +10,7 @@ import { lsp } from "./lsp";
 import { debug } from "./debug";
 import { deleteUnappliablePatches } from "./deleteUnappliablePatches";
 import { publish } from "./publish";
+import { ciReport } from "./ciReport";
 
 async function main(): Promise<void> {
   const { input, flags, showHelp } = meow(
@@ -50,19 +51,35 @@ async function main(): Promise<void> {
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
 
+      Command: ci-report
+      Description: tell content how CI's build of a commit went, for a connected
+                   project's workflow. Run as its last step, whatever the build did:
+                   a failed build then reads "Published, not on the site yet" in the
+                   Studio, with a link to the run. Never fails the job.
+      Options:
+        --status [failed|succeeded]  How the build went
+        --commit [sha]           The commit built (default GITHUB_SHA)
+        --branch [name]          Its branch (default GITHUB_REF_NAME, else the project's)
+        --url [url]              The run (default this GitHub Actions run)
+
       Command: publish
-      Description: publish this project's build through content.val.build.
-        Declares the build's artifacts, uploads the ones content does not already hold,
-        and has content verify it by building and rendering a canary before the site
-        changes. Authenticates with VAL_PROJECT_TOKEN, or with the "val login" token in
-        .val/pat.json (which needs the project, as "<org>/<project>", in val.config or
-        VAL_PROJECT). Never as a flag: an argument is visible to anyone who can list
-        processes, and it is kept in shell history and in every CI log.
+      Description: build this project and publish it through content.val.build.
+        Asks content what to build against, builds the site and its dependency layer from
+        the checkout (needs @valbuild/tanstack-build, rolldown, @tanstack/router-generator
+        and @tanstack/router-plugin installed), declares the artifacts, uploads the ones
+        content does not already hold, and has content verify it by building and rendering
+        a canary before the site changes. With --artifacts, or a .val/publish directory,
+        it publishes that build instead of making one. Authenticates with VAL_PROJECT_TOKEN,
+        or with the "val login" token in .val/pat.json (which needs the project, as
+        "<org>/<project>", in val.config or VAL_PROJECT). Never as a flag: an argument is
+        visible to anyone who can list processes, and it is kept in shell history and in
+        every CI log.
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
-        --artifacts [dir]        The built artifacts (default <root>/.val/publish). The path
-                                 of each file under it is its artifact key: server, client,
-                                 css, rsc, layer, or a path under chunk/server, chunk/client,
+        --artifacts [dir]        Publish a build made elsewhere (default: build the checkout,
+                                 unless <root>/.val/publish exists). The path of each file
+                                 under it is its artifact key: server, client, css, rsc,
+                                 layer, source, or a path under chunk/server, chunk/client,
                                  chunk/rsc, asset, public
         --commit [sha]           The commit this build is of (default VAL_GIT_COMMIT,
                                  else GITHUB_SHA, else git HEAD)
@@ -173,6 +190,12 @@ async function main(): Promise<void> {
         verbose: {
           type: "boolean",
         },
+        status: {
+          type: "string",
+        },
+        url: {
+          type: "string",
+        },
       },
       hardRejection: false,
     },
@@ -220,6 +243,14 @@ async function main(): Promise<void> {
         dryRun: flags.dryRun,
         yes: flags.yes,
         verbose: flags.verbose,
+      });
+    case "ci-report":
+      return ciReport({
+        root: flags.root,
+        status: flags.status,
+        commit: flags.commit,
+        branch: flags.branch,
+        url: flags.url,
       });
     case "publish":
       return publish({

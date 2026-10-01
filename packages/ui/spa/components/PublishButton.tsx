@@ -1,4 +1,11 @@
-import { CloudUpload, Rocket, Save, TriangleAlert, X } from "lucide-react";
+import {
+  CloudUpload,
+  Rocket,
+  Save,
+  Sparkles,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import { SourcePath } from "@valbuild/core";
 import { Button } from "./designSystem/button";
 import {
@@ -27,7 +34,13 @@ import {
 } from "./designSystem/popover";
 import { PopoverClose } from "@radix-ui/react-popover";
 import { PublishSummary } from "./PublishSummary";
-import { type ReactElement, useMemo, useState } from "react";
+import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import { useAutomaticPublish } from "../hooks/useAutomaticPublish";
+import { useSettingsModuleSource } from "../hooks/useSettingsModuleSource";
+import {
+  isCommitMessageRequired,
+  readStudioSettings,
+} from "../hooks/studioSettings";
 import {
   Tooltip,
   TooltipContent,
@@ -57,14 +70,18 @@ const compactButtonClassName = "h-8 w-8 p-0 rounded-full";
 function PublishIcon({
   kind,
   saving,
+  summarising,
 }: {
   kind: PublishButtonKind;
   saving: boolean;
+  summarising: boolean;
 }) {
   return (
     <span className="grid size-4 shrink-0 place-items-center">
       {kind === "blocked" ? (
         <TriangleAlert size={16} />
+      ) : kind === "in-flight" && summarising ? (
+        <Sparkles size={16} className="animate-pulse" />
       ) : kind === "in-flight" ? (
         <CloudUpload size={16} className="animate-pulse" />
       ) : saving ? (
@@ -82,17 +99,56 @@ export function PublishButton({
    * Val menu overlay. The label moves into the tooltip.
    */
   compact,
+  onHoldOpenChange,
+  popoverSide,
 }: {
   compact?: boolean;
+  /**
+   * Which side of the button the commit message popover opens on. The overlay
+   * passes the side facing into the page, as its hover cards do: below the
+   * button, on a menu docked to the right edge, it covered the rest of the
+   * menu.
+   */
+  popoverSide?: "top" | "right" | "bottom" | "left";
+  /**
+   * Whether whatever holds this button should stay open around it: the
+   * commit message popover is open, or a publish is under way.
+   *
+   * For the overlay's menu, which collapses when the pointer leaves it. The
+   * popover is portalled out of the menu, so moving onto it IS leaving — and
+   * the collapse took the button the popover is anchored to with it, so the
+   * popover slid across the page under the pointer. A publish in flight is
+   * held too: its progress is on this button, and a collapsed menu hides it.
+   */
+  onHoldOpenChange?: (hold: boolean) => void;
 }) {
   const [summaryOpen, setSummaryOpen] = useState(false);
-  const {
-    publish,
-    publishDisabled,
-    isPublishing,
-    preparePublish,
-    abandonPublish,
-  } = usePublishSummary();
+  const { publish, publishDisabled, isPublishing, preparePublish, aiEnabled } =
+    usePublishSummary();
+  const { isSummarising, publishAutomatically } = useAutomaticPublish({
+    publish: (message) => {
+      void publish(message);
+    },
+    aiEnabled,
+  });
+  /*
+   * Asked for a message only where the project says so -- and while its
+   * settings are still arriving, since "we do not know yet" must not publish
+   * past a requirement. A project with no settings module has nothing to
+   * require, and is never waiting on one.
+   */
+  const settingsModule = useSettingsModuleSource();
+  const commitMessageRequired =
+    (settingsModule.moduleFilePath !== null &&
+      settingsModule.source === undefined) ||
+    isCommitMessageRequired(readStudioSettings(settingsModule.source));
+  const hold = summaryOpen || isSummarising || isPublishing;
+  const onHoldOpenChangeRef = useRef(onHoldOpenChange);
+  onHoldOpenChangeRef.current = onHoldOpenChange;
+  useEffect(() => {
+    onHoldOpenChangeRef.current?.(hold);
+  }, [hold]);
+  useEffect(() => () => onHoldOpenChangeRef.current?.(false), []);
   const allValidationErrors = useAllValidationErrors();
   const validationErrorPaths = Object.keys(allValidationErrors ?? {});
   const { patchErrors } = useAllPatchErrors();
@@ -134,6 +190,7 @@ export function PublishButton({
     validationErrorCount: validationErrorPaths.length,
     conflictingChangeCount,
     isPublishing,
+    isSummarising,
     publishDisabled,
     autoPublish,
     pendingServerSidePatchCount: pendingServerSidePatchIds.length,
@@ -165,7 +222,11 @@ export function PublishButton({
   /** Everything except "press me": rendered the same way in every state. */
   const face = (
     <>
-      <PublishIcon kind={state.kind} saving={saving} />
+      <PublishIcon
+        kind={state.kind}
+        saving={saving}
+        summarising={isSummarising && !isPublishing}
+      />
       {!compact && <span>{state.label}</span>}
     </>
   );
@@ -235,6 +296,37 @@ export function PublishButton({
     );
   }
 
+  if (!commitMessageRequired) {
+    /*
+     * The default: pressing Publish publishes. Nobody is shown a box -- the AI
+     * writes the message where there is one, and the paths that changed make
+     * it where there is not. See `useAutomaticPublish`.
+     */
+    const button = (
+      <Button
+        className={buttonClassName}
+        aria-label={compact ? state.description : undefined}
+        onClick={() => {
+          // In the press, before the AI is asked anything: see `preparePublish`.
+          preparePublish();
+          publishAutomatically();
+        }}
+      >
+        {face}
+      </Button>
+    );
+    return (
+      <PublishTooltip
+        label={state.description}
+        description={tooltip}
+        disabled={false}
+        container={portalContainer}
+      >
+        {button}
+      </PublishTooltip>
+    );
+  }
+
   const publishButton = (
     <Button
       className={buttonClassName}
@@ -273,6 +365,7 @@ export function PublishButton({
         )}
         <PopoverContent
           container={portalContainer}
+          side={popoverSide}
           align="end"
           className="z-[9001] flex flex-col gap-4"
         >
@@ -281,17 +374,13 @@ export function PublishButton({
           </PopoverClose>
           <PublishSummary
             onPress={preparePublish}
-            onAbandon={abandonPublish}
             onClose={() => {
               setSummaryOpen(false);
             }}
             onPublish={(summary) => {
               setSummaryOpen(false);
               // The text comes from the popover rather than from the summary
-              // state read here: publishing can be fired by the grace period,
-              // after an AI summary landed but before this component has
-              // re-rendered with it, and this render's copy would commit the
-              // text the user was no longer looking at.
+              // state read here, which is this render's copy of it.
               const summaryText = summary.trim();
               if (summaryText === "") {
                 return;

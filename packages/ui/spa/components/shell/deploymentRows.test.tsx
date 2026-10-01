@@ -1,6 +1,10 @@
 /** @jest-environment jsdom */
 import { render, screen } from "@testing-library/react";
-import { DeploymentRows } from "./Deployments";
+import {
+  DEPLOYMENTS_AUTO_CLOSE_MS,
+  DeploymentRows,
+  DeploymentsStatus,
+} from "./Deployments";
 import { ShellDeployment } from "./types";
 
 /**
@@ -60,11 +64,11 @@ describe("the deploy feed's rows", () => {
  * publish is narrated, and the prop has to be threaded to each of them.
  */
 describe("a managed project's row", () => {
-  test("says Saved, not yet live where a connected one says Building", () => {
+  test("says Published where a connected one says Building", () => {
     // `isLive: false` explicitly: this file's fixture is live by default, and
-    // `isLive` outranks `state` -- Val having seen the site answer with a
-    // commit is the one answer it can get for itself. A live row is neither
-    // building nor saved-not-live, whichever project it belongs to.
+    // `isLive` outranks `state`. A managed commit is recorded at its seal --
+    // once its build is live -- so one the site does not serve was
+    // superseded, and is never on its way out.
     const unfinished = deployment({
       commitSha: "abc",
       state: "pending",
@@ -73,8 +77,10 @@ describe("a managed project's row", () => {
     const { unmount } = render(
       <DeploymentRows deployments={[unfinished]} studioIsDeployer />,
     );
-    expect(screen.getByText(/Saved, not yet live/)).toBeTruthy();
+    expect(screen.getByText(/Published/)).toBeTruthy();
     expect(screen.queryByText(/Building/)).toBeNull();
+    // Nothing to finish: a managed row offers no action.
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
     unmount();
 
     render(<DeploymentRows deployments={[unfinished]} />);
@@ -82,72 +88,53 @@ describe("a managed project's row", () => {
   });
 });
 
-describe("finishing a publish whose build never ran", () => {
-  /*
-   * `Saved, not yet live` is the one row state that needs an action. In
-   * managed mode nothing outside the browser will ever resolve it -- there is
-   * no host to notice the commit -- so a row that only named the state would
-   * be telling someone to wait for something that is not coming.
-   */
-  const stuck = deployment({
-    commitSha: "def4567",
-    isLive: false,
-    state: "pending",
+/**
+ * The list the status bar opened closes itself once everything is live, and
+ * reads "live" by the same rule as the summary beside it. A managed row the
+ * site does not serve was superseded, so it does not hold the list open.
+ */
+describe("the deploy list's auto-close", () => {
+  test("a managed project's superseded row does not hold it open", () => {
+    jest.useFakeTimers();
+    try {
+      const onOpenChange = jest.fn();
+      render(
+        <DeploymentsStatus
+          deployments={[
+            deployment({ commitSha: "new" }),
+            deployment({ commitSha: "old", state: "pending", isLive: false }),
+          ]}
+          open
+          onOpenChange={onOpenChange}
+          autoClose
+          studioIsDeployer
+        />,
+      );
+      jest.advanceTimersByTime(DEPLOYMENTS_AUTO_CLOSE_MS);
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
-  test("offered on the stuck row, naming that row's commit", async () => {
-    const finished: string[] = [];
-    render(
-      <DeploymentRows
-        deployments={[stuck]}
-        studioIsDeployer
-        onFinishPublishing={(commitSha) => finished.push(commitSha)}
-      />,
-    );
-    const button = screen.getByRole("button", { name: "Finish publishing" });
-    button.click();
-    // The row's own commit, not "the latest": a project can be stuck at more
-    // than one, and a single button could only ever mean one of them.
-    expect(finished).toEqual(["def4567"]);
-  });
-
-  test("not offered for a connected project", () => {
-    // There a host really does pick the commit up, so the row is `Building`
-    // and there is nothing for anyone here to finish.
-    render(
-      <DeploymentRows
-        deployments={[stuck]}
-        onFinishPublishing={() => undefined}
-      />,
-    );
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
-  });
-
-  test("not offered where the surface has no action to give", () => {
-    // The settings sheet lists publishes to look at. Absent the prop, the row
-    // says the state and offers nothing, exactly as it did before.
-    render(<DeploymentRows deployments={[stuck]} studioIsDeployer />);
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
-  });
-
-  test("held while a build is already running", () => {
-    // One deploy at a time, and the guard is shared -- so a second row's
-    // button is held too, not just the one that was pressed.
-    render(
-      <DeploymentRows
-        deployments={[
-          stuck,
-          deployment({ commitSha: "aaa1111", isLive: false, state: "pending" }),
-        ]}
-        studioIsDeployer
-        onFinishPublishing={() => undefined}
-        publishing
-      />,
-    );
-    const buttons = screen.getAllByRole("button", { name: "Publishing…" });
-    expect(buttons).toHaveLength(2);
-    expect(buttons.every((button) => button.hasAttribute("disabled"))).toBe(
-      true,
-    );
+  test("a connected project's build in progress does", () => {
+    jest.useFakeTimers();
+    try {
+      const onOpenChange = jest.fn();
+      render(
+        <DeploymentsStatus
+          deployments={[
+            deployment({ commitSha: "new", state: "pending", isLive: false }),
+          ]}
+          open
+          onOpenChange={onOpenChange}
+          autoClose
+        />,
+      );
+      jest.advanceTimersByTime(DEPLOYMENTS_AUTO_CLOSE_MS);
+      expect(onOpenChange).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

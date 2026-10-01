@@ -1371,6 +1371,9 @@ function ValMenu({
       : "horizontal";
   const authenticationState = useAuthenticationState();
   const portalContainer = useValPortal();
+  // The publish popover, or a publish in flight, holds the menu open: see
+  // `PublishButton`'s `onHoldOpenChange`.
+  const [publishHoldsMenuOpen, setPublishHoldsMenuOpen] = useState(false);
 
   const showAllBoundingBoxesWithFadeIn = () => {
     const boxes = findAllValPathElements();
@@ -1502,6 +1505,7 @@ function ValMenu({
           ghost={ghost}
           status={launcherStatus}
           mark={<ValMark />}
+          holdOpen={publishHoldsMenuOpen}
         >
           <HoverCard>
             <HoverCardTrigger className="inline-flex">
@@ -1607,7 +1611,11 @@ function ValMenu({
               <HoverCardArrow className="z-50 fill-bg-secondary-hover" />
             </HoverCardContent>
           </HoverCard>
-          <PublishButton compact />
+          <PublishButton
+            compact
+            onHoldOpenChange={setPublishHoldsMenuOpen}
+            popoverSide={publishPopoverSide}
+          />
           <HoverCard>
             <HoverCardTrigger asChild>
               <MenuButton

@@ -1,7 +1,8 @@
 /** @jest-environment jsdom */
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { joinHandoff } from "./handoff";
-import { useSiteHandoff } from "./useSiteHandoff";
+import { LOST_GRACE_MS, useSiteHandoff } from "./useSiteHandoff";
+import { RENEW_EVERY_MS } from "./runStudioJob";
 import { BroadcastChannel as NodeBroadcastChannel } from "node:worker_threads";
 
 // jsdom has no BroadcastChannel; Node's is the same API.
@@ -12,40 +13,131 @@ if (typeof globalThis.BroadcastChannel === "undefined") {
   });
 }
 
+/** A renewal content accepts. */
+const renewed = async () => true;
+
+const job = {
+  id: "J1",
+  step: "prepare" as const,
+  base: null,
+  patches: ["p1"],
+};
+
 /**
- * The page that handed its publish to a Studio tab learns the commit is live
- * from the tab, not from `/stat` -- which in http mode is minutes away.
+ * The page that handed its publish job to a Studio tab waits for the tab's
+ * part of it -- the job runner goes on from there -- and the card follows the
+ * tab to Live.
  */
-test("a live publish from the tab names the commit that went live", async () => {
+test("the tab runs the job as this page, and answers with its part of it", async () => {
   const opened: string[] = [];
   jest.spyOn(window, "open").mockImplementation((url) => {
     opened.push(String(url));
     return null;
   });
-  const live: string[] = [];
-  const { result } = renderHook(() =>
-    useSiteHandoff({ onLive: (commit) => live.push(commit), enabled: true }),
-  );
+  const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
   act(() => result.current.prepare(true));
   const id = new URL(opened[0], "http://site").searchParams.get(
     "publish-handoff",
   );
   expect(id).not.toBeNull();
-  act(() =>
-    result.current.commit({ commit: "c1", binaryFiles: null, branch: null }),
-  );
-  const tab = joinHandoff(id ?? "", () => undefined, { retryMs: 10 });
+  let running!: Promise<unknown>;
+  act(() => {
+    running = result.current.runJob(job, "site-tab", "r1", renewed);
+  });
+  const heard: unknown[] = [];
+  const tab = joinHandoff(id ?? "", (message) => heard.push(message), {
+    retryMs: 10,
+  });
   try {
+    await waitFor(() =>
+      expect(heard).toContainEqual({
+        type: "job",
+        job,
+        tab: "site-tab",
+        requestId: "r1",
+      }),
+    );
+    tab.report({
+      type: "job-result",
+      result: { status: "handed-off", jobId: "J1", built: true },
+    });
+    await expect(running).resolves.toEqual({
+      status: "handed-off",
+      jobId: "J1",
+      built: true,
+    });
     tab.report({
       type: "done",
-      result: { status: "live", url: null, visible: true },
+      result: { status: "live", url: null },
       ms: 1_000,
     });
-    await waitFor(() => expect(live).toEqual(["c1"]));
+    await waitFor(() =>
+      expect(result.current.state).toEqual({ kind: "live", ms: 1_000 }),
+    );
   } finally {
     // An open channel keeps jest alive, and a failure would hang instead.
     tab.close();
     act(() => result.current.cancel(""));
+  }
+});
+
+test("a handoff given up on answers `lost`, so the job goes back to the queue", async () => {
+  jest.spyOn(window, "open").mockImplementation(() => null);
+  const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+  act(() => result.current.prepare(true));
+  let running!: Promise<unknown>;
+  act(() => {
+    running = result.current.runJob(job, "site-tab", "r1", renewed);
+  });
+  act(() => result.current.dismiss());
+  await expect(running).resolves.toEqual({ status: "lost", jobId: "J1" });
+  expect(result.current.active()).toBe(false);
+});
+
+test("a lease content refuses to renew ends the wait as `lost`", async () => {
+  jest.useFakeTimers();
+  try {
+    jest.spyOn(window, "open").mockImplementation(() => null);
+    const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+    act(() => result.current.prepare(true));
+    let settled: unknown = null;
+    act(() => {
+      void result.current
+        .runJob(job, "site-tab", "r1", async () => false)
+        .then((r) => (settled = r));
+    });
+    // The renewal is refused; the tab gets its grace to report first.
+    await act(() => jest.advanceTimersByTimeAsync(RENEW_EVERY_MS));
+    expect(settled).toBeNull();
+    await act(() => jest.advanceTimersByTimeAsync(LOST_GRACE_MS));
+    expect(settled).toEqual({ status: "lost", jobId: "J1" });
+    act(() => result.current.cancel(""));
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test("a renewal that did not get through is not a lost job", async () => {
+  jest.useFakeTimers();
+  try {
+    jest.spyOn(window, "open").mockImplementation(() => null);
+    const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+    act(() => result.current.prepare(true));
+    let settled: unknown = null;
+    act(() => {
+      void result.current
+        .runJob(job, "site-tab", "r1", () =>
+          Promise.reject(new Error("offline")),
+        )
+        .then((r) => (settled = r));
+    });
+    await act(() => jest.advanceTimersByTimeAsync(3 * RENEW_EVERY_MS));
+    expect(settled).toBeNull();
+    act(() => result.current.cancel(""));
+    await act(() => Promise.resolve());
+    expect(settled).toEqual({ status: "lost", jobId: "J1" });
+  } finally {
+    jest.useRealTimers();
   }
 });
 

@@ -1,4 +1,8 @@
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
+import type {
+  PublishRequestStatus,
+  PublishTabJob,
+} from "@valbuild/shared/internal";
 
 /**
  * Commit patches to the repository — `POST /save`.
@@ -45,6 +49,23 @@ export type PublishPatches = (request: {
 }) => Promise<PublishOutcome>;
 
 /**
+ * A press of Publish, for a MANAGED project: a publish JOB is requested, and
+ * the answer comes back at once (valbuild/home, docs/app-mode.md, "Publishing
+ * is a queued job"). Nothing is committed here -- the job takes every pending
+ * change, the tab builds it if it is handed one, and content seals it.
+ */
+export type RequestPublish = () => Promise<
+  | {
+      status: "requested";
+      requestId: string;
+      request: PublishRequestStatus;
+      /** The job this tab is to build, when the press started one. */
+      job: PublishTabJob | null;
+    }
+  | { status: "error"; message: string }
+>;
+
+/**
  * How a caller wants a publish scoped.
  *
  * `exact` is auto-save's mode, and it exists because the two callers want
@@ -57,6 +78,11 @@ export type PublishPatches = (request: {
  * What it does NOT relax is ordering: see `takeNamedPrefix`.
  */
 export type PublishOptions = {
+  /**
+   * Request a publish job rather than commit: `requestPublish`, after the
+   * same gate. For a managed project, where the Studio is the deployer.
+   */
+  request?: boolean;
   exact?: boolean;
 };
 
@@ -162,6 +188,13 @@ export type DiscardPatches = (
  * to them rather than saying no.
  */
 export type PublishResult =
+  /** A publish job was requested: see `RequestPublish`. Nothing is committed yet. */
+  | {
+      status: "requested";
+      requestId: string;
+      request: PublishRequestStatus;
+      job: PublishTabJob | null;
+    }
   | {
       status: "published";
       patchIds: PatchId[];

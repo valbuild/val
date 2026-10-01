@@ -277,8 +277,8 @@ export function toActivity(
    * Whether the Studio itself is what makes a publish live.
    *
    * Threaded here as well as into the deploy list, because a publish that reads
-   * "Saved, not yet live" in the status bar and "Building" in Recent activity
-   * is two answers to one question -- which is the reason
+   * "Published" in the status bar and "Building" in Recent activity is two
+   * answers to one question -- which is the reason
    * {@link deploymentProgress} is shared in the first place.
    */
   studioIsDeployer = false,

@@ -423,6 +423,18 @@ export type OverlayMenuLauncherProps = {
   onExpandedChange?: (expanded: boolean) => void;
   /** Starting state when uncontrolled. Hover and tap still work from there. */
   defaultExpanded?: boolean;
+  /**
+   * Stay expanded whatever the pointer does, for as long as this is true.
+   *
+   * For something opened FROM the bar that is not inside it: a popover is
+   * portalled out of the menu, so moving onto it is a mouse-leave and pressing
+   * in it is an outside press, and either collapsed the bar — taking the
+   * button the popover is anchored to with it, so the popover slid away under
+   * the pointer. While held, neither collapses it and neither does Escape,
+   * which belongs to the thing holding it. Hover keeps being tracked, so when
+   * the hold ends the bar is exactly as open as the pointer says it should be.
+   */
+  holdOpen?: boolean;
 };
 
 /**
@@ -456,13 +468,15 @@ export function OverlayMenuLauncher({
   expanded: controlledExpanded,
   onExpandedChange,
   defaultExpanded = false,
+  holdOpen = false,
 }: OverlayMenuLauncherProps) {
   // Two reasons to be open, and they expire differently: a hover lasts as
   // long as the pointer is over the menu, a click lasts until dismissed.
   const [pinned, setPinned] = useState(defaultExpanded);
   const [hovered, setHovered] = useState(false);
   const uncontrolled = pinned || hovered;
-  const expanded = ghost === true || (controlledExpanded ?? uncontrolled);
+  const expanded =
+    ghost === true || holdOpen || (controlledExpanded ?? uncontrolled);
   // Controlled only when a callback comes with the value: a controlled prop
   // with no setter is a menu that cannot be opened, which is worse than either.
   const isControlled = controlledExpanded !== undefined && !!onExpandedChange;
@@ -477,15 +491,15 @@ export function OverlayMenuLauncher({
   const rootRef = useRef<HTMLDivElement>(null);
 
   const collapse = useCallback(() => setExpanded(false), [setExpanded]);
-  useDismissOnOutsidePointer(rootRef, expanded, collapse);
+  useDismissOnOutsidePointer(rootRef, expanded && !holdOpen, collapse);
   useEffect(() => {
-    if (!expanded) return;
+    if (!expanded || holdOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") setExpanded(false);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [expanded, setExpanded]);
+  }, [expanded, holdOpen, setExpanded]);
 
   const growsFromEnd =
     dock === "right-top" || dock === "right-center" || dock === "right-bottom";

@@ -1,5 +1,21 @@
 # @valbuild/core
 
+## 0.138.0
+
+### Minor Changes
+
+- [#751](https://github.com/valbuild/val/pull/751) [`5876fe0`](https://github.com/valbuild/val/commit/5876fe075fdee1f76f1cdaa2488ac52c58c894a8) Thanks [@freekh](https://github.com/freekh)! - Publishing no longer asks for a commit message by default.
+
+  - **Publish publishes.** In HTTP mode, pressing Publish goes straight to publishing, just as Save already did in local development. Where an AI model is available it writes the commit message (the button reads "Preparing" meanwhile, for up to 15 seconds). Otherwise the message is built from what changed, and names the exact path when a single field changed, e.g. `Update hero.title in /content/home.val.ts`. When several things changed, the message body lists the changed modules and their fields: up to six modules and five fields each, then how many more.
+  - **`studio.commitMessage: "required"`** in `s.settings()` brings the box back, redesigned. Editors can turn it on from the Studio too: Settings → Studio → "Ask for a commit message". It opens empty rather than pre-filled, so a message cannot be published unread. The AI fills it in when it can, and Publish stays disabled until there is a message. Nothing publishes on its own: the countdown that published while the AI was still writing is gone.
+  - **The overlay menu stays open** while the commit message popover is open, or a publish is under way. Before, moving onto the popover collapsed the menu and the popover moved with it.
+
+### Patch Changes
+
+- [#752](https://github.com/valbuild/val/pull/752) [`57af895`](https://github.com/valbuild/val/commit/57af8959cc46519a405b1ed7441623f8bf2e6d27) Thanks [@freekh](https://github.com/freekh)! - `s.date()` now reports a value that is not a real `YYYY-MM-DD` day as a validation error. It used to check only `from` / `to`, and compared those as plain strings, so a typo like `"19f81-12-30"` passed a `.from("1900-01-01").to("2024-01-01")` range without a word. Impossible days such as `"2023-02-29"` are rejected too, and a `from` / `to` bound that is not a valid date is reported as a schema error.
+
+  The Studio's date field no longer shows a year below 100 (`"0050-01-01"`) as empty: it was read as 1950 and discarded.
+
 ## 0.137.0
 
 ### Patch Changes

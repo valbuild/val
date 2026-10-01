@@ -1,5 +1,36 @@
 # @valbuild/shared
 
+## 0.138.0
+
+### Minor Changes
+
+- [#754](https://github.com/valbuild/val/pull/754) [`6216172`](https://github.com/valbuild/val/commit/62161729aa40f737590b0a8093c0394385fffd8d) Thanks [@freekh](https://github.com/freekh)! - Connected projects hosted on the Val platform publish as a queued job too.
+
+  For a project with a GitHub repository whose site runs on the Val platform, pressing **Publish** is now a request, just as it is for a managed project. The Studio sends the job's changes; the content service pushes them as one commit on top of whatever is on the branch at that moment, so a developer's code push in between is kept. CI then builds it. A developer's change to the site's content files that this deployment has not seen stops the publish before anything is pushed, and says so.
+
+  - A build that CI reports as failed shows "Published, not on the site yet", with **View run**. The next publish builds again.
+  - New CLI command, `val ci-report --status failed|succeeded`, for a workflow's last step. It reads the commit, the branch and the run's address from GitHub Actions, uses the same `VAL_PROJECT_TOKEN` as `val publish`, and never fails the job.
+
+  Connected projects on a host of their own (for example Vercel) publish exactly as before.
+
+- [#754](https://github.com/valbuild/val/pull/754) [`40e933d`](https://github.com/valbuild/val/commit/40e933da7fe01cfe1c3f4a43c156f0b2f8a11f62) Thanks [@freekh](https://github.com/freekh)! - Publishing a managed project is now a queued job, and a publish is either live or it did not happen.
+
+  Pressing **Publish** in a managed project no longer commits first and builds after. It asks the content service for a publish job and returns at once; the Studio tab that pressed builds the job and uploads it, and the content service checks the build renders and makes it live — recording the commit only then. So there is no longer a "Saved, not yet live" state to get stuck in, and no **Finish publishing** button to get out of it.
+
+  - A press made while another publish is going out is queued behind it, and built when its turn comes by whichever open Studio tab is free.
+  - A tab that closes after uploading costs nothing: the rest of the publish is the content service's.
+  - A publish that fails before it goes live says so, with **Try again** and **Discard changes**. Your changes are kept either way.
+  - Publishing from the site (a page that cannot build) still opens a Studio window to build it; the window now runs the publish job for the page.
+
+  Connected projects (with a repository) that are hosted on the Val platform publish as a queued job too — see the note on connected projects. Those hosted elsewhere, for example on Vercel, publish exactly as before.
+
+  For the Val server: the publish proxy now forwards the publish-job routes, `/api/val/publish-job-prepare` renders a job's sources and hands content its archive, and `/api/val/built-source` is removed.
+
+### Patch Changes
+
+- Updated dependencies [[`57af895`](https://github.com/valbuild/val/commit/57af8959cc46519a405b1ed7441623f8bf2e6d27), [`5876fe0`](https://github.com/valbuild/val/commit/5876fe075fdee1f76f1cdaa2488ac52c58c894a8)]:
+  - @valbuild/core@0.138.0
+
 ## 0.137.0
 
 ### Minor Changes

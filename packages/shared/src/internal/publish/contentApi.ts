@@ -1,10 +1,12 @@
 /**
  * The publish API's types, COPIED from the service that serves them.
  *
- * Source: `content/src/handlers/Api.ts` in valbuild/home, branch
- * `claude/new-project-studio-saves-0g9ksb`, commit `ecf3b8d`. The routes below
- * are that file's `/publish*` entries and the two types they use, verbatim,
- * comments included, so that the two can be diffed by eye.
+ * Source: `content/src/handlers/Api.ts` in valbuild/home. The routes below
+ * are that file's `/publish*` entries and the types they use, verbatim,
+ * comments included, so that the two can be diffed by eye: the publish
+ * lifecycle from branch `claude/new-project-studio-saves-0g9ksb`, commit
+ * `ecf3b8d`; the publish-job routes (`/publish-requests`, `/publish-jobs`)
+ * and `PublishRequestStatus` / `PublishTabJob` from `main`, commit `acb4a49`, with `/ci-runs`.
  *
  * **Copied rather than imported, because it cannot be imported.** That file
  * lives in a private repository which publishes nothing to npm, and its own
@@ -23,6 +25,8 @@
  * A copy is not a guarantee, only a tripwire: nothing checks it against the
  * service, and the parsers in `protocol.ts` are what actually holds at runtime.
  */
+
+import type { Json } from "@valbuild/core";
 
 export type ContentPublishApi = {
   /**
@@ -176,6 +180,126 @@ export type ContentPublishApi = {
       };
     };
   };
+  /**
+   * Publishing as a queued job: a press of Publish is a REQUEST, and returns
+   * at once. A job takes every queued request and everything pending; the tab
+   * that pressed runs its prepare (through the Val server), build and upload,
+   * reporting each step; then content runs verify and the seal itself. See
+   * docs/app-mode.md, "Publishing is a queued job".
+   *
+   * ```
+   * POST /publish-requests             press    -> the request, and a job to build
+   * GET  /publish-requests/{id}        where it is: queued, publishing, live, failed
+   * POST /publish-requests/try-again   Try again: resume a paused queue, press anew
+   * POST /publish-jobs/next            a free tab asks for queued work
+   * POST /publish-jobs/{id}/prepare    the job's sources, archived (the Val server's)
+   * POST /publish-jobs/{id}/steps      the tab reports build and upload
+   * POST /publish-jobs/{id}/renew      the tab is still building
+   * POST /publish-jobs/{id}/cancel     Cancel, before the seal
+   * POST /publish-jobs/{id}/discard    Discard these changes, on a failed job
+   * ```
+   *
+   * Every id the Studio sends -- a request's, a tab's -- is its own, minted by
+   * it, `[A-Za-z0-9_-]{1,100}`. A press is idempotent on its request id; a step
+   * report names its step, so one retried after a lost answer does nothing
+   * twice.
+   */
+  /**
+   * CI's own report of how a build of a git commit went, sent by the
+   * connected workflow's last step with its project token. See `ciRuns.ts`.
+   */
+  "/ci-runs": {
+    POST: {
+      body: {
+        commit: string;
+        branch?: string;
+        status: "failed" | "succeeded";
+        url?: string;
+      };
+      res: { recorded: true };
+    };
+  };
+  "/ci-runs/newest": {
+    GET: {
+      res: {
+        run: {
+          commit: string;
+          status: "failed" | "succeeded";
+          url: string | null;
+        } | null;
+      };
+    };
+  };
+  "/publish-requests": {
+    POST: {
+      body: { requestId: string; tab: string };
+      res: { request: PublishRequestStatus; job: PublishTabJob | null };
+    };
+  };
+  "/publish-requests/try-again": {
+    POST: {
+      body: { requestId: string; tab: string };
+      res: { request: PublishRequestStatus; job: PublishTabJob | null };
+    };
+  };
+  "/publish-requests/:requestId": {
+    GET: { res: { request: PublishRequestStatus } };
+  };
+  "/publish-jobs/next": {
+    POST: { body: { tab: string }; res: { job: PublishTabJob | null } };
+  };
+  "/publish-jobs/:jobId/prepare": {
+    POST: {
+      /**
+       * `/commit`'s body, less what names a commit: the job's commit is minted
+       * at the seal. `modules` is required here -- a managed commit's archive,
+       * written from it, is the only copy of what it published.
+       */
+      body: {
+        tab: string;
+        root: string;
+        filesDirectory?: string;
+        patchedSourceFiles: Record<string, string | null>;
+        patchedBinaryFilesDescriptors: Record<
+          string,
+          { patchId: string; remote?: boolean }
+        >;
+        modules: Record<string, { source: Json; schema: Json }>;
+        /**
+         * Connected: the git commit the Studio's deployment was built from. A
+         * branch whose tip is that commit has nothing it has not seen.
+         */
+        gitCommit?: string;
+      };
+      res: { job: PublishTabJob | null };
+    };
+  };
+  "/publish-jobs/:jobId/steps": {
+    POST: {
+      body: {
+        tab: string;
+        step: "prepare" | "build" | "upload";
+        ok: boolean;
+        /** A finished build step: the id of the publish (`POST /publish`) it declared. */
+        build?: string;
+      };
+      res: { job: PublishTabJob | null };
+    };
+  };
+  "/publish-jobs/:jobId/renew": {
+    POST: { body: { tab: string }; res: { renewed: boolean } };
+  };
+  "/publish-jobs/:jobId/cancel": {
+    POST: { res: { cancelled: boolean } };
+  };
+  "/publish-jobs/:jobId/discard": {
+    POST: {
+      /** The forward closure, as `DELETE /patches` takes it. */
+      body: { unstagePatchIds?: string[] };
+      /** Changes it could not discard: another job in flight holds them. */
+      res: { stillHeld: string[] };
+    };
+  };
 };
 
 /**
@@ -207,4 +331,34 @@ export type PublishProblem = {
   message: string;
   hint?: string;
   keys?: string[];
+};
+
+/**
+ * Where a press of Publish is. `live` names the commit that carries it -- its
+ * own, or a newer one that contains it; `failed` names what the editor can do.
+ * The same shape as `RequestStatus` in `utils/jobPlan.ts`, which decides it.
+ */
+export type PublishRequestStatus =
+  | { kind: "queued" }
+  | { kind: "publishing" }
+  | { kind: "live"; commit: string }
+  | {
+      kind: "failed";
+      message: string;
+      actions: ("try-again" | "discard" | "re-run-build")[];
+      /** The job that failed: what Discard is pressed on. */
+      job: string;
+    }
+  | { kind: "cancelled" }
+  | { kind: "nothing-to-publish" };
+
+/** What a tab needs to know about a job it is running. */
+export type PublishTabJob = {
+  id: string;
+  /** The step the tab is to run next; null once the job is content's. */
+  step: "prepare" | "build" | "upload" | null;
+  /** The recorded commit its build is based on. */
+  base: string | null;
+  /** The changes its build is to include, on top of `base`. */
+  patches: string[];
 };

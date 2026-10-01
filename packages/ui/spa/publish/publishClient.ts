@@ -118,6 +118,58 @@ export type StudioPublishClient = {
  * fresh slots, and a publish that treated it as one would give up an upload
  * short of the finish.
  */
+/**
+ * One JSON call through this origin, with the session cookie: its body, or a
+ * `StudioPublishError` carrying the answer's own message.
+ */
+export async function callJson(
+  fetchImpl: typeof fetch,
+  url: string,
+  method: "GET" | "POST",
+  body?: unknown,
+): Promise<unknown> {
+  const res = await fetchImpl(url, {
+    method,
+    // The session cookie is the whole credential this end has.
+    credentials: "same-origin",
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+  });
+  const text = await res.text();
+  /*
+   * A body that is not JSON is a gateway between here and content, not
+   * content answering -- so it becomes `undefined` and the status carries the
+   * meaning, rather than throwing over a page nobody wrote.
+   */
+  let parsed: unknown;
+  try {
+    parsed = text === "" ? undefined : JSON.parse(text);
+  } catch {
+    parsed = undefined;
+  }
+  if (!res.ok) {
+    const message =
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "message" in parsed &&
+      typeof parsed.message === "string"
+        ? parsed.message
+        : `The publish API answered ${res.status}.`;
+    throw new StudioPublishError(res.status, message, parsed);
+  }
+  return parsed;
+}
+
+/*
+ * One request for both halves of the answer. A client lives for one deploy,
+ * so this is the source as that deploy read it -- two requests could read
+ * two different builds' files.
+ */
+
 export function isExpiredSlot(error: unknown): boolean {
   return error instanceof StudioUploadError && error.statusCode === 403;
 }
@@ -130,52 +182,9 @@ export function createStudioPublishClient(options: {
   const fetchImpl = options.fetchImpl ?? fetch;
   const proxy = `${options.api.replace(/\/+$/, "")}/publish-api`;
 
-  const call = async (
-    path: string,
-    method: "GET" | "POST",
-    body?: unknown,
-  ): Promise<unknown> => {
-    const res = await fetchImpl(`${proxy}${path}`, {
-      method,
-      // The session cookie is the whole credential this end has.
-      credentials: "same-origin",
-      ...(body === undefined
-        ? {}
-        : {
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          }),
-    });
-    const text = await res.text();
-    /*
-     * A body that is not JSON is a gateway between here and content, not
-     * content answering -- so it becomes `undefined` and the status carries the
-     * meaning, rather than throwing over a page nobody wrote.
-     */
-    let parsed: unknown;
-    try {
-      parsed = text === "" ? undefined : JSON.parse(text);
-    } catch {
-      parsed = undefined;
-    }
-    if (!res.ok) {
-      const message =
-        typeof parsed === "object" &&
-        parsed !== null &&
-        "message" in parsed &&
-        typeof parsed.message === "string"
-          ? parsed.message
-          : `The publish API answered ${res.status}.`;
-      throw new StudioPublishError(res.status, message, parsed);
-    }
-    return parsed;
-  };
+  const call = (path: string, method: "GET" | "POST", body?: unknown) =>
+    callJson(fetchImpl, `${proxy}${path}`, method, body);
 
-  /*
-   * One request for both halves of the answer. A client lives for one deploy,
-   * so this is the source as that deploy read it -- two requests could read
-   * two different builds' files.
-   */
   let source: Promise<ProjectSourceResponse> | null = null;
   const readSource = () =>
     (source ??= call("/project-source", "GET").then(parseProjectSource));

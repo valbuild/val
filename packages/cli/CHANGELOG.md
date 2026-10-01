@@ -1,5 +1,46 @@
 # @valbuild/cli
 
+## 0.138.0
+
+### Minor Changes
+
+- [#754](https://github.com/valbuild/val/pull/754) [`6216172`](https://github.com/valbuild/val/commit/62161729aa40f737590b0a8093c0394385fffd8d) Thanks [@freekh](https://github.com/freekh)! - Connected projects hosted on the Val platform publish as a queued job too.
+
+  For a project with a GitHub repository whose site runs on the Val platform, pressing **Publish** is now a request, just as it is for a managed project. The Studio sends the job's changes; the content service pushes them as one commit on top of whatever is on the branch at that moment, so a developer's code push in between is kept. CI then builds it. A developer's change to the site's content files that this deployment has not seen stops the publish before anything is pushed, and says so.
+
+  - A build that CI reports as failed shows "Published, not on the site yet", with **View run**. The next publish builds again.
+  - New CLI command, `val ci-report --status failed|succeeded`, for a workflow's last step. It reads the commit, the branch and the run's address from GitHub Actions, uses the same `VAL_PROJECT_TOKEN` as `val publish`, and never fails the job.
+
+  Connected projects on a host of their own (for example Vercel) publish exactly as before.
+
+- [#754](https://github.com/valbuild/val/pull/754) [`40fbf36`](https://github.com/valbuild/val/commit/40fbf36ff594cc063f217a4ffae87d27f8016fb5) Thanks [@freekh](https://github.com/freekh)! - `val publish` builds the site itself.
+
+  Run in a project with no `--artifacts`, it now asks Val what to build against, builds the site and its dependency layer from the checkout, and publishes the result. A CI workflow is one step:
+
+  ```yaml
+  - run: npx val publish
+    env:
+      VAL_PROJECT_TOKEN: ${{ secrets.VAL_PROJECT_TOKEN }}
+  ```
+
+  The build needs these installed in the project, as devDependencies:
+
+  ```bash
+  npm install --save-dev @valbuild/tanstack-build rolldown @tanstack/router-generator @tanstack/router-plugin
+  ```
+
+  A dependency layer Val already holds is named, not uploaded again. The checkout is left as it was found: the route tree is generated and put back, and the build is written to a temporary directory.
+
+  To publish a build made elsewhere, pass `--artifacts <dir>` as before. A project that already has a `.val/publish` directory still publishes that directory without building.
+
+### Patch Changes
+
+- Updated dependencies [[`57af895`](https://github.com/valbuild/val/commit/57af8959cc46519a405b1ed7441623f8bf2e6d27), [`6216172`](https://github.com/valbuild/val/commit/62161729aa40f737590b0a8093c0394385fffd8d), [`40e933d`](https://github.com/valbuild/val/commit/40e933da7fe01cfe1c3f4a43c156f0b2f8a11f62), [`5876fe0`](https://github.com/valbuild/val/commit/5876fe075fdee1f76f1cdaa2488ac52c58c894a8)]:
+  - @valbuild/core@0.138.0
+  - @valbuild/server@0.138.0
+  - @valbuild/shared@0.138.0
+  - @valbuild/language-server@0.138.0
+
 ## 0.137.0
 
 ### Patch Changes

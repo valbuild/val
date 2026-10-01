@@ -73,7 +73,6 @@ function OverlayScene({
               onClose={() => undefined}
               publishDisabled={false}
               isPublishing={false}
-              waitingForAiSeconds={null}
             />
           </OverlayCard>
         ) : (
@@ -358,7 +357,6 @@ function StudioStatusBar({
         branch="main"
         deployments={deployments}
         studioIsDeployer
-        onFinishPublishing={() => undefined}
         deployState={deployState}
         deploymentsOpen={open}
         onDeploymentsOpenChange={() => undefined}
@@ -452,7 +450,7 @@ export const StatusBarLive: BarStory = {
     <StudioStatusBar
       deployState={{
         status: "done",
-        result: { status: "live", url: null, visible: true },
+        result: { status: "live", url: null },
         ms: 29_000,
         steps: [],
         commit: "188fa4a3c1e2",
@@ -480,7 +478,7 @@ export const StatusBarListLive: BarStory = {
       open
       deployState={{
         status: "done",
-        result: { status: "live", url: null, visible: true },
+        result: { status: "live", url: null },
         ms: 29_000,
         steps: [],
         commit: "188fa4a3c1e2",
@@ -497,7 +495,7 @@ export const StatusBarListLiveLight: BarStory = {
       theme="light"
       deployState={{
         status: "done",
-        result: { status: "live", url: null, visible: true },
+        result: { status: "live", url: null },
         ms: 29_000,
         steps: [],
         commit: "188fa4a3c1e2",

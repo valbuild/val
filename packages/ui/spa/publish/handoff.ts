@@ -1,7 +1,10 @@
 import type { StudioDeployResult } from "./runStudioDeploy";
-import type { CommittedBinaryFiles } from "./runStudioDeploy";
 import type { SiteUpdateOutcome } from "./runSiteUpdate";
-import type { DependencyChange } from "@valbuild/shared/internal";
+import type { StudioJobResult } from "./runStudioJob";
+import type {
+  DependencyChange,
+  PublishTabJob,
+} from "@valbuild/shared/internal";
 
 /**
  * Publishing from a page that cannot build, by handing the build to a Studio
@@ -11,16 +14,18 @@ import type { DependencyChange } from "@valbuild/shared/internal";
  * only in a cross-origin isolated document -- and only the Studio is one:
  * isolating the customer's own pages would break their embeds (see
  * `STUDIO_ISOLATION` in the platform's loader). So a publish from the overlay
- * commits on the site, and a Studio tab it opened builds and publishes that
- * commit, reporting back over a `BroadcastChannel`.
+ * is REQUESTED on the site, and the publish job content hands the site is
+ * built by a Studio tab it opened, reporting back over a `BroadcastChannel`.
+ * The tab runs the job as the site's tab -- the job is leased to the tab that
+ * pressed -- so content sees one tab throughout.
  *
  * A channel rather than `postMessage` to the window: the Studio document is
  * `Cross-Origin-Opener-Policy: same-origin`, which severs the opener's handle
  * to it the moment it loads. A channel is same-origin and needs no handle.
  *
- * The tab opens at the PRESS, before the save: a window opened after an await
- * has lost the click that allowed it, and the browser blocks it. So the tab
- * starts out waiting, and is told the commit when the save has made one.
+ * The tab opens at the PRESS, before the request: a window opened after an
+ * await has lost the click that allowed it, and the browser blocks it. So the
+ * tab starts out waiting, and is told the job when content has handed one.
  *
  * On a desktop it is a small popup window rather than a tab, sized to the
  * publish card: see `openBuilderWindow`. iPadOS ignores the window features
@@ -34,31 +39,33 @@ const CHANNEL = "val-publish-handoff";
 /** Site -> tab. */
 export type ToTab =
   | {
-      type: "commit";
-      commit: string | null;
-      /**
-       * The text the save wrote, path to contents (`null` for a deletion):
-       * what the in-place build passes as `committedFiles`. `null` when there
-       * is no save behind it -- a Finish publishing of a commit made earlier.
-       */
-      committedFiles?: Record<string, string | null> | null;
-      binaryFiles: CommittedBinaryFiles | null;
-      branch: string | null;
+      type: "job";
+      job: PublishTabJob;
+      /** The site's tab id: the job is leased to it, and reported as it. */
+      tab: string;
+      /** The press the job is for, so the tab can say when it is Live. */
+      requestId: string | null;
     }
-  /** The save did not happen, so there is nothing to build. */
+  /** The press did not start a job, so there is nothing to build. */
   | { type: "cancel"; message: string }
   /**
    * Update the site's dependencies (`runSiteUpdate`) instead of publishing a
-   * commit. Nothing is saved first, so there is nothing to wait for: the page
+   * job. Nothing is requested first, so there is nothing to wait for: the page
    * sends this at the press, and the tab starts as soon as it hears it.
    */
   | { type: "update" };
 
 /** Tab -> site. */
 export type ToSite =
-  /** Listening. The site answers with the commit, if it has one yet. */
+  /** Listening. The site answers with the job, if it has one yet. */
   | { type: "ready" }
   | { type: "phase"; label: string; elapsedMs: number }
+  /**
+   * The tab's part of the job is over: handed to content, lost, or failed.
+   * What the site's own job runner waits for; `done` follows, once the
+   * publish is Live or has failed.
+   */
+  | { type: "job-result"; result: StudioJobResult }
   | {
       type: "done";
       result: StudioDeployResult;
@@ -183,18 +190,18 @@ function channelOf(): BroadcastChannel | null {
 }
 
 /**
- * The site's end: opened at the press, told the commit after the save.
+ * The site's end: opened at the press, told the job once content hands one.
  *
  * `opened` is false when the browser refused the tab. The handoff still works
- * then -- a tab opened later from `url` finds the commit here -- which is what
+ * then -- a tab opened later from `url` finds the job here -- which is what
  * the "Open the Studio to publish" button does.
  */
 export type SiteHandoff = {
   id: string;
   url: string;
   opened: boolean;
-  /** Hand the tab the commit to build. Re-sent whenever a tab says it is ready. */
-  commit: (payload: Extract<ToTab, { type: "commit" }>) => void;
+  /** Hand the tab the job to build. Re-sent whenever a tab says it is ready. */
+  job: (payload: Extract<ToTab, { type: "job" }>) => void;
   /** Ask the tab to run an update. Re-sent whenever a tab says it is ready. */
   update: () => void;
   cancel: (message: string) => void;
@@ -225,7 +232,7 @@ export function openHandoff(
       if (envelope === null || envelope.id !== id) return;
       const message = asToSite(envelope.message);
       if (message === null) return;
-      // A tab that came up after the commit was sent asks for it again.
+      // A tab that came up after the job was sent asks for it again.
       if (message.type === "ready" && pending !== null) send(pending);
       for (const listener of listeners) listener(message);
     };
@@ -234,7 +241,7 @@ export function openHandoff(
     id,
     url,
     opened,
-    commit: (payload) => {
+    job: (payload) => {
       pending = payload;
       send(payload);
     },
@@ -255,10 +262,10 @@ export function openHandoff(
 }
 
 /**
- * The tab's end: ask for the commit, then report.
+ * The tab's end: ask for the job, then report.
  *
- * `ready` is repeated until the commit arrives, because the site may not have
- * one yet -- the save runs after the tab opens -- and a message sent before
+ * `ready` is repeated until the job arrives, because the site may not have
+ * one yet -- the press runs after the tab opens -- and a message sent before
  * the other end listens is simply lost.
  */
 export type TabHandoff = {
@@ -328,64 +335,51 @@ function asToTab(message: unknown): ToTab | null {
     };
   }
   if (message.type === "update") return { type: "update" };
-  if (message.type === "commit" && "commit" in message) {
-    const commit = typeof message.commit === "string" ? message.commit : null;
-    const branch =
-      "branch" in message && typeof message.branch === "string"
-        ? message.branch
+  if (
+    message.type === "job" &&
+    "job" in message &&
+    "tab" in message &&
+    typeof message.tab === "string"
+  ) {
+    const job = asTabJob(message.job);
+    if (job === null) return null;
+    const requestId =
+      "requestId" in message && typeof message.requestId === "string"
+        ? message.requestId
         : null;
-    const binaryFiles =
-      "binaryFiles" in message ? asBinaryFiles(message.binaryFiles) : null;
-    const committedFiles =
-      "committedFiles" in message
-        ? asCommittedFiles(message.committedFiles)
-        : null;
-    return {
-      type: "commit",
-      commit,
-      ...(committedFiles !== null ? { committedFiles } : {}),
-      branch,
-      binaryFiles,
-    };
+    return { type: "job", job, tab: message.tab, requestId };
   }
   return null;
 }
 
-function asCommittedFiles(
-  value: unknown,
-): Record<string, string | null> | null {
-  // An array is an object too, and would become files named "0", "1", ...
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-  const files: Record<string, string | null> = {};
-  for (const [path, contents] of Object.entries(value)) {
-    if (typeof contents === "string" || contents === null) {
-      files[path] = contents;
-    }
-  }
-  return files;
-}
-
-function asBinaryFiles(value: unknown): CommittedBinaryFiles | null {
+function asTabJob(value: unknown): PublishTabJob | null {
   if (
     typeof value !== "object" ||
     value === null ||
-    !("files" in value) ||
-    typeof value.files !== "object" ||
-    value.files === null
+    !("id" in value) ||
+    typeof value.id !== "string" ||
+    !("patches" in value) ||
+    !Array.isArray(value.patches)
   ) {
     return null;
   }
-  const files: Record<string, string> = {};
-  for (const [path, base64] of Object.entries(value.files)) {
-    if (typeof base64 === "string") files[path] = base64;
-  }
-  const unread =
-    "unread" in value && Array.isArray(value.unread)
-      ? value.unread.filter((path): path is string => typeof path === "string")
-      : [];
-  return { files, unread };
+  const step =
+    "step" in value &&
+    (value.step === "prepare" ||
+      value.step === "build" ||
+      value.step === "upload")
+      ? value.step
+      : null;
+  const base =
+    "base" in value && typeof value.base === "string" ? value.base : null;
+  return {
+    id: value.id,
+    step,
+    base,
+    patches: value.patches.filter(
+      (patch): patch is string => typeof patch === "string",
+    ),
+  };
 }
 
 function asToSite(message: unknown): ToSite | null {
@@ -404,6 +398,10 @@ function asToSite(message: unknown): ToSite | null {
       label: message.label,
       elapsedMs: message.elapsedMs,
     };
+  }
+  if (message.type === "job-result" && "result" in message) {
+    const result = asJobResult(message.result);
+    return result === null ? null : { type: "job-result", result };
   }
   if (message.type === "update-done" && "outcome" in message) {
     const outcome = asUpdateOutcome(message.outcome);
@@ -481,20 +479,43 @@ function asDependencyChange(change: unknown): DependencyChange[] {
   return [{ name: change.name, section: change.section, from, to: change.to }];
 }
 
+function asJobResult(value: unknown): StudioJobResult | null {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("status" in value) ||
+    !("jobId" in value) ||
+    typeof value.jobId !== "string"
+  )
+    return null;
+  switch (value.status) {
+    case "handed-off":
+      return {
+        status: "handed-off",
+        jobId: value.jobId,
+        built: !("built" in value) || value.built !== false,
+      };
+    case "lost":
+      return { status: "lost", jobId: value.jobId };
+    case "failed":
+      return {
+        status: "failed",
+        jobId: value.jobId,
+        message:
+          "message" in value && typeof value.message === "string"
+            ? value.message
+            : "The publish failed.",
+      };
+  }
+  return null;
+}
+
 function asResult(value: unknown): StudioDeployResult | null {
   if (typeof value !== "object" || value === null || !("status" in value))
     return null;
   const url =
     "url" in value && typeof value.url === "string" ? value.url : null;
-  if (value.status === "live") {
-    const visible =
-      "visible" in value && typeof value.visible === "boolean"
-        ? value.visible
-        : undefined;
-    return visible === undefined
-      ? { status: "live", url }
-      : { status: "live", url, visible };
-  }
+  if (value.status === "live") return { status: "live", url };
   if (value.status === "already-live") return { status: "already-live", url };
   if (value.status === "failed") {
     return {

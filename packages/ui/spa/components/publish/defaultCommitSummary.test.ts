@@ -1,7 +1,7 @@
 import {
+  buildDefaultCommitMessage,
   buildDefaultCommitSummary,
   moduleDisplayName,
-  resolvePublishText,
   shouldAutoApplyAiSummary,
 } from "./defaultCommitSummary";
 
@@ -93,6 +93,103 @@ describe("buildDefaultCommitSummary", () => {
   });
 });
 
+describe("buildDefaultCommitMessage", () => {
+  test("is never empty", () => {
+    expect(buildDefaultCommitMessage([])).toBe("Update content");
+  });
+
+  test("puts the exact path in the title when one field changed", () => {
+    expect(
+      buildDefaultCommitMessage([
+        {
+          moduleFilePath: "/content/home.val.ts",
+          patchPath: ["hero", "title"],
+        },
+      ]),
+    ).toBe("Update hero.title in /content/home.val.ts");
+  });
+
+  test("the same field patched twice is still one field", () => {
+    expect(
+      buildDefaultCommitMessage([
+        { moduleFilePath: "/content/home.val.ts", patchPath: ["title"] },
+        { moduleFilePath: "/content/home.val.ts", patchPath: ["title"] },
+      ]),
+    ).toBe("Update title in /content/home.val.ts");
+  });
+
+  test("a field inside another changed field is not named separately", () => {
+    expect(
+      buildDefaultCommitMessage([
+        { moduleFilePath: "/content/home.val.ts", patchPath: ["hero"] },
+        {
+          moduleFilePath: "/content/home.val.ts",
+          patchPath: ["hero", "title"],
+        },
+      ]),
+    ).toBe("Update hero in /content/home.val.ts");
+  });
+
+  test("several fields of one module are listed in the body", () => {
+    expect(
+      buildDefaultCommitMessage([
+        { moduleFilePath: "/content/home.val.ts", patchPath: ["title"] },
+        {
+          moduleFilePath: "/content/home.val.ts",
+          patchPath: ["hero", "image"],
+        },
+      ]),
+    ).toBe("Update Home\n\nChanged in /content/home.val.ts: hero.image, title");
+  });
+
+  test("the module as a whole is named by its path", () => {
+    expect(
+      buildDefaultCommitMessage([
+        { moduleFilePath: "/content/home.val.ts", patchPath: [] },
+        { moduleFilePath: "/content/home.val.ts", patchPath: ["title"] },
+      ]),
+    ).toBe("Update Home\n\nChanged: /content/home.val.ts");
+  });
+
+  test("several modules keep the named title and list every path", () => {
+    expect(
+      buildDefaultCommitMessage([
+        { moduleFilePath: "/content/home.val.ts", patchPath: ["title"] },
+        {
+          moduleFilePath: "/content/blogs/page.val.ts",
+          patchPath: ["/blogs/a", "title"],
+        },
+        { moduleFilePath: "/content/about.val.ts", patchPath: [] },
+      ]),
+    ).toBe(
+      [
+        "Update About, Blogs and Home",
+        "",
+        "Changed:",
+        "- /content/about.val.ts",
+        "- /content/blogs/page.val.ts: /blogs/a.title",
+        "- /content/home.val.ts: title",
+      ].join("\n"),
+    );
+  });
+
+  test("caps a long list of modules and of fields", () => {
+    const message = buildDefaultCommitMessage([
+      ...Array.from({ length: 8 }, (_, i) => ({
+        moduleFilePath: `/content/page-${i}.val.ts`,
+        patchPath: ["title"],
+      })),
+      ...Array.from({ length: 7 }, (_, i) => ({
+        moduleFilePath: "/content/page-0.val.ts",
+        patchPath: [`field${i}`],
+      })),
+    ]);
+    expect(message.split("\n")[0]).toBe("Update content in 8 places");
+    expect(message).toContain("- and 2 more");
+    expect(message).toContain("field4 and 3 more");
+  });
+});
+
 describe("shouldAutoApplyAiSummary", () => {
   const defaultSummary = "Update Home";
 
@@ -155,58 +252,5 @@ describe("shouldAutoApplyAiSummary", () => {
         defaultSummary,
       }),
     ).toBe(true);
-  });
-});
-
-describe("resolvePublishText", () => {
-  const defaultSummary = "Update Home";
-  const aiText = "Rewrite the hero to lead with the product name";
-
-  test("commits the summary that arrived while the countdown ran", () => {
-    // The bug this pins: pressing Publish while the AI was writing published
-    // the default, because the text was read from the closure the press
-    // created — the box had the AI's summary and the commit did not.
-    expect(
-      resolvePublishText({
-        hasEdited: false,
-        currentValue: defaultSummary,
-        defaultSummary,
-        aiText,
-      }),
-    ).toBe(aiText);
-  });
-
-  test("commits what the user wrote, whatever the AI came back with", () => {
-    expect(
-      resolvePublishText({
-        hasEdited: true,
-        currentValue: "Fix the typo in the footer",
-        defaultSummary,
-        aiText,
-      }),
-    ).toBe("Fix the typo in the footer");
-  });
-
-  test("commits the box when there is no finished summary", () => {
-    // No AI configured, still writing, or failed — all the same answer.
-    expect(
-      resolvePublishText({
-        hasEdited: false,
-        currentValue: defaultSummary,
-        defaultSummary,
-        aiText: null,
-      }),
-    ).toBe(defaultSummary);
-  });
-
-  test("does not re-apply a summary the box already holds", () => {
-    expect(
-      resolvePublishText({
-        hasEdited: false,
-        currentValue: aiText,
-        defaultSummary,
-        aiText,
-      }),
-    ).toBe(aiText);
   });
 });

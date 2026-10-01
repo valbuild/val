@@ -312,13 +312,7 @@ export type DeploymentProgress =
    * The host last said this was building, and said so over an hour ago. See
    * `isDeploymentStatusStale`.
    */
-  | "unknown"
-  /**
-   * The managed equivalent of `building`: the commit landed and the build did
-   * not, and nothing outside this browser will ever change that. See
-   * `summarizeDeployments`.
-   */
-  | "saved-not-live";
+  | "unknown";
 
 /**
  * A destination: what the left rail switches between.

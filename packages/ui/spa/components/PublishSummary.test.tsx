@@ -6,21 +6,14 @@ import { TooltipProvider } from "./designSystem/tooltip";
 import type { AiSummaryState } from "./PublishSummaryView";
 
 /**
- * What actually gets committed when Publish is pressed.
+ * What actually gets committed when Publish is pressed in the commit message
+ * box — which only a project with `studio.commitMessage: "required"` sees.
  *
- * The rule the popover is built around is that the AI never blocks anyone: the
- * box is filled with a summary that needed no network call, and the AI's
- * version takes over only if the user has not written their own. Pressing
- * Publish while the AI is still writing buys it a few seconds — and this is
- * the seam that broke.
- *
- * The text used to be read back out of the summary STATE by the publish button,
- * from that button's own render. Publishing during the grace period is fired by
- * a callback created when Publish was pressed, and the summary lands after
- * that: the box on screen said the AI's sentence and the commit said "Update
- * Home". Both effects run in the same flush, so no amount of waiting fixed it.
- * Hence the tests below assert on the text handed to `onPublish`, not on the
- * textarea.
+ * The rules: the box starts EMPTY (a pre-filled one could be published
+ * unread, which is what "required" exists to prevent), Publish is disabled
+ * until it has something in it, the AI fills an untouched box when it lands,
+ * and nothing publishes on its own — there is no countdown any more. The
+ * tests assert on the text handed to `onPublish`, not only on the textarea.
  */
 
 const mockPatchSets = {
@@ -88,14 +81,24 @@ jest.mock("./ValPortalProvider", () => ({
 }));
 
 const AI_TEXT = "The hero now leads with the product name";
-const DEFAULT_TEXT = "Update Home";
+const PLACEHOLDER =
+  "Describe your changes. For example: Update hero.title in /content/home.val.ts";
 
-function Harness({ onPublish }: { onPublish: (summary: string) => void }) {
+type SummaryState =
+  | { type: "not-asked" }
+  | { type: "manual" | "ai"; text: string };
+
+function Harness({
+  onPublish,
+  restored = { type: "not-asked" },
+}: {
+  onPublish: (summary: string) => void;
+  /** What the persisted summary state held when the popover opened. */
+  restored?: SummaryState;
+}) {
   // The real summary lives in a provider and is persisted; all this flow needs
   // of it is that reads see the last write.
-  const [summary, setSummaryState] = useState<
-    { type: "not-asked" } | { type: "manual" | "ai"; text: string }
-  >({ type: "not-asked" });
+  const [summary, setSummaryState] = useState<SummaryState>(restored);
   mockPublishSummaryHook = { summary, setSummary: setSummaryState };
   return (
     <TooltipProvider>
@@ -123,19 +126,39 @@ afterEach(() => {
 });
 
 function summaryBox(): HTMLTextAreaElement {
-  return screen.getByPlaceholderText(
-    "Write a summary of your changes",
-  ) as HTMLTextAreaElement;
+  return screen.getByRole("textbox", {
+    name: "Commit message",
+  }) as HTMLTextAreaElement;
+}
+
+function publishButton(): HTMLButtonElement {
+  return screen.getByRole("button", { name: /publish/i }) as HTMLButtonElement;
 }
 
 describe("PublishSummary", () => {
-  test("fills the box with a summary that needed no network call", () => {
-    const onPublish = jest.fn();
-    render(<Harness onPublish={onPublish} />);
-    expect(summaryBox().value).toBe(DEFAULT_TEXT);
+  test("starts empty, with the message nobody wrote as the placeholder", () => {
+    mockAiState = { status: "idle" };
+    render(<Harness onPublish={jest.fn()} />);
+    expect(summaryBox().value).toBe("");
+    expect(summaryBox().placeholder).toBe(PLACEHOLDER);
   });
 
-  test("the AI summary takes over a box nobody has typed in", () => {
+  test("an empty box cannot be published", () => {
+    const onPublish = jest.fn();
+    render(<Harness onPublish={onPublish} />);
+    expect(publishButton().disabled).toBe(true);
+    act(() => {
+      fireEvent.click(publishButton());
+    });
+    expect(onPublish).not.toHaveBeenCalled();
+  });
+
+  test("says the AI is writing while it does", () => {
+    render(<Harness onPublish={jest.fn()} />);
+    expect(summaryBox().placeholder).toBe("Writing a commit message with AI…");
+  });
+
+  test("the AI summary fills a box nobody has typed in", () => {
     const onPublish = jest.fn();
     const { rerender } = render(<Harness onPublish={onPublish} />);
     setAiState({ status: "ready", text: AI_TEXT, sessionId: null }, () =>
@@ -144,54 +167,20 @@ describe("PublishSummary", () => {
     expect(summaryBox().value).toBe(AI_TEXT);
   });
 
-  test("a summary that lands during the grace period is what gets committed", () => {
+  test("the AI summary is not published until someone presses Publish", () => {
     const onPublish = jest.fn();
     const { rerender } = render(<Harness onPublish={onPublish} />);
-
-    act(() => {
-      fireEvent.click(screen.getByRole("button", { name: /publish/i }));
-    });
-    // Publishing waits rather than going ahead with the default.
-    expect(onPublish).not.toHaveBeenCalled();
-    expect(screen.getByText(/Waiting for the AI summary/)).toBeTruthy();
-
     setAiState({ status: "ready", text: AI_TEXT, sessionId: null }, () =>
       rerender(<Harness onPublish={onPublish} />),
     );
-
-    // The regression: this used to be called with DEFAULT_TEXT, because the
-    // callback the countdown fired predated the summary arriving.
+    act(() => {
+      jest.advanceTimersByTime(60_000);
+    });
+    expect(onPublish).not.toHaveBeenCalled();
+    act(() => {
+      fireEvent.click(publishButton());
+    });
     expect(onPublish).toHaveBeenCalledWith(AI_TEXT);
-    expect(summaryBox().value).toBe(AI_TEXT);
-  });
-
-  test("the wait ends on its own, with the box as it stands", () => {
-    const onPublish = jest.fn();
-    render(<Harness onPublish={onPublish} />);
-    act(() => {
-      fireEvent.click(screen.getByRole("button", { name: /publish/i }));
-    });
-    // A second apart, one act each: the next tick is only scheduled by the
-    // re-render the previous one caused, so a single long advance runs one.
-    for (let second = 0; second <= 10; second++) {
-      act(() => {
-        jest.advanceTimersByTime(1000);
-      });
-    }
-    expect(onPublish).toHaveBeenCalledWith(DEFAULT_TEXT);
-  });
-
-  test("a second press skips the rest of the wait", () => {
-    const onPublish = jest.fn();
-    render(<Harness onPublish={onPublish} />);
-    const publish = () =>
-      act(() => {
-        fireEvent.click(screen.getByRole("button", { name: /publish/i }));
-      });
-    publish();
-    expect(onPublish).not.toHaveBeenCalled();
-    publish();
-    expect(onPublish).toHaveBeenCalledWith(DEFAULT_TEXT);
   });
 
   test("what the user wrote is committed, and never waits on the AI", () => {
@@ -203,7 +192,7 @@ describe("PublishSummary", () => {
       });
     });
     act(() => {
-      fireEvent.click(screen.getByRole("button", { name: /publish/i }));
+      fireEvent.click(publishButton());
     });
     expect(onPublish).toHaveBeenCalledWith("Fix the typo in the footer");
 
@@ -214,27 +203,44 @@ describe("PublishSummary", () => {
     expect(summaryBox().value).toBe("Fix the typo in the footer");
   });
 
-  test("an AI summary already in the box is committed as it stands", () => {
-    const onPublish = jest.fn();
-    const { rerender } = render(<Harness onPublish={onPublish} />);
-    setAiState({ status: "ready", text: AI_TEXT, sessionId: null }, () =>
-      rerender(<Harness onPublish={onPublish} />),
-    );
-    act(() => {
-      fireEvent.click(screen.getByRole("button", { name: /publish/i }));
-    });
-    expect(onPublish).toHaveBeenCalledWith(AI_TEXT);
+  // The persisted summary is restored whenever there are pending changes, and
+  // the old flow seeded its default into it as `manual`. Neither may reach a
+  // box that exists so someone reads what goes out.
+  test.each<[string, SummaryState]>([
+    ["an earlier visit's AI message", { type: "ai", text: "Last visit's AI" }],
+    ["the old flow's seeded default", { type: "manual", text: "Update Home" }],
+  ])("%s is not restored into the box", (_, restored) => {
+    render(<Harness onPublish={jest.fn()} restored={restored} />);
+    expect(summaryBox().value).toBe("");
+    expect(publishButton().disabled).toBe(true);
   });
 
-  test("a failed summary is not waited for", () => {
+  test("and the AI still fills the box it cleared", () => {
+    const restored: SummaryState = { type: "ai", text: "Last visit's AI" };
+    const onPublish = jest.fn();
+    const { rerender } = render(
+      <Harness onPublish={onPublish} restored={restored} />,
+    );
+    setAiState({ status: "ready", text: AI_TEXT, sessionId: null }, () =>
+      rerender(<Harness onPublish={onPublish} restored={restored} />),
+    );
+    expect(summaryBox().value).toBe(AI_TEXT);
+  });
+
+  test("a failed AI leaves the box to the reader", () => {
     const onPublish = jest.fn();
     const { rerender } = render(<Harness onPublish={onPublish} />);
     setAiState({ status: "failed", message: "No key configured" }, () =>
       rerender(<Harness onPublish={onPublish} />),
     );
+    expect(summaryBox().value).toBe("");
+    expect(publishButton().disabled).toBe(true);
     act(() => {
-      fireEvent.click(screen.getByRole("button", { name: /publish/i }));
+      fireEvent.change(summaryBox(), { target: { value: "Update hero" } });
     });
-    expect(onPublish).toHaveBeenCalledWith(DEFAULT_TEXT);
+    act(() => {
+      fireEvent.click(publishButton());
+    });
+    expect(onPublish).toHaveBeenCalledWith("Update hero");
   });
 });

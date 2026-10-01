@@ -44,7 +44,6 @@ import type { SerializedPatchSet } from "../../utils/PatchSets";
 import { isPathWithin } from "../../utils/sourcePath";
 import { pendingPatchSets } from "../../utils/computeChangedSourcePaths";
 import type { Profile } from "../ValProvider";
-import { canBuildHere } from "../../publish/handoff";
 import { cn } from "../designSystem/cn";
 import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
 import { PublishHandoffCard } from "./PublishHandoff";
@@ -239,37 +238,9 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     canvasTransform: urlState.initial.canvasTransform,
   }));
   const { isPublishing } = usePublishSummary();
-  /*
-   * The way out of `Saved, not yet live`, wired here because this is the layer
-   * that may touch the provider: `Deployments.tsx` is rendered by tests that
-   * mount rows on their own, so it takes an action rather than reaching for
-   * one. Same deploy the publish button drives -- a publish whose build failed
-   * and a retry of that build are one operation seen at two moments.
-   */
-  const { state: deployState, deploy } = useStudioDeployState();
+  const { state: deployState } = useStudioDeployState();
   const studioIsDeployer = useStudioIsDeployer();
   const handoff = useSiteHandoffState();
-  /*
-   * Finish publishing a commit that is saved and not live: here when this page
-   * can build, and in a builder tab when it cannot -- WebKit, which isolates
-   * only the tab. The press is what lets the tab open, so both happen in it.
-   */
-  const finishPublishing = useCallback(
-    (commitSha: string) => {
-      if (canBuildHere()) {
-        void deploy(commitSha);
-        return;
-      }
-      handoff.prepare(studioIsDeployer);
-      handoff.commit({
-        commit: commitSha,
-        committedFiles: null,
-        binaryFiles: null,
-        branch: null,
-      });
-    },
-    [deploy, handoff, studioIsDeployer],
-  );
   /**
    * Whether the fields can be trusted yet.
    *
@@ -1160,8 +1131,6 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         editorOverride={overrideEditor}
         publishSlot={<PublishButton />}
         publishState={publishState}
-        onFinishPublishing={studioIsDeployer ? finishPublishing : undefined}
-        finishingPublish={deployState.status === "running"}
         deployState={deployState}
         saveState={saveState}
         autoSave={autoPublish}

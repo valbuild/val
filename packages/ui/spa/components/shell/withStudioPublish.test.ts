@@ -32,11 +32,11 @@ describe("this Studio's publish, on its row", () => {
   test("once live: how long each step took", () => {
     const [mine] = withStudioPublish(rows, {
       status: "done",
-      result: { status: "live", url: null, visible: true },
+      result: { status: "live", url: null },
       ms: 29_000,
       steps: [
         { kind: "building", ms: 6_000 },
-        { kind: "propagating", ms: 6_000 },
+        { kind: "verifying", ms: 6_000 },
       ],
       commit: "new",
     });
@@ -45,7 +45,7 @@ describe("this Studio's publish, on its row", () => {
       ms: 29_000,
       steps: [
         { label: "Building", ms: 6_000 },
-        { label: "Waiting for the site to show it", ms: 6_000 },
+        { label: "Checking the site renders", ms: 6_000 },
       ],
     });
   });
