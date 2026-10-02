@@ -3,7 +3,7 @@
 // builds a `TextEncoder` at module scope.
 import "../../../stores/react/testPolyfills";
 import { createRef } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { RichTextEditor } from "../RichTextEditor";
 import type {
   EditorDocument,
@@ -200,6 +200,24 @@ describe("Add & link, in a field that only links to routes", () => {
     ).toBeTruthy();
   });
 
+  test("an empty catalog links nothing, rather than anything", () => {
+    // A route-only field in a project with nothing to link to yet: the
+    // field's routes still have to exist, so no URL may become a link.
+    render(
+      <RichTextEditor
+        features={NO_MEASURING}
+        defaultValue={doc}
+        siteOrigins={SITE}
+        routes={ROUTES}
+        linkCatalog={[]}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Link all" })).toBeNull();
+    expect(
+      screen.getByText(/1 URL can't be linked from this field/),
+    ).toBeTruthy();
+  });
+
   test("a URL the router or the field would refuse is not offered", () => {
     render(
       <RichTextEditor
@@ -212,5 +230,62 @@ describe("Add & link, in a field that only links to routes", () => {
       />,
     );
     expect(screen.queryByRole("button", { name: "Add & link" })).toBeNull();
+  });
+});
+
+/**
+ * Enter, in the real editor and its real plugin order.
+ *
+ * The plugin test cannot catch this one: it is about WHERE the plugin sits.
+ * `baseKeymap`'s Enter always handles the key, so a `handleKeyDown` registered
+ * after it never sees Enter at all.
+ */
+describe("typing a URL and pressing Enter", () => {
+  test("links the URL, and still starts a new paragraph", async () => {
+    const ref = createRef<RichTextEditorRef>();
+    const { container } = render(
+      <RichTextEditor
+        ref={ref}
+        features={NO_MEASURING}
+        defaultValue={[{ tag: "p", children: ["Se https://ssb.no"] }]}
+        siteOrigins={SITE}
+        routes={ROUTES}
+      />,
+    );
+    const editor = container.querySelector<HTMLElement>(".ProseMirror");
+    const text = editor?.querySelector("p")?.firstChild;
+    if (!editor || !text) throw new Error("no editor");
+    editor.focus();
+    // The cursor goes where the DOM selection is, as it does for a click.
+    const range = document.createRange();
+    range.setStart(text, text.textContent?.length ?? 0);
+    range.collapse(true);
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(range);
+    await act(async () => {
+      document.dispatchEvent(new Event("selectionchange"));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    act(() => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(ref.current?.getDocument()).toEqual([
+      {
+        tag: "p",
+        children: [
+          "Se ",
+          { tag: "a", href: "https://ssb.no", children: ["https://ssb.no"] },
+        ],
+      },
+      { tag: "p", children: [] },
+    ]);
   });
 });

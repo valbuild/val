@@ -1,3 +1,4 @@
+import { Fragment, Slice } from "prosemirror-model";
 import { buildSchema } from "../schema";
 import { parseEditorDocument } from "../serialize/parseEditorDocument";
 import {
@@ -55,6 +56,16 @@ describe("findUrlsInText", () => {
   test("offsets point at the URL", () => {
     const [found] = findUrlsInText("Les https://nav.no nå");
     expect(found).toEqual({ start: 4, end: 18, url: "https://nav.no" });
+  });
+});
+
+describe("findUrlsInText: apostrophes", () => {
+  test("keeps an apostrophe inside the path, and drops one the prose put after it", () => {
+    expect(
+      findUrlsInText(
+        "Se https://en.wikipedia.org/wiki/O'Reilly og 'https://ssb.no'.",
+      ).map((found) => found.url),
+    ).toEqual(["https://en.wikipedia.org/wiki/O'Reilly", "https://ssb.no"]);
   });
 });
 
@@ -157,6 +168,31 @@ describe("resolveUrl", () => {
     expect(resolveUrl("/jobb", site)).toBeNull();
   });
 
+  test("a path that reads as another host is not made relative", () => {
+    // `//outside.example/path` as an href is outside.example, not this site.
+    expect(
+      resolveUrl("https://blank.no//outside.example/path", {
+        ...site,
+        routes: [],
+      }),
+    ).toEqual({
+      status: "linkable",
+      href: "https://blank.no//outside.example/path",
+      internal: false,
+    });
+  });
+
+  test("an empty catalog allows nothing, rather than everything", () => {
+    // A route-only field in a project whose catalog has nothing in it yet.
+    expect(resolveUrl("https://ssb.no", { ...site, allowedHrefs: [] })).toEqual(
+      {
+        status: "not-allowed",
+        href: "https://ssb.no",
+        reason: "external",
+      },
+    );
+  });
+
   describe("with a catalog", () => {
     test("an internal URL links to the route, without the query", () => {
       expect(resolveUrl("https://blank.no/jobb?ref=x", routeLinks)).toEqual({
@@ -254,6 +290,24 @@ describe("scanLinks", () => {
       },
     ]);
     expect(result.fixable).toEqual([]);
+  });
+
+  test("a link inside code is left alone too", () => {
+    const doc = parseEditorDocument([{ tag: "p", children: [""] }], schema);
+    const codeLink = schema.text("example", [
+      schema.marks.code.create(),
+      schema.marks.link.create({ href: "https://blank.no/jobb" }),
+    ]);
+    const withCodeLink = doc.replace(
+      1,
+      1,
+      new Slice(Fragment.from(codeLink), 0, 0),
+    );
+    expect(scanLinks(withCodeLink, schema, site)).toEqual({
+      fixable: [],
+      missing: [],
+      notAllowed: [],
+    });
   });
 
   test("an existing link to a URL elsewhere is fine", () => {

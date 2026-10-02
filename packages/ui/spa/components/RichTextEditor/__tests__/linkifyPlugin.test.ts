@@ -213,6 +213,20 @@ describe("paste", () => {
     expect(value()).toEqual([{ tag: "p", children: ["https://ssb.no"] }]);
   });
 
+  test("a URL pasted over inline code is an ordinary paste", () => {
+    const { view, value } = setup([
+      {
+        tag: "p",
+        children: [{ tag: "span", styles: ["code"], children: ["npm i"] }],
+      },
+    ]);
+    view.dispatch(
+      view.state.tr.setSelection(TextSelection.create(view.state.doc, 1, 6)),
+    );
+    view.pasteText("https://ssb.no", pasteEvent());
+    expect(JSON.stringify(value()).includes('"tag":"a"')).toBe(false);
+  });
+
   test("pasting into a code block links nothing", () => {
     const { view, value } = setup([{ tag: "pre", children: [""] }]);
     cursorAt(view, 1);
@@ -278,6 +292,41 @@ describe("⌘K", () => {
       savedFrom: 5,
       savedTo: 14,
       isNewLink: true,
+    });
+  });
+
+  test("on a selected link whose text is a URL, opens the editor rather than relinking it", () => {
+    const { view, value, pickerStates } = setup([
+      {
+        tag: "p",
+        children: [
+          {
+            tag: "a",
+            href: "https://ssb.no/report",
+            children: ["https://ssb.no"],
+          },
+        ],
+      },
+    ]);
+    view.dispatch(
+      view.state.tr.setSelection(TextSelection.create(view.state.doc, 1, 15)),
+    );
+    pressModK(view);
+    expect(value()).toEqual([
+      {
+        tag: "p",
+        children: [
+          {
+            tag: "a",
+            href: "https://ssb.no/report",
+            children: ["https://ssb.no"],
+          },
+        ],
+      },
+    ]);
+    expect(pickerStates.at(-1)).toMatchObject({
+      kind: "url",
+      currentHref: "https://ssb.no/report",
     });
   });
 

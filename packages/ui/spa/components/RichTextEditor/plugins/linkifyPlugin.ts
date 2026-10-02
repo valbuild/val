@@ -217,7 +217,7 @@ function urlEndingAt(
   if (!last) return null;
   // Only a URL right before the cursor, give or take the punctuation that
   // closed the sentence around it.
-  if (/[^.,;:!?)\]}*_~]/.test(before.slice(last.end))) return null;
+  if (/[^.,;:!?)\]}*_~']/.test(before.slice(last.end))) return null;
   const to = pos - (before.length - last.end);
   const from = to - last.url.length;
   if (from < $pos.start()) return null;
@@ -274,7 +274,13 @@ export function createLinkifyPlugin(options: LinkifyPluginOptions): Plugin {
     }
 
     const selected = state.doc.textBetween(selection.from, selection.to);
-    if (isSingleUrl(selected)) {
+    // Only text that is not a link yet. A link whose TEXT reads as a URL may go
+    // somewhere else (`https://ssb.no` → `/report`), and relinking it to its
+    // text would replace that destination without a word.
+    if (
+      isSingleUrl(selected) &&
+      !state.doc.rangeHasMark(selection.from, selection.to, linkType)
+    ) {
       const resolution = resolveUrl(selected, options.getContext());
       if (resolution?.status === "linkable") {
         view.dispatch(
@@ -461,7 +467,15 @@ export function createLinkifyPlugin(options: LinkifyPluginOptions): Plugin {
           selection.empty ||
           !(selection instanceof TextSelection) ||
           !selection.$from.sameParent(selection.$to) ||
-          selection.$from.parent.type.spec.code
+          selection.$from.parent.type.spec.code ||
+          // Inline code is a sample, as a code block is: pasting over it
+          // replaces it, like any paste, rather than linking it.
+          (view.state.schema.marks.code !== undefined &&
+            view.state.doc.rangeHasMark(
+              selection.from,
+              selection.to,
+              view.state.schema.marks.code,
+            ))
         ) {
           return false;
         }

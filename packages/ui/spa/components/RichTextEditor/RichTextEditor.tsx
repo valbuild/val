@@ -326,12 +326,12 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     return {
       siteOrigins: siteOriginsRef.current ?? [],
       routes: routesRef.current,
-      // An empty catalog is not enforced by `createLinkCatalogPlugin`, so it
-      // must not be enforced here either.
-      allowedHrefs:
-        catalog && catalog.length > 0
-          ? catalog.map((item) => item.href.trim())
-          : undefined,
+      // An EMPTY catalog still means a route-only field, so it allows nothing
+      // rather than anything — even though `createLinkCatalogPlugin` does not
+      // strip against one. A link to a route that does not exist fails
+      // validation either way, and treating `[]` as "no catalog" linked every
+      // external URL at once instead of offering Add & link.
+      allowedHrefs: catalog?.map((item) => item.href.trim()),
     };
   }, []);
   const [linkScan, setLinkScan] = useState<LinkScan>(EMPTY_LINK_SCAN);
@@ -509,11 +509,16 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
       isPickerOpen: () => pickerStateRef.current !== null,
     });
 
-    // BEFORE the catalog plugin: a pasted `https://blank.no/jobb` link is
-    // rewritten to `/jobb` here, in time for the catalog plugin to see a link
-    // it allows rather than one it strips.
+    // FIRST, ahead of everything, for two reasons:
+    //
+    // - before the catalog plugin: a pasted `https://blank.no/jobb` link is
+    //   rewritten to `/jobb` here, in time for the catalog plugin to see a link
+    //   it allows rather than one it strips;
+    // - before the keymaps: `baseKeymap`'s Enter always handles the key, so a
+    //   `handleKeyDown` after it never sees Enter, and a URL typed before
+    //   Enter was left unlinked.
     if (features.link && schema.marks.link) {
-      plugins.push(
+      plugins.unshift(
         createLinkifyPlugin({
           linkType: schema.marks.link,
           getContext: getLinkContext,

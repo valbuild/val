@@ -29,7 +29,9 @@ const LINKABLE_PROTOCOLS = ["http:", "https:", "ftp:"];
  * {@link trimTrailing} takes off the punctuation the sentence put after it.
  */
 const URL_PATTERN = new RegExp(
-  "\\b(?:https?|ftp):\\/\\/[^\\s<>\"'`\\u00a0\\ufffc]+",
+  // An apostrophe is allowed: `/wiki/O'Reilly` is a real path, and one the
+  // sentence put after the URL is taken off by `trimTrailing`.
+  '\\b(?:https?|ftp):\\/\\/[^\\s<>"`\\u00a0\\ufffc]+',
   "gi",
 );
 
@@ -118,7 +120,7 @@ function trimTrailing(url: string): string {
   for (;;) {
     const last = url[end - 1];
     if (last === undefined) break;
-    if (".,;:!?*_~".includes(last)) {
+    if (".,;:!?*_~'".includes(last)) {
       end--;
       continue;
     }
@@ -283,7 +285,9 @@ export function resolveUrl(
   const url = parseLinkableUrl(raw.trim());
   if (url === null) return null;
 
-  if (isOnSite(url, ctx.siteOrigins)) {
+  // A path starting `//` is not made relative: as an href, `//outside.example`
+  // is outside.example, so "internal" would change where the link goes.
+  if (isOnSite(url, ctx.siteOrigins) && !url.pathname.startsWith("//")) {
     return resolveSitePath(url.pathname || "/", url.search + url.hash, ctx);
   }
 
@@ -407,6 +411,13 @@ export function scanLinks(
 
     block.forEach((child, offset) => {
       const pos = blockPos + 1 + offset;
+      // Code first, before links: a link INSIDE code is part of the sample
+      // too, and rewriting its href changes what the sample says.
+      if (child.isText && codeType && codeType.isInSet(child.marks)) {
+        flushRun();
+        flushLink();
+        return;
+      }
       const linkMark = child.isText ? linkType.isInSet(child.marks) : null;
       if (linkMark) {
         flushRun();
@@ -420,9 +431,7 @@ export function scanLinks(
         return;
       }
       flushLink();
-      const isPlainText =
-        child.isText && !(codeType && codeType.isInSet(child.marks));
-      if (!isPlainText) {
+      if (!child.isText) {
         flushRun();
         return;
       }
