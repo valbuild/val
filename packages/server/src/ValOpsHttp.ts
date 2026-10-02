@@ -455,6 +455,8 @@ export class ValOpsHttp extends ValOps {
   private readonly projectSource: Record<string, string> | null;
   /** See `publishJob` on {@link ValApiOptions}; sent only with no commit. */
   private readonly publishJob: string | null;
+  /** See `publishBuild` on {@link ValApiOptions}; sent with every position. */
+  private readonly publishBuild: string | null;
 
   /** Did the host hand over the running build's source? See `projectSource`. */
   embedsSource(): boolean {
@@ -553,6 +555,8 @@ export class ValOpsHttp extends ValOps {
       projectSource?: Record<string, string>;
       /** See `publishJob` on {@link ValApiOptions}. */
       publishJob?: string;
+      /** See `publishBuild` on {@link ValApiOptions}. */
+      publishBuild?: string;
     },
   ) {
     super(valModules, options);
@@ -563,6 +567,7 @@ export class ValOpsHttp extends ValOps {
     this.root = options?.root ?? "";
     this.projectSource = options?.projectSource ?? null;
     this.publishJob = options?.publishJob ?? null;
+    this.publishBuild = options?.publishBuild ?? null;
     this.mirrorsSourceFiles = git !== null || this.projectSource !== null;
   }
   /**
@@ -1190,6 +1195,8 @@ export class ValOpsHttp extends ValOps {
           : this.publishJob !== null
             ? { job: this.publishJob }
             : {}),
+        // Which build is asking, beside what it says about itself.
+        ...(this.publishBuild !== null ? { build: this.publishBuild } : {}),
       }),
       headers: {
         ...this.authHeaders,
@@ -1404,6 +1411,16 @@ export class ValOpsHttp extends ValOps {
     } else if (this.publishJob !== null) {
       // A build a tab made has no commit, and says which job it was made for.
       params.push(["job", this.publishJob]);
+    }
+    /*
+     * And WHICH build this is, when the platform running it says: the only
+     * thing that places a build the edge still serves after a publish, which
+     * the service would otherwise take to be the new one. Sent with the commit
+     * or the job, which still say where a build is that the service has no
+     * publish of.
+     */
+    if (this.publishBuild !== null) {
+      params.push(["build", this.publishBuild]);
     }
     if (filters.patchIds) {
       for (const patchId of filters.patchIds) {

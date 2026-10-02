@@ -218,6 +218,8 @@ export type ValServerConfig = ValServerOptions &
         projectSource?: Record<string, string>;
         /** See `publishJob` on {@link ValApiOptions}. */
         publishJob?: string;
+        /** See `publishBuild` on {@link ValApiOptions}. */
+        publishBuild?: string;
         config: ValConfig;
       }
     /**
