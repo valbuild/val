@@ -20,6 +20,7 @@ function fakeClient(over: Partial<StudioJobClient> = {}) {
     binaryFiles: {},
     binaryFilesUnread: [],
     branch: "main",
+    buildable: true,
   };
   const client: StudioJobClient = {
     press: async () => ({ request: { kind: "publishing" }, job }),
@@ -30,11 +31,13 @@ function fakeClient(over: Partial<StudioJobClient> = {}) {
     step: async (_id, body) => {
       steps.push(body);
       const after =
-        body.step === "build" && body.ok
-          ? "upload"
-          : body.step === "upload" && body.ok
-            ? null
-            : body.step;
+        body.step === "build" && body.ok && body.noBuild
+          ? null // content's now: it seals without a build
+          : body.step === "build" && body.ok
+            ? "upload"
+            : body.step === "upload" && body.ok
+              ? null
+              : body.step;
       return { ...job, step: after };
     },
     renew: async (jobId) => {
@@ -240,4 +243,46 @@ test("an upload content did not take is not a hand-off", async () => {
     onPhase: () => {},
   });
   expect(result).toEqual({ status: "lost", jobId: "J1" });
+});
+
+test("connected, a tab that cannot build says so -- it does not try, and content seals without a build", async () => {
+  const { client, steps } = fakeClient();
+  let deployed = 0;
+  const result = await runStudioJob({
+    client,
+    job,
+    tab: "ada",
+    deploy: async () => {
+      deployed++;
+      return uploaded;
+    },
+    onPhase: () => {},
+    canBuild: () => false, // no cross-origin isolation
+  });
+  expect(result).toEqual({ status: "handed-off", jobId: "J1", built: false });
+  expect(deployed).toBe(0);
+  expect(steps).toEqual([
+    { tab: "ada", step: "build", ok: true, noBuild: true },
+  ]);
+});
+
+test("connected, a deployment that embeds no source answers unbuildable: the same", async () => {
+  const { client, steps, prepared } = fakeClient();
+  prepared.buildable = false;
+  let deployed = 0;
+  const result = await runStudioJob({
+    client,
+    job,
+    tab: "ada",
+    deploy: async () => {
+      deployed++;
+      return uploaded;
+    },
+    onPhase: () => {},
+  });
+  expect(result).toEqual({ status: "handed-off", jobId: "J1", built: false });
+  expect(deployed).toBe(0);
+  expect(steps).toEqual([
+    { tab: "ada", step: "build", ok: true, noBuild: true },
+  ]);
 });

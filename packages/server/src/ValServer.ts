@@ -2211,8 +2211,12 @@ export const ValServer = (
         /*
          * CONNECTED: the job's sources are what `/save` would commit -- its
          * own changes, applied as `/save` applies them -- and content pushes
-         * them at the seal. Nothing is built here: CI builds after the push,
-         * so the answer carries the job and no sources.
+         * them at the seal. The tab ALSO builds the job, as a managed one is
+         * built (docs/app-mode.md, "Since changed: connected builds in the
+         * tab"): from this deployment's embedded source, the commits since it
+         * and the job's changes. A deployment that embeds no source answers
+         * `buildable: false`, and the tab reports "no build": CI builds the
+         * push either way.
          */
         if (serverOps.sourceMode() === "connected") {
           const jobPatches = await serverOps.fetchPatches({
@@ -2261,95 +2265,41 @@ export const ValServer = (
             withJob: prepared,
             jobPatchIds: patchIds,
           });
+          const build = serverOps.embedsSource()
+            ? await buildSourcesOf(serverOps, patchIds, commit)
+            : null;
+          if (build !== null && "status" in build) return build;
           const sent = await serverOps.prepareJob(jobId, {
             tab,
             filesDirectory: options.config.files?.directory || "/public/val",
             ...split.archive,
             ...(commit !== undefined ? { gitCommit: commit } : {}),
+            // Said, so content waits for this tab's build. A server that does
+            // not say it gets CI's: what Val servers before this one get.
+            ...(build !== null ? { tabBuilds: true as const } : {}),
           });
           return jobPrepareAnswer(sent, {
-            sourceFiles: {},
-            binaryFiles: {},
-            binaryFilesUnread: [],
+            sourceFiles: build?.sourceFiles ?? {},
+            binaryFiles: build?.binaryFiles ?? {},
+            binaryFilesUnread: build?.binaryFilesUnread ?? [],
             branch: serverOps.projectBranch(),
+            buildable: build !== null,
           });
         }
-        const chain = await serverOps.fetchPatches({
-          patchIds: undefined,
-          excludePatchOps: false,
-        });
-        if (chain.error) {
-          return { status: 500, json: { message: chain.error.message } };
-        }
-        /*
-         * The job's content, in two steps from this build's embedded source.
-         *
-         * The commits since this build, as though pending, are the branch's
-         * head. The job's pending changes on top of them are its content: whatever was applied since the job started came
-         * out of its own changes (docs/app-mode.md, "Publishing is a queued
-         * job"), and were that ever not so, the seal would restart the job
-         * rather than publish it. Chain order, both times.
-         */
-        const job = new Set<string>(patchIds);
-        const committed = chain.patches
-          .filter((patch) => patch.appliedAt !== null)
-          .map((patch) => ({ ...patch, appliedAt: null }));
-        const pending = chain.patches.filter(
-          (patch) => patch.appliedAt === null && job.has(patch.patchId),
-        );
-        const known = new Set<string>(
-          chain.patches.map((patch) => patch.patchId),
-        );
-        const gone = patchIds.filter((id) => !known.has(id));
-        if (gone.length > 0) {
-          return {
-            status: 409,
-            json: {
-              message: `This publish's changes are no longer all there (${gone.length} discarded).`,
-            },
-          };
-        }
-        const prepareOf = (patches: typeof chain.patches) =>
-          serverOps.prepare({
-            ...serverOps.analyzePatches(patches, chain.commits, commit),
-            ...chain,
-            patches,
-          });
-        const chainOnly = await prepareOf(committed);
-        const withJob = await prepareOf([...committed, ...pending]);
-        if (chainOnly.hasErrors || withJob.hasErrors) {
-          return {
-            status: 500,
-            json: {
-              message:
-                "This publish's changes could not be rendered into source: " +
-                JSON.stringify(
-                  (withJob.hasErrors ? withJob : chainOnly)
-                    .sourceFilePatchErrors,
-                ).slice(0, 500),
-            },
-          };
-        }
-        const split = splitJobPrepare({
-          chainOnly,
-          withJob,
-          jobPatchIds: patchIds,
-        });
-        // Read now, while the job's changes still hold their files.
-        const binaries = await readCommittedBinaryFiles(
-          serverOps,
-          split.archive.patchedBinaryFilesDescriptors,
-        );
+        const built = await buildSourcesOf(serverOps, patchIds, commit);
+        if ("status" in built) return built;
+        const { split } = built;
         const sent = await serverOps.prepareJob(jobId, {
           tab,
           filesDirectory: options.config.files?.directory || "/public/val",
           ...split.archive,
         });
         return jobPrepareAnswer(sent, {
-          sourceFiles: split.buildSourceFiles,
-          binaryFiles: binaries.files,
-          binaryFilesUnread: binaries.unread,
+          sourceFiles: built.sourceFiles,
+          binaryFiles: built.binaryFiles,
+          binaryFilesUnread: built.binaryFilesUnread,
           branch: serverOps.projectBranch(),
+          buildable: true,
         });
       },
     },
@@ -4698,6 +4648,98 @@ function getIsRemoteRequired(
 }
 
 /**
+ * What a tab builds a job from: this deployment's embedded source, the
+ * commits since it (as though pending: together they are the branch's head),
+ * and the job's own pending changes on top. Managed and connected alike.
+ *
+ * `split.archive` is the managed job's archive; a connected job's archive is
+ * the push's, made from its own changes alone, by the caller.
+ */
+async function buildSourcesOf(
+  serverOps: ValOpsHttp,
+  patchIds: string[],
+  commit: CommitSha | undefined,
+): Promise<
+  | { status: 409 | 500; json: { message: string } }
+  | {
+      split: ReturnType<typeof splitJobPrepare>;
+      sourceFiles: Record<string, string | null>;
+      binaryFiles: Record<string, string>;
+      binaryFilesUnread: string[];
+    }
+> {
+  const chain = await serverOps.fetchPatches({
+    patchIds: undefined,
+    excludePatchOps: false,
+  });
+  if (chain.error) {
+    return { status: 500, json: { message: chain.error.message } };
+  }
+  /*
+   * The job's content, in two steps from this build's embedded source.
+   *
+   * The commits since this build, as though pending, are the branch's
+   * head. The job's pending changes on top of them are its content: whatever was applied since the job started came
+   * out of its own changes (docs/app-mode.md, "Publishing is a queued
+   * job"), and were that ever not so, the seal would restart the job
+   * rather than publish it. Chain order, both times.
+   */
+  const job = new Set<string>(patchIds);
+  const committed = chain.patches
+    .filter((patch) => patch.appliedAt !== null)
+    .map((patch) => ({ ...patch, appliedAt: null }));
+  const pending = chain.patches.filter(
+    (patch) => patch.appliedAt === null && job.has(patch.patchId),
+  );
+  const known = new Set<string>(chain.patches.map((patch) => patch.patchId));
+  const gone = patchIds.filter((id) => !known.has(id));
+  if (gone.length > 0) {
+    return {
+      status: 409,
+      json: {
+        message: `This publish's changes are no longer all there (${gone.length} discarded).`,
+      },
+    };
+  }
+  const prepareOf = (patches: typeof chain.patches) =>
+    serverOps.prepare({
+      ...serverOps.analyzePatches(patches, chain.commits, commit),
+      ...chain,
+      patches,
+    });
+  const chainOnly = await prepareOf(committed);
+  const withJob = await prepareOf([...committed, ...pending]);
+  if (chainOnly.hasErrors || withJob.hasErrors) {
+    return {
+      status: 500,
+      json: {
+        message:
+          "This publish's changes could not be rendered into source: " +
+          JSON.stringify(
+            (withJob.hasErrors ? withJob : chainOnly).sourceFilePatchErrors,
+          ).slice(0, 500),
+      },
+    };
+  }
+  const split = splitJobPrepare({
+    chainOnly,
+    withJob,
+    jobPatchIds: patchIds,
+  });
+  // Read now, while the job's changes still hold their files.
+  const binaries = await readCommittedBinaryFiles(
+    serverOps,
+    split.archive.patchedBinaryFilesDescriptors,
+  );
+  return {
+    split,
+    sourceFiles: split.buildSourceFiles,
+    binaryFiles: binaries.files,
+    binaryFilesUnread: binaries.unread,
+  };
+}
+
+/**
  * `/publish-job-prepare`'s answer from content's: the job as content has it
  * now, and what the tab builds from. Content's refusal is passed on -- 409
  * as 409, anything else as 502, which the tab reads as "content answered,
@@ -4710,6 +4752,7 @@ function jobPrepareAnswer(
     binaryFiles: Record<string, string>;
     binaryFilesUnread: string[];
     branch: string | null;
+    buildable: boolean;
   },
 ):
   | { status: 409 | 502; json: { message: string } }
@@ -4721,6 +4764,7 @@ function jobPrepareAnswer(
         binaryFiles: Record<string, string>;
         binaryFilesUnread: string[];
         branch: string | null;
+        buildable: boolean;
       };
     } {
   if (sent.status !== 200) {

@@ -943,6 +943,8 @@ export function ValProvider({
           tab: PUBLISH_TAB_ID,
           deploy: (prepared) => deployPreparedJob(deployRef.current, prepared),
           onPhase,
+          // A connected tab takes work it cannot build, and says so.
+          canBuild: canBuildHere,
         });
       },
       /*
@@ -1256,10 +1258,10 @@ export function ValProvider({
  * managed project's Studio is served by the build it publishes.
  */
 function StudioOutOfDateGate() {
-  const studioIsDeployer = useStudioIsDeployer();
+  const buildsInTab = useStudioBuildsInTab();
   useEffect(() => {
-    if (studioIsDeployer) rememberLoadedLayer();
-  }, [studioIsDeployer]);
+    if (buildsInTab) rememberLoadedLayer();
+  }, [buildsInTab]);
   const refusals = useSyncExternalStore(
     subscribeStudioOutOfDate,
     studioOutOfDateRefusals,
@@ -2441,6 +2443,20 @@ export function useSourceMode(): "managed" | "connected" | null {
  */
 export function useStudioIsDeployer(): boolean {
   return useSourceMode() === "managed";
+}
+
+/**
+ * Does this Studio build its project's publishes in the tab? A managed one
+ * always; a connected one when content runs its publishes as jobs -- the tab's
+ * build is the fast way to the site there, and CI's build of the push the
+ * fallback (docs/app-mode.md, "Since changed: connected builds in the tab").
+ * Wider than {@link useStudioIsDeployer}, which is about the deploy feed and
+ * the site's own update, and stays managed-only.
+ */
+export function useStudioBuildsInTab(): boolean {
+  const mode = useSourceMode();
+  const { publishesAsJobs } = useContext(ValContext);
+  return mode === "managed" || (mode === "connected" && publishesAsJobs);
 }
 
 /** See {@link ValContextValue.handoff}. */

@@ -59,6 +59,8 @@ export type PreparedJob = {
   binaryFiles: Record<string, string>;
   binaryFilesUnread: string[];
   branch: string | null;
+  /** Can this tab build the job from these sources? See the route's `buildable`. */
+  buildable: boolean;
 };
 
 export function createStudioJobClient(options: {
@@ -132,6 +134,7 @@ const preparedJob = z.object({
   binaryFiles: z.record(z.string(), z.string()),
   binaryFilesUnread: z.array(z.string()),
   branch: z.string().nullable(),
+  buildable: z.boolean().optional(),
 });
 
 function parsePreparedJob(body: unknown): PreparedJob {
@@ -141,5 +144,6 @@ function parsePreparedJob(body: unknown): PreparedJob {
     throw new Error(
       "The server's publish prepare answered with something this Studio cannot read.",
     );
-  return { job, ...parsed.data };
+  const { buildable, ...rest } = parsed.data;
+  return { job, ...rest, buildable: buildable ?? true };
 }

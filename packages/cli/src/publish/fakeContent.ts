@@ -41,7 +41,7 @@ export type FakeContentOptions = {
   /** What the canary does. */
   verify?: "ok" | "fail";
   /** Refuse the promote because the branch moved on. */
-  promote?: "ok" | "stale";
+  promote?: "ok" | "stale" | "superseded";
   /**
    * The head the branch is at now.
    *
@@ -378,6 +378,18 @@ export async function startFakeContentService(
 
     // POST /v1/publish/{id}/promote - the pointer moves, or it does not.
     if (parts[3] === "promote") {
+      if (options.promote === "superseded") {
+        // As `postPublishPromote.ts` refuses an older build than the one served.
+        send(res, 409, {
+          statusCode: 409,
+          message:
+            "A newer publish is already live, and it includes this change, so this older one was not put live. Nothing was lost.",
+          details: [
+            { code: "SUPERSEDED", message: "The site serves a newer commit." },
+          ],
+        });
+        return;
+      }
       if (options.promote === "stale") {
         // The shape `postPublishPromote.ts` sends: the ordinary error envelope,
         // with the code in `details`. `head` is in the API's written contract

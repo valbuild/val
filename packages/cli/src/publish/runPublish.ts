@@ -79,6 +79,13 @@ type Summary = {
 
 export type PublishResult =
   | ({ status: "live"; url: string | null; commit: string | null } & Summary)
+  /**
+   * Not put live, and not a failure: a newer publish already is, and it
+   * contains this one (content's `SUPERSEDED`). Two publishes in a row are two
+   * CI runs; the older one's promote can land last. Red CI for it would be
+   * noise on every fast-typing session (docs/app-mode.md, Flow B).
+   */
+  | ({ status: "superseded"; message: string } & Summary)
   | ({ status: "verified" } & Summary)
   | {
       status: "failed";
@@ -438,6 +445,9 @@ async function publishDeclaredBuild(args: {
   }
 
   const promoted = await promote(client, publishId);
+  if (promoted.status === "superseded") {
+    return { status: "superseded", message: promoted.message, ...summary };
+  }
   if (promoted.status === "stale") {
     return {
       status: "failed",
@@ -520,6 +530,7 @@ async function promote(
 ): Promise<
   | { status: "ok"; response: PromoteResponse }
   | { status: "stale"; message: string; problems: PublishProblem[] }
+  | { status: "superseded"; message: string }
 > {
   try {
     return { status: "ok", response: await client.promote(publishId) };
@@ -547,6 +558,10 @@ async function promote(
        * worth having when it arrives; failing without it would be this CLI
        * refusing an answer that is otherwise complete.
        */
+      const problems = parseProblems(err.details);
+      if (problems.some((p) => p.code === "SUPERSEDED")) {
+        return { status: "superseded", message: err.message };
+      }
       const head = stringField(err.body, "head");
       return {
         status: "stale",

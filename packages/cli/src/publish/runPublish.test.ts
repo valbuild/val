@@ -341,6 +341,27 @@ describe("val publish", () => {
     }
   });
 
+  test("a publish the site has already moved past is not a failure", async () => {
+    // Two publishes in a row are two CI runs; the newer one can go live first.
+    // The older run is then refused as SUPERSEDED -- nothing is lost, because
+    // the commit it built is inside the one the site serves.
+    const fake = await startFakeContentService({
+      token: TOKEN,
+      promote: "superseded",
+    });
+    const root = makeArtifacts();
+    try {
+      const result = await run(root, fake.url);
+
+      expect(result.status).toBe("superseded");
+      if (result.status === "superseded") {
+        expect(result.message).toContain("Nothing was lost");
+      }
+    } finally {
+      await fake.close();
+    }
+  });
+
   test("a refused declaration reports every problem, not the first", async () => {
     const fake = await startFakeContentService({ token: TOKEN });
     // No server bundle, and a layer with no rev to name it by.

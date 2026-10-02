@@ -270,6 +270,13 @@ export type ContentPublishApi = {
          * branch whose tip is that commit has nothing it has not seen.
          */
         gitCommit?: string;
+        /**
+         * Connected: the tab can build this job (the deployment embeds its
+         * source). Without it, content goes on to the seal with no build and
+         * CI builds the push -- which is what a server that predates tab
+         * builds gets, since it never says so.
+         */
+        tabBuilds?: true;
       };
       res: { job: PublishTabJob | null };
     };
@@ -282,6 +289,12 @@ export type ContentPublishApi = {
         ok: boolean;
         /** A finished build step: the id of the publish (`POST /publish`) it declared. */
         build?: string;
+        /**
+         * Connected, at `build`, instead of `build`: this tab cannot build
+         * (no cross-origin isolation, or a deployment that embeds no source).
+         * The job goes on without one, and CI builds the push.
+         */
+        noBuild?: true;
         /**
          * A failed step: why, in the tab's words. The step is still retried;
          * if it fails for good, this is what the editor is told.
