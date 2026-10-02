@@ -44,9 +44,12 @@ export async function fetchMediaBytes(
       message: `Could not read ${filename}: the server answered with a web page instead of the file.`,
     };
   }
-  const blob = await res.blob();
-  const type = mimeType ?? blob.type;
   try {
+    // Inside the `try`: `fetch` resolves on the headers, and a body that is
+    // cut off after them rejects HERE. Uncaught, the promised result became a
+    // rejection, and the rename input sat in its saving state forever.
+    const blob = await res.blob();
+    const type = mimeType ?? blob.type;
     const read = await readFileFromFile(new File([blob], filename, { type }));
     return {
       status: "ok",

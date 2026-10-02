@@ -9,7 +9,7 @@ import {
   forEachRichTextImage,
   richTextImageSchema,
 } from "../utils/richTextImages";
-import { pathNamesGalleryKey } from "../utils/galleryKey";
+import { galleryKeyOf } from "../utils/galleryKey";
 
 /** A field pointing into a gallery, and what it holds there. */
 export type FileReferrer = {
@@ -32,10 +32,11 @@ export function getFileReferrers(
   fileRef?: string, // if provided, only the referrers naming this entry
 ): FileReferrer[] {
   const results: FileReferrer[] = [];
+  const galleryKeys = keysOf(sources[parent]);
   const add = (sourcePath: SourcePath, source: unknown) => {
     const media = mediaValueOf(source);
     if (fileRef !== undefined) {
-      if (media === null || !pathNamesGalleryKey(media.path, fileRef)) {
+      if (media === null || galleryKeyOf(media.path, galleryKeys) !== fileRef) {
         return;
       }
     }
@@ -113,4 +114,12 @@ function mediaValueOf(
     };
   }
   return null;
+}
+
+/** The gallery's entry keys, or none when its source is not an object yet. */
+function keysOf(source: Source | undefined): ReadonlySet<string> {
+  if (typeof source === "object" && source !== null && !Array.isArray(source)) {
+    return new Set(Object.keys(source));
+  }
+  return new Set();
 }

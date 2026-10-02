@@ -309,8 +309,11 @@ Two shapes from elsewhere in this file show up here:
 
 - **A local key with remote bytes.** An upload through an
   `s.image(remoteGallery)` FIELD keys the gallery entry by the local path inside
-  the ref, where an upload in the gallery keys it by the ref. `pathNamesGalleryKey`
-  matches both, and the rename treats such an entry as the remote file it is.
+  the ref, where an upload in the gallery keys it by the ref. `galleryKeyOf`
+  resolves a referrer's path against the gallery's KEY SET, exact key first and
+  the embedded path only when there is none — a gallery can hold both shapes
+  for one file, and matching both would rename a field into the wrong entry.
+  The rename treats such an entry as the remote file it is.
 - **A referrer with its own `patch_id`** (it uploaded the draft itself). The app
   reads a draft's URL off the field's own `patch_id`, never the gallery's, so
   that referrer's patch carries a `file` op too, for the server to stamp the new

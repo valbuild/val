@@ -18,6 +18,8 @@ import { useRenameMediaFile } from "../useRenameMediaFile";
 import { splitEditableFilename } from "../../utils/renameMediaFile";
 import { prettyModuleName } from "../MediaPicker/GalleryUploadTarget";
 import { useNavigation } from "../ValRouter";
+import { useValSystem } from "../../stores/react/SystemContext";
+import { galleryKeyOf } from "../../utils/galleryKey";
 
 /**
  * Rename the file of an `s.image()` / `s.file()` field.
@@ -84,6 +86,7 @@ function RenameFilePanel({
 }: RenameFileButtonProps & { close: () => void }) {
   const renameMediaFile = useRenameMediaFile(path);
   const { navigate } = useNavigation();
+  const val = useValSystem();
   if (referencedModule) {
     return (
       <div className="flex flex-col gap-2 text-xs">
@@ -96,10 +99,24 @@ function RenameFilePanel({
           variant="outline"
           size="sm"
           onClick={() => {
-            const entry = Internal.createValPathOfItem(
-              referencedModule,
+            // The entry's KEY, which for an upload made through a remote
+            // gallery's field is the local path inside the ref this field
+            // holds — opening the ref itself selects nothing. Read once, on
+            // click, rather than subscribed to: the gallery's source is only
+            // needed here.
+            const gallerySource =
+              val?.system.sourceStore.moduleSource(referencedModule);
+            const key = galleryKeyOf(
               filePath,
+              new Set(
+                typeof gallerySource === "object" &&
+                  gallerySource !== null &&
+                  !Array.isArray(gallerySource)
+                  ? Object.keys(gallerySource)
+                  : [],
+              ),
             );
+            const entry = Internal.createValPathOfItem(referencedModule, key);
             close();
             navigate(entry ?? referencedModule);
           }}

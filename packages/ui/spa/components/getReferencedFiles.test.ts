@@ -305,6 +305,43 @@ describe("getReferencedFiles", () => {
     ).toEqual([]);
   });
 
+  test("a remote ref that is itself a key does not also match the local path inside it", () => {
+    // A gallery holding BOTH shapes for one file: the field uses the full-ref
+    // entry, so renaming or deleting the local-path entry must not touch it.
+    const ref = Internal.remote.createRemoteRef("https://remote.val.build", {
+      publicProjectId: "p",
+      coreVersion: "0.1.0",
+      bucket: "b",
+      validationHash: "abcd",
+      fileHash: "bfbd0a1b2c3d",
+      filePath: "public/val/img.png",
+    });
+    const entry = {
+      width: 100,
+      height: 100,
+      mimeType: "image/png",
+      alt: null,
+    };
+    const imagesModule = c.define(
+      "/images.val.ts",
+      s.imageset({ accept: "image/*", dir: "/public/val" }).remote(),
+      { "/public/val/img.png": entry, [ref]: entry },
+    );
+    const pageModule = c.define(
+      "/page.val.ts",
+      s.object({ img: s.image(imagesModule) }),
+      { img: { path: ref } },
+    );
+    const { schemas, sources } = getTestData([imagesModule, pageModule]);
+    const gallery = "/images.val.ts" as ModuleFilePath;
+    expect(
+      getReferencedFiles(schemas, sources, gallery, "/public/val/img.png"),
+    ).toEqual([]);
+    expect(getReferencedFiles(schemas, sources, gallery, ref)).toEqual([
+      '/page.val.ts?p="img"',
+    ]);
+  });
+
   test("matches a remote ref filed under the local path inside it", () => {
     // An upload through an `s.image(remoteGallery)` field: the field holds the
     // ref, the gallery entry is keyed by the path in it.

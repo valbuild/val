@@ -11,7 +11,6 @@ import { StoreBus } from "./StoreBus";
 import type { SystemEvent } from "./types";
 import { noopActivity, type ActivitySink } from "./activity";
 import { sourcePathOfChild } from "../utils/sourcePath";
-import { pathNamesGalleryKey } from "../utils/galleryKey";
 import {
   forEachRichTextImage,
   richTextImageSchema,
@@ -236,13 +235,13 @@ function matches(reference: Reference, query: ReferenceQuery): boolean {
   if (reference.kind !== query.kind) return false;
   // `route` has no target to match on — see `ReferenceKind`.
   if (query.kind !== "route" && reference.target !== query.module) return false;
-  if (query.value !== undefined) {
-    if (reference.value === null) return false;
-    // A file referrer can name its gallery entry by the local path inside a
-    // remote ref - see `pathNamesGalleryKey`.
-    return query.kind === "file"
-      ? pathNamesGalleryKey(reference.value, query.value)
-      : reference.value === query.value;
+  // Exact, including for a file. A field can name its gallery entry by the
+  // local path inside a remote ref, but telling which entry it means needs the
+  // gallery's KEY SET (`galleryKeyOf`), which this index does not hold — and a
+  // guess without it matches entries the field does not use. The rename and
+  // delete gates ask `getFileReferrers`, which has the keys.
+  if (query.value !== undefined && reference.value !== query.value) {
+    return false;
   }
   return true;
 }
