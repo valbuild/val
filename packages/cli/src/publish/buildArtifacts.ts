@@ -98,6 +98,29 @@ const CODE_FILE = /\.(tsx?|jsx?|mjs|cjs|css)$/;
 const JSON_FILE = /\.json$/;
 
 /**
+ * The project's source as it is STORED, which is what the Studio builds from:
+ * every file this build read, less the stylesheets.
+ *
+ * This build compiles them, because it can run what a stylesheet asks for -- a
+ * Tailwind `@plugin` is a module resolved and executed from `node_modules`. A
+ * build in the browser cannot, and refuses the stylesheet rather than ship a
+ * page that is quietly unstyled; the starter's `src/styles.css` has
+ * `@plugin "@tailwindcss/typography"`. So a stored stylesheet made every
+ * Studio publish after the first one fail. Without it, the Studio's build has
+ * no CSS of its own and ships the live site's (`liveStylesheet` in the
+ * Studio), which is right: a Studio save changes content and uploaded files,
+ * never a stylesheet. It is also what the platform's own publish has always
+ * stored.
+ */
+export function withoutStylesheets(
+  sources: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(sources).filter(([key]) => !key.endsWith(".css")),
+  );
+}
+
+/**
  * The project's own files: its source as text, and the binaries it imports
  * (an image, a font) base64, as `BuildInput.assets` takes them. `public/` is
  * neither: it is served as is, and read by `readPublicFiles`.
@@ -244,6 +267,7 @@ export async function buildArtifacts(options: {
       ),
     );
     const sources = wiring?.files ?? onDisk;
+    const projectSource = withoutStylesheets(sources);
 
     // The dependency layer: from what the project imports, of what it declares.
     log("Building the dependency layer");
@@ -295,15 +319,16 @@ export async function buildArtifacts(options: {
       env: publicEnv(options.env ?? process.env),
       publicFiles: readPublicFiles(root),
       assets,
-      // The project's own files, without the generated tree: what the next
-      // publish -- the Studio's included -- starts from.
-      projectSource: sources,
+      // The project's own files, without the generated tree or the
+      // stylesheets: what the next publish -- the Studio's included -- starts
+      // from. See `withoutStylesheets`.
+      projectSource,
       loadCssModule: node.cssModuleLoader(root),
       ...(splitter ? { routeSplitter: splitter } : {}),
       rsc: target.project.rsc,
     });
     const artifacts: PublishArtifact[] = await builder.publishArtifacts(built, {
-      projectSource: sources,
+      projectSource,
     });
 
     const dir =
