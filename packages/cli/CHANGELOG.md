@@ -1,5 +1,16 @@
 # @valbuild/cli
 
+## 0.138.4
+
+### Patch Changes
+
+- [#770](https://github.com/valbuild/val/pull/770) [`0a885b1`](https://github.com/valbuild/val/commit/0a885b1f0304517b167b959958464066194732d0) Thanks [@freekh](https://github.com/freekh)! - `val publish` no longer fails when a newer publish is already live. Two publishes in a row start two CI runs, and the newer one can finish first. The older run is then told that the site already has its changes. It now prints that and exits with 0, instead of turning CI red.
+- Updated dependencies [[`63bff05`](https://github.com/valbuild/val/commit/63bff0589b6df42efaa63ec606688d20a9670439), [`0a885b1`](https://github.com/valbuild/val/commit/0a885b1f0304517b167b959958464066194732d0), [`58d13a2`](https://github.com/valbuild/val/commit/58d13a2a534421b341b1bf71d02f0a2290fc0d61)]:
+  - @valbuild/server@0.138.4
+  - @valbuild/tanstack-build@0.138.4
+  - @valbuild/shared@0.138.4
+  - @valbuild/language-server@0.138.4
+
 ## 0.138.3
 
 ### Patch Changes

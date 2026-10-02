@@ -1,5 +1,42 @@
 # @valbuild/ui
 
+## 0.138.4
+
+### Patch Changes
+
+- [#771](https://github.com/valbuild/val/pull/771) [`63bff05`](https://github.com/valbuild/val/commit/63bff0589b6df42efaa63ec606688d20a9670439) Thanks [@freekh](https://github.com/freekh)! - Changes that are already published no longer briefly vanish from the Studio, or show up twice, right after a publish in app mode.
+
+  A build the Studio makes in the browser now records which publish it was made for, so Val knows exactly which changes the running site already has. Before this, Val worked that out from whichever build was live, and was wrong for a moment while a publish was going live. A reload in that moment could hide changes that were not on the site yet, or apply ones that were a second time. Projects set up before this release need no changes.
+
+- [#770](https://github.com/valbuild/val/pull/770) [`0a885b1`](https://github.com/valbuild/val/commit/0a885b1f0304517b167b959958464066194732d0) Thanks [@freekh](https://github.com/freekh)! - Publishing a Git-connected app-mode project now puts your changes on the site in seconds, instead of waiting for CI.
+
+  - The Studio builds the site in the browser, the same way it does for a managed project. Val pushes the commit to your repository as before. When nothing but content has changed since the build the site is serving, the browser's build goes live right away. If a developer has pushed code in between, the site waits for CI's build, so their code is never taken off the site.
+  - If the browser cannot build, the publish still goes through and CI delivers it. This happens when the page is not cross-origin isolated, or when the build keeps failing. Your changes stay visible in the Studio until the site serves a build that has them.
+  - Content that would break a page is caught before anything is pushed to your repository.
+
+- [#753](https://github.com/valbuild/val/pull/753) [`8b1e47e`](https://github.com/valbuild/val/commit/8b1e47e50f9556d8469358af93ba32a084e2e131) Thanks [@freekh](https://github.com/freekh)! - URLs in rich text become links without the link dialog.
+
+  - **Paste** a URL, or text with several in it, and each becomes a link. A chip under the paste says so, and **Keep as text** undoes just the linking (⌘Z still undoes the whole paste). Pasting one URL over selected text links the selection.
+  - **Type** a URL and it becomes a link when you type the space or press Enter after it.
+  - **Ctrl/⌘+K** links the URL the cursor is on. On a link or a selection, it opens the link editor.
+  - A bar under the field lists URLs that are still plain text: **Link all**, or **Review** to choose which ones.
+
+  A URL on the site itself becomes an internal link: pasting `https://blank.no/jobb` into blank.no's Studio gives `/jobb`. If there is no such page, it is not linked. It is highlighted as an error, both in the text and in the bar. Links that already point at the site's full address can be fixed the same way.
+
+  In a field that can only link to the project's routes (`s.richtext({ a: true })` or `a: s.route()`), an external URL can only be linked once it is one of the project's external pages. If the project has an external pages router, the bar offers **Add & link**: it adds the URL there and links it. Without one, or for a URL the router's `schemes` or the field's `include` / `exclude` would refuse, the bar only says it can't be linked.
+
+  The site is recognised by the address the Studio is open on. So on a local dev server, URLs copied from production are treated as external.
+
+- [#767](https://github.com/valbuild/val/pull/767) [`4268beb`](https://github.com/valbuild/val/commit/4268beb4beec53cb52584f59f9bbd5ffdcc9095d) Thanks [@freekh](https://github.com/freekh)! - The compare dialog on the review page can now be linked to. `/val/review?compare` opens it, and `/val/review?compare=<source path>` opens it on that change and highlights the row. Closing the dialog removes the parameter from the URL. A link to a change that isn't staged opens the review page without the dialog, so the change shows under Unstaged.
+
+  "View in Compare" in a media gallery's file properties now uses this: it's a real link that opens the dialog on that file's change, instead of going to the old compare view. It also appears for files whose only change is the description (alt text). Before, an edited description didn't count as a change, so neither the link nor the file's authors were shown.
+
+- [#768](https://github.com/valbuild/val/pull/768) [`e79451f`](https://github.com/valbuild/val/commit/e79451faab37f46e2039d681a19eea06d537dc44) Thanks [@freekh](https://github.com/freekh)! - The Studio no longer blinks while you type.
+
+  - The Publish button kept switching between "Fix 1" and "Publish" on every pause in typing whenever the module being edited had a validation error, and the error message under an invalid field disappeared and came back each time. Errors now stay on screen while the module is re-checked, and are replaced when the new result arrives.
+  - The status bar stays on "Saving…" while you type, then settles on "All changes saved", instead of switching between the two after every pause.
+  - The save indicator keeps the same width in every state, so the items beside it in the status bar no longer shift.
+
 ## 0.138.3
 
 ### Patch Changes
