@@ -1,4 +1,4 @@
-import type { SourcePath } from "@valbuild/core";
+import { Internal, type SourcePath } from "@valbuild/core";
 import { isPathWithin } from "../utils/sourcePath";
 import type { SerializedPatchSet } from "../utils/PatchSets";
 import { reviewSourcePath } from "./toReviewModel";
@@ -23,7 +23,13 @@ export const REVIEW_COMPARE_PARAM = "compare";
  */
 export type ReviewCompareParam = { sourcePath: SourcePath | null } | null;
 
-/** Read the dialog's state out of a URL. Total, like `parseHistoryParams`. */
+/**
+ * Read the dialog's state out of a URL. Total, like `parseHistoryParams`.
+ *
+ * A value that is not a source path leaves the dialog CLOSED, the same answer
+ * a path that names no staged change gets: a link that cannot be followed
+ * should not open onto some other change.
+ */
 export function parseReviewCompareParam(
   search: string | URLSearchParams,
 ): ReviewCompareParam {
@@ -31,7 +37,24 @@ export function parseReviewCompareParam(
     typeof search === "string" ? new URLSearchParams(search) : search;
   if (!params.has(REVIEW_COMPARE_PARAM)) return null;
   const value = params.get(REVIEW_COMPARE_PARAM);
-  return { sourcePath: value ? (value as SourcePath) : null };
+  if (!value) return { sourcePath: null };
+  return isSourcePath(value) ? { sourcePath: value } : null;
+}
+
+/**
+ * Whether a string from the URL is shaped like a source path: a module file
+ * (`/…/name.val.ts`), optionally followed by `?p=` and a module path.
+ *
+ * A shape check, not a lookup — whether the module exists is the dialog's
+ * question, and it answers it by finding nothing.
+ */
+function isSourcePath(value: string): value is SourcePath {
+  const sep = value.indexOf(Internal.ModuleFilePathSep);
+  const moduleFilePath = sep === -1 ? value : value.slice(0, sep);
+  if (!moduleFilePath.startsWith("/") || !moduleFilePath.includes(".val.")) {
+    return false;
+  }
+  return sep === -1 || value.length > sep + Internal.ModuleFilePathSep.length;
 }
 
 /** Write the dialog's state into a URL's params, in place. Writes AND clears. */
@@ -82,7 +105,19 @@ export function canOpenReviewCompare(
 ): boolean {
   if (stagedPatchSets.length === 0) return false;
   if (sourcePath === null) return true;
-  return stagedPatchSets.some((patchSet) => {
+  return hasChangeAt(stagedPatchSets, sourcePath);
+}
+
+/**
+ * Whether any of these patch sets changed something at, inside or around the
+ * path. The match `canOpenReviewCompare` makes, for a surface that has to
+ * decide whether a link to the dialog has anything to land on.
+ */
+export function hasChangeAt(
+  patchSets: SerializedPatchSet,
+  sourcePath: SourcePath,
+): boolean {
+  return patchSets.some((patchSet) => {
     const changed = reviewSourcePath(patchSet);
     return (
       isPathWithin(changed, sourcePath) || isPathWithin(sourcePath, changed)
