@@ -501,6 +501,14 @@ export function createValApiRouter<Res>(
       if (!cookiesRes.success) {
         return zodErrorResult(cookiesRes.error, "invalid cookies");
       }
+      const headersRes = reqDefinition.headers
+        ? getHeaders(req, reqDefinition.headers)
+        : ({ success: true, data: {} } as z.ZodSafeParseSuccess<
+            Record<string, string | undefined>
+          >);
+      if (!headersRes.success) {
+        return zodErrorResult(headersRes.error, "invalid headers");
+      }
       const actualQueryParams = groupQueryParams(
         Array.from(url.searchParams.entries()),
       );
@@ -554,6 +562,8 @@ export function createValApiRouter<Res>(
         res = await endpointImpl({
           body: bodyRes.data,
           cookies: cookiesRes.data,
+          headers: headersRes.data,
+          rawQuery: reqDefinition.rawQuery ? url.search : undefined,
           query,
           path,
         });
@@ -661,6 +671,21 @@ function zodErrorResult(
 }
 
 // TODO: is this naive implementation is too naive?
+/** The declared headers, by name; `Headers.get` is case-insensitive. */
+function getHeaders(
+  req: Request,
+  headersDef: Record<string, z.ZodSchema<string | undefined>>,
+) {
+  const input: Record<string, string> = {};
+  for (const name of Object.keys(headersDef)) {
+    const value = req.headers?.get(name);
+    if (value !== null && value !== undefined) {
+      input[name] = value;
+    }
+  }
+  return z.object(headersDef).safeParse(input);
+}
+
 function getCookies<
   Cookies extends {
     val_session?: z.ZodString | z.ZodOptional<z.ZodString>;

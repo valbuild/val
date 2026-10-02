@@ -25,6 +25,7 @@ import { StudioMark } from "./ValLogo";
 import { ShellBreakpoint, ShellLogo, ShellPanel } from "./types";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 import { LocaleFilter } from "./LocaleFilter";
+import { ProjectSwitcher } from "./ProjectSwitcher";
 
 export type TopBarProps = {
   breakpoint: ShellBreakpoint;
@@ -34,6 +35,12 @@ export type TopBarProps = {
    * `ProjectName`.
    */
   projectHref?: string;
+  /**
+   * Where Val Build's web components are served from. With it (and a
+   * `projectHref`) the name becomes Val Build's project switcher, with the
+   * plain name as its fallback — see `ProjectSwitcher`.
+   */
+  webComponentsUrl?: string;
   openPanel: ShellPanel | null;
   onTogglePanel: (panel: ShellPanel) => void;
   /** Opens the navigation: the rail's panels, reached from a menu button. */
@@ -154,6 +161,7 @@ export function TopBar({
   breakpoint,
   projectName,
   projectHref,
+  webComponentsUrl,
   openPanel,
   onTogglePanel,
   onOpenMenu,
@@ -207,7 +215,18 @@ export function TopBar({
           <StudioMark logo={logo} className="h-5" blinking={isLoading} />
         </div>
       )}
-      <ProjectName projectName={projectName} projectHref={projectHref} />
+      {projectHref !== undefined && webComponentsUrl !== undefined ? (
+        <ProjectSwitcher
+          projectName={projectName}
+          projectHref={projectHref}
+          webComponentsUrl={webComponentsUrl}
+          breakpoint={breakpoint}
+        >
+          <ProjectName projectName={projectName} projectHref={projectHref} />
+        </ProjectSwitcher>
+      ) : (
+        <ProjectName projectName={projectName} projectHref={projectHref} />
+      )}
       <SearchTrigger breakpoint={breakpoint} onClick={onOpenSearch} />
       <div className="ml-auto flex items-center gap-1.5 shrink-0">
         {/*
@@ -769,8 +788,10 @@ export function PublishButton({
 }
 
 /**
- * The project's name. Val runs one project per config, so this is a label
- * rather than a switcher — there is nothing to switch to.
+ * The project's name. Val runs one project per config, so switching projects
+ * is Val Build's to offer: with a connected project this is the fallback
+ * inside `ProjectSwitcher`, and what is shown until — or unless — Val Build's
+ * switcher loads.
  *
  * It is a link to the project in Val Build when there is one: the name is
  * where an editor already points at "this project", and everything Val does

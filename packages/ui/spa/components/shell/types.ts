@@ -381,6 +381,12 @@ export type ShellData = {
    * go — see `toAdminLinks`.
    */
   admin?: ShellAdminLinks;
+  /**
+   * Where Val Build's web components are served from — see
+   * `toWebComponentsUrl`. Absent when the project is not connected, which
+   * leaves the top bar's plain project name in place.
+   */
+  webComponentsUrl?: string;
   /** From `config.gitBranch`. Absent outside a git checkout. */
   branch?: string;
   /**

@@ -562,6 +562,25 @@ export function toAdminLinks(
 }
 
 /**
+ * Where the Studio loads Val Build's web components from: `/wc/v1` on the
+ * admin app, which `<val-project-switcher>` and the ones after it are built
+ * into (valbuild/home, `web-components/`).
+ *
+ * Only for a project `toAdminLinks` has links for. The components show that
+ * project's Val Build data, so a project that is not connected has nothing
+ * for them to show — and the plain name it has today is the right thing to
+ * leave in place.
+ */
+export function toWebComponentsUrl(
+  config: { project?: string; appHost?: string } | undefined,
+): string | undefined {
+  if (toAdminLinks(config) === undefined || !config?.appHost) {
+    return undefined;
+  }
+  return `${config.appHost.replace(/\/+$/, "")}/wc/v1`;
+}
+
+/**
  * The destinations a project actually has something behind, in rail order.
  *
  * A project is not obliged to use all of Val: a marketing site is routes and

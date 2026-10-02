@@ -24,6 +24,7 @@ import {
   VAL_ENABLE_COOKIE_NAME,
   VAL_SESSION_COOKIE,
   VAL_STATE_COOKIE,
+  VAL_STUDIO_HEADER,
   ValCookies,
   ValServerError,
   ValServerErrorStatus,
@@ -66,6 +67,7 @@ import { getHistoricalPatchSet } from "./history/getHistoricalPatchSet";
 import { getModuleAtCommit } from "./history/getModuleAtCommit";
 import { getJsonEntryAtCommit } from "./history/getJsonEntryAtCommit";
 import { getSettings } from "./getSettings";
+import { forwardToValBuild, type AdminProxyResult } from "./adminProxy";
 import {
   createValOps,
   resolveRemoteFileAuth,
@@ -363,6 +365,98 @@ export const ValServer = (
         console.debug("Failed to get user from code: ", err);
         return null;
       });
+  };
+
+  /**
+   * `/admin/proxy/*`, for the web components mounted from Val Build. See
+   * `adminProxy.ts` for what is forwarded and why.
+   *
+   * Three refusals before anything leaves this server, and the `code`s are
+   * the ones the components act on:
+   * - no `x-val-studio` header: 403, since a cross-site request cannot set it;
+   * - no Val Build behind this Studio (fs mode, or no `valBuildUrl`): 404
+   *   `not-connected`, which the component shows as such rather than as an
+   *   outage;
+   * - a deployed Studio without a valid session: 401 `unauthenticated`, which
+   *   the component answers by asking the Studio to sign in.
+   */
+  const adminProxy = async (
+    method: "GET" | "POST" | "PUT" | "DELETE",
+    req: {
+      path: string;
+      rawQuery: string;
+      body: unknown;
+      headers: Partial<Record<typeof VAL_STUDIO_HEADER, string>>;
+      cookies: Partial<Record<typeof VAL_SESSION_COOKIE, string>>;
+    },
+  ): Promise<AdminProxyResult> => {
+    if (req.headers[VAL_STUDIO_HEADER] !== "1") {
+      return {
+        status: 403,
+        json: {
+          code: "forbidden",
+          message: `Requests to the Val Build proxy need the ${VAL_STUDIO_HEADER} header.`,
+        },
+      };
+    }
+    const session = getSessionToken(req.cookies);
+    if (session.status !== "ok" || !options.valBuildUrl) {
+      if (!serverOps.requiresAuth || !options.valBuildUrl) {
+        return {
+          status: 404,
+          json: {
+            code: "not-connected",
+            message: "This Studio is not connected to Val Build.",
+          },
+        };
+      }
+      return {
+        status: 401,
+        json: {
+          code: "unauthenticated",
+          message:
+            session.status === "invalid"
+              ? session.message
+              : "Sign in to Val Build.",
+        },
+      };
+    }
+    return forwardToValBuild({
+      method,
+      path: req.path,
+      rawQuery: req.rawQuery,
+      body: req.body,
+      token: session.token,
+      valBuildUrl: options.valBuildUrl,
+    });
+  };
+
+  /** The editor's Val Build token, from inside their session cookie. */
+  const getSessionToken = (
+    cookies: Partial<Record<typeof VAL_SESSION_COOKIE, string>>,
+  ):
+    | { status: "ok"; token: string }
+    | { status: "none" }
+    | { status: "invalid"; message: string } => {
+    const cookie = cookies[VAL_SESSION_COOKIE];
+    if (typeof cookie !== "string" || !options.valSecret) {
+      return { status: "none" };
+    }
+    const verified = verifyJwt(cookie, options.valSecret);
+    if (!verified.success) {
+      return {
+        status: "invalid",
+        message: sessionErrorMessage(verified.reason),
+      };
+    }
+    const payload = IntegratedServerJwtPayload.safeParse(verified.data);
+    if (!payload.success) {
+      return {
+        status: "invalid",
+        message: "Session invalid. You will need to login again.",
+      };
+    }
+    return { status: "ok", token: payload.data.token };
   };
 
   const getAuth = (
@@ -2352,6 +2446,12 @@ export const ValServer = (
           branch: serverOps.projectBranch(),
         });
       },
+    },
+    "/admin/proxy": {
+      GET: (req) => adminProxy("GET", req),
+      POST: (req) => adminProxy("POST", req),
+      PUT: (req) => adminProxy("PUT", req),
+      DELETE: (req) => adminProxy("DELETE", req),
     },
     "/profiles": {
       GET: async (req) => {
