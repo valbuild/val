@@ -130,6 +130,14 @@ export interface StudioDeployOptions {
    */
   commit: string | null;
   /**
+   * The publish job this build is for, baked in beside the commit so the
+   * build can say where it sits in the content service's chain -- it has no
+   * commit to say it with (`BUILT_FOR_JOB` in `@valbuild/tanstack-build`).
+   * Left out by a build that is not a job's (an update), which keeps the job
+   * of the source it was made from: an update changes no content.
+   */
+  job?: string | null;
+  /**
    * The source files to build, by path, over the project's stored source --
    * for a publish job, every file of the job's content, as the server's
    * `/publish-job-prepare` rendered it -- or `null` when there are none to add
@@ -363,7 +371,7 @@ export async function runStudioDeploy(
       options.commit === null || branch === null
         ? null
         : { commit: options.commit, branch };
-    const wired = await builder.rebakeGit(source, git);
+    const wired = await builder.rebakeGit(source, git, options.job);
     wiredSource = wired;
     const fileBased = Object.keys(wired).some((path) =>
       path.startsWith(ROUTES_PREFIX),

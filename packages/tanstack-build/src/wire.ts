@@ -175,6 +175,17 @@ function secret(name: string): string | undefined {
 const BUILT_FROM = ${git ? JSON.stringify(git) : "null"};
 
 /**
+ * The publish job this build was made for, when a Studio built it in a tab.
+ *
+ * A tab's build has no commit to bake -- the job's is minted at the seal, after
+ * the build -- so this is how it says where it sits in the content service's
+ * chain. Without it the service places it at whatever build is live, which is
+ * a different build for a request this one is still serving when the pointer
+ * moves. Set by the Studio (\`rebakeGit\`), \`null\` for any other build.
+ */
+const BUILT_FOR_JOB = null;
+
+/**
  * What puts Val in http mode: its content service owns the content.
  *
  * The same three things any deployed Val app is configured with. Note what is
@@ -291,6 +302,7 @@ const http =
           : {}),
         ...(valContentUrl !== undefined ? { valContentUrl } : {}),
         projectSource: FILES,
+        ...(BUILT_FOR_JOB !== null ? { publishJob: BUILT_FOR_JOB } : {}),
       }
     : undefined;
 
@@ -464,6 +476,52 @@ export function wiredValServer(options: WireOptions): string {
  */
 const BUILT_FROM_LINE = /^const BUILT_FROM = (.+);$/m;
 
+/** The line that carries the publish job, as {@link BUILT_FROM_LINE} the commit. */
+const BUILT_FOR_JOB_LINE = /^const BUILT_FOR_JOB = (.+);$/m;
+
+/**
+ * Where a file generated before {@link BUILT_FOR_JOB_LINE} existed hands
+ * `http` its last option, which is where the job goes in one.
+ */
+const PROJECT_SOURCE_OPTION = "        projectSource: FILES,\n";
+const PUBLISH_JOB_OPTION =
+  "        ...(BUILT_FOR_JOB !== null ? { publishJob: BUILT_FOR_JOB } : {}),\n";
+
+/** The publish job a record is wired for: see `BUILT_FOR_JOB` in the template. */
+export function bakedJob(files: Record<string, string>): string | undefined {
+  const source = files[VAL_SERVER];
+  const match = source === undefined ? null : BUILT_FOR_JOB_LINE.exec(source);
+  if (!match?.[1] || match[1] === "null") return undefined;
+  try {
+    const parsed: unknown = JSON.parse(match[1]);
+    return typeof parsed === "string" && parsed !== "" ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** `source` with its job set, or `source` itself when it cannot carry one. */
+function rebakeJob(source: string, job: string | null): string {
+  const line = `const BUILT_FOR_JOB = ${job === null ? "null" : JSON.stringify(job)};`;
+  if (BUILT_FOR_JOB_LINE.test(source))
+    return source.replace(BUILT_FOR_JOB_LINE, line);
+  if (job === null) return source;
+  /*
+   * A file wired before the job existed: the line goes in under `BUILT_FROM`,
+   * and the option beside `projectSource`. Only where both are exactly as
+   * generated -- a file somebody edited is left as it is, and its build is
+   * placed at the live build, which is what it was before.
+   */
+  const at = source.indexOf(PROJECT_SOURCE_OPTION);
+  if (at === -1 || source.indexOf(PROJECT_SOURCE_OPTION, at + 1) !== -1)
+    return source;
+  const withOption =
+    source.slice(0, at + PROJECT_SOURCE_OPTION.length) +
+    PUBLISH_JOB_OPTION +
+    source.slice(at + PROJECT_SOURCE_OPTION.length);
+  return withOption.replace(BUILT_FROM_LINE, (built) => `${built}\n${line}`);
+}
+
 export function bakedGit(
   files: Record<string, string>,
 ): { commit: string; branch: string } | undefined {
@@ -519,16 +577,22 @@ export function bakedGit(
 export function rebakeGit(
   files: Record<string, string>,
   git: { commit: string; branch: string } | null,
+  /**
+   * The publish job a tab is building this for, or `null`. A Studio that
+   * predates jobs leaves it out, and the file keeps what it had.
+   */
+  job?: string | null,
 ): Record<string, string> {
   const source = files[VAL_SERVER];
   if (source === undefined) return files;
   if (!BUILT_FROM_LINE.test(source)) return files;
+  const withGit = source.replace(
+    BUILT_FROM_LINE,
+    `const BUILT_FROM = ${git === null ? "null" : JSON.stringify(git)};`,
+  );
   return {
     ...files,
-    [VAL_SERVER]: source.replace(
-      BUILT_FROM_LINE,
-      `const BUILT_FROM = ${git === null ? "null" : JSON.stringify(git)};`,
-    ),
+    [VAL_SERVER]: job === undefined ? withGit : rebakeJob(withGit, job),
   };
 }
 

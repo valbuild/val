@@ -152,6 +152,13 @@ type ValServerOverrides = Partial<{
    */
   projectSource?: Record<string, string>;
   /**
+   * The publish job the RUNNING build was made for, when a Studio built it in
+   * a tab. Such a build has no commit to name its place in the content
+   * service's chain with, so it names its job, and the service places it by
+   * that rather than at whichever build is live.
+   */
+  publishJob?: string;
+  /**
    * The base url of Val.
    *
    * Typically this should not be set.

@@ -96,6 +96,8 @@ export interface UseStudioDeploy {
       target?: BuildTarget;
       /** A publish job's build: stop once uploaded. See `until` on `runStudioDeploy`. */
       until?: "confirmed";
+      /** The publish job it is for. See `job` on `runStudioDeploy`. */
+      job?: string;
     } | null,
   ) => Promise<StudioDeployOutcome>;
 }
@@ -122,6 +124,7 @@ export async function deployPreparedJob(
     },
     branch: prepared.branch,
     until: "confirmed",
+    ...(prepared.job !== null ? { job: prepared.job.id } : {}),
   });
   return result;
 }
@@ -202,6 +205,7 @@ export function useStudioDeploy(options?: {
           branch: details?.branch ?? null,
           ...(details?.target ? { target: details.target } : {}),
           ...(details?.until ? { until: details.until } : {}),
+          ...(details?.job !== undefined ? { job: details.job } : {}),
           fetchPublicFile: (path) => fetchPublicFile(path),
           liveStylesheet: () => fetchLiveStylesheet(),
           loadBuilder,

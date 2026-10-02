@@ -216,6 +216,8 @@ export type ValServerConfig = ValServerOptions &
         root?: string;
         /** See `projectSource` on {@link ValApiOptions}. */
         projectSource?: Record<string, string>;
+        /** See `publishJob` on {@link ValApiOptions}. */
+        publishJob?: string;
         config: ValConfig;
       }
     /**
@@ -2269,11 +2271,21 @@ export const ValServer = (
             ? await buildSourcesOf(serverOps, patchIds, commit)
             : null;
           if (build !== null && "status" in build) return build;
+          /*
+           * A build of no commit says what Val source it holds instead, so
+           * the content service can compare it with the branch -- the
+           * template's build a `/new` project is served before CI's first.
+           */
+          const deploymentFiles =
+            commit === undefined
+              ? await serverOps.embeddedValSourceShas()
+              : null;
           const sent = await serverOps.prepareJob(jobId, {
             tab,
             filesDirectory: options.config.files?.directory || "/public/val",
             ...split.archive,
             ...(commit !== undefined ? { gitCommit: commit } : {}),
+            ...(deploymentFiles !== null ? { deploymentFiles } : {}),
             // Said, so content waits for this tab's build. A server that does
             // not say it gets CI's: what Val servers before this one get.
             ...(build !== null ? { tabBuilds: true as const } : {}),
