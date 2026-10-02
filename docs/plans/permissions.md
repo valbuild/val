@@ -21,7 +21,11 @@ Three consequences follow, and they are the reason the framing is stated first:
 
 1. **Nothing may be named as though it were security.** `hidden` and `readonly`
    describe presentation and both stay honest. Nothing gets called `secret`,
-   `private`, `confidential` or `denied`.
+   `private`, `confidential` or `denied` — and the settings section is `access`,
+   not `permissions`, for the same reason: it is the most visible name in the
+   design, it is what the Studio panel is called, and "permissions" reads as a
+   promise this does not make. The word survives for the unit inside it — a
+   permission to take an action — where it is accurate.
 2. **The staged-content rule below would be a bug in a security model.** It is
    correct here. If this ever becomes a real boundary, that rule is the first
    thing to revisit.
@@ -57,7 +61,7 @@ UI silently changes what a content file means.
 
 ```ts
 export default c.define("/settings.val.ts", s.settings(), {
-  permissions: {
+  access: {
     roles: {
       editor: ["content:write", "assistant:use"],
       publisher: ["content:write", "publish"],
@@ -230,7 +234,7 @@ grants — matched on profile id or email, and unioned when both match.
 
 Two rules that override everything above:
 
-- **No `permissions` section, or an empty one: every user has every
+- **No `access` section, or an empty one: every user has every
   permission.** Existing projects are unchanged, and an empty section is not a
   statement that nobody may do anything.
 - **Local (`fs`) mode: every permission.** There is no identity to resolve, and
@@ -258,18 +262,18 @@ can take.
 
 ### Permissions are read from the published source
 
-Settings are content, so a user can patch the permissions section. Resolving
+Settings are content, so a user can patch the access section. Resolving
 against the patched source would let someone unlock their own Studio from an
 unpublished draft. `/sources` already takes `exclude_patches`.
 
-One consequence to keep in mind for the guards below: an edit to the permissions
+One consequence to keep in mind for the guards below: an edit to the access
 section does not take effect until it is published. An admin who removes their
 own access keeps working until someone publishes, and finds out afterwards.
 
-### Editing the permissions section: one refusal and one warning
+### Editing the access section: one refusal and one warning
 
-Editing permissions is the one edit that can take away the ability to make the
-next one. Two guards, and the line between them is the same one that decides
+Editing access is the one edit that can take away the ability to make the next
+one. Two guards, and the line between them is the same one that decides
 error from warning:
 
 > **Refuse when nothing in the Studio can undo it. Warn when someone else can.**
@@ -465,7 +469,7 @@ All proposed API. Locale examples assume #608.
 Two tiers — everyone edits, one person ships:
 
 ```ts
-permissions: {
+access: {
   roles: {
     editor: ["content:write", "assistant:use"],
     publisher: ["content:write", "publish", "assistant:use"],
@@ -478,7 +482,7 @@ permissions: {
 A locked settings panel — only Erik sees Access at all:
 
 ```ts
-permissions: {
+access: {
   roles: {
     editor: ["content:write", "assistant:use"],
     publisher: ["publish"],
@@ -492,7 +496,7 @@ permissions: {
 Agency and client — the client writes, the agency ships:
 
 ```ts
-permissions: {
+access: {
   roles: {
     "client-editor": ["content:write"],
     agency: ["content:write", "publish",
@@ -506,7 +510,7 @@ permissions: {
 Locale teams — the shape locale scope exists for:
 
 ```ts
-permissions: {
+access: {
   roles: {
     translator: ["content:write", "assistant:use"],
     lead: ["content:write", "publish"],
@@ -523,7 +527,7 @@ permissions: {
 Restricted content, with permissions the project invented:
 
 ```ts
-permissions: {
+access: {
   roles: {
     editor: ["content:write"],
     hr: ["hr:read", "hr:write"],
@@ -537,7 +541,7 @@ permissions: {
 Bootstrapping, before anyone has logged in — email keys are for exactly this:
 
 ```ts
-permissions: {
+access: {
   roles: { admin: ["settings:read", "settings:write", "publish", "content:write"] },
   members: { "erik@company.com": ["admin"] },
   default: ["editor"],
@@ -786,12 +790,12 @@ export default c.define("/settings.val.ts", s.settings(), {});
 
 // Empty section: also everyone has everything. Not a statement that nobody
 // may do anything.
-permissions: {
+access: {
 }
 
 // Roles defined, nobody listed, no default: every user gets []. Legal, and
 // almost certainly a mistake.
-permissions: {
+access: {
   roles: {
     editor: ["content:write"];
   }
@@ -803,7 +807,7 @@ permissions: {
 ## Not in this plan
 
 Server-side enforcement of any kind: no `/sources` redaction, no patch-path
-rejection, no check on writes to the permissions section itself. That last one
+rejection, no check on writes to the access section itself. That last one
 means the system is advisory over itself — anyone who can send a patch can grant
 themselves a role. It is the cheapest thing to add if the framing ever changes,
 and it does not change the data shape.
