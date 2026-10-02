@@ -758,6 +758,56 @@ test.describe("ai chat tools", () => {
   });
 
   /**
+   * The line under a turn: a clock and the output tokens, live while the turn
+   * runs and settled once it ends.
+   *
+   * The counts come from the service — `ai_usage` while it runs, which the
+   * Studio has to ask for with `reportUsage`, then the exact total on
+   * `ai_response` — so this is the one place the request flag, the two message
+   * types and the line itself meet. The question card holds the turn open
+   * long enough to read the live state, and pauses the clock while it does.
+   */
+  test("shows the turn's time and output tokens, live and settled", async ({
+    page,
+  }) => {
+    await openChatStudio(page);
+    await mock.aiScript({
+      steps: [
+        { type: "usage", outputTokens: 340, estimated: true },
+        {
+          type: "tool",
+          name: "ask_user_question",
+          timeoutMs: null,
+          arguments: {
+            questions: [
+              {
+                question: "Which page should I update?",
+                header: "Page",
+                options: [{ label: "Home" }, { label: "About" }],
+              },
+            ],
+          },
+        },
+      ],
+      response: "Updating the About page.",
+      outputTokens: 2_431,
+    });
+
+    await send(page, "Fix the typo");
+
+    const studio = page.locator("#val-shadow-root");
+    const line = studio.getByTestId("ai-turn-stats");
+    await expect(line).toContainText("Waiting for your answer");
+    await expect(line).toContainText("↓ 340 tokens");
+
+    await studio.getByRole("radio", { name: "About" }).click();
+    await studio.getByRole("button", { name: "Submit" }).click();
+
+    await expect(studio.getByText("Updating the About page.")).toBeVisible();
+    await expect(line).toHaveText(/^\d+s·2\.4k output tokens$/);
+  });
+
+  /**
    * The panel is a panel: it closes, and the conversation is still there.
    *
    * The shell renders the assistant on demand, so closing it UNMOUNTS the chat —

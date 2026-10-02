@@ -326,12 +326,19 @@ type AiScriptStep =
       arguments?: unknown;
       /** How long to wait for the result. `null` waits indefinitely. */
       timeoutMs?: number | null;
-    };
+    }
+  /**
+   * An `ai_usage` report — sent only if the prompt asked for them
+   * (`reportUsage`), as the real service does.
+   */
+  | { type: "usage"; outputTokens: number; estimated?: boolean };
 
 type AiScript = {
   steps: AiScriptStep[];
   /** The assistant's closing message. */
   response?: string;
+  /** The turn's exact output tokens, sent with `ai_response`. */
+  outputTokens?: number;
 };
 
 /** A tool call the assistant made, and what the Studio answered. */
@@ -2329,7 +2336,12 @@ const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
 /** Play one scripted turn over the assistant socket. */
 async function playAiTurn(
   socket: WebSocket,
-  prompt: { id?: string; sessionId?: string; message?: unknown },
+  prompt: {
+    id?: string;
+    sessionId?: string;
+    message?: unknown;
+    reportUsage?: boolean;
+  },
 ): Promise<void> {
   /**
    * Every server -> client message echoes the id the client put on its prompt.
@@ -2378,6 +2390,17 @@ async function playAiTurn(
   for (const step of script.steps) {
     if (step.type === "text") {
       send({ type: "ai_streaming", id: messageId, chunk: step.text });
+      continue;
+    }
+    if (step.type === "usage") {
+      if (prompt.reportUsage) {
+        send({
+          type: "ai_usage",
+          id: messageId,
+          outputTokens: step.outputTokens,
+          estimated: step.estimated ?? false,
+        });
+      }
       continue;
     }
     const toolCallId = randomUUID();
@@ -2429,7 +2452,15 @@ async function playAiTurn(
   const response = script.response ?? "Done.";
   session.messages.push({ role: "assistant", content: response });
   send({ type: "ai_streaming", id: messageId, chunk: response });
-  send({ type: "ai_response", id: messageId, sessionId, response });
+  send({
+    type: "ai_response",
+    id: messageId,
+    sessionId,
+    response,
+    ...(script.outputTokens !== undefined
+      ? { metadata: { outputTokens: script.outputTokens } }
+      : {}),
+  });
 }
 
 // #endregion
@@ -2905,7 +2936,12 @@ aiWss.on("connection", (socket) => {
     if (message.type === "ai_prompt") {
       void playAiTurn(
         socket,
-        parsed as { id?: string; sessionId?: string; message?: unknown },
+        parsed as {
+          id?: string;
+          sessionId?: string;
+          message?: unknown;
+          reportUsage?: boolean;
+        },
       ).catch((err) => {
         console.error("[mock-content-host] ai turn failed", err);
       });
