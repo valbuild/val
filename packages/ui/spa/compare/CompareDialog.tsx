@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, PanelLeft, Undo2 } from "lucide-react";
 import {
   Dialog,
@@ -29,11 +29,13 @@ import {
 import { CompareColumns, CompareMobileColumns } from "./CompareColumns";
 import { CompareNav } from "./CompareNav";
 import {
+  COMPARE_ROW_ATTR,
   ComparePaneRows,
   ShowAllFieldsToggle,
   hiddenFieldCount,
 } from "./ComparePaneView";
 import type {
+  CompareFocus,
   CompareModel,
   CompareNavNode,
   ComparePane,
@@ -110,6 +112,7 @@ export function CompareDialog({
   initialUndoMode = false,
   /** Who is looking, so the bar can say whose work a closure dragged in. */
   currentAuthorId = null,
+  focus = null,
   onUndo,
   onRevertAll,
   tone = "calm",
@@ -124,6 +127,16 @@ export function CompareDialog({
   initialAuthorFilter?: string | null;
   initialUndoMode?: boolean;
   currentAuthorId?: string | null;
+  /**
+   * Where to open, when the dialog was linked to one change rather than opened
+   * on the whole publish. Null opens on the first change.
+   *
+   * A preference over the model, the same as a pick in the nav: it is
+   * re-checked on every render, so a focus that names a pane the model does
+   * not have YET (schemas still loading, so a page is still filed under its
+   * module) lands once the model has it. A pick in the nav overrides it.
+   */
+  focus?: CompareFocus | null;
   /** Called with everything that will go — picks and their dependents. */
   onUndo?: (kind: CompareUndoKind, rowIds: string[]) => void;
   onRevertAll?: () => void;
@@ -136,7 +149,8 @@ export function CompareDialog({
   tone?: UndoTone;
 }) {
   const firstId = useMemo(() => firstNodeId(model), [model]);
-  const [picked, setPicked] = useState<string | null>(firstId);
+  /* Null until somebody picks: until then the focus, or the first pane, stands. */
+  const [picked, setPicked] = useState<string | null>(null);
   /*
    * The selection is a PREFERENCE over the model, not a fact independent of it.
    *
@@ -152,10 +166,13 @@ export function CompareDialog({
    * So the stored id is honoured only while the model still has it, and the
    * first pane stands in otherwise. Derived rather than repaired in an effect:
    * an effect would render the empty state once before correcting it, and the
-   * flash is the bug.
+   * flash is the bug. The focus a link asked for is the same kind of
+   * preference, one rank below an actual pick.
    */
   const selectedId =
-    picked !== null && model.panes[picked] !== undefined ? picked : firstId;
+    [picked, focus?.paneId ?? null].find(
+      (id): id is string => id !== null && model.panes[id] !== undefined,
+    ) ?? firstId;
   const [showUnchanged, setShowUnchanged] = useState(false);
   const [showing, setShowing] = useState<"left" | "right">("right");
   /*
@@ -207,6 +224,38 @@ export function CompareDialog({
   };
   const hidden = pane === undefined ? 0 : hiddenFieldCount(pane, authorFilter);
   const isMobile = forceLayout === "mobile";
+
+  /*
+   * Bring the row a link named into view, once.
+   *
+   * The pane's node is STATE, through a callback ref, rather than a ref
+   * object. The dialog's content is portalled, and the portal mounts it a
+   * render after this component's own commit — a render that does not re-run
+   * this component — so an effect reading a ref object ran once, saw null, and
+   * never ran again. State re-renders us when the node arrives.
+   *
+   * Once it has scrolled it never does again: a reader who scrolls away, or
+   * picks another pane and comes back, has moved on from the link.
+   */
+  const [paneNode, setPaneNode] = useState<HTMLDivElement | null>(null);
+  const scrolledTo = useRef<string | null>(null);
+  const focusRowId = focus?.rowId ?? null;
+  const focusPaneId = focus?.paneId ?? null;
+  useEffect(() => {
+    if (focusRowId === null || scrolledTo.current === focusRowId) return;
+    if (selectedId !== focusPaneId) return;
+    const row = findRow(paneNode, focusRowId);
+    if (row === null) return;
+    scrolledTo.current = focusRowId;
+    // Optional: jsdom has no layout, and so no `scrollIntoView`.
+    row.scrollIntoView?.({ block: "center" });
+    row.classList.add("val-scroll-highlight");
+    row.addEventListener(
+      "animationend",
+      () => row.classList.remove("val-scroll-highlight"),
+      { once: true },
+    );
+  }, [paneNode, selectedId, focusPaneId, focusRowId]);
 
   /*
    * Every row that could be undone, for "Discard all".
@@ -410,7 +459,10 @@ export function CompareDialog({
             />
           )}
           {isMobile ? (
-            <div className="relative flex min-h-0 flex-1 flex-col px-3 py-3">
+            <div
+              ref={setPaneNode}
+              className="relative flex min-h-0 flex-1 flex-col px-3 py-3"
+            >
               <div className="mb-2 flex min-w-0 items-center gap-2">
                 <button
                   onClick={() => setNavOpen(true)}
@@ -466,7 +518,7 @@ export function CompareDialog({
               )}
             </div>
           ) : (
-            <div className="flex min-h-0 flex-1">
+            <div ref={setPaneNode} className="flex min-h-0 flex-1">
               <CompareNav
                 className="w-[260px] shrink-0 border-r border-border-primary px-2 py-3"
                 sections={model.sections}
@@ -604,6 +656,22 @@ function EmptyPane() {
       </p>
     </div>
   );
+}
+
+/**
+ * The row with this id under `root`.
+ *
+ * Compared by value rather than put in a selector: a row id is a source path,
+ * full of quotes and brackets a selector would have to escape.
+ */
+function findRow(root: HTMLElement | null, rowId: string): HTMLElement | null {
+  if (root === null) return null;
+  for (const el of root.querySelectorAll<HTMLElement>(
+    `[${COMPARE_ROW_ATTR}]`,
+  )) {
+    if (el.getAttribute(COMPARE_ROW_ATTR) === rowId) return el;
+  }
+  return null;
 }
 
 function firstNodeId(

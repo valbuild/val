@@ -12,7 +12,9 @@ import type { SerializedPatchSet } from "../utils/PatchSets";
 import { ReviewView } from "./ReviewView";
 import { useReviewModel } from "./useReviewModel";
 import { reviewRowId, reviewSourcePath } from "./toReviewModel";
-import { ReviewCompare, useCompareDialog } from "./ReviewCompare";
+import { ReviewCompare } from "./ReviewCompare";
+import { canOpenReviewCompare } from "./reviewCompareParam";
+import { useReviewCompareParam } from "../components/ValRouter";
 
 /**
  * `/val/review`, wired up.
@@ -76,8 +78,14 @@ export function ReviewSurface({
    * The diff opens OVER this page rather than navigating to one. It is a
    * detail you read and close — you come back to the list you were deciding
    * over — and a route would take the list off screen to show you part of it.
+   *
+   * Open is a fact about the URL (`?compare`), so the dialog, and the change
+   * it is open on, is a link. Opened and closed with `replace`: the dialog is
+   * a layer over this page, not a page of its own, so Back leaves the review
+   * rather than stepping through every time the dialog was opened.
    */
-  const compare = useCompareDialog();
+  const { reviewCompare, setReviewCompare } = useReviewCompareParam();
+  const compareSourcePath = reviewCompare?.sourcePath ?? null;
 
   const patchIdsOf = useCallback(
     (rowIds: string[]) => {
@@ -129,11 +137,23 @@ export function ReviewSurface({
     );
   }, [patchSets, staging]);
 
+  /*
+   * A link to a change that is not in the staged set opens nothing: the page
+   * behind it lists the change, under Unstaged, and that is the true answer.
+   * See `canOpenReviewCompare`. Derived rather than cleared from the URL, so
+   * the link still works the moment the change is staged.
+   */
+  const compareOpen =
+    reviewCompare !== null &&
+    canOpenReviewCompare(stagedPatchSets, compareSourcePath);
+
   return (
     <>
       <ReviewView
         model={model}
-        onCompare={compare.show}
+        onCompare={() =>
+          setReviewCompare({ sourcePath: null }, { replace: true })
+        }
         onRestore={onRestore}
         onStage={(rowIds) => staging.stage(patchIdsOf(rowIds))}
         onUnstage={(rowIds) => staging.unstage(patchIdsOf(rowIds))}
@@ -151,8 +171,11 @@ export function ReviewSurface({
       <ReviewCompare
         patchSets={stagedPatchSets}
         mode={mode}
-        open={compare.open}
-        onOpenChange={compare.onOpenChange}
+        open={compareOpen}
+        onOpenChange={(open) => {
+          if (!open) setReviewCompare(null, { replace: true });
+        }}
+        focusSourcePath={compareSourcePath}
         currentAuthorId={currentAuthorId}
         /*
          * The dialog's rows are source paths; the patches behind them are what

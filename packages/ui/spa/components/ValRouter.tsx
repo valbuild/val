@@ -13,6 +13,13 @@ import {
   parseHistoryParams,
   type HistoryParams,
 } from "../history/historyParams";
+import {
+  applyReviewCompareParam,
+  parseReviewCompareParam,
+  REVIEW_COMPARE_PARAM,
+  searchStringOf,
+  type ReviewCompareParam,
+} from "../review/reviewCompareParam";
 
 export const VAL_COMPARE_ROUTE = "/val/compare";
 export const VAL_ERRORS_ROUTE = "/val/errors";
@@ -52,6 +59,17 @@ type ValStandaloneRoute =
   | typeof VAL_HISTORY_ROUTE
   | typeof VAL_REVIEW_ROUTE;
 
+type NavigateParams = {
+  scrollToPath?: SourcePath | ModuleFilePath;
+  errorFields?: SourcePath[];
+  /**
+   * Open the review page's compare dialog: `true` on its first change, a path
+   * on the change at that path. Only meaningful with `VAL_REVIEW_ROUTE`. See
+   * `reviewCompareParam`.
+   */
+  compare?: true | SourcePath;
+};
+
 type ValRouterContextValue = {
   hardLink: boolean;
   ready: boolean;
@@ -66,18 +84,11 @@ type ValRouterContextValue = {
    */
   hrefOf: (
     path: SourcePath | ModuleFilePath | ValStandaloneRoute,
-    params?: {
-      scrollToPath?: SourcePath | ModuleFilePath;
-      errorFields?: SourcePath[];
-    },
+    params?: NavigateParams,
   ) => string;
   navigate: (
     path: SourcePath | ModuleFilePath | ValStandaloneRoute,
-    params?: {
-      scrollToPath?: SourcePath | ModuleFilePath;
-      replace?: true;
-      errorFields?: SourcePath[];
-    },
+    params?: NavigateParams & { replace?: true },
   ) => void;
   currentSourcePath: SourcePath;
   /**
@@ -109,6 +120,16 @@ type ValRouterContextValue = {
   history: HistoryParams;
   /** Replace the history state, keeping everything else in the URL. */
   setHistory: (next: HistoryParams, opts?: { replace?: boolean }) => void;
+  /**
+   * The review page's compare dialog, parsed from `?compare`. Always null off
+   * `/val/review`, since the param is the route's own.
+   */
+  reviewCompare: ReviewCompareParam;
+  /** Open or close the review page's compare dialog, keeping the rest of the URL. */
+  setReviewCompare: (
+    next: ReviewCompareParam,
+    opts?: { replace?: boolean },
+  ) => void;
   /** Current value of the `?session=` query param, or null if absent. */
   sessionParam: string | null;
   /** Update the `?session=` query param. No-op when running in overlay mode. */
@@ -127,6 +148,19 @@ const ValRouterContext = React.createContext<ValRouterContextValue>(
 
 const VAL_CONTENT_VIEW_ROUTE = "/val/~"; // TODO: make route configurable
 
+function isReviewPath(pathname: string): boolean {
+  return pathname === VAL_REVIEW_ROUTE || pathname === VAL_REVIEW_ROUTE + "/";
+}
+
+/** What a navigation's `compare` param means, on the route it is going to. */
+function reviewCompareOf(
+  isReview: boolean,
+  params: NavigateParams | undefined,
+): ReviewCompareParam {
+  if (!isReview || params?.compare === undefined) return null;
+  return { sourcePath: params.compare === true ? null : params.compare };
+}
+
 /**
  * Query params a route builds for itself, and which must not be carried.
  *
@@ -141,8 +175,11 @@ const VAL_CONTENT_VIEW_ROUTE = "/val/~"; // TODO: make route configurable
  * `field` is the leaf the route is focused on, which belongs to the navigation
  * that set it: carrying it would leave the previous field outlined on a page it
  * is not on.
+ *
+ * `compare` is the review page's open compare dialog: carried, it would reopen
+ * the dialog on whatever review visit came next.
  */
-const ROUTE_OWNED_PARAMS = ["p", "error-field", "field"];
+const ROUTE_OWNED_PARAMS = ["p", "error-field", "field", REVIEW_COMPARE_PARAM];
 
 const STUDIO_PATH_ATTR = "data-val-studio-path";
 
@@ -261,11 +298,24 @@ export function ValRouter({
       ? NO_HISTORY
       : parseHistoryParams(window.location.search),
   );
+  // Read synchronously too: a link into the compare dialog has to open ON the
+  // change it names, not open empty and then jump.
+  const [reviewCompare, setReviewCompareState] = useState<ReviewCompareParam>(
+    () =>
+      typeof window === "undefined" || !isReviewPath(window.location.pathname)
+        ? null
+        : parseReviewCompareParam(window.location.search),
+  );
   const historyState = useRef<number[]>([]);
   useEffect(() => {
     const listener = () => {
       setSessionParamState(new URLSearchParams(location.search).get("session"));
       setHistoryState(parseHistoryParams(location.search));
+      setReviewCompareState(
+        isReviewPath(location.pathname)
+          ? parseReviewCompareParam(location.search)
+          : null,
+      );
       if (
         location.pathname === VAL_COMPARE_ROUTE ||
         location.pathname === VAL_COMPARE_ROUTE + "/"
@@ -309,10 +359,7 @@ export function ValRouter({
         setReady(true);
         return;
       }
-      if (
-        location.pathname === VAL_REVIEW_ROUTE ||
-        location.pathname === VAL_REVIEW_ROUTE + "/"
-      ) {
+      if (isReviewPath(location.pathname)) {
         setIsReviewView(true);
         setIsCompareView(false);
         setIsErrorsView(false);
@@ -391,10 +438,7 @@ export function ValRouter({
   const hrefOf = useCallback(
     (
       path: SourcePath | ModuleFilePath | ValStandaloneRoute,
-      params?: {
-        scrollToPath?: SourcePath | ModuleFilePath;
-        errorFields?: SourcePath[];
-      },
+      params?: NavigateParams,
     ): string => {
       const isCompare = path === VAL_COMPARE_ROUTE;
       const isErrors = path === VAL_ERRORS_ROUTE;
@@ -471,7 +515,8 @@ export function ValRouter({
       if (focused) {
         carried.set("field", focused);
       }
-      const carriedQuery = carried.toString();
+      applyReviewCompareParam(carried, reviewCompareOf(isReview, params));
+      const carriedQuery = searchStringOf(carried);
       return carriedQuery
         ? `${navigateTo}${navigateTo.includes("?") ? "&" : "?"}${carriedQuery}`
         : navigateTo;
@@ -482,11 +527,7 @@ export function ValRouter({
   const navigate = useCallback(
     (
       path: SourcePath | ModuleFilePath | ValStandaloneRoute,
-      params?: {
-        scrollToPath?: SourcePath | ModuleFilePath;
-        replace?: true;
-        errorFields?: SourcePath[];
-      },
+      params?: NavigateParams & { replace?: true },
     ) => {
       const isCompare = path === VAL_COMPARE_ROUTE;
       const isErrors = path === VAL_ERRORS_ROUTE;
@@ -503,6 +544,7 @@ export function ValRouter({
       setIsHistoryView(isHistory);
       setIsReviewView(isReview);
       setErrorFields(isErrors ? (params?.errorFields ?? []) : []);
+      setReviewCompareState(reviewCompareOf(isReview, params));
       setSourcePath(isStandalone ? ("" as SourcePath) : (path as SourcePath));
       setFocusedSourcePath(focused as SourcePath | null);
       if (!overlay) {
@@ -560,6 +602,25 @@ export function ValRouter({
     },
     [overlay],
   );
+  const setReviewCompare = useCallback(
+    (next: ReviewCompareParam, opts?: { replace?: boolean }) => {
+      // State either way; the URL write is skipped in overlay mode, which must
+      // never touch the host page's URL. Same rule as `setSessionParam`.
+      setReviewCompareState(next);
+      if (overlay) return;
+      const url = new URL(window.location.href);
+      const search = searchStringOf(
+        applyReviewCompareParam(url.searchParams, next),
+      );
+      const target = url.pathname + (search ? `?${search}` : "") + url.hash;
+      if (opts?.replace) {
+        window.history.replaceState(null, "", target);
+      } else {
+        window.history.pushState(null, "", target);
+      }
+    },
+    [overlay],
+  );
   const setSessionParam = useCallback(
     (id: string | null, opts?: { replace?: boolean }) => {
       // The selection is state either way. Only the URL write is skipped in
@@ -597,6 +658,8 @@ export function ValRouter({
         errorFields,
         history,
         setHistory,
+        reviewCompare,
+        setReviewCompare,
         sessionParam,
         setSessionParam,
       }}
@@ -652,6 +715,17 @@ export function useParams(): {
 export function useHistoryParams() {
   const { history, setHistory } = useContext(ValRouterContext);
   return { history, setHistory };
+}
+
+/**
+ * The review page's compare dialog, and how to open or close it.
+ *
+ * In the URL, like history, so that the dialog — and the change it is open on
+ * — is a link. See `reviewCompareParam`.
+ */
+export function useReviewCompareParam() {
+  const { reviewCompare, setReviewCompare } = useContext(ValRouterContext);
+  return { reviewCompare, setReviewCompare };
 }
 
 export function useSessionParam() {

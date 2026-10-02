@@ -21,7 +21,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../designSystem/tooltip";
-import { useNavigation } from "../ValRouter";
+import { useNavigation, VAL_REVIEW_ROUTE } from "../ValRouter";
+import { useNavLink } from "../navLink";
 import {
   Popover,
   PopoverContent,
@@ -69,6 +70,16 @@ export function FilePropertiesModal({
   const referencesChecked = references.status === "success";
   const { navigate, currentSourcePath } = useNavigation();
   const [refsOpen, setRefsOpen] = React.useState(false);
+  /*
+   * The review page's compare dialog, open on this file's change. Not the old
+   * `/val/compare` view: the dialog is the one that answers "what is about to
+   * go out", and a link into it lands on the entry rather than on a page you
+   * then have to scroll. Called before the early return below, as a hook must
+   * be; with no file it links to the dialog's first change, and is not drawn.
+   */
+  const compareLink = useNavLink(VAL_REVIEW_ROUTE, {
+    compare: file?.sourcePath ?? true,
+  });
 
   if (!file || fileIndex === null) return null;
 
@@ -245,18 +256,13 @@ export function FilePropertiesModal({
           {file.sourcePath &&
             file.patchesByAuthorIds &&
             Object.keys(file.patchesByAuthorIds).length > 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  navigate("/val/compare", {
-                    scrollToPath: file.sourcePath,
-                  });
-                }}
+              <a
+                {...compareLink}
                 className="inline-flex items-center gap-2 rounded-md bg-bg-secondary px-3 py-2 text-sm font-medium text-fg-primary transition-colors hover:bg-bg-tertiary"
               >
                 <GitCompare className="h-4 w-4" />
                 View in Compare
-              </button>
+              </a>
             )}
           {onFileDelete && fileIndex !== null && (
             <div className="ml-auto flex items-center gap-2">

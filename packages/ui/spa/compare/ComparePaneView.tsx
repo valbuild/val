@@ -77,6 +77,12 @@ export function ComparePaneRows({
 export type CompareShowing = "both" | "before" | "after";
 
 /**
+ * The attribute a row carries its id in, so the dialog can find the row a link
+ * named and scroll to it. See `CompareFocus`.
+ */
+export const COMPARE_ROW_ATTR = "data-compare-row";
+
+/**
  * The two cells of one row, in one grid.
  *
  * The template matches `CompareColumns`' sticky headers exactly — the middle
@@ -336,7 +342,10 @@ function FieldRow({
     );
   };
   return (
-    <div className={cn("group/row py-1", indent && "pl-3")}>
+    <div
+      className={cn("group/row py-1", indent && "pl-3")}
+      data-compare-row={row.id}
+    >
       <div className="flex min-w-0 items-center gap-1.5">
         <ChangeKindIcon kind={row.change} size={12} hideLabel />
         <span className="min-w-0 truncate text-xs text-fg-secondary">
@@ -530,7 +539,10 @@ function ListItemRow({
   };
 
   return (
-    <div className="group/row border-b border-border-secondary py-1.5 last:border-b-0">
+    <div
+      className="group/row border-b border-border-secondary py-1.5 last:border-b-0"
+      data-compare-row={row.id}
+    >
       <div className="flex min-w-0 items-center gap-1.5">
         <ChangeKindIcon kind={row.change} size={12} hideLabel />
         {/*

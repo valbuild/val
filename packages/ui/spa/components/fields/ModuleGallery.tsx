@@ -206,14 +206,15 @@ export function ModuleGallery({
           }
         }
 
-        const fileModulePath = Internal.patchPathToModulePath([
-          ...patchPath,
-          ref,
-        ]);
+        /*
+         * At the entry OR INSIDE it. Only an exact match counted once, so a
+         * file whose alt text was edited — a patch at `[ref, "alt"]`, the
+         * commonest change a gallery gets — showed no authors and no Compare
+         * link, as though nothing about it had changed.
+         */
+        const filePatchPath = [...patchPath, ref];
         const filePatches = allModulePatches.filter((patch) =>
-          patch.patch.some(
-            (op) => Internal.patchPathToModulePath(op.path) === fileModulePath,
-          ),
+          patch.patch.some((op) => isPatchPathWithin(op.path, filePatchPath)),
         );
         const filePatchesByAuthorIds: Record<
           string,
@@ -802,5 +803,16 @@ export function ModuleGallery({
         isDraggingOver={isDraggingOver}
       />
     </div>
+  );
+}
+
+/** Whether `path` is `prefix` or a path inside it, segment by segment. */
+function isPatchPathWithin(
+  path: readonly string[],
+  prefix: readonly string[],
+): boolean {
+  return (
+    path.length >= prefix.length &&
+    prefix.every((segment, i) => path[i] === segment)
   );
 }
