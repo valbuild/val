@@ -51,6 +51,7 @@ import {
 } from "./AIChatEditor";
 import { ToolActivities, isPendingQuestion } from "./AIChatToolActivities";
 import { decideBubble } from "./aiChatBubble";
+import { TurnStatsLine, type TurnPhase } from "./AIChatTurnStats";
 import type {
   AskUserQuestionAnswer,
   AskUserQuestionItem,
@@ -107,6 +108,12 @@ export type ChatMessage = {
    * (which would lose `previewUrl`s for image nodes).
    */
   userDoc?: ChatDocument;
+  /** MOCKUP: the turn's timer and output tokens. */
+  turnStats?: {
+    phase: TurnPhase;
+    elapsedMs: number;
+    outputTokens?: number;
+  };
 };
 
 type AttachedFile = {
@@ -225,6 +232,8 @@ export type AIChatProps = {
    * Not part of the public API.
    */
   initialMessages?: ChatMessage[];
+  /** MOCKUP: where the in-progress status line goes. */
+  statusPlacement?: "message" | "composer";
 };
 
 // ---------------------------------------------------------------------------
@@ -544,6 +553,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     onAnswerToolQuestions,
     onCancelToolQuestion,
     initialMessages,
+    statusPlacement = "message",
     chatEditorRef: chatEditorRefProp,
   },
   ref,
@@ -1211,6 +1221,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               <MessageBubble
                 key={msg.id}
                 message={msg}
+                statusPlacement={statusPlacement}
                 onRetry={handleRetry}
                 onSubmitToolAnswers={(toolCallId, answers) => {
                   recordAnswersInState(msg.id, toolCallId, answers);
@@ -1228,8 +1239,32 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         </div>
       </ScrollArea>
 
+      {statusPlacement === "composer" &&
+        (() => {
+          const live = messages.find(
+            (m) => m.turnStats && isInProgressPhase(m.turnStats.phase),
+          )?.turnStats;
+          return live ? (
+            <div className="shrink-0 border-t border-border-primary bg-bg-primary px-4 pt-2">
+              <TurnStatsLine
+                phase={live.phase}
+                elapsedMs={live.elapsedMs}
+                outputTokens={live.outputTokens}
+              />
+            </div>
+          ) : null;
+        })()}
       {/* Input area */}
-      <div className="shrink-0 border-t border-border-primary bg-bg-primary p-3">
+      <div
+        className={cn(
+          "shrink-0 border-t border-border-primary bg-bg-primary p-3",
+          statusPlacement === "composer" &&
+            messages.some(
+              (m) => m.turnStats && isInProgressPhase(m.turnStats.phase),
+            ) &&
+            "border-t-0 pt-2",
+        )}
+      >
         {unavailable && !authError ? (
           <AIUnavailable {...unavailable} />
         ) : (
@@ -1504,11 +1539,13 @@ function EmptyState({
 
 function MessageBubble({
   message,
+  statusPlacement,
   onRetry,
   onSubmitToolAnswers,
   onCancelToolQuestion,
 }: {
   message: ChatMessage;
+  statusPlacement: "message" | "composer";
   onRetry: (id: string) => void;
   onSubmitToolAnswers: (
     toolCallId: string,
@@ -1685,7 +1722,27 @@ function MessageBubble({
           )}
         </div>
       )}
+      {!isUser &&
+        message.turnStats &&
+        (statusPlacement === "message" ||
+          !isInProgressPhase(message.turnStats.phase)) && (
+          <TurnStatsLine
+            className="px-1"
+            phase={message.turnStats.phase}
+            elapsedMs={message.turnStats.elapsedMs}
+            outputTokens={message.turnStats.outputTokens}
+          />
+        )}
     </div>
+  );
+}
+
+function isInProgressPhase(phase: TurnPhase): boolean {
+  return (
+    phase.type === "thinking" ||
+    phase.type === "writing" ||
+    phase.type === "tool" ||
+    phase.type === "waiting"
   );
 }
 
