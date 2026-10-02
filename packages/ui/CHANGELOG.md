@@ -1,5 +1,14 @@
 # @valbuild/ui
 
+## 0.138.5
+
+### Patch Changes
+
+- [#772](https://github.com/valbuild/val/pull/772) [`c532afc`](https://github.com/valbuild/val/commit/c532afc1818ee0249ad227a7da029c3e8d06baa8) Thanks [@freekh](https://github.com/freekh)! - Publishing a Git-connected project no longer locks the Studio while it waits for CI, and works from a phone.
+
+  - The Publish button stays available while a publish waits for the server or for CI. You can publish your next changes straight away, and they go out as a new publish. It is only held while this browser is building or uploading.
+  - On an iPhone or iPad, the Studio now builds the site in a separate builder tab instead of waiting for CI. Safari, and every other iOS browser, can't run the build on the Studio's own page. Projects without a repository already worked this way.
+
 ## 0.138.4
 
 ### Patch Changes
