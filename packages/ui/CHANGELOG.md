@@ -1,5 +1,20 @@
 # @valbuild/ui
 
+## 0.138.3
+
+### Patch Changes
+
+- [#759](https://github.com/valbuild/val/pull/759) [`a6cefc8`](https://github.com/valbuild/val/commit/a6cefc870436c9f981d6b831c318416eb6f506e6) Thanks [@freekh](https://github.com/freekh)! - The AI assistant now shows how long a reply is taking and how many tokens it has written, under each reply.
+
+  - **While the assistant works**, a line under the reply says what it is doing — `Thinking…`, `Writing…`, or `Working…` while it runs a tool — with a timer and a count of output tokens that climbs as it goes: `Working… 1m 05s · ↓ 2.1k tokens`. The count also moves while a model thinks or writes a large edit before saying anything, where the service reports it. This line replaces the three dots.
+  - **When the assistant asks you a question**, the timer pauses and the line reads `Waiting for your answer`, so the time shown is the assistant's, not yours.
+  - **When the reply is done**, the line settles to the total: `1m 34s · 3.4k output tokens`. A stopped reply says `Stopped after 18s`, a failed one `Failed after 31s`. A count marked `~` is an estimate made in the browser, shown when the service did not report an exact one.
+  - Only **output** tokens are counted: what the model wrote, including its thinking and tool calls. The context sent back to the model on every tool call is left out.
+  - **Long replies are no longer cut off at two minutes.** The assistant gave up on any reply still running after two minutes, showing "Response timed out" and dropping the answer when it arrived. It now gives up only after two minutes with no activity at all, so a reply that keeps writing, calling tools or reporting progress runs as long as it needs.
+  - Conversations reopened from history show no timer or count. Those are only kept for replies you watched arrive.
+
+- [#764](https://github.com/valbuild/val/pull/764) [`9d062c2`](https://github.com/valbuild/val/commit/9d062c23597d47d80b66a94091442c5409e7e415) Thanks [@freekh](https://github.com/freekh)! - Pressing Save (or Publish) right after typing now saves what you typed. With changes already pending, pressing the button the moment you finished typing did nothing and showed nothing: the press is what writes your last edit, and the button switched itself off while that write was on its way, so the click was dropped. The button now stays pressable, and the save waits for the last edit before it runs. The button also no longer remounts whenever it switches between enabled and disabled.
+
 ## 0.138.2
 
 ### Patch Changes
