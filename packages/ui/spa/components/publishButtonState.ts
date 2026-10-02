@@ -193,8 +193,21 @@ export function describePublishButton(
     };
   }
 
-  const nothingToSend = pendingServerSidePatchCount === 0;
   const stillWriting = pendingClientSidePatchCount > 0;
+  /*
+   * A write on its way is something to send, and never a reason to hold the
+   * button.
+   *
+   * Pressing Save blurs the field being typed in, which is what WRITES the
+   * last edit -- so the write starts in the very press that wanted it saved.
+   * The button used to turn itself off for the length of that write, the click
+   * landed on a disabled button, and with changes already pending (so that
+   * Save was on to begin with) "type, then press Save" did nothing and said
+   * nothing. `system.publish` waits for unsent writes before it decides
+   * anything, for exactly this press, so the button only has to let it
+   * through.
+   */
+  const nothingToSend = pendingServerSidePatchCount === 0 && !stillWriting;
   /*
    * Only once the writing has settled. Mid-keystroke the chain is a prefix of
    * what the editor has typed, so "the net effect is nothing" is a statement
@@ -205,7 +218,6 @@ export function describePublishButton(
   const disabled =
     publishDisabled ||
     nothingToSend ||
-    stillWriting ||
     revertedToNothing ||
     (saving && autoPublish);
 
@@ -214,9 +226,8 @@ export function describePublishButton(
       kind: "idle",
       label: saving ? "Save" : "Publish",
       description: saving ? "Save to disk" : "Publish pending changes",
-      reason: stillWriting
-        ? "Waiting for the last edit to reach the server."
-        : saving && autoPublish
+      reason:
+        saving && autoPublish
           ? "Auto save is on: changes are saved for you."
           : nothingToSend
             ? "Nothing to send."

@@ -160,12 +160,22 @@ describe("describePublishButton", () => {
     expect(state.reason).toBe("Nothing to send.");
   });
 
-  test("a write still on its way holds the button", () => {
-    const state = describePublishButton(
-      input({ pendingClientSidePatchCount: 1 }),
-    );
-    expect(state.kind).toBe("idle");
-    expect(state.reason).toContain("reach the server");
+  test("a write still on its way leaves the button pressable", () => {
+    // Pressing Save blurs the field, which is what writes the last edit: a
+    // button that held itself for that write dropped the very click that
+    // wanted it saved. Publishing waits for the write itself.
+    expect(
+      describePublishButton(input({ pendingClientSidePatchCount: 1 })),
+    ).toMatchObject({ kind: "ready", action: "save" });
+    // ...including the first edit, before the server has any.
+    expect(
+      describePublishButton(
+        input({
+          pendingServerSidePatchCount: 0,
+          pendingClientSidePatchCount: 1,
+        }),
+      ),
+    ).toMatchObject({ kind: "ready", action: "save" });
   });
 
   test("auto save leaves nothing to press, and only in dev", () => {
@@ -201,9 +211,7 @@ describe("describePublishButton", () => {
       const state = describePublishButton(
         input({ netChangesEmpty: true, pendingClientSidePatchCount: 1 }),
       );
-      expect(state.reason).toBe(
-        "Waiting for the last edit to reach the server.",
-      );
+      expect(state).toMatchObject({ kind: "ready", reason: null });
     });
 
     test("validation errors still come first", () => {

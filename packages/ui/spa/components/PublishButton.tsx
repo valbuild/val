@@ -34,18 +34,14 @@ import {
 } from "./designSystem/popover";
 import { PopoverClose } from "@radix-ui/react-popover";
 import { PublishSummary } from "./PublishSummary";
-import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAutomaticPublish } from "../hooks/useAutomaticPublish";
 import { useSettingsModuleSource } from "../hooks/useSettingsModuleSource";
 import {
   isCommitMessageRequired,
   readStudioSettings,
 } from "../hooks/studioSettings";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "./designSystem/tooltip";
+import { PublishTooltip } from "./PublishTooltip";
 
 /*
  * The overlay's Publish: the size of its other buttons (`w-8 h-8`), and round.
@@ -406,41 +402,3 @@ export function PublishButton({
  * of the action, and the button below it is hidden from assistive technology
  * so the action is not announced twice.
  */
-function PublishTooltip({
-  label,
-  description,
-  disabled,
-  container,
-  children,
-}: {
-  label: string;
-  description: string;
-  disabled: boolean;
-  container: HTMLElement | null;
-  children: ReactElement;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        {disabled ? (
-          <span
-            className="inline-flex"
-            role="button"
-            tabIndex={0}
-            aria-disabled="true"
-            aria-label={label}
-          >
-            <span className="inline-flex" aria-hidden="true">
-              {children}
-            </span>
-          </span>
-        ) : (
-          children
-        )}
-      </TooltipTrigger>
-      <TooltipContent container={container}>
-        <p>{description}</p>
-      </TooltipContent>
-    </Tooltip>
-  );
-}
