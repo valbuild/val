@@ -47,6 +47,13 @@ jest.mock("../RichTextEditor", () => {
   return { __esModule: true, RichTextEditor: Stub };
 });
 
+// "Add & link" creates external pages through the Studio's patch pipeline,
+// which these timer tests have no use for — and which loads the whole store.
+jest.mock("./useRichTextExternalPages", () => ({
+  __esModule: true,
+  useRichTextExternalPages: () => undefined,
+}));
+
 jest.mock("../RichTextEditor/useRichTextEditorConfig", () => ({
   __esModule: true,
   useRichTextEditorConfig: () => ({
