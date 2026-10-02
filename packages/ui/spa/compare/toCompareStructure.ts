@@ -5,10 +5,12 @@ import type {
 } from "../utils/computeChangedSourcePaths";
 import { pageRouteOf } from "../utils/pageRoutes";
 import { prettyModuleLocation } from "../utils/prettyModulePath";
+import { isPathWithin } from "../utils/sourcePath";
 import { buildDataTree } from "./navTree";
 import type {
   CompareAuthorship,
   CompareChangeKind,
+  CompareFocus,
   CompareNavNode,
   CompareNavSection,
 } from "./types";
@@ -229,6 +231,60 @@ export function toCompareStructure({
 /** The nav id for a page or a module, and the key its pane is stored under. */
 export function navNodeId(sourcePath: string): string {
   return `node:${sourcePath}`;
+}
+
+/**
+ * The pane, and the row in it, that a source path names.
+ *
+ * For a link INTO the dialog — "show me the change to this" — from a surface
+ * that knows a path and nothing about how the dialog groups changes. Which
+ * pane a path lands in is this file's decision (a page router's changes are
+ * filed by route, everything else by module), so the answer is read off the
+ * panes it built rather than worked out a second time.
+ *
+ * The link names what its surface knows, which is not always the row:
+ *
+ * 1. a row AT the path wins — the change is exactly the thing linked to;
+ * 2. else the first row INSIDE it — the media gallery links an entry, and the
+ *    change was to its `alt`;
+ * 3. else the deepest row AROUND it — the link names a field of an entry that
+ *    was added whole;
+ * 4. else the pane the path is inside, with no row — nothing at the path
+ *    changed, but the page or module it is in did, and that is the nearest
+ *    thing the dialog has to show.
+ *
+ * Null when nothing matches: the change is not in this publish.
+ */
+export function locateSourcePath(
+  structure: Pick<CompareStructure, "panes">,
+  sourcePath: SourcePath,
+): CompareFocus | null {
+  let inside: CompareFocus | null = null;
+  let around: { focus: CompareFocus; depth: number } | null = null;
+  let pane: CompareFocus | null = null;
+  for (const [paneId, candidate] of Object.entries(structure.panes)) {
+    for (const row of candidate.rows) {
+      if (row.sourcePath === sourcePath) {
+        return { paneId, rowId: row.id };
+      }
+      if (inside === null && isPathWithin(row.sourcePath, sourcePath)) {
+        inside = { paneId, rowId: row.id };
+      }
+      if (
+        isPathWithin(sourcePath, row.sourcePath) &&
+        (around === null || row.sourcePath.length > around.depth)
+      ) {
+        around = {
+          focus: { paneId, rowId: row.id },
+          depth: row.sourcePath.length,
+        };
+      }
+    }
+    if (pane === null && isPathWithin(sourcePath, candidate.sourcePath)) {
+      pane = { paneId, rowId: null };
+    }
+  }
+  return inside ?? around?.focus ?? pane;
 }
 
 function joinRoute(moduleFilePath: ModuleFilePath, route: string): SourcePath {

@@ -4,6 +4,7 @@ import {
   useNavigation,
   VAL_COMPARE_ROUTE,
   VAL_ERRORS_ROUTE,
+  VAL_REVIEW_ROUTE,
 } from "./ValRouter";
 
 /** Anywhere the studio's own router can go. */
@@ -11,11 +12,14 @@ export type NavTarget =
   | SourcePath
   | ModuleFilePath
   | typeof VAL_COMPARE_ROUTE
-  | typeof VAL_ERRORS_ROUTE;
+  | typeof VAL_ERRORS_ROUTE
+  | typeof VAL_REVIEW_ROUTE;
 
 export type NavLinkParams = {
   scrollToPath?: SourcePath | ModuleFilePath;
   errorFields?: SourcePath[];
+  /** The review page's compare dialog. See `NavigateParams.compare`. */
+  compare?: true | SourcePath;
 };
 
 /** What to spread onto an `<a>` so it navigates in-app but behaves like a link. */
@@ -45,6 +49,7 @@ export function useNavLink(
   const { navigate, hrefOf } = useNavigation();
   const scrollToPath = params?.scrollToPath;
   const errorFields = params?.errorFields;
+  const compare = params?.compare;
   const onClick = useCallback(
     (event: MouseEvent<HTMLAnchorElement>) => {
       if (
@@ -58,9 +63,12 @@ export function useNavLink(
         return;
       }
       event.preventDefault();
-      navigate(to, { scrollToPath, errorFields });
+      navigate(to, { scrollToPath, errorFields, compare });
     },
-    [navigate, to, scrollToPath, errorFields],
+    [navigate, to, scrollToPath, errorFields, compare],
   );
-  return { href: hrefOf(to, { scrollToPath, errorFields }), onClick };
+  return {
+    href: hrefOf(to, { scrollToPath, errorFields, compare }),
+    onClick,
+  };
 }

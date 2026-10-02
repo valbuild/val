@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import type { SourcePath } from "@valbuild/core";
 import { CompareDialog } from "../compare/CompareDialog";
 import { CompareValue } from "../compare/CompareValue";
@@ -16,6 +16,11 @@ import type { SerializedPatchSet } from "../utils/PatchSets";
  * Mounted only while open. The model walks every changed path and renders a
  * field on both sides of each, so building it costs real work; a closed dialog
  * that had already paid for that would be paying it again on every edit.
+ *
+ * `focusSourcePath` is the change a link opened it on — see
+ * `reviewCompareParam`. Keyed on it, so a second link arriving while the
+ * dialog is open lands on its own change rather than keeping the first one's
+ * selection.
  */
 export function ReviewCompare({
   patchSets,
@@ -23,6 +28,7 @@ export function ReviewCompare({
   open,
   onOpenChange,
   currentAuthorId,
+  focusSourcePath,
   onUndo,
 }: {
   patchSets: SerializedPatchSet;
@@ -30,16 +36,20 @@ export function ReviewCompare({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentAuthorId: string | null;
+  /** Null opens on the first change. */
+  focusSourcePath: SourcePath | null;
   /** Called with everything that will go — picks and their dependents. */
   onUndo: (rowIds: string[]) => void;
 }) {
   if (!open) return null;
   return (
     <MountedCompare
+      key={focusSourcePath ?? ""}
       patchSets={patchSets}
       mode={mode}
       onOpenChange={onOpenChange}
       currentAuthorId={currentAuthorId}
+      focusSourcePath={focusSourcePath}
       onUndo={onUndo}
     />
   );
@@ -50,12 +60,14 @@ function MountedCompare({
   mode,
   onOpenChange,
   currentAuthorId,
+  focusSourcePath,
   onUndo,
 }: {
   patchSets: SerializedPatchSet;
   mode: "fs" | "http" | "unknown";
   onOpenChange: (open: boolean) => void;
   currentAuthorId: string | null;
+  focusSourcePath: SourcePath | null;
   onUndo: (rowIds: string[]) => void;
 }) {
   /*
@@ -69,7 +81,12 @@ function MountedCompare({
     ),
     [],
   );
-  const model = useCompareModel({ patchSets, mode, renderValue });
+  const { model, focus } = useCompareModel({
+    patchSets,
+    mode,
+    renderValue,
+    focusSourcePath,
+  });
   return (
     <CompareDialog
       open
@@ -77,6 +94,7 @@ function MountedCompare({
       model={model}
       mode={mode}
       currentAuthorId={currentAuthorId}
+      focus={focus}
       /*
        * Only `discard` reaches here: the dialog is opened over pending work,
        * so undoing one is dropping the patch. Restoring from a commit is the
@@ -86,14 +104,4 @@ function MountedCompare({
       onUndo={(_kind, rowIds) => onUndo(rowIds)}
     />
   );
-}
-
-/** Whether the dialog is open, for a page that owns the button. */
-export function useCompareDialog(): {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  show: () => void;
-} {
-  const [open, setOpen] = useState(false);
-  return { open, onOpenChange: setOpen, show: () => setOpen(true) };
 }

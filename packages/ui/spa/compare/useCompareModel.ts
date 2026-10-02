@@ -9,8 +9,12 @@ import { isPageModule } from "../utils/pageRoutes";
 import { computeChangedSourcePaths } from "../utils/computeChangedSourcePaths";
 import type { SerializedPatchSet } from "../utils/PatchSets";
 import { useDescriptions } from "../components/useDescriptions";
-import { navNodeId, toCompareStructure } from "./toCompareStructure";
-import type { CompareModel, ComparePane } from "./types";
+import {
+  locateSourcePath,
+  navNodeId,
+  toCompareStructure,
+} from "./toCompareStructure";
+import type { CompareFocus, CompareModel, ComparePane } from "./types";
 
 /**
  * The compare dialog's model, from the patch sets it is opened over.
@@ -23,17 +27,24 @@ import type { CompareModel, ComparePane } from "./types";
  * JSX: `CompareModel` carries `before`/`after` as `ReactNode`, and the caller
  * is the one that already knows it is inside React. `ReviewCompare` supplies
  * `CompareValue`.
+ *
+ * `focus` is `focusSourcePath` resolved against the same structure the model
+ * is built from, which is the only place it can be: which pane a path is in
+ * depends on whether its module is a page router, and that is decided here.
  */
 export function useCompareModel({
   patchSets,
   mode,
   renderValue,
+  focusSourcePath = null,
 }: {
   patchSets: SerializedPatchSet;
   /** Decides the words: an fs project SAVES, it does not publish. */
   mode: "fs" | "http" | "unknown";
   renderValue: (path: SourcePath, side: "before" | "after") => React.ReactNode;
-}): CompareModel {
+  /** The change a link opened the dialog on. See `CompareDialog`'s `focus`. */
+  focusSourcePath?: SourcePath | null;
+}): { model: CompareModel; focus: CompareFocus | null } {
   const profiles = useProfilesByAuthorId();
   const committedPatchIds = useCommittedPatches();
   const schemas = useSchemas();
@@ -66,7 +77,15 @@ export function useCompareModel({
   }, [structure]);
   const descriptions = useDescriptions(paths);
 
-  return useMemo<CompareModel>(() => {
+  const focus = useMemo(
+    () =>
+      focusSourcePath === null
+        ? null
+        : locateSourcePath(structure, focusSourcePath),
+    [structure, focusSourcePath],
+  );
+
+  const model = useMemo<CompareModel>(() => {
     const panes: Record<string, ComparePane> = {};
     for (const [nodeId, pane] of Object.entries(structure.panes)) {
       panes[nodeId] = {
@@ -158,6 +177,7 @@ export function useCompareModel({
       undo: { kind: "discard" },
     };
   }, [structure, descriptions, profiles, renderValue, mode]);
+  return { model, focus };
 }
 
 /** The pane a nav node opens, for a caller that has a module path. */

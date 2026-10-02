@@ -350,6 +350,19 @@ export type ComparePane = {
   groups: CompareGroup[];
 };
 
+/**
+ * Where the dialog opens: a pane, and optionally one row in it.
+ *
+ * Ids, not paths, because that is what selection is keyed by — the adapter
+ * that knows the paths resolves one into this (`locateSourcePath`).
+ */
+export type CompareFocus = {
+  /** A key of `CompareModel.panes`. */
+  paneId: string;
+  /** A row in that pane, scrolled to and marked. Null for the pane as a whole. */
+  rowId: string | null;
+};
+
 /** The whole dialog, as a story writes it. */
 export type CompareModel = {
   sections: CompareNavSection[];

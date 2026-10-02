@@ -1,6 +1,20 @@
-import type { ModuleFilePath, SourcePath } from "@valbuild/core";
-import type { ChangeTreeNode } from "../utils/computeChangedSourcePaths";
-import { toCompareStructure } from "./toCompareStructure";
+import {
+  initVal,
+  Internal,
+  type ModuleFilePath,
+  type PatchId,
+  type SourcePath,
+} from "@valbuild/core";
+import {
+  computeChangedSourcePaths,
+  type ChangeTreeNode,
+} from "../utils/computeChangedSourcePaths";
+import { PatchSets } from "../utils/PatchSets";
+import {
+  locateSourcePath,
+  navNodeId,
+  toCompareStructure,
+} from "./toCompareStructure";
 
 /**
  * A changed node, with as little around it as the adapter will accept.
@@ -154,5 +168,109 @@ describe("toCompareStructure", () => {
     for (const line of shown) {
       expect(line).not.toContain(".val.ts");
     }
+  });
+});
+
+describe("locateSourcePath", () => {
+  const structure = toCompareStructure({
+    trees: [
+      branch(ROUTER, [
+        changed(`${ROUTER}?p="/blogs/one".title`),
+        changed(`${ROUTER}?p="/blogs/two"`, [
+          changed(`${ROUTER}?p="/blogs/two".title`),
+        ]),
+      ]),
+      branch(DATA, [
+        changed(`${DATA}?p="kim".name`),
+        changed(`${DATA}?p="kim".bio`),
+      ]),
+    ],
+    isPageModule,
+  });
+
+  test("lands on the row at the path", () => {
+    expect(
+      locateSourcePath(structure, `${DATA}?p="kim".bio` as SourcePath),
+    ).toEqual({
+      paneId: navNodeId(DATA),
+      rowId: `${DATA}?p="kim".bio`,
+    });
+  });
+
+  /* The gallery links the ENTRY; the change was to a field of it. */
+  test("lands on the first row inside the path", () => {
+    expect(
+      locateSourcePath(structure, `${DATA}?p="kim"` as SourcePath),
+    ).toEqual({
+      paneId: navNodeId(DATA),
+      rowId: `${DATA}?p="kim".name`,
+    });
+  });
+
+  /* The link names a field; the change was the whole entry. */
+  test("lands on the deepest row around the path", () => {
+    expect(
+      locateSourcePath(
+        structure,
+        `${ROUTER}?p="/blogs/two".title.sub` as SourcePath,
+      ),
+    ).toEqual({
+      paneId: navNodeId(`${ROUTER}?p="/blogs/two"`),
+      rowId: `${ROUTER}?p="/blogs/two".title`,
+    });
+  });
+
+  test("files a page's path under the page, not the router module", () => {
+    expect(
+      locateSourcePath(structure, `${ROUTER}?p="/blogs/one"` as SourcePath)
+        ?.paneId,
+    ).toBe(navNodeId(`${ROUTER}?p="/blogs/one"`));
+  });
+
+  test("falls back to the pane when nothing at the path changed", () => {
+    expect(
+      locateSourcePath(structure, `${DATA}?p="ola"` as SourcePath),
+    ).toEqual({ paneId: navNodeId(DATA), rowId: null });
+  });
+
+  test("is null for a path that is not in the publish", () => {
+    expect(
+      locateSourcePath(structure, "/content/other.val.ts" as SourcePath),
+    ).toBeNull();
+  });
+
+  /*
+   * Through the real pipeline, because the two halves spell the path
+   * separately: the gallery builds its link with `createValPathOfItem`, and the
+   * rows come out of `computeChangedSourcePaths`. If those ever disagree about
+   * quoting, the link silently opens on the first change instead.
+   */
+  test("finds a gallery entry from the path the gallery links with", () => {
+    const { s } = initVal();
+    const GALLERY = "/content/media.val.ts" as ModuleFilePath;
+    const REF = "/public/val/a_12345.png";
+    const patchSets = new PatchSets();
+    patchSets.insert(
+      GALLERY,
+      s
+        .imageset({ accept: "image/*", dir: "/public/val" })
+        ["executeSerialize"](),
+      [{ op: "replace", path: [REF, "alt"], value: "A cat" }],
+      "p1" as PatchId,
+      "2026-10-01T10:00:00Z",
+      "alice",
+    );
+    const linked = Internal.createValPathOfItem(GALLERY, REF);
+    if (linked === undefined) throw Error("no path");
+    const located = locateSourcePath(
+      toCompareStructure({
+        trees: computeChangedSourcePaths(patchSets.serialize(), new Set())
+          .trees,
+        isPageModule: () => false,
+      }),
+      linked,
+    );
+    expect(located?.paneId).toBe(navNodeId(GALLERY));
+    expect(located?.rowId).not.toBeNull();
   });
 });
