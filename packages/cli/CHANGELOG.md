@@ -1,5 +1,17 @@
 # @valbuild/cli
 
+## 0.138.1
+
+### Patch Changes
+
+- [#758](https://github.com/valbuild/val/pull/758) [`af57406`](https://github.com/valbuild/val/commit/af57406fb679f5917559a8c97507b7c42f2b48fe) Thanks [@freekh](https://github.com/freekh)! - `val publish` no longer stores a project's stylesheets as its source. It still compiles them, so the site's CSS is unchanged, but the source a managed project's Studio builds from comes without them — as the platform's own publish has always stored it.
+
+  A stored stylesheet broke every Studio publish that followed: a browser build cannot run a Tailwind `@plugin` (the starter's `src/styles.css` has `@plugin "@tailwindcss/typography"`), so it refused the stylesheet and the publish failed with "build failed 3 times". Without one, the Studio ships the live site's CSS, which is right — a Studio edit never changes a stylesheet.
+
+- Updated dependencies []:
+  - @valbuild/server@0.138.1
+  - @valbuild/language-server@0.138.1
+
 ## 0.138.0
 
 ### Minor Changes
