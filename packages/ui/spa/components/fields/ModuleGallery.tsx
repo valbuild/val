@@ -30,7 +30,9 @@ import { getRefParts } from "@valbuild/shared/internal";
 import { FieldLoading } from "../FieldLoading";
 import { Progress } from "../designSystem/progress";
 import { FileGallery } from "../FileGallery/FileGallery";
-import type { GalleryFile } from "../FileGallery/types";
+import type { FileRenameResult, GalleryFile } from "../FileGallery/types";
+import { useRenameMediaFile } from "../useRenameMediaFile";
+import { splitEditableFilename } from "../../utils/renameMediaFile";
 import { readImage, readImageFromFile } from "../../utils/readImage";
 import type { ReadImageEncode } from "../../utils/readImage";
 import { resolveEncodeSettings } from "../../utils/encodeImage";
@@ -278,6 +280,38 @@ export function ModuleGallery({
       ).finally(() => setUploading(false));
     },
     [rawSource, patchPath, imageMode, addAndUploadPatchWithFileOps],
+  );
+
+  const renameMediaFile = useRenameMediaFile(path);
+  const handleFileRename = React.useCallback(
+    async (index: number, newFilename: string): Promise<FileRenameResult> => {
+      if (!rawSource) {
+        return { status: "error", message: "The gallery has not loaded." };
+      }
+      const ref = Object.keys(rawSource)[index];
+      const meta = ref === undefined ? undefined : rawSource[ref];
+      if (ref === undefined || meta === undefined) {
+        return { status: "error", message: "That file is no longer here." };
+      }
+      const mimeType =
+        typeof meta.mimeType === "string" ? meta.mimeType : undefined;
+      const res = await renameMediaFile({
+        kind: "gallery-entry",
+        key: ref,
+        newBase: splitEditableFilename(newFilename).base,
+        metadata:
+          mimeType === undefined
+            ? undefined
+            : imageMode &&
+                typeof meta.width === "number" &&
+                typeof meta.height === "number"
+              ? { mimeType, width: meta.width, height: meta.height }
+              : { mimeType },
+        fileType: imageMode ? "image" : "file",
+      });
+      return res.status === "ok" ? { status: "ok", newRef: res.newPath } : res;
+    },
+    [rawSource, imageMode, renameMediaFile],
   );
 
   const handleAltTextChange = React.useCallback(
@@ -751,6 +785,7 @@ export function ModuleGallery({
           imageMode && !readonly ? handleAltTextChange : undefined
         }
         onFileDelete={readonly ? undefined : handleFileDelete}
+        onFileRename={readonly ? undefined : handleFileRename}
         onUploadClick={readonly ? undefined : () => inputRef.current?.click()}
         uploadDisabled={!canUpload}
         uploading={uploading}

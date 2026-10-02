@@ -132,6 +132,12 @@ import {
 } from "./source/externalRef";
 import { createRemoteRef } from "./source/remote";
 import {
+  FILENAME_HASH_SUFFIX_LENGTH,
+  createRenamedFilename,
+  sanitizeFilenameBase,
+  stripHashSuffix,
+} from "./source/filename";
+import {
   getValidationBasis,
   getValidationHash,
 } from "./remote/validationBasis";
@@ -466,27 +472,20 @@ const Internal = {
     if (!data) {
       return filename;
     }
-    const shaSuffix = sha256.slice(0, 5);
+    const shaSuffix = sha256.slice(0, FILENAME_HASH_SUFFIX_LENGTH);
     const mimeType = Internal.getMimeType(data) ?? "unknown";
     const newExt = Internal.mimeTypeToFileExt(mimeType) ?? "unknown"; // Don't trust the file extension
     if (filename) {
-      let cleanFilename =
+      const cleanFilename =
         filename.split(".").slice(0, -1).join(".") || filename; // remove extension if it exists
-      const maybeShaSuffixPos = cleanFilename.lastIndexOf("_");
-      const currentShaSuffix = cleanFilename.slice(
-        maybeShaSuffixPos + 1,
-        cleanFilename.length,
+      const escapedFilename = sanitizeFilenameBase(
+        stripHashSuffix(cleanFilename, shaSuffix),
       );
-      if (currentShaSuffix === shaSuffix) {
-        cleanFilename = cleanFilename.slice(0, maybeShaSuffixPos);
-      }
-      const escapedFilename = encodeURIComponent(cleanFilename)
-        .replace(/%[0-9A-Fa-f]{2}/g, "")
-        .toLowerCase();
       return `${escapedFilename}_${shaSuffix}.${newExt}`;
     }
     return `${sha256}.${newExt}`;
   },
+  createRenamedFilename,
 };
 
 function tryJsonParse(str: string) {

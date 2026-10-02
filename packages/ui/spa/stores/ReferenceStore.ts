@@ -11,6 +11,11 @@ import { StoreBus } from "./StoreBus";
 import type { SystemEvent } from "./types";
 import { noopActivity, type ActivitySink } from "./activity";
 import { sourcePathOfChild } from "../utils/sourcePath";
+import { pathNamesGalleryKey } from "../utils/galleryKey";
+import {
+  forEachRichTextImage,
+  richTextImageSchema,
+} from "../utils/richTextImages";
 
 /**
  * The three kinds of pointer in a Val project.
@@ -231,8 +236,13 @@ function matches(reference: Reference, query: ReferenceQuery): boolean {
   if (reference.kind !== query.kind) return false;
   // `route` has no target to match on — see `ReferenceKind`.
   if (query.kind !== "route" && reference.target !== query.module) return false;
-  if (query.value !== undefined && reference.value !== query.value) {
-    return false;
+  if (query.value !== undefined) {
+    if (reference.value === null) return false;
+    // A file referrer can name its gallery entry by the local path inside a
+    // remote ref - see `pathNamesGalleryKey`.
+    return query.kind === "file"
+      ? pathNamesGalleryKey(reference.value, query.value)
+      : reference.value === query.value;
   }
   return true;
 }
@@ -258,6 +268,12 @@ function hiddenKinds(schema: SerializedSchema | undefined): Set<ReferenceKind> {
       case "image":
       case "file":
         kinds.add("file");
+        return;
+      case "richtext":
+        // Inline images can point into a gallery too.
+        if (richTextImageSchema(at)?.referencedModule !== undefined) {
+          kinds.add("file");
+        }
         return;
       case "route":
         kinds.add("route");
@@ -323,6 +339,20 @@ function collectReferences(
         kind: "file",
         target: schema.referencedModule as ModuleFilePath,
         value: fileRefOf(source),
+      });
+      return;
+    }
+    case "richtext": {
+      // One reference per inline image, at its `src`: a field can hold several
+      // images, and a rename rewrites each `src` where it is.
+      const target = richTextImageSchema(schema)?.referencedModule;
+      if (target === undefined) return;
+      forEachRichTextImage(path, source, (srcPath, src) => {
+        into.set(srcPath, {
+          kind: "file",
+          target: target as ModuleFilePath,
+          value: typeof src.path === "string" ? src.path : null,
+        });
       });
       return;
     }

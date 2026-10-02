@@ -612,3 +612,53 @@ describe("agrees with the scans it replaces", () => {
     dispose();
   });
 });
+
+describe("finding who references a gallery file", () => {
+  const gallery = () => {
+    const { c, s } = initVal();
+    return c.define(
+      "/gallery.val.ts",
+      s.imageset({ accept: "image/*", dir: "/public/val" }),
+      {
+        "/public/val/a.png": {
+          width: 1,
+          height: 1,
+          mimeType: "image/png",
+          alt: null,
+        },
+      },
+    );
+  };
+  const article = () => {
+    const { c, s } = initVal();
+    return c.define(
+      "/article.val.ts",
+      s.object({ body: s.richtext({ img: s.image(gallery()) }) }),
+      {
+        body: [
+          {
+            tag: "p",
+            children: [{ tag: "img", src: { path: "/public/val/a.png" } }],
+          },
+        ],
+      },
+    );
+  };
+
+  it("finds an inline image in rich text, at its src", async () => {
+    const { sourceStore, findReferences, dispose } = initTestSystem();
+    await sourceStore.testReceive([gallery(), article()]);
+
+    const found = await findReferences({
+      kind: "file",
+      module: mfp("/gallery.val.ts"),
+      value: "/public/val/a.png",
+    });
+
+    expect(found).toEqual({
+      status: "complete",
+      refs: ['/article.val.ts?p="body".0."children".0."src"'],
+    });
+    dispose();
+  });
+});

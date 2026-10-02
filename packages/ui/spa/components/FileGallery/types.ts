@@ -30,10 +30,22 @@ export type ViewMode = "masonry" | "grid" | "list";
 export type SortField = "name" | "description" | "type";
 export type SortDirection = "asc" | "desc";
 
+/**
+ * How a rename went. `newRef` is the file's ref afterwards, which the gallery
+ * needs to keep the renamed file open: the old ref no longer exists.
+ */
+export type FileRenameResult =
+  | { status: "ok"; newRef: string }
+  | { status: "unchanged" }
+  | { status: "error"; message: string };
+
 export interface FileGalleryProps {
   files: GalleryFile[];
   parentPath?: string;
-  onFileRename?: (index: number, newFilename: string) => void;
+  onFileRename?: (
+    index: number,
+    newFilename: string,
+  ) => void | Promise<FileRenameResult>;
   onAltTextChange?: (index: number, newAltText: string) => void;
   onFileDelete?: (index: number) => void;
   className?: string;

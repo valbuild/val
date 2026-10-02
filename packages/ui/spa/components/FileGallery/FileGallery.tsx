@@ -44,13 +44,19 @@ export function FileGallery({
 }: FileGalleryProps) {
   const navigation = useNavigation();
   const portalContainer = useValPortal();
-  const [selectedIndex, setSelectedIndex] = React.useState<number | null>(null);
+  /**
+   * The open file, by REF rather than by position.
+   *
+   * A rename is a `move` of the record entry, which puts it LAST — so an index
+   * held across one would open the properties of a different file the moment
+   * the patch applied. The ref is what the editor picked.
+   */
+  const [selectedRef, setSelectedRef] = React.useState<string | null>(null);
   const [isPropertiesOpen, setIsPropertiesOpen] = React.useState(false);
   React.useEffect(() => {
     if (defaultOpenFileRef) {
-      const index = files.findIndex((f) => f.ref === defaultOpenFileRef);
-      if (index !== -1) {
-        setSelectedIndex(index);
+      if (files.some((f) => f.ref === defaultOpenFileRef)) {
+        setSelectedRef(defaultOpenFileRef);
         setIsPropertiesOpen(true);
       }
     }
@@ -119,13 +125,42 @@ export function FileGallery({
     }
   };
 
+  const selectedIndexOrMinusOne =
+    selectedRef === null ? -1 : files.findIndex((f) => f.ref === selectedRef);
+  const selectedIndex =
+    selectedIndexOrMinusOne === -1 ? null : selectedIndexOrMinusOne;
   const selectedFile =
     selectedIndex !== null ? (files[selectedIndex] ?? null) : null;
+
+  const handleFileRename = React.useMemo(() => {
+    if (!onFileRename) return undefined;
+    return (index: number, newFilename: string) => {
+      const result = onFileRename(index, newFilename);
+      if (result === undefined) return undefined;
+      return result.then((res) => {
+        if (res.status === "ok") {
+          // Follow the file to its new name: the old ref is gone, and so is
+          // the URL that named it.
+          setSelectedRef(res.newRef);
+          if (parentPath) {
+            const childPath = Internal.createValPathOfItem(
+              parentPath as SourcePath,
+              res.newRef,
+            );
+            if (childPath) {
+              navigation.navigate(childPath, { replace: true });
+            }
+          }
+        }
+        return res;
+      });
+    };
+  }, [onFileRename, parentPath, navigation]);
 
   const handleItemClick = (filteredIndex: number) => {
     const originalIndex = getOriginalIndex(filteredIndex);
     if (originalIndex === -1) return;
-    setSelectedIndex(originalIndex);
+    setSelectedRef(files[originalIndex].ref);
     setIsPropertiesOpen(true);
     if (parentPath) {
       const sourcePath = parentPath as SourcePath;
@@ -313,11 +348,11 @@ export function FileGallery({
         onOpenChange={(open) => {
           setIsPropertiesOpen(open);
           if (!open && parentPath) {
-            setSelectedIndex(null);
+            setSelectedRef(null);
             navigation.navigate(parentPath as SourcePath);
           }
         }}
-        onFileRename={onFileRename}
+        onFileRename={handleFileRename}
         onAltTextChange={onAltTextChange}
         onFileDelete={onFileDelete}
         parentPath={parentPath}

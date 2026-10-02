@@ -6,7 +6,7 @@ import {
   ValModule,
   initVal,
 } from "@valbuild/core";
-import { getReferencedFiles } from "./getReferencedFiles";
+import { getFileReferrers, getReferencedFiles } from "./getReferencedFiles";
 
 const { s, c } = initVal();
 
@@ -198,6 +198,152 @@ describe("getReferencedFiles", () => {
       "/images.val.ts" as ModuleFilePath,
     );
     expect(result).toEqual(['/page.val.ts?p="section"."items".0."img"']);
+  });
+
+  test("finds gallery images inside rich text, however deep", () => {
+    const imagesModule = c.define(
+      "/images.val.ts",
+      s.imageset({ accept: "image/*", dir: "/public/val" }),
+      {
+        "/public/val/img.png": {
+          width: 100,
+          height: 100,
+          mimeType: "image/png",
+          alt: null,
+        },
+        "/public/val/other.png": {
+          width: 100,
+          height: 100,
+          mimeType: "image/png",
+          alt: null,
+        },
+      },
+    );
+    const pageModule = c.define(
+      "/page.val.ts",
+      s.object({ body: s.richtext({ ul: true, img: s.image(imagesModule) }) }),
+      {
+        body: [
+          {
+            tag: "p",
+            children: [
+              "Before ",
+              { tag: "img", src: { path: "/public/val/img.png" } },
+            ],
+          },
+          {
+            tag: "ul",
+            children: [
+              {
+                tag: "li",
+                children: [
+                  {
+                    tag: "p",
+                    children: [
+                      { tag: "img", src: { path: "/public/val/other.png" } },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    );
+    const { schemas, sources } = getTestData([imagesModule, pageModule]);
+    expect(
+      getReferencedFiles(
+        schemas,
+        sources,
+        "/images.val.ts" as ModuleFilePath,
+        "/public/val/img.png",
+      ),
+    ).toEqual(['/page.val.ts?p="body".0."children".1."src"']);
+    expect(
+      getReferencedFiles(
+        schemas,
+        sources,
+        "/images.val.ts" as ModuleFilePath,
+        "/public/val/other.png",
+      ),
+    ).toEqual([
+      '/page.val.ts?p="body".1."children".0."children".0."children".0."src"',
+    ]);
+  });
+
+  test("ignores rich text whose images are not from the gallery", () => {
+    const imagesModule = c.define(
+      "/images.val.ts",
+      s.imageset({ accept: "image/*", dir: "/public/val" }),
+      {},
+    );
+    const pageModule = c.define(
+      "/page.val.ts",
+      s.object({ body: s.richtext({ img: s.image() }) }),
+      {
+        body: [
+          {
+            tag: "p",
+            children: [
+              {
+                tag: "img",
+                src: {
+                  path: "/public/val/img.png",
+                  width: 1,
+                  height: 1,
+                  mimeType: "image/png",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    );
+    const { schemas, sources } = getTestData([imagesModule, pageModule]);
+    expect(
+      getReferencedFiles(schemas, sources, "/images.val.ts" as ModuleFilePath),
+    ).toEqual([]);
+  });
+
+  test("matches a remote ref filed under the local path inside it", () => {
+    // An upload through an `s.image(remoteGallery)` field: the field holds the
+    // ref, the gallery entry is keyed by the path in it.
+    const ref = Internal.remote.createRemoteRef("https://remote.val.build", {
+      publicProjectId: "p",
+      coreVersion: "0.1.0",
+      bucket: "b",
+      validationHash: "abcd",
+      fileHash: "bfbd0a1b2c3d",
+      filePath: "public/val/img.png",
+    });
+    const imagesModule = c.define(
+      "/images.val.ts",
+      s.imageset({ accept: "image/*", dir: "/public/val" }).remote(),
+      {
+        "/public/val/img.png": {
+          width: 100,
+          height: 100,
+          mimeType: "image/png",
+          alt: null,
+        },
+      },
+    );
+    const pageModule = c.define(
+      "/page.val.ts",
+      s.object({ img: s.image(imagesModule) }),
+      { img: { path: ref } },
+    );
+    const { schemas, sources } = getTestData([imagesModule, pageModule]);
+    expect(
+      getFileReferrers(
+        schemas,
+        sources,
+        "/images.val.ts" as ModuleFilePath,
+        "/public/val/img.png",
+      ),
+    ).toEqual([
+      { sourcePath: '/page.val.ts?p="img"', path: ref, hasPatchId: false },
+    ]);
   });
 });
 
