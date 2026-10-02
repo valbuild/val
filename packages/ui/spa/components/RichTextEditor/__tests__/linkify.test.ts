@@ -178,6 +178,7 @@ describe("resolveUrl", () => {
       expect(resolveUrl("https://ssb.no", routeLinks)).toEqual({
         status: "not-allowed",
         href: "https://ssb.no",
+        reason: "external",
       });
     });
 
@@ -185,6 +186,7 @@ describe("resolveUrl", () => {
       expect(resolveUrl("https://blank.no/blogs/blog1", routeLinks)).toEqual({
         status: "not-allowed",
         href: "/blogs/blog1",
+        reason: "page",
       });
     });
 

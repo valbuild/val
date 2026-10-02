@@ -226,6 +226,19 @@ export interface RichTextEditorProps {
    * is an error rather than a link. See `LinkContext.routes`.
    */
   routes?: string[];
+  /**
+   * The project's external pages router, for a field that only links to the
+   * catalog. A URL elsewhere can only be linked from such a field once it is
+   * an entry there, so this is what the "Add & link" button in the bar does.
+   */
+  externalPages?: RichTextExternalPages;
+}
+
+export interface RichTextExternalPages {
+  /** Whether adding `url` would make it linkable from this field. */
+  canAdd: (url: string) => boolean;
+  /** Add these URLs as external pages. */
+  add: (urls: string[]) => void;
 }
 
 export const RichTextEditor = forwardRef(function RichTextEditor(
@@ -255,6 +268,7 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     portalContainer,
     siteOrigins,
     routes,
+    externalPages,
   } = props;
 
   const {
@@ -747,12 +761,41 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
     view.dispatch(tr);
   }, [errors, errorKindClassName]);
 
+  /**
+   * URLs added as external pages by "Add & link", waiting to be linked.
+   *
+   * Not linked at the moment they are added: the entry arrives through a patch,
+   * so the catalog does not have it yet, and `createLinkCatalogPlugin` would
+   * strip a link to it in the same transaction that made it. They are linked
+   * by the effect below, on the render where the catalog has caught up.
+   */
+  const pendingExternalLinksRef = useRef<Set<string>>(new Set());
+
   /** The site, the routes or the catalog moved: what each URL links to may have too. */
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
     rescanLinks(view);
+    const pending = pendingExternalLinksRef.current;
+    if (pending.size === 0) return;
+    const scan = linkifyPluginKey.getState(view.state)?.scan;
+    const ready = (scan?.fixable ?? []).filter(
+      (finding) => finding.source === "text" && pending.has(finding.url),
+    );
+    if (ready.length === 0) return;
+    for (const finding of ready) pending.delete(finding.url);
+    applyLinkFixes(view, (finding) => ready.includes(finding));
   }, [siteOrigins, routes, linkCatalog]);
+
+  const handleAddExternalPages = useCallback(
+    (urls: string[]) => {
+      if (!externalPages) return;
+      const unique = [...new Set(urls)];
+      for (const url of unique) pendingExternalLinksRef.current.add(url);
+      externalPages.add(unique);
+    },
+    [externalPages],
+  );
 
   const handleApplyLinkFixes = useCallback(
     (keys: ReadonlySet<string> | null) => {
@@ -952,6 +995,10 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
           onApply={handleApplyLinkFixes}
           onDismiss={handleDismissUrls}
           onReveal={handleRevealFinding}
+          canAddExternalPage={externalPages?.canAdd}
+          onAddExternalPages={
+            externalPages ? handleAddExternalPages : undefined
+          }
           portalContainer={portalContainer}
         />
       )}

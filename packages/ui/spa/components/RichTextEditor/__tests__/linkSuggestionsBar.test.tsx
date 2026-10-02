@@ -5,7 +5,11 @@ import "../../../stores/react/testPolyfills";
 import { createRef } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { RichTextEditor } from "../RichTextEditor";
-import type { EditorDocument, RichTextEditorRef } from "../types";
+import type {
+  EditorDocument,
+  EditorLinkCatalogItem,
+  RichTextEditorRef,
+} from "../types";
 
 /** See `viewRebuild.test.tsx`: jsdom has no layout for these to measure. */
 const NO_MEASURING = {
@@ -120,5 +124,93 @@ describe("the link bar under the field", () => {
       />,
     );
     expect(screen.queryByTestId("link-suggestions-bar")).toBeNull();
+  });
+});
+
+describe("Add & link, in a field that only links to routes", () => {
+  const PAGES: EditorLinkCatalogItem[] = [
+    { title: "Jobb", subtitle: "", href: "/jobb" },
+  ];
+  const doc: EditorDocument = [{ tag: "p", children: ["Se https://test.com"] }];
+
+  test("adds the URL as an external page, and links it once it is one", () => {
+    const ref = createRef<RichTextEditorRef>();
+    const added: string[][] = [];
+    const editor = (catalog: EditorLinkCatalogItem[]) => (
+      <RichTextEditor
+        ref={ref}
+        features={NO_MEASURING}
+        defaultValue={doc}
+        siteOrigins={SITE}
+        routes={ROUTES}
+        linkCatalog={catalog}
+        externalPages={{
+          canAdd: () => true,
+          add: (urls) => added.push(urls),
+        }}
+      />
+    );
+    const { rerender } = render(editor(PAGES));
+    expect(
+      screen.getByText("https://test.com isn't an external page yet"),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add & link" }));
+    expect(added).toEqual([["https://test.com"]]);
+    // Not linked yet: the catalog does not have it, and a link outside the
+    // catalog would be stripped in the same transaction.
+    expect(ref.current?.getDocument()).toEqual(doc);
+
+    // The entry arrives, through the routes, as a catalog item.
+    rerender(
+      editor([
+        ...PAGES,
+        { title: "test.com", subtitle: "", href: "https://test.com" },
+      ]),
+    );
+    expect(ref.current?.getDocument()).toEqual([
+      {
+        tag: "p",
+        children: [
+          "Se ",
+          {
+            tag: "a",
+            href: "https://test.com",
+            children: ["https://test.com"],
+          },
+        ],
+      },
+    ]);
+    expect(screen.queryByTestId("link-suggestions-bar")).toBeNull();
+  });
+
+  test("without an external pages router, only says it cannot be linked", () => {
+    render(
+      <RichTextEditor
+        features={NO_MEASURING}
+        defaultValue={doc}
+        siteOrigins={SITE}
+        routes={ROUTES}
+        linkCatalog={PAGES}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Add & link" })).toBeNull();
+    expect(
+      screen.getByText(/1 URL can't be linked from this field/),
+    ).toBeTruthy();
+  });
+
+  test("a URL the router or the field would refuse is not offered", () => {
+    render(
+      <RichTextEditor
+        features={NO_MEASURING}
+        defaultValue={doc}
+        siteOrigins={SITE}
+        routes={ROUTES}
+        linkCatalog={PAGES}
+        externalPages={{ canAdd: () => false, add: () => undefined }}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Add & link" })).toBeNull();
   });
 });

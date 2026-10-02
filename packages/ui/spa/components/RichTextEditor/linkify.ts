@@ -68,8 +68,15 @@ export type UrlResolution =
   | { status: "linkable"; href: string; internal: boolean }
   /** A URL on this site, for a page the project does not have. An error. */
   | { status: "missing-page"; path: string }
-  /** A real target, but not one this field is allowed to link to. */
-  | { status: "not-allowed"; href: string };
+  /**
+   * A real target, but not one this field is allowed to link to.
+   *
+   * `external` is a URL elsewhere that is not in the catalog — which an
+   * external pages router can fix, by having it as an entry. `page` is a page
+   * of this site that the field's include/exclude rules leave out, which
+   * nothing in the editor can fix.
+   */
+  | { status: "not-allowed"; href: string; reason: "external" | "page" };
 
 export interface LinkFinding {
   /** Document positions, in the document the scan was taken of. */
@@ -251,7 +258,7 @@ function resolveSitePath(
     }
     const existing = findRoute(path, routes);
     if (existing !== null) {
-      return { status: "not-allowed", href: existing };
+      return { status: "not-allowed", href: existing, reason: "page" };
     }
     return { status: "missing-page", path: withoutTrailingSlash(path) };
   }
@@ -284,7 +291,7 @@ export function resolveUrl(
     const match = ctx.allowedHrefs.find((href) => sameExternalUrl(href, url));
     return match !== undefined
       ? { status: "linkable", href: match, internal: false }
-      : { status: "not-allowed", href: raw.trim() };
+      : { status: "not-allowed", href: raw.trim(), reason: "external" };
   }
   return { status: "linkable", href: raw.trim(), internal: false };
 }

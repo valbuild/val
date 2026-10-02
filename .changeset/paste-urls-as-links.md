@@ -11,6 +11,6 @@ URLs in rich text become links without the link dialog.
 
 A URL on the site itself becomes an internal link: pasting `https://blank.no/jobb` into blank.no's Studio gives `/jobb`. If there is no such page, it is not linked. It is highlighted as an error, both in the text and in the bar. Links that already point at the site's full address can be fixed the same way.
 
-In a field that can only link to the project's pages (`s.richtext({ a: true })`), a URL that isn't one of those pages is never linked, because the field would drop that link. The bar says how many such URLs there are.
+In a field that can only link to the project's routes (`s.richtext({ a: true })` or `a: s.route()`), an external URL can only be linked once it is one of the project's external pages. If the project has an external pages router, the bar offers **Add & link**: it adds the URL there and links it. Without one, or for a URL the router's `schemes` or the field's `include` / `exclude` would refuse, the bar only says it can't be linked.
 
 The site is recognised by the address the Studio is open on. So on a local dev server, URLs copied from production are treated as external.

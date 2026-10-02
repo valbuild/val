@@ -51,6 +51,8 @@ export function LinkSuggestionsBar({
   onApply,
   onDismiss,
   onReveal,
+  canAddExternalPage,
+  onAddExternalPages,
   portalContainer,
 }: {
   scan: LinkScan;
@@ -59,23 +61,44 @@ export function LinkSuggestionsBar({
   onApply: (keys: ReadonlySet<string> | null) => void;
   onDismiss: (urls: string[]) => void;
   onReveal: (finding: LinkFinding) => void;
+  /** See `RichTextExternalPages`. Absent when the project has no external pages router. */
+  canAddExternalPage?: (url: string) => boolean;
+  onAddExternalPages?: (urls: string[]) => void;
   portalContainer?: HTMLElement | null;
 }) {
   const fixable = useMemo(
     () => scan.fixable.filter((finding) => !dismissed.has(finding.url)),
     [scan.fixable, dismissed],
   );
-  const notAllowed = useMemo(
-    () => scan.notAllowed.filter((finding) => !dismissed.has(finding.url)),
-    [scan.notAllowed, dismissed],
-  );
+  /**
+   * What cannot be linked from here, split by whether "Add & link" can change
+   * that: a URL elsewhere can become an external page, a page left out by the
+   * field's include/exclude cannot become anything else.
+   */
+  const { addable, notAllowed } = useMemo(() => {
+    const visible = scan.notAllowed.filter(
+      (finding) => !dismissed.has(finding.url),
+    );
+    const canAdd = (finding: LinkFinding) =>
+      onAddExternalPages !== undefined &&
+      canAddExternalPage !== undefined &&
+      finding.resolution.status === "not-allowed" &&
+      finding.resolution.reason === "external" &&
+      canAddExternalPage(finding.url);
+    return {
+      addable: visible.filter(canAdd),
+      notAllowed: visible.filter((finding) => !canAdd(finding)),
+    };
+  }, [scan.notAllowed, dismissed, canAddExternalPage, onAddExternalPages]);
+  const addableUrls = [...new Set(addable.map((finding) => finding.url))];
   const [reviewOpen, setReviewOpen] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 
   if (
     fixable.length === 0 &&
     scan.missing.length === 0 &&
-    notAllowed.length === 0
+    notAllowed.length === 0 &&
+    addable.length === 0
   ) {
     return null;
   }
@@ -185,7 +208,9 @@ export function LinkSuggestionsBar({
             title="Leave these as text"
             className="rounded p-1 text-fg-secondary hover:bg-bg-secondary-hover"
             onClick={() =>
-              onDismiss([...fixable, ...notAllowed].map((f) => f.url))
+              onDismiss(
+                [...fixable, ...addable, ...notAllowed].map((f) => f.url),
+              )
             }
           >
             <X size={14} />
@@ -203,6 +228,40 @@ export function LinkSuggestionsBar({
           <span className="min-w-0 truncate">{describeFinding(finding)}</span>
         </button>
       ))}
+      {addable.length > 0 && onAddExternalPages && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Link2 size={14} className="shrink-0 text-fg-secondary" />
+          <span
+            className="min-w-0 flex-1 truncate text-fg-secondary"
+            title={addableUrls.join("\n")}
+          >
+            {addableUrls.length === 1
+              ? `${addableUrls[0]} isn't an external page yet`
+              : `${addableUrls.length} URLs aren't external pages yet`}
+          </span>
+          <Button
+            type="button"
+            size="xs"
+            title="Add to the project's external pages, and link"
+            onClick={() => onAddExternalPages(addableUrls)}
+          >
+            Add &amp; link
+          </Button>
+          {fixable.length === 0 && (
+            <button
+              type="button"
+              aria-label="Leave these as text"
+              title="Leave these as text"
+              className="rounded p-1 text-fg-secondary hover:bg-bg-secondary-hover"
+              onClick={() =>
+                onDismiss([...addable, ...notAllowed].map((f) => f.url))
+              }
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      )}
       {notAllowed.length > 0 && (
         <div
           className="flex items-center gap-2 text-fg-secondary"
@@ -211,9 +270,9 @@ export function LinkSuggestionsBar({
           <Info size={14} className="shrink-0" />
           <span className="min-w-0 flex-1 truncate">
             {plural(notAllowed.length, "URL can't", "URLs can't")} be linked
-            from this field: it only links to pages in this project
+            from this field: it only links to this project&apos;s pages
           </span>
-          {fixable.length === 0 && (
+          {fixable.length === 0 && addable.length === 0 && (
             <button
               type="button"
               aria-label="Hide"

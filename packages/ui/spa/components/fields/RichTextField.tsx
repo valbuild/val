@@ -35,6 +35,7 @@ import { resolveEncodeSettings } from "../../utils/encodeImage";
 import { createFilePatch } from "./FileField";
 import { FIELD_WRITE_MAX_WAIT_MS } from "./useDebouncedFieldWrite";
 import { useRoutesOf } from "../useRoutesOf";
+import { useRichTextExternalPages } from "./useRichTextExternalPages";
 
 const DEBOUNCE_MS = 400;
 
@@ -166,7 +167,7 @@ export function RichTextField({
     "data" in schemaAtPath && schemaAtPath.data.type === "richtext"
       ? schemaAtPath.data.options
       : undefined;
-  const { features, linkCatalog, imageModulePath, imageSchema } =
+  const { features, linkCatalog, allowsRoute, imageModulePath, imageSchema } =
     useRichTextEditorConfig(schemaOptions);
 
   const hasImageEnabled = !!schemaOptions?.img;
@@ -185,6 +186,8 @@ export function RichTextField({
   );
   // Shared and reference-stable across fields; see `useRoutesOf`.
   const routes = useRoutesOf();
+
+  const externalPages = useRichTextExternalPages(allowsRoute, readonly);
 
   const imageReferencedModule = imageSchema?.referencedModule as
     | ModuleFilePath
@@ -547,6 +550,7 @@ export function RichTextField({
         portalContainer={portalContainer}
         siteOrigins={siteOrigins}
         routes={routes}
+        externalPages={externalPages}
       />
     </div>
   );

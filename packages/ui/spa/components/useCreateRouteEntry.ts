@@ -3,6 +3,7 @@ import { Internal, ModulePath } from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
 import { useAddModuleFilePatch } from "./ValProvider";
 import { useSchemas, useAllSources } from "./ValFieldProvider";
+import { useValSystem } from "../stores/react/SystemContext";
 
 import { CreatableRouter, collectCreatableRouters } from "./creatableRouters";
 import { useEmptyOf } from "../hooks/useEmptyOf";
@@ -39,22 +40,28 @@ export function useCreatableRouters(): {
  * `emptyOf(item)` at the new key - lifted out so a `s.route()` field can do it
  * too, without the editor having to leave the field, create the page, and come
  * back to link it.
+ *
+ * The schemas are read from the store when it is CALLED, not subscribed to.
+ * `RouteField` and the rich text field call this, both mounted once per field,
+ * and a `useSchemas()` here made every one of them a whole-project
+ * subscription for a function nobody calls until they click — see
+ * `perFieldSubscriptions.test.ts`.
  */
 export function useCreateRouteEntry(): (
   router: CreatableRouter,
   key: string,
 ) => string | null {
   const { addModuleFilePatch } = useAddModuleFilePatch();
-  const schemas = useSchemas();
+  const val = useValSystem();
   const emptyOf = useEmptyOf();
 
   return useCallback(
     (router: CreatableRouter, key: string) => {
-      if (!("data" in schemas) || schemas.data === undefined) {
+      if (val === null) {
         console.error("Cannot create route entry: schemas are not loaded");
         return null;
       }
-      const schema = schemas.data[router.moduleFilePath];
+      const schema = val.system.schemaStore.all()[router.moduleFilePath];
       if (schema?.type !== "record") {
         console.error("Cannot create route entry: not a record", {
           moduleFilePath: router.moduleFilePath,
@@ -75,6 +82,6 @@ export function useCreateRouteEntry(): (
       );
       return key;
     },
-    [addModuleFilePatch, schemas, emptyOf],
+    [addModuleFilePatch, val, emptyOf],
   );
 }

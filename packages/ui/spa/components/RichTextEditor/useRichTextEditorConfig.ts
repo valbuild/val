@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import {
   type SerializedRichTextOptions,
   type SerializedImageSchema,
@@ -28,6 +28,12 @@ function imageSourceToUrl(
 export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
   features: Partial<EditorFeatures>;
   linkCatalog: EditorLinkCatalogItem[] | undefined;
+  /**
+   * Whether the field's `include` / `exclude` let it link to `route`, for a
+   * route that is not in the catalog YET — the external page "Add & link"
+   * would create. `undefined` when the field does not link to routes.
+   */
+  allowsRoute: ((route: string) => boolean) | undefined;
   imageModulePath: ModuleFilePath | undefined;
   imageSchema: SerializedImageSchema | undefined;
 } {
@@ -78,6 +84,14 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
       routeSchema?.options?.exclude?.flags,
     ],
   );
+
+  const allowsRouteCallback = useCallback(
+    (route: string) =>
+      (!includePattern || includePattern.test(route)) &&
+      !(excludePattern && excludePattern.test(route)),
+    [includePattern, excludePattern],
+  );
+  const allowsRoute = isRouteLink ? allowsRouteCallback : undefined;
 
   const routesWithModulePaths = useRoutesWithModulePaths();
   const allPreviews = useAllPreviews();
@@ -180,5 +194,5 @@ export function useRichTextEditorConfig(options?: SerializedRichTextOptions): {
     return undefined;
   }, [options]);
 
-  return { features, linkCatalog, imageModulePath, imageSchema };
+  return { features, linkCatalog, allowsRoute, imageModulePath, imageSchema };
 }
