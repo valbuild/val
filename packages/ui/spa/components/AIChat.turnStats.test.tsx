@@ -158,3 +158,35 @@ test("a restored session's messages show no status line", () => {
   ]);
   expect(screen.queryByTestId("ai-turn-stats")).toBeNull();
 });
+
+/**
+ * The chat gives up on a turn after two minutes — of SILENCE. It used to count
+ * from the start of the turn, so a turn that was still working at 2:00 was
+ * marked "Response timed out" and its reply was dropped when it arrived.
+ */
+describe("the turn timeout", () => {
+  test("does not cut off a long turn that is still active", () => {
+    const chat = renderChat();
+    act(() => chat.startAssistantMessage("m1"));
+    for (let i = 0; i < 5; i++) {
+      act(() => {
+        jest.advanceTimersByTime(60_000);
+      });
+      act(() => chat.reportOutputTokens("m1", (i + 1) * 100, false));
+    }
+    expect(statusLine()).toContain("Thinking…");
+    expect(statusLine()).toContain("5m 00s");
+    expect(screen.queryByText("Response timed out")).toBeNull();
+  });
+
+  test("still ends a turn that has gone silent for two minutes", () => {
+    const chat = renderChat();
+    act(() => chat.startAssistantMessage("m1"));
+    act(() => chat.appendAssistantChunk("m1", "Working on it"));
+    act(() => {
+      jest.advanceTimersByTime(2 * 60_000);
+    });
+    expect(screen.getByText("Response timed out")).toBeTruthy();
+    expect(statusLine()).toContain("Failed after2m 00s");
+  });
+});

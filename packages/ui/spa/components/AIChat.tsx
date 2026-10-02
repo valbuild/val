@@ -135,7 +135,12 @@ type AttachedFile = {
 
 type CurrentMessage = {
   message: ChatMessage;
-  startedAt: number;
+  /**
+   * The last time anything happened on this turn — a chunk, a tool call or
+   * result, a usage report. The timeout counts from here, so it fires on a
+   * turn that has gone quiet, not on one that is merely long.
+   */
+  lastActivityAt: number;
 };
 
 export type AIChatHandle = {
@@ -639,11 +644,14 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     if (currentMessage) setAwaitingSince(null);
   }, [currentMessage, setAwaitingSince]);
 
-  // 2-minute timeout for in-progress assistant messages. Suspended while an
-  // ask_user_question card is open: that tool sets timeoutMs: null server-side
-  // precisely because it blocks on the user, so the client must not time out
-  // either. The clock is restarted (startedAt is bumped) once the user submits
-  // or cancels, so it measures server time, not thinking time.
+  // 2-minute INACTIVITY timeout for in-progress assistant messages: it counts
+  // from the turn's last activity, so a long turn that keeps streaming, calling
+  // tools or reporting usage is never cut off — only one that has gone silent.
+  // It used to count from the start of the turn, which ended every turn longer
+  // than two minutes with "Response timed out" and dropped the reply that
+  // arrived after. Suspended while an ask_user_question card is open: that tool
+  // sets timeoutMs: null server-side precisely because it blocks on the user,
+  // so the client must not time out either.
   const awaitingUserAnswer = (
     currentMessage?.message.toolActivities ?? []
   ).some(isPendingQuestion);
@@ -696,7 +704,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   );
   useEffect(() => {
     if (!currentMessage || awaitingUserAnswer) return;
-    const remaining = 2 * 60 * 1000 - (Date.now() - currentMessage.startedAt);
+    const remaining =
+      2 * 60 * 1000 - (Date.now() - currentMessage.lastActivityAt);
     if (remaining <= 0) {
       retireCurrentMessage(currentMessage.message.id, timedOut);
       return;
@@ -728,7 +737,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         const now = Date.now();
         return {
           message: withPauseSynced(mapMessage(prev.message), now),
-          startedAt: now,
+          lastActivityAt: now,
         };
       });
       // The message may already have been moved to completedMessages (e.g. by
@@ -782,7 +791,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           status: "streaming",
           turnStats: startTurn(awaitingSinceRef.current ?? now),
         },
-        startedAt: now,
+        lastActivityAt: now,
       });
     },
     appendAssistantChunk(
@@ -794,7 +803,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       setCurrentMessage((prev) =>
         prev?.message.id === id
           ? {
-              ...prev,
+              lastActivityAt: Date.now(),
               message: {
                 ...prev.message,
                 content: getTextContent(prev.message.content) + chunk,
@@ -822,7 +831,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       setCurrentMessage((prev) =>
         prev?.message.id === id && prev.message.turnStats
           ? {
-              ...prev,
+              lastActivityAt: Date.now(),
               message: {
                 ...prev.message,
                 turnStats: reportOutputTokens(
@@ -866,7 +875,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       setCurrentMessage((prev) => {
         if (prev && prev.message.id === messageId) {
           return {
-            ...prev,
+            lastActivityAt: Date.now(),
             message: withPauseSynced(
               {
                 ...prev.message,
@@ -886,7 +895,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       setCurrentMessage((prev) => {
         if (!prev || prev.message.id !== messageId) return prev;
         return {
-          ...prev,
+          lastActivityAt: Date.now(),
           message: {
             ...prev.message,
             toolActivities: (prev.message.toolActivities ?? []).map((t) =>
@@ -902,7 +911,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       setCurrentMessage((prev) => {
         if (!prev || prev.message.id !== messageId) return prev;
         return {
-          ...prev,
+          lastActivityAt: Date.now(),
           message: {
             ...prev.message,
             toolActivities: (prev.message.toolActivities ?? []).map((t) =>
