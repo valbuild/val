@@ -69,6 +69,24 @@ describe("in the top bar", () => {
   });
 });
 
+test("tells the component where the Studio runs, so it knows what signing in again means", () => {
+  const { container } = render(
+    <ProjectSwitcher
+      projectName="acme/site"
+      projectHref={PROJECT_HREF}
+      webComponentsUrl={WC}
+      studioMode="fs"
+      breakpoint="desktop"
+      loadScript={() => Promise.resolve()}
+    >
+      site
+    </ProjectSwitcher>,
+  );
+  expect(
+    container.querySelector("val-project-switcher")?.getAttribute("mode"),
+  ).toBe("fs");
+});
+
 test("a phone gets the sheet layout", () => {
   const { container } = render(
     <ProjectSwitcher

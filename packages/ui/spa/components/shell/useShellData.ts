@@ -73,7 +73,8 @@ export function useShellData(): ShellDataState {
    * them to use: always in http mode, and in fs mode only after `val login`.
    * See `useValBuildConnected`.
    */
-  const valBuildConnected = useValBuildConnected(useValMode());
+  const mode = useValMode();
+  const valBuildConnected = useValBuildConnected(mode);
   const profilesByAuthorId = useProfilesByAuthorId();
   /*
    * The external router's own scheme policy.
@@ -165,6 +166,7 @@ export function useShellData(): ShellDataState {
         webComponentsUrl: valBuildConnected
           ? toWebComponentsUrl(config)
           : undefined,
+        studioMode: mode === "unknown" ? undefined : mode,
         branch: config?.gitBranch,
         hasRouters: navData?.hasRouters ?? false,
         pages: navData?.sitemap
@@ -250,5 +252,6 @@ export function useShellData(): ShellDataState {
     shellDeployments,
     studioIsDeployer,
     valBuildConnected,
+    mode,
   ]);
 }

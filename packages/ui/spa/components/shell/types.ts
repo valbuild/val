@@ -387,6 +387,13 @@ export type ShellData = {
    * leaves the top bar's plain project name in place.
    */
   webComponentsUrl?: string;
+  /**
+   * Where this Studio runs: `fs` locally, `http` deployed. Handed to Val
+   * Build's web components as their `mode`, because signing in again is a
+   * different thing in each — `val login` locally, the Studio's sign-in when
+   * deployed. Absent while the mode is still unknown.
+   */
+  studioMode?: "fs" | "http";
   /** From `config.gitBranch`. Absent outside a git checkout. */
   branch?: string;
   /**

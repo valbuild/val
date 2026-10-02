@@ -41,6 +41,8 @@ export type TopBarProps = {
    * plain name as its fallback — see `ProjectSwitcher`.
    */
   webComponentsUrl?: string;
+  /** See `ShellData.studioMode`. */
+  studioMode?: "fs" | "http";
   openPanel: ShellPanel | null;
   onTogglePanel: (panel: ShellPanel) => void;
   /** Opens the navigation: the rail's panels, reached from a menu button. */
@@ -162,6 +164,7 @@ export function TopBar({
   projectName,
   projectHref,
   webComponentsUrl,
+  studioMode,
   openPanel,
   onTogglePanel,
   onOpenMenu,
@@ -220,6 +223,7 @@ export function TopBar({
           projectName={projectName}
           projectHref={projectHref}
           webComponentsUrl={webComponentsUrl}
+          studioMode={studioMode}
           breakpoint={breakpoint}
         >
           <ProjectName projectName={projectName} projectHref={projectHref} />

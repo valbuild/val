@@ -1120,6 +1120,7 @@ export function Shell({
           projectName={data.projectName}
           projectHref={data.admin?.project}
           webComponentsUrl={data.webComponentsUrl}
+          studioMode={data.studioMode}
           logo={data.logo}
           openPanel={openPanel}
           onTogglePanel={togglePanel}

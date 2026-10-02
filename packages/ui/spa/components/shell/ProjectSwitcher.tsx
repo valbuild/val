@@ -23,6 +23,7 @@ export function ProjectSwitcher({
   projectName,
   projectHref,
   webComponentsUrl,
+  studioMode,
   breakpoint,
   children,
   loadScript = loadWebComponentScript,
@@ -32,6 +33,11 @@ export function ProjectSwitcher({
   projectHref: string;
   /** `toWebComponentsUrl`: `{appHost}/wc/v1`. */
   webComponentsUrl: string;
+  /**
+   * The component's `mode`. Locally (`fs`) an expired login is fixed by
+   * running `val login`, so it says that instead of offering a sign-in.
+   */
+  studioMode?: "fs" | "http";
   breakpoint: ShellBreakpoint;
   children: ReactNode;
   /** For tests: the real one adds a `<script>` to the page. */
@@ -70,6 +76,7 @@ export function ProjectSwitcher({
       api-base="/api/val/admin/proxy"
       admin-url={projectHref}
       layout={breakpoint === "mobile" ? "sheet" : "popover"}
+      mode={studioMode}
     >
       {children}
     </val-project-switcher>

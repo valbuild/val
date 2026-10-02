@@ -23,6 +23,8 @@ declare module "react" {
         "admin-url"?: string;
         layout?: "popover" | "sheet";
         theme?: "light" | "dark";
+        /** `fs` locally, `http` deployed: what "sign in again" means. */
+        mode?: "fs" | "http";
       }>;
     }
   }
