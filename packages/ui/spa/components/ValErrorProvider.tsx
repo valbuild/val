@@ -104,12 +104,55 @@ export function useAllValidationErrors(): Record<
    * compare, never trust that a wake-up means a change.
    */
   const previous = useRef<Record<SourcePath, ValidationError[]> | null>(null);
+
+  /**
+   * Stale modules whose last answer had errors in it, which this hook is
+   * still showing — see `peekLastKnown` below.
+   *
+   * Showing them makes this hook a demand for them, so it asks: something has
+   * to replace the old answer, or an error the editor has just fixed would
+   * stay on the Publish button until a field in that module happened to be
+   * on screen. A module that was clean is shown as clean either way and is
+   * left to whoever asks for it next — this only adds work where an error
+   * would otherwise be stuck.
+   */
+  const staleWithErrors = useMemo((): ModuleFilePath[] => {
+    if (val === null) return [];
+    void version;
+    const modules: ModuleFilePath[] = [];
+    for (const moduleFilePath of val.system.sourceStore.loadedModules()) {
+      if (!val.system.validationStore.isStale(moduleFilePath)) continue;
+      const shown = val.system.validationStore.peekLastKnown(moduleFilePath);
+      if (shown.status === "validated" && shown.errors !== false) {
+        modules.push(moduleFilePath);
+      }
+    }
+    return modules;
+  }, [val, version]);
+  useEffect(() => {
+    if (val === null) return;
+    for (const moduleFilePath of staleWithErrors) {
+      void val.system.validationStore.validate(moduleFilePath);
+    }
+  }, [val, staleWithErrors]);
+
   return useMemo(() => {
     if (val === null) return {};
     void version;
     const raw: Record<SourcePath, ValidationError[]> = {};
     for (const moduleFilePath of val.system.sourceStore.loadedModules()) {
-      const result = val.system.validationStore.peek(moduleFilePath);
+      /*
+       * The last answer, not only a current one.
+       *
+       * An edit makes its module stale, and skipping stale modules dropped
+       * their errors for the length of every revalidation: with an error
+       * anywhere in the module being typed into, the Publish button flipped
+       * from "Fix 1" to "Publish" and back on every pause in typing. The gate
+       * itself does not read this — `system.publish` validates for itself —
+       * so the cost of a slightly old answer is a badge that is one pass
+       * behind, which is what every other surface already shows.
+       */
+      const result = val.system.validationStore.peekLastKnown(moduleFilePath);
       if (result.status !== "validated" || result.errors === false) {
         continue;
       }

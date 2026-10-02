@@ -202,6 +202,18 @@ export class ValidationStore {
   private results = new Map<ModuleFilePath, ValidationResult>();
   private stale = new Set<ModuleFilePath>();
   /**
+   * The result an invalidation took away, kept until the next one replaces it.
+   *
+   * For {@link peekLastKnown}, and only for it. `invalidate` deletes the result
+   * so that nothing can mistake it for current — `peek` answers `stale` and the
+   * reader asks again. But "stale" is not "no errors", and every reader that
+   * drew it as none flashed: an edit to a module with an error anywhere in it
+   * took the error off the screen for the length of the revalidation, so the
+   * Publish button went from "Fix 1" to "Publish" and back on every pause in
+   * typing, and the message under an invalid field blinked out and in.
+   */
+  private previous = new Map<ModuleFilePath, ValidationResult>();
+  /**
    * What each validated module's cross-module fixes were resolved against.
    *
    * A `keyof:check-keys` or `router:check-route` error is a marker: the schema
@@ -508,6 +520,10 @@ export class ValidationStore {
     );
     for (const moduleFilePath of modules) {
       this.stale.add(moduleFilePath);
+      const result = this.results.get(moduleFilePath);
+      if (result !== undefined) {
+        this.previous.set(moduleFilePath, result);
+      }
       this.results.delete(moduleFilePath);
       this.resolvedAgainst.delete(moduleFilePath);
     }
@@ -602,6 +618,9 @@ export class ValidationStore {
     const serializedSchema = this.schemaStore.get(moduleFilePath);
     const source = this.sourceStore.moduleSource(moduleFilePath);
     if (serializedSchema === undefined || source === undefined) {
+      // Nothing left to have been right about: the module is gone, or not
+      // here yet. Its old errors must not outlive it in `peekLastKnown`.
+      this.previous.delete(moduleFilePath);
       return { status: "unknown-module" };
     }
 
@@ -657,6 +676,7 @@ export class ValidationStore {
       jsonEntriesLoaded: !this.sourceStore.hasUnloadedEntries(moduleFilePath),
     };
     this.results.set(moduleFilePath, result);
+    this.previous.delete(moduleFilePath);
     const inputs = this.crossModuleInputs(errors);
     if (inputs === null) {
       this.resolvedAgainst.delete(moduleFilePath);
@@ -711,6 +731,33 @@ export class ValidationStore {
       return cached;
     }
     return STALE;
+  }
+
+  /**
+   * The newest result there is, current or not: what to SHOW while a module
+   * revalidates.
+   *
+   * Same as {@link peek} for a fresh module. For a stale one it is the result
+   * the edit made stale — or a pass that an edit overtook — rather than
+   * `stale`, so a reader keeps drawing the errors it had until the next pass
+   * replaces them. Only `stale` when the module has never been validated.
+   *
+   * Never use it to DECIDE anything: it is allowed to be out of date, which is
+   * the whole point. Whether the module is stale — and so whether to ask
+   * {@link validate} — is still `peek`'s to say, and the publish gate validates
+   * for itself.
+   */
+  peekLastKnown(moduleFilePath: ModuleFilePath): ValidationResult {
+    return (
+      this.results.get(moduleFilePath) ??
+      this.previous.get(moduleFilePath) ??
+      STALE
+    );
+  }
+
+  /** Whether {@link peek} would answer `stale` — cheaper than comparing to it. */
+  isStale(moduleFilePath: ModuleFilePath): boolean {
+    return this.stale.has(moduleFilePath) || !this.results.has(moduleFilePath);
   }
 }
 
