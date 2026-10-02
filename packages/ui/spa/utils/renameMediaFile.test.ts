@@ -47,7 +47,7 @@ function build(
     target,
     plan: p,
     newBase,
-    bytes: p.fetchUrl === null ? null : BYTES,
+    bytes: new Map(p.fetches.map((fetch) => [fetch.path, BYTES])),
     metadata: METADATA,
   });
   if (res.status !== "ok") throw new Error(JSON.stringify(res));
@@ -88,7 +88,7 @@ describe("local gallery entry", () => {
 
   test("fetches the published bytes, moves the entry and deletes the old file", () => {
     const { plan, patches } = build(target, "Team Photo");
-    expect(plan.fetchUrl).toBe("/val/hero_bfbd0.png");
+    expect(plan.fetches).toEqual([{ path: key, url: "/val/hero_bfbd0.png" }]);
     expect(patches.newPath).toBe("/public/val/teamphoto_bfbd0.png");
     expect(patches.primary).toEqual({
       moduleFilePath: GALLERY,
@@ -136,9 +136,9 @@ describe("local gallery entry", () => {
 
   test("a draft is fetched from the patch it is in", () => {
     const { plan } = build(target, "x", new Map([[key, "patch-1"]]));
-    expect(plan.fetchUrl).toBe(
+    expect(plan.fetches.map((fetch) => fetch.url)).toEqual([
       "/api/val/files/public/val/hero_bfbd0.png?patch_id=patch-1",
-    );
+    ]);
   });
 
   test("a referrer that uploaded the draft itself gets its own file op", () => {
@@ -165,7 +165,7 @@ describe("local gallery entry", () => {
         target: { ...target, existingKeys: [key, taken] },
         plan: p,
         newBase: "team",
-        bytes: BYTES,
+        bytes: new Map(p.fetches.map((fetch) => [fetch.path, BYTES])),
         metadata: METADATA,
       }),
     ).toEqual({
@@ -181,7 +181,7 @@ describe("local gallery entry", () => {
         target,
         plan: p,
         newBase: "Hero",
-        bytes: BYTES,
+        bytes: new Map(p.fetches.map((fetch) => [fetch.path, BYTES])),
         metadata: METADATA,
       }),
     ).toEqual({ status: "unchanged" });
@@ -194,7 +194,7 @@ describe("local gallery entry", () => {
         target,
         plan: p,
         newBase: "æøå",
-        bytes: BYTES,
+        bytes: new Map(p.fetches.map((fetch) => [fetch.path, BYTES])),
         metadata: METADATA,
       }).status,
     ).toBe("error");
@@ -216,7 +216,7 @@ describe("remote gallery entry", () => {
 
   test("published: a new ref and nothing uploaded or deleted", () => {
     const { plan, patches } = build(target, "team");
-    expect(plan.fetchUrl).toBeNull();
+    expect(plan.fetches).toEqual([]);
     const newRef = remoteRef("public/val/team_bfbd0.png");
     expect(patches.newPath).toBe(newRef);
     expect(patches.primary.patch).toEqual([
@@ -240,7 +240,9 @@ describe("remote gallery entry", () => {
 
   test("draft: the bytes are uploaded again under the new ref, never deleted", () => {
     const { plan, patches } = build(target, "team", new Map([[key, "p1"]]));
-    expect(plan.fetchUrl).toContain("&remote=true&ref=");
+    expect(plan.fetches.map((fetch) => fetch.url)).toEqual([
+      expect.stringContaining("&remote=true&ref="),
+    ]);
     const newRef = remoteRef("public/val/team_bfbd0.png");
     expect(patches.primary.patch).toEqual([
       { op: "move", from: [key], path: [newRef] },
@@ -273,7 +275,7 @@ describe("remote bytes behind a local gallery key", () => {
 
   test("is renamed as the remote file it is", () => {
     const { plan, patches } = build(target, "team");
-    expect(plan.fetchUrl).toBeNull();
+    expect(plan.fetches).toEqual([]);
     expect(patches.newPath).toBe("/public/val/team_bfbd0.png");
     expect(patches.primary.patch).toEqual([
       { op: "move", from: [key], path: ["/public/val/team_bfbd0.png"] },
@@ -285,6 +287,114 @@ describe("remote bytes behind a local gallery key", () => {
         value: remoteRef("public/val/team_bfbd0.png"),
       },
     ]);
+  });
+});
+
+describe("remote bytes behind a local key, with several refs", () => {
+  const key = "/public/val/hero_bfbd0.png";
+  const published = remoteRef("public/val/hero_bfbd0.png");
+  // The same file under a second ref: uploaded after the validation hash moved.
+  const draft = Internal.remote.createRemoteRef("https://remote.val.build", {
+    publicProjectId: "proj",
+    coreVersion: "0.2.0",
+    bucket: "b1",
+    validationHash: "vh34",
+    fileHash: SHA.slice(0, 12),
+    filePath: "public/val/hero_bfbd0.png",
+  });
+  const target: MediaRenameTarget = {
+    kind: "gallery-entry",
+    moduleFilePath: GALLERY,
+    patchPath: [],
+    key,
+    existingKeys: [key],
+    referrers: [
+      // Published first: the order modules are walked in must not matter.
+      { sourcePath: sourcePath(PAGE, "a"), path: published, hasPatchId: false },
+      { sourcePath: sourcePath(PAGE, "b"), path: draft, hasPatchId: true },
+    ],
+  };
+
+  test("each draft ref is moved under its own new ref", () => {
+    const { plan, patches } = build(target, "team", new Map([[draft, "p9"]]));
+    expect(plan.fetches.map((fetch) => fetch.path)).toEqual([draft]);
+    const newDraft = Internal.remote.createRemoteRef(
+      "https://remote.val.build",
+      {
+        publicProjectId: "proj",
+        coreVersion: "0.2.0",
+        bucket: "b1",
+        validationHash: "vh34",
+        fileHash: SHA.slice(0, 12),
+        filePath: "public/val/team_bfbd0.png",
+      },
+    );
+    // The gallery carries no bytes: they live behind the refs.
+    expect(patches.primary.patch).toEqual([
+      { op: "move", from: [key], path: ["/public/val/team_bfbd0.png"] },
+    ]);
+    expect(patches.referrers[0].patch).toEqual([
+      {
+        op: "replace",
+        path: ["a", "path"],
+        value: remoteRef("public/val/team_bfbd0.png"),
+      },
+      { op: "replace", path: ["b", "path"], value: newDraft },
+      {
+        op: "file",
+        path: ["b"],
+        filePath: newDraft,
+        value: BYTES.dataUrl,
+        remote: true,
+        metadata: METADATA,
+      },
+    ]);
+  });
+
+  test("refs to different files cannot share one name", () => {
+    const other = Internal.remote.createRemoteRef("https://remote.val.build", {
+      publicProjectId: "proj",
+      coreVersion: "0.1.0",
+      bucket: "b1",
+      validationHash: "vh12",
+      fileHash: "ffffff000000",
+      filePath: "public/val/hero_bfbd0.png",
+    });
+    expect(
+      planMediaRename(
+        {
+          ...target,
+          referrers: [
+            ...target.referrers,
+            {
+              sourcePath: sourcePath(PAGE, "c"),
+              path: other,
+              hasPatchId: false,
+            },
+          ],
+        },
+        new Map(),
+      ).status,
+    ).toBe("error");
+  });
+
+  test("refuses when a rewritten ref would resolve to another entry", () => {
+    // The gallery already has the FULL ref the rename would produce as a key,
+    // and a field resolves an exact key before the path inside its ref.
+    const taken = remoteRef("public/val/team_bfbd0.png");
+    const withTaken: MediaRenameTarget = {
+      ...target,
+      existingKeys: [key, taken],
+    };
+    const p = plan(withTaken);
+    const res = buildMediaRenamePatches({
+      target: withTaken,
+      plan: p,
+      newBase: "team",
+      bytes: new Map(),
+      metadata: METADATA,
+    });
+    expect(res.status).toBe("error");
   });
 });
 

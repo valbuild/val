@@ -17,6 +17,7 @@ import {
   MediaReferrer,
   MediaRenameTarget,
   buildMediaRenamePatches,
+  parseMediaPath,
   planMediaRename,
 } from "../utils/renameMediaFile";
 import { fetchMediaBytes } from "../utils/fetchMediaBytes";
@@ -153,17 +154,17 @@ export function useRenameMediaFile(
       if (plan.status === "error") {
         return plan;
       }
-      let bytes: MediaBytes | null = null;
-      if (plan.fetchUrl !== null) {
+      const bytes = new Map<string, MediaBytes>();
+      for (const { path: bytesPath, url } of plan.fetches) {
         const fetched = await fetchMediaBytes(
-          plan.fetchUrl,
-          plan.bytesParts.filename,
+          url,
+          parseMediaPath(bytesPath)?.filename ?? bytesPath,
           request.metadata?.mimeType,
         );
         if (fetched.status === "error") {
           return fetched;
         }
-        bytes = fetched.bytes;
+        bytes.set(bytesPath, fetched.bytes);
       }
       const built = buildMediaRenamePatches({
         target,

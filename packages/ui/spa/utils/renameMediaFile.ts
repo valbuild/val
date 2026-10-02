@@ -8,6 +8,7 @@ import {
 import { array } from "@valbuild/core/fp";
 import { Operation, Patch } from "@valbuild/core/patch";
 import { mediaUrlOf } from "./mediaUrl";
+import { galleryKeyOf } from "./galleryKey";
 
 /**
  * Renaming a media file.
@@ -170,16 +171,29 @@ export type MediaRenamePlan =
   | { status: "error"; message: string }
   | {
       status: "ok";
-      /** The path that holds the bytes (a gallery key, a field, or a referrer). */
-      bytesPath: string;
-      bytesParts: MediaPathParts;
-      /** Where to fetch the bytes from, or `null` when none need moving. */
-      fetchUrl: string | null;
+      /** Where the extension (and, for remote, the hash) of the name come from. */
+      nameParts: MediaPathParts;
+      /**
+       * The bytes to read before building, each keyed by the path they are
+       * filed under NOW. Empty when nothing has to move.
+       *
+       * A list, not one file: in the legacy shape below every draft referrer
+       * holds its own ref, filed under its own patch, and each has to be moved
+       * under its own new ref.
+       */
+      fetches: { path: string; url: string }[];
       /**
        * The SHA-256 prefix the new name is built with, when it is known without
        * the bytes (a remote ref carries it). `null` means "hash the bytes".
        */
       knownHashPrefix: string | null;
+      /**
+       * The bytes live behind the referrers' remote refs, not at the gallery
+       * key — so the referrers carry the `file` ops and the gallery none.
+       */
+      bytesOnReferrers: boolean;
+      /** The local file the rename deletes, or `null` when the bytes are remote. */
+      deletePath: string | null;
     };
 
 export function planMediaRename(
@@ -194,8 +208,10 @@ export function planMediaRename(
       message: `Val cannot rename '${ownPath}': it is neither a file under /public nor a remote file.`,
     };
   }
-  let bytesPath = ownPath;
-  let bytesParts: MediaPathParts = ownParts;
+  const draftFetch = (path: string) => {
+    const url = mediaUrlOf(path, filePatchIds);
+    return url === null ? [] : [{ path, url }];
+  };
   if (target.kind === "gallery-entry" && ownParts.kind === "local") {
     /*
      * A local KEY can still describe remote bytes.
@@ -204,35 +220,66 @@ export function planMediaRename(
      * the field and files the gallery entry under the local path inside it
      * (`useImageUpload`), where uploading in the gallery itself keys the entry by
      * the ref. Both shapes are in projects, and `fillFromGallery` reads both, so
-     * a rename has to as well: the bytes are where the referrer's ref says.
+     * a rename has to as well: the bytes are where the referrers' refs say.
+     *
+     * EVERY referrer's, not the first one's. One entry can be named by several
+     * refs — the same file uploaded before and after the core version moved the
+     * validation hash — and which of them is a draft is per ref. Taking the first
+     * made draft handling depend on the order modules happen to be walked in.
      */
+    const remoteRefs = new Map<
+      string,
+      Extract<MediaPathParts, { kind: "remote" }>
+    >();
     for (const referrer of target.referrers) {
       const referrerParts = parseMediaPath(referrer.path);
       if (referrerParts?.kind === "remote") {
-        bytesPath = referrer.path;
-        bytesParts = referrerParts;
-        break;
+        remoteRefs.set(referrer.path, referrerParts);
       }
     }
+    if (remoteRefs.size > 0) {
+      const prefixes = new Set(
+        Array.from(remoteRefs.values(), (parts) => parts.fileHash.slice(0, 5)),
+      );
+      if (prefixes.size > 1) {
+        // One name has to fit all of them, and the hash suffix is part of it.
+        return {
+          status: "error",
+          message:
+            "Fields point at this gallery entry with different files, so Val cannot give it one name.",
+        };
+      }
+      return {
+        status: "ok",
+        nameParts: ownParts,
+        fetches: Array.from(remoteRefs.keys())
+          .filter((path) => filePatchIds.has(path))
+          .flatMap(draftFetch),
+        knownHashPrefix: Array.from(prefixes)[0],
+        bytesOnReferrers: true,
+        deletePath: null,
+      };
+    }
   }
-  if (bytesParts.kind === "remote") {
-    const isDraft = filePatchIds.has(bytesPath);
+  if (ownParts.kind === "remote") {
     return {
       status: "ok",
-      bytesPath,
-      bytesParts,
-      fetchUrl: isDraft ? mediaUrlOf(bytesPath, filePatchIds) : null,
+      nameParts: ownParts,
+      fetches: filePatchIds.has(ownPath) ? draftFetch(ownPath) : [],
       // The remote file hash IS the first 12 hex of the SHA-256, so its first
       // five are the suffix the name was given at upload.
-      knownHashPrefix: bytesParts.fileHash.slice(0, 5),
+      knownHashPrefix: ownParts.fileHash.slice(0, 5),
+      bytesOnReferrers: false,
+      deletePath: null,
     };
   }
   return {
     status: "ok",
-    bytesPath,
-    bytesParts,
-    fetchUrl: mediaUrlOf(bytesPath, filePatchIds),
+    nameParts: ownParts,
+    fetches: draftFetch(ownPath),
     knownHashPrefix: null,
+    bytesOnReferrers: false,
+    deletePath: ownPath,
   };
 }
 
@@ -264,29 +311,30 @@ export function buildMediaRenamePatches(args: {
   plan: Extract<MediaRenamePlan, { status: "ok" }>;
   /** What the person typed, without the hash suffix or extension. */
   newBase: string;
-  /** Required when `plan.fetchUrl` is set. */
-  bytes: MediaBytes | null;
+  /** Every `plan.fetches` entry's bytes, by its `path`. */
+  bytes: ReadonlyMap<string, MediaBytes>;
   metadata: ImageMetadata | FileMetadata | undefined;
 }):
   | { status: "ok"; patches: MediaRenamePatches }
   | { status: "unchanged" }
   | { status: "error"; message: string } {
   const { target, plan, newBase, bytes, metadata } = args;
-  if (plan.fetchUrl !== null && bytes === null) {
+  if (plan.fetches.some((fetch) => !bytes.has(fetch.path))) {
     return {
       status: "error",
       message:
         "The file's contents are needed to rename it, and were not read.",
     };
   }
-  const hashSource = plan.knownHashPrefix ?? bytes?.sha256;
+  const ownPath = target.kind === "field" ? target.path : target.key;
+  const hashSource = plan.knownHashPrefix ?? bytes.get(ownPath)?.sha256;
   if (hashSource === undefined) {
     return {
       status: "error",
       message: "Could not tell which file this is to rename it.",
     };
   }
-  const ext = extensionOf(plan.bytesParts.filename);
+  const ext = extensionOf(plan.nameParts.filename);
   const newFilename = Internal.createRenamedFilename(newBase, hashSource, ext);
   if (newFilename === null) {
     return {
@@ -295,7 +343,6 @@ export function buildMediaRenamePatches(args: {
         "That name has no letters or digits Val can use in a file name. Try plain letters, digits and dashes.",
     };
   }
-  const ownPath = target.kind === "field" ? target.path : target.key;
   const ownParts = parseMediaPath(ownPath);
   if (ownParts === null) {
     // `planMediaRename` already refused this; checked again so the types follow.
@@ -305,22 +352,27 @@ export function buildMediaRenamePatches(args: {
     return { status: "unchanged" };
   }
   const newPath = withFilename(ownParts, newFilename);
-  const newBytesPath = withFilename(plan.bytesParts, newFilename);
-  const remote = plan.bytesParts.kind === "remote";
 
-  const fileOp = (path: string[]): Operation[] =>
-    bytes === null
+  /** The bytes filed under `oldPath`, re-filed under `newFilePath`, if read. */
+  const fileOp = (
+    oldPath: string,
+    newFilePath: string,
+    path: string[],
+  ): Operation[] => {
+    const read = bytes.get(oldPath);
+    return read === undefined
       ? []
       : [
           {
             op: "file",
             path,
-            filePath: newBytesPath,
-            value: bytes.dataUrl,
-            remote,
+            filePath: newFilePath,
+            value: read.dataUrl,
+            remote: parseMediaPath(newFilePath)?.kind === "remote",
             ...(metadata ? { metadata } : {}),
           },
         ];
+  };
   /*
    * The old file goes, always — a rename that left it would be a copy, and the
    * only way to clean up after one would be by hand.
@@ -330,13 +382,13 @@ export function buildMediaRenamePatches(args: {
    * `ValOpsFS` turns into a path in the working tree.
    */
   const deleteOp = (path: string[]): Operation[] =>
-    remote
+    plan.deletePath === null
       ? []
       : [
           {
             op: "file",
             path,
-            filePath: plan.bytesPath,
+            filePath: plan.deletePath,
             value: null,
             remote: false,
           },
@@ -345,7 +397,7 @@ export function buildMediaRenamePatches(args: {
   if (target.kind === "field") {
     const patch: Patch = [
       { op: "replace", path: [...target.patchPath, "path"], value: newPath },
-      ...fileOp(target.patchPath),
+      ...fileOp(ownPath, newPath, target.patchPath),
       ...deleteOp(target.patchPath),
     ];
     return {
@@ -359,12 +411,41 @@ export function buildMediaRenamePatches(args: {
     };
   }
 
-  if (target.existingKeys.includes(newPath)) {
+  /*
+   * The gallery as it will be, and every referrer checked against it.
+   *
+   * Not just "is the new key free". A field resolves its entry exact key first
+   * and the local path inside its ref second (`galleryKeyOf`), so in the legacy
+   * shape a rewritten ref that happens to BE an existing full-ref key would
+   * resolve to that other entry — its metadata, its alt text — rather than to
+   * the one that was moved. The invariant a rename has to keep is that every
+   * field it rewrites still lands on the entry it renamed.
+   */
+  const keysAfter = new Set(target.existingKeys);
+  keysAfter.delete(target.key);
+  if (keysAfter.has(newPath)) {
     return {
       status: "error",
       message: `The gallery already has a file called ${newFilename}.`,
     };
   }
+  keysAfter.add(newPath);
+  const rewritten: { referrer: MediaReferrer; newRefPath: string }[] = [];
+  for (const referrer of target.referrers) {
+    const referrerParts = parseMediaPath(referrer.path);
+    if (referrerParts === null) {
+      continue;
+    }
+    const newRefPath = withFilename(referrerParts, newFilename);
+    if (galleryKeyOf(newRefPath, keysAfter) !== newPath) {
+      return {
+        status: "error",
+        message: `The gallery already has an entry for ${newFilename} under another address, and the fields using this file would point at it instead.`,
+      };
+    }
+    rewritten.push({ referrer, newRefPath });
+  }
+
   const fromPath = [...target.patchPath, target.key];
   const toPath = [...target.patchPath, newPath];
   if (!array.isNonEmpty(fromPath) || !array.isNonEmpty(toPath)) {
@@ -373,17 +454,13 @@ export function buildMediaRenamePatches(args: {
   const primary: Patch = [
     { op: "move", from: fromPath, path: toPath },
     // The bytes are filed at the MOVED entry, which is where the server stamps
-    // the new patch id.
-    ...fileOp(toPath),
+    // the new patch id — unless they live behind the referrers' refs.
+    ...(plan.bytesOnReferrers ? [] : fileOp(target.key, newPath, toPath)),
     ...deleteOp(fromPath),
   ];
 
   const byModule = new Map<ModuleFilePath, Operation[]>();
-  for (const referrer of target.referrers) {
-    const referrerParts = parseMediaPath(referrer.path);
-    if (referrerParts === null) {
-      continue;
-    }
+  for (const { referrer, newRefPath } of rewritten) {
     const [moduleFilePath, modulePath] =
       Internal.splitModuleFilePathAndModulePath(referrer.sourcePath);
     const referrerPatchPath = Internal.createPatchPath(modulePath);
@@ -391,10 +468,13 @@ export function buildMediaRenamePatches(args: {
     ops.push({
       op: "replace",
       path: [...referrerPatchPath, "path"],
-      value: withFilename(referrerParts, newFilename),
+      value: newRefPath,
     });
-    if (referrer.hasPatchId) {
-      ops.push(...fileOp(referrerPatchPath));
+    if (referrer.path !== target.key) {
+      // Its own ref, so its own bytes: read for it if it is a draft.
+      ops.push(...fileOp(referrer.path, newRefPath, referrerPatchPath));
+    } else if (referrer.hasPatchId) {
+      ops.push(...fileOp(target.key, newRefPath, referrerPatchPath));
     }
     byModule.set(moduleFilePath, ops);
   }
