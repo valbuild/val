@@ -2586,7 +2586,24 @@ export function usePublishSummary() {
    */
   const buildsInTab = useStudioBuildsInTab();
   const { state: deployState } = useContext(ValContext).deploy;
-  const { handoff, publishJobs, publishesAsJobs } = useContext(ValContext);
+  const { handoff, publishJobs, publishesAsJobs, publishJobsState } =
+    useContext(ValContext);
+  /*
+   * A publish this tab is not doing anything for: content verifying it, CI
+   * building it, or a press queued behind another. The progress still reads
+   * it as running, and says so -- but it must not hold the button. A press
+   * now starts another job, or joins the one that has its changes, and the
+   * wait for CI is minutes, in which an editor must be able to publish what
+   * they wrote next. Only this tab's own work holds it: its build, its
+   * upload, the press itself.
+   */
+  const latestRequest = publishJobsState.requests.at(-1);
+  const waitingElsewhere =
+    deployState.status === "running" &&
+    publishJobsState.running === null &&
+    latestRequest !== undefined &&
+    !isSettled(latestRequest.status);
+  const busyHere = deployState.status === "running" && !waitingElsewhere;
   const publish = useCallback(
     async (summary: string) => {
       /*
@@ -2789,7 +2806,7 @@ export function usePublishSummary() {
      * when a change does not apply — so a retry cannot publish anything wrong,
      * and is often all it takes (see `describePublishButton`).
      */
-    publishDisabled: isPublishing || deployState.status === "running",
+    publishDisabled: isPublishing || busyHere,
     /*
      * A publish is not over when the commit lands. In managed mode the build
      * that makes it live runs here, so a button that stopped spinning at the
@@ -2797,7 +2814,7 @@ export function usePublishSummary() {
      */
     isPublishing:
       isPublishing ||
-      deployState.status === "running" ||
+      busyHere ||
       // Or in a Studio tab this page handed it to.
       handoff.state?.kind === "opening" ||
       handoff.state?.kind === "running",
