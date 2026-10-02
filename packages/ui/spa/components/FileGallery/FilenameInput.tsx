@@ -7,14 +7,19 @@ import { splitEditableFilename } from "../../utils/renameMediaFile";
 interface FilenameInputProps {
   filename: string;
   /**
-   * Called with the whole new filename, locked part included.
+   * Called with the whole new filename, locked part included, and with the
+   * part the editor typed on its own. Use `newBase` rather than splitting
+   * `newFilename` again: for a file with no extension the locked part is
+   * empty, and a base with a dot in it would be re-split as an extension.
    *
-   * May return a promise of an error message (or `null` on success): the input
-   * then stays open and busy until it resolves, and shows the message if there
-   * is one — a rename reads bytes and uploads them, so it is not instant and it
-   * can fail.
+   * May return a promise of a message (or `null` on success): the input then
+   * stays busy until it resolves, and shows the message if there is one — a
+   * rename reads bytes and uploads them, so it is not instant and it can fail.
    */
-  onSave: (newFilename: string) => void | Promise<string | null>;
+  onSave: (
+    newFilename: string,
+    newBase: string,
+  ) => void | Promise<string | null>;
   disabled?: boolean;
   className?: string;
   /** Open straight into editing, for a control that exists only to rename. */
@@ -47,7 +52,9 @@ export function FilenameInput({
 
   React.useEffect(() => {
     setEditedName(splitEditableFilename(filename).base);
-    setError(null);
+    // The error is NOT cleared here. A rename that renamed the file but could
+    // not update every field changes `filename` and reports in the same breath,
+    // and the report is the part the editor still needs.
     if (!defaultEditing) {
       setIsEditing(false);
     }
@@ -60,7 +67,7 @@ export function FilenameInput({
       onCancel?.();
       return;
     }
-    const result = onSave(trimmedName + locked);
+    const result = onSave(trimmedName + locked, trimmedName);
     if (result === undefined) {
       setIsEditing(false);
       return;
@@ -154,23 +161,33 @@ export function FilenameInput({
   }
 
   return (
-    <div className={cn("flex items-center gap-1", className)}>
-      <span
-        className="flex-1 truncate rounded px-2 py-1.5 text-sm text-fg-primary"
-        title={filename}
-      >
-        {filename}
-      </span>
-      {!disabled && (
-        <button
-          type="button"
-          onClick={() => setIsEditing(true)}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-fg-secondary transition-colors hover:bg-bg-secondary hover:text-fg-primary"
-          title="Rename"
-          aria-label="Rename file"
+    <div className={cn("flex flex-col gap-1", className)}>
+      <div className="flex items-center gap-1">
+        <span
+          className="flex-1 truncate rounded px-2 py-1.5 text-sm text-fg-primary"
+          title={filename}
         >
-          <Pencil className="h-4 w-4" />
-        </button>
+          {filename}
+        </span>
+        {!disabled && (
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setIsEditing(true);
+            }}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-fg-secondary transition-colors hover:bg-bg-secondary hover:text-fg-primary"
+            title="Rename"
+            aria-label="Rename file"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+      {error && (
+        <p role="alert" className="px-2 text-xs text-fg-error-primary">
+          {error}
+        </p>
       )}
     </div>
   );

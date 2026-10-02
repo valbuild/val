@@ -72,12 +72,14 @@ export function FilePropertiesModal({
 
   if (!file || fileIndex === null) return null;
 
-  const handleFilenameChange = (newFilename: string) => {
-    const result = onFileRename?.(fileIndex, newFilename);
+  const handleFilenameChange = (newFilename: string, newBase: string) => {
+    const result = onFileRename?.(fileIndex, newFilename, newBase);
     if (result === undefined) {
       return;
     }
-    return result.then((res) => (res.status === "error" ? res.message : null));
+    return result.then((res) =>
+      res.status === "error" || res.status === "partial" ? res.message : null,
+    );
   };
 
   const isImage = file.metadata.mimeType.startsWith("image/");

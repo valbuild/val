@@ -8,6 +8,7 @@ import {
   clearPatchChain,
   discardAll,
   expectNoPatchesOnServer,
+  navigateStudio,
   openStudio,
   patchThroughStore,
 } from "./studio";
@@ -197,6 +198,73 @@ test.describe("renaming a gallery file", () => {
     );
     expect(await serverKeys(request, GALLERY)).toEqual([RED]);
     expect(await serverFileOps(request)).toEqual([]);
+    await expectNoPatchesOnServer(request);
+  });
+});
+
+test.describe("renaming a gallery file uploaded through a field", () => {
+  /*
+   * The field that uploaded a draft is the one referrer whose OWN `patch_id`
+   * the app reads its URL from — and in the session that uploaded it, the
+   * Studio's source does not show one (`SourceStore` skips `file` ops). So a
+   * rename that went by the source alone rewrote the field's path and left
+   * its `patch_id` naming the upload's patch, which has no file at the new
+   * path. Renamed without a reload, on purpose: a reload re-reads the
+   * server's source, which does carry the id, and hides the bug.
+   */
+  test("the field still resolves to the renamed draft", async ({
+    page,
+    request,
+  }) => {
+    const UPLOADED = "/public/test/subdir/blue-8x8_8b441.png";
+    const RENAMED_UPLOAD = "/public/test/subdir/sky_8b441.png";
+    await openStudio(page, `/val/~${FIELDS}?p=%22fromGallery%22`);
+    const studio = page.locator("#val-shadow-root");
+    await studio
+      .locator('input[type="file"]:not([multiple])')
+      .first()
+      .setInputFiles(IMAGE);
+    // Both halves of a gallery-backed upload: the field, and the entry.
+    await expect
+      .poll(() => serverKeys(request, GALLERY), { timeout: 30_000 })
+      .toContain(UPLOADED);
+
+    await navigateStudio(
+      page,
+      `/val/~${GALLERY}?p=${encodeURIComponent(JSON.stringify(UPLOADED))}`,
+    );
+    await expect(
+      studio.getByText("Renaming updates the 1 place using it."),
+    ).toBeVisible({ timeout: 30_000 });
+    await rename(page, "sky");
+
+    await expect
+      .poll(
+        async () => {
+          const fields = (await serverSource(request, FIELDS)) as {
+            fromGallery: { path: string; patch_id?: string } | null;
+          };
+          return fields.fromGallery?.path;
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(RENAMED_UPLOAD);
+    // What the app asks for: the field's own path, under the field's own
+    // patch id.
+    const fields = (await serverSource(request, FIELDS)) as {
+      fromGallery: { path: string; patch_id?: string };
+    };
+    expect(fields.fromGallery.patch_id).toBeTruthy();
+    const served = await request.get(
+      `/api/val/files${RENAMED_UPLOAD}?patch_id=${fields.fromGallery.patch_id}`,
+    );
+    expect(
+      served.status(),
+      "the field's patch id does not serve the renamed file",
+    ).toBe(200);
+    expect(served.headers()["content-type"]).toContain("image");
+
+    await discardAll(page);
     await expectNoPatchesOnServer(request);
   });
 });

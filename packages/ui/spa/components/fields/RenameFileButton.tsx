@@ -15,7 +15,6 @@ import {
 } from "../designSystem/popover";
 import { FilenameInput } from "../FileGallery/FilenameInput";
 import { useRenameMediaFile } from "../useRenameMediaFile";
-import { splitEditableFilename } from "../../utils/renameMediaFile";
 import { prettyModuleName } from "../MediaPicker/GalleryUploadTarget";
 import { useNavigation } from "../ValRouter";
 import { useValSystem } from "../../stores/react/SystemContext";
@@ -133,15 +132,15 @@ function RenameFilePanel({
         filename={filename}
         defaultEditing
         onCancel={close}
-        onSave={async (newFilename) => {
+        onSave={async (_newFilename, newBase) => {
           const res = await renameMediaFile({
             kind: "field",
             path: filePath,
-            newBase: splitEditableFilename(newFilename).base,
+            newBase,
             metadata,
             fileType,
           });
-          if (res.status === "error") {
+          if (res.status === "error" || res.status === "partial") {
             return res.message;
           }
           close();

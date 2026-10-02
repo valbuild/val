@@ -17,6 +17,7 @@ import { FilePropertiesModal } from "./FilePropertiesModal";
 import { useValPortal } from "../ValPortalProvider";
 import type {
   FileGalleryProps,
+  GalleryFile,
   SortDirection,
   SortField,
   ViewMode,
@@ -125,20 +126,44 @@ export function FileGallery({
     }
   };
 
+  /**
+   * Whether a rename is in flight, and what was open when it started.
+   *
+   * The rename's `move` lands BEFORE the rename resolves — the referrers are
+   * written after it, and the upload's cleanup after that — so for a moment the
+   * open ref names nothing. Without this the dialog unmounted in that gap,
+   * taking the busy input and any message the rename came back with along with
+   * it. So the file that was open stays open until the result says where it
+   * went. Its index is stale meanwhile, which is why the dialog is `disabled`
+   * for as long as this is set.
+   */
+  const [renaming, setRenaming] = React.useState<{
+    file: GalleryFile;
+    index: number;
+  } | null>(null);
   const selectedIndexOrMinusOne =
     selectedRef === null ? -1 : files.findIndex((f) => f.ref === selectedRef);
-  const selectedIndex =
+  const foundIndex =
     selectedIndexOrMinusOne === -1 ? null : selectedIndexOrMinusOne;
+  const selectedIndex =
+    foundIndex ?? (renaming !== null ? renaming.index : null);
   const selectedFile =
-    selectedIndex !== null ? (files[selectedIndex] ?? null) : null;
+    foundIndex !== null
+      ? (files[foundIndex] ?? null)
+      : (renaming?.file ?? null);
 
   const handleFileRename = React.useMemo(() => {
     if (!onFileRename) return undefined;
-    return (index: number, newFilename: string) => {
-      const result = onFileRename(index, newFilename);
+    return (index: number, newFilename: string, newBase: string) => {
+      const file = files[index];
+      const result = onFileRename(index, newFilename, newBase);
       if (result === undefined) return undefined;
+      if (file) {
+        setRenaming({ file, index });
+      }
       return result.then((res) => {
-        if (res.status === "ok") {
+        setRenaming(null);
+        if (res.status === "ok" || res.status === "partial") {
           // Follow the file to its new name: the old ref is gone, and so is
           // the URL that named it.
           setSelectedRef(res.newRef);
@@ -155,7 +180,7 @@ export function FileGallery({
         return res;
       });
     };
-  }, [onFileRename, parentPath, navigation]);
+  }, [onFileRename, parentPath, navigation, files]);
 
   const handleItemClick = (filteredIndex: number) => {
     const originalIndex = getOriginalIndex(filteredIndex);
@@ -358,7 +383,7 @@ export function FileGallery({
         parentPath={parentPath}
         imageMode={imageMode}
         loading={loading}
-        disabled={disabled}
+        disabled={disabled || renaming !== null}
         container={portalContainer}
       />
     </div>

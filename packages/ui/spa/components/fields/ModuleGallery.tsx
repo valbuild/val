@@ -32,7 +32,6 @@ import { Progress } from "../designSystem/progress";
 import { FileGallery } from "../FileGallery/FileGallery";
 import type { FileRenameResult, GalleryFile } from "../FileGallery/types";
 import { useRenameMediaFile } from "../useRenameMediaFile";
-import { splitEditableFilename } from "../../utils/renameMediaFile";
 import { readImage, readImageFromFile } from "../../utils/readImage";
 import type { ReadImageEncode } from "../../utils/readImage";
 import { resolveEncodeSettings } from "../../utils/encodeImage";
@@ -284,7 +283,11 @@ export function ModuleGallery({
 
   const renameMediaFile = useRenameMediaFile(path);
   const handleFileRename = React.useCallback(
-    async (index: number, newFilename: string): Promise<FileRenameResult> => {
+    async (
+      index: number,
+      _newFilename: string,
+      newBase: string,
+    ): Promise<FileRenameResult> => {
       if (!rawSource) {
         return { status: "error", message: "The gallery has not loaded." };
       }
@@ -298,7 +301,7 @@ export function ModuleGallery({
       const res = await renameMediaFile({
         kind: "gallery-entry",
         key: ref,
-        newBase: splitEditableFilename(newFilename).base,
+        newBase,
         metadata:
           mimeType === undefined
             ? undefined
@@ -309,7 +312,13 @@ export function ModuleGallery({
               : { mimeType },
         fileType: imageMode ? "image" : "file",
       });
-      return res.status === "ok" ? { status: "ok", newRef: res.newPath } : res;
+      if (res.status === "ok") {
+        return { status: "ok", newRef: res.newPath };
+      }
+      if (res.status === "partial") {
+        return { status: "partial", newRef: res.newPath, message: res.message };
+      }
+      return res;
     },
     [rawSource, imageMode, renameMediaFile],
   );

@@ -43,6 +43,12 @@ export type RenameMediaRequest = {
 
 export type RenameMediaResult =
   | { status: "ok"; newPath: string }
+  /**
+   * The file IS renamed, but some fields naming it could not be updated.
+   * Distinct from `error` because the file is at `newPath` now, and a caller
+   * that kept looking for it at the old one would lose it.
+   */
+  | { status: "partial"; newPath: string; message: string }
   | { status: "unchanged" }
   | { status: "error"; message: string };
 
@@ -108,6 +114,7 @@ export function useRenameMediaFile(
         if (loaded.status === "error") {
           return { status: "error", message: loaded.message };
         }
+        const filePatchIds = patchStore.filePatchIds();
         const referrers: MediaReferrer[] = [];
         for (const referrer of getFileReferrers(
           schemas.data,
@@ -119,7 +126,14 @@ export function useRenameMediaFile(
             referrers.push({
               sourcePath: referrer.sourcePath,
               path: referrer.path,
-              hasPatchId: referrer.hasPatchId,
+              /*
+               * Either is enough. The source only shows a `patch_id` the
+               * SERVER stamped: `SourceStore` skips `file` ops when it applies
+               * a local patch, so a file uploaded in this session is a draft
+               * that only `filePatchIds` knows about.
+               */
+              hasPatchId:
+                referrer.hasPatchId || filePatchIds.has(referrer.path),
             });
           }
         }
@@ -185,7 +199,8 @@ export function useRenameMediaFile(
         // The file IS renamed at this point, so this is not a refusal: it is
         // the list of fields still naming the old file, for someone to fix.
         return {
-          status: "error",
+          status: "partial",
+          newPath,
           message: `Renamed, but these could not be updated to the new name: ${failed.join("; ")}`,
         };
       }
