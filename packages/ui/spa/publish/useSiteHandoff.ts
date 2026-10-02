@@ -28,7 +28,7 @@ export interface UseSiteHandoff {
    * the only moment the browser lets a tab open. A no-op where the page can
    * build, and for a project the Studio does not deploy.
    */
-  prepare: (studioIsDeployer: boolean) => void;
+  prepare: (buildsInTab: boolean) => void;
   /** Is a handoff waiting for a job? Then the job must not build here. */
   active: () => boolean;
   /**
@@ -81,8 +81,8 @@ export function useSiteHandoff(
 
   const enabled = options.enabled ?? false;
   const prepare = useCallback(
-    (studioIsDeployer: boolean) => {
-      if (!enabled || !studioIsDeployer || canBuildHere()) return;
+    (buildsInTab: boolean) => {
+      if (!enabled || !buildsInTab || canBuildHere()) return;
       current.current?.close();
       settleWaiting("lost");
       const handoff = openHandoff();
