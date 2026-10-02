@@ -277,6 +277,13 @@ export type ContentPublishApi = {
          * builds gets, since it never says so.
          */
         tabBuilds?: true;
+        /**
+         * Connected, a deployment built from no commit: its Val source files
+         * (modules and `val.modules.*`), by path from the project root, as git
+         * blob shas. The content service compares them with the branch when
+         * there is no commit to compare from.
+         */
+        deploymentFiles?: Record<string, string>;
       };
       res: { job: PublishTabJob | null };
     };

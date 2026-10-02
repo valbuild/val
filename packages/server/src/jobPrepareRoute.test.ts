@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { initVal, modules } from "@valbuild/core";
 import { createValApiRouter, createValServer } from "./ValRouter";
 import { encodeJwt } from "./jwt";
@@ -35,6 +36,8 @@ function setup(options: {
   prepare?: { status: number; body: unknown };
   /** Connected: does this deployment embed its source (a build of the tanstack wire does)? */
   embedsSource?: boolean;
+  /** Connected: a build of no commit -- the template's, before CI's first. */
+  noCommit?: boolean;
 }) {
   const { c, s, config } = initVal({ project: "acme/site" });
   const route = "/api/val";
@@ -128,8 +131,9 @@ function setup(options: {
         versions: { core: "1.0.0", next: "1.0.0" },
         ...(options.mode === "connected"
           ? {
-              gitCommit: "deployed-sha",
-              gitBranch: "main",
+              ...(options.noCommit
+                ? {}
+                : { gitCommit: "deployed-sha", gitBranch: "main" }),
               ...(options.embedsSource
                 ? { projectSource: { [PAGE.slice(1)]: PAGE_SOURCE } }
                 : {}),
@@ -307,6 +311,48 @@ describe("connected: the tab builds too", () => {
       // Content still gets the push's prepare -- and is not told to wait.
       expect(prepareCalls(calls)).toHaveLength(1);
       expect(prepareCalls(calls)[0]?.body).not.toHaveProperty("tabBuilds");
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("connected: a build of no commit", () => {
+  test("says what Val source it holds, as git blob shas, so content can compare it with the branch", async () => {
+    const { handler, calls, restore } = setup({
+      mode: "connected",
+      patches: [{ patchId: PATCH_A }],
+      embedsSource: true,
+      noCommit: true,
+    });
+    try {
+      const res = await prepare(handler, [PATCH_A]);
+      expect(res.status).toBe(200);
+      const body = prepareCalls(calls)[0]?.body;
+      // What `git hash-object` says of the file: the sha in the branch's tree.
+      const blob = createHash("sha1")
+        .update(`blob ${Buffer.byteLength(PAGE_SOURCE)}\0${PAGE_SOURCE}`)
+        .digest("hex");
+      expect(body).toMatchObject({
+        deploymentFiles: { "content/page.val.ts": blob },
+      });
+      expect(body).not.toHaveProperty("gitCommit");
+    } finally {
+      restore();
+    }
+  });
+
+  test("a build of a commit says the commit, and no files", async () => {
+    const { handler, calls, restore } = setup({
+      mode: "connected",
+      patches: [{ patchId: PATCH_A }],
+      embedsSource: true,
+    });
+    try {
+      await prepare(handler, [PATCH_A]);
+      const body = prepareCalls(calls)[0]?.body;
+      expect(body).toMatchObject({ gitCommit: "deployed-sha" });
+      expect(body).not.toHaveProperty("deploymentFiles");
     } finally {
       restore();
     }

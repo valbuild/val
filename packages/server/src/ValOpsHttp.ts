@@ -460,6 +460,43 @@ export class ValOpsHttp extends ValOps {
   embedsSource(): boolean {
     return this.projectSource !== null;
   }
+
+  /**
+   * The Val source this build embeds, as git blob shas by path from the
+   * project root: every module and `val.modules.*`. `null` when it embeds no
+   * source.
+   *
+   * For a build of no commit -- the template's, which a project `/new` made
+   * with a repository is served until CI's first build -- so the content
+   * service can compare it with the branch file by file, having no commit to
+   * compare from. A git blob sha is `sha1("blob <bytes>\0" + content)`, which is
+   * what makes it comparable with the branch's tree without reading a file.
+   */
+  async embeddedValSourceShas(): Promise<Record<string, string> | null> {
+    if (this.projectSource === null) return null;
+    const encoder = new TextEncoder();
+    const shas: Record<string, string> = {};
+    for (const [path, content] of Object.entries(this.projectSource)) {
+      const base = path.slice(path.lastIndexOf("/") + 1);
+      const isValSource =
+        path.endsWith(".val.ts") ||
+        path.endsWith(".val.js") ||
+        path.endsWith(".val.json") ||
+        base === "val.modules.ts" ||
+        base === "val.modules.js";
+      if (!isValSource) continue;
+      const body = encoder.encode(content);
+      const header = encoder.encode(`blob ${body.byteLength}\0`);
+      const bytes = new Uint8Array(header.byteLength + body.byteLength);
+      bytes.set(header, 0);
+      bytes.set(body, header.byteLength);
+      const digest = await crypto.subtle.digest("SHA-1", bytes);
+      shas[path.replace(/^\/+/, "")] = Array.from(new Uint8Array(digest))
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("");
+    }
+    return shas;
+  }
   /**
    * What the content service last said this project expects of its publisher.
    *
@@ -808,6 +845,8 @@ export class ValOpsHttp extends ValOps {
       gitCommit?: string;
       /** Connected: the tab can build this job (the deployment embeds its source). */
       tabBuilds?: true;
+      /** Connected, a build of no commit: its Val source. See `embeddedValSourceShas`. */
+      deploymentFiles?: Record<string, string>;
     },
   ): Promise<{ status: number; body: string; contentType: string }> {
     if (!/^[A-Za-z0-9_-]{1,100}$/.test(jobId)) {
