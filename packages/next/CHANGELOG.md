@@ -1,5 +1,18 @@
 # @valbuild/next
 
+## 0.138.2
+
+### Patch Changes
+
+- Updated dependencies [[`2beb226`](https://github.com/valbuild/val/commit/2beb226446c76eb71026f43e04c13943da4a1e31), [`cf3bbc8`](https://github.com/valbuild/val/commit/cf3bbc8fc89ff349aac5ab101d0b4f28164583e6), [`443cdcd`](https://github.com/valbuild/val/commit/443cdcdfa8948db22a54adef2ad5e18d9f9868e9)]:
+  - @valbuild/ui@0.138.2
+  - @valbuild/shared@0.138.2
+  - @valbuild/core@0.138.2
+  - @valbuild/react@0.138.2
+  - @valbuild/server@0.138.2
+  - @valbuild/language-server@0.138.2
+  - @valbuild/mcp@0.138.2
+
 ## 0.138.1
 
 ### Patch Changes
