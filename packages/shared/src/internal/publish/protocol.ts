@@ -199,6 +199,11 @@ const buildTargetResponse = z.object({
     css: z.record(z.string(), z.string()),
     workerOnly: z.array(z.string()),
   }),
+  /**
+   * The project's branch: what a build is wired at, so its Val saves where
+   * publishes commit. Optional, for a content service that predates it.
+   */
+  branch: z.string().optional(),
 });
 
 export type BuildTargetResponse = z.infer<typeof buildTargetResponse>;

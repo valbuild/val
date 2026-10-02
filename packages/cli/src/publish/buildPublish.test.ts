@@ -35,9 +35,11 @@ type Run = {
   clientHasLogo: boolean;
   buildRouteBuilt: boolean;
   checkoutUntouched: boolean;
+  wiredBranch: string | null;
+  warnedAboutBranch: boolean;
 };
 
-let probe: { fresh: Run; held: Run };
+let probe: { fresh: Run; held: Run; elsewhere: Run };
 
 beforeAll(() => {
   const out = execFileSync(
@@ -108,6 +110,18 @@ test("a layer content already holds is named, not sent again", () => {
   expect(held.declared[0]!.layerRev).toBe(fresh.uploadedLayerRev);
   // The same checkout is the same build, and so the same publish.
   expect(held.declared[0]!.buildHash).toBe(fresh.declared[0]!.buildHash);
+});
+
+test("a checkout on another branch is wired at the project's, and says so", () => {
+  // Content names the project's branch; the site's Val saves its edits to the
+  // branch it is wired at, so a feature branch here was a site whose every
+  // Studio edit went where no publish looks.
+  expect(probe.elsewhere.result.status).toBe("live");
+  expect(probe.elsewhere.wiredBranch).toBe("main");
+  expect(probe.elsewhere.warnedAboutBranch).toBe(true);
+  // Where they agree there is nothing to say.
+  expect(probe.fresh.wiredBranch).toBe("main");
+  expect(probe.fresh.warnedAboutBranch).toBe(false);
 });
 
 test("the checkout is left as it was found", () => {

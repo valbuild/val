@@ -172,12 +172,25 @@ export async function runPublish(
     if (collected === null) {
       log("Asking content what to build against");
       const target = await client.buildTarget();
+      /*
+       * Wired at the PROJECT's branch, which content names, not the
+       * checkout's: the build's Val saves its edits to the branch it is wired
+       * at, and a publish only ever commits the project's. Wired at a feature
+       * branch, every Studio edit was saved where no publish looks.
+       */
+      const wiredBranch = target.branch ?? git.branch;
+      if (wiredBranch !== git.branch) {
+        log(
+          `warn: this checkout is on ${git.branch}; the project publishes ${wiredBranch}, ` +
+            `so the site saves its edits to ${wiredBranch}.`,
+        );
+      }
       const build = await buildArtifacts({
         root,
         target,
         project: project ?? "",
         contentHost,
-        git: { commit: git.commit, branch: git.branch },
+        git: { commit: git.commit, branch: wiredBranch },
         env,
         log,
       });

@@ -79,12 +79,13 @@ export async function runStudioJob(options: {
        * has already counted as an attempt at the step. Anything else never
        * reached it, so the tab reports it.
        */
+      const message = messageOf(error);
       if (!(error instanceof StudioPublishError && error.statusCode === 502)) {
         await client
-          .step(job.id, { tab, step: "prepare", ok: false })
+          .step(job.id, { tab, step: "prepare", ok: false, message })
           .catch(() => null);
       }
-      return { status: "failed", jobId: job.id, message: messageOf(error) };
+      return { status: "failed", jobId: job.id, message };
     }
     if (lost || prepared.job === null) return lostResult;
     // Content's already: nothing for this tab to build (connected).
@@ -98,17 +99,19 @@ export async function runStudioJob(options: {
     );
     if (lost) return lostResult;
     if (deployed.status !== "uploaded") {
+      const message =
+        deployed.status === "failed"
+          ? deployed.message
+          : "The build went further than a job's build should.";
+      /*
+       * With the reason: if the build fails for good, content's failure is
+       * what every Studio shows, and without it that said "build failed 3
+       * times" and nothing else.
+       */
       await client
-        .step(job.id, { tab, step: "build", ok: false })
+        .step(job.id, { tab, step: "build", ok: false, message })
         .catch(() => null);
-      return {
-        status: "failed",
-        jobId: job.id,
-        message:
-          deployed.status === "failed"
-            ? deployed.message
-            : "The build went further than a job's build should.",
-      };
+      return { status: "failed", jobId: job.id, message };
     }
 
     onPhase({ kind: "handing-off" });
