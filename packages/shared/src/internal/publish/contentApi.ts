@@ -282,6 +282,11 @@ export type ContentPublishApi = {
         ok: boolean;
         /** A finished build step: the id of the publish (`POST /publish`) it declared. */
         build?: string;
+        /**
+         * A failed step: why, in the tab's words. The step is still retried;
+         * if it fails for good, this is what the editor is told.
+         */
+        message?: string;
       };
       res: { job: PublishTabJob | null };
     };

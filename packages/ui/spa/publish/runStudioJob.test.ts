@@ -73,7 +73,7 @@ test("prepare, build and upload -- then the job is content's", async () => {
   ]);
 });
 
-test("a build that fails is reported as the build step failing", async () => {
+test("a build that fails is reported as the build step failing, with why", async () => {
   const { client, steps } = fakeClient();
   const result = await runStudioJob({
     client,
@@ -91,7 +91,9 @@ test("a build that fails is reported as the build step failing", async () => {
     jobId: "J1",
     message: "rolldown",
   });
-  expect(steps).toEqual([{ tab: "ada", step: "build", ok: false }]);
+  expect(steps).toEqual([
+    { tab: "ada", step: "build", ok: false, message: "rolldown" },
+  ]);
 });
 
 test("a prepare the server could not do is reported; one content refused is not reported twice", async () => {
@@ -108,7 +110,7 @@ test("a prepare the server could not do is reported; one content refused is not 
     onPhase: () => {},
   });
   expect(notReached.steps).toEqual([
-    { tab: "ada", step: "prepare", ok: false },
+    { tab: "ada", step: "prepare", ok: false, message: "could not render" },
   ]);
 
   // 502: content answered the prepare with a failure, and counted it itself.
