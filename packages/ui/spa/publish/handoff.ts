@@ -59,6 +59,13 @@ export type ToTab =
 export type ToSite =
   /** Listening. The site answers with the job, if it has one yet. */
   | { type: "ready" }
+  /**
+   * Still here, every {@link ALIVE_EVERY_MS} for as long as the tab is open --
+   * whatever it is doing, including the stretches no phase is reported in.
+   * Its absence is how the site learns the tab was closed, or suspended by a
+   * phone, rather than waiting for it, and holding the job, for ever.
+   */
+  | { type: "alive" }
   | { type: "phase"; label: string; elapsedMs: number }
   /**
    * The tab's part of the job is over: handed to content, lost, or failed.
@@ -269,14 +276,17 @@ export function openHandoff(
  * the other end listens is simply lost.
  */
 export type TabHandoff = {
-  report: (message: Exclude<ToSite, { type: "ready" }>) => void;
+  report: (message: Exclude<ToSite, { type: "ready" | "alive" }>) => void;
   close: () => void;
 };
+
+/** How often a tab says it is still there. See `alive` on {@link ToSite}. */
+export const ALIVE_EVERY_MS = 2_000;
 
 export function joinHandoff(
   id: string,
   onMessage: (message: ToTab) => void,
-  options: { retryMs?: number } = {},
+  options: { retryMs?: number; aliveMs?: number } = {},
 ): TabHandoff {
   const channel = channelOf();
   let answered = false;
@@ -299,10 +309,15 @@ export function joinHandoff(
     if (answered) clearInterval(timer);
     else post({ type: "ready" });
   }, options.retryMs ?? 500);
+  const alive = setInterval(
+    () => post({ type: "alive" }),
+    options.aliveMs ?? ALIVE_EVERY_MS,
+  );
   return {
     report: (message) => post(message),
     close: () => {
       clearInterval(timer);
+      clearInterval(alive);
       channel?.close();
     },
   };
@@ -386,6 +401,7 @@ function asToSite(message: unknown): ToSite | null {
   if (typeof message !== "object" || message === null || !("type" in message))
     return null;
   if (message.type === "ready") return { type: "ready" };
+  if (message.type === "alive") return { type: "alive" };
   if (
     message.type === "phase" &&
     "label" in message &&

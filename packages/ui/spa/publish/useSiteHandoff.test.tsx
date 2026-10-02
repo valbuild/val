@@ -1,7 +1,13 @@
 /** @jest-environment jsdom */
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { joinHandoff } from "./handoff";
-import { LOST_GRACE_MS, useSiteHandoff } from "./useSiteHandoff";
+import {
+  LOST_GRACE_MS,
+  TAB_FIRST_WORD_MS,
+  TAB_GONE_MESSAGE,
+  TAB_SILENT_MS,
+  useSiteHandoff,
+} from "./useSiteHandoff";
 import { RENEW_EVERY_MS } from "./runStudioJob";
 import { BroadcastChannel as NodeBroadcastChannel } from "node:worker_threads";
 
@@ -282,4 +288,96 @@ test("a handed-off publish that fails says why, in content's words", async () =>
     tab.close();
     act(() => result.current.cancel(""));
   }
+});
+
+/*
+ * A tab that goes away -- closed, or suspended by a phone -- before it hands
+ * the job on. The page waited for it for ever: it kept renewing the job's
+ * lease, and the card stayed at "running" with nothing to dismiss, so the
+ * Publish button stayed held and the editor was stuck until they reloaded.
+ * Silence now ends the wait: the lease lapses, the card says what happened,
+ * and the next press publishes.
+ */
+describe("a tab that stops answering", () => {
+  // The channel delivers on the real event loop, so it is waited for in real time.
+  const realSetTimeout = globalThis.setTimeout;
+  const flush = async () => {
+    for (let i = 0; i < 3; i++)
+      await new Promise((resolve) => realSetTimeout(resolve, 5));
+  };
+  beforeEach(() => {
+    jest.useFakeTimers();
+    // A window that opened: the browser did not block it.
+    jest.spyOn(window, "open").mockImplementation((url) => {
+      opened.push(String(url));
+      return window;
+    });
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    opened.length = 0;
+  });
+  const opened: string[] = [];
+
+  test("one that never said a word is given up after the Studio's load time", async () => {
+    const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+    act(() => result.current.prepare(true));
+    expect(result.current.state).toEqual({ kind: "opening" });
+    let running!: Promise<unknown>;
+    act(() => {
+      running = result.current.runJob(job, "site-tab", "r1", renewed);
+    });
+    // Still loading, as far as the page can tell.
+    await act(async () => {
+      jest.advanceTimersByTime(TAB_SILENT_MS + 5_000);
+    });
+    expect(result.current.state).toEqual({ kind: "opening" });
+    await act(async () => {
+      jest.advanceTimersByTime(TAB_FIRST_WORD_MS);
+    });
+    expect(result.current.state).toEqual({
+      kind: "failed",
+      message: TAB_GONE_MESSAGE,
+    });
+    // The job is let go, and nothing holds the Publish button.
+    await expect(running).resolves.toMatchObject({ status: "lost" });
+    expect(result.current.active()).toBe(false);
+  });
+
+  test("one that answered and then went quiet is given up sooner, and one that keeps saying it is alive is not", async () => {
+    const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+    act(() => result.current.prepare(true));
+    const id = new URL(opened[0], "http://site").searchParams.get(
+      "publish-handoff",
+    );
+    let running!: Promise<unknown>;
+    act(() => {
+      running = result.current.runJob(job, "site-tab", "r1", renewed);
+    });
+    const tab = joinHandoff(id ?? "", () => {}, { retryMs: 10 });
+    try {
+      // Alive, for well past the silence limit.
+      for (let s = 0; s < 3 * TAB_SILENT_MS; s += 2_000) {
+        await act(async () => {
+          jest.advanceTimersByTime(2_000);
+          await flush();
+        });
+      }
+      expect(result.current.state?.kind).not.toBe("failed");
+      // Closed without a word.
+      tab.close();
+      await act(async () => {
+        jest.advanceTimersByTime(TAB_SILENT_MS + 4_000);
+        await flush();
+      });
+      expect(result.current.state).toEqual({
+        kind: "failed",
+        message: TAB_GONE_MESSAGE,
+      });
+      await expect(running).resolves.toMatchObject({ status: "lost" });
+    } finally {
+      tab.close();
+      act(() => result.current.cancel(""));
+    }
+  });
 });

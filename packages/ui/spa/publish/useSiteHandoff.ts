@@ -18,6 +18,21 @@ import { RENEW_EVERY_MS, type StudioJobResult } from "./runStudioJob";
 export const LOST_GRACE_MS = 3_000;
 
 /**
+ * How long a tab may be silent before this page stops waiting for it.
+ *
+ * A tab says it is `alive` every 2 s for as long as it is open, so this is
+ * many missed beats, not a slow step. Until its first word it gets longer:
+ * that is the Studio loading, which on a phone is seconds of download.
+ */
+export const TAB_SILENT_MS = 20_000;
+export const TAB_FIRST_WORD_MS = 90_000;
+const WATCH_EVERY_MS = 2_000;
+
+/** What the card says when the tab stopped answering. */
+export const TAB_GONE_MESSAGE =
+  "The Studio tab stopped answering: it was closed, or the phone paused it in the background. Nothing is lost -- press Publish to try again.";
+
+/**
  * The site's side of a publish handed to a Studio tab. See `handoff.ts`.
  *
  * One per provider, like the deploy, so the button that starts it and the card
@@ -83,6 +98,21 @@ export function useSiteHandoff(
   const following = useRef<{ requestId: string | null } | null>(null);
   /** The request the job being run was pressed for. See `runJob`. */
   const pressedFor = useRef<string | null>(null);
+  /**
+   * When the tab last said anything, and whether it ever has. A tab that goes
+   * quiet is gone -- closed, or suspended by a phone -- and a page that
+   * waited for it for ever held the job, and the Publish button, with it: the
+   * card at "running" has nothing to dismiss, so the editor was stuck until
+   * they reloaded. See {@link TAB_SILENT_MS}.
+   */
+  const heard = useRef<{ at: number; any: boolean }>({ at: 0, any: false });
+  /** The browser refused the tab: waiting on the editor's press, not on a tab. */
+  const blocked = useRef(false);
+  const watchdog = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopWatching = useCallback(() => {
+    if (watchdog.current !== null) clearInterval(watchdog.current);
+    watchdog.current = null;
+  }, []);
   /** The job handed to the tab, and who is waiting for the tab's part of it. */
   const waiting = useRef<{
     jobId: string;
@@ -108,9 +138,57 @@ export function useSiteHandoff(
       startedAt.current = Date.now();
       const handoff = openHandoff();
       current.current = handoff;
-      setState(handoff.opened ? { kind: "opening" } : { kind: "blocked" });
+      blocked.current = !handoff.opened;
+      setState(blocked.current ? { kind: "blocked" } : { kind: "opening" });
+      heard.current = { at: Date.now(), any: false };
+      /*
+       * The page's own pauses are not the tab's silence: a phone suspends the
+       * page while the editor is in the builder tab, and the tab's messages
+       * arrive after the page's timers when it resumes. Judged from when the
+       * page was last in front, too.
+       */
+      let resumedAt = Date.now();
+      const onVisible = () => {
+        if (document.visibilityState === "visible") resumedAt = Date.now();
+      };
+      document.addEventListener("visibilitychange", onVisible);
+      stopWatching();
+      const gone = () => {
+        stopWatching();
+        document.removeEventListener("visibilitychange", onVisible);
+        if (current.current !== handoff) return;
+        /*
+         * Stop holding the job: the renewals end with the wait, its lease
+         * lapses, and the next press -- here, or anywhere -- takes it up. The
+         * request is still followed, for a tab that handed it to content just
+         * before it went quiet: a Live after this replaces the card.
+         */
+        following.current =
+          waiting.current !== null ? { requestId: pressedFor.current } : null;
+        settleWaiting("lost");
+        handoff.close();
+        current.current = null;
+        setState({ kind: "failed", message: TAB_GONE_MESSAGE });
+      };
+      watchdog.current = setInterval(() => {
+        if (current.current !== handoff) {
+          stopWatching();
+          document.removeEventListener("visibilitychange", onVisible);
+          return;
+        }
+        // Waiting on the editor's press, not on a tab.
+        if (blocked.current || document.visibilityState === "hidden") return;
+        const silentFor = Date.now() - Math.max(heard.current.at, resumedAt);
+        if (
+          silentFor > (heard.current.any ? TAB_SILENT_MS : TAB_FIRST_WORD_MS)
+        ) {
+          gone();
+        }
+      }, WATCH_EVERY_MS);
       handoff.onMessage((message) => {
         if (current.current !== handoff) return;
+        heard.current = { at: Date.now(), any: true };
+        blocked.current = false;
         if (message.type === "ready") {
           setState((prev) =>
             prev?.kind === "blocked" ? { kind: "opening" } : prev,
@@ -131,6 +209,7 @@ export function useSiteHandoff(
            */
           following.current = { requestId: pressedFor.current };
           setState({ kind: "checking" });
+          stopWatching();
           handoff.close();
           current.current = null;
         } else if (message.type === "done") {
@@ -146,12 +225,13 @@ export function useSiteHandoff(
               : { kind: "live", ms: message.ms },
           );
           settleWaiting("lost");
+          stopWatching();
           handoff.close();
           current.current = null;
         }
       });
     },
-    [enabled, settleWaiting],
+    [enabled, settleWaiting, stopWatching],
   );
 
   const active = useCallback(() => current.current !== null, []);
@@ -225,24 +305,26 @@ export function useSiteHandoff(
 
   const cancel = useCallback(
     (message: string) => {
+      stopWatching();
       current.current?.cancel(message);
       current.current?.close();
       current.current = null;
       settleWaiting("lost");
       setState(null);
     },
-    [settleWaiting],
+    [settleWaiting, stopWatching],
   );
 
   const dismiss = useCallback(() => {
     // A dismissed card is a handoff given up: the job's lease lapses, and
     // its requests go back to the queue for a tab that can build.
+    stopWatching();
     following.current = null;
     current.current?.close();
     current.current = null;
     settleWaiting("lost");
     setState(null);
-  }, [settleWaiting]);
+  }, [settleWaiting, stopWatching]);
 
   const openStudio = useCallback(() => {
     const handoff = current.current;
@@ -251,7 +333,11 @@ export function useSiteHandoff(
       const opened =
         openBuilderWindow(handoff.url, `val-publish-${handoff.id}`) !== null;
       // Blocked again: keep offering the button rather than claiming it opened.
-      if (opened) setState({ kind: "opening" });
+      if (opened) {
+        blocked.current = false;
+        heard.current = { at: Date.now(), any: false };
+        setState({ kind: "opening" });
+      }
       return;
     }
     window.open("/val", "_blank");
