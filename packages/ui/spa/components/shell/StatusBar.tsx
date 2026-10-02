@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { CircleDot, Cloud, GitBranch, Info, Terminal } from "lucide-react";
 import type { StudioDeployState } from "../../publish/useStudioDeploy";
 import { DeployProgress } from "./DeployProgress";
@@ -161,10 +162,49 @@ export function SaveIndicator({
   saveState: SaveState;
   breakpoint?: ShellBreakpoint;
 }) {
+  /*
+   * One width for every state.
+   *
+   * The indicator is the rightmost thing in a right-aligned row, so when its
+   * text changed length everything to its left moved: "Dev mode", the
+   * deployments, the dividers all jumped sideways each time "All changes
+   * saved" became "Saving…" and back. Every label is laid into the same grid
+   * cell, the inactive ones invisible, so the slot is as wide as the widest of
+   * them and only the words inside it change.
+   */
+  return (
+    <span className="inline-grid justify-items-end">
+      {SAVE_STATES.map((state) => (
+        <span
+          key={state}
+          aria-hidden={state !== saveState}
+          className={cn(
+            "col-start-1 row-start-1",
+            state !== saveState && "invisible",
+          )}
+        >
+          <SaveLabel saveState={state} breakpoint={breakpoint} />
+        </span>
+      ))}
+    </span>
+  );
+}
+
+const SAVE_STATES: SaveState[] = ["saved", "saving", "error"];
+
+function SaveLabel({
+  saveState,
+  breakpoint,
+}: {
+  saveState: SaveState;
+  breakpoint?: ShellBreakpoint;
+}) {
   if (saveState === "saving") {
     return (
       <span className="inline-flex items-center gap-1.5">
-        <Cloud size={13} className="text-fg-secondary-alt animate-pulse" />
+        <SaveIcon>
+          <Cloud size={13} className="text-fg-secondary-alt animate-pulse" />
+        </SaveIcon>
         Saving…
       </span>
     );
@@ -172,14 +212,18 @@ export function SaveIndicator({
   if (saveState === "error") {
     return (
       <span className="inline-flex items-center gap-1.5 text-fg-error-on-surface">
-        <CircleDot size={13} />
+        <SaveIcon>
+          <CircleDot size={13} />
+        </SaveIcon>
         Could not save
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="w-1.5 h-1.5 rounded-full bg-bg-brand-secondary" />
+      <SaveIcon>
+        <span className="w-1.5 h-1.5 rounded-full bg-bg-brand-secondary" />
+      </SaveIcon>
       {/*
        * Not "saved locally".
        *
@@ -194,6 +238,18 @@ export function SaveIndicator({
        * a word to a sentence whose subject is already answered.
        */}
       {breakpoint === "tablet" ? "Saved" : "All changes saved"}
+    </span>
+  );
+}
+
+/**
+ * The icon's box, the same size whichever icon is in it — the saved dot is a
+ * quarter of the cloud's width, so without it the words moved too.
+ */
+function SaveIcon({ children }: { children: ReactNode }) {
+  return (
+    <span className="grid size-[13px] shrink-0 place-items-center">
+      {children}
     </span>
   );
 }

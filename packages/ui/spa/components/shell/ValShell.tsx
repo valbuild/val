@@ -6,6 +6,7 @@ import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
 import { CanvasFrame } from "./canvas/CanvasFrame";
 import { canvasFallbackRoute } from "./canvasFallbackRoute";
 import { SaveState } from "./StatusBar";
+import { useSteadySaveState } from "./useSteadySaveState";
 import { PublishState } from "./TopBar";
 import {
   ShellBreakpoint,
@@ -973,7 +974,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * "saving": patches are applied locally first, so the editor is never
    * waiting on a round trip to show your change.
    */
-  const saveState: SaveState = useMemo(() => {
+  const rawSaveState: SaveState = useMemo(() => {
     const hasPatchErrors = Object.values(patchErrors ?? {}).some(
       (forModule) => Object.keys(forModule ?? {}).length > 0,
     );
@@ -982,6 +983,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     }
     return pendingClientSidePatchIds.length > 0 ? "saving" : "saved";
   }, [patchErrors, connectionStatus, pendingClientSidePatchIds]);
+  /** Held through a burst of writes, so typing does not blink the bar. */
+  const saveState = useSteadySaveState(rawSaveState);
 
   const publishState: PublishState = isPublishing ? "publishing" : "idle";
 

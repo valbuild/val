@@ -86,6 +86,23 @@ export function useModuleValidation(
   }, [val, moduleFilePath, version]);
 
   /**
+   * What to DRAW, which is not `result` while the module revalidates.
+   *
+   * Every edit makes its module stale, and drawing stale as "no errors" took
+   * the message off an invalid field for the length of each revalidation — it
+   * blinked out and back in on every pause in typing, and moved everything
+   * below it twice. So the field keeps the errors it had until the next pass
+   * replaces them. `result` still decides whether to ask, below.
+   */
+  const shown = useMemo<ValidationResult>(() => {
+    if (val === null || result.status !== "stale") {
+      return result;
+    }
+    void version;
+    return val.system.validationStore.peekLastKnown(moduleFilePath);
+  }, [val, moduleFilePath, result, version]);
+
+  /**
    * What is read during render, so the subscribe effect can tell whether it
    * missed something. A ref rather than a dependency: it is only ever compared,
    * never rendered from.
@@ -151,7 +168,7 @@ export function useModuleValidation(
     void val.system.validationStore.validate(moduleFilePath);
   }, [val, moduleFilePath, result]);
 
-  return result;
+  return shown;
 }
 
 /**
