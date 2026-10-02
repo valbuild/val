@@ -35,6 +35,7 @@ import { useValPortal } from "../ValPortalProvider";
 import { ModuleMediaPicker } from "../MediaPicker/MediaPicker";
 import { prettyModuleName } from "../MediaPicker/GalleryUploadTarget";
 import { MediaSummaryRow } from "./MediaSummaryRow";
+import { RenameFileButton } from "./RenameFileButton";
 import { cn } from "../designSystem/cn";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
 
@@ -382,6 +383,24 @@ export function FileField({
                   <Upload className="mr-1.5 h-3.5 w-3.5" />
                   {source ? "Replace" : "Choose asset"}
                 </Button>
+              )}
+              {source && filename && !readonly && (
+                <RenameFileButton
+                  path={path}
+                  filePath={source.path}
+                  filename={filename}
+                  metadata={
+                    typeof source.mimeType === "string"
+                      ? { mimeType: source.mimeType }
+                      : undefined
+                  }
+                  fileType="file"
+                  referencedModule={
+                    referencedModule as ModuleFilePath | undefined
+                  }
+                  disabled={loading}
+                  portalContainer={portalContainer}
+                />
               )}
               {source && (
                 <a

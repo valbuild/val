@@ -553,11 +553,29 @@ export function useAddPatch(
     },
     [moduleFilePath, writePatch],
   );
+  /**
+   * Write `patch` to any module and wait for the answer, file ops included.
+   *
+   * For a write that has to know it landed before it makes the next one: a
+   * rename writes the gallery entry, and only once that has succeeded rewrites
+   * the fields pointing at it — a referrer must never get ahead of the entry it
+   * names. `addModuleFilePatch` cannot say, and `addAndUploadPatchWithFileOps`
+   * is bound to this hook's own module.
+   */
+  const writeModulePatch = useCallback(
+    (
+      target: ModuleFilePath,
+      patch: Patch,
+      options?: { fileType?: "image" | "file"; onProgress?: UploadProgress },
+    ) => writePatch(target, patch, options?.onProgress, options?.fileType),
+    [writePatch],
+  );
   return {
     patchPath,
     addPatch,
     addAndUploadPatchWithFileOps,
     addModuleFilePatch,
+    writeModulePatch,
   };
 }
 

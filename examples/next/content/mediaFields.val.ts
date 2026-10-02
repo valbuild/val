@@ -35,6 +35,17 @@ export default c.define(
     /** The file counterpart. `s.file()` has no `directory` option. */
     file: s.file().nullable(),
     /**
+     * Rich text whose inline images come from the gallery.
+     *
+     * The one referrer of a gallery file that is not an image FIELD: its
+     * images are `img` nodes inside the text, so a scan that only looks for
+     * image leaves walks past them — and a rename or delete of the gallery
+     * entry then leaves the text pointing at a file that is gone.
+     */
+    richTextFromGallery: s
+      .richtext({ img: s.image(mediaGalleryVal) })
+      .nullable(),
+    /**
      * Media inside a UNION, which is where fields are hardest: the branch is
      * chosen by a discriminator, so the image field mounts and unmounts as the
      * branch changes — and a field that mounts with no value is exactly the
@@ -58,6 +69,7 @@ export default c.define(
     imageInSubdir: null,
     fromGallery: null,
     file: null,
+    richTextFromGallery: null,
     sections: [],
   },
 );

@@ -17,6 +17,7 @@ import { FilePropertiesModal } from "./FilePropertiesModal";
 import { useValPortal } from "../ValPortalProvider";
 import type {
   FileGalleryProps,
+  GalleryFile,
   SortDirection,
   SortField,
   ViewMode,
@@ -44,13 +45,19 @@ export function FileGallery({
 }: FileGalleryProps) {
   const navigation = useNavigation();
   const portalContainer = useValPortal();
-  const [selectedIndex, setSelectedIndex] = React.useState<number | null>(null);
+  /**
+   * The open file, by REF rather than by position.
+   *
+   * A rename is a `move` of the record entry, which puts it LAST — so an index
+   * held across one would open the properties of a different file the moment
+   * the patch applied. The ref is what the editor picked.
+   */
+  const [selectedRef, setSelectedRef] = React.useState<string | null>(null);
   const [isPropertiesOpen, setIsPropertiesOpen] = React.useState(false);
   React.useEffect(() => {
     if (defaultOpenFileRef) {
-      const index = files.findIndex((f) => f.ref === defaultOpenFileRef);
-      if (index !== -1) {
-        setSelectedIndex(index);
+      if (files.some((f) => f.ref === defaultOpenFileRef)) {
+        setSelectedRef(defaultOpenFileRef);
         setIsPropertiesOpen(true);
       }
     }
@@ -119,13 +126,66 @@ export function FileGallery({
     }
   };
 
+  /**
+   * Whether a rename is in flight, and what was open when it started.
+   *
+   * The rename's `move` lands BEFORE the rename resolves — the referrers are
+   * written after it, and the upload's cleanup after that — so for a moment the
+   * open ref names nothing. Without this the dialog unmounted in that gap,
+   * taking the busy input and any message the rename came back with along with
+   * it. So the file that was open stays open until the result says where it
+   * went. Its index is stale meanwhile, which is why the dialog is `disabled`
+   * for as long as this is set.
+   */
+  const [renaming, setRenaming] = React.useState<{
+    file: GalleryFile;
+    index: number;
+  } | null>(null);
+  const selectedIndexOrMinusOne =
+    selectedRef === null ? -1 : files.findIndex((f) => f.ref === selectedRef);
+  const foundIndex =
+    selectedIndexOrMinusOne === -1 ? null : selectedIndexOrMinusOne;
+  const selectedIndex =
+    foundIndex ?? (renaming !== null ? renaming.index : null);
   const selectedFile =
-    selectedIndex !== null ? (files[selectedIndex] ?? null) : null;
+    foundIndex !== null
+      ? (files[foundIndex] ?? null)
+      : (renaming?.file ?? null);
+
+  const handleFileRename = React.useMemo(() => {
+    if (!onFileRename) return undefined;
+    return (index: number, newFilename: string, newBase: string) => {
+      const file = files[index];
+      const result = onFileRename(index, newFilename, newBase);
+      if (result === undefined) return undefined;
+      if (file) {
+        setRenaming({ file, index });
+      }
+      return result.then((res) => {
+        setRenaming(null);
+        if (res.status === "ok" || res.status === "partial") {
+          // Follow the file to its new name: the old ref is gone, and so is
+          // the URL that named it.
+          setSelectedRef(res.newRef);
+          if (parentPath) {
+            const childPath = Internal.createValPathOfItem(
+              parentPath as SourcePath,
+              res.newRef,
+            );
+            if (childPath) {
+              navigation.navigate(childPath, { replace: true });
+            }
+          }
+        }
+        return res;
+      });
+    };
+  }, [onFileRename, parentPath, navigation, files]);
 
   const handleItemClick = (filteredIndex: number) => {
     const originalIndex = getOriginalIndex(filteredIndex);
     if (originalIndex === -1) return;
-    setSelectedIndex(originalIndex);
+    setSelectedRef(files[originalIndex].ref);
     setIsPropertiesOpen(true);
     if (parentPath) {
       const sourcePath = parentPath as SourcePath;
@@ -313,17 +373,17 @@ export function FileGallery({
         onOpenChange={(open) => {
           setIsPropertiesOpen(open);
           if (!open && parentPath) {
-            setSelectedIndex(null);
+            setSelectedRef(null);
             navigation.navigate(parentPath as SourcePath);
           }
         }}
-        onFileRename={onFileRename}
+        onFileRename={handleFileRename}
         onAltTextChange={onAltTextChange}
         onFileDelete={onFileDelete}
         parentPath={parentPath}
         imageMode={imageMode}
         loading={loading}
-        disabled={disabled}
+        disabled={disabled || renaming !== null}
         container={portalContainer}
       />
     </div>

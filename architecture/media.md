@@ -258,6 +258,76 @@ So: **`/files` open because it must be and can afford to be; `/history/files`
 closed because it can be and should be.** Before changing either, check which of
 those two properties you are relying on.
 
+## Renaming a file
+
+The Studio renames from two places: a gallery's file properties (the pencil
+next to the name) and the **Rename** button of a standalone `s.image()` /
+`s.file()` field. A gallery-backed field does not rename its file — the file is
+shared with every other field that picked it — and its Rename sends you to the
+gallery instead. The rules live in `packages/ui/spa/utils/renameMediaFile.ts`;
+`useRenameMediaFile` is the part that talks to the stores.
+
+**Only the base name changes.** The `_a1b2c` hash suffix and the extension are
+locked (`Internal.createRenamedFilename`, which shares its cleaning with
+`createFilename`, so renaming a file to the name it was uploaded with gives back
+the name it has). The hash keeps two different files from sharing a name; the
+extension is part of a remote file's validation hash and of how its bytes are
+served. An existing suffix is kept as it is, even one that does not match the
+bytes — locked has to mean kept. A hand-placed file with no suffix gets one from
+its content hash, the way an upload would.
+
+**Where the bytes are decides what moves**, and this is the part to get right:
+
+| file                      | what a rename writes                                                                                                                |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| local, published or draft | bytes fetched back from the URL the Studio shows, re-uploaded at the new path, and a `file` op with `null` that deletes the old one |
+| remote, published         | a new ref and nothing else — no upload, no delete                                                                                   |
+| remote, draft             | the bytes re-uploaded under the new ref, no delete                                                                                  |
+
+Remote is that cheap because the content host stores bytes by hash
+(`b/{bucket}/f/{hash}.{ext}`) and serves `…/f/{hash}/p/{path}` by hash and
+extension alone (`remoteFileRoutes.ts` in `valbuild/home`): the path in a ref is
+a label. A DRAFT still has to be re-uploaded, because the Studio finds its bytes
+by the exact ref they were uploaded under (`filePatchIds`), so a new ref would
+find nothing until publish. Publishing then PUTs the same hash twice; the second
+gets a 409, which `uploadRemoteFile` counts as success.
+
+The old local file is always deleted. A rename that left it would be a copy, and
+the only way to clean up after one would be by hand — including for a
+standalone field whose file some other standalone field happens to share,
+which then has to be re-picked.
+
+**A gallery rename rewrites every referrer, and only after the gallery patch has
+landed** — a field must never name an entry before it exists. Referrers are
+gallery-backed `s.image()` / `s.file()` fields AND the inline images of an
+`s.richtext({ img: s.image(gallery) })`, which every reference scan
+(`getFileReferrers`, `ReferenceStore`, `jsonValuesLoadRequirements`) now walks:
+a scan that only looked for image fields walked straight past them, so a
+gallery image used in rich text could also be deleted out from under it. Like
+every rename, it refuses to run on a scan that cannot be complete
+(`loadForReferenceScan`).
+
+Two shapes from elsewhere in this file show up here:
+
+- **A local key with remote bytes.** An upload through an
+  `s.image(remoteGallery)` FIELD keys the gallery entry by the local path inside
+  the ref, where an upload in the gallery keys it by the ref. `galleryKeyOf`
+  resolves a referrer's path against the gallery's KEY SET, exact key first and
+  the embedded path only when there is none — a gallery can hold both shapes
+  for one file, and matching both would rename a field into the wrong entry.
+  The rename treats such an entry as the remote file it is, per REFERRER: one
+  entry can be named by several refs (the same file before and after the
+  validation hash moved), so each draft ref is moved under its own new ref, and
+  the rename is refused if any rewritten ref would resolve to a different entry.
+- **A referrer with its own `patch_id`** (it uploaded the draft itself). The app
+  reads a draft's URL off the field's own `patch_id`, never the gallery's, so
+  that referrer's patch carries a `file` op too, for the server to stamp the new
+  id on it.
+
+A rename is a `move` of the record entry, which puts it last; `FileGallery`
+therefore tracks the open file by ref, not by index, and follows it to the new
+name.
+
 ## Nav placement
 
 A collection is deliberately **not** an Explorer file. `collectMediaModules`
@@ -287,11 +357,13 @@ _committed_ entry so "can I see what is already there" is covered by the repo:
 - `mediaFixtures.val.ts` — `s.imageset({ dir: "/public/test/subdir" })`
 - `fileGallery.val.ts` — `s.fileset({ dir: "/public/test/files" })`
 - `mediaFields.val.ts` — `s.image()`, `s.image({ dir })`,
-  `s.image(gallery)`, `s.file()`, and the same inside a union. Also the fixture
+  `s.image(gallery)`, `s.file()`, rich text whose images come from the gallery,
+  and the same inside a union. Also the fixture
   the language server's media-path completion tests open as an unsaved buffer:
   those completions are schema-driven now, so they need a module `val.modules`
   actually registers.
 
-`e2e/media.spec.ts` drives all of them. The fixture images are real 8×8
+`e2e/media.spec.ts` drives all of them, and `e2e/renameMedia.spec.ts` renames
+in the gallery and in a field. The fixture images are real 8×8
 solid-colour PNGs (74 bytes) rather than 1×1 transparent ones, so a broken tile is
 visibly broken.

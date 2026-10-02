@@ -231,6 +231,38 @@ describe("jsonValuesLoadRequirements", () => {
     ).toEqual([]);
   });
 
+  test("rich text with gallery images counts as a file ref", () => {
+    const gallery = c.define(GALLERY, s.imageset({ dir: "/public/val" }), {});
+    const fromGallery = getSchemas([
+      gallery,
+      c.define(
+        PAGES,
+        s
+          .record(s.object({ body: s.richtext({ img: s.image(gallery) }) }))
+          .jsonValues(),
+        {},
+      ),
+    ]);
+    expect(
+      jsonValuesLoadRequirements(fromGallery, {
+        kind: "file",
+        module: GALLERY,
+      }),
+    ).toEqual([PAGES]);
+    // Images that are not from a gallery point at nothing to load for.
+    const standalone = getSchemas([
+      gallery,
+      c.define(
+        PAGES,
+        s.record(s.object({ body: s.richtext({ img: true }) })).jsonValues(),
+        {},
+      ),
+    ]);
+    expect(
+      jsonValuesLoadRequirements(standalone, { kind: "file", module: GALLERY }),
+    ).toEqual([]);
+  });
+
   test("route is an over-approximation: ANY route field counts", () => {
     // `s.route()` records no target module, so we cannot tell which router a
     // field points into and must load every jsonValues record that has one.

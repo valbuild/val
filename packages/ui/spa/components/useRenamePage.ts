@@ -7,6 +7,7 @@ import { useRenameRecordEntry } from "./useRenameRecordEntry";
 import { jsonValuesLoadRequirements } from "./jsonValuesLoadRequirements";
 import { getKeysOf } from "./getKeysOf";
 import { getRouteReferences } from "./getRouteReferences";
+import { loadForReferenceScan } from "./loadForReferenceScan";
 
 /**
  * Change a page's URL, rewrite what pointed at the old one, and open it there.
@@ -83,42 +84,18 @@ export function useRenamePage(): (
       );
       const sourceStore = val.system.sourceStore;
       void (async () => {
-        if (required.length > 0) {
-          await Promise.all(
-            required.map((required) => sourceStore.loadAllEntries(required)),
-          );
-          let status = sourceStore.entriesStatus(required);
-          if (status.status === "error") {
-            /*
-             * One retry, because a failure is otherwise permanent.
-             *
-             * `loadAllEntries` records a failed entry and every later load
-             * SKIPS it - deliberately, so that a broken entry is not a fetch
-             * loop. `retryEntry` is the one door back in, so without this a
-             * single failed fetch would refuse every rename in the project for
-             * the rest of the session, with nothing the editor could do about
-             * it but reload the page.
-             */
-            await Promise.all(
-              status.errors.map((failed) =>
-                sourceStore.retryEntry(failed.moduleFilePath, failed.key),
-              ),
-            );
-            status = sourceStore.entriesStatus(required);
-          }
-          if (status.status !== "complete") {
-            // Renaming now would rewrite only the referrers that happen to be
-            // loaded and leave the rest pointing at a URL that is about to stop
-            // existing. Refuse, visibly: this is a failure of the rename, not a
-            // slow load.
-            reportError(
-              "Could not rename page",
-              status.status === "error"
-                ? `Content that could link to this page failed to load: ${status.errors[0]?.message ?? "unknown error"}`
-                : "Content that could link to this page could not be loaded.",
-            );
-            return;
-          }
+        const loaded = await loadForReferenceScan(
+          sourceStore,
+          required,
+          "link to this page",
+        );
+        if (loaded.status === "error") {
+          // Renaming now would rewrite only the referrers that happen to be
+          // loaded and leave the rest pointing at a URL that is about to stop
+          // existing. Refuse, visibly: this is a failure of the rename, not a
+          // slow load.
+          reportError("Could not rename page", loaded.message);
+          return;
         }
         const sources = sourceStore.allSources();
         const refs: SourcePath[] = [];

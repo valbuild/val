@@ -30,10 +30,30 @@ export type ViewMode = "masonry" | "grid" | "list";
 export type SortField = "name" | "description" | "type";
 export type SortDirection = "asc" | "desc";
 
+/**
+ * How a rename went. `newRef` is the file's ref afterwards, which the gallery
+ * needs to keep the renamed file open: the old ref no longer exists.
+ */
+export type FileRenameResult =
+  | { status: "ok"; newRef: string }
+  /** Renamed, with something left to report — the file is at `newRef`. */
+  | { status: "partial"; newRef: string; message: string }
+  | { status: "unchanged" }
+  | { status: "error"; message: string };
+
 export interface FileGalleryProps {
   files: GalleryFile[];
   parentPath?: string;
-  onFileRename?: (index: number, newFilename: string) => void;
+  /**
+   * `newBase` is the part the editor typed, handed over on its own: the
+   * filename is base + locked suffix, and re-splitting it is ambiguous for a
+   * file with no extension, whose base can contain a dot.
+   */
+  onFileRename?: (
+    index: number,
+    newFilename: string,
+    newBase: string,
+  ) => void | Promise<FileRenameResult>;
   onAltTextChange?: (index: number, newAltText: string) => void;
   onFileDelete?: (index: number) => void;
   className?: string;

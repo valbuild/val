@@ -11,7 +11,7 @@ import { cn } from "../designSystem/cn";
 import { Input } from "../designSystem/input";
 import { FilePreview } from "./FilePreview";
 import { FilenameInput } from "./FilenameInput";
-import type { GalleryFile } from "./types";
+import type { FileGalleryProps, GalleryFile } from "./types";
 import { FieldValidationError } from "../FieldValidationError";
 import { FieldPatchAuthors } from "../FieldPatchAuthors";
 import { useReferencedFiles } from "../useReferencedFiles";
@@ -34,7 +34,7 @@ interface FilePropertiesModalProps {
   fileIndex: number | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onFileRename?: (index: number, newFilename: string) => void;
+  onFileRename?: FileGalleryProps["onFileRename"];
   onAltTextChange?: (index: number, newAltText: string) => void;
   onFileDelete?: (index: number) => void;
   parentPath?: string;
@@ -72,8 +72,14 @@ export function FilePropertiesModal({
 
   if (!file || fileIndex === null) return null;
 
-  const handleFilenameChange = (newFilename: string) => {
-    onFileRename?.(fileIndex, newFilename);
+  const handleFilenameChange = (newFilename: string, newBase: string) => {
+    const result = onFileRename?.(fileIndex, newFilename, newBase);
+    if (result === undefined) {
+      return;
+    }
+    return result.then((res) =>
+      res.status === "error" || res.status === "partial" ? res.message : null,
+    );
   };
 
   const isImage = file.metadata.mimeType.startsWith("image/");
@@ -104,8 +110,16 @@ export function FilePropertiesModal({
                 <FilenameInput
                   filename={file.filename}
                   onSave={handleFilenameChange}
-                  disabled={disabled || loading}
+                  // A rename rewrites every field naming the file, so it waits
+                  // for the same complete scan a delete does.
+                  disabled={disabled || loading || !referencesChecked}
                 />
+                {refs.length > 0 && (
+                  <p className="px-2 text-[0.6875rem] text-fg-secondary-alt">
+                    Renaming updates the {refs.length}{" "}
+                    {refs.length === 1 ? "place" : "places"} using it.
+                  </p>
+                )}
               </div>
             )}
 

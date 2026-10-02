@@ -33,6 +33,7 @@ import type { ReadImageEncode } from "../../utils/readImage";
 import { useImageUpload } from "./useImageUpload";
 import { Section } from "./MediaSummaryRow";
 import { ImageCard } from "./ImageCard";
+import { RenameFileButton } from "./RenameFileButton";
 import { MediaThumbnail, mayBeTransparent } from "../MediaThumbnail";
 import { useMediaUrl } from "../../utils/mediaUrl";
 import { isJsonArray } from "../../utils/isJsonArray";
@@ -459,6 +460,38 @@ export function ImageField({
        * REPLACING — an empty field has nothing to remove — which is
        * exactly when it looks like the removal was ignored.
        */}
+      {/*
+       * Renaming changes which file the field names, so it is offered where
+       * choosing one is — never in a compare view (`hideUpload`) — and waits
+       * for an upload in flight for the same reason Remove does.
+       *
+       * Only once there is a `url`. Until then the card is in its EMPTY
+       * layout, and the URL arriving swaps it for the filled one — which
+       * remounts these actions, so a rename opened in between closed under
+       * the editor's cursor.
+       */}
+      {!hideUpload && source && fileName && url && !readonly && (
+        <RenameFileButton
+          path={path}
+          filePath={source.path}
+          filename={fileName}
+          metadata={
+            typeof source.mimeType === "string" &&
+            typeof source.width === "number" &&
+            typeof source.height === "number"
+              ? {
+                  mimeType: source.mimeType,
+                  width: source.width,
+                  height: source.height,
+                }
+              : undefined
+          }
+          fileType="image"
+          referencedModule={referencedModuleFilePath}
+          disabled={loading}
+          portalContainer={portalContainer}
+        />
+      )}
       {schemaAtPath.data.opt && source && !readonly && (
         <Button
           variant="ghost"

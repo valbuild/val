@@ -137,6 +137,13 @@ function containsReferrer(
       return query.kind === "file" && schema.referencedModule === query.module;
     case "route":
       return query.kind === "route";
+    case "richtext":
+      // An inline image whose schema is gallery-backed points into that gallery.
+      return (
+        query.kind === "file" &&
+        typeof schema.options?.img === "object" &&
+        schema.options.img.referencedModule === query.module
+      );
     // A locale is a value, not a reference: it points at the settings module,
     // which is never a `.jsonValues()` record.
     case "locale":
@@ -161,7 +168,6 @@ function containsReferrer(
     case "dateTime":
     case "color":
     case "code":
-    case "richtext":
       return false;
     default: {
       const exhaustiveCheck: never = schema;
