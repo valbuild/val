@@ -86,6 +86,10 @@ type Report = {
   uploadedLayerRev: string | null;
   /** Whether the source artifact holds the project's own route file. */
   sourceHasRoute: boolean;
+  /** Whether the source artifact holds a stylesheet -- it must not. */
+  sourceHasStylesheet: boolean;
+  /** Whether the stylesheet was compiled into the site's CSS all the same. */
+  cssHasRule: boolean;
   /** Whether the client build carries the page's text. */
   clientHasPage: boolean;
   /** Whether the imported image reached the build, inlined. */
@@ -183,6 +187,14 @@ async function publishOnce(
       ? "src/routes/index.tsx" in
         (JSON.parse(source.toString("utf8")) as Record<string, string>)
       : false,
+    sourceHasStylesheet: source
+      ? Object.keys(
+          JSON.parse(source.toString("utf8")) as Record<string, string>,
+        ).some((key) => key.endsWith(".css"))
+      : false,
+    cssHasRule: (fake.stored.get("css")?.toString("utf8") ?? "").includes(
+      "rebeccapurple",
+    ),
     clientHasPage: clientText.includes("hello from the checkout"),
     clientHasLogo: clientText.includes(
       `data:image/png;base64,${LOGO.toString("base64")}`,

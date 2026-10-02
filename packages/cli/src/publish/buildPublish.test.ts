@@ -29,6 +29,8 @@ type Run = {
   buildTargetCalls: number;
   uploadedLayerRev: string | null;
   sourceHasRoute: boolean;
+  sourceHasStylesheet: boolean;
+  cssHasRule: boolean;
   clientHasPage: boolean;
   clientHasLogo: boolean;
   buildRouteBuilt: boolean;
@@ -74,6 +76,14 @@ test("asks content what to build against, and publishes what it built", () => {
 
 test("the stored source is the project's own files", () => {
   expect(probe.fresh.sourceHasRoute).toBe(true);
+});
+
+test("a stylesheet is built, and not stored as source", () => {
+  // The Studio builds from the stored source, in a browser that cannot run a
+  // Tailwind `@plugin`; a stored stylesheet failed every Studio publish after
+  // the first. Without one it ships the live site's CSS, compiled here.
+  expect(probe.fresh.cssHasRule).toBe(true);
+  expect(probe.fresh.sourceHasStylesheet).toBe(false);
 });
 
 test("an image the project imports reaches the build", () => {
