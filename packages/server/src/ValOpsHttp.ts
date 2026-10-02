@@ -549,6 +549,15 @@ export class ValOpsHttp extends ValOps {
     if (this.git !== null) {
       return null;
     }
+    /*
+     * Content runs this project's publishes as jobs, and its prepare decides
+     * what the push goes on top of -- including for a site that was never
+     * built from a commit (a project `/new` made, before its first CI build).
+     * Refusing here would refuse what content can answer.
+     */
+    if (this.publishesAsJobs()) {
+      return null;
+    }
     if (this.projectExpectation?.sourceMode !== "connected") {
       return null;
     }
@@ -792,6 +801,8 @@ export class ValOpsHttp extends ValOps {
       modules: PreparedCommit["moduleVersions"];
       /** Connected: the git commit this deployment was built from. */
       gitCommit?: string;
+      /** Connected: the tab can build this job (the deployment embeds its source). */
+      tabBuilds?: true;
     },
   ): Promise<{ status: number; body: string; contentType: string }> {
     if (!/^[A-Za-z0-9_-]{1,100}$/.test(jobId)) {

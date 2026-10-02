@@ -53,6 +53,12 @@ export async function runStudioJob(options: {
   ) => Promise<StudioDeployResult>;
   onPhase: (phase: JobPhase) => void;
   renewEveryMs?: number;
+  /**
+   * Can this tab build at all? Connected only: a tab that cannot (no
+   * cross-origin isolation) reports "no build", and CI builds the push. A
+   * managed job never reaches a tab that cannot -- it is handed to one that can.
+   */
+  canBuild?: () => boolean;
 }): Promise<StudioJobResult> {
   const { client, job, tab, onPhase } = options;
   let lost = false;
@@ -93,6 +99,23 @@ export async function runStudioJob(options: {
       return { status: "handed-off", jobId: job.id, built: false };
     }
     if (prepared.job.step !== "build") return lostResult;
+
+    /*
+     * Connected, and nothing to build here: the server embeds no source, or
+     * this tab cannot run the builder. Said, not attempted -- content seals
+     * the job without a build, and CI builds the push.
+     */
+    if (!prepared.buildable || !(options.canBuild?.() ?? true)) {
+      onPhase({ kind: "handing-off" });
+      const handed = await client.step(job.id, {
+        tab,
+        step: "build",
+        ok: true,
+        noBuild: true,
+      });
+      if (lost || handed === null || handed.step !== null) return lostResult;
+      return { status: "handed-off", jobId: job.id, built: false };
+    }
 
     const deployed = await options.deploy(prepared, (phase) =>
       onPhase({ kind: "deploying", phase }),

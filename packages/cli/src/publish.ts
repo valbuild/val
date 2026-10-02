@@ -59,6 +59,11 @@ export async function publish(options: {
       }
       return;
     }
+    case "superseded": {
+      // Content's sentence says it all: a newer publish is live and has this.
+      console.log(pc.green("✅ ") + result.message);
+      return;
+    }
     case "failed": {
       error(result.message);
       for (const problem of result.problems) {

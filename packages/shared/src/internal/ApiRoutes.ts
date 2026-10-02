@@ -1414,6 +1414,13 @@ export const Api = {
             binaryFilesUnread: z.array(z.string()),
             /** The branch the job publishes to. */
             branch: z.string().nullable(),
+            /**
+             * Can the tab build the job from `sourceFiles`? False for a
+             * connected deployment that embeds no source: the tab reports
+             * "no build", and CI builds the push. Absent from older servers,
+             * which only answered buildable jobs.
+             */
+            buildable: z.boolean().optional(),
           }),
         }),
       ]),

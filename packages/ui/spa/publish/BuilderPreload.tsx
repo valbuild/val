@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useStudioIsDeployer } from "../components/ValProvider";
+import { useStudioBuildsInTab } from "../components/ValProvider";
 import { preloadBuilder } from "./loadBuilder";
 
 /**
@@ -20,23 +20,23 @@ import { preloadBuilder } from "./loadBuilder";
  *
  * ## The one gate there IS, and why it is not "no gating"
  *
- * Only a MANAGED project builds in the browser. In `fs` mode a dev server
- * rebuilds, and a connected project's commit is picked up by a host; neither
- * will ever call the builder, so downloading it there is 10.9 MB spent on
- * nothing. `useStudioIsDeployer` is the same question the deploy feed asks, and
- * reads an unreported source mode as connected for the same reason.
+ * Only a project whose publishes the tab builds: a managed one, and a
+ * connected one content runs as jobs (`useStudioBuildsInTab`). In `fs` mode a
+ * dev server rebuilds, and a connected project on a host of its own is built
+ * there; neither will ever call the builder, so downloading it there is
+ * 10.9 MB spent on nothing.
  *
  * The plan for this chunk says "preload always, at mount". This is that, for
  * every Studio the sentence was about; the sentence's own next section is what
  * says the behaviour is per source mode.
  */
 export function BuilderPreload(): null {
-  const studioIsDeployer = useStudioIsDeployer();
+  const buildsInTab = useStudioBuildsInTab();
   useEffect(() => {
-    if (!studioIsDeployer) {
+    if (!buildsInTab) {
       return;
     }
     preloadBuilder();
-  }, [studioIsDeployer]);
+  }, [buildsInTab]);
   return null;
 }

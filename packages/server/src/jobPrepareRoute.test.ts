@@ -33,6 +33,8 @@ function setup(options: {
   patches: Array<{ patchId: string; applied?: string }>;
   /** What content answers the prepare with. */
   prepare?: { status: number; body: unknown };
+  /** Connected: does this deployment embed its source (a build of the tanstack wire does)? */
+  embedsSource?: boolean;
 }) {
   const { c, s, config } = initVal({ project: "acme/site" });
   const route = "/api/val";
@@ -125,7 +127,13 @@ function setup(options: {
         disableCache: true,
         versions: { core: "1.0.0", next: "1.0.0" },
         ...(options.mode === "connected"
-          ? { gitCommit: "deployed-sha", gitBranch: "main" }
+          ? {
+              gitCommit: "deployed-sha",
+              gitBranch: "main",
+              ...(options.embedsSource
+                ? { projectSource: { [PAGE.slice(1)]: PAGE_SOURCE } }
+                : {}),
+            }
           : { projectSource: { [PAGE.slice(1)]: PAGE_SOURCE } }),
       },
       config,
@@ -258,6 +266,47 @@ describe.each<Mode>(["managed", "connected"])("%s", (mode) => {
     try {
       const res = await prepare(handler, [PATCH_A]);
       expect(res.status).toBe(502);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("connected: the tab builds too", () => {
+  test("a deployment that embeds its source answers buildable, with the job's content to build", async () => {
+    const { handler, calls, restore } = setup({
+      mode: "connected",
+      patches: [{ patchId: PATCH_A }],
+      embedsSource: true,
+    });
+    try {
+      const res = await prepare(handler, [PATCH_A]);
+      expect(res.status).toBe(200);
+      // Content is told, so it waits for this tab's build.
+      expect(prepareCalls(calls)[0]?.body).toMatchObject({ tabBuilds: true });
+      const json = (res as { json: Record<string, unknown> }).json;
+      expect(json["buildable"]).toBe(true);
+      const sources = json["sourceFiles"] as Record<string, string | null>;
+      expect(Object.values(sources).join("")).toContain(`v-${PATCH_A}`);
+    } finally {
+      restore();
+    }
+  });
+
+  test("one that embeds none answers unbuildable: the tab says so, and CI builds the push", async () => {
+    const { handler, calls, restore } = setup({
+      mode: "connected",
+      patches: [{ patchId: PATCH_A }],
+    });
+    try {
+      const res = await prepare(handler, [PATCH_A]);
+      expect(res.status).toBe(200);
+      const json = (res as { json: Record<string, unknown> }).json;
+      expect(json["buildable"]).toBe(false);
+      expect(json["sourceFiles"]).toEqual({});
+      // Content still gets the push's prepare -- and is not told to wait.
+      expect(prepareCalls(calls)).toHaveLength(1);
+      expect(prepareCalls(calls)[0]?.body).not.toHaveProperty("tabBuilds");
     } finally {
       restore();
     }
