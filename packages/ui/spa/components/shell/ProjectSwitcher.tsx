@@ -43,8 +43,35 @@ export function ProjectSwitcher({
   /** For tests: the real one adds a `<script>` to the page. */
   loadScript?: (src: string) => Promise<void>;
 }) {
+  const ref = useValWebComponent(
+    `${webComponentsUrl}/project-switcher.js`,
+    loadScript,
+  );
+
+  return (
+    <val-project-switcher
+      ref={ref}
+      className="min-w-0"
+      project={projectName}
+      api-base="/api/val/admin/proxy"
+      admin-url={projectHref}
+      layout={breakpoint === "mobile" ? "sheet" : "popover"}
+      mode={studioMode}
+    >
+      {children}
+    </val-project-switcher>
+  );
+}
+
+/**
+ * What every Val Build web component needs from the Studio: its script,
+ * loaded once, and an answer to `val-sign-in`. The ref goes on the element.
+ */
+export function useValWebComponent(
+  src: string,
+  loadScript: (src: string) => Promise<void> = loadWebComponentScript,
+) {
   const ref = useRef<HTMLElement>(null);
-  const src = `${webComponentsUrl}/project-switcher.js`;
 
   useEffect(() => {
     loadScript(src).catch(() => {
@@ -68,19 +95,7 @@ export function ProjectSwitcher({
     return () => element.removeEventListener("val-sign-in", onSignIn);
   }, []);
 
-  return (
-    <val-project-switcher
-      ref={ref}
-      className="min-w-0"
-      project={projectName}
-      api-base="/api/val/admin/proxy"
-      admin-url={projectHref}
-      layout={breakpoint === "mobile" ? "sheet" : "popover"}
-      mode={studioMode}
-    >
-      {children}
-    </val-project-switcher>
-  );
+  return ref;
 }
 
 const scripts = new Map<string, Promise<void>>();

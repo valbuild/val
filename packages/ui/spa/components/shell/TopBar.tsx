@@ -26,6 +26,7 @@ import { ShellBreakpoint, ShellLogo, ShellPanel } from "./types";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 import { LocaleFilter } from "./LocaleFilter";
 import { ProjectSwitcher } from "./ProjectSwitcher";
+import { MembersShare, orgOfProject } from "./MembersShare";
 
 export type TopBarProps = {
   breakpoint: ShellBreakpoint;
@@ -41,6 +42,12 @@ export type TopBarProps = {
    * plain name as its fallback — see `ProjectSwitcher`.
    */
   webComponentsUrl?: string;
+  /**
+   * The organization's members page in Val Build. With it (and a
+   * `webComponentsUrl`) the bar gets Val Build's Share button — see
+   * `MembersShare`.
+   */
+  membersHref?: string;
   /** See `ShellData.studioMode`. */
   studioMode?: "fs" | "http";
   openPanel: ShellPanel | null;
@@ -164,6 +171,7 @@ export function TopBar({
   projectName,
   projectHref,
   webComponentsUrl,
+  membersHref,
   studioMode,
   openPanel,
   onTogglePanel,
@@ -194,6 +202,7 @@ export function TopBar({
 }: TopBarProps) {
   const isMobile = breakpoint === "mobile";
   const isDesktop = breakpoint === "desktop";
+  const org = orgOfProject(projectName);
   return (
     <header
       className={cn(
@@ -281,6 +290,22 @@ export function TopBar({
             <BarDivider />
           </>
         )}
+        {/*
+         * Who else is here, and a way to bring more people in: first of the
+         * things about the project rather than the change, and on a phone the
+         * one of them that stays in the top bar.
+         */}
+        {org !== null &&
+          membersHref !== undefined &&
+          webComponentsUrl !== undefined && (
+            <MembersShare
+              org={org}
+              membersHref={membersHref}
+              webComponentsUrl={webComponentsUrl}
+              studioMode={studioMode}
+              breakpoint={breakpoint}
+            />
+          )}
         {historyEnabled && (
           <IconButton
             label="History"

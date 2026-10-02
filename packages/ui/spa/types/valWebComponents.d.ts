@@ -26,6 +26,18 @@ declare module "react" {
         /** `fs` locally, `http` deployed: what "sign in again" means. */
         mode?: "fs" | "http";
       }>;
+      "val-members": CustomElementProps<{
+        /** The organization whose members these are. */
+        org: string;
+        /** The Studio's proxy to Val Build. */
+        "api-base"?: string;
+        layout?: "popover" | "sheet";
+        /** `button`: avatars, count and "Share". `icon`: for a phone. */
+        trigger?: "button" | "icon";
+        theme?: "light" | "dark";
+        /** `fs` locally, `http` deployed: what "sign in again" means. */
+        mode?: "fs" | "http";
+      }>;
     }
   }
 }
