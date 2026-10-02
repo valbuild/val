@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { useStudioDeployState } from "../ValProvider";
 import { joinHandoff, leaveTo, type TabHandoff } from "../../publish/handoff";
 import {
-  describeDeployFailure,
   describeDeployPhase,
   describeDeployStep,
 } from "../../publish/deployProgress";
@@ -31,9 +30,10 @@ import {
  * It waits for the publish job (the press runs on the site after this tab
  * opened), runs it AS THE SITE'S TAB -- the job is leased to the tab that
  * pressed -- with the same `runStudioJob` a Studio runs its own jobs with, and
- * reports each step back to the page that is waiting. Once content has the
- * job it follows the request until it is Live, which is what this page is
- * kept open for.
+ * reports each step back to the page that is waiting. Its work ends at the
+ * upload: content checks the site renders and puts it live on its own, and the
+ * page that opened this follows that itself -- so this closes, rather than
+ * being kept open for a check it plays no part in.
  */
 
 const ORDER: DeployPhase["kind"][] = [
@@ -47,23 +47,24 @@ const ORDER: DeployPhase["kind"][] = [
   "promoting",
 ];
 
-/** How often the request is re-read while content verifies and seals it. */
-const LIVE_POLL_MS = 2_000;
-/** How long that is waited for before the page stops saying "keep this open". */
-const LIVE_WAIT_MS = 5 * 60_000;
-
-/** Seconds a live tab stays up before closing itself. */
+/** Seconds a finished tab stays up before closing itself. */
 const CLOSE_AFTER_S = 5;
+
+/**
+ * How long a failed run waits for content's own account of the failure: the
+ * request's message, which is what the Studio's toast says.
+ */
+const FAILURE_READS = 5;
+const FAILURE_READ_MS = 1_000;
 
 type Waiting =
   | { kind: "waiting"; since: number }
   | { kind: "started"; waitedMs: number; jobId: string | null }
   | { kind: "cancelled"; message: string };
 
-/** Content's part, after this tab handed the job over. */
+/** How this tab's part ended. */
 type GoingLive =
-  | { kind: "verifying"; since: number }
-  | { kind: "live"; at: number }
+  | { kind: "handed-off" }
   | { kind: "failed"; message: string; details?: string };
 
 export function HandoffPublishTab({ id }: { id: string }) {
@@ -149,74 +150,47 @@ export function HandoffPublishTab({ id }: { id: string }) {
         });
         running.current = false;
         report({ type: "job-result", result });
-        if (result.status !== "handed-off") {
-          const summary =
-            result.status === "lost"
-              ? "Another tab took over this publish."
-              : "The publish could not be built here. Nothing on the live site changed.";
-          const details =
-            result.status === "failed" ? result.message : undefined;
-          setGoingLive({
-            kind: "failed",
-            message: summary,
-            ...(details !== undefined ? { details } : {}),
-          });
-          // The page's card ends here too: nothing more will come from this tab.
-          report({
-            type: "done",
-            result: {
-              status: "failed",
-              message: details ?? summary,
-              problems: [],
-            },
-            ms: Date.now() - (startedAt.current ?? Date.now()),
-            summary,
-          });
+        if (result.status === "handed-off") {
+          // Content checks it and puts it live; the page that opened this follows it.
+          setGoingLive({ kind: "handed-off" });
+          setClosingIn(CLOSE_AFTER_S);
           return;
         }
-        const handedAt = Date.now();
-        setGoingLive({ kind: "verifying", since: handedAt });
-        if (requestId === null) return;
-        // Content verifies and seals it; this page is kept open for Live.
-        while (!closed && Date.now() - handedAt < LIVE_WAIT_MS) {
-          const status = await client
-            .requestStatus(requestId)
-            .catch(() => null);
-          if (status !== null && isSettled(status)) {
-            const total = Date.now() - (startedAt.current ?? handedAt);
-            if (
-              status.kind === "live" ||
-              status.kind === "nothing-to-publish"
-            ) {
-              setGoingLive({ kind: "live", at: Date.now() });
-              report({
-                type: "done",
-                result: { status: "live", url: null },
-                ms: total,
-              });
-              setClosingIn(CLOSE_AFTER_S);
-            } else {
-              const message =
-                status.kind === "failed"
-                  ? status.message
-                  : "The publish was cancelled.";
-              setGoingLive({
-                kind: "failed",
-                message:
-                  "The new version did not pass its check, so the live site was left as it was.",
-                details: message,
-              });
-              report({
-                type: "done",
-                result: { status: "failed", message, problems: [] },
-                ms: total,
-                summary: describeDeployFailure("verifying"),
-              });
-            }
-            return;
-          }
-          await new Promise((resolve) => setTimeout(resolve, LIVE_POLL_MS));
-        }
+        /*
+         * Why, in content's words when it has them: the request's message is
+         * what the Studio's toast says ("prepare failed 3 times: ..."), and
+         * this page saying something vaguer beside it read as two failures.
+         */
+        const said =
+          result.status === "failed" && requestId !== null
+            ? await failureOf(client, requestId)
+            : null;
+        const message =
+          said ??
+          (result.status === "lost"
+            ? "Another tab took over this publish."
+            : "The publish could not be built here. Nothing on the live site changed.");
+        const details =
+          result.status === "failed" && result.message !== message
+            ? result.message
+            : undefined;
+        if (closed) return;
+        setGoingLive({
+          kind: "failed",
+          message,
+          ...(details !== undefined ? { details } : {}),
+        });
+        // The page's card ends here too: nothing more will come from this tab.
+        report({
+          type: "done",
+          result: {
+            status: "failed",
+            message: details ?? message,
+            problems: [],
+          },
+          ms: Date.now() - (startedAt.current ?? Date.now()),
+          summary: message,
+        });
       })();
     });
     tab.current = handoff;
@@ -242,16 +216,10 @@ export function HandoffPublishTab({ id }: { id: string }) {
       return;
     }
     if (!started.current || startedAt.current === null) return;
-    const label =
-      state.status === "running"
-        ? describeDeployPhase(state.phase)
-        : goingLive?.kind === "verifying"
-          ? describeDeployPhase({ kind: "verifying" })
-          : null;
-    if (label === null) return;
+    if (state.status !== "running" || goingLive !== null) return;
     tab.current?.report({
       type: "phase",
-      label,
+      label: describeDeployPhase(state.phase),
       elapsedMs: now - startedAt.current,
     });
   }, [state, now, goingLive]);
@@ -266,15 +234,14 @@ export function HandoffPublishTab({ id }: { id: string }) {
     return () => clearTimeout(timer);
   }, [closingIn]);
 
-  const steps = stepsOf(waiting, state, updating.current, goingLive, now);
+  const steps = stepsOf(waiting, state, updating.current, goingLive);
   const result: PublishPageResult | undefined = updating.current
     ? updateResultOf(updateOutcome, closingIn)
     : waiting.kind === "cancelled"
       ? { kind: "failed", message: waiting.message }
-      : goingLive?.kind === "live"
+      : goingLive?.kind === "handed-off"
         ? {
-            kind: "live",
-            ms: goingLive.at - (startedAt.current ?? goingLive.at),
+            kind: "handed-off",
             ...(closingIn !== null && closingIn > 0
               ? { closingInS: closingIn }
               : {}),
@@ -347,7 +314,6 @@ function stepsOf(
   state: StudioDeployState,
   update: boolean,
   goingLive: GoingLive | null,
-  now: number,
 ): PublishStep[] {
   // An update requests nothing; its first step is asking the platform for it.
   const first = update ? "Starting the update" : "Starting the publish";
@@ -369,35 +335,27 @@ function stepsOf(
         ? state.steps
         : [];
   for (const step of recorded) finished.set(step.kind, step.ms);
-  /*
-   * After the hand-off the steps are content's: checking the site renders
-   * until the request is Live, then both done.
-   */
-  if (goingLive?.kind === "verifying") {
-    finished.delete("verifying");
-  } else if (goingLive?.kind === "live") {
-    finished.set("verifying", finished.get("verifying") ?? 0);
-    finished.set("promoting", finished.get("promoting") ?? 0);
-  }
-  const current =
-    state.status === "running"
-      ? state.phase
-      : goingLive?.kind === "verifying"
-        ? ({ kind: "verifying" } satisfies DeployPhase)
-        : null;
+  const current = state.status === "running" ? state.phase : null;
   const failed =
     goingLive?.kind === "failed" ||
     (state.status === "done" && state.result.status === "failed");
-  const rest = ORDER.map((kind): PublishStep => {
+  /*
+   * A publish job's steps end at the upload: checking the site renders and
+   * putting it live are content's, run without this tab, so they are not
+   * listed as steps it is waiting for. An update runs them here.
+   */
+  const order = update
+    ? ORDER
+    : ORDER.filter(
+        (kind) =>
+          (kind !== "verifying" && kind !== "promoting") ||
+          finished.has(kind) ||
+          current?.kind === kind,
+      );
+  const rest = order.map((kind): PublishStep => {
     if (current !== null && current.kind === kind) {
       // The live wording while it runs: "Uploading 3 of 7".
-      return {
-        label: describeDeployPhase(current),
-        status: "current",
-        ...(kind === "verifying" && goingLive?.kind === "verifying"
-          ? { ms: now - goingLive.since }
-          : {}),
-      };
+      return { label: describeDeployPhase(current), status: "current" };
     }
     const label = describeDeployStep(kind);
     const ms = finished.get(kind);
@@ -410,4 +368,22 @@ function stepsOf(
     if (last) last.status = "failed";
   }
   return [begun, ...rest];
+}
+
+/**
+ * The request's own failure message, once content has settled it, or `null`
+ * if it does not within a few seconds -- a tab's run can end a moment before
+ * content records why.
+ */
+async function failureOf(
+  client: ReturnType<typeof createStudioJobClient>,
+  requestId: string,
+): Promise<string | null> {
+  for (let read = 0; read < FAILURE_READS; read++) {
+    const status = await client.requestStatus(requestId).catch(() => null);
+    if (status !== null && isSettled(status))
+      return status.kind === "failed" ? status.message : null;
+    await new Promise((resolve) => setTimeout(resolve, FAILURE_READ_MS));
+  }
+  return null;
 }

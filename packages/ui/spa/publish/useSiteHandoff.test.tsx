@@ -25,8 +25,9 @@ const job = {
 
 /**
  * The page that handed its publish job to a Studio tab waits for the tab's
- * part of it -- the job runner goes on from there -- and the card follows the
- * tab to Live.
+ * part of it -- the job runner goes on from there. The tab's part ends at the
+ * upload: content checks the site renders and puts it live without it, so the
+ * tab closes, and the card follows the page's OWN tracker to Live.
  */
 test("the tab runs the job as this page, and answers with its part of it", async () => {
   const opened: string[] = [];
@@ -66,14 +67,19 @@ test("the tab runs the job as this page, and answers with its part of it", async
       jobId: "J1",
       built: true,
     });
-    tab.report({
-      type: "done",
-      result: { status: "live", url: null },
-      ms: 1_000,
-    });
+    // Content has it: the card says so, and waits on this page's tracker.
     await waitFor(() =>
-      expect(result.current.state).toEqual({ kind: "live", ms: 1_000 }),
+      expect(result.current.state).toEqual({ kind: "checking" }),
     );
+    expect(result.current.active()).toBe(false);
+    // Another request settling is not this one.
+    act(() => result.current.settled("r0", { kind: "live", commit: "c0" }));
+    expect(result.current.state).toEqual({ kind: "checking" });
+    act(() => result.current.settled("r1", { kind: "live", commit: "c1" }));
+    expect(result.current.state).toMatchObject({
+      kind: "live",
+      followed: true,
+    });
   } finally {
     // An open channel keeps jest alive, and a failure would hang instead.
     tab.close();
@@ -222,6 +228,58 @@ test("a re-open the browser allows says it is opening", () => {
     act(() => result.current.openStudio());
     expect(result.current.state).toEqual({ kind: "opening" });
   } finally {
+    act(() => result.current.cancel(""));
+  }
+});
+
+test("a handed-off publish that fails says why, in content's words", async () => {
+  const opened: string[] = [];
+  jest.spyOn(window, "open").mockImplementation((url) => {
+    opened.push(String(url));
+    return null;
+  });
+  const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+  act(() => result.current.prepare(true));
+  const id = new URL(opened[0], "http://site").searchParams.get(
+    "publish-handoff",
+  );
+  // Before anything is handed off, a settled request is not followed.
+  const before = result.current.state;
+  act(() => result.current.settled("r1", { kind: "live", commit: "c0" }));
+  expect(result.current.state).toEqual(before);
+  let running!: Promise<unknown>;
+  act(() => {
+    running = result.current.runJob(job, "site-tab", "r1", renewed);
+  });
+  const heard: unknown[] = [];
+  const tab = joinHandoff(id ?? "", (message) => heard.push(message), {
+    retryMs: 10,
+  });
+  try {
+    await waitFor(() => expect(heard.length).toBeGreaterThan(0));
+    tab.report({
+      type: "job-result",
+      result: { status: "handed-off", jobId: "J1", built: true },
+    });
+    await running;
+    await waitFor(() =>
+      expect(result.current.state).toEqual({ kind: "checking" }),
+    );
+    act(() =>
+      result.current.settled("r1", {
+        kind: "failed",
+        message: "verify failed 3 times: a page failed to render",
+        actions: ["try-again"],
+        job: "J1",
+      }),
+    );
+    expect(result.current.state).toEqual({
+      kind: "failed",
+      message: "verify failed 3 times: a page failed to render",
+      followed: true,
+    });
+  } finally {
+    tab.close();
     act(() => result.current.cancel(""));
   }
 });

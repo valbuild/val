@@ -964,6 +964,8 @@ export function ValProvider({
   onPublishSettled.current = (request) => {
     const status = request.status;
     const id = `publish:${request.requestId}`;
+    // A publish a builder tab handed to content: the card's last word.
+    handoffRef.current.settled(request.requestId, status);
     if (status.kind === "live") {
       markObserved(status.commit);
       toast("Published", { id, description: "Your changes are live." });

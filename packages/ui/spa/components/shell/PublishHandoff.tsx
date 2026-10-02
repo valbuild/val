@@ -27,11 +27,31 @@ export type HandoffState =
   | { kind: "opening" }
   /** The tab is building or publishing; `step` is `describeDeployPhase`. */
   | { kind: "running"; step: string; elapsedMs: number }
-  | { kind: "live"; ms: number }
+  /**
+   * The tab built it and handed it to the content service, which checks the
+   * site renders and puts it live -- the tab has closed. Followed by this
+   * page's own publish tracker from here.
+   */
+  | { kind: "checking" }
+  /** `followed`: learned by this page itself, after the tab handed it on. */
+  | { kind: "live"; ms: number; followed?: boolean }
   /** The browser refused to open the tab. The changes are kept. */
   | { kind: "blocked" }
   /** `message` is the sentence; `details` the technical text, folded away. */
-  | { kind: "failed"; message: string; details?: string };
+  | { kind: "failed"; message: string; details?: string; followed?: boolean };
+
+/**
+ * Is the card the only thing that will say this? Not once the tab has handed
+ * the job on, where a page with its own publish surfaces (the Studio's toast
+ * and deploy list) already follows it -- a card saying "Live" beside them
+ * said it twice. The overlay has none, and shows the card throughout.
+ */
+export function handoffCardIsNews(state: HandoffState): boolean {
+  if (state.kind === "checking") return false;
+  if (state.kind === "live" || state.kind === "failed")
+    return state.followed !== true;
+  return true;
+}
 
 export function PublishHandoffCard({
   state,
@@ -114,6 +134,7 @@ function HandoffIcon({ state }: { state: HandoffState }) {
   switch (state.kind) {
     case "opening":
     case "running":
+    case "checking":
       return <Loader2 size={16} className="animate-spin text-fg-secondary" />;
     case "live":
       return <CheckCircle2 size={16} className="text-fg-brand-primary" />;
@@ -130,6 +151,8 @@ function handoffTitle(state: HandoffState): string {
       return "Publishing in the Studio";
     case "running":
       return `${state.step} · ${seconds(state.elapsedMs)}`;
+    case "checking":
+      return "Checking the site renders";
     case "live":
       return `Live after ${seconds(state.ms)}`;
     case "blocked":
@@ -145,6 +168,8 @@ function handoffBody(state: HandoffState): string {
       return "A Studio tab is opening to build your change. You can keep working here.";
     case "running":
       return "Building in a Studio tab. You can keep working here; this updates as it goes.";
+    case "checking":
+      return "Built. Val is checking the new version and will put it live. You can keep working here.";
     case "live":
       return "Your change is on the site. This page still shows the version it loaded with.";
     case "blocked":
@@ -191,6 +216,11 @@ export type PublishStep = {
 
 export type PublishPageResult =
   | { kind: "live"; ms: number; closingInS?: number }
+  /**
+   * The build is the content service's now: it checks the site renders and
+   * puts it live without this tab, and the page that opened it says when.
+   */
+  | { kind: "handed-off"; closingInS?: number }
   | { kind: "failed"; message: string; details?: string };
 
 /**
@@ -245,16 +275,20 @@ export function StudioPublishPage({
         <h1 className="mt-1 text-lg font-semibold">
           {result?.kind === "live"
             ? `Live after ${seconds(result.ms)}`
-            : result?.kind === "failed"
-              ? "Not published"
-              : "Publishing your change"}
+            : result?.kind === "handed-off"
+              ? "Built and handed over"
+              : result?.kind === "failed"
+                ? "Not published"
+                : "Publishing your change"}
         </h1>
         <p className="mt-1 text-sm text-fg-secondary">
           {result?.kind === "live"
             ? "Your change is on the site."
-            : result?.kind === "failed"
-              ? result.message
-              : `Started from the site ${seconds(elapsedMs)} ago. Keep this open until it is live.`}
+            : result?.kind === "handed-off"
+              ? "Val is checking that the site renders and will put it live. You can close this tab: the page you published from says when it is live."
+              : result?.kind === "failed"
+                ? result.message
+                : `Started from the site ${seconds(elapsedMs)} ago. Keep this open until it is built.`}
         </p>
         {result?.kind === "failed" && result.details && (
           <FailureDetails details={result.details} />
@@ -310,11 +344,12 @@ export function StudioPublishPage({
                 Close
               </button>
             )}
-            {result.kind === "live" && result.closingInS !== undefined && (
-              <span className="ml-auto text-xs text-fg-secondary-alt">
-                Closing in {result.closingInS}s
-              </span>
-            )}
+            {(result.kind === "live" || result.kind === "handed-off") &&
+              result.closingInS !== undefined && (
+                <span className="ml-auto text-xs text-fg-secondary-alt">
+                  Closing in {result.closingInS}s
+                </span>
+              )}
           </div>
         )}
       </div>

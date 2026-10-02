@@ -2194,6 +2194,10 @@ export const ValServer = (
         if (auth.error) {
           return { status: 401, json: { message: auth.error } };
         }
+        // A fresh isolate's server has heard nothing yet: ask, rather than refuse.
+        if (serverOps instanceof ValOpsHttp) {
+          await serverOps.learnProjectExpectation();
+        }
         if (
           !(serverOps instanceof ValOpsHttp) ||
           !serverOps.publishesAsJobs() ||

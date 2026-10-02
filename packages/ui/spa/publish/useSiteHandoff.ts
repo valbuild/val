@@ -1,5 +1,8 @@
 import { useCallback, useRef, useState } from "react";
-import type { PublishTabJob } from "@valbuild/shared/internal";
+import type {
+  PublishRequestStatus,
+  PublishTabJob,
+} from "@valbuild/shared/internal";
 import type { HandoffState } from "../components/shell/PublishHandoff";
 import {
   canBuildHere,
@@ -49,6 +52,12 @@ export interface UseSiteHandoff {
     requestId: string | null,
     renew: () => Promise<boolean>,
   ) => Promise<StudioJobResult>;
+  /**
+   * A publish this page follows has settled. After the tab hands its job to
+   * content it closes, and the card's last word -- Live, or why not -- comes
+   * from this page's own tracker, through here. Ignored for any other request.
+   */
+  settled: (requestId: string, status: PublishRequestStatus) => void;
   /** The publish did not happen: the tab has nothing to build. */
   cancel: (message: string) => void;
   dismiss: () => void;
@@ -64,6 +73,16 @@ export function useSiteHandoff(
 ): UseSiteHandoff {
   const [state, setState] = useState<HandoffState | null>(null);
   const current = useRef<SiteHandoff | null>(null);
+  /** When the press that opened the tab was, for the card's "Live after". */
+  const startedAt = useRef<number | null>(null);
+  /**
+   * The request whose job the tab handed to content, and this page now
+   * follows to the end (`null`: whichever settles next, for a press this page
+   * could not name).
+   */
+  const following = useRef<{ requestId: string | null } | null>(null);
+  /** The request the job being run was pressed for. See `runJob`. */
+  const pressedFor = useRef<string | null>(null);
   /** The job handed to the tab, and who is waiting for the tab's part of it. */
   const waiting = useRef<{
     jobId: string;
@@ -85,6 +104,8 @@ export function useSiteHandoff(
       if (!enabled || !buildsInTab || canBuildHere()) return;
       current.current?.close();
       settleWaiting("lost");
+      following.current = null;
+      startedAt.current = Date.now();
       const handoff = openHandoff();
       current.current = handoff;
       setState(handoff.opened ? { kind: "opening" } : { kind: "blocked" });
@@ -101,9 +122,17 @@ export function useSiteHandoff(
             elapsedMs: message.elapsedMs,
           });
         } else if (message.type === "job-result") {
-          if (waiting.current?.jobId === message.result.jobId) {
-            settleWaiting(message.result);
-          }
+          if (waiting.current?.jobId !== message.result.jobId) return;
+          settleWaiting(message.result);
+          if (message.result.status !== "handed-off") return;
+          /*
+           * Content has the build, and checks it and puts it live without the
+           * tab, which closes now. The rest is this page's to follow.
+           */
+          following.current = { requestId: pressedFor.current };
+          setState({ kind: "checking" });
+          handoff.close();
+          current.current = null;
         } else if (message.type === "done") {
           setState(
             message.result.status === "failed"
@@ -134,6 +163,7 @@ export function useSiteHandoff(
         return Promise.resolve({ status: "lost", jobId: job.id });
       }
       settleWaiting("lost");
+      pressedFor.current = requestId;
       return new Promise<StudioJobResult>((resolve) => {
         let grace: ReturnType<typeof setTimeout> | null = null;
         const renewing = setInterval(() => {
@@ -167,6 +197,32 @@ export function useSiteHandoff(
     [settleWaiting],
   );
 
+  const settled = useCallback<UseSiteHandoff["settled"]>(
+    (requestId, status) => {
+      const followed = following.current;
+      if (followed === null) return;
+      if (followed.requestId !== null && followed.requestId !== requestId)
+        return;
+      following.current = null;
+      if (status.kind === "live" || status.kind === "nothing-to-publish") {
+        setState({
+          kind: "live",
+          ms: Date.now() - (startedAt.current ?? Date.now()),
+          followed: true,
+        });
+      } else if (status.kind === "failed") {
+        setState({
+          kind: "failed",
+          message: status.message,
+          followed: true,
+        });
+      } else {
+        setState(null);
+      }
+    },
+    [],
+  );
+
   const cancel = useCallback(
     (message: string) => {
       current.current?.cancel(message);
@@ -181,6 +237,7 @@ export function useSiteHandoff(
   const dismiss = useCallback(() => {
     // A dismissed card is a handoff given up: the job's lease lapses, and
     // its requests go back to the queue for a tab that can build.
+    following.current = null;
     current.current?.close();
     current.current = null;
     settleWaiting("lost");
@@ -200,5 +257,14 @@ export function useSiteHandoff(
     window.open("/val", "_blank");
   }, []);
 
-  return { state, prepare, active, runJob, cancel, dismiss, openStudio };
+  return {
+    state,
+    prepare,
+    active,
+    runJob,
+    settled,
+    cancel,
+    dismiss,
+    openStudio,
+  };
 }

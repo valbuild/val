@@ -47,7 +47,7 @@ import { pendingPatchSets } from "../../utils/computeChangedSourcePaths";
 import type { Profile } from "../ValProvider";
 import { cn } from "../designSystem/cn";
 import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
-import { PublishHandoffCard } from "./PublishHandoff";
+import { PublishHandoffCard, handoffCardIsNews } from "./PublishHandoff";
 import { LoginDialog } from "../LoginDialog";
 import { PatchErrorsDialog } from "../PatchErrorsDialog";
 import { GlobalErrors } from "../GlobalErrors";
@@ -1251,11 +1251,13 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         pendingChangesProgress={pendingChangesProgress}
         pendingChangesError={pendingChangesError}
       />
-      {handoff.state !== null && (
+      {handoff.state !== null && handoffCardIsNews(handoff.state) && (
         /*
          * A publish this Studio handed to a builder tab, because it cannot
          * build here. Above the status bar, where the deploy item is, or
-         * above the phone's bottom bar.
+         * above the phone's bottom bar. Only while the tab has it: once it is
+         * content's, this Studio's own toast and deploy list follow it, and a
+         * card saying "Live" beside them said it twice.
          */
         <div className={cn("fixed right-4 z-window", CLEAR_OF_BOTTOM_BARS)}>
           <PublishHandoffCard

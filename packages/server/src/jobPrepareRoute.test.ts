@@ -201,6 +201,34 @@ const prepareCalls = (calls: ReturnType<typeof setup>["calls"]) =>
   calls.filter((c) => c.url.endsWith("/prepare"));
 
 describe.each<Mode>(["managed", "connected"])("%s", (mode) => {
+  test("a server that has heard nothing from content yet asks it, rather than refusing", async () => {
+    /*
+     * The platform runs a site in many isolates, each with its own Val server,
+     * and one learns what its project expects of a publisher from the first
+     * overlay it fetches. A prepare that reached a fresh isolate was refused
+     * with "This deployment cannot prepare a publish job for this project",
+     * three times over when every retry landed on another one.
+     */
+    const { handler, calls, restore } = setup({
+      mode,
+      patches: [{ patchId: PATCH_A }],
+      embedsSource: true,
+    });
+    try {
+      const res = await handler(
+        request("/publish-job-prepare", {
+          jobId: "J1",
+          tab: "ada",
+          patchIds: [PATCH_A],
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(prepareCalls(calls)).toHaveLength(1);
+    } finally {
+      restore();
+    }
+  });
+
   test("hands content the job's archive, and the tab what to build", async () => {
     const { handler, calls, restore } = setup({
       mode,
