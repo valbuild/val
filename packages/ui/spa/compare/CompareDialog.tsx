@@ -235,18 +235,24 @@ export function CompareDialog({
    * never ran again. State re-renders us when the node arrives.
    *
    * Once it has scrolled it never does again: a reader who scrolls away, or
-   * picks another pane and comes back, has moved on from the link.
+   * picks another pane and comes back, has moved on from the link. "Once" is
+   * per PANE and row, not per row: while schemas load a page's change sits in
+   * its module's pane, and when they arrive it moves to the page's own pane
+   * under the same row id — which is a new row on screen that the link still
+   * names.
    */
   const [paneNode, setPaneNode] = useState<HTMLDivElement | null>(null);
   const scrolledTo = useRef<string | null>(null);
   const focusRowId = focus?.rowId ?? null;
   const focusPaneId = focus?.paneId ?? null;
   useEffect(() => {
-    if (focusRowId === null || scrolledTo.current === focusRowId) return;
+    if (focusRowId === null || focusPaneId === null) return;
     if (selectedId !== focusPaneId) return;
+    const key = JSON.stringify([focusPaneId, focusRowId]);
+    if (scrolledTo.current === key) return;
     const row = findRow(paneNode, focusRowId);
     if (row === null) return;
-    scrolledTo.current = focusRowId;
+    scrolledTo.current = key;
     // Optional: jsdom has no layout, and so no `scrollIntoView`.
     row.scrollIntoView?.({ block: "center" });
     row.classList.add("val-scroll-highlight");

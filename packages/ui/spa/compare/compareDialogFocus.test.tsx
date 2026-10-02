@@ -105,4 +105,39 @@ describe("the compare dialog's focus", () => {
     expect(row).not.toBeNull();
     expect(row?.classList.contains("val-scroll-highlight")).toBe(true);
   });
+
+  /*
+   * While schemas load, a router's change is filed under its MODULE's pane;
+   * when they arrive it moves to its PAGE's pane, keeping its row id. The row
+   * a link named has to be found again there — remembering only the row id
+   * said "already done" and left the row in its real pane unmarked.
+   */
+  test("marks the row again when it moves to its final pane", () => {
+    const pane = compareModel.panes[later];
+    const group = pane.groups[0];
+    const rowId = group.rows[group.rows.length - 1].id;
+    const provisional = "node:/provisional.val.ts";
+    const loading: CompareModel = {
+      ...compareModel,
+      panes: { ...compareModel.panes, [provisional]: pane },
+    };
+    const { rerender } = render(
+      dialog(loading, { paneId: provisional, rowId }),
+    );
+    const marked = (): HTMLElement[] =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>(`[data-compare-row]`),
+      ).filter(
+        (el) =>
+          el.getAttribute("data-compare-row") === rowId &&
+          el.classList.contains("val-scroll-highlight"),
+      );
+    expect(marked()).toHaveLength(1);
+    // The animation ending, which jsdom never fires on its own.
+    for (const el of marked()) el.classList.remove("val-scroll-highlight");
+
+    rerender(dialog(compareModel, { paneId: later, rowId }));
+    expect(showsPane(compareModel, later)).toBe(true);
+    expect(marked()).toHaveLength(1);
+  });
 });
