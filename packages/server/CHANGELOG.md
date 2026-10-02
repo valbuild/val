@@ -1,5 +1,27 @@
 # @valbuild/server
 
+## 0.138.4
+
+### Patch Changes
+
+- [#771](https://github.com/valbuild/val/pull/771) [`63bff05`](https://github.com/valbuild/val/commit/63bff0589b6df42efaa63ec606688d20a9670439) Thanks [@freekh](https://github.com/freekh)! - Changes that are already published no longer briefly vanish from the Studio, or show up twice, right after a publish in app mode.
+
+  A build the Studio makes in the browser now records which publish it was made for, so Val knows exactly which changes the running site already has. Before this, Val worked that out from whichever build was live, and was wrong for a moment while a publish was going live. A reload in that moment could hide changes that were not on the site yet, or apply ones that were a second time. Projects set up before this release need no changes.
+
+- [#770](https://github.com/valbuild/val/pull/770) [`0a885b1`](https://github.com/valbuild/val/commit/0a885b1f0304517b167b959958464066194732d0) Thanks [@freekh](https://github.com/freekh)! - Publishing a Git-connected app-mode project now puts your changes on the site in seconds, instead of waiting for CI.
+
+  - The Studio builds the site in the browser, the same way it does for a managed project. Val pushes the commit to your repository as before. When nothing but content has changed since the build the site is serving, the browser's build goes live right away. If a developer has pushed code in between, the site waits for CI's build, so their code is never taken off the site.
+  - If the browser cannot build, the publish still goes through and CI delivers it. This happens when the page is not cross-origin isolated, or when the build keeps failing. Your changes stay visible in the Studio until the site serves a build that has them.
+  - Content that would break a page is caught before anything is pushed to your repository.
+
+- [#771](https://github.com/valbuild/val/pull/771) [`58d13a2`](https://github.com/valbuild/val/commit/58d13a2a534421b341b1bf71d02f0a2290fc0d61) Thanks [@freekh](https://github.com/freekh)! - A project created on val.build with a GitHub repository can publish right away. Before, the first publish was refused with "this deployment was not built from one" until the repository's first CI build had finished.
+
+  While that first build runs, the site is served the template's build. When you publish from it, Val now checks that its content files are exactly the same as the files in your repository. If they are, the publish goes ahead and is pushed to your repository straight away. Your changes stay visible in the Studio until the site serves CI's build of them. If the files differ, the publish is refused, as before.
+
+- Updated dependencies [[`63bff05`](https://github.com/valbuild/val/commit/63bff0589b6df42efaa63ec606688d20a9670439), [`0a885b1`](https://github.com/valbuild/val/commit/0a885b1f0304517b167b959958464066194732d0), [`8b1e47e`](https://github.com/valbuild/val/commit/8b1e47e50f9556d8469358af93ba32a084e2e131), [`58d13a2`](https://github.com/valbuild/val/commit/58d13a2a534421b341b1bf71d02f0a2290fc0d61), [`4268beb`](https://github.com/valbuild/val/commit/4268beb4beec53cb52584f59f9bbd5ffdcc9095d), [`e79451f`](https://github.com/valbuild/val/commit/e79451faab37f46e2039d681a19eea06d537dc44)]:
+  - @valbuild/ui@0.138.4
+  - @valbuild/shared@0.138.4
+
 ## 0.138.3
 
 ### Patch Changes
