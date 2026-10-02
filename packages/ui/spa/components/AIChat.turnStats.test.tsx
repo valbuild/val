@@ -179,6 +179,22 @@ describe("the turn timeout", () => {
     expect(screen.queryByText("Response timed out")).toBeNull();
   });
 
+  // Before the server's first message there is no turn to time out, only the
+  // "Thinking…" line under the prompt — which used to count forever.
+  test("ends a prompt the server never answered", () => {
+    renderChat();
+    // A suggestion chip sends through the same path the composer does.
+    act(() => {
+      screen.getByText("Summarize recent changes").click();
+    });
+    expect(statusLine()).toContain("Thinking…");
+    act(() => {
+      jest.advanceTimersByTime(2 * 60_000);
+    });
+    expect(screen.getByText("Response timed out")).toBeTruthy();
+    expect(statusLine()).toBe("Failed after2m 00s");
+  });
+
   test("still ends a turn that has gone silent for two minutes", () => {
     const chat = renderChat();
     act(() => chat.startAssistantMessage("m1"));

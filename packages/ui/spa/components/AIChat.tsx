@@ -275,6 +275,9 @@ export type AIChatProps = {
 // Defaults
 // ---------------------------------------------------------------------------
 
+/** How long a turn may go without any activity before it is given up on. */
+const TURN_TIMEOUT_MS = 2 * 60 * 1000;
+
 const DEFAULT_SUGGESTIONS = [
   "Summarize recent changes",
   "What am I looking at?",
@@ -705,7 +708,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   useEffect(() => {
     if (!currentMessage || awaitingUserAnswer) return;
     const remaining =
-      2 * 60 * 1000 - (Date.now() - currentMessage.lastActivityAt);
+      TURN_TIMEOUT_MS - (Date.now() - currentMessage.lastActivityAt);
     if (remaining <= 0) {
       retireCurrentMessage(currentMessage.message.id, timedOut);
       return;
@@ -715,6 +718,35 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     }, remaining);
     return () => clearTimeout(timer);
   }, [currentMessage, awaitingUserAnswer, retireCurrentMessage, timedOut]);
+
+  // The same timeout for a turn the server has not answered at all. Until its
+  // first message there is no current message for the effect above to watch,
+  // so a prompt met with silence used to wait forever — with the status line
+  // counting "Thinking…" up the whole time. It settles as a failed turn of its
+  // own; a reply that does turn up later still starts a message, as one
+  // arriving after the timeout above does.
+  useEffect(() => {
+    if (awaitingSince === null || currentMessage) return;
+    const timer = setTimeout(
+      () => {
+        const now = Date.now();
+        setAwaitingSince(null);
+        setCompletedMessages((msgs) => [
+          ...msgs,
+          {
+            id: randomUUID(),
+            role: "assistant",
+            content: "",
+            status: "error",
+            error: "Response timed out",
+            turnStats: endTurn(startTurn(awaitingSince), now),
+          },
+        ]);
+      },
+      Math.max(0, TURN_TIMEOUT_MS - (Date.now() - awaitingSince)),
+    );
+    return () => clearTimeout(timer);
+  }, [awaitingSince, currentMessage, setAwaitingSince]);
 
   // ---- Local state mutators (shared by imperative handle and inline UI) ----
 
