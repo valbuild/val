@@ -1,5 +1,22 @@
 # @valbuild/tanstack
 
+## 0.138.2
+
+### Patch Changes
+
+- [#762](https://github.com/valbuild/val/pull/762) [`3dd8e35`](https://github.com/valbuild/val/commit/3dd8e3539213505fdb03378d4a0145ae12749943) Thanks [@freekh](https://github.com/freekh)! - The TanStack Start toolchain `@valbuild/tanstack` is developed and tested against is now `@tanstack/react-start@1.168.60` (with `@tanstack/react-router@1.170.41`), the first release with the fix for the XSS vulnerability [GHSA-qx66-fv34-fjm8](https://github.com/advisories/GHSA-qx66-fv34-fjm8) (CVE-2026-102989), which affects `@tanstack/react-start` `>=1.143.12 <1.168.60`.
+
+  `@valbuild/tanstack` does not bring TanStack Start with it — your app's own `@tanstack/react-start` is the one that ships — so **upgrade it to `>=1.168.60`** (`pnpm add @tanstack/react-start@^1.168.60 @tanstack/react-router@^1.170.41`) and check that your lock file no longer resolves an older one, including `@tanstack/start-server-core` below `1.169.39`. Vercel blocks deploys whose dependency tree contains a vulnerable version.
+
+- Updated dependencies [[`2beb226`](https://github.com/valbuild/val/commit/2beb226446c76eb71026f43e04c13943da4a1e31), [`cf3bbc8`](https://github.com/valbuild/val/commit/cf3bbc8fc89ff349aac5ab101d0b4f28164583e6), [`443cdcd`](https://github.com/valbuild/val/commit/443cdcdfa8948db22a54adef2ad5e18d9f9868e9)]:
+  - @valbuild/ui@0.138.2
+  - @valbuild/shared@0.138.2
+  - @valbuild/core@0.138.2
+  - @valbuild/react@0.138.2
+  - @valbuild/server@0.138.2
+  - @valbuild/language-server@0.138.2
+  - @valbuild/mcp@0.138.2
+
 ## 0.138.1
 
 ### Patch Changes
