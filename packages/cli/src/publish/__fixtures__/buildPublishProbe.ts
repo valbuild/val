@@ -68,6 +68,9 @@ export const Route = createFileRoute("/build/")({
 });
 `,
   "src/styles.css": `h1 { color: rebeccapurple; }\n`,
+  // A Val project, so the publish wires it -- and wires it at a branch.
+  "val.config.ts": `export const config = { project: "acme/site" };\n`,
+  "val.modules.ts": `export default { modules: [] };\n`,
   "public/robots.txt": "User-agent: *\n",
 };
 
@@ -98,6 +101,10 @@ type Report = {
   buildRouteBuilt: boolean;
   /** Whether the checkout was left exactly as it was found. */
   checkoutUntouched: boolean;
+  /** The branch the stored `val.server.ts` is wired at. */
+  wiredBranch: string | null;
+  /** Whether the run warned that the checkout's branch is not the project's. */
+  warnedAboutBranch: boolean;
 };
 
 /** A 1x1 PNG: small enough to inline, so the page carries it as a data URI. */
@@ -139,15 +146,19 @@ function listed(root: string): string[] {
 async function publishOnce(
   root: string,
   fake: FakeContentService,
+  branch = "main",
 ): Promise<Report> {
   const before = listed(root);
+  const logged: string[] = [];
   const result = await runPublish({
     root,
     commit: COMMIT,
-    branch: "main",
+    branch,
     env: { VAL_PROJECT_TOKEN: TOKEN, VAL_CONTENT_URL: fake.url },
     sleep: () => Promise.resolve(),
-    log: () => undefined,
+    log: (line: string) => {
+      logged.push(line);
+    },
   });
   const declared = [...fake.declarations.values()].map((body) => {
     const d = body as {
@@ -206,7 +217,23 @@ async function publishOnce(
           (JSON.parse(source.toString("utf8")) as Record<string, string>)
         : false),
     checkoutUntouched: JSON.stringify(listed(root)) === JSON.stringify(before),
+    wiredBranch: source ? wiredBranchOf(source) : null,
+    warnedAboutBranch: logged.some(
+      (line) => line.startsWith("warn:") && line.includes("publishes"),
+    ),
   };
+}
+
+/** The branch the stored `val.server.ts` was wired at: its `BUILT_FROM`. */
+function wiredBranchOf(source: Buffer): string | null {
+  const files = JSON.parse(source.toString("utf8")) as Record<string, string>;
+  const server = Object.entries(files).find(([key]) =>
+    key.endsWith("val.server.ts"),
+  )?.[1];
+  const match = server ? /^const BUILT_FROM = (.+);$/m.exec(server) : null;
+  if (!match?.[1] || match[1] === "null") return null;
+  const parsed = JSON.parse(match[1]) as { branch?: unknown };
+  return typeof parsed.branch === "string" ? parsed.branch : null;
 }
 
 (async () => {
@@ -228,7 +255,16 @@ async function publishOnce(
     });
     const held = await publishOnce(root, second).finally(() => second.close());
 
-    process.stdout.write(`${JSON.stringify({ fresh, held })}\n`);
+    // From a checkout on a feature branch, of a project content says is on main.
+    const third = await startFakeContentService({
+      token: TOKEN,
+      buildTarget: { ...FAKE_BUILD_TARGET, branch: "main" },
+    });
+    const elsewhere = await publishOnce(root, third, "feature/x").finally(() =>
+      third.close(),
+    );
+
+    process.stdout.write(`${JSON.stringify({ fresh, held, elsewhere })}\n`);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
