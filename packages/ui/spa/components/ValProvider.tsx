@@ -2577,6 +2577,14 @@ export function usePublishSummary() {
    * has always meant.
    */
   const studioIsDeployer = useStudioIsDeployer();
+  /*
+   * Who opens a builder tab for a page that cannot build: every Studio that
+   * builds its publishes in the tab, connected ones included. Gated on
+   * `studioIsDeployer` it was managed-only, so a connected project's Studio on
+   * an iPhone -- WebKit, never cross-origin isolated -- built nothing and every
+   * publish waited for CI.
+   */
+  const buildsInTab = useStudioBuildsInTab();
   const { state: deployState } = useContext(ValContext).deploy;
   const { handoff, publishJobs, publishesAsJobs } = useContext(ValContext);
   const publish = useCallback(
@@ -2588,7 +2596,7 @@ export function usePublishSummary() {
        * publish that did not come from one. It may be blocked, and the card
        * then offers the tab as a button.
        */
-      if (!handoff.active()) handoff.prepare(studioIsDeployer);
+      if (!handoff.active()) handoff.prepare(buildsInTab);
       if (globalServerSidePatchIds === null) {
         handoff.cancel("No changes to publish");
         return {
@@ -2734,6 +2742,7 @@ export function usePublishSummary() {
       runtimeConfig?.project,
       setPublishSummaryState,
       studioIsDeployer,
+      buildsInTab,
       handoff,
       publishJobs,
       publishesAsJobs,
@@ -2799,7 +2808,7 @@ export function usePublishSummary() {
      * itself -- not after the AI has written the commit message. See
      * `publish/handoff.ts`.
      */
-    preparePublish: () => handoff.prepare(studioIsDeployer),
+    preparePublish: () => handoff.prepare(buildsInTab),
     /**
      * Whether the project wants AI to write its commit messages.
      *
