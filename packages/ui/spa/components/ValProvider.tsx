@@ -933,8 +933,12 @@ export function ValProvider({
               .get()
               .requests.filter((request) => !isSettled(request.status))
               .at(-1)?.requestId ?? null;
-          return handoff.runJob(job, PUBLISH_TAB_ID, pressed, () =>
-            client.renew(job.id, PUBLISH_TAB_ID),
+          return handoff.runJob(
+            job,
+            PUBLISH_TAB_ID,
+            pressed,
+            () => client.renew(job.id, PUBLISH_TAB_ID),
+            () => client.cancel(job.id),
           );
         }
         return runStudioJob({

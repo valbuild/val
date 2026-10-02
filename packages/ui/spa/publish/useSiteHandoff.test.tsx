@@ -323,9 +323,10 @@ describe("a tab that stops answering", () => {
     const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
     act(() => result.current.prepare(true));
     expect(result.current.state).toEqual({ kind: "opening" });
+    const release = jest.fn(async () => true);
     let running!: Promise<unknown>;
     act(() => {
-      running = result.current.runJob(job, "site-tab", "r1", renewed);
+      running = result.current.runJob(job, "site-tab", "r1", renewed, release);
     });
     // Still loading, as far as the page can tell.
     await act(async () => {
@@ -342,6 +343,37 @@ describe("a tab that stops answering", () => {
     // The job is let go, and nothing holds the Publish button.
     await expect(running).resolves.toMatchObject({ status: "lost" });
     expect(result.current.active()).toBe(false);
+    // Still this page's, at the tab's step: cancelled, so the next press
+    // starts a job at once instead of joining one nobody is building.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  test("a job content already has is never let go", async () => {
+    const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+    act(() => result.current.prepare(true));
+    const release = jest.fn(async () => true);
+    let running!: Promise<unknown>;
+    act(() => {
+      // The tab handed it on just before it went quiet: no longer this page's.
+      running = result.current.runJob(
+        job,
+        "site-tab",
+        "r1",
+        async () => false,
+        release,
+      );
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(TAB_FIRST_WORD_MS + 5_000);
+    });
+    await expect(running).resolves.toMatchObject({ status: "lost" });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(release).not.toHaveBeenCalled();
   });
 
   test("one that answered and then went quiet is given up sooner, and one that keeps saying it is alive is not", async () => {

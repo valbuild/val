@@ -66,6 +66,14 @@ export interface UseSiteHandoff {
     tab: string,
     requestId: string | null,
     renew: () => Promise<boolean>,
+    /**
+     * Let the job go now, when the tab stopped answering while it still had
+     * it -- cancelled before the seal, so the next press starts a fresh job
+     * at once rather than joining one nobody is building. Only called while
+     * a renewal says the job is still this page's at a tab step: a job the
+     * tab handed to content just before it went quiet is never touched.
+     */
+    release?: () => Promise<boolean>,
   ) => Promise<StudioJobResult>;
   /**
    * A publish this page follows has settled. After the tab hands its job to
@@ -118,6 +126,8 @@ export function useSiteHandoff(
     jobId: string;
     resolve: (result: StudioJobResult) => void;
     stop: () => void;
+    renew: () => Promise<boolean>;
+    release?: () => Promise<boolean>;
   } | null>(null);
 
   const settleWaiting = useCallback((result: StudioJobResult | "lost") => {
@@ -163,8 +173,21 @@ export function useSiteHandoff(
          * request is still followed, for a tab that handed it to content just
          * before it went quiet: a Live after this replaces the card.
          */
+        const w = waiting.current;
         following.current =
-          waiting.current !== null ? { requestId: pressedFor.current } : null;
+          w !== null ? { requestId: pressedFor.current } : null;
+        if (w?.release) {
+          const release = w.release;
+          void (async () => {
+            const stillOurs = await w.renew().catch(() => false);
+            if (!stillOurs) return;
+            /*
+             * Cancelled, so it settles as such: nothing to follow, and the
+             * card keeps saying why rather than being cleared by it.
+             */
+            if (await release().catch(() => false)) following.current = null;
+          })();
+        }
         settleWaiting("lost");
         handoff.close();
         current.current = null;
@@ -237,7 +260,7 @@ export function useSiteHandoff(
   const active = useCallback(() => current.current !== null, []);
 
   const runJob = useCallback<UseSiteHandoff["runJob"]>(
-    (job, tab, requestId, renew) => {
+    (job, tab, requestId, renew, release) => {
       const handoff = current.current;
       if (handoff === null) {
         return Promise.resolve({ status: "lost", jobId: job.id });
@@ -266,6 +289,8 @@ export function useSiteHandoff(
         waiting.current = {
           jobId: job.id,
           resolve,
+          renew,
+          ...(release !== undefined ? { release } : {}),
           stop: () => {
             clearInterval(renewing);
             if (grace !== null) clearTimeout(grace);
