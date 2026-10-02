@@ -1,38 +1,93 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "./designSystem/cn";
+import {
+  elapsedMs,
+  formatElapsed,
+  formatTokens,
+  isInProgress,
+  outputTokensOf,
+  type TurnPhase,
+  type TurnStats,
+} from "./aiTurnStats";
 
 /**
- * What a turn is doing right now, as far as the status line says.
- *
- * `waiting` is an ask_user_question card that is open: the clock is the
- * user's then, not the model's, so it is shown paused.
+ * The line under an assistant reply: what it is doing, for how long, and how
+ * many output tokens it has produced — Claude Code's spinner line, in the
+ * chat. The rules live in `aiTurnStats.ts`; this only draws them.
  */
-export type TurnPhase =
-  | { type: "thinking" }
-  | { type: "writing" }
-  | { type: "tool"; name: string }
-  | { type: "waiting" }
-  | { type: "done" }
-  | { type: "stopped" }
-  | { type: "error" };
-
-export function formatElapsed(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+export function TurnStatsLine({
+  stats,
+  phase,
+  className,
+}: {
+  stats: TurnStats;
+  phase: TurnPhase;
+  className?: string;
+}) {
+  const inProgress = isInProgress(phase);
+  const now = useNow(inProgress && stats.pausedAt === null);
+  const tokens = outputTokensOf(stats);
+  const shownTokens = useCountUp(tokens?.count ?? 0);
+  const label = LABELS[phase];
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-1.5 text-xs touch:text-sm tabular-nums",
+        inProgress ? "text-fg-secondary" : "text-fg-tertiary",
+        className,
+      )}
+      title={
+        tokens
+          ? `${tokens.estimated ? "About " : ""}${tokens.count.toLocaleString("en-US")} output tokens`
+          : undefined
+      }
+      data-testid="ai-turn-stats"
+    >
+      {inProgress && phase !== "waiting" && <Spinner />}
+      {label && (
+        <span className={cn(inProgress && "text-fg-primary")}>{label}</span>
+      )}
+      <span>{formatElapsed(elapsedMs(stats, now))}</span>
+      {tokens && (
+        <>
+          <span aria-hidden>·</span>
+          <span>
+            {inProgress
+              ? `↓ ${formatTokens(shownTokens)} tokens`
+              : `${tokens.estimated ? "~" : ""}${formatTokens(shownTokens)} output tokens`}
+          </span>
+        </>
+      )}
+    </div>
+  );
 }
 
-export function formatTokens(tokens: number): string {
-  if (tokens < 1000) return `${Math.round(tokens)}`;
-  if (tokens < 10_000) return `${(tokens / 1000).toFixed(1)}k`;
-  return `${Math.round(tokens / 1000)}k`;
+const LABELS: Record<TurnPhase, string> = {
+  thinking: "Thinking…",
+  writing: "Writing…",
+  // The tool row above already names the tool.
+  working: "Working…",
+  waiting: "Waiting for your answer",
+  done: "",
+  stopped: "Stopped after",
+  failed: "Failed after",
+};
+
+/** `Date.now()`, re-read every second while `running`. */
+function useNow(running: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    if (!running) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [running]);
+  return now;
 }
 
 /**
- * Eases from the last shown value to `target`, so a jump (an exact count
- * replacing an estimate, a tool round finishing) reads as counting rather
+ * Eases from the last shown value to `target`, so a jump — the server's count
+ * replacing our estimate, a tool round finishing — reads as counting up rather
  * than as the number being swapped.
  */
 function useCountUp(target: number, durationMs = 600): number {
@@ -71,79 +126,9 @@ function Spinner() {
   return (
     <span
       aria-hidden
-      className="inline-block w-3 text-center text-fg-brand-primary"
+      className="inline-block w-3 text-center text-fg-brand-primary motion-reduce:hidden"
     >
       {SPINNER_FRAMES[frame]}
     </span>
-  );
-}
-
-function phaseLabel(phase: TurnPhase): string {
-  switch (phase.type) {
-    case "thinking":
-      return "Thinking…";
-    case "writing":
-      return "Writing…";
-    case "tool":
-      // The tool row above already names the tool.
-      return "Working…";
-    case "waiting":
-      return "Waiting for your answer";
-    case "done":
-      return "";
-    case "stopped":
-      return "Stopped after";
-    case "error":
-      return "Failed after";
-  }
-}
-
-export function TurnStatsLine({
-  phase,
-  elapsedMs,
-  outputTokens,
-  className,
-}: {
-  phase: TurnPhase;
-  elapsedMs: number;
-  /** Undefined until the first chunk or usage report arrives. */
-  outputTokens: number | undefined;
-  className?: string;
-}) {
-  const tokens = useCountUp(outputTokens ?? 0);
-  const inProgress =
-    phase.type === "thinking" ||
-    phase.type === "writing" ||
-    phase.type === "tool" ||
-    phase.type === "waiting";
-  const label = phaseLabel(phase);
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-1.5 text-xs touch:text-sm tabular-nums",
-        inProgress ? "text-fg-secondary" : "text-fg-tertiary",
-        className,
-      )}
-      title={
-        outputTokens !== undefined
-          ? `${Math.round(outputTokens).toLocaleString("en-US")} output tokens`
-          : undefined
-      }
-    >
-      {inProgress && phase.type !== "waiting" && <Spinner />}
-      {label && (
-        <span className={cn(inProgress && "text-fg-primary")}>{label}</span>
-      )}
-      <span>{formatElapsed(elapsedMs)}</span>
-      {outputTokens !== undefined && (
-        <>
-          <span aria-hidden>·</span>
-          <span>
-            {inProgress ? "↓ " : ""}
-            {formatTokens(tokens)} {inProgress ? "tokens" : "output tokens"}
-          </span>
-        </>
-      )}
-    </div>
   );
 }

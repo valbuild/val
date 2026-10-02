@@ -318,12 +318,19 @@ export type AiScriptStep =
       arguments?: unknown;
       /** How long to wait for the result. `null` waits indefinitely. */
       timeoutMs?: number | null;
-    };
+    }
+  /**
+   * An `ai_usage` report — sent only if the prompt asked for them
+   * (`reportUsage`), as the real service does.
+   */
+  | { type: "usage"; outputTokens: number; estimated?: boolean };
 
 export type AiScript = {
   steps: AiScriptStep[];
   /** The assistant's closing message. */
   response?: string;
+  /** The turn's exact output tokens, sent with `ai_response`. */
+  outputTokens?: number;
 };
 
 /** A tool call the scripted assistant made, and what the Studio answered. */

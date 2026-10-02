@@ -234,7 +234,10 @@ export const AIResponseMessage = z.object({
   metadata: z
     .object({
       model: z.string().optional(),
+      /** Input and output together, every tool round's re-sent context included. */
       tokensUsed: z.number().optional(),
+      /** What the model produced this turn, across every step. */
+      outputTokens: z.number().optional(),
     })
     .optional(),
 });
@@ -276,6 +279,22 @@ export const AIAgentHandoffMessage = z.object({
 });
 export type AIAgentHandoffMessage = z.infer<typeof AIAgentHandoffMessage>;
 
+/**
+ * Output tokens produced by the turn so far — cumulative, not a delta.
+ *
+ * Sent only when the prompt asked (`reportUsage`), because a Studio that does
+ * not know the type would drop each one with a console error. `estimated` is
+ * the server counting what it has streamed — text, thinking, tool arguments —
+ * between the exact reports it gets at the end of each model step.
+ */
+export const AIUsageMessage = z.object({
+  type: z.literal("ai_usage"),
+  id: z.string(),
+  outputTokens: z.number(),
+  estimated: z.boolean(),
+});
+export type AIUsageMessage = z.infer<typeof AIUsageMessage>;
+
 export const AIServerMessage = z.discriminatedUnion("type", [
   AIResponseMessage,
   AIStreamingMessage,
@@ -284,6 +303,7 @@ export const AIServerMessage = z.discriminatedUnion("type", [
   AICancelledMessage,
   AISessionUnhiddenMessage,
   AIAgentHandoffMessage,
+  AIUsageMessage,
 ]);
 
 export type AIServerMessage = z.infer<typeof AIServerMessage>;
@@ -310,6 +330,8 @@ export const AIPromptMessage = z.object({
    * created; `ai_unhide_session` reveals it later.
    */
   hidden: z.boolean().optional(),
+  /** Ask for `ai_usage` messages while the turn runs. */
+  reportUsage: z.boolean().optional(),
   agents: z.array(AIAgentDefinition).min(1),
 });
 export type AIPromptMessage = z.infer<typeof AIPromptMessage>;

@@ -930,13 +930,30 @@ export function useAI(
           chatRef.current.startAssistantMessage(message.id);
           chatRef.current.appendAssistantChunk(message.id, message.response);
         }
-        chatRef.current.completeAssistantMessage(message.id);
+        chatRef.current.completeAssistantMessage(message.id, {
+          outputTokens: message.metadata?.outputTokens,
+        });
         activeIdRef.current = null;
         if (inFlightPromptIdRef.current === message.id) {
           inFlightPromptIdRef.current = null;
         }
         ownedPromptIdsRef.current.delete(message.id);
         setIsStreaming(false);
+      } else if (message.type === "ai_usage") {
+        // A model thinking before it says anything still produces tokens, and
+        // a count is the only sign of it, so a report opens the message the
+        // way a first chunk or tool call does.
+        if (!chatRef.current) return;
+        if (activeIdRef.current !== message.id) {
+          activeIdRef.current = message.id;
+          chatRef.current.startAssistantMessage(message.id);
+          setIsStreaming(true);
+        }
+        chatRef.current.reportOutputTokens(
+          message.id,
+          message.outputTokens,
+          !message.estimated,
+        );
       } else if (message.type === "ai_tool_call") {
         // ask_user_question renders a question card instead of the plain tool
         // indicator, so it needs a validated question payload up front.
@@ -2203,9 +2220,11 @@ export function useAI(
         // an error status paints the turn red and offers a Retry for something
         // that did not fail. With nothing to keep, "Stopped." is the body.
         if (!wasStreaming && !message.partialResponse) {
-          chatRef.current.appendAssistantChunk(message.id, "Stopped.");
+          chatRef.current.appendAssistantChunk(message.id, "Stopped.", {
+            fromModel: false,
+          });
         }
-        chatRef.current.completeAssistantMessage(message.id);
+        chatRef.current.completeAssistantMessage(message.id, { stopped: true });
         // A question card left pending keeps the turn open: it stays
         // clickable, and it disables the chat's own turn timeout, so a stop
         // would wedge the composer with no way out but a reload. The server has
@@ -2398,6 +2417,7 @@ export function useAI(
         message: contentBlocks,
         sessionId: sid,
         id: randomUUID(),
+        reportUsage: true,
         agents: [
           {
             id: "default",
@@ -2546,7 +2566,9 @@ Do not describe what you will do unless you do it for clarification — just do 
     if (id === null) {
       const streamingId = activeIdRef.current;
       if (streamingId !== null) {
-        chatRef.current?.completeAssistantMessage(streamingId);
+        chatRef.current?.completeAssistantMessage(streamingId, {
+          stopped: true,
+        });
         activeIdRef.current = null;
       }
       setIsStreaming(false);
@@ -2557,9 +2579,11 @@ Do not describe what you will do unless you do it for clarification — just do 
       // Same reasoning as the `ai_cancelled` branch: settle it, do not fail it.
       if (activeIdRef.current !== id) {
         chatRef.current?.startAssistantMessage(id);
-        chatRef.current?.appendAssistantChunk(id, "Stopped.");
+        chatRef.current?.appendAssistantChunk(id, "Stopped.", {
+          fromModel: false,
+        });
       }
-      chatRef.current?.completeAssistantMessage(id);
+      chatRef.current?.completeAssistantMessage(id, { stopped: true });
       inFlightPromptIdRef.current = null;
       activeIdRef.current = null;
       setIsStreaming(false);

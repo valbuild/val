@@ -51,7 +51,16 @@ import {
 } from "./AIChatEditor";
 import { ToolActivities, isPendingQuestion } from "./AIChatToolActivities";
 import { decideBubble } from "./aiChatBubble";
-import { TurnStatsLine, type TurnPhase } from "./AIChatTurnStats";
+import { TurnStatsLine } from "./AIChatTurnStats";
+import {
+  addStreamedText,
+  endTurn,
+  reportOutputTokens,
+  startTurn,
+  syncPause,
+  turnPhaseOf,
+  type TurnStats,
+} from "./aiTurnStats";
 import type {
   AskUserQuestionAnswer,
   AskUserQuestionItem,
@@ -108,12 +117,12 @@ export type ChatMessage = {
    * (which would lose `previewUrl`s for image nodes).
    */
   userDoc?: ChatDocument;
-  /** MOCKUP: the turn's timer and output tokens. */
-  turnStats?: {
-    phase: TurnPhase;
-    elapsedMs: number;
-    outputTokens?: number;
-  };
+  /**
+   * The timer and output tokens shown under an assistant reply. Only on turns
+   * this chat watched happen: a restored session's messages have none, and
+   * show none.
+   */
+  turnStats?: TurnStats;
 };
 
 type AttachedFile = {
@@ -132,10 +141,33 @@ type CurrentMessage = {
 export type AIChatHandle = {
   /** Create a new empty assistant message in streaming state */
   startAssistantMessage: (id: string) => void;
-  /** Append a token/chunk to the assistant message with the given id */
-  appendAssistantChunk: (id: string, chunk: string) => void;
-  /** Mark the assistant message as complete */
-  completeAssistantMessage: (id: string) => void;
+  /**
+   * Append a token/chunk to the assistant message with the given id.
+   * `fromModel: false` is text the Studio writes itself ("Stopped."), which
+   * must not be counted as output tokens.
+   */
+  appendAssistantChunk: (
+    id: string,
+    chunk: string,
+    options?: { fromModel?: boolean },
+  ) => void;
+  /**
+   * Mark the assistant message as complete. `outputTokens` is the server's
+   * exact count for the turn; `stopped` says the user ended it.
+   */
+  completeAssistantMessage: (
+    id: string,
+    outcome?: { outputTokens?: number; stopped?: boolean },
+  ) => void;
+  /**
+   * The server's output-token count for the turn so far — exact after each
+   * model step, or its own running estimate in between.
+   */
+  reportOutputTokens: (
+    id: string,
+    outputTokens: number,
+    exact: boolean,
+  ) => void;
   /** Mark the assistant message as errored */
   errorAssistantMessage: (
     id: string,
@@ -232,8 +264,6 @@ export type AIChatProps = {
    * Not part of the public API.
    */
   initialMessages?: ChatMessage[];
-  /** MOCKUP: where the in-progress status line goes. */
-  statusPlacement?: "message" | "composer";
 };
 
 // ---------------------------------------------------------------------------
@@ -553,7 +583,6 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     onAnswerToolQuestions,
     onCancelToolQuestion,
     initialMessages,
-    statusPlacement = "message",
     chatEditorRef: chatEditorRefProp,
   },
   ref,
@@ -566,7 +595,20 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   );
   const [isEditorEmpty, setIsEditorEmpty] = useState(true);
   const [hasPendingInlineImage, setHasPendingInlineImage] = useState(false);
-  const [isAwaitingAssistant, setIsAwaitingAssistant] = useState(false);
+  /**
+   * When the prompt now waiting for its first reply was sent, or `null`.
+   *
+   * A time rather than a flag because the turn's clock starts here, at send,
+   * not when the server's first message arrives — the wait for that first
+   * message is exactly the "Thinking…" time worth showing. The ref is for the
+   * imperative handle, which must not read it from a stale render.
+   */
+  const [awaitingSince, setAwaitingSinceState] = useState<number | null>(null);
+  const awaitingSinceRef = useRef<number | null>(null);
+  const setAwaitingSince = useCallback((since: number | null) => {
+    awaitingSinceRef.current = since;
+    setAwaitingSinceState(since);
+  }, []);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const internalEditorRef = useRef<ChatEditorRef | null>(null);
@@ -591,11 +633,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     });
   }, [messages]);
 
-  // Once the assistant message actually starts streaming, drop the
-  // "thinking" placeholder so the StreamingCursor takes over.
+  // Once the assistant message exists, its own status line takes over from
+  // the placeholder one, carrying the same start time.
   useEffect(() => {
-    if (currentMessage) setIsAwaitingAssistant(false);
-  }, [currentMessage]);
+    if (currentMessage) setAwaitingSince(null);
+  }, [currentMessage, setAwaitingSince]);
 
   // 2-minute timeout for in-progress assistant messages. Suspended while an
   // ask_user_question card is open: that tool sets timeoutMs: null server-side
@@ -626,7 +668,14 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
       setCurrentMessage((prev) => {
         if (!prev) return null;
         if (id !== null && prev.message.id !== id) return prev;
-        const finished = finish(prev.message);
+        const now = Date.now();
+        const settled = finish(prev.message);
+        // Every way out stops the clock — the timeout and an error as much as
+        // a reply. `finish` may already have ended it with a count, and
+        // `endTurn` leaves an ended turn alone.
+        const finished: ChatMessage = settled.turnStats
+          ? { ...settled, turnStats: endTurn(settled.turnStats, now) }
+          : settled;
         setCompletedMessages((msgs) =>
           msgs.some((msg) => msg.id === finished.id)
             ? msgs
@@ -676,7 +725,11 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         if (!prev || prev.message.id !== messageId) return prev;
         // Restart the in-progress timeout window from the moment the user
         // acted — see the timeout effect above.
-        return { message: mapMessage(prev.message), startedAt: Date.now() };
+        const now = Date.now();
+        return {
+          message: withPauseSynced(mapMessage(prev.message), now),
+          startedAt: now,
+        };
       });
       // The message may already have been moved to completedMessages (e.g. by
       // an ai_error) while the question card was still open, in which case the
@@ -720,12 +773,24 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
   useImperativeHandle(ref, () => ({
     startAssistantMessage(id: string) {
+      const now = Date.now();
       setCurrentMessage({
-        message: { id, role: "assistant", content: "", status: "streaming" },
-        startedAt: Date.now(),
+        message: {
+          id,
+          role: "assistant",
+          content: "",
+          status: "streaming",
+          turnStats: startTurn(awaitingSinceRef.current ?? now),
+        },
+        startedAt: now,
       });
     },
-    appendAssistantChunk(id: string, chunk: string) {
+    appendAssistantChunk(
+      id: string,
+      chunk: string,
+      options?: { fromModel?: boolean },
+    ) {
+      const fromModel = options?.fromModel ?? true;
       setCurrentMessage((prev) =>
         prev?.message.id === id
           ? {
@@ -733,16 +798,42 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               message: {
                 ...prev.message,
                 content: getTextContent(prev.message.content) + chunk,
+                turnStats:
+                  prev.message.turnStats && fromModel
+                    ? addStreamedText(prev.message.turnStats, chunk)
+                    : prev.message.turnStats,
               },
             }
           : prev,
       );
     },
-    completeAssistantMessage(id: string) {
+    completeAssistantMessage(
+      id: string,
+      outcome?: { outputTokens?: number; stopped?: boolean },
+    ) {
       retireCurrentMessage(id, (message) => ({
         ...message,
         status: "complete",
+        turnStats:
+          message.turnStats && endTurn(message.turnStats, Date.now(), outcome),
       }));
+    },
+    reportOutputTokens(id: string, outputTokens: number, exact: boolean) {
+      setCurrentMessage((prev) =>
+        prev?.message.id === id && prev.message.turnStats
+          ? {
+              ...prev,
+              message: {
+                ...prev.message,
+                turnStats: reportOutputTokens(
+                  prev.message.turnStats,
+                  outputTokens,
+                  exact,
+                ),
+              },
+            }
+          : prev,
+      );
     },
     errorAssistantMessage(
       id: string,
@@ -776,13 +867,16 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         if (prev && prev.message.id === messageId) {
           return {
             ...prev,
-            message: {
-              ...prev.message,
-              toolActivities: [
-                ...(prev.message.toolActivities ?? []),
-                activity,
-              ],
-            },
+            message: withPauseSynced(
+              {
+                ...prev.message,
+                toolActivities: [
+                  ...(prev.message.toolActivities ?? []),
+                  activity,
+                ],
+              },
+              Date.now(),
+            ),
           };
         }
         return prev;
@@ -980,7 +1074,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
           ),
         );
       } else {
-        setIsAwaitingAssistant(true);
+        setAwaitingSince(Date.now());
         // Streaming is about to disable the composer, which blurs it. Ask for
         // the caret back once the answer lands.
         armForSend();
@@ -988,7 +1082,14 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
 
       requestAnimationFrame(() => editorRef.current?.focus());
     },
-    [isStreaming, attachedFiles, onSendMessage, editorRef, armForSend],
+    [
+      isStreaming,
+      attachedFiles,
+      onSendMessage,
+      editorRef,
+      armForSend,
+      setAwaitingSince,
+    ],
   );
 
   const handleRetry = useCallback(
@@ -1018,7 +1119,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             ),
           );
         } else {
-          setIsAwaitingAssistant(true);
+          setAwaitingSince(Date.now());
         }
         return;
       }
@@ -1039,9 +1140,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         prevUserMsg.userDoc ?? getTextContent(prevUserMsg.content);
       const sent =
         onSendMessage?.(retryPayload, prevUserMsg.attachments) ?? true;
-      if (sent) setIsAwaitingAssistant(true);
+      if (sent) setAwaitingSince(Date.now());
     },
-    [messages, onSendMessage],
+    [messages, onSendMessage, setAwaitingSince],
   );
 
   // ---- Render ----
@@ -1221,7 +1322,6 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               <MessageBubble
                 key={msg.id}
                 message={msg}
-                statusPlacement={statusPlacement}
                 onRetry={handleRetry}
                 onSubmitToolAnswers={(toolCallId, answers) => {
                   recordAnswersInState(msg.id, toolCallId, answers);
@@ -1234,37 +1334,19 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               />
             ))
           )}
-          {isAwaitingAssistant && !currentMessage && <ThinkingIndicator />}
+          {awaitingSince !== null && !currentMessage && (
+            <TurnStatsLine
+              className="px-1"
+              stats={startTurn(awaitingSince)}
+              phase="thinking"
+            />
+          )}
           <div ref={bottomRef} />
         </div>
       </ScrollArea>
 
-      {statusPlacement === "composer" &&
-        (() => {
-          const live = messages.find(
-            (m) => m.turnStats && isInProgressPhase(m.turnStats.phase),
-          )?.turnStats;
-          return live ? (
-            <div className="shrink-0 border-t border-border-primary bg-bg-primary px-4 pt-2">
-              <TurnStatsLine
-                phase={live.phase}
-                elapsedMs={live.elapsedMs}
-                outputTokens={live.outputTokens}
-              />
-            </div>
-          ) : null;
-        })()}
       {/* Input area */}
-      <div
-        className={cn(
-          "shrink-0 border-t border-border-primary bg-bg-primary p-3",
-          statusPlacement === "composer" &&
-            messages.some(
-              (m) => m.turnStats && isInProgressPhase(m.turnStats.phase),
-            ) &&
-            "border-t-0 pt-2",
-        )}
-      >
+      <div className="shrink-0 border-t border-border-primary bg-bg-primary p-3">
         {unavailable && !authError ? (
           <AIUnavailable {...unavailable} />
         ) : (
@@ -1539,13 +1621,11 @@ function EmptyState({
 
 function MessageBubble({
   message,
-  statusPlacement,
   onRetry,
   onSubmitToolAnswers,
   onCancelToolQuestion,
 }: {
   message: ChatMessage;
-  statusPlacement: "message" | "composer";
   onRetry: (id: string) => void;
   onSubmitToolAnswers: (
     toolCallId: string,
@@ -1563,6 +1643,7 @@ function MessageBubble({
   );
   const textContent = getTextContent(message.content);
   const fileUrls = getImageUrls(message.content);
+  const turnStats = isUser ? undefined : message.turnStats;
   // See aiChatBubble.ts - the rule is subtler than it looks.
   const { hasBubble, showCursor } = decideBubble({
     isUser,
@@ -1572,6 +1653,7 @@ function MessageBubble({
     hasFiles: fileUrls.length > 0,
     hasRunningTool,
     hasPendingQuestion,
+    hasStatusLine: turnStats !== undefined,
   });
 
   return (
@@ -1722,28 +1804,38 @@ function MessageBubble({
           )}
         </div>
       )}
-      {!isUser &&
-        message.turnStats &&
-        (statusPlacement === "message" ||
-          !isInProgressPhase(message.turnStats.phase)) && (
-          <TurnStatsLine
-            className="px-1"
-            phase={message.turnStats.phase}
-            elapsedMs={message.turnStats.elapsedMs}
-            outputTokens={message.turnStats.outputTokens}
-          />
-        )}
+      {turnStats && (
+        <TurnStatsLine
+          className="px-1"
+          stats={turnStats}
+          phase={turnPhaseOf({
+            status: message.status,
+            stopped: turnStats.stopped,
+            waitingOnUser: hasPendingQuestion,
+            hasRunningTool,
+            hasText: textContent.length > 0,
+          })}
+        />
+      )}
     </div>
   );
 }
 
-function isInProgressPhase(phase: TurnPhase): boolean {
-  return (
-    phase.type === "thinking" ||
-    phase.type === "writing" ||
-    phase.type === "tool" ||
-    phase.type === "waiting"
-  );
+/**
+ * Pause the turn's clock while a question card is open, and resume it once
+ * the card is answered or cancelled — applied after every change to a
+ * message's tools, so no caller has to track the transition itself.
+ */
+function withPauseSynced(message: ChatMessage, now: number): ChatMessage {
+  if (!message.turnStats) return message;
+  return {
+    ...message,
+    turnStats: syncPause(
+      message.turnStats,
+      (message.toolActivities ?? []).some(isPendingQuestion),
+      now,
+    ),
+  };
 }
 
 function StreamingCursor() {
@@ -1759,23 +1851,5 @@ function StreamingCursor() {
         style={{ animationDelay: "300ms" }}
       />
     </span>
-  );
-}
-
-function ThinkingIndicator() {
-  return (
-    <div className="flex justify-start">
-      <div className="flex items-center gap-1 rounded-lg bg-bg-tertiary px-4 py-3">
-        <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse" />
-        <span
-          className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse"
-          style={{ animationDelay: "150ms" }}
-        />
-        <span
-          className="h-1.5 w-1.5 rounded-full bg-fg-secondary animate-pulse"
-          style={{ animationDelay: "300ms" }}
-        />
-      </div>
-    </div>
   );
 }

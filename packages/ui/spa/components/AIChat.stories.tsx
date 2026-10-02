@@ -7,6 +7,7 @@ import {
   AskUserQuestionItem,
   ChatMessage,
 } from "./AIChat";
+import { endTurn, reportOutputTokens, startTurn } from "./aiTurnStats";
 
 const meta: Meta<typeof AIChat> = {
   title: "Components/AIChat",
@@ -1072,3 +1073,127 @@ export const ToolsThenEmptyResponse: Story = {
     ],
   },
 };
+
+// ---------------------------------------------------------------------------
+// 9. Turn stats — the timer and output tokens under a reply
+// ---------------------------------------------------------------------------
+
+/**
+ * Finished turns: done with the server's exact count, stopped with only our
+ * own estimate (hence the "~"), and failed with nothing produced, where the
+ * count is left out rather than shown as 0.
+ */
+export const TurnStatsSettled: Story = {
+  args: {
+    isConnected: true,
+    authError: false,
+    mode: "http",
+    initialMessages: [
+      {
+        id: "ts-user-1",
+        role: "user",
+        content: "Fix the validation errors on all blog posts",
+        status: "complete",
+      },
+      {
+        id: "ts-assistant-1",
+        role: "assistant",
+        content:
+          "Done. I filled in `author` on 14 posts. They are in your unpublished changes for review.",
+        status: "complete",
+        toolActivities: TOOL_RUN,
+        turnStats: endTurn(startTurn(0), 94_000, { outputTokens: 3_412 }),
+      },
+      {
+        id: "ts-user-2",
+        role: "user",
+        content: "Translate every page to Norwegian",
+        status: "complete",
+      },
+      {
+        id: "ts-assistant-2",
+        role: "assistant",
+        content: "Starting with the front page. Forsiden heter",
+        status: "complete",
+        turnStats: endTurn(
+          reportOutputTokens(startTurn(0), 812, false),
+          18_000,
+          { stopped: true },
+        ),
+      },
+      {
+        id: "ts-user-3",
+        role: "user",
+        content: "Just do the about page",
+        status: "complete",
+      },
+      {
+        id: "ts-assistant-3",
+        role: "assistant",
+        content: "",
+        status: "error",
+        error: "The model provider did not respond.",
+        turnStats: endTurn(startTurn(0), 31_000),
+      },
+    ],
+  },
+};
+
+/**
+ * A long turn, live: thinking with no text while the count climbs from the
+ * server's estimates, a tool round, then text — and the exact count at the end.
+ */
+export const TurnStatsLive: Story = {
+  render: () => <LiveTurnStatsDemo />,
+};
+
+function LiveTurnStatsDemo() {
+  const chatRef = useRef<AIChatHandle>(null);
+
+  useEffect(() => {
+    const id = "ts-live-1";
+    const chat = () => chatRef.current;
+    chat()?.startAssistantMessage(id);
+    let tokens = 0;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const at = (ms: number, run: () => void) =>
+      timers.push(setTimeout(run, ms));
+    for (let t = 500; t <= 6_000; t += 500) {
+      at(t, () => {
+        tokens += 90;
+        chat()?.reportOutputTokens(id, tokens, false);
+      });
+    }
+    at(6_500, () => chat()?.addToolCall(id, "ts-live-tc", "get_source"));
+    at(8_000, () => {
+      chat()?.completeToolCall(id, "ts-live-tc");
+      chat()?.reportOutputTokens(id, 1_204, true);
+    });
+    STREAMING_TEXT.slice(0, 200)
+      .match(/.{1,6}/g)
+      ?.forEach((chunk, i) =>
+        at(8_500 + i * 60, () => chat()?.appendAssistantChunk(id, chunk)),
+      );
+    at(12_000, () =>
+      chat()?.completeAssistantMessage(id, { outputTokens: 1_268 }),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  return (
+    <AIChat
+      ref={chatRef}
+      isConnected={true}
+      authError={false}
+      mode="http"
+      initialMessages={[
+        {
+          id: "ts-live-user-1",
+          role: "user",
+          content: "Rewrite the about page intro",
+          status: "complete",
+        },
+      ]}
+    />
+  );
+}

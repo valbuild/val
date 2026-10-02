@@ -35,6 +35,22 @@ describe("decideBubble", () => {
     ).toEqual({ hasBubble: true, showCursor: true });
   });
 
+  // The status line under the turn says "Thinking… 4s"; three dots in an
+  // otherwise empty bubble above it would say the same thing twice.
+  it("drops the cursor, and an empty bubble, for the status line", () => {
+    expect(
+      decideBubble({ ...assistant, isStreaming: true, hasStatusLine: true }),
+    ).toEqual({ hasBubble: false, showCursor: false });
+    expect(
+      decideBubble({
+        ...assistant,
+        isStreaming: true,
+        hasStatusLine: true,
+        hasText: true,
+      }),
+    ).toEqual({ hasBubble: true, showCursor: false });
+  });
+
   it("shows the cursor while streaming with no tools running", () => {
     expect(decideBubble({ ...assistant, isStreaming: true })).toEqual({
       hasBubble: true,

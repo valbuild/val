@@ -33,6 +33,12 @@ export function decideBubble(message: {
   hasRunningTool: boolean;
   /** An `ask_user_question` card is open, so the turn is blocked on the user. */
   hasPendingQuestion: boolean;
+  /**
+   * The turn's status line ("Thinking… 4s") is under the message. It says
+   * "working" with more to it than three dots do, so it replaces the cursor —
+   * and a turn with no text yet then has nothing to put in a bubble.
+   */
+  hasStatusLine?: boolean;
 }): BubbleState {
   const {
     isUser,
@@ -42,12 +48,16 @@ export function decideBubble(message: {
     hasFiles,
     hasRunningTool,
     hasPendingQuestion,
+    hasStatusLine = false,
   } = message;
 
   // Once a token has landed the cursor belongs at the end of the text. Before
   // that it is redundant with the tool row, which already says "working".
   const showCursor =
-    isStreaming && !hasPendingQuestion && (hasText || !hasRunningTool);
+    isStreaming &&
+    !hasStatusLine &&
+    !hasPendingQuestion &&
+    (hasText || !hasRunningTool);
 
   const hasBubble =
     isUser ||
