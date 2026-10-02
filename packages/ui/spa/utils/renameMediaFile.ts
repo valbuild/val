@@ -327,7 +327,19 @@ export function buildMediaRenamePatches(args: {
     };
   }
   const ownPath = target.kind === "field" ? target.path : target.key;
-  const hashSource = plan.knownHashPrefix ?? bytes.get(ownPath)?.sha256;
+  /*
+   * The suffix the name ALREADY has wins over any hash.
+   *
+   * The input shows `_a1b2c.png` as locked, and locked has to mean kept: a
+   * suffix that does not match the bytes (a hand-placed `logo_deadb.png`, a
+   * file whose bytes changed after it was named) would otherwise be swapped
+   * for a different one without the editor being told. The content hash is
+   * only the fallback, for a name with no suffix at all.
+   */
+  const hashSource =
+    hashSuffixOf(plan.nameParts.filename) ??
+    plan.knownHashPrefix ??
+    bytes.get(ownPath)?.sha256;
   if (hashSource === undefined) {
     return {
       status: "error",
@@ -498,6 +510,13 @@ export function buildMediaRenamePatches(args: {
  * Val's hash suffix (a file someone put in `/public` by hand) locks only the
  * extension; a rename then gives it a suffix, the way an upload would have.
  */
+/** The five hex of a Val filename's `_a1b2c` suffix, or `null` when it has none. */
+export function hashSuffixOf(filename: string): string | null {
+  const { locked } = splitEditableFilename(filename);
+  const match = locked.match(/^_([0-9a-f]{5})/);
+  return match ? match[1] : null;
+}
+
 export function splitEditableFilename(filename: string): {
   base: string;
   locked: string;

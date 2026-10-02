@@ -272,7 +272,9 @@ locked (`Internal.createRenamedFilename`, which shares its cleaning with
 `createFilename`, so renaming a file to the name it was uploaded with gives back
 the name it has). The hash keeps two different files from sharing a name; the
 extension is part of a remote file's validation hash and of how its bytes are
-served. A hand-placed file with no suffix gets one, the way an upload would.
+served. An existing suffix is kept as it is, even one that does not match the
+bytes — locked has to mean kept. A hand-placed file with no suffix gets one from
+its content hash, the way an upload would.
 
 **Where the bytes are decides what moves**, and this is the part to get right:
 

@@ -449,6 +449,21 @@ describe("standalone field", () => {
     ]);
   });
 
+  test("keeps the suffix the name already has, even when the bytes hash differently", () => {
+    // `_a1b2c` is shown as locked, so it must survive — the content hash here
+    // starts `bfbd0`, and only a name with no suffix takes it.
+    const { patches } = build(
+      {
+        kind: "field",
+        moduleFilePath: PAGE,
+        patchPath: ["a"],
+        path: "/public/val/logo_a1b2c.png",
+      },
+      "brand",
+    );
+    expect(patches.newPath).toBe("/public/val/brand_a1b2c.png");
+  });
+
   test("a hand-placed file without a hash gets one from its bytes", () => {
     const { patches } = build(
       {
