@@ -55,8 +55,8 @@
     "@valbuild/ui": "workspace:*"
   },
   "devDependencies": {
-    "@tanstack/react-router": "^1.170.33",
-    "@tanstack/react-start": "^1.168.50",
+    "@tanstack/react-router": "^1.170.41",
+    "@tanstack/react-start": "^1.168.60",
     "@testing-library/react": "^16.3.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
