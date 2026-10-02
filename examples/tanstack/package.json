@@ -14,8 +14,8 @@
     "probe:host-publish": "tsx scripts/hostPublishProbe.ts"
   },
   "dependencies": {
-    "@tanstack/react-router": "^1.170.33",
-    "@tanstack/react-start": "^1.168.50",
+    "@tanstack/react-router": "^1.170.41",
+    "@tanstack/react-start": "^1.168.60",
     "@valbuild/core": "workspace:*",
     "@valbuild/tanstack": "workspace:*",
     "prettier": "~3.8.5",
@@ -23,7 +23,7 @@
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@tanstack/router-cli": "^1.167.34",
+    "@tanstack/router-cli": "^1.167.40",
     "@types/node": "26.4.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
