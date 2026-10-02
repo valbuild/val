@@ -66,6 +66,13 @@ export type ValHttpMode = {
    * `.val.ts` at all.
    */
   projectSource?: Record<string, string>;
+  /**
+   * The publish job this build was made for, when a Studio built it in a
+   * tab: how a build with no commit says where it sits in the content
+   * service's chain. Baked in by the build (`BUILT_FOR_JOB`); nothing else
+   * should set it.
+   */
+  publishJob?: string;
 };
 
 /**

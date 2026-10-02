@@ -453,6 +453,8 @@ export class ValOpsHttp extends ValOps {
    * file read for one with "no GitHub repo".
    */
   private readonly projectSource: Record<string, string> | null;
+  /** See `publishJob` on {@link ValApiOptions}; sent only with no commit. */
+  private readonly publishJob: string | null;
 
   /** Did the host hand over the running build's source? See `projectSource`. */
   embedsSource(): boolean {
@@ -512,6 +514,8 @@ export class ValOpsHttp extends ValOps {
       root?: string;
       /** See `projectSource` on {@link ValApiOptions}. */
       projectSource?: Record<string, string>;
+      /** See `publishJob` on {@link ValApiOptions}. */
+      publishJob?: string;
     },
   ) {
     super(valModules, options);
@@ -521,6 +525,7 @@ export class ValOpsHttp extends ValOps {
         : { Authorization: `Bearer ${auth.apiKey}` };
     this.root = options?.root ?? "";
     this.projectSource = options?.projectSource ?? null;
+    this.publishJob = options?.publishJob ?? null;
     this.mirrorsSourceFiles = git !== null || this.projectSource !== null;
   }
   /**
@@ -1143,7 +1148,9 @@ export class ValOpsHttp extends ValOps {
          */
         ...(this.git
           ? { branch: this.git.branch, commitSha: this.git.commit }
-          : {}),
+          : this.publishJob !== null
+            ? { job: this.publishJob }
+            : {}),
       }),
       headers: {
         ...this.authHeaders,
@@ -1355,6 +1362,9 @@ export class ValOpsHttp extends ValOps {
     if (this.git) {
       params.push(["branch", this.git.branch]);
       params.push(["commit", this.git.commit]);
+    } else if (this.publishJob !== null) {
+      // A build a tab made has no commit, and says which job it was made for.
+      params.push(["job", this.publishJob]);
     }
     if (filters.patchIds) {
       for (const patchId of filters.patchIds) {

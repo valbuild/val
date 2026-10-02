@@ -319,6 +319,23 @@ describe("the branch comes out of the record", () => {
     // bundle was not wired at describes a build as something it is not.
     expect(baked).toEqual([{ commit: "c".repeat(40), branch: "main" }]);
   });
+
+  test("a job's build bakes its job; one that is not a job's leaves it as it was", async () => {
+    const baked: Array<unknown> = [];
+    const loadBuilder = async () =>
+      builder([], {
+        rebakeGit: (files, _git, job) => {
+          baked.push(job);
+          return files;
+        },
+      });
+    await deploy({ loadBuilder, commit: null, job: "J-1" });
+    await deploy({ loadBuilder, commit: null });
+    // The content service places a build that names its job by that job, and
+    // one that does not at the live build. `undefined` is "keep what the
+    // source has": an update rebuilds the live build's content.
+    expect(baked).toEqual(["J-1", undefined]);
+  });
 });
 
 describe("what it refuses to start", () => {
