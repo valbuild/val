@@ -24,6 +24,8 @@ export type AdminProxyStatus = 200 | 400 | 401 | 403 | 404 | 500;
 
 export type AdminProxyResult = { status: AdminProxyStatus; json: unknown };
 
+export type ValBuildCredential = { bearer: string } | { pat: string };
+
 export type AdminProxyRequest = {
   method: "GET" | "POST" | "PUT" | "DELETE";
   /** Everything after `/admin/proxy`, starting with `/`. */
@@ -31,7 +33,11 @@ export type AdminProxyRequest = {
   /** `?a=1`, or `""`. */
   rawQuery: string;
   body: unknown;
-  token: string;
+  /**
+   * Who the request is for: a deployed Studio's session token, or the
+   * `val login` token of a developer running the Studio locally.
+   */
+  credential: ValBuildCredential;
   valBuildUrl: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
@@ -42,7 +48,7 @@ export async function forwardToValBuild({
   path,
   rawQuery,
   body,
-  token,
+  credential,
   valBuildUrl,
   fetchImpl = fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -61,7 +67,10 @@ export async function forwardToValBuild({
     response = await fetchImpl(url, {
       method,
       headers: {
-        authorization: `Bearer ${token}`,
+        // `x-val-pat` is the header the rest of Val Build reads a PAT from.
+        ...("pat" in credential
+          ? { "x-val-pat": credential.pat }
+          : { authorization: `Bearer ${credential.bearer}` }),
         accept: "application/json",
         ...(sendsBody ? { "content-type": "application/json" } : {}),
       },

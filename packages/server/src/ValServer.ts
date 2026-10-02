@@ -67,10 +67,15 @@ import { getHistoricalPatchSet } from "./history/getHistoricalPatchSet";
 import { getModuleAtCommit } from "./history/getModuleAtCommit";
 import { getJsonEntryAtCommit } from "./history/getJsonEntryAtCommit";
 import { getSettings } from "./getSettings";
-import { forwardToValBuild, type AdminProxyResult } from "./adminProxy";
+import {
+  forwardToValBuild,
+  type AdminProxyResult,
+  type ValBuildCredential,
+} from "./adminProxy";
 import {
   createValOps,
   resolveRemoteFileAuth,
+  readValLoginToken,
   type RemoteFileAuth,
 } from "./valServerConfig";
 import path from "path";
@@ -374,9 +379,10 @@ export const ValServer = (
    * Three refusals before anything leaves this server, and the `code`s are
    * the ones the components act on:
    * - no `x-val-studio` header: 403, since a cross-site request cannot set it;
-   * - no Val Build behind this Studio (fs mode, or no `valBuildUrl`): 404
-   *   `not-connected`, which the component shows as such rather than as an
-   *   outage;
+   * - no Val Build behind this Studio (no `valBuildUrl`, or fs mode without
+   *   a `val login`): 404 `not-connected`, which the component shows as such
+   *   rather than as an outage — though `/admin/status` keeps the Studio from
+   *   mounting it at all in that case;
    * - a deployed Studio without a valid session: 401 `unauthenticated`, which
    *   the component answers by asking the Studio to sign in.
    */
@@ -399,8 +405,8 @@ export const ValServer = (
         },
       };
     }
-    const session = getSessionToken(req.cookies);
-    if (session.status !== "ok" || !options.valBuildUrl) {
+    const credential = await getValBuildCredential(req.cookies);
+    if (credential.status !== "ok" || !options.valBuildUrl) {
       if (!serverOps.requiresAuth || !options.valBuildUrl) {
         return {
           status: 404,
@@ -415,8 +421,8 @@ export const ValServer = (
         json: {
           code: "unauthenticated",
           message:
-            session.status === "invalid"
-              ? session.message
+            credential.status === "invalid"
+              ? credential.message
               : "Sign in to Val Build.",
         },
       };
@@ -426,9 +432,41 @@ export const ValServer = (
       path: req.path,
       rawQuery: req.rawQuery,
       body: req.body,
-      token: session.token,
+      credential: credential.credential,
       valBuildUrl: options.valBuildUrl,
     });
+  };
+
+  /**
+   * What this Studio can act on Val Build with, for the editor in front of it:
+   *
+   * - the session's token, in a deployed Studio (and in a local one where
+   *   someone signed in through the Studio anyway);
+   * - otherwise, in fs mode, the developer's own `val login` token from
+   *   `.val/pat.json` — the same file `val validate --fix` reads.
+   *
+   * An api key is never one of them: it is the project, not a person, and
+   * these requests are answered with a person's projects.
+   */
+  const getValBuildCredential = async (
+    cookies: Partial<Record<typeof VAL_SESSION_COOKIE, string>>,
+  ): Promise<
+    | { status: "ok"; credential: ValBuildCredential }
+    | { status: "none" }
+    | { status: "invalid"; message: string }
+  > => {
+    const session = getSessionToken(cookies);
+    if (session.status === "ok") {
+      return { status: "ok", credential: { bearer: session.token } };
+    }
+    if (options.mode === "fs") {
+      const pat = await readValLoginToken(options);
+      if (pat !== null) {
+        return { status: "ok", credential: { pat } };
+      }
+      return { status: "none" };
+    }
+    return session;
   };
 
   /** The editor's Val Build token, from inside their session cookie. */
@@ -2445,6 +2483,18 @@ export const ValServer = (
           binaryFilesUnread: binaries.unread,
           branch: serverOps.projectBranch(),
         });
+      },
+    },
+    "/admin/status": {
+      GET: async (req) => {
+        const credential = await getValBuildCredential(req.cookies);
+        return {
+          status: 200,
+          json: {
+            connected:
+              Boolean(options.valBuildUrl) && credential.status === "ok",
+          },
+        };
       },
     },
     "/admin/proxy": {

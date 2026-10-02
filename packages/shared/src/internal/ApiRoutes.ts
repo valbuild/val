@@ -2319,6 +2319,23 @@ export const Api = {
    * release. What it does NOT pass through is anything that would let it be
    * aimed elsewhere — see `adminProxy.ts`.
    */
+  /*
+   * Whether this Studio has a Val Build credential for the editor: a session,
+   * or in local development a `val login`. The Studio asks before it loads a
+   * web component, so a developer who never logged in sees the plain project
+   * name rather than a component explaining that they are not logged in.
+   */
+  "/admin/status": {
+    GET: {
+      req: {
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.object({
+        status: z.literal(200),
+        json: z.object({ connected: z.boolean() }),
+      }),
+    },
+  },
   "/admin/proxy": {
     GET: adminProxyEndpoint(),
     POST: adminProxyEndpoint(),

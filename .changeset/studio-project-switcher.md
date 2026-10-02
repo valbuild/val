@@ -8,4 +8,6 @@ The project name in the Studio's top bar is now a project switcher, for projects
 
 The switcher is served by Val Build (`admin.val.build/wc/v1/project-switcher.js`), so it can improve without a Val release. Until it loads — or if it cannot, for example offline or under a strict Content Security Policy — the Studio shows the project name and its link exactly as before. If your app sets a CSP, allow `script-src https://admin.val.build` to get the switcher.
 
-It reaches Val Build through a new route on your app's Val server, `/api/val/admin/proxy/*`, which adds the editor's existing Val Build session. That route forwards only to Val Build's Studio API, only with the `x-val-studio` header that a cross-site request cannot send, and answers `not-connected` in local (fs) mode, where the Studio keeps its plain project name.
+It reaches Val Build through a new route on your app's Val server, `/api/val/admin/proxy/*`, which adds the editor's existing Val Build session. That route forwards only to Val Build's Studio API, and only with the `x-val-studio` header that a cross-site request cannot send.
+
+In local development the switcher appears once you have run `val login`, and uses that login. Without one the Studio keeps the plain project name, as before; it does not load the switcher just to say you are not logged in.

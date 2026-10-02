@@ -3,6 +3,9 @@ import { createValApiRouter, createValServer } from "./ValRouter";
 import { encodeJwt } from "./jwt";
 import { fakeRequest } from "./fakeRequest";
 import { studioApiUrl } from "./adminProxy";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 /**
  * `/admin/proxy/*`: the web components' way to Val Build, with the editor's
@@ -221,6 +224,31 @@ describe("the /admin/proxy route", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  test("/admin/status: connected with a session, not without one", async () => {
+    const status = (cookie: string | null) => {
+      const headers = new Headers();
+      if (cookie !== null) {
+        headers.set("Cookie", `val_session=${encodeURIComponent(cookie)}`);
+      }
+      return router(
+        fakeRequest({
+          method: "GET",
+          url: new URL(`http://localhost:3000${route}/admin/status`),
+          headers,
+        }),
+      );
+    };
+    expect(await status(session())).toEqual({
+      status: 200,
+      json: { connected: true },
+    });
+    expect(await status(null)).toEqual({
+      status: 200,
+      json: { connected: false },
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   test("an unreachable Val Build is a 500 the component reads as an outage", async () => {
     fetchSpy.mockImplementation(async () => {
       throw new TypeError("fetch failed");
@@ -230,52 +258,115 @@ describe("the /admin/proxy route", () => {
   });
 });
 
-describe("the /admin/proxy route in fs mode", () => {
-  test("is not-connected: local dev has no Val Build session to borrow", async () => {
-    const route = "/api/val";
-    const { c, s, config } = initVal();
-    const fetchSpy = jest.spyOn(globalThis, "fetch");
-    try {
-      const router = createValApiRouter(
-        route,
-        createValServer(
-          modules(config, [
-            {
-              def: () =>
-                Promise.resolve({
-                  default: c.define("/content/page.val.ts", s.string(), "hi"),
-                }),
-            },
-          ]),
-          route,
-          { disableCache: true, versions: { core: "0.0.0-test" } },
-          config,
-          {
-            async isEnabled() {
-              return true;
-            },
-            async onDisable() {},
-            async onEnable() {},
-          },
-        ),
-        (res) => res,
+describe("in fs mode", () => {
+  const route = "/api/val";
+  const { c, s, config } = initVal();
+  const originalCwd = process.cwd();
+  let fetchSpy: jest.SpyInstance;
+
+  /**
+   * An fs-mode server whose working directory is `dir`, which is where
+   * `val login` writes `.val/pat.json`. The cwd is read when the server
+   * starts, so it is changed for the start and put back straight after.
+   */
+  async function fsServer(pat: string | null) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "val-admin-proxy-"));
+    if (pat !== null) {
+      fs.mkdirSync(path.join(dir, ".val"));
+      fs.writeFileSync(
+        path.join(dir, ".val", "pat.json"),
+        JSON.stringify({ pat }),
       );
-      const res = await router(
-        fakeRequest({
-          method: "GET",
-          url: new URL(
-            `http://localhost:3000${route}/admin/proxy/projects/overview`,
-          ),
-          headers: new Headers({ "x-val-studio": "1" }),
-        }),
-      );
-      expect(res).toMatchObject({
-        status: 404,
-        json: { code: "not-connected" },
-      });
-      expect(fetchSpy).not.toHaveBeenCalled();
-    } finally {
-      fetchSpy.mockRestore();
     }
+    process.chdir(dir);
+    try {
+      const server = createValServer(
+        modules(config, [
+          {
+            def: () =>
+              Promise.resolve({
+                default: c.define("/content/page.val.ts", s.string(), "hi"),
+              }),
+          },
+        ]),
+        route,
+        {
+          disableCache: true,
+          valBuildUrl: VAL_BUILD,
+          versions: { core: "0.0.0-test" },
+        },
+        config,
+        {
+          async isEnabled() {
+            return true;
+          },
+          async onDisable() {},
+          async onEnable() {},
+        },
+      );
+      await server;
+      const router = createValApiRouter(route, server, (res) => res);
+      return (path: string, headers: Record<string, string> = {}) =>
+        router(
+          fakeRequest({
+            method: "GET",
+            url: new URL(`http://localhost:3000${route}${path}`),
+            headers: new Headers(headers),
+          }),
+        );
+    } finally {
+      process.chdir(originalCwd);
+    }
+  }
+
+  beforeEach(() => {
+    fetchSpy = jest
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () =>
+        Response.json({ results: [] }, { status: 200 }),
+      );
+  });
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  test("without a val login, the Studio is told not to mount anything", async () => {
+    const get = await fsServer(null);
+    expect(await get("/admin/status")).toEqual({
+      status: 200,
+      json: { connected: false },
+    });
+    // And the proxy, if something calls it anyway, says so rather than erring.
+    expect(
+      await get("/admin/proxy/projects/overview", { "x-val-studio": "1" }),
+    ).toMatchObject({ status: 404, json: { code: "not-connected" } });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  test("with a val login, it is connected, and the proxy acts as the developer", async () => {
+    const get = await fsServer("developers-pat");
+    expect(await get("/admin/status")).toEqual({
+      status: 200,
+      json: { connected: true },
+    });
+    expect(
+      await get("/admin/proxy/projects/overview", { "x-val-studio": "1" }),
+    ).toEqual({ status: 200, json: { results: [] } });
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe(`${VAL_BUILD}/api/studio/v1/projects/overview`);
+    // The PAT, in the header the rest of Val Build reads it from -- and no
+    // bearer beside it.
+    expect(init.headers).toEqual({
+      "x-val-pat": "developers-pat",
+      accept: "application/json",
+    });
+  });
+
+  test("the PAT is not a way around the x-val-studio header", async () => {
+    const get = await fsServer("developers-pat");
+    expect(await get("/admin/proxy/projects/overview")).toMatchObject({
+      status: 403,
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

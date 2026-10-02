@@ -563,6 +563,33 @@ export type ResolveRemoteFileAuthResult =
       message: string;
     };
 
+/**
+ * The personal access token `val login` wrote for this project, or null when
+ * there is none (or it does not parse). Only `fs` mode has a working directory
+ * to read it from, so every other mode answers null.
+ *
+ * Unlike `resolveRemoteFileAuth` this never answers with the api key: the
+ * caller wants to act as the DEVELOPER, and an api key is the project.
+ */
+export async function readValLoginToken(
+  options: ValServerConfig,
+): Promise<string | null> {
+  if (options.mode !== "fs") {
+    return null;
+  }
+  const fs = await import("fs");
+  try {
+    const file = await fs.promises.readFile(
+      getPersonalAccessTokenPath(options.cwd),
+      "utf-8",
+    );
+    const parsed = parsePersonalAccessTokenFile(file);
+    return parsed.success ? parsed.data.pat : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function resolveRemoteFileAuth(
   options: ValServerConfig,
 ): Promise<ResolveRemoteFileAuthResult> {
