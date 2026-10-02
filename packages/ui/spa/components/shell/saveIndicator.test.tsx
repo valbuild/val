@@ -40,3 +40,42 @@ describe("the save indicator", () => {
     expect(screen.queryByText("Could not save")).not.toBeNull();
   });
 });
+
+/**
+ * Every label is always rendered — they share one grid cell so the slot has
+ * one width (see `SaveIndicator`) — so finding a label's text says nothing
+ * about whether it is the one showing. What decides that is which wrapper is
+ * visible and exposed to assistive technology, and that is what this pins.
+ */
+describe("the save indicator's stacked labels", () => {
+  const LABELS = {
+    saved: "All changes saved",
+    saving: "Saving…",
+    error: "Could not save",
+  } as const;
+  const STATES = ["saved", "saving", "error"] as const;
+
+  /** The wrapper a label sits in: the grid cell that is shown or hidden. */
+  function wrapperOf(text: string): HTMLElement {
+    const label = screen.getByText(text);
+    const wrapper = label.closest("[aria-hidden]");
+    if (!(wrapper instanceof HTMLElement)) {
+      throw new Error(`"${text}" is not inside a label wrapper`);
+    }
+    return wrapper;
+  }
+
+  test.each(STATES)("shows and announces only the %s label", (state) => {
+    render(<SaveIndicator saveState={state} />);
+    for (const other of STATES) {
+      const wrapper = wrapperOf(LABELS[other]);
+      if (other === state) {
+        expect(wrapper.getAttribute("aria-hidden")).toBe("false");
+        expect(wrapper.classList.contains("invisible")).toBe(false);
+      } else {
+        expect(wrapper.getAttribute("aria-hidden")).toBe("true");
+        expect(wrapper.classList.contains("invisible")).toBe(true);
+      }
+    }
+  });
+});
