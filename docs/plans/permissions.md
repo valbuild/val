@@ -95,6 +95,35 @@ each member is a stable patch path, so two admins editing different people do
 not collide and the review view names the person rather than `members[2]`;
 duplicates cannot be expressed; and it is the same shape as `roles`.
 
+### Roles are flat sets
+
+A role grants exactly the permissions it lists. Roles do not nest, rank or
+inherit: `publisher` is not "editor plus more", and an `admin` without
+`content:write` cannot edit content. Holding several roles is the union of them,
+with no tiebreak, because there is nothing to break a tie between.
+
+A hierarchy has to place every permission on one ladder, and permissions a
+project invents are rarely on one — `finance` is neither above nor below
+`publisher`, it is a different job. It would also hand out permissions by rank
+rather than by intent: the publisher of the pricing page would get
+`pricing:edit` for being senior, which is exactly the accident this exists to
+prevent.
+
+The cost is repetition, and `default` is what pays it: **put the baseline in
+`default`, and write each role as the short list of what it adds.**
+
+```ts
+roles: {
+  editor: ["content:write", "assistant:use"],
+  publisher: ["publish"],
+  finance: ["pricing:edit"],
+},
+default: ["editor"],
+```
+
+There is deliberately no `"*"`. A wildcard would silently include permissions
+invented later, which defeats naming them.
+
 ### Prefer profile ids over emails
 
 **A member key may be a profile id or an email, and the Studio writes ids.**
