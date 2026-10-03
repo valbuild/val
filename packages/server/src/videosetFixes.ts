@@ -53,7 +53,7 @@ import type {
   FixHandlerResult,
   ModulePatch,
 } from "./fixHandlers";
-import { checkGalleryFiles } from "./galleryFiles";
+import { checkGalleryFiles, incompleteGalleryEntries } from "./galleryFiles";
 import { galleryEntryOf, type GalleryEntryKey } from "./galleryEntryKey";
 import { isHlsMasterPlaylist } from "./hls";
 import { openRemoteUploadSession } from "./remoteUpload";
@@ -531,6 +531,16 @@ export async function handleVideosetCheckAllFiles(
     return set;
   }
   const readFile = (absolute: string) => ctx.fs.readBuffer(absolute);
+  const incompleteEntries = incompleteGalleryEntries({
+    entryKeys: Object.keys(set.entries),
+    projectRoot: ctx.projectRoot,
+    fs: ctx.fs,
+    filesOfEntry: (entry, key) =>
+      filesOfVideosetEntry(entry, set.entries[key], {
+        projectRoot: ctx.projectRoot,
+        readFile,
+      }),
+  });
   const { untrackedFiles } = checkGalleryFiles({
     entryKeys: Object.keys(set.entries),
     dir,
@@ -542,6 +552,12 @@ export async function handleVideosetCheckAllFiles(
         readFile,
       }),
   });
+  if (incompleteEntries.length > 0) {
+    return {
+      success: false,
+      errorMessage: incompleteMessage(incompleteEntries),
+    };
+  }
   if (untrackedFiles.length === 0) {
     return { success: true, shouldApplyPatch: true };
   }
@@ -617,6 +633,13 @@ export async function videosetCheckAllFilesPatch({
     return fail(set.errorMessage);
   }
   const recordPath = patchPathOf(sourcePath);
+  const incompleteEntries = incompleteGalleryEntries({
+    entryKeys: Object.keys(set.entries),
+    projectRoot,
+    fs: ts.sys,
+    filesOfEntry: (entry, key) =>
+      filesOfVideosetEntry(entry, set.entries[key], { projectRoot }),
+  });
   const { missingTrackedFiles, untrackedFiles } = checkGalleryFiles({
     entryKeys: Object.keys(set.entries),
     dir,
@@ -627,6 +650,14 @@ export async function videosetCheckAllFilesPatch({
     filesOfEntry: (entry, key) =>
       filesOfVideosetEntry(entry, set.entries[key], { projectRoot }),
   });
+
+  if (incompleteEntries.length > 0) {
+    remainingErrors.push({
+      ...validationError,
+      message: incompleteMessage(incompleteEntries),
+      fixes: undefined,
+    });
+  }
 
   for (const missing of missingTrackedFiles) {
     if (apply) {
@@ -774,4 +805,20 @@ export async function videosetAddMetadataPatch({
     }
   }
   return { patch, remainingErrors: [] };
+}
+
+/**
+ * What to say about streams whose master is there and some of whose files are
+ * not. Not fixable: the entry still names a video someone uploaded, and only
+ * they have the rest of it.
+ */
+function incompleteMessage(
+  incomplete: { key: string; missing: string[] }[],
+): string {
+  return incomplete
+    .map(
+      ({ key, missing }) =>
+        `Video '${key}' is missing ${missing.length === 1 ? "a file it names" : `${missing.length} files it names`}: ${missing.join(", ")}. It stops playing where they are. Upload it again, or put the files back.`,
+    )
+    .join(" ");
 }

@@ -550,10 +550,13 @@ false })` is the one override, as `encode` is for an image.
 
 ### What is not there yet
 
-- **History restore** re-uploads a stream's master playlist but not the
-  segments it names.
 - Uploads still travel as base64 JSON like every other file, so a large video
-  costs a third more on the wire and is hashed on the main thread.
+  costs a third more on the wire. (Hashing does not block: `crypto.subtle`, or
+  in an insecure context the JS hash fed a megabyte at a time.)
+- **Ranges in http mode.** `/api/val/files` reads only the asked-for range in
+  fs mode (`openBinaryFile`), but `ValOpsHttp` gets a draft from the content
+  service whole, in a JSON body, so each range there still fetches the file.
+  It needs a ranged file endpoint on the content service.
 
 ## Fixtures
 

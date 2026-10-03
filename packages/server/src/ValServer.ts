@@ -60,6 +60,7 @@ import {
   ValOps,
   type GenericErrorMessage,
   type PreparedCommit,
+  bufferReader,
 } from "./ValOps";
 import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
@@ -3892,23 +3893,18 @@ export const ValServer = (
         // and /history/files does".
         const remote = query.remote === "true";
         const patchId = query.patch_id;
-        let fileBuffer: Buffer | null;
-        if (patchId) {
-          fileBuffer = await serverOps.getBase64EncodedBinaryFileFromPatch(
-            filePath,
-            patchId as PatchId,
-            remote,
+        if (!patchId && serverOps instanceof ValOpsHttp && remote) {
+          console.error(
+            `Remote file: ${filePath} requested without patch id. This is most likely a bug in Val.`,
           );
-        } else {
-          if (serverOps instanceof ValOpsHttp && remote) {
-            console.error(
-              `Remote file: ${filePath} requested without patch id. This is most likely a bug in Val.`,
-            );
-          }
-          fileBuffer = await serverOps.getBinaryFile(filePath);
         }
-
-        if (!fileBuffer) {
+        // Opened, not read: a video is seeked in by many small ranges, and
+        // only the asked-for bytes are read where the mode can (fs).
+        const opened = await serverOps.openBinaryFile(
+          filePath,
+          patchId ? { patchId: patchId as PatchId, remote } : null,
+        );
+        if (!opened) {
           return {
             status: 404,
             json: {
@@ -3917,18 +3913,20 @@ export const ValServer = (
           };
         }
         // A DRAFT playlist names files that are drafts too, at URLs that only
-        // resolve once published. See `rewriteDraftPlaylist`.
-        const body =
+        // resolve once published. See `rewriteDraftPlaylist`. Playlists are
+        // small, so one is read whole to be rewritten.
+        const file =
           patchId && isHlsPlaylistPath(filePath)
-            ? Buffer.from(
-                rewriteDraftPlaylist(fileBuffer.toString("utf-8"), {
-                  playlistPath: filePath,
-                  patchId,
-                  remote,
-                }),
-                "utf-8",
+            ? bufferReader(
+                Buffer.from(
+                  rewriteDraftPlaylist(
+                    (await opened.read(0, opened.size - 1)).toString("utf-8"),
+                    { playlistPath: filePath, patchId, remote },
+                  ),
+                  "utf-8",
+                ),
               )
-            : fileBuffer;
+            : opened;
         const headers = {
           // TODO: we could use ETag and return 304 instead
           // From the extension, published or draft: a `<video>` and an HLS
@@ -3944,31 +3942,30 @@ export const ValServer = (
           "Cache-Control": "public, max-age=0, must-revalidate",
           "Accept-Ranges": "bytes",
         };
-        // Ranges are cut from the bytes in hand, in every mode: `ValOpsHttp`
-        // fetches a file from the content service whole (base64 in JSON), so
-        // there is no upstream byte stream to forward a Range header to.
-        const range = parseRangeHeader(req.headers.range, body.length);
+        const range = parseRangeHeader(req.headers.range, file.size);
         if (range.kind === "unsatisfiable") {
           return {
             status: 416,
-            headers: { ...headers, "Content-Range": `bytes */${body.length}` },
+            headers: { ...headers, "Content-Range": `bytes */${file.size}` },
             json: {
               message: `Range not satisfiable: ${req.headers.range}`,
             },
           };
         }
         if (range.kind === "range") {
-          const slice = body.subarray(range.start, range.end + 1);
+          const slice = await file.read(range.start, range.end);
           return {
             status: 206,
             headers: {
               ...headers,
-              "Content-Range": `bytes ${range.start}-${range.end}/${body.length}`,
+              "Content-Range": `bytes ${range.start}-${range.end}/${file.size}`,
               "Content-Length": String(slice.length),
             },
             body: bufferToReadableStream(slice),
           };
         }
+        const body =
+          file.size === 0 ? Buffer.alloc(0) : await file.read(0, file.size - 1);
         return {
           status: 200,
           headers: { ...headers, "Content-Length": String(body.length) },

@@ -2730,6 +2730,29 @@ export abstract class ValOps {
     remote: boolean,
   ): Promise<OpsMetadata<T>>;
   abstract getBinaryFile(filePathOrRef: string): Promise<Buffer | null>;
+
+  /**
+   * A file's bytes as something a `Range` request can be answered from
+   * without reading the rest: a video is seeked in by many small ranges, and
+   * each used to load the whole file.
+   *
+   * This default holds the whole file, which is all a mode that only gets
+   * whole files can do (`ValOpsHttp`: the content service answers with the
+   * file in a JSON body). `ValOpsFS` reads only the asked-for range off disk.
+   */
+  async openBinaryFile(
+    filePath: string,
+    fromPatch: { patchId: PatchId; remote: boolean } | null,
+  ): Promise<BinaryFileReader | null> {
+    const buffer = fromPatch
+      ? await this.getBase64EncodedBinaryFileFromPatch(
+          filePath,
+          fromPatch.patchId,
+          fromPatch.remote,
+        )
+      : await this.getBinaryFile(filePath);
+    return buffer === null ? null : bufferReader(buffer);
+  }
   protected abstract getBinaryFileMetadata<T extends "file" | "image">(
     filePath: string,
     type: T,
@@ -3327,4 +3350,18 @@ export function bufferFromDataUrl(dataUrl: string): Buffer | undefined {
       "base64", // TODO: why does it not work with base64url?
     );
   }
+}
+
+/** A file of known size whose bytes are read a range at a time. */
+export type BinaryFileReader = {
+  readonly size: number;
+  /** Bytes `start` to `end`, both inclusive, as an HTTP range is. */
+  read(start: number, end: number): Promise<Buffer>;
+};
+
+export function bufferReader(buffer: Buffer): BinaryFileReader {
+  return {
+    size: buffer.length,
+    read: async (start, end) => buffer.subarray(start, end + 1),
+  };
 }

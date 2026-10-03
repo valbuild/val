@@ -70,6 +70,36 @@ export function checkGalleryFiles(input: {
   };
 }
 
+/**
+ * The LOCAL entries whose key is there but some of what they hold is not: a
+ * stream missing a segment plays up to the gap and then stops. Separate from
+ * `checkGalleryFiles`' "missing" because a fix does not remove these — the
+ * entry still names a video someone uploaded and may have the rest of.
+ */
+export function incompleteGalleryEntries(input: {
+  entryKeys: string[];
+  projectRoot: string;
+  fs: Pick<IValFSHost, "fileExists">;
+  filesOfEntry: (entry: GalleryEntryKey, key: string) => string[];
+}): { key: string; missing: string[] }[] {
+  const exists = (file: string) =>
+    input.fs.fileExists(path.join(input.projectRoot, file));
+  const incomplete: { key: string; missing: string[] }[] = [];
+  for (const key of input.entryKeys) {
+    const entry = galleryEntryOf(key);
+    if (entry.remote || !exists(entry.localPath)) {
+      continue;
+    }
+    const missing = input
+      .filesOfEntry(entry, key)
+      .filter((file) => file !== entry.localPath && !exists(file));
+    if (missing.length > 0) {
+      incomplete.push({ key, missing });
+    }
+  }
+  return incomplete;
+}
+
 /** Every file under `dir`, as `/public/…` refs; none for a directory not there. */
 function filesInDirectory({
   dir,

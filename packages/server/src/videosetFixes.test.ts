@@ -293,6 +293,28 @@ describe("videos:check-all-files", () => {
     fixes: [fix],
   });
 
+  test("a stream missing a segment is incomplete, not missing and not fine", async () => {
+    const files = streamFiles("intro_05198");
+    delete files[`${DIR}/intro_05198/segments-2.mp4`];
+    writeFiles(root, files);
+    const videosVal = c.define(SET_PATH, s.videoset({ dir: DIR }), {
+      [`${DIR}/intro_05198/master.m3u8`]: HLS_ENTRY,
+    });
+    const service = serviceOf({ [SET_PATH]: videosVal });
+    const ctx = {
+      ...baseContext(root, service),
+      valModule: contentOf(SET_PATH, videosVal),
+      sourcePath: SET_PATH as string as SourcePath,
+      validationError: checkError("videos:check-all-files"),
+    };
+    // Not removed by a fix: the entry still names a video someone uploaded.
+    expect(await handleVideosetCheckAllFiles(ctx)).toEqual({
+      success: false,
+      errorMessage: expect.stringContaining(
+        `${DIR}/intro_05198/segments-2.mp4`,
+      ),
+    });
+  });
   test("drops entries whose file is gone, and adds the videos it does not list", async () => {
     writeFiles(root, {
       ...streamFiles("intro_05198"),
