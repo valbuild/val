@@ -1408,10 +1408,13 @@ function CompareView() {
  * scoped whether or not that screen was ever opened — otherwise the first
  * publish of a session ships the whole pending chain.
  *
- * This is the only place the scope is set from the annotation, and it runs
- * once: after it, the scope is local truth that only the user moves. Nothing
- * repairs the group when patch sets coalesce — see `PatchStagingProvider` for
- * why that is the policy — so this hook has no other job.
+ * The SEED runs once. After it, the scope moves on the user's own stages and
+ * unstages, on this tab's writes, and on members the server has put in this
+ * user's open group that this tab never decided about — a write from another
+ * tab or device, adopted by the system itself whenever the annotation or the
+ * group id moves (`adoptOwnGroupMembers` in `createSystem`). Nothing repairs
+ * the group when patch sets coalesce — see `PatchStagingProvider` for why that
+ * is the policy — so this hook has no other job.
  */
 function usePatchGroupScope(): void {
   const val = useValSystem();

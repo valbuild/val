@@ -1,7 +1,6 @@
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import type { ModuleIdOf, ValModuleBrand } from "../module";
 import { ReifiedPreview } from "../preview";
-import { FieldRender } from "../render";
 import { GenericSelector } from "../selector";
 import { Source } from "../source";
 import { isValViewSource, ValViewSource } from "../source/view";
@@ -13,7 +12,6 @@ import {
 
 export type SerializedValViewSchema = {
   type: "view";
-  render?: FieldRender;
   /** Never set: a view has no value of its own to preview. Carried for shape parity. */
   preview?: true;
   /** Always false: a view points at a module, and `null` is not a module. */
@@ -67,7 +65,6 @@ export class ValViewSchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
-    private readonly renderInput: FieldRender | null = null,
   ) {
     super();
   }
@@ -97,7 +94,6 @@ export class ValViewSchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
-      this.renderInput,
     );
   }
 
@@ -210,7 +206,6 @@ export class ValViewSchema<
       isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
     );
   }
 
@@ -241,40 +236,12 @@ export class ValViewSchema<
       this.isReadonly,
       isHidden,
       this.description,
-      this.renderInput,
-    );
-  }
-
-  /**
-   * How this field is laid out in the editor. Static configuration, not a
-   * callback — see `render.ts`.
-   *
-   * @example
-   * import otherVal from "./other.val"; // another module
-   * const schema = s.object({
-   *   shared: s.view(otherVal).render({ as: "inline" }),
-   *   title: s.string(),
-   * });
-   * export default c.define("/example.val.ts", schema, {
-   *   shared: { view: "/other.val.ts" },
-   *   title: "Hello",
-   * });
-   */
-  render(input: FieldRender): ValViewSchema<Id, T> {
-    return new ValViewSchema(
-      this.moduleFilePath,
-      this.valModule,
-      this.isReadonly,
-      this.isHidden,
-      this.description,
-      input,
     );
   }
 
   protected executeSerialize(): SerializedSchema {
     return {
       type: "view",
-      render: this.renderInput ?? undefined,
       opt: false,
       moduleFilePath: this.moduleFilePath as unknown as ModuleFilePath,
       readonly: this.isReadonly,

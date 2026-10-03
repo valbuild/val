@@ -46,7 +46,8 @@ const project = () => {
         // a code schema (carries a language in its options).
         slug: s.string().regexp(/^[a-z-]+$/),
         notes: s.code({ language: "json" }),
-        summary: s.string().multiline().render({ as: "inline" }),
+        summary: s.string().multiline(),
+        tags: s.array(s.string()).render({ as: "inline" }),
         owner: s.keyOf(authors),
         hero: s.image(),
         link: s.route(),
@@ -62,6 +63,7 @@ const project = () => {
         slug: "hello",
         notes: "{}",
         summary: "line one\nline two",
+        tags: ["a"],
         owner: "ada",
         hero: {
           path: "/public/val/x.png",

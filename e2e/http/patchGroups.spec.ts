@@ -552,6 +552,85 @@ test.describe("the staging controls", () => {
 });
 
 /**
+ * The same user, two browsers.
+ *
+ * The content service puts a write in its author's open group wherever it was
+ * typed, and the other Studio hears of it the ordinary way: the socket says the
+ * chain moved, `/stat` names an id it does not have, and the fetch brings the
+ * record with the group annotation listing it. The scope there had been seeded
+ * once and grew only on that tab's own writes, so the patch was held as
+ * unstaged — the value did not change until a reload, and a publish from that
+ * Studio left it out while closing the group that held it.
+ */
+test.describe("another browser of the same user", () => {
+  test("a change made in one browser appears in the other without a reload, and publishes from it", async ({
+    page,
+    browser,
+  }) => {
+    // Ada's first browser writes first, so an open group exists before the
+    // second one loads — the shape it had in production.
+    await openHttpStudio(page);
+    const first = await writePatch(page, AUTHORS, [
+      { op: "replace", path: ["teddy", "name"], value: "from browser one" },
+    ]);
+
+    const other = await contextAs(browser, "ada");
+    const second = await other.newPage();
+    try {
+      await openHttpStudio(second);
+      await expect
+        .poll(() => scope(second), {
+          message: "the second browser never scoped itself to Ada's group",
+        })
+        .toContain(first);
+      await expect
+        .poll(() => peek(second, TEDDY))
+        .toMatchObject({ status: "ready", data: "from browser one" });
+      /*
+       * Reopened, because `next dev` can full-reload the first page while it
+       * compiles for the second, and a reloaded page has no stores for
+       * `writePatch` to reach for a moment. Nothing about the bug depends on
+       * the first browser's page being the original one.
+       */
+      await openHttpStudio(page);
+
+      // Now a change the second browser has never seen.
+      const later = await writePatch(page, AUTHORS, [
+        { op: "replace", path: ["freekh", "name"], value: "typed elsewhere" },
+      ]);
+      const state = await mock.state();
+      expect(state.patchGroups).toHaveLength(1);
+      expect(state.patchGroups[0].patchIds).toEqual([first, later]);
+
+      await expect
+        .poll(() => peek(second, FREEKH), {
+          message:
+            "the change made in the first browser never appeared in the second",
+        })
+        .toMatchObject({ status: "ready", data: "typed elsewhere" });
+      expect(await scope(second)).toContain(later);
+
+      // And what the second browser shows is what it publishes.
+      const published = await publishAll(second, "Ada publishes both");
+      expect(published, JSON.stringify(published)).toMatchObject({
+        status: "published",
+      });
+      const after = await mock.state();
+      for (const patchId of [first, later]) {
+        expect(
+          after.patches.find((patch) => patch.patchId === patchId)?.applied,
+          `${patchId} was left out of the publish`,
+        ).not.toBeNull();
+      }
+      const committed = await mock.committedSource(AUTHORS);
+      expect(committed).toContain("typed elsewhere");
+    } finally {
+      await other.close();
+    }
+  });
+});
+
+/**
  * The two things a route-level walkthrough found that the store tests could not.
  *
  * Both need a real `ValServer` in proxy mode talking to a content service that

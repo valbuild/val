@@ -234,12 +234,30 @@ engages.
    its own.
 
 5. Scope is client-held local truth seeded from the server's annotation, and
-   nothing reconciles it. `PatchStore` re-reads the annotation only inside a
-   fetch it makes for MISSING patch ids, so on a quiet branch a failed stage is
-   kept on screen until the page is reloaded, and a stage in one tab never
-   reaches another. Closing both needs the annotation to refresh on its own. The
-   deferred queue above narrows this but does not close it: a change held while
-   there is no group is lost if the tab closes before one exists.
+   it is reconciled in ONE direction only. A **write** from another tab or
+   device of the same user is reconciled: the server puts it in the author's
+   open group, it is a missing id here, and the fetch that pulls it in carries
+   the annotation. `adoptOwnGroupMembers` (in `createSystem`) then widens the
+   scope — on `patch:groups`, and again when the shell names the group, since
+   the write that created the group can arrive before the shell has its id —
+   with every member of the group `useCurrentPatchGroup` names that this tab
+   has never decided about. "Decided" is a set kept per tab of every id moved
+   by `setPatchGroup`, either way, so a stale annotation still listing a patch
+   unstaged here cannot put it back. It goes through the same call as this
+   tab's own writes, so what is visible and what publishes move together. It
+   never adopts from a group the annotation shows published or with no author.
+
+   What is still open: the annotation itself refreshes only inside a fetch for
+   MISSING patch ids. So a **stage** in another tab reaches this one only when
+   some later fetch happens to carry the annotation (the same mechanism adopts
+   it then, unless this tab decided about that id), an **unstage** in another
+   tab never reaches this one (adoption only adds), and on a quiet branch a
+   failed stage is kept on screen until the page is reloaded. Closing those
+   needs the annotation to refresh on its own (`patchGroupsSha` through
+   `StatStore`, per `PLAN.md`). The deferred queue above narrows this but does
+   not close it: a change held while there is no group is lost if the tab
+   closes before one exists.
+
 6. Held patches count as _settled_ but not _applied_ (`chainSettled`), because
    the editor holds every field inert until the chain settles. A held patch that
    counted as neither would dim the Studio permanently.

@@ -11,7 +11,6 @@ import {
   PreviewScope,
   mergePreviewInto,
 } from "../preview";
-import { FieldRender } from "../render";
 import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SelectorSource } from "../selector/index";
 import { SourceObject } from "../source";
@@ -25,8 +24,6 @@ import {
 
 export type SerializedDiscriminatedUnionSchema = {
   type: "discriminated-union";
-  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
-  render?: FieldRender;
   /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
   preview?: true;
   /** The name of the field every variant tags itself with. */
@@ -89,7 +86,6 @@ export class DiscriminatedUnionSchema<
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
-    private readonly renderInput: FieldRender | null = null,
     private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
@@ -128,7 +124,6 @@ export class DiscriminatedUnionSchema<
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -171,7 +166,6 @@ export class DiscriminatedUnionSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -433,7 +427,6 @@ export class DiscriminatedUnionSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -447,7 +440,6 @@ export class DiscriminatedUnionSchema<
       isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -461,7 +453,6 @@ export class DiscriminatedUnionSchema<
       this.isReadonly,
       isHidden,
       this.description,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -532,37 +523,6 @@ export class DiscriminatedUnionSchema<
   }
 
   /**
-   * How this field is laid out in the editor when it is the item of an array
-   * or record: `{ as: "inline" }` renders the field itself inside each row,
-   * instead of a preview row that navigates to it.
-   *
-   * Static configuration, not a callback — see `render.ts`.
-   *
-   * @example
-   * // A page builder: the row draws the tag selector and the matched
-   * // variant's fields.
-   * const hero = s.object({ type: s.literal("hero"), title: s.string() });
-   * const text = s.object({ type: s.literal("text"), body: s.string() });
-   * const block = s.discriminatedUnion("type", hero, text).render({ as: "inline" });
-   * export default c.define("/example.val.ts", s.array(block), [
-   *   { type: "hero", title: "Hello" },
-   * ]);
-   */
-  render(input: FieldRender): DiscriminatedUnionSchema<Key, T, Src> {
-    return new DiscriminatedUnionSchema<Key, T, Src>(
-      this.key,
-      this.items,
-      this.opt,
-      this.customValidateFunctions,
-      this.isReadonly,
-      this.isHidden,
-      this.description,
-      input,
-      this.previewInput,
-    );
-  }
-
-  /**
    * How this VALUE is shown where a preview of it is needed — a row in a
    * sortable list, a reference dropdown, a search hit. Never how the field
    * itself is edited (that is `render`). See `preview.ts`.
@@ -592,7 +552,6 @@ export class DiscriminatedUnionSchema<
       this.isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
       select,
     );
   }
@@ -625,7 +584,6 @@ export class DiscriminatedUnionSchema<
   protected executeSerialize(): SerializedDiscriminatedUnionSchema {
     return {
       type: "discriminated-union",
-      render: this.renderInput ?? undefined,
       preview: this.previewInput ? true : undefined,
       key: this.key,
       // Every item is an ObjectSchema — `executeValidate` reports a schema
