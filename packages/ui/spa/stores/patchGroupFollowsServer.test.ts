@@ -42,8 +42,7 @@ const project = () => {
   ];
 };
 
-const titleOf = (module: ModuleFilePath) =>
-  `${module}?p="title"` as SourcePath;
+const titleOf = (module: ModuleFilePath) => `${module}?p="title"` as SourcePath;
 
 function record(
   patchId: string,

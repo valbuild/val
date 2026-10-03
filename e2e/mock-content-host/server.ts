@@ -623,6 +623,21 @@ function broadcastChain(): void {
     // would fall back to the list and nothing here could tell.
     headPatchId: headPatchId(),
     headVersion: chainVersion,
+    // Who holds what, at that version, as `home` sends it: a client takes this
+    // message as its new chain without asking `/stat`, so the groups come too.
+    ...(state.patchGroupsEnabled
+      ? {
+          patchGroups: [...state.patchGroups.values()].map((group) => ({
+            patchGroupId: group.patchGroupId,
+            authorId: group.authorId,
+            createdAt: group.createdAt,
+            publishedAt: group.publishedAt,
+            patchIds: [...group.patchIds].filter((patchId) =>
+              state.patches.has(patchId),
+            ),
+          })),
+        }
+      : {}),
   });
 }
 

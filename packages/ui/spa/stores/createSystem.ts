@@ -1045,7 +1045,11 @@ export function createSystem(options: SystemOptions): System {
     if (version === undefined) return;
     for (const patchId of patchIds) {
       const entry = unconfirmed.get(patchId);
-      if (entry !== undefined && entry.type === type && entry.version === null) {
+      if (
+        entry !== undefined &&
+        entry.type === type &&
+        entry.version === null
+      ) {
         unconfirmed.set(patchId, { type, version });
       }
     }
