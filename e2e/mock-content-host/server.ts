@@ -623,6 +623,12 @@ function broadcastChain(): void {
     // would fall back to the list and nothing here could tell.
     headPatchId: headPatchId(),
     headVersion: chainVersion,
+    // Which of them a publish has already applied, as `home` sends it. A
+    // publish moves this and the groups at once, so a message carrying only
+    // the groups made the publisher's other tabs read the change as unstaged.
+    appliedPatches: [...state.patches.values()]
+      .filter((patch) => patch.applied !== null)
+      .map((patch) => patch.patchId),
     // Who holds what, at that version, as `home` sends it: a client takes this
     // message as its new chain without asking `/stat`, so the groups come too.
     ...(state.patchGroupsEnabled

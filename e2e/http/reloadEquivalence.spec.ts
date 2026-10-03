@@ -142,6 +142,234 @@ test("Ada's own publish, seen from her other browser", async ({
   }
 });
 
+test("Ada's own publish never takes it off the screen of her other browser", async ({
+  page,
+  browser,
+}) => {
+  /*
+   * The publish takes Ada's patches out of her group, closes it and marks them
+   * applied, in one step, and the websocket tells this page about all three.
+   * The site still serves the build from before the publish, so the change has
+   * to stay on screen from the chain.
+   *
+   * Sampled the whole time rather than compared once at the end: when this page
+   * took the new groups with the OLD applied list it showed the pre-publish
+   * value -- and `expectSameAsReload` above still passed, because the `/stat`
+   * poll that follows a commit put it back within seconds. On a project that
+   * publishes as jobs nothing put it back until a reload.
+   */
+  const NAME = "Ada, never reverted";
+  await openHttpStudio(page);
+  await writePatch(page, AUTHORS, [
+    { op: "replace", path: ["teddy", "name"], value: NAME },
+  ]);
+  const other = await contextAs(browser, "ada");
+  try {
+    const elsewhere = await other.newPage();
+    await openHttpStudio(elsewhere);
+    // Again: `next dev` can reload an open page while it compiles for a new
+    // one, so this page is opened after the other one is up.
+    await openHttpStudio(page);
+    await markLive(page);
+    // What this page shows for the edited field, read straight off the store.
+    const shown = () =>
+      page.evaluate(
+        ({ module }) => {
+          const stores = Reflect.get(window, "__VAL_STORES__") as {
+            system: {
+              sourceStore: { allSources(): Record<string, unknown> };
+            };
+          };
+          const authors = stores.system.sourceStore.allSources()[module] as
+            | { teddy?: { name?: unknown } }
+            | undefined;
+          return authors?.teddy?.name;
+        },
+        { module: AUTHORS },
+      );
+    await expect.poll(shown, { timeout: 30_000 }).toBe(NAME);
+    // From here on, every value the field takes is recorded.
+    await page.evaluate(
+      ({ module }) => {
+        const seen = new Set<unknown>();
+        Reflect.set(window, "__valSeenNames", seen);
+        const sample = () => {
+          const stores = Reflect.get(window, "__VAL_STORES__") as {
+            system: {
+              sourceStore: { allSources(): Record<string, unknown> };
+            };
+          };
+          const authors = stores.system.sourceStore.allSources()[module] as
+            | { teddy?: { name?: unknown } }
+            | undefined;
+          seen.add(authors?.teddy?.name);
+        };
+        sample();
+        setInterval(sample, 20);
+      },
+      { module: AUTHORS },
+    );
+    expect(
+      await publishAll(elsewhere, "Ada ships from the other browser"),
+    ).toMatchObject({ status: "published" });
+    // Until this page has heard of the publish: the patch reads as shipped.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const stores = Reflect.get(window, "__VAL_STORES__") as {
+              system: {
+                patchStore: {
+                  allRecords(): { patchId: string }[];
+                  pendingAmong(ids: Iterable<string>): Set<string>;
+                };
+              };
+            };
+            const ids = stores.system.patchStore
+              .allRecords()
+              .map((record) => record.patchId);
+            return stores.system.patchStore.pendingAmong(ids).size;
+          }),
+        { timeout: 30_000 },
+      )
+      .toBe(0);
+    await page.waitForTimeout(1_000);
+    expect(
+      await page.evaluate(() => [
+        ...(Reflect.get(window, "__valSeenNames") as Set<unknown>),
+      ]),
+      "the open Studio showed something other than the published value",
+    ).toEqual([NAME]);
+    /*
+     * And the next edit does not take the published change along. Read as
+     * unstaged, it was a predecessor of every later edit to its module, and the
+     * Studio said "1 change was added to your changes" about work that was
+     * already published.
+     */
+    await page.evaluate(() => {
+      const widened: string[][] = [];
+      Reflect.set(window, "__valWidened", widened);
+      const stores = Reflect.get(window, "__VAL_STORES__") as {
+        system: {
+          patchSync: {
+            events: {
+              on(
+                type: string,
+                listener: (event: { type: string; patches: string[] }) => void,
+              ): unknown;
+            };
+          };
+        };
+      };
+      stores.system.patchSync.events.on("patch:group-widened", (event) => {
+        widened.push(event.patches);
+      });
+    });
+    await writePatch(page, AUTHORS, [
+      { op: "replace", path: ["freekh", "name"], value: "Ada, after" },
+    ]);
+    expect(
+      await page.evaluate(() => Reflect.get(window, "__valWidened")),
+      "the edit after the publish pulled published changes into Ada's",
+    ).toEqual([]);
+    await expectSameAsReload(browser, page, "ada", "Ada published elsewhere");
+  } finally {
+    await other.close();
+  }
+});
+
+test("Ada publishes three times in a row, and nothing she published leaves her open Studio", async ({
+  page,
+  browser,
+}) => {
+  /*
+   * Edit, publish, edit again, publish again -- with the site still serving
+   * the build from before the first publish, and no reload in between. Each
+   * round's value has to stay on screen from the moment it is typed, each
+   * later edit has to leave the earlier published ones where they are, and
+   * the page has to agree with a reload at the end.
+   *
+   * Published from Ada's other browser, so this page learns of every publish
+   * the way a Studio does on a project that publishes as jobs: from the
+   * websocket, not from a publish of its own.
+   */
+  const NAMES = ["Ada, round one", "Ada, round two", "Ada, round three"];
+  const FIELDS = ["teddy", "freekh", "teddy"] as const;
+  await openHttpStudio(page);
+  const other = await contextAs(browser, "ada");
+  try {
+    const elsewhere = await other.newPage();
+    await openHttpStudio(elsewhere);
+    // Again: `next dev` can reload an open page while it compiles for a new
+    // one, so this page is opened after the other one is up.
+    await openHttpStudio(page);
+    await markLive(page);
+    await page.evaluate(() => {
+      const widened: string[][] = [];
+      Reflect.set(window, "__valWidened", widened);
+      const stores = Reflect.get(window, "__VAL_STORES__") as {
+        system: {
+          patchSync: {
+            events: {
+              on(
+                type: string,
+                listener: (event: { type: string; patches: string[] }) => void,
+              ): unknown;
+            };
+          };
+        };
+      };
+      stores.system.patchSync.events.on("patch:group-widened", (event) => {
+        widened.push(event.patches);
+      });
+    });
+    const shown = (author: string) =>
+      page.evaluate(
+        ({ module, author }) => {
+          const stores = Reflect.get(window, "__VAL_STORES__") as {
+            system: {
+              sourceStore: { allSources(): Record<string, unknown> };
+            };
+          };
+          const authors = stores.system.sourceStore.allSources()[module] as
+            | Record<string, { name?: unknown } | undefined>
+            | undefined;
+          return authors?.[author]?.name;
+        },
+        { module: AUTHORS, author },
+      );
+    const expected: Record<string, string> = {};
+    for (const [round, name] of NAMES.entries()) {
+      const field = FIELDS[round];
+      await writePatch(page, AUTHORS, [
+        { op: "replace", path: [field, "name"], value: name },
+      ]);
+      expected[field] = name;
+      for (const [author, value] of Object.entries(expected)) {
+        await expect.poll(() => shown(author), { timeout: 30_000 }).toBe(value);
+      }
+      expect(
+        await publishAll(elsewhere, `Ada ships round ${round + 1}`),
+      ).toMatchObject({ status: "published" });
+      // Given time to hear of the publish, then nothing has moved.
+      await page.waitForTimeout(2_000);
+      for (const [author, value] of Object.entries(expected)) {
+        expect(
+          await shown(author),
+          `round ${round + 1}: ${author} left the open Studio after the publish`,
+        ).toBe(value);
+      }
+    }
+    expect(
+      await page.evaluate(() => Reflect.get(window, "__valWidened")),
+      "an edit after a publish pulled published changes into Ada's",
+    ).toEqual([]);
+    await expectSameAsReload(browser, page, "ada", "Ada published three times");
+  } finally {
+    await other.close();
+  }
+});
+
 function studioOf(page: Page) {
   return page.locator("#val-shadow-root");
 }
