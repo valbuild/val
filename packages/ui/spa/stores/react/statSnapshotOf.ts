@@ -24,6 +24,11 @@ export function statSnapshotOf(json: StatResponseJson): StatSnapshot {
     // parent we named was not it. `fs` answers without one.
     headPatchId: "headPatchId" in json ? json.headPatchId : undefined,
     headVersion: "headVersion" in json ? json.headVersion : undefined,
+    // Drained by the server as it answers (`fs` mode), so dropped here they
+    // are lost: nobody is told their unpublished work was removed.
+    ...("removed" in json && json.removed !== undefined
+      ? { removed: json.removed }
+      : {}),
   };
 }
 

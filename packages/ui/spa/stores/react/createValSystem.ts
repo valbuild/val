@@ -86,7 +86,13 @@ export function createValSystem(
      */
     readServedSchemaSha: async () => {
       const res = await client("/stat", "POST", { body: null });
-      return res.status === 200 ? res.json.schemaSha : null;
+      if (res.status !== 200) return null;
+      // Not only the hash: in `fs` mode this answer has drained the server's
+      // removed-patch notices, and they are delivered nowhere else.
+      if ("removed" in res.json && res.json.removed !== undefined) {
+        built?.stat.noteRemovedByServer(res.json.removed);
+      }
+      return res.json.schemaSha;
     },
     /**
      * The base of the build a `/stat` came from, when it is not the bundle's.

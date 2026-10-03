@@ -289,15 +289,25 @@ export class StatStore {
         ? { appliedPatches: [...snapshot.appliedPatches] }
         : {}),
     });
-    if (snapshot.removed !== undefined && snapshot.removed.length > 0) {
+    if (snapshot.removed !== undefined) {
       // A separate event, after the id list: what this says is not "the chain
       // moved", it is "work you made no longer exists anywhere". Only one thing
       // listens for it, and that thing is the toast.
-      this.events.emit({
-        type: "patch:removed-by-server",
-        removed: snapshot.removed,
-      });
+      this.noteRemovedByServer(snapshot.removed);
     }
+  }
+
+  /**
+   * The server says it removed these unpublished patches.
+   *
+   * Public for the `/stat` reads made outside the stat intake — the schema
+   * check's fresh read, the conflict re-sync. In `fs` mode every `/stat`
+   * DRAINS the server's notices, so a caller that read one and dropped them
+   * would take the only news that someone's work is gone with it.
+   */
+  noteRemovedByServer(removed: { patchId: PatchId; reason: string }[]): void {
+    if (removed.length === 0) return;
+    this.events.emit({ type: "patch:removed-by-server", removed });
   }
 
   /**
