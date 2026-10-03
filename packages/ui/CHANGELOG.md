@@ -1,5 +1,17 @@
 # @valbuild/ui
 
+## 0.139.2
+
+### Patch Changes
+
+- [#789](https://github.com/valbuild/val/pull/789) [`4d9e12c`](https://github.com/valbuild/val/commit/4d9e12c5286f981c7a8a7820db1bf580e327d2ea) Thanks [@freekh](https://github.com/freekh)! - A change you publish no longer disappears from your open Studio while the site is building.
+
+  Before, when a publish was made for you on the server (or from another of your tabs or browsers), an open Studio could go back to showing the value from before the publish, and offer to publish again, until the page was reloaded. It now keeps showing the published value until the new build is live, the same as a reload does.
+
+- [#787](https://github.com/valbuild/val/pull/787) [`1c3eb3a`](https://github.com/valbuild/val/commit/1c3eb3af91f6dfeff94a95d80d5291a1acf1baf2) Thanks [@freekh](https://github.com/freekh)! - Staging or unstaging a change while the Studio is still saving an edit no longer gets undone by that save.
+
+  Saving an edit also adds it — and whatever it was written on top of — to your staged changes, and the server applies a save and a stage/unstage in whatever order they arrive. Unstage something while an edit on top of it was still being saved, and the save could land second and quietly stage it again; or the edit could end up staged without the change beneath it, which a reload then showed. Now a stage or unstage made during a save is sent once the save has been answered, an unstage takes with it any just-saved edit that depends on what it removes, and what is staged after a reload is what you last chose.
+
 ## 0.139.1
 
 ### Patch Changes
