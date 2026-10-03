@@ -1052,9 +1052,15 @@ export function createSystem(options: SystemOptions): System {
 
   /**
    * The closure each write carried, by the write's id, until its save is
-   * answered. See the `patch:saved` listener.
+   * answered: the ids, and the entries their staging made. A save confirms
+   * them (see the `patch:saved` listener); a write that leaves the chain
+   * WITHOUT one — refused, discarded — takes them back, since the server never
+   * staged what only that save would have.
    */
-  const closureOfWrite = new Map<PatchId, PatchId[]>();
+  const closureOfWrite = new Map<
+    PatchId,
+    { patchIds: PatchId[]; entries: ChangeEntries }
+  >();
 
   /**
    * The last answer to "which of these new members sit on a patch this tab
@@ -1673,7 +1679,7 @@ export function createSystem(options: SystemOptions): System {
     patchSync.events.on("patch:saved", (event) => {
       const saved: PatchId[] = [];
       for (const patchId of event.patches) {
-        saved.push(patchId, ...(closureOfWrite.get(patchId) ?? []));
+        saved.push(patchId, ...(closureOfWrite.get(patchId)?.patchIds ?? []));
         closureOfWrite.delete(patchId);
       }
       confirmUnconfirmed(entriesOf(saved, "stage"), "stage", event.headVersion);
@@ -1695,9 +1701,13 @@ export function createSystem(options: SystemOptions): System {
       const held = new Set(
         patchStore.allRecords().map((record) => record.patchId),
       );
-      for (const patchId of closureOfWrite.keys()) {
-        if (!held.has(patchId)) closureOfWrite.delete(patchId);
+      const unsaved: ChangeEntries[] = [];
+      for (const [patchId, closure] of closureOfWrite) {
+        if (held.has(patchId)) continue;
+        closureOfWrite.delete(patchId);
+        unsaved.push(closure.entries);
       }
+      for (const entries of unsaved) dropUnconfirmed(entries);
       let pruned = false;
       for (const patchId of unconfirmed.keys()) {
         if (held.has(patchId)) continue;
@@ -2220,13 +2230,26 @@ export function createSystem(options: SystemOptions): System {
          * the group without the patch it was written on. Waiting here orders
          * the save after them, and computes the closure against what they left.
          */
-        await groupChanges;
-        const membership = await resolver(patchIds);
+        let membership: Awaited<ReturnType<typeof resolver>>;
+        for (let attempt = 1; ; attempt += 1) {
+          const behind = groupChanges;
+          await behind;
+          membership = await resolver(patchIds);
+          // A click made while this was computed is a change this closure
+          // has not seen: asked again behind it, so the click is not undone
+          // by a closure from before it. Bounded, so a user clicking without
+          // pause cannot hold a save back for ever.
+          if (groupChanges === behind || attempt === 3) break;
+        }
         if (membership !== undefined) {
           // Joins with the write, so it is confirmed with the write's save.
           markUnconfirmed(membership.withPatchIds, "stage");
+          const entries = entriesOf(membership.withPatchIds, "stage");
           for (const patchId of patchIds) {
-            closureOfWrite.set(patchId, [...membership.withPatchIds]);
+            closureOfWrite.set(patchId, {
+              patchIds: [...membership.withPatchIds],
+              entries,
+            });
           }
           extendPatchGroup([...patchIds, ...membership.withPatchIds]);
           /*

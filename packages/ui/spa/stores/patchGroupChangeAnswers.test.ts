@@ -287,3 +287,111 @@ test("a write whose closure moves membership is saved after the group changes ma
   await settle();
   expect(saves).toEqual([["mine"]]);
 });
+
+test("a refused write takes back the closure it staged", async () => {
+  // P is another author's, unstaged here, and every write's closure names it.
+  const errors = jest.spyOn(console, "error").mockImplementation(() => {});
+  const system = createSystem({
+    fetchPatches: async (patchIds) => ({
+      patches: patchIds.includes(P) ? [record] : [],
+    }),
+    createPatchId: () => "mine" as PatchId,
+    savePatches: async () => ({ status: "rejected", message: "refused" }),
+  });
+  system.host.receive(project());
+  system.stat.receiveStat({ patches: [], baseSha: "sha", profileId: ME });
+  system.seedPatchGroup([]);
+  system.stat.receiveStat({
+    patches: [P],
+    baseSha: "sha",
+    headVersion: 1,
+    patchGroups: [group([])],
+    profileId: ME,
+  });
+  await system.patchSync.flush();
+  await settle();
+  system.setPatchGroupResolver(async () => ({ withPatchIds: [P] }));
+
+  await system.patchStore.createPatch(A, [
+    { op: "replace", path: ["title"], value: "mine" },
+  ]);
+  await system.patchSync.flush();
+  await settle();
+
+  // The write is gone, and with it the only reason P was staged.
+  expect(system.patchStore.allRecords().map((r) => r.patchId)).not.toContain(
+    "mine",
+  );
+  expect(system.patchGroup()).not.toContain(P);
+  errors.mockRestore();
+});
+
+test("a click made while a write's closure is computed is not undone by it", async () => {
+  const saves: { patchIds: PatchId[]; withPatchIds: PatchId[] }[] = [];
+  const pending: ((answer: Answer) => void)[] = [];
+  let resolve: (() => void) | null = null;
+  const system = createSystem({
+    fetchPatches: async (patchIds) => ({
+      patches: patchIds.includes(P) ? [record] : [],
+    }),
+    createPatchId: () => "mine" as PatchId,
+    stagePatches: () => new Promise((r) => pending.push(r)),
+    unstagePatches: () => new Promise((r) => pending.push(r)),
+    savePatches: async ({ patches, parentRef, patchGroup }) => {
+      saves.push({
+        patchIds: patches.map((patch) => patch.patchId),
+        withPatchIds: patchGroup?.withPatchIds ?? [],
+      });
+      return {
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      };
+    },
+  });
+  system.host.receive(project());
+  system.stat.receiveStat({ patches: [], baseSha: "sha", profileId: ME });
+  system.seedPatchGroup([]);
+  system.stat.receiveStat({
+    patches: [P],
+    baseSha: "sha",
+    headVersion: 1,
+    patchGroups: [group([P])],
+    profileId: ME,
+  });
+  await system.patchSync.flush();
+  await settle();
+  // The closure names P while P is staged, and nothing once it is not.
+  let computed = 0;
+  system.setPatchGroupResolver(async () => {
+    computed += 1;
+    if (computed === 1) {
+      // Slow, the first time: the user unstages P meanwhile.
+      await new Promise<void>((r) => (resolve = r));
+    }
+    return {
+      withPatchIds: (system.patchGroup() ?? []).includes(P) ? [P] : [],
+    };
+  });
+
+  await system.patchStore.createPatch(A, [
+    { op: "replace", path: ["title"], value: "mine" },
+  ]);
+  await settle();
+  system.setPatchGroup((system.patchGroup() ?? []).filter((id) => id !== P));
+  system.persistPatchGroupChange(undefined, {
+    type: "unstage",
+    patchIds: [P],
+    withPatchIds: [],
+  });
+  (resolve as (() => void) | null)?.();
+  await settle();
+  pending[0]?.({ status: "ok", headVersion: 2 });
+  await system.patchSync.flush();
+  await settle();
+
+  // Asked again behind the unstage, and it no longer names P.
+  expect(computed).toBe(2);
+  expect(saves).toEqual([{ patchIds: ["mine"], withPatchIds: [] }]);
+  expect(system.patchGroup()).not.toContain(P);
+});
