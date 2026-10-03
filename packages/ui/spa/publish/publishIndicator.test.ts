@@ -1,0 +1,332 @@
+import type { ShellDeployment } from "../components/shell/types";
+import {
+  EDGE_CACHE_MS,
+  RUNNING_JOB_STALE_MS,
+  describeIndicator,
+  explainIndicator,
+  indicatorPercent,
+  isInFlight,
+  nextIndicatorChangeAt,
+  otherEditorsJobs,
+  publishIndicator,
+  type ObservedJob,
+} from "./publishIndicator";
+import type { StudioDeployState } from "./useStudioDeploy";
+
+const idle: StudioDeployState = { status: "idle" };
+
+const building: StudioDeployState = {
+  status: "running",
+  phase: { kind: "building" },
+  startedAt: 0,
+  phaseStartedAt: 0,
+  commit: null,
+};
+
+const liveAt = (finishedAt: number): StudioDeployState => ({
+  status: "done",
+  result: { status: "live", url: null },
+  ms: 30_000,
+  steps: [],
+  commit: "C1",
+  finishedAt,
+});
+
+const failedAt = (finishedAt: number): StudioDeployState => ({
+  status: "done",
+  result: { status: "failed", message: "nope", problems: [] },
+  ms: 30_000,
+  steps: [],
+  commit: null,
+  finishedAt,
+});
+
+const row = (over: Partial<ShellDeployment> = {}): ShellDeployment => ({
+  commitSha: "C1",
+  state: "success",
+  message: "Update the title",
+  timestamp: "just now",
+  updatedAt: new Date(0).toISOString(),
+  isLive: true,
+  ...over,
+});
+
+const job = (over: Partial<ObservedJob>): ObservedJob => ({
+  id: "J1",
+  status: "running",
+  seenAt: 0,
+  ...over,
+});
+
+describe("this editor's publish", () => {
+  test("while it builds here: the step and how far", () => {
+    const indicator = publishIndicator({ own: building, now: 1 });
+    expect(indicator).toEqual({
+      kind: "publishing",
+      mine: true,
+      step: "Building",
+      percent: 12,
+    });
+    expect(describeIndicator(indicator, 1)).toBe("Publishing 12%");
+    expect(explainIndicator(indicator, 1)).toBe("Building");
+  });
+
+  test("while a builder tab builds it: that tab's step and percentage", () => {
+    expect(
+      publishIndicator({
+        own: building,
+        builder: { step: "Uploading 3 of 7", percent: 52 },
+        now: 1,
+      }),
+    ).toEqual({
+      kind: "publishing",
+      mine: true,
+      step: "Uploading 3 of 7",
+      percent: 52,
+    });
+  });
+
+  test("Live is not the end: it spins until every edge has it", () => {
+    const own = liveAt(10_000);
+    const indicator = publishIndicator({ own, now: 10_000 + 20_000 });
+    expect(indicator).toEqual({
+      kind: "reaching",
+      mine: true,
+      everywhereAt: 10_000 + EDGE_CACHE_MS,
+    });
+    expect(isInFlight(indicator)).toBe(true);
+    expect(explainIndicator(indicator, 30_000)).toBe(
+      "Live. Every visitor sees your changes within 40s.",
+    );
+  });
+
+  test("the bar keeps filling while the edges catch up, and never reaches 100", () => {
+    const indicator = publishIndicator({ own: liveAt(0), now: 0 });
+    expect(indicatorPercent(indicator, 0)).toBe(88);
+    expect(indicatorPercent(indicator, EDGE_CACHE_MS / 2)).toBe(94);
+    expect(indicatorPercent(indicator, EDGE_CACHE_MS - 1)).toBe(99);
+    expect(describeIndicator(indicator, EDGE_CACHE_MS / 2)).toBe(
+      "Reaching visitors 94%",
+    );
+  });
+
+  test("and stops once the edges' cache has run out", () => {
+    const indicator = publishIndicator({
+      own: liveAt(10_000),
+      deployments: [row()],
+      now: 10_000 + EDGE_CACHE_MS,
+    });
+    expect(indicator).toEqual({ kind: "live" });
+    expect(isInFlight(indicator)).toBe(false);
+  });
+
+  test("a failure stays until something newer goes live", () => {
+    expect(
+      publishIndicator({
+        own: failedAt(5_000),
+        deployments: [row()],
+        now: 6_000,
+      }),
+    ).toEqual({ kind: "failed", cause: "publish" });
+  });
+});
+
+describe("another editor's publish", () => {
+  test("a running job on the branch spins here too", () => {
+    expect(
+      publishIndicator({
+        own: idle,
+        jobs: [job({ seenAt: 1_000 })],
+        now: 2_000,
+      }),
+    ).toEqual({ kind: "publishing", mine: false, step: null, percent: null });
+  });
+
+  test("a job silent for too long is not believed", () => {
+    expect(
+      publishIndicator({
+        own: idle,
+        jobs: [job({ seenAt: 0 })],
+        deployments: [row({ updatedAt: new Date(-1e9).toISOString() })],
+        studioIsDeployer: true,
+        now: RUNNING_JOB_STALE_MS,
+      }),
+    ).toEqual({ kind: "live" });
+  });
+
+  test("managed: its seal starts the edge window", () => {
+    expect(
+      publishIndicator({
+        own: idle,
+        jobs: [job({ status: "sealed", seenAt: 5_000, sealedAt: 5_000 })],
+        studioIsDeployer: true,
+        now: 6_000,
+      }),
+    ).toEqual({
+      kind: "reaching",
+      mine: false,
+      everywhereAt: 5_000 + EDGE_CACHE_MS,
+    });
+  });
+
+  test("managed: a Studio opened after the seal reads it off the feed", () => {
+    expect(
+      publishIndicator({
+        own: idle,
+        deployments: [row({ updatedAt: new Date(50_000).toISOString() })],
+        studioIsDeployer: true,
+        now: 70_000,
+      }),
+    ).toEqual({
+      kind: "reaching",
+      mine: false,
+      everywhereAt: 50_000 + EDGE_CACHE_MS,
+    });
+  });
+
+  test("connected: a sealed job is a push CI has yet to build, so the feed says it", () => {
+    expect(
+      publishIndicator({
+        own: idle,
+        jobs: [job({ status: "sealed", seenAt: 5_000, sealedAt: 5_000 })],
+        deployments: [row({ state: "pending", isLive: false })],
+        now: 6_000,
+      }),
+    ).toEqual({ kind: "building", count: 1 });
+  });
+
+  test("a newer publish going live clears an older failure of ours", () => {
+    expect(
+      publishIndicator({
+        own: failedAt(5_000),
+        jobs: [job({ status: "sealed", seenAt: 9_000, sealedAt: 9_000 })],
+        deployments: [row({ updatedAt: new Date(9_000).toISOString() })],
+        studioIsDeployer: true,
+        now: 9_000 + EDGE_CACHE_MS,
+      }),
+    ).toEqual({ kind: "live" });
+  });
+});
+
+test("a build the feed reports failed says so, in the feed's words", () => {
+  const indicator = publishIndicator({
+    own: idle,
+    deployments: [row({ state: "failure", isLive: false })],
+    now: 0,
+  });
+  expect(indicator).toEqual({ kind: "failed", cause: "build" });
+  expect(describeIndicator(indicator, 0)).toBe("Build failed");
+});
+
+test("connected: a newer row in the feed takes over from an older failure of ours", () => {
+  expect(
+    publishIndicator({
+      own: failedAt(5_000),
+      deployments: [
+        row({
+          state: "pending",
+          isLive: false,
+          updatedAt: new Date(9_000).toISOString(),
+        }),
+      ],
+      now: 10_000,
+    }),
+  ).toEqual({ kind: "building", count: 1 });
+});
+
+test("an older row in the feed does not hide a newer failure of ours", () => {
+  expect(
+    publishIndicator({
+      own: failedAt(9_000),
+      deployments: [row({ updatedAt: new Date(5_000).toISOString() })],
+      now: 10_000,
+    }),
+  ).toEqual({ kind: "failed", cause: "publish" });
+});
+
+describe("when the indicator next changes by itself", () => {
+  test("at the end of the edge window", () => {
+    const indicator = publishIndicator({ own: liveAt(1_000), now: 2_000 });
+    expect(nextIndicatorChangeAt(indicator, [], 2_000)).toBe(
+      1_000 + EDGE_CACHE_MS,
+    );
+  });
+
+  test("when a believed running job goes stale, never at a stale one's past deadline", () => {
+    const now = RUNNING_JOB_STALE_MS + 5_000;
+    const jobs = [
+      job({ id: "stale", seenAt: 0 }),
+      job({ id: "fresh", seenAt: now - 1_000 }),
+    ];
+    const indicator = publishIndicator({ own: idle, jobs, now });
+    expect(indicator).toMatchObject({ kind: "publishing", mine: false });
+    expect(nextIndicatorChangeAt(indicator, jobs, now)).toBe(
+      now - 1_000 + RUNNING_JOB_STALE_MS,
+    );
+  });
+
+  test("not at all while nothing is on a clock", () => {
+    expect(nextIndicatorChangeAt({ kind: "live" }, [], 0)).toBeNull();
+  });
+});
+
+test("managed: a failed newest row is a failure at once, not a minute of reaching visitors", () => {
+  expect(
+    publishIndicator({
+      own: idle,
+      deployments: [
+        row({
+          state: "failure",
+          isLive: false,
+          updatedAt: new Date(50_000).toISOString(),
+        }),
+      ],
+      studioIsDeployer: true,
+      now: 55_000,
+    }),
+  ).toEqual({ kind: "failed", cause: "build" });
+});
+
+describe("whose job it is", () => {
+  test("this tab's own jobs are left out, however the socket last saw them", () => {
+    const observed = [
+      job({ id: "ours-settled" }),
+      job({ id: "ours-running" }),
+      job({ id: "theirs" }),
+    ];
+    expect(
+      otherEditorsJobs(observed, {
+        requests: [
+          {
+            requestId: "r1",
+            pressedAt: 0,
+            status: { kind: "live", commit: "C1" },
+            jobId: "ours-settled",
+          },
+        ],
+        running: { jobId: "ours-running", phase: null },
+      }).map((j) => j.id),
+    ).toEqual(["theirs"]);
+  });
+
+  test("so a lost 'sealed' nudge for ours cannot hide our own Live", () => {
+    const jobs = otherEditorsJobs([job({ id: "ours", seenAt: 9_000 })], {
+      requests: [
+        {
+          requestId: "r1",
+          pressedAt: 0,
+          status: { kind: "live", commit: "C1" },
+          jobId: "ours",
+        },
+      ],
+      running: null,
+    });
+    expect(
+      publishIndicator({ own: liveAt(10_000), jobs, now: 20_000 }),
+    ).toMatchObject({ kind: "reaching", mine: true });
+  });
+});
+
+test("nothing in flight and nothing published", () => {
+  expect(publishIndicator({ own: idle, now: 0 })).toEqual({ kind: "none" });
+});

@@ -82,6 +82,7 @@ test("a press with a job is built, and is then content's until it is Live", asyn
       status: { kind: "publishing" },
       handedOffAt: 1_000,
       builtBy: "studio",
+      jobId: "J1",
     },
   ]);
 

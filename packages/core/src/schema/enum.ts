@@ -5,7 +5,6 @@ import {
   SchemaAssertResult,
 } from ".";
 import { ItemPreviewInput, PreviewItem } from "../preview";
-import { FieldRender } from "../render";
 import { SourcePath } from "../val";
 import {
   ValidationError,
@@ -14,8 +13,6 @@ import {
 
 export type SerializedEnumSchema = {
   type: "enum";
-  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
-  render?: FieldRender;
   /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
   preview?: true;
   /**
@@ -57,7 +54,6 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
-    private readonly renderInput: FieldRender | null = null,
     private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
@@ -90,7 +86,6 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -122,7 +117,6 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -217,7 +211,6 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -230,7 +223,6 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
       isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -243,7 +235,6 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       isHidden,
       this.description,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -256,32 +247,6 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
       src,
       this.customValidateFunctions,
       { path },
-    );
-  }
-
-  /**
-   * How this field is laid out in the editor when it is the item of an array
-   * or record: `{ as: "inline" }` renders the field itself inside each row,
-   * instead of a preview row that navigates to it.
-   *
-   * Static configuration, not a callback — see `render.ts`.
-   *
-   * @example
-   * const schema = s.array(
-   *   s.enum("draft", "published").render({ as: "inline" }),
-   * );
-   * export default c.define("/example.val.ts", schema, ["draft"]);
-   */
-  render(input: FieldRender): EnumSchema<Src> {
-    return new EnumSchema<Src>(
-      this.values,
-      this.opt,
-      this.customValidateFunctions,
-      this.isReadonly,
-      this.isHidden,
-      this.description,
-      input,
-      this.previewInput,
     );
   }
 
@@ -304,7 +269,6 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
       select,
     );
   }
@@ -325,7 +289,6 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
   protected executeSerialize(): SerializedEnumSchema {
     return {
       type: "enum",
-      render: this.renderInput ?? undefined,
       preview: this.previewInput ? true : undefined,
       values: [...this.values],
       opt: this.opt,

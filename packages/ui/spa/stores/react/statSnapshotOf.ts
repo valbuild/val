@@ -24,6 +24,13 @@ export function statSnapshotOf(json: StatResponseJson): StatSnapshot {
     // parent we named was not it. `fs` answers without one.
     headPatchId: "headPatchId" in json ? json.headPatchId : undefined,
     headVersion: "headVersion" in json ? json.headVersion : undefined,
+    // The groups come with the chain, at the same version: adopting the one
+    // without the other would put a new version beside groups read at an old
+    // one, and believe them current. See `PatchStore.receiveStatGroups`.
+    ...("patchGroups" in json && json.patchGroups !== undefined
+      ? { patchGroups: json.patchGroups }
+      : {}),
+    ...(json.profileId !== undefined ? { profileId: json.profileId } : {}),
     // Drained by the server as it answers (`fs` mode), so dropped here they
     // are lost: nobody is told their unpublished work was removed.
     ...("removed" in json && json.removed !== undefined

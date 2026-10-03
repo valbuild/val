@@ -138,30 +138,30 @@ const { s, c } = initVal();
 const pagesModule = c.define(
   "/content/pages.val.ts",
   s.object({
-    blocks: s.array(
-      s
-        .object({
+    blocks: s
+      .array(
+        s.object({
           title: s.string(),
           subtitle: s.string().multiline(),
-          sections: s.array(
-            s
-              .object({
+          sections: s
+            .array(
+              s.object({
                 title: s.string(),
                 content: s.richtext(),
-                links: s.array(
-                  s
-                    .object({
+                links: s
+                  .array(
+                    s.object({
                       label: s.string(),
                       url: s.string(),
-                    })
-                    .render({ as: "inline" }),
-                ),
-              })
-              .render({ as: "inline" }),
-          ),
-        })
-        .render({ as: "inline" }),
-    ),
+                    }),
+                  )
+                  .render({ as: "inline" }),
+              }),
+            )
+            .render({ as: "inline" }),
+        }),
+      )
+      .render({ as: "inline" }),
   }),
   {
     blocks: [
@@ -207,12 +207,12 @@ const pagesModule = c.define(
 const tagsModule = c.define(
   "/content/tags.val.ts",
   s.object({
-    tags: s.array(s.string().render({ as: "inline" })),
+    tags: s.array(s.string()).render({ as: "inline" }),
   }),
   { tags: ["design", "engineering", "content"] },
 );
 
-/** Items WITHOUT `.render({ as: "inline" })`: rows stay clickable previews. */
+/** A list WITHOUT `.render({ as: "inline" })`: rows stay clickable previews. */
 const previewRowsModule = c.define(
   "/content/testimonials.val.ts",
   s.object({
@@ -260,14 +260,14 @@ const authorsModule = c.define(
 const articlesModule = c.define(
   "/content/articles.val.ts",
   s.object({
-    articles: s.array(
-      s
-        .object({
+    articles: s
+      .array(
+        s.object({
           title: s.string(),
           author: s.keyOf(authorsModule).render({ as: "inline" }),
-        })
-        .render({ as: "inline" }),
-    ),
+        }),
+      )
+      .render({ as: "inline" }),
   }),
   {
     articles: [
@@ -278,32 +278,30 @@ const articlesModule = c.define(
 );
 
 /**
- * A tagged union of blocks, with the render on the VARIANTS — how a page
- * builder is actually written, and the shape that used to draw preview rows
- * because the union itself carries no render. One variant declares a preview
- * as well: it titles the row's header, and does not take the editor away.
+ * A tagged union of blocks, with the render on the LIST — how a page builder
+ * is written. One variant declares a preview as well: it titles the row's
+ * header, and does not take the editor away.
  */
 const sectionsModule = c.define(
   "/content/sections.val.ts",
   s.object({
-    sections: s.array(
-      s.discriminatedUnion(
-        "type",
-        s
-          .object({
+    sections: s
+      .array(
+        s.discriminatedUnion(
+          "type",
+          s.object({
             type: s.literal("text"),
             text: s.richtext(),
-          })
-          .render({ as: "inline" }),
-        s
-          .object({
-            type: s.literal("code"),
-            code: s.code({ language: "typescript" }),
-          })
-          .render({ as: "inline" })
-          .preview(({ val }) => ({ title: val.code })),
-      ),
-    ),
+          }),
+          s
+            .object({
+              type: s.literal("code"),
+              code: s.code({ language: "typescript" }),
+            })
+            .preview(({ val }) => ({ title: val.code })),
+        ),
+      )
+      .render({ as: "inline" }),
   }),
   {
     sections: [
@@ -354,7 +352,7 @@ export const ThreeLevels: Story = {
 };
 
 export const UnionBlocks: Story = {
-  name: "Union blocks (render on the variants)",
+  name: "Union blocks (render on the list)",
   render: () => (
     <StoryProviders mockData={sectionsData}>
       <BlockList path={sourcePathOf("/content/sections.val.ts", "sections")} />
