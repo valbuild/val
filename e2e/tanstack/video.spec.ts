@@ -1,8 +1,8 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { clearPatchChain, openStudio } from "./studio";
+import { clearPatchChain, openStudio } from "../studio";
 
 /**
- * `s.video()` in the Studio, against `examples/next/content/videoFields.val.ts`.
+ * `s.video()` in the Studio, against the showcase's `examples/tanstack/src/content/video.val.ts`.
  *
  * The upload fixture is a VP9/Opus WebM, not an mp4, and that is the point of
  * it: the Chromium Playwright ships has no H.264 at all, neither to decode nor
@@ -12,7 +12,7 @@ import { clearPatchChain, openStudio } from "./studio";
  * the original file goes up, and the field says why.
  */
 const CLIP = "e2e/fixtures/clip-320x180.webm";
-const MODULE = "/content/videoFields.val.ts";
+const MODULE = "/src/content/video.val.ts";
 
 test.beforeEach(async ({ request }) => {
   await clearPatchChain(request);
@@ -53,11 +53,11 @@ test("a committed video renders with its poster and caption track", async ({
   await expect(video).toHaveCount(1);
   await expect(video).toHaveAttribute(
     "poster",
-    "/test/videos/intro-poster_a627f.webp",
+    "/val/videos/intro-poster_a627f.webp",
   );
   await expect(video.locator("track")).toHaveAttribute(
     "src",
-    "/test/videos/intro-en_150f1.vtt",
+    "/val/videos/intro-en_150f1.vtt",
   );
   await expect(studio.locator("text=encountered an error")).toHaveCount(0);
 });
@@ -65,7 +65,7 @@ test("a committed video renders with its poster and caption track", async ({
 test("an empty video field renders instead of a stack trace", async ({
   page,
 }) => {
-  await openStudio(page, `/val/~${MODULE}?p=%22empty%22`);
+  await openStudio(page, `/val/~${MODULE}?p=%22background%22`);
   const studio = page.locator("#val-shadow-root");
   await expect(videoPicker(studio)).toBeAttached();
   await expect(studio.locator("text=encountered an error")).toHaveCount(0);
@@ -74,15 +74,15 @@ test("an empty video field renders instead of a stack trace", async ({
 test("an upload writes the metadata and a poster, and the draft plays", async ({
   page,
 }) => {
-  await openStudio(page, `/val/~${MODULE}?p=%22empty%22`);
+  await openStudio(page, `/val/~${MODULE}?p=%22background%22`);
   const studio = page.locator("#val-shadow-root");
   await videoPicker(studio).setInputFiles(CLIP);
 
   await expect
-    .poll(() => fieldValue(page, "empty"), { timeout: 60_000 })
+    .poll(() => fieldValue(page, "background"), { timeout: 60_000 })
     .toMatchObject({
       path: expect.stringMatching(
-        /^\/public\/test\/videos\/clip-320x180_[0-9a-f]{5}\.webm$/,
+        /^\/public\/val\/videos\/clip-320x180_[0-9a-f]{5}\.webm$/,
       ),
       mimeType: "video/webm",
       width: 320,
@@ -91,7 +91,7 @@ test("an upload writes the metadata and a poster, and the draft plays", async ({
       posterTime: 1,
       poster: {
         path: expect.stringMatching(
-          /^\/public\/test\/videos\/clip-320x180-poster_[0-9a-f]{5}\.(webp|jpg)$/,
+          /^\/public\/val\/videos\/clip-320x180-poster_[0-9a-f]{5}\.(webp|jpg)$/,
         ),
         width: 320,
         height: 180,
@@ -103,7 +103,7 @@ test("an upload writes the metadata and a poster, and the draft plays", async ({
   const video = studio.locator("video");
   await expect(video).toHaveAttribute(
     "src",
-    /\/api\/val\/files\/public\/test\/videos\/clip-320x180_[0-9a-f]{5}\.webm\?patch_id=/,
+    /\/api\/val\/files\/public\/val\/videos\/clip-320x180_[0-9a-f]{5}\.webm\?patch_id=/,
     { timeout: 60_000 },
   );
   await expect
@@ -178,7 +178,7 @@ test.describe("rename", () => {
     await expect
       .poll(() => fieldValue(page, "clip"), { timeout: 60_000 })
       .toMatchObject({
-        path: "/public/test/videos/team-intro_51df2.mp4",
+        path: "/public/val/videos/team-intro_51df2.mp4",
         // Everything authored stays where it was.
         posterTime: 1,
         captions: [{ srclang: "en", label: "English" }],
@@ -187,24 +187,24 @@ test.describe("rename", () => {
       .poll(() => fileOps(page), { timeout: 30_000 })
       .toEqual([
         {
-          filePath: "/public/test/videos/team-intro_51df2.mp4",
+          filePath: "/public/val/videos/team-intro_51df2.mp4",
           deleted: false,
         },
-        { filePath: "/public/test/videos/intro_51df2.mp4", deleted: true },
+        { filePath: "/public/val/videos/intro_51df2.mp4", deleted: true },
       ]);
   });
 
   test("a stream is renamed as a directory: every file moves, and the draft is served as a stream", async ({
     page,
   }) => {
-    await openStudio(page, `/val/~${MODULE}?p=%22streamed%22`);
+    await openStudio(page, `/val/~${MODULE}?p=%22stream%22`);
     const studio = page.locator("#val-shadow-root");
     await rename(studio, "team-stream");
 
     await expect
-      .poll(() => fieldValue(page, "streamed"), { timeout: 60_000 })
+      .poll(() => fieldValue(page, "stream"), { timeout: 60_000 })
       .toMatchObject({
-        path: "/public/test/videos/team-stream_05198/master.m3u8",
+        path: "/public/val/videos/team-stream_05198/master.m3u8",
         mimeType: "application/vnd.apple.mpegurl",
       });
     const names = [
@@ -226,14 +226,14 @@ test.describe("rename", () => {
       )
       .toEqual(
         [
-          ...names.map((n) => `+/public/test/videos/team-stream_05198/${n}`),
-          ...names.map((n) => `-/public/test/videos/intro_05198/${n}`),
+          ...names.map((n) => `+/public/val/videos/team-stream_05198/${n}`),
+          ...names.map((n) => `-/public/val/videos/intro_05198/${n}`),
         ].sort(),
       );
 
     // The renamed draft is servable as a stream: the master names its media
     // playlists through the draft endpoint, under the rename's patch id.
-    const masterPath = "/public/test/videos/team-stream_05198/master.m3u8";
+    const masterPath = "/public/val/videos/team-stream_05198/master.m3u8";
     const patchId = await page.evaluate(
       (path) =>
         (
@@ -255,7 +255,7 @@ test.describe("rename", () => {
     );
     expect(served.status()).toBe(200);
     expect(await served.text()).toContain(
-      `/api/val/files/public/test/videos/team-stream_05198/stream_0.m3u8?patch_id=${patchId}`,
+      `/api/val/files/public/val/videos/team-stream_05198/stream_0.m3u8?patch_id=${patchId}`,
     );
   });
 });

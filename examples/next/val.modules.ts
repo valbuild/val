@@ -50,9 +50,6 @@ export default modules(config, [
   { def: () => import("./content/mediaFixtures.val") },
   { def: () => import("./content/fileGallery.val") },
   { def: () => import("./content/mediaFields.val") },
-  // `s.video()`: a committed mp4 with a poster and captions, an empty field,
-  // and a field that converts uploads to HLS. See content/videoFields.val.ts.
-  { def: () => import("./content/videoFields.val") },
   // Uploads that are re-encoded in the browser. Deliberately their OWN modules
   // rather than fields and entries added to the fixtures above — see the note
   // in content/encodedFields.val.ts.

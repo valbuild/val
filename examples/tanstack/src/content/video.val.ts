@@ -27,6 +27,14 @@ export default c.define(
       .video({ dir: "/public/val/videos", accept: "video/mp4,video/webm" })
       .describe("An mp4 or WebM, uploaded as it is"),
     /**
+     * `nullable()`: a video that may be left out. Empty until someone uploads
+     * one — and the field the e2e suite uploads into.
+     */
+    background: s
+      .video({ dir: "/public/val/videos" })
+      .nullable()
+      .describe("Optional: plays muted behind the hero"),
+    /**
      * `stream`: the Studio converts an upload to HLS in the browser
      * (WebCodecs), one H.264 rendition per height that fits the upload, and
      * stores the stream as a directory. `path` is its master playlist.
@@ -65,6 +73,7 @@ export default c.define(
         },
       ],
     },
+    background: null,
     stream: {
       path: "/public/val/videos/intro_05198/master.m3u8",
       mimeType: "application/vnd.apple.mpegurl",

@@ -217,9 +217,8 @@ export default defineConfig({
       /**
        * `examples/tanstack`, which nothing else in this suite touches.
        *
-       * A catastrophe detector rather than a second full suite — see
-       * `e2e/tanstack/studio.spec.ts` for what it covers and what it
-       * deliberately does not. No `warmup` dependency: that project drives the
+       * The catastrophe detector (`e2e/tanstack/studio.spec.ts`) and the
+       * specs whose fixtures are in the TanStack showcase (`video.spec.ts`). No `warmup` dependency: that project drives the
        * NEXT app, which this one does not start.
        */
       name: "tanstack",
