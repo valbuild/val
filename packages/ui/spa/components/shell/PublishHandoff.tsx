@@ -47,28 +47,16 @@ export type HandoffState =
   | { kind: "failed"; message: string; details?: string; followed?: boolean };
 
 /**
- * Is the card the only thing that will say this? Not once the tab has handed
- * the job on, where a page with its own publish surfaces (the Studio's toast
- * and deploy list) already follows it -- a card saying "Live" beside them
- * said it twice. The overlay has none, and shows the card throughout.
- */
-export function handoffCardIsNews(state: HandoffState): boolean {
-  if (state.kind === "checking") return false;
-  if (state.kind === "live" || state.kind === "failed")
-    return state.followed !== true;
-  return true;
-}
-
-/**
  * The card in the Studio, where the status bar's indicator already follows
  * the build -- the tab's step while it runs, and the edges after Live. So it
  * is only for what needs a hand: a blocked tab, or one that failed.
  */
 export function handoffCardInStudio(state: HandoffState): boolean {
+  // Not "live" either, followed or not: a site update's tab reports its own
+  // Live, and the indicator and the toast already say it here.
   return (
-    handoffCardIsNews(state) &&
-    state.kind !== "opening" &&
-    state.kind !== "running"
+    state.kind === "blocked" ||
+    (state.kind === "failed" && state.followed !== true)
   );
 }
 
