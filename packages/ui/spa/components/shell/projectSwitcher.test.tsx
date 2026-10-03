@@ -1,26 +1,42 @@
 /** @jest-environment jsdom */
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { TopBar } from "./TopBar";
 import { ProjectSwitcher, loadWebComponentScript } from "./ProjectSwitcher";
 
 /**
- * The top bar's project name becomes Val Build's switcher for a connected
- * project, and stays what it was everywhere else.
+ * The top bar's project name, for a connected project: the Studio's own
+ * button, with Val Build's switcher (`<val-project-switcher trigger="slot">`)
+ * around it and loaded only when someone reaches for it.
  *
- * What matters most is the fallback: the switcher is a script from another
- * origin, and a Studio that cannot reach it (offline, a strict CSP) must still
- * show the project name and its link. jsdom never defines the element, which
- * is exactly that case — so these tests are the "script never loaded" Studio.
+ * jsdom never defines the element, so the script "loads" here by the test's
+ * own `loadScript` resolving — and the element stays undefined, which is also
+ * the Studio whose script never arrived.
  */
 
 const PROJECT_HREF = "https://admin.val.build/~/acme/marketing-site";
 const WC = "https://admin.val.build/wc/v1";
 
-function topBar(props: { projectHref?: string; webComponentsUrl?: string }) {
+let fetchMock: jest.Mock<Promise<Response>, Parameters<typeof fetch>>;
+beforeEach(() => {
+  fetchMock = jest.fn<Promise<Response>, Parameters<typeof fetch>>(() =>
+    Promise.reject(new Error("no network in tests")),
+  );
+  Object.defineProperty(globalThis, "fetch", {
+    value: fetchMock,
+    configurable: true,
+    writable: true,
+  });
+});
+
+function topBar(props: {
+  projectName?: string;
+  projectHref?: string;
+  webComponentsUrl?: string;
+}) {
   return (
     <TopBar
       breakpoint="desktop"
-      projectName="acme/marketing-site"
+      projectName={props.projectName ?? "acme/marketing-site"}
       openPanel={null}
       onTogglePanel={() => undefined}
       onOpenMenu={() => undefined}
@@ -29,33 +45,53 @@ function topBar(props: { projectHref?: string; webComponentsUrl?: string }) {
       isCanvasOpen={false}
       onPublish={() => undefined}
       pendingChanges={0}
-      {...props}
+      projectHref={props.projectHref}
+      webComponentsUrl={props.webComponentsUrl}
     />
   );
 }
 
+function switcher(loadScript: (src: string) => Promise<void>) {
+  return render(
+    <ProjectSwitcher
+      projectName="acme/site"
+      projectHref={PROJECT_HREF}
+      webComponentsUrl={WC}
+      breakpoint="desktop"
+      loadScript={loadScript}
+    />,
+  );
+}
+
 describe("in the top bar", () => {
-  test("a connected project gets the switcher, with today's link inside it as the fallback", () => {
+  test("a connected project gets the Studio's button, inside the switcher, and loads nothing yet", () => {
+    const scripts = () =>
+      document.head.querySelectorAll("script[data-val-web-component]").length;
+    const before = scripts();
     const { container } = render(
-      topBar({ projectHref: PROJECT_HREF, webComponentsUrl: WC }),
+      topBar({
+        projectName: "acme/recorded",
+        projectHref: PROJECT_HREF,
+        webComponentsUrl: WC,
+      }),
     );
     const element = container.querySelector("val-project-switcher");
-    expect(element?.getAttribute("project")).toBe("acme/marketing-site");
+    expect(element?.getAttribute("project")).toBe("acme/recorded");
+    expect(element?.getAttribute("trigger")).toBe("slot");
     expect(element?.getAttribute("api-base")).toBe("/api/val/admin/proxy");
     expect(element?.getAttribute("admin-url")).toBe(PROJECT_HREF);
     expect(element?.getAttribute("layout")).toBe("popover");
-    // The element never upgrades here, so this is what an offline Studio shows.
-    const link = screen.getByRole("link", { name: "acme/marketing-site" });
-    expect(element?.contains(link)).toBe(true);
-    expect(link.getAttribute("href")).toBe(PROJECT_HREF);
-
-    // And it is loaded from the admin app. (Once per page: the loader keeps
-    // the load, so only the first mount in this file adds the script.)
-    const script = document.head.querySelector<HTMLScriptElement>(
-      "script[data-val-web-component]",
+    // The name alone, as a button: the same before and after the script.
+    const button = screen.getByRole("button", { name: "recorded" });
+    expect(element?.contains(button)).toBe(true);
+    expect(button.getAttribute("title")).toBe("acme/recorded");
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(scripts()).toBe(before);
+    // The visit goes to the top of Recent, without the component.
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/val/admin/proxy/projects/opened?project=acme%2Frecorded",
+      { method: "POST", headers: { "x-val-studio": "1" } },
     );
-    expect(script?.src).toBe(`${WC}/project-switcher.js`);
-    expect(script?.type).toBe("module");
   });
 
   test("a project that is not connected keeps its plain name, and loads nothing", () => {
@@ -66,7 +102,61 @@ describe("in the top bar", () => {
     expect(container.querySelector("val-project-switcher")).toBeNull();
     expect(screen.getByText("acme/marketing-site")).not.toBeNull();
     expect(scripts()).toBe(before);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
+});
+
+test("hovering the name fetches the script, before anyone clicks", () => {
+  const loadScript = jest.fn(() => Promise.resolve());
+  switcher(loadScript);
+  expect(loadScript).not.toHaveBeenCalled();
+  fireEvent.pointerEnter(screen.getByRole("button", { name: "site" }));
+  expect(loadScript).toHaveBeenCalledWith(`${WC}/project-switcher.js`);
+});
+
+test("the first click asks the component to open, and loads it", () => {
+  const loadScript = jest.fn(() => new Promise<void>(() => undefined));
+  const { container } = switcher(loadScript);
+  fireEvent.click(screen.getByRole("button", { name: "site" }));
+  expect(loadScript).toHaveBeenCalledWith(`${WC}/project-switcher.js`);
+  expect(
+    container.querySelector("val-project-switcher")?.hasAttribute("open"),
+  ).toBe(true);
+});
+
+test("a script that cannot load sends the click to Val Build instead", async () => {
+  const open = jest.spyOn(window, "open").mockImplementation(() => null);
+  const { container } = switcher(() => Promise.reject(new Error("blocked")));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "site" }));
+  });
+  expect(open).toHaveBeenCalledWith(
+    PROJECT_HREF,
+    "_blank",
+    "noopener,noreferrer",
+  );
+  expect(
+    container.querySelector("val-project-switcher")?.hasAttribute("open"),
+  ).toBe(false);
+  open.mockRestore();
+});
+
+test("the button shows the panel as open while the component says it is", () => {
+  const { container } = switcher(() => Promise.resolve());
+  const element = container.querySelector("val-project-switcher");
+  const button = screen.getByRole("button", { name: "site" });
+  act(() => {
+    element?.dispatchEvent(
+      new CustomEvent("val-open-change", { detail: { open: true } }),
+    );
+  });
+  expect(button.getAttribute("aria-expanded")).toBe("true");
+  act(() => {
+    element?.dispatchEvent(
+      new CustomEvent("val-open-change", { detail: { open: false } }),
+    );
+  });
+  expect(button.getAttribute("aria-expanded")).toBe("false");
 });
 
 test("tells the component where the Studio runs, so it knows what signing in again means", () => {
@@ -78,9 +168,7 @@ test("tells the component where the Studio runs, so it knows what signing in aga
       studioMode="fs"
       breakpoint="desktop"
       loadScript={() => Promise.resolve()}
-    >
-      site
-    </ProjectSwitcher>,
+    />,
   );
   expect(
     container.querySelector("val-project-switcher")?.getAttribute("mode"),
@@ -95,9 +183,7 @@ test("a phone gets the sheet layout", () => {
       webComponentsUrl={WC}
       breakpoint="mobile"
       loadScript={() => Promise.resolve()}
-    >
-      site
-    </ProjectSwitcher>,
+    />,
   );
   expect(
     container.querySelector("val-project-switcher")?.getAttribute("layout"),

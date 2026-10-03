@@ -38,8 +38,8 @@ export type TopBarProps = {
   projectHref?: string;
   /**
    * Where Val Build's web components are served from. With it (and a
-   * `projectHref`) the name becomes Val Build's project switcher, with the
-   * plain name as its fallback — see `ProjectSwitcher`.
+   * `projectHref`) the name becomes a button that opens Val Build's project
+   * switcher — see `ProjectSwitcher`.
    */
   webComponentsUrl?: string;
   /**
@@ -203,6 +203,18 @@ export function TopBar({
   const isMobile = breakpoint === "mobile";
   const isDesktop = breakpoint === "desktop";
   const org = orgOfProject(projectName);
+  const share =
+    org !== null &&
+    membersHref !== undefined &&
+    webComponentsUrl !== undefined ? (
+      <MembersShare
+        org={org}
+        membersHref={membersHref}
+        webComponentsUrl={webComponentsUrl}
+        studioMode={studioMode}
+        breakpoint={breakpoint}
+      />
+    ) : null;
   return (
     <header
       className={cn(
@@ -234,18 +246,23 @@ export function TopBar({
           webComponentsUrl={webComponentsUrl}
           studioMode={studioMode}
           breakpoint={breakpoint}
-        >
-          <ProjectName projectName={projectName} projectHref={projectHref} />
-        </ProjectSwitcher>
+        />
       ) : (
         <ProjectName projectName={projectName} projectHref={projectHref} />
       )}
       <SearchTrigger breakpoint={breakpoint} onClick={onOpenSearch} />
       <div className="ml-auto flex items-center gap-1.5 shrink-0">
         {/*
-         * First in the cluster, and before the divider: everything after it is
-         * something you DO, and this is what you are looking at while you do it.
-         * On a phone it moves to the bottom bar, where the actions are.
+         * Who else is here, and a way to bring more people in. Above mobile it
+         * leads the cluster, to the left of the locale: it is about the
+         * project, not about the change being made. On a phone it is the one
+         * project-level control that stays in the top bar, further right.
+         */}
+        {!isMobile && share}
+        {/*
+         * Before the divider: everything after it is something you DO, and
+         * this is what you are looking at while you do it. On a phone it moves
+         * to the bottom bar, where the actions are.
          */}
         {!isMobile && locales !== undefined && onLocaleChange !== undefined && (
           <LocaleFilter
@@ -290,22 +307,7 @@ export function TopBar({
             <BarDivider />
           </>
         )}
-        {/*
-         * Who else is here, and a way to bring more people in: first of the
-         * things about the project rather than the change, and on a phone the
-         * one of them that stays in the top bar.
-         */}
-        {org !== null &&
-          membersHref !== undefined &&
-          webComponentsUrl !== undefined && (
-            <MembersShare
-              org={org}
-              membersHref={membersHref}
-              webComponentsUrl={webComponentsUrl}
-              studioMode={studioMode}
-              breakpoint={breakpoint}
-            />
-          )}
+        {isMobile && share}
         {historyEnabled && (
           <IconButton
             label="History"
@@ -817,10 +819,9 @@ export function PublishButton({
 }
 
 /**
- * The project's name. Val runs one project per config, so switching projects
- * is Val Build's to offer: with a connected project this is the fallback
- * inside `ProjectSwitcher`, and what is shown until — or unless — Val Build's
- * switcher loads.
+ * The project's name, where there is no switcher to offer: Val runs one
+ * project per config, so switching projects is Val Build's, and a connected
+ * project gets `ProjectSwitcher` instead.
  *
  * It is a link to the project in Val Build when there is one: the name is
  * where an editor already points at "this project", and everything Val does

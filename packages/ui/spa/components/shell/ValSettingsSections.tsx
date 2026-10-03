@@ -171,7 +171,7 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
                * adding it here, in the Studio, is the point. Renders nothing
                * for a project that is not connected to Val Build.
                */}
-              <AiSetup className="block pb-6 mb-6 border-b border-border-secondary" />
+              <AiSetup className="block mx-4 pb-6 mb-5 border-b border-border-secondary" />
               <AssistantSettingsFields
                 value={{
                   enabled: enabledValue,

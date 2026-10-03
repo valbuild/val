@@ -22,6 +22,12 @@ declare module "react" {
         /** The project's page in Val Build, until the component has loaded its own. */
         "admin-url"?: string;
         layout?: "popover" | "sheet";
+        /**
+         * `slot`: the Studio draws the trigger as the element's child and the
+         * component is only the panel. Setting `open` before the script is
+         * loaded opens it as soon as it is defined.
+         */
+        trigger?: "slot";
         theme?: "light" | "dark";
         /** `fs` locally, `http` deployed: what "sign in again" means. */
         mode?: "fs" | "http";
@@ -41,8 +47,12 @@ declare module "react" {
         /** The Studio's proxy to Val Build. */
         "api-base"?: string;
         layout?: "popover" | "sheet";
-        /** `button`: avatars, count and "Share". `icon`: for a phone. */
-        trigger?: "button" | "icon";
+        /**
+         * `slot`: the Studio draws the trigger as the element's child and the
+         * component is only the panel (see `val-project-switcher`). `button`
+         * and `icon` are the component's own triggers.
+         */
+        trigger?: "slot" | "button" | "icon";
         theme?: "light" | "dark";
         /** `fs` locally, `http` deployed: what "sign in again" means. */
         mode?: "fs" | "http";

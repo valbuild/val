@@ -1,17 +1,25 @@
 import { UserPlus } from "lucide-react";
-import { loadWebComponentScript, useValWebComponent } from "./ProjectSwitcher";
+import { cn } from "../designSystem/cn";
+import {
+  ADMIN_PROXY,
+  loadWebComponentScript,
+  useLazyWebComponent,
+} from "./ProjectSwitcher";
 import { ShellBreakpoint } from "./types";
 
 /**
- * `<val-members>`, Val Build's Share button: who is in the organization, and
- * a panel to invite people, revoke pending links and change roles.
+ * Share: who is in the organization, and a panel to invite people, revoke
+ * pending links and change roles.
  *
- * Mounted under the same rules as `<val-project-switcher>` and for the same
- * reasons — see `ProjectSwitcher`. The fallback is a link to the members page
- * in Val Build, which is what Share did before there was a panel for it.
+ * The button is the Studio's, drawn like Review beside it, and the panel is
+ * Val Build's `<val-members>` around it (`trigger="slot"`), loaded when the
+ * button is first hovered or clicked — the same arrangement as the project
+ * switcher, for the same reasons (see `ProjectSwitcher`). If the script cannot
+ * load, the click opens the members page in Val Build instead, which is what
+ * Share did before there was a panel for it.
  *
- * On a phone it is an icon at the top right, where it sits beside the account;
- * above that it is the avatars, the count and "Share".
+ * On a phone it is an icon at the top right, opening a sheet; above that it is
+ * "Share", left of the locale menu.
  */
 export function MembersShare({
   org,
@@ -31,33 +39,45 @@ export function MembersShare({
   /** For tests: the real one adds a `<script>` to the page. */
   loadScript?: (src: string) => Promise<void>;
 }) {
-  const ref = useValWebComponent(`${webComponentsUrl}/members.js`, loadScript);
+  const lazy = useLazyWebComponent({
+    tag: "val-members",
+    src: `${webComponentsUrl}/members.js`,
+    fallbackHref: membersHref,
+    loadScript,
+  });
   const isMobile = breakpoint === "mobile";
 
   return (
     <val-members
-      ref={ref}
+      ref={lazy.ref}
       className="inline-flex shrink-0"
       org={org}
-      api-base="/api/val/admin/proxy"
+      api-base={ADMIN_PROXY}
       layout={isMobile ? "sheet" : "popover"}
-      trigger={isMobile ? "icon" : "button"}
+      trigger="slot"
       mode={studioMode}
     >
-      <a
-        href={membersHref}
-        target="_blank"
-        rel="noopener noreferrer"
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={lazy.open}
         aria-label={isMobile ? `Share ${org}` : undefined}
-        title={`Members of ${org} in Val Build`}
-        className={
+        title={`Share ${org}`}
+        onClick={lazy.onClick}
+        onPointerEnter={lazy.prefetch}
+        onFocus={lazy.prefetch}
+        className={cn(
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
+          "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+          "aria-expanded:bg-bg-float-raised aria-expanded:text-fg-primary",
           isMobile
-            ? "grid place-items-center w-8 h-8 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
-            : "inline-flex items-center h-7 px-2.5 rounded-md border border-border-secondary text-[0.8125rem] font-medium text-fg-primary hover:bg-bg-float-raised"
-        }
+            ? "grid place-items-center w-8 h-8 rounded-md"
+            : "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md",
+        )}
       >
-        {isMobile ? <UserPlus size={17} /> : "Share"}
-      </a>
+        <UserPlus size={isMobile ? 17 : 15} aria-hidden="true" />
+        {!isMobile && <span className="text-[0.8125rem]">Share</span>}
+      </button>
     </val-members>
   );
 }

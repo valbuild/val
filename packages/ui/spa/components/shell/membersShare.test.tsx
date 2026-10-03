@@ -1,13 +1,14 @@
 /** @jest-environment jsdom */
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { TopBar } from "./TopBar";
 import { MembersShare, orgOfProject } from "./MembersShare";
 import { ShellBreakpoint } from "./types";
 
 /**
- * Val Build's Share button, `<val-members>`, in the top bar of a connected
- * project. jsdom never defines the element, so these are also the Studio
- * that could not reach admin.val.build: what it shows is the fallback link.
+ * Share, in the top bar of a connected project: the Studio's own button, with
+ * Val Build's `<val-members trigger="slot">` around it, loaded on the first
+ * hover or click. jsdom never defines the element, so the script "loads" by
+ * the test's `loadScript` resolving.
  */
 
 const MEMBERS_HREF = "https://admin.val.build/manage-members/acme";
@@ -39,7 +40,10 @@ function topBar(
   );
 }
 
-test("a connected project gets Share, with a link to its members as the fallback", () => {
+test("a connected project gets the Studio's Share button inside the members panel, and loads nothing yet", () => {
+  const before = document.head.querySelectorAll(
+    "script[data-val-web-component]",
+  ).length;
   const { container } = render(
     topBar({ membersHref: MEMBERS_HREF, webComponentsUrl: WC }),
   );
@@ -47,13 +51,81 @@ test("a connected project gets Share, with a link to its members as the fallback
   expect(element?.getAttribute("org")).toBe("acme");
   expect(element?.getAttribute("api-base")).toBe("/api/val/admin/proxy");
   expect(element?.getAttribute("layout")).toBe("popover");
-  expect(element?.getAttribute("trigger")).toBe("button");
-  const link = screen.getByRole("link", { name: "Share" });
-  expect(element?.contains(link)).toBe(true);
-  expect(link.getAttribute("href")).toBe(MEMBERS_HREF);
+  expect(element?.getAttribute("trigger")).toBe("slot");
+  const button = screen.getByRole("button", { name: "Share" });
+  expect(element?.contains(button)).toBe(true);
+  expect(button.getAttribute("aria-haspopup")).toBe("dialog");
   expect(
-    document.head.querySelector(`script[src="${WC}/members.js"]`),
-  ).not.toBeNull();
+    document.head.querySelectorAll("script[data-val-web-component]").length,
+  ).toBe(before);
+});
+
+test("the first click loads the panel and asks it to open", () => {
+  const loadScript = jest.fn(() => new Promise<void>(() => undefined));
+  const { container } = render(
+    <MembersShare
+      org="acme"
+      membersHref={MEMBERS_HREF}
+      webComponentsUrl={WC}
+      breakpoint="desktop"
+      loadScript={loadScript}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Share" }));
+  expect(loadScript).toHaveBeenCalledWith(`${WC}/members.js`);
+  expect(container.querySelector("val-members")?.hasAttribute("open")).toBe(
+    true,
+  );
+});
+
+test("a panel that cannot load opens the members page in Val Build", async () => {
+  const open = jest.spyOn(window, "open").mockImplementation(() => null);
+  render(
+    <MembersShare
+      org="acme"
+      membersHref={MEMBERS_HREF}
+      webComponentsUrl={WC}
+      breakpoint="desktop"
+      loadScript={() => Promise.reject(new Error("blocked"))}
+    />,
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Share" }));
+  });
+  expect(open).toHaveBeenCalledWith(
+    MEMBERS_HREF,
+    "_blank",
+    "noopener,noreferrer",
+  );
+  open.mockRestore();
+});
+
+test("above mobile it sits left of the locale menu", () => {
+  const { container } = render(
+    <TopBar
+      breakpoint="desktop"
+      projectName="acme/marketing-site"
+      openPanel={null}
+      onTogglePanel={() => undefined}
+      onOpenMenu={() => undefined}
+      onOpenSearch={() => undefined}
+      onPreview={() => undefined}
+      isCanvasOpen={false}
+      onPublish={() => undefined}
+      pendingChanges={0}
+      membersHref={MEMBERS_HREF}
+      webComponentsUrl={WC}
+      locales={["en", "nb"]}
+      onLocaleChange={() => undefined}
+    />,
+  );
+  const share = container.querySelector("val-members");
+  const locale = screen.getByRole("button", { name: "Showing all languages" });
+  expect(share).not.toBeNull();
+  expect(
+    share !== null &&
+      share.compareDocumentPosition(locale) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
 });
 
 test("on a phone it is an icon that opens a sheet", () => {
@@ -65,9 +137,9 @@ test("on a phone it is an icon that opens a sheet", () => {
     }),
   );
   const element = container.querySelector("val-members");
-  expect(element?.getAttribute("trigger")).toBe("icon");
+  expect(element?.getAttribute("trigger")).toBe("slot");
   expect(element?.getAttribute("layout")).toBe("sheet");
-  expect(screen.getByRole("link", { name: "Share acme" })).not.toBeNull();
+  expect(screen.getByRole("button", { name: "Share acme" })).not.toBeNull();
 });
 
 test("a project that is not connected gets no Share at all", () => {
