@@ -32,7 +32,9 @@ import { Checkbox } from "../designSystem/checkbox";
 import { Input } from "../designSystem/input";
 import { FocalPointPicker } from "./FocalPointPicker";
 import { getRemoteFilesError } from "./ImageField";
-import { MediaSummaryRow, Section } from "./MediaSummaryRow";
+import { Section } from "./MediaSummaryRow";
+import { ImageCard } from "./ImageCard";
+import { MediaThumbnail } from "../MediaThumbnail";
 import { VideoPlayer } from "./VideoPlayer";
 import {
   bytesToBase64,
@@ -76,6 +78,7 @@ type Phase =
 export function VideoField({
   path,
   readonly,
+  compact,
 }: {
   path: SourcePath;
   readonly?: boolean;
@@ -622,24 +625,6 @@ export function VideoField({
           {notice}
         </p>
       )}
-      <MediaSummaryRow
-        url={posterUrl}
-        name={filename ?? null}
-        detail={detail}
-        isImage={!!posterUrl}
-        uploading={busy}
-        progressPercentage={progressPercentage}
-        actions={actions}
-      />
-      {phase.kind !== "idle" && (
-        <p role="status" className="-mt-3 text-xs text-fg-secondary">
-          {phase.kind === "reading"
-            ? "Reading the video…"
-            : phase.kind === "converting"
-              ? `Converting to a stream… ${phase.progress}%`
-              : `Uploading… ${phase.progress}%`}
-        </p>
-      )}
       <input
         hidden
         ref={fileInputRef}
@@ -655,25 +640,58 @@ export function VideoField({
           ev.target.value = "";
         }}
       />
-      {playerUrl && (
-        <VideoPlayer
-          ref={videoRef}
-          src={playerUrl}
-          isHls={playerIsHls}
-          poster={posterUrl ?? undefined}
-          startTime={source?.startTime}
-          endTime={source?.endTime}
-          tracks={
-            localUrl
-              ? undefined
-              : source?.captions?.map((track) => ({
-                  ...track,
-                  url: urlOf(track),
-                }))
-          }
-          className="w-full h-auto rounded-lg bg-bg-tertiary"
-          onError={setError}
-        />
+      {/*
+       * The same card the image field uses, with the player where the picture
+       * would be: a video reads as one more kind of media rather than as a
+       * different form. The controls float over the TOP of it, clear of the
+       * player's own along the bottom.
+       */}
+      <ImageCard
+        url={playerUrl}
+        name={filename ?? null}
+        detail={detail}
+        compact={compact}
+        uploading={busy}
+        progressPercentage={progressPercentage}
+        onDropFile={readonly ? undefined : upload}
+        dropDisabled={disabled || busy}
+        actions={actions}
+        emptyActions={actions}
+        emptyLabel={{ drop: "Drop a video here, or", none: "No video yet" }}
+        emptyIcon={
+          <Film size={22} strokeWidth={1.5} className="text-fg-secondary-alt" />
+        }
+        media={
+          playerUrl && (
+            <VideoPlayer
+              ref={videoRef}
+              src={playerUrl}
+              isHls={playerIsHls}
+              poster={posterUrl ?? undefined}
+              startTime={source?.startTime}
+              endTime={source?.endTime}
+              tracks={
+                localUrl
+                  ? undefined
+                  : source?.captions?.map((track) => ({
+                      ...track,
+                      url: urlOf(track),
+                    }))
+              }
+              className="h-full w-full bg-black object-contain"
+              onError={setError}
+            />
+          )
+        }
+      />
+      {phase.kind !== "idle" && (
+        <p role="status" className="-mt-3 text-xs text-fg-secondary">
+          {phase.kind === "reading"
+            ? "Reading the video…"
+            : phase.kind === "converting"
+              ? `Converting to a stream… ${phase.progress}%`
+              : `Uploading… ${phase.progress}%`}
+        </p>
       )}
       {source && (
         <>
@@ -688,24 +706,43 @@ export function VideoField({
               onChange={(ev) => setField("alt", ev.target.value)}
             />
           </Section>
+          {/*
+           * The poster is shown here, beside the control that sets it — not
+           * as the card's thumbnail, where it read as the video itself.
+           */}
           <Section
             label="Poster"
-            hint="The still shown before the video plays. Pause the video on the frame you want."
+            hint="The still shown before the video plays. Pause the video on the frame you want, then use it."
           >
             <div className="flex flex-wrap items-center gap-3">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={disabled || busy || !serverUrl || !!localUrl}
-                onClick={takePosterFromPlayer}
-              >
-                Use current frame
-              </Button>
-              <span className="text-xs text-fg-secondary">
-                {typeof source.posterTime === "number"
-                  ? `Taken at ${formatTime(source.posterTime)}`
-                  : "Not set"}
-              </span>
+              <div className="relative h-[5.625rem] w-40 shrink-0 overflow-hidden rounded-md border border-border-primary bg-bg-secondary">
+                {posterUrl ? (
+                  <MediaThumbnail
+                    url={posterUrl}
+                    alt={source.alt}
+                    hotspot={source.hotspot}
+                  />
+                ) : (
+                  <span className="grid h-full place-items-center text-[0.6875rem] text-fg-secondary-alt">
+                    No poster
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col items-start gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={disabled || busy || !serverUrl || !!localUrl}
+                  onClick={takePosterFromPlayer}
+                >
+                  Use current frame
+                </Button>
+                <span className="text-xs text-fg-secondary">
+                  {typeof source.posterTime === "number"
+                    ? `Taken at ${formatTime(source.posterTime)}`
+                    : "Not set"}
+                </span>
+              </div>
             </div>
           </Section>
           <Section
