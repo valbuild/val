@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { CircleDot, Cloud, GitBranch, Info, Terminal } from "lucide-react";
-import type { StudioDeployState } from "../../publish/useStudioDeploy";
-import { DeployProgress } from "./DeployProgress";
+import type { PublishIndicator } from "../../publish/publishIndicatorView";
 import { cn } from "../designSystem/cn";
 import { Checkbox } from "../designSystem/checkbox";
 import {
@@ -40,12 +39,13 @@ export type StatusBarProps = {
   deployments?: ShellDeployment[];
   /** See `ShellData.studioIsDeployer`. */
   studioIsDeployer?: boolean;
-  /** A publish built in this tab: which step it is on. See `DeployProgress`. */
-  deployState?: StudioDeployState;
+  /**
+   * Whether the site is still on its way to what was published, by anyone.
+   * See `publishIndicator`. Without one, the deploy feed's own summary.
+   */
+  publishIndicator?: PublishIndicator;
   deploymentsOpen?: boolean;
   onDeploymentsOpenChange?: (open: boolean) => void;
-  /** True when the open list opened itself, which lets it close itself. */
-  deploymentsAutoOpened?: boolean;
 };
 
 /**
@@ -70,10 +70,9 @@ export function StatusBar({
   branch,
   deployments,
   studioIsDeployer = false,
-  deployState,
+  publishIndicator,
   deploymentsOpen = false,
   onDeploymentsOpenChange,
-  deploymentsAutoOpened = false,
 }: StatusBarProps) {
   return (
     <footer
@@ -119,19 +118,14 @@ export function StatusBar({
         </>
       )}
       <div className="ml-auto flex items-center gap-3">
-        {mode === "http" &&
-          deployState !== undefined &&
-          !deployments?.some(
-            (deployment) => deployment.publish?.kind === "running",
-          ) && <DeployProgress state={deployState} />}
         {mode === "http" && deployments !== undefined && (
           <>
             <DeploymentsStatus
               deployments={deployments}
               studioIsDeployer={studioIsDeployer}
+              indicator={publishIndicator}
               open={deploymentsOpen}
               onOpenChange={onDeploymentsOpenChange ?? (() => undefined)}
-              autoClose={deploymentsAutoOpened}
             />
             <Divider />
           </>

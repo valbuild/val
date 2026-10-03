@@ -1,11 +1,8 @@
 /** @jest-environment jsdom */
 import { render, screen } from "@testing-library/react";
-import {
-  DEPLOYMENTS_AUTO_CLOSE_MS,
-  DeploymentRows,
-  DeploymentsStatus,
-} from "./Deployments";
+import { DeploymentRows, DeploymentsStatus } from "./Deployments";
 import { ShellDeployment } from "./types";
+import { TooltipProvider } from "../designSystem/tooltip";
 
 /**
  * The rows of the deploy feed, which are a feed and not an inbox.
@@ -89,52 +86,39 @@ describe("a managed project's row", () => {
 });
 
 /**
- * The list the status bar opened closes itself once everything is live, and
- * reads "live" by the same rule as the summary beside it. A managed row the
- * site does not serve was superseded, so it does not hold the list open.
+ * The status bar item is the publish indicator: it spins while the site is on
+ * its way to what was published, and says so in one of three words.
  */
-describe("the deploy list's auto-close", () => {
-  test("a managed project's superseded row does not hold it open", () => {
-    jest.useFakeTimers();
-    try {
-      const onOpenChange = jest.fn();
-      render(
+describe("the publish indicator", () => {
+  test("spins while every visitor has yet to get the change", () => {
+    render(
+      <TooltipProvider>
         <DeploymentsStatus
-          deployments={[
-            deployment({ commitSha: "new" }),
-            deployment({ commitSha: "old", state: "pending", isLive: false }),
-          ]}
-          open
-          onOpenChange={onOpenChange}
-          autoClose
+          deployments={[deployment({ commitSha: "new" })]}
+          open={false}
+          onOpenChange={jest.fn()}
+          indicator={{ kind: "reaching", mine: true, everywhereAt: 0 }}
           studioIsDeployer
-        />,
-      );
-      jest.advanceTimersByTime(DEPLOYMENTS_AUTO_CLOSE_MS);
-      expect(onOpenChange).toHaveBeenCalledWith(false);
-    } finally {
-      jest.useRealTimers();
-    }
+        />
+      </TooltipProvider>,
+    );
+    const button = screen.getByRole("button", {
+      name: "Deployments: Reaching visitors",
+    });
+    expect(button.getAttribute("aria-busy")).toBe("true");
   });
 
-  test("a connected project's build in progress does", () => {
-    jest.useFakeTimers();
-    try {
-      const onOpenChange = jest.fn();
-      render(
+  test("rests at Live, without one, by the feed's own summary", () => {
+    render(
+      <TooltipProvider>
         <DeploymentsStatus
-          deployments={[
-            deployment({ commitSha: "new", state: "pending", isLive: false }),
-          ]}
-          open
-          onOpenChange={onOpenChange}
-          autoClose
-        />,
-      );
-      jest.advanceTimersByTime(DEPLOYMENTS_AUTO_CLOSE_MS);
-      expect(onOpenChange).not.toHaveBeenCalled();
-    } finally {
-      jest.useRealTimers();
-    }
+          deployments={[deployment({ commitSha: "new" })]}
+          open={false}
+          onOpenChange={jest.fn()}
+        />
+      </TooltipProvider>,
+    );
+    const button = screen.getByRole("button", { name: "Deployments: Live" });
+    expect(button.getAttribute("aria-busy")).toBe("false");
   });
 });

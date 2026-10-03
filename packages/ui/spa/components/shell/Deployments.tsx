@@ -1,4 +1,16 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../designSystem/tooltip";
+import {
+  describeIndicator,
+  explainIndicator,
+  indicatorOfSummary,
+  isInFlight,
+  type PublishIndicator,
+} from "../../publish/publishIndicatorView";
 import { seconds } from "../../publish/deployProgress";
 import { ProgressBar } from "./DeployProgress";
 import {
@@ -89,46 +101,6 @@ export function summarizeDeployments(
 }
 
 /**
- * How recently a publish must have gone live to be worth popping the list for.
- */
-export const DEPLOYMENT_NEWS_WINDOW_MS = 10 * 60 * 1000;
-
-/**
- * Whether a publish showing up in the feed is news, or history.
- *
- * The list opens itself for a commit it has not seen before, which is right
- * for a publish that just happened and wrong for one that finished long ago -
- * and the two are indistinguishable from "not in the previous feed". A commit
- * arrives that way whenever the feed is first fetched in a new tab, when a
- * colleague published while this tab was closed, or when the deploy feed
- * simply comes back in a different order.
- *
- * So it is decided by the CLOCK, and only by the clock. `isLive` used to make
- * anything not live news, which was true while the feed only carried the
- * publishes on the current chain: a row that was not live was one on its way
- * out. The feed is the last few publishes now — a push, a merged pull request,
- * a revert, from any time — and Val only ever observes the CURRENT commit
- * serving the site, so "not live" is the resting state of every publish that
- * has been superseded. Left as it was, opening Val would pop the deploy list
- * open to announce a build from last Tuesday.
- *
- * Nothing about a publish from an hour ago is new, whatever state it is in — a
- * build that is somehow still running then is not news either, it is a
- * problem the status bar's summary already reports.
- */
-export function isDeploymentNews(
-  deployment: ShellDeployment,
-  now: number,
-): boolean {
-  const updatedAt = new Date(deployment.updatedAt).getTime();
-  if (Number.isNaN(updatedAt)) {
-    // An unreadable timestamp is not grounds for hiding a publish.
-    return true;
-  }
-  return now - updatedAt <= DEPLOYMENT_NEWS_WINDOW_MS;
-}
-
-/**
  * Whether a publish is still on its way out.
  *
  * `isLive` — Val has seen the site answer with this commit — settles it on its
@@ -213,61 +185,25 @@ export type DeploymentsStatusProps = {
    */
   studioIsDeployer?: boolean;
   /**
-   * Close the list on its own once every publish is live.
-   *
-   * Only set for a list that opened itself: one you opened deliberately
-   * should not disappear while you are looking at it.
+   * What the item says: whether the site is still on its way to what was
+   * published. See `publishIndicator`. Without one, the feed's own summary.
    */
-  autoClose?: boolean;
+  indicator?: PublishIndicator;
 };
 
-/** How long a finished publish stays on screen before the list closes. */
-export const DEPLOYMENTS_AUTO_CLOSE_MS = 5000;
-
 /**
- * The open/close behaviour the deploy list has wherever it is shown: it closes
- * itself once everything has landed, it closes on a click outside or on
- * Escape, and it holds off while the pointer is on it.
- *
- * A hook rather than part of the status bar item, because the phone has no
- * status bar to hang it on and needs the same list with the same behaviour -
- * see `MobileDeployments`.
+ * The open/close behaviour the deploy list has: it closes on a click outside
+ * or on Escape. It never opens by itself -- the status bar's indicator is what
+ * says a publish is happening, and the list is where you look for the detail.
  */
 function useDeploymentsList({
-  deployments,
   open,
   onOpenChange,
-  autoClose,
-  studioIsDeployer,
 }: {
-  deployments: ShellDeployment[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  autoClose: boolean;
-  /** The same rule the summary reads by: see {@link summarizeDeployments}. */
-  studioIsDeployer: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isReading, setIsReading] = useState(false);
-
-  // The list has said what it opened to say once everything is live, so it
-  // gets out of the way — unless the pointer is on it, which is the one
-  // signal we have that someone is still reading.
-  const shouldAutoClose =
-    open &&
-    autoClose &&
-    !isReading &&
-    summarizeDeployments(deployments, studioIsDeployer).state === "live";
-  useEffect(() => {
-    if (!shouldAutoClose) {
-      return;
-    }
-    const timeout = setTimeout(
-      () => onOpenChange(false),
-      DEPLOYMENTS_AUTO_CLOSE_MS,
-    );
-    return () => clearTimeout(timeout);
-  }, [shouldAutoClose, onOpenChange]);
 
   // Clicking anywhere else closes the list. Publishing is not modal, so this
   // must not trap the pointer the way a dialog would.
@@ -308,11 +244,13 @@ function useDeploymentsList({
     };
   }, [open, onOpenChange]);
 
-  return { containerRef, setIsReading };
+  return { containerRef };
 }
 
 /**
- * The status bar's deploy item: a summary you can click to open the list.
+ * The status bar's publish indicator: spinning while the site is on its way
+ * to what was published -- by anyone -- and still once it is not. Click it for
+ * the list.
  *
  * The list is anchored to the item rather than portalled, so it rides the
  * floating status bar and cannot end up behind it.
@@ -321,49 +259,54 @@ export function DeploymentsStatus({
   deployments,
   open,
   onOpenChange,
-  autoClose = false,
   studioIsDeployer = false,
+  indicator: given,
 }: DeploymentsStatusProps) {
-  const summary = summarizeDeployments(deployments, studioIsDeployer);
-  const { containerRef, setIsReading } = useDeploymentsList({
-    deployments,
-    open,
-    onOpenChange,
-    autoClose,
-    studioIsDeployer,
-  });
+  const indicator =
+    given ??
+    indicatorOfSummary(summarizeDeployments(deployments, studioIsDeployer));
+  const { containerRef } = useDeploymentsList({ open, onOpenChange });
+  const label = describeIndicator(indicator);
+  const inFlight = isInFlight(indicator);
+  const now = useNow(indicator.kind === "reaching");
 
   return (
     <div ref={containerRef} className="relative">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-label={`Deployments: ${describeSummary(summary)}`}
-        onClick={() => onOpenChange(!open)}
-        className={cn(
-          "inline-flex items-center gap-1.5 rounded px-1 -mx-1 hover:text-fg-primary",
-          summary.state === "failed" && "text-fg-error-on-surface",
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-busy={inFlight}
+            aria-label={`Deployments: ${label}`}
+            onClick={() => onOpenChange(!open)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded px-1 -mx-1 hover:text-fg-primary",
+              indicator.kind === "failed" && "text-fg-error-on-surface",
+            )}
+          >
+            <IndicatorIcon indicator={indicator} />
+            <span>{label}</span>
+            <ChevronUp
+              size={12}
+              className={cn(
+                "text-fg-secondary-alt transition-transform",
+                open && "rotate-180",
+              )}
+            />
+          </button>
+        </TooltipTrigger>
+        {!open && (
+          <TooltipContent side="top">
+            {explainIndicator(indicator, now)}
+          </TooltipContent>
         )}
-      >
-        <SummaryIcon summary={summary} />
-        <span className="tabular-nums">{describeSummary(summary)}</span>
-        {summary.state === "publishing" && (
-          <ProgressBar percent={summary.percent} className="w-16" />
-        )}
-        <ChevronUp
-          size={12}
-          className={cn(
-            "text-fg-secondary-alt transition-transform",
-            open && "rotate-180",
-          )}
-        />
-      </button>
+      </Tooltip>
       {open && (
         <DeploymentsList
           deployments={deployments}
           studioIsDeployer={studioIsDeployer}
           onClose={() => onOpenChange(false)}
-          onReadingChange={setIsReading}
           className="absolute bottom-full right-0 mb-2 w-80"
         />
       )}
@@ -371,87 +314,32 @@ export function DeploymentsStatus({
   );
 }
 
-function describeSummary(summary: DeploymentSummary): string {
-  switch (summary.state) {
-    case "building":
-      return summary.count > 1
-        ? `Building ${summary.count} publishes`
-        : "Building";
-    case "publishing":
-      return `Publishing ${summary.percent}%`;
-    case "failed":
-      return "Build failed";
-    case "unknown":
-      return "Deploy status unknown";
-    case "live":
-      return "Live";
-    case "none":
-      return "No deploys";
-  }
+/** The clock, ticking each second while `ticking`: the countdown's. */
+function useNow(ticking: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!ticking) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [ticking]);
+  return now;
 }
 
-function SummaryIcon({ summary }: { summary: DeploymentSummary }) {
-  if (summary.state === "building" || summary.state === "publishing") {
+function IndicatorIcon({ indicator }: { indicator: PublishIndicator }) {
+  if (isInFlight(indicator)) {
     return <Loader2 size={13} className="animate-spin" />;
   }
-  if (summary.state === "failed") {
+  if (indicator.kind === "failed") {
     return <CircleAlert size={13} />;
   }
-  if (summary.state === "unknown") {
+  if (indicator.kind === "unknown") {
     return <CircleHelp size={13} className="text-fg-secondary" />;
   }
-  if (summary.state === "live") {
+  if (indicator.kind === "live") {
     return <Check size={13} className="text-fg-secondary-alt" />;
   }
   return <Rocket size={13} className="text-fg-secondary-alt" />;
-}
-
-/**
- * The deploy feed on a phone, above the bottom bar.
- *
- * The phone has no status bar - `MobileBottomBar` takes that row - so the
- * deploy feed lived only inside the settings sheet, behind the Info button.
- * Publishing from a phone therefore said nothing at all: the button went back
- * to "Publish" and that was the whole of the feedback, with no way to tell a
- * push that had landed from one that had never gone out.
- *
- * So the list itself comes to the phone. It is the same list, with the same
- * rows and the same auto-close, sitting where a toast would - which is what it
- * is being used as here. The copy in the settings sheet stays: that is where
- * you go to look something up, this is what tells you it happened.
- */
-export function MobileDeployments({
-  deployments,
-  open,
-  onOpenChange,
-  autoClose = false,
-  studioIsDeployer = false,
-}: DeploymentsStatusProps) {
-  const { containerRef, setIsReading } = useDeploymentsList({
-    deployments,
-    open,
-    onOpenChange,
-    autoClose,
-    studioIsDeployer,
-  });
-  if (!open) {
-    return null;
-  }
-  return (
-    <div
-      ref={containerRef}
-      // Clear of the bottom bar, which floats `0.75rem` (or the safe area) up
-      // and is `p-1.5` plus a border around a 36px row: 50px tall.
-      className="absolute z-full inset-x-2 bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.625rem)]"
-    >
-      <DeploymentsList
-        deployments={deployments}
-        studioIsDeployer={studioIsDeployer}
-        onClose={() => onOpenChange(false)}
-        onReadingChange={setIsReading}
-      />
-    </div>
-  );
 }
 
 /**
@@ -467,7 +355,6 @@ export function MobileDeployments({
 export function DeploymentsList({
   deployments,
   onClose,
-  onReadingChange,
   className,
   studioIsDeployer = false,
 }: {
@@ -475,16 +362,12 @@ export function DeploymentsList({
   /** See {@link DeploymentsStatusProps.studioIsDeployer}. */
   studioIsDeployer?: boolean;
   onClose: () => void;
-  /** True while the pointer is on the list, which holds off auto-close. */
-  onReadingChange?: (isReading: boolean) => void;
   className?: string;
 }) {
   return (
     <div
       role="dialog"
       aria-label="Deployments"
-      onPointerEnter={() => onReadingChange?.(true)}
-      onPointerLeave={() => onReadingChange?.(false)}
       className={cn(
         "rounded-lg overflow-hidden",
         "bg-bg-float border border-border-float shadow-xl",

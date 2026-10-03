@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { StudioDeployState } from "../../publish/useStudioDeploy";
+import type { PublishIndicator } from "../../publish/publishIndicatorView";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
@@ -46,7 +46,6 @@ import { AccountPanel } from "./AccountPanel";
 import { NoSettingsModule, SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
-import { isDeploymentNews, MobileDeployments } from "./Deployments";
 import { PublishState, TopBar } from "./TopBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
@@ -181,8 +180,11 @@ export type ShellProps = {
    */
   reviewCount?: number;
   publishState?: PublishState;
-  /** The step that build is on, for the status bar. */
-  deployState?: StudioDeployState;
+  /**
+   * Whether the site is still on its way to what was published, by anyone:
+   * the status bar's indicator. See `publishIndicator`.
+   */
+  publishIndicator?: PublishIndicator;
   /** Show placeholder rows in the nav panels instead of content. */
   isLoading?: boolean;
   /** Show a load failure in the nav panels instead of content. */
@@ -497,7 +499,7 @@ export function Shell({
   pendingChanges = 12,
   reviewCount,
   publishState = "idle",
-  deployState,
+  publishIndicator,
   isLoading = false,
   loadError,
   initialDeploymentsOpen = false,
@@ -654,13 +656,6 @@ export function Shell({
   const [deploymentsOpen, setDeploymentsOpen] = useState(
     initialDeploymentsOpen,
   );
-  // Whether the list on screen is one that opened itself. Only that one closes
-  // itself again; a list you opened stays until you close it.
-  const [deploymentsAutoOpened, setDeploymentsAutoOpened] = useState(false);
-  const setDeploymentsOpenByUser = useCallback((open: boolean) => {
-    setDeploymentsOpen(open);
-    setDeploymentsAutoOpened(false);
-  }, []);
   /*
    * The feed as it comes, unfiltered.
    *
@@ -669,36 +664,14 @@ export function Shell({
    * accumulated every deployment a session had ever seen - and the feed is the
    * last few publishes now, oldest falling off the end on their own. See
    * `mergeCommitsAndDeployments` and `toDeployments`.
+   *
+   * It never opens itself. It used to, when a commit it had not seen arrived,
+   * which made it a second announcement of every publish beside the toast and
+   * the summary. The status bar's indicator spins while a publish is on its
+   * way; the list is where you look for the detail.
    */
   const deployments = data.deployments;
   const studioIsDeployer = data.studioIsDeployer ?? false;
-
-  // A publish is the one thing here that finishes somewhere else, so the list
-  // opens itself when a commit Val has not seen before shows up. The first
-  // feed after mount is history rather than news: opening on it would pop a
-  // panel at someone who has not published anything. So is a commit that has
-  // been serving the site for a while - see `isDeploymentNews`.
-  const seenCommits = useRef<ReadonlySet<string> | null>(null);
-  useEffect(() => {
-    if (data.deployments === undefined) {
-      return;
-    }
-    const commits = new Set(data.deployments.map((d) => d.commitSha));
-    const seen = seenCommits.current;
-    seenCommits.current = commits;
-    if (seen === null) {
-      return;
-    }
-    const now = Date.now();
-    if (
-      data.deployments.some(
-        (d) => !seen.has(d.commitSha) && isDeploymentNews(d, now),
-      )
-    ) {
-      setDeploymentsOpen(true);
-      setDeploymentsAutoOpened(true);
-    }
-  }, [data.deployments]);
   const openSearch = useCallback(() => setIsSearchOpen(true), []);
   useGlobalSearchShortcut(openSearch);
   const searchResults = useMemo(() => collectSearchResults(data), [data]);
@@ -1163,22 +1136,6 @@ export function Shell({
 
         {breakpoint === "mobile" ? (
           <>
-            {/*
-             * The phone's answer to "did that publish go out?". The bottom bar
-             * takes the row the status bar would have had, so the list is
-             * anchored above it and behaves as the announcement it is - see
-             * `MobileDeployments`. Same `mode === "http"` gate as the status
-             * bar: there is nothing to deploy to in dev.
-             */}
-            {mode === "http" && deployments !== undefined && (
-              <MobileDeployments
-                deployments={deployments}
-                studioIsDeployer={studioIsDeployer}
-                open={deploymentsOpen}
-                onOpenChange={setDeploymentsOpenByUser}
-                autoClose={deploymentsAutoOpened}
-              />
-            )}
             <MobileBottomBar
               locales={locales}
               locale={locale}
@@ -1229,10 +1186,9 @@ export function Shell({
             branch={data.branch}
             deployments={deployments}
             studioIsDeployer={studioIsDeployer}
-            deployState={deployState}
+            publishIndicator={publishIndicator}
             deploymentsOpen={deploymentsOpen}
-            onDeploymentsOpenChange={setDeploymentsOpenByUser}
-            deploymentsAutoOpened={deploymentsAutoOpened}
+            onDeploymentsOpenChange={setDeploymentsOpen}
           />
         )}
 

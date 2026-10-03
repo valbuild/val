@@ -53,6 +53,19 @@ export function handoffCardIsNews(state: HandoffState): boolean {
   return true;
 }
 
+/**
+ * The card in the Studio, where the status bar's indicator already follows
+ * the build -- the tab's step while it runs, and the edges after Live. So it
+ * is only for what needs a hand: a blocked tab, or one that failed.
+ */
+export function handoffCardInStudio(state: HandoffState): boolean {
+  return (
+    handoffCardIsNews(state) &&
+    state.kind !== "opening" &&
+    state.kind !== "running"
+  );
+}
+
 export function PublishHandoffCard({
   state,
   onShowTab,
