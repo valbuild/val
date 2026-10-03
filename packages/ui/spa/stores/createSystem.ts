@@ -404,6 +404,12 @@ export type StagePatches = (request: {
        * the groups are read at this version or later.
        */
       headVersion?: number;
+      /**
+       * The group the change landed in, where the server says: for `~`, the
+       * caller's open group — which a stage may just have created. `null` is
+       * an unstage, or an empty stage, of `~` with no group open.
+       */
+      patchGroupId?: string | null;
     }
   | {
       status: "error";
@@ -726,8 +732,20 @@ export function createSystem(options: SystemOptions): System {
    */
   const unconfirmed = new Map<
     PatchId,
-    { type: "stage" | "unstage"; version: number | null }
+    {
+      type: "stage" | "unstage";
+      version: number | null;
+      /**
+       * Which marking made this entry. The answer to a change confirms or
+       * drops the entries THAT change made and no later one: with Stage →
+       * Unstage → Stage on one patch, the first answer must not stamp its
+       * version on the third click's entry, or a stat at that version takes it
+       * off the screen while the last two are still on their way.
+       */
+      generation: number;
+    }
   >();
+  let unconfirmedGeneration = 0;
 
   /**
    * Does committing exactly these patches leave this client's group empty?
@@ -864,6 +882,8 @@ export function createSystem(options: SystemOptions): System {
     /** `undefined` is the caller's open group, created by a stage if needed. */
     patchGroupId: string | undefined,
     change: PatchGroupChangeRequest,
+    /** The entries this change made, taken when it was made. */
+    entries: ChangeEntries,
   ): Promise<void> {
     const call =
       change.type === "stage" ? options.stagePatches : options.unstagePatches;
@@ -872,7 +892,6 @@ export function createSystem(options: SystemOptions): System {
       // there, and the local scope has already moved.
       return;
     }
-    const moved = [...change.patchIds, ...change.withPatchIds];
     const res = await call({
       ...(patchGroupId !== undefined ? { patchGroupId } : {}),
       patchIds: change.patchIds,
@@ -884,7 +903,16 @@ export function createSystem(options: SystemOptions): System {
         // older than what this client now knows.
         stat.noteHeadVersion(res.headVersion);
       }
-      confirmUnconfirmed(moved, change.type, res.headVersion);
+      if (typeof res.patchGroupId === "string") {
+        /*
+         * `~` resolved to this group — perhaps created it. Known now, rather
+         * than at the next stat, so a publish in between closes the group it
+         * empties instead of leaving it open behind the commit.
+         */
+        patchStore.recordOwnPatchGroup(res.patchGroupId);
+        ownPatchGroupId = res.patchGroupId;
+      }
+      confirmUnconfirmed(entries, change.type, res.headVersion);
       return;
     }
     if (res.reason === "group-published" && patchGroupId !== undefined) {
@@ -898,7 +926,7 @@ export function createSystem(options: SystemOptions): System {
        * user made is not lost to a publish they made somewhere else.
        */
       patchStore.forgetOwnPatchGroup();
-      await sendPatchGroupChange(undefined, change);
+      await sendPatchGroupChange(undefined, change, entries);
       return;
     }
     /*
@@ -908,12 +936,7 @@ export function createSystem(options: SystemOptions): System {
      * a known gap — nothing would correct the screen on a quiet branch until a
      * reload.
      */
-    for (const patchId of moved) {
-      if (unconfirmed.get(patchId)?.type === change.type) {
-        unconfirmed.delete(patchId);
-      }
-    }
-    reconcileScope();
+    dropUnconfirmed(entries, change.type);
     console.error("Val: could not update patch group", res.message);
   }
 
@@ -1109,9 +1132,63 @@ export function createSystem(options: SystemOptions): System {
     patchIds: Iterable<PatchId>,
     type: "stage" | "unstage",
   ): void {
+    const generation = ++unconfirmedGeneration;
     for (const patchId of patchIds) {
-      unconfirmed.set(patchId, { type, version: null });
+      unconfirmed.set(patchId, { type, version: null, generation });
     }
+  }
+
+  /** The entries a change is answering for: theirs as they stand when it is made. */
+  type ChangeEntries = ReadonlyMap<PatchId, number>;
+
+  function entriesOf(
+    patchIds: Iterable<PatchId>,
+    type: "stage" | "unstage",
+  ): ChangeEntries {
+    const entries = new Map<PatchId, number>();
+    for (const patchId of patchIds) {
+      const entry = unconfirmed.get(patchId);
+      if (entry !== undefined && entry.type === type) {
+        entries.set(patchId, entry.generation);
+      }
+    }
+    return entries;
+  }
+
+  /**
+   * A change was refused or failed: the entries it made go, and the screen
+   * goes back to what the server holds.
+   *
+   * Before the first groups have arrived there is nothing to go back TO —
+   * {@link reconcileScope} waits for them — so the move itself is undone here,
+   * for exactly the patches whose entries this change still owned.
+   */
+  function dropUnconfirmed(
+    entries: ChangeEntries,
+    type: "stage" | "unstage",
+  ): void {
+    const dropped: PatchId[] = [];
+    for (const [patchId, generation] of entries) {
+      if (unconfirmed.get(patchId)?.generation !== generation) continue;
+      unconfirmed.delete(patchId);
+      dropped.push(patchId);
+    }
+    if (
+      patchStore.groups() === undefined &&
+      patchGroupIds !== null &&
+      dropped.length > 0
+    ) {
+      const next = new Set(patchGroupIds);
+      for (const patchId of dropped) {
+        if (type === "stage") next.delete(patchId);
+        else next.add(patchId);
+      }
+      patchGroupIds = [...next];
+      sourceStore.setVisiblePatchIds(patchGroupIds);
+      patchStore.notifyGroupsChanged();
+      return;
+    }
+    reconcileScope();
   }
 
   /**
@@ -1120,19 +1197,20 @@ export function createSystem(options: SystemOptions): System {
    * as they are — an older server, which this tab cannot ask to catch up.
    */
   function confirmUnconfirmed(
-    patchIds: Iterable<PatchId>,
+    entries: ChangeEntries,
     type: "stage" | "unstage",
     version: number | undefined,
   ): void {
     if (version === undefined) return;
-    for (const patchId of patchIds) {
+    for (const [patchId, generation] of entries) {
       const entry = unconfirmed.get(patchId);
       if (
         entry !== undefined &&
         entry.type === type &&
+        entry.generation === generation &&
         entry.version === null
       ) {
-        unconfirmed.set(patchId, { type, version });
+        unconfirmed.set(patchId, { ...entry, version });
       }
     }
     reconcileScope();
@@ -1572,7 +1650,7 @@ export function createSystem(options: SystemOptions): System {
         saved.push(patchId, ...(closureOfWrite.get(patchId) ?? []));
         closureOfWrite.delete(patchId);
       }
-      confirmUnconfirmed(saved, "stage", event.headVersion);
+      confirmUnconfirmed(entriesOf(saved, "stage"), "stage", event.headVersion);
     }),
     // And when records land: a member held back until patch sets show it needs
     // nothing this tab took out (see `holdBackOverHoles`) is asked about again.
@@ -2168,17 +2246,18 @@ export function createSystem(options: SystemOptions): System {
        * this tab shows it unstaged. Behind the previous change, its 409 retry
        * included.
        */
+      // Taken now: by the time this is sent, a later click can have marked
+      // the same patches again.
+      const entries = entriesOf(
+        [...change.patchIds, ...change.withPatchIds],
+        change.type,
+      );
       groupChanges = groupChanges
-        .then(() => sendPatchGroupChange(patchGroupId, change))
+        .then(() => sendPatchGroupChange(patchGroupId, change, entries))
         .catch((error: unknown) => {
           // A throw must not stop every later change from going out. What it
           // put on screen goes back, as for a refusal.
-          for (const patchId of [...change.patchIds, ...change.withPatchIds]) {
-            if (unconfirmed.get(patchId)?.type === change.type) {
-              unconfirmed.delete(patchId);
-            }
-          }
-          reconcileScope();
+          dropUnconfirmed(entries, change.type);
           console.error("Val: could not update patch group", error);
         });
     },

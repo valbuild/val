@@ -598,6 +598,7 @@ export function createValSystem(
               ...(res.json.headVersion !== undefined
                 ? { headVersion: res.json.headVersion }
                 : {}),
+              patchGroupId: res.json.patchGroupId,
             };
           },
           unstagePatches: async (request) => {
@@ -627,6 +628,7 @@ export function createValSystem(
               ...(res.json.headVersion !== undefined
                 ? { headVersion: res.json.headVersion }
                 : {}),
+              patchGroupId: res.json.patchGroupId,
             };
           },
           savePatches: async ({
