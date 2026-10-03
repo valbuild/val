@@ -9,6 +9,12 @@ import type { StatusStore } from "./StatusStore";
 export const SCHEMA_DISAGREEMENT_GRACE_MS = 3_000;
 
 /**
+ * Ask the server, now, which schema it runs. `null` when it could not say.
+ * See {@link SchemaFreshnessWatch}.
+ */
+export type ReadServedSchemaSha = () => Promise<string | null>;
+
+/**
  * Tells the editor to reload when the server is running a schema this page is
  * not.
  *
@@ -36,17 +42,44 @@ export const SCHEMA_DISAGREEMENT_GRACE_MS = 3_000;
  *   schema edit reaches the server's `/stat` and this page's HMR re-intake in
  *   either order. Reported on the first, the dialog — which is one-way by
  *   design — would block an editor that already has the new schema.
+ *
+ * And what settles it is a FRESH answer, asked for when the grace is up
+ * (`readServedSchemaSha`), never the last one cached. `/stat` has more than one
+ * caller, and during a deploy the old build and the new one both answer — at
+ * the same chain version, since a schema deploy does not move the chain — so
+ * the cached answer is whichever happened to land last. A late one from the
+ * old build would ask a page that has just reloaded into the new schema to
+ * reload again; one landing after the new build's would hide the deploy until
+ * the next stat, which with a websocket is twenty minutes away. So once the
+ * two have disagreed, an answer that agrees again does not cancel the check:
+ * the fresh read decides, either way. Ordering the answers by when they were
+ * asked would not do it: in dev the poll is a long one, asked long before it
+ * is answered.
  */
 export class SchemaFreshnessWatch {
   private agreed = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** A disagreement was seen, and no fresh read has settled it yet. */
+  private unsettled = false;
+  private readonly graceMs: number;
+  private readonly readServedSchemaSha: ReadServedSchemaSha | undefined;
 
   constructor(
     private readonly host: HostStore,
     private readonly stat: StatStore,
     private readonly status: StatusStore,
-    private readonly graceMs = SCHEMA_DISAGREEMENT_GRACE_MS,
-  ) {}
+    options: {
+      graceMs?: number;
+      /**
+       * Without it — a driver with no server — the cached answer is all there
+       * is, and the grace alone decides.
+       */
+      readServedSchemaSha?: ReadServedSchemaSha;
+    } = {},
+  ) {
+    this.graceMs = options.graceMs ?? SCHEMA_DISAGREEMENT_GRACE_MS;
+    this.readServedSchemaSha = options.readServedSchemaSha;
+  }
 
   listen(): () => void {
     const offStat = this.stat.events.on("stat:schema", () => this.check());
@@ -74,15 +107,41 @@ export class SchemaFreshnessWatch {
   }
 
   private check(): void {
-    if (!this.disagree()) {
+    if (this.disagree()) {
+      this.unsettled = true;
+    } else if (this.readServedSchemaSha === undefined || !this.unsettled) {
       this.cancel();
       return;
     }
     if (this.timer !== null) return;
     this.timer = setTimeout(() => {
       this.timer = null;
-      if (this.disagree()) this.status.reportSchemaOutOfDate();
+      void this.settle();
     }, this.graceMs);
+  }
+
+  private async settle(): Promise<void> {
+    const read = this.readServedSchemaSha;
+    if (read === undefined) {
+      if (this.disagree()) this.status.reportSchemaOutOfDate();
+      return;
+    }
+    let served: string | null;
+    try {
+      served = await read();
+    } catch {
+      served = null;
+    }
+    const running = this.host.schemaSha();
+    if (served === null || running === null) {
+      // No fresh answer: the cached one is the best there is, and the next
+      // stat checks again.
+      this.unsettled = false;
+      if (this.disagree()) this.status.reportSchemaOutOfDate();
+      return;
+    }
+    this.unsettled = false;
+    if (served !== running) this.status.reportSchemaOutOfDate();
   }
 
   private cancel(): void {

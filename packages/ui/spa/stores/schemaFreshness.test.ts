@@ -226,3 +226,99 @@ test("a stat read by the conflict re-sync carries the schema too", () => {
 
   expect(freshness(system)).toBe("out-of-date");
 });
+
+/**
+ * During a deploy the old build and the new one both answer `/stat`, at the
+ * same chain version, and from more than one caller — so the answer that lands
+ * LAST is not the newest. A fresh read when the grace is up settles it.
+ */
+function makeAskingSystem(served: () => string) {
+  const reads: number[] = [];
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => "p" as PatchId,
+    readServedSchemaSha: async () => {
+      reads.push(Date.now());
+      return served();
+    },
+  });
+  return Object.assign(system, { reads });
+}
+
+async function graceAndRead() {
+  await jest.advanceTimersByTimeAsync(SCHEMA_DISAGREEMENT_GRACE_MS);
+}
+
+test("a late answer from the old build does not ask a reloaded page to reload again", async () => {
+  // This page reloaded into the new schema; the server now runs it.
+  const system = makeAskingSystem(() => newSha);
+  system.host.receive(after());
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headVersion: 4,
+    schemaSha: newSha,
+  });
+  // An answer the old build gave, at the same chain version, lands after.
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headVersion: 4,
+    schemaSha: oldSha,
+  });
+  await graceAndRead();
+
+  expect(system.reads).toHaveLength(1);
+  expect(freshness(system)).toBe("current");
+});
+
+test("a late answer from the old build does not hide a deploy", async () => {
+  const system = makeAskingSystem(() => newSha);
+  system.host.receive(before());
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headVersion: 4,
+    schemaSha: oldSha,
+  });
+  // The new build answers, then a request the old build was still serving.
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headVersion: 4,
+    schemaSha: newSha,
+  });
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headVersion: 4,
+    schemaSha: oldSha,
+  });
+  await graceAndRead();
+
+  expect(freshness(system)).toBe("out-of-date");
+});
+
+test("with a fresh read, HMR catching up within the grace still asks for nothing", async () => {
+  const system = makeAskingSystem(() => newSha);
+  system.host.receive(before());
+  stat(system, oldSha);
+
+  stat(system, newSha);
+  await jest.advanceTimersByTimeAsync(SCHEMA_DISAGREEMENT_GRACE_MS / 2);
+  system.host.receive(after());
+  await jest.advanceTimersByTimeAsync(SCHEMA_DISAGREEMENT_GRACE_MS * 2);
+
+  expect(freshness(system)).toBe("current");
+});
+
+test("a page that agrees with the server asks nothing", async () => {
+  const system = makeAskingSystem(() => oldSha);
+  system.host.receive(before());
+  stat(system, oldSha);
+  stat(system, oldSha);
+  await jest.advanceTimersByTimeAsync(SCHEMA_DISAGREEMENT_GRACE_MS * 2);
+
+  expect(system.reads).toHaveLength(0);
+  expect(freshness(system)).toBe("current");
+});

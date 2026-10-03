@@ -81,6 +81,14 @@ export function createValSystem(
   let built: System | null = null;
   const system = createSystem({
     /**
+     * A `POST /stat` with no body: what the server runs right now, rather than
+     * a long poll. Only its `schemaSha` is read — see `SchemaFreshnessWatch`.
+     */
+    readServedSchemaSha: async () => {
+      const res = await client("/stat", "POST", { body: null });
+      return res.status === 200 ? res.json.schemaSha : null;
+    },
+    /**
      * The base of the build a `/stat` came from, when it is not the bundle's.
      *
      * Un-patched and unvalidated: the Studio applies the chain itself, and all

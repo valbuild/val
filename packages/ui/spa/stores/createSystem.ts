@@ -21,7 +21,10 @@ import {
   type UploadFile,
 } from "./PatchStore";
 import { StatStore } from "./StatStore";
-import { SchemaFreshnessWatch } from "./SchemaFreshnessWatch";
+import {
+  SchemaFreshnessWatch,
+  type ReadServedSchemaSha,
+} from "./SchemaFreshnessWatch";
 import { StatusStore } from "./StatusStore";
 import {
   PatchSync,
@@ -501,6 +504,11 @@ export type SystemOptions = {
    * parent and can only fail again.
    */
   resyncChain?: ResyncChain;
+  /**
+   * Which schema the server runs, asked now. What settles a schema
+   * disagreement — see {@link SchemaFreshnessWatch}.
+   */
+  readServedSchemaSha?: ReadServedSchemaSha;
   /**
    * Another build's base source, for a `/stat` answered by that build.
    *
@@ -1340,7 +1348,9 @@ export function createSystem(options: SystemOptions): System {
   const unsubscribe = [
     baseAlignment.listenTo(stat),
     // Says "reload" when the server runs a schema this page does not.
-    new SchemaFreshnessWatch(host, stat, status).listen(),
+    new SchemaFreshnessWatch(host, stat, status, {
+      readServedSchemaSha: options.readServedSchemaSha,
+    }).listen(),
     patchStore.listenTo(stat, sourceStore),
     /*
      * A patch this client just wrote joins the scope — BEFORE the source store
