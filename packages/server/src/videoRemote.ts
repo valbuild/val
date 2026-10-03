@@ -122,9 +122,7 @@ function metadataOf(
   return { mimeType };
 }
 
-function resolveVideo(
-  ctx: FixHandlerContext,
-):
+function resolveVideo(ctx: FixHandlerContext):
   | {
       success: true;
       video: Record<string, unknown>;
