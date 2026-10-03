@@ -44,6 +44,33 @@ type MediaOptions = {
 };
 
 /**
+ * `.render(...)` is for records whose entries the generic record editor draws.
+ * A router's entries are pages and a gallery's are media, and both have UIs of
+ * their own that a render would not reach — so the combination is refused
+ * rather than accepted and ignored. Called from both `render` and `router`,
+ * because either can come first in the chain.
+ */
+function assertRenderable(
+  router: ValRouter | null,
+  mediaOptions: MediaOptions | undefined,
+  render: FieldRender | null,
+): void {
+  if (render === null) {
+    return;
+  }
+  if (router) {
+    throw new Error(
+      "`.render(...)` is not supported on `s.router(...)`: a router's entries are pages, which have their own UI.",
+    );
+  }
+  if (mediaOptions) {
+    throw new Error(
+      `\`.render(...)\` is not supported on \`s.${mediaOptions.type === "images" ? "imageset" : "fileset"}(...)\`: media galleries have their own UI.`,
+    );
+  }
+}
+
+/**
  * A router's scheme restriction, as a spreadable fragment.
  *
  * Spread rather than assigned so an unrestricted router adds no key at all:
@@ -66,7 +93,10 @@ export type SerializedRecordSchema = {
    * schema. See `SerializedArraySchema`.
    */
   preview?: true;
-  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  /**
+   * How this record lays out its ENTRIES: `{ as: "inline" }` edits each one
+   * in place. Static config, carried whole — see `render.ts`.
+   */
   render?: FieldRender;
   router?: string;
   /**
@@ -842,6 +872,7 @@ export class RecordSchema<
    * });
    */
   router(router: ValRouter): RecordSchema<T, K, Src> {
+    assertRenderable(router, this.mediaOptions, this.renderInput);
     return new RecordSchema(
       this.item,
       this.opt,
@@ -1362,17 +1393,21 @@ export class RecordSchema<
   }
 
   /**
-   * How this field is laid out in the editor when it is the item of an array
-   * or record: `{ as: "inline" }` renders the field itself inside each row,
-   * instead of a preview row that navigates to it.
+   * How this record lays out its ENTRIES in the editor: `{ as: "inline" }`
+   * draws each entry's own editor in place, labelled by its key, instead of a
+   * preview row that navigates to it. It reaches the direct entries only.
+   *
+   * Not for `s.router(...)`, `s.imageset(...)` or `s.fileset(...)`: pages and
+   * media have UIs of their own, so this throws on them.
    *
    * Static configuration, not a callback — see `render.ts`.
    *
    * @example
-   * const schema = s.array(s.record(s.string()).render({ as: "inline" }));
-   * export default c.define("/example.val.ts", schema, [{ en: "Read more" }]);
+   * const schema = s.record(s.string()).render({ as: "inline" });
+   * export default c.define("/example.val.ts", schema, { en: "Read more" });
    */
   render(input: FieldRender): RecordSchema<T, K, Src> {
+    assertRenderable(this.currentRouter, this.mediaOptions, input);
     return new RecordSchema(
       this.item,
       this.opt,

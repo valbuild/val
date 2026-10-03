@@ -29,8 +29,9 @@ export default c.define(
     /**
      * An array of objects, each of which points at a route this app serves.
      *
-     * `.render({ as: "inline" })` makes each row an editable form rather than a
-     * row you click into — the right shape for a short list of small items.
+     * `.render({ as: "inline" })` on the ARRAY makes each of its rows an
+     * editable form rather than a row you click into — the right shape for a
+     * short list of small items.
      */
     nav: s
       .array(
@@ -39,9 +40,9 @@ export default c.define(
             label: s.string().maxLength(24),
             href: s.route(),
           })
-          .render({ as: "inline" })
           .preview(({ val }) => ({ title: val.label, subtitle: val.href })),
       )
+      .render({ as: "inline" })
       .describe("The links in the site header"),
   }),
   {

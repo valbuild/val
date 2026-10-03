@@ -725,7 +725,7 @@ type PreviewAtPathResult = ReifiedPreview[SourcePath] | undefined;
 /**
  * The preview at a path — a container's rows, computed by the host on demand.
  *
- * NOT where a field's layout comes from: `s.string().render(...)` is static
+ * NOT where a field's layout comes from: `s.array(...).render(...)` is static
  * config carried by the serialized schema, so a field reads it off
  * `useSchemaAtPath`. See `core/src/render.ts`.
  */

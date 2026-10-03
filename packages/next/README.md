@@ -635,11 +635,12 @@ in source code.
 > s.code({ language: "typescript" }); // was .render({ as: "code", language })
 > ```
 >
-> `.render(...)` now takes only `{ as: "inline" }`, on every field alike.
+> `.render(...)` now takes only `{ as: "inline" }`, and only on an array, a
+> record or a keyOf.
 
 ### Field rendering
 
-A **render** is how ONE field is laid out in the editor when you are LOOKING at
+A **render** is how a field is laid out in the editor when you are LOOKING at
 that field. It is static configuration rather than a function, and it is a
 different thing from a preview: a render is the field's own layout, a preview is
 how the value shows where it is navigable to. A schema can carry both, and a
@@ -647,24 +648,53 @@ second `.render(...)` replaces the first rather than merging with it.
 
 #### Editing list items in place
 
-Every field takes `.render({ as: "inline" })`. On the ITEM of an array or record
-it means: edit the item right there in the (sortable) list row, instead of
-showing a preview row that navigates into it. This is what a page-builder list is
-made of.
+`s.array(...)` and `s.record(...)` take `.render({ as: "inline" })`. It means:
+edit each ITEM right there in its (sortable) list row, instead of showing a
+preview row that navigates into it. This is what a page-builder list is made of.
+The list decides, so the item schema stays reusable, and a tagged union of
+blocks needs nothing on its variants.
 
 ```ts
-const sectionsSchema = s.array(
-  s.object({ title: s.string(), body: s.richtext() }).render({ as: "inline" }),
-);
+const sectionsSchema = s
+  .array(s.object({ title: s.string(), body: s.richtext() }))
+  .render({ as: "inline" });
+
+const blocksSchema = s
+  .array(s.discriminatedUnion("type", heroBlock, textBlock))
+  .render({ as: "inline" });
 ```
+
+It reaches the direct items only: a list nested inside an inline item keeps its
+own default until it says otherwise. `s.router(...)`, `s.imageset(...)` and
+`s.fileset(...)` do not take a render — pages and media have their own UI — and
+throw if given one.
+
+`s.keyOf(...).render({ as: "inline" })` is the one other render, and it means
+something different: the selected entry's content is shown below the selector.
+
+> **Breaking.** `.render({ as: "inline" })` moved from the ITEM to the LIST.
+> Every other schema type has lost its `.render(...)` method, so the old
+> placement is a type error. Move it out one level:
+>
+> ```ts
+> // before
+> s.array(s.object({ title: s.string() }).render({ as: "inline" }));
+> // after
+> s.array(s.object({ title: s.string() })).render({ as: "inline" });
+> ```
+>
+> Watch for an array or record that is itself the item of another list: it
+> still compiles, but now means the opposite. `s.record(s.array(s.string()).render(...))`
+> used to draw the record's arrays inline; it now draws each array's strings
+> inline. For the old layout, write `s.record(s.array(s.string())).render(...)`.
 
 > **Breaking.** Strings in arrays are no longer inlined implicitly.
 > `s.array(s.string())` now renders preview rows and its items are navigation
 > stops, like every other item type. Add `.render({ as: "inline" })` to the
-> string schema for the old behavior:
+> array for the old behavior:
 >
 > ```ts
-> s.array(s.string().render({ as: "inline" }));
+> s.array(s.string()).render({ as: "inline" });
 > ```
 
 ## RichText
