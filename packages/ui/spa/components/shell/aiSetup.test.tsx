@@ -25,8 +25,8 @@ jest.mock("../ValFieldProvider", () => ({
     appHost: "https://admin.val.build",
   }),
 }));
-jest.mock("./useValBuildConnected", () => ({
-  useValBuildConnected: () => true,
+jest.mock("./useValBuildAccess", () => ({
+  useValBuildAccess: () => ({ connected: true, studioMode: "fs" }),
 }));
 
 test("names the project, through the Studio's proxy, with the AI tab as the fallback", () => {

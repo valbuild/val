@@ -60,8 +60,9 @@ export async function forwardToValBuild({
       json: { code: "not-found", message: "No such Val Build endpoint." },
     };
   }
-  const sendsBody =
-    (method === "POST" || method === "PUT") && body !== undefined;
+  // Every method the route accepts may carry a JSON body: a DELETE that
+  // names what it removes in its body is as valid as a PUT.
+  const sendsBody = method !== "GET" && body !== undefined;
   let response: Response;
   try {
     response = await fetchImpl(url, {

@@ -186,6 +186,18 @@ describe("the /admin/proxy route", () => {
     expect(init.headers["content-type"]).toBe("application/json");
   });
 
+  test("forwards a JSON body on DELETE, which may name what it removes", async () => {
+    await call({
+      method: "DELETE",
+      path: "/orgs/acme/projects/site/members",
+      body: { profileId: "bo" },
+    });
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(init.method).toBe("DELETE");
+    expect(init.body).toBe(JSON.stringify({ profileId: "bo" }));
+    expect(init.headers["content-type"]).toBe("application/json");
+  });
+
   test("passes Val Build's code through, so the component can act on it", async () => {
     fetchSpy.mockImplementation(async () =>
       Response.json(
@@ -238,13 +250,15 @@ describe("the /admin/proxy route", () => {
         }),
       );
     };
+    // A deployed Studio: editors sign in through the Studio, never with
+    // `val login`, which needs a checkout to run in.
     expect(await status(session())).toEqual({
       status: 200,
-      json: { connected: true },
+      json: { connected: true, signIn: "studio" },
     });
     expect(await status(null)).toEqual({
       status: 200,
-      json: { connected: false },
+      json: { connected: false, signIn: "studio" },
     });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -334,7 +348,7 @@ describe("in fs mode", () => {
     const get = await fsServer(null);
     expect(await get("/admin/status")).toEqual({
       status: 200,
-      json: { connected: false },
+      json: { connected: false, signIn: "val-login" },
     });
     // And the proxy, if something calls it anyway, says so rather than erring.
     expect(
@@ -347,7 +361,7 @@ describe("in fs mode", () => {
     const get = await fsServer("developers-pat");
     expect(await get("/admin/status")).toEqual({
       status: 200,
-      json: { connected: true },
+      json: { connected: true, signIn: "val-login" },
     });
     expect(
       await get("/admin/proxy/projects/overview", { "x-val-studio": "1" }),

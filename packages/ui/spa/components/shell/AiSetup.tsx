@@ -3,7 +3,7 @@ import { useValMode, useRefreshAIModels } from "../ValProvider";
 import { useValConfig } from "../ValFieldProvider";
 import { useValWebComponent } from "./ProjectSwitcher";
 import { toAdminLinks, toWebComponentsUrl } from "./shellDataMapping";
-import { useValBuildConnected } from "./useValBuildConnected";
+import { useValBuildAccess } from "./useValBuildAccess";
 
 /**
  * `<val-ai-setup>`, Val Build's AI key setup for THIS project: what the
@@ -32,10 +32,14 @@ export function AiSetup({
 }) {
   const config = useValConfig();
   const mode = useValMode();
-  const connected = useValBuildConnected(mode);
+  const valBuild = useValBuildAccess(mode);
   const admin = toAdminLinks(config);
   const webComponentsUrl = toWebComponentsUrl(config);
-  if (!connected || admin === undefined || webComponentsUrl === undefined) {
+  if (
+    !valBuild.connected ||
+    admin === undefined ||
+    webComponentsUrl === undefined
+  ) {
     return <>{unavailable}</>;
   }
   return (
@@ -44,7 +48,7 @@ export function AiSetup({
       project={config?.project ?? ""}
       aiHref={admin.ai}
       webComponentsUrl={webComponentsUrl}
-      studioMode={mode === "unknown" ? undefined : mode}
+      studioMode={valBuild.studioMode}
       loadScript={loadScript}
     />
   );

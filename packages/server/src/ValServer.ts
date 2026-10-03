@@ -2493,6 +2493,14 @@ export const ValServer = (
           json: {
             connected:
               Boolean(options.valBuildUrl) && credential.status === "ok",
+            /*
+             * How an editor signs in to Val Build here, which only the server
+             * knows. NOT the stat `mode`: that says whether patches are local,
+             * and a deployed memory-mode host reports `fs` while having no
+             * working directory to run `val login` in. Only a developer's own
+             * checkout (fs mode) signs in with `val login`.
+             */
+            signIn: options.mode === "fs" ? "val-login" : "studio",
           },
         };
       },

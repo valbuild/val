@@ -17,7 +17,7 @@ import { useAllValidationErrors } from "../ValErrorProvider";
 import { useFilePatchIds, useValConfig } from "../ValFieldProvider";
 import { useCreatableRouters } from "../useCreateRouteEntry";
 import { ShellData, ShellMediaGallery } from "./types";
-import { useValBuildConnected } from "./useValBuildConnected";
+import { useValBuildAccess } from "./useValBuildAccess";
 import { useThemeSettings } from "../../hooks/useThemeSettings";
 import { useDeploymentStaleTick } from "../../hooks/useDeploymentStaleTick";
 import {
@@ -70,11 +70,11 @@ export function useShellData(): ShellDataState {
   const studioIsDeployer = useStudioIsDeployer();
   /*
    * Val Build's web components only where there is a Val Build credential for
-   * them to use: always in http mode, and in fs mode only after `val login`.
-   * See `useValBuildConnected`.
+   * them to use, and the way they ask an editor to sign in. See
+   * `useValBuildAccess`.
    */
   const mode = useValMode();
-  const valBuildConnected = useValBuildConnected(mode);
+  const valBuild = useValBuildAccess(mode);
   const profilesByAuthorId = useProfilesByAuthorId();
   /*
    * The external router's own scheme policy.
@@ -163,10 +163,10 @@ export function useShellData(): ShellDataState {
         projectName: config?.project ?? "Val",
         logo: toShellLogo(themeSettings.logo, filePatchIds, config?.project),
         admin: toAdminLinks(config),
-        webComponentsUrl: valBuildConnected
+        webComponentsUrl: valBuild.connected
           ? toWebComponentsUrl(config)
           : undefined,
-        studioMode: mode === "unknown" ? undefined : mode,
+        studioMode: valBuild.studioMode,
         branch: config?.gitBranch,
         hasRouters: navData?.hasRouters ?? false,
         pages: navData?.sitemap
@@ -251,7 +251,8 @@ export function useShellData(): ShellDataState {
     committedPatchIds,
     shellDeployments,
     studioIsDeployer,
-    valBuildConnected,
+    valBuild.connected,
+    valBuild.studioMode,
     mode,
   ]);
 }

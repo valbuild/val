@@ -388,10 +388,11 @@ export type ShellData = {
    */
   webComponentsUrl?: string;
   /**
-   * Where this Studio runs: `fs` locally, `http` deployed. Handed to Val
-   * Build's web components as their `mode`, because signing in again is a
-   * different thing in each — `val login` locally, the Studio's sign-in when
-   * deployed. Absent while the mode is still unknown.
+   * How an editor signs in to Val Build here: `fs` with `val login`, on a
+   * developer's own checkout; `http` through the Studio's sign-in. Handed to
+   * Val Build's web components as their `mode`. Not the stat `mode`, which a
+   * deployed memory-mode host reports as `fs` — see `useValBuildAccess`.
+   * Absent while it is not known.
    */
   studioMode?: "fs" | "http";
   /** From `config.gitBranch`. Absent outside a git checkout. */

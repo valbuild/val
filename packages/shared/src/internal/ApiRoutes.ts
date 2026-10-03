@@ -2332,7 +2332,15 @@ export const Api = {
       },
       res: z.object({
         status: z.literal(200),
-        json: z.object({ connected: z.boolean() }),
+        json: z.object({
+          connected: z.boolean(),
+          /**
+           * `val-login` on a developer's own checkout, `studio` anywhere the
+           * Studio's sign-in is the way in. Optional: an older server does
+           * not send it.
+           */
+          signIn: z.enum(["val-login", "studio"]).optional(),
+        }),
       }),
     },
   },
