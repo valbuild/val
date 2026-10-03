@@ -6,6 +6,16 @@ import type { DeploymentSummary } from "../components/shell/Deployments";
  * bar can draw one without importing the deploy feed's rules back.
  */
 
+/** How long a Cloudflare location may serve the build before the last one. */
+export const EDGE_CACHE_MS = 60_000;
+
+/**
+ * Where the bar stands when the site goes live: past every step of the build
+ * and the check (`deployPercent` tops out at 86, "Going live"), with the rest
+ * left for the edges to catch up.
+ */
+const REACHING_FROM = 88;
+
 export type PublishIndicator =
   /** Something is being published and is not on the site yet. */
   | {
@@ -59,13 +69,49 @@ export function isInFlight(indicator: PublishIndicator): boolean {
   );
 }
 
-/** The indicator's words. Only three while a publish runs, so nothing jumps. */
-export function describeIndicator(indicator: PublishIndicator): string {
+/**
+ * How far it has got, 0-99, or `null` for no bar: a publish built somewhere
+ * that reports no numbers, and every state that is not on its way.
+ *
+ * The edges' minute is part of the bar. It fills from {@link REACHING_FROM}
+ * with the clock, so the bar does not stall at Live and then vanish a minute
+ * later -- it ends when the spinner does, when every visitor has the change.
+ */
+export function indicatorPercent(
+  indicator: PublishIndicator,
+  now: number,
+): number | null {
   switch (indicator.kind) {
     case "publishing":
-      return "Publishing";
+      return indicator.percent;
+    case "reaching": {
+      const left = Math.max(0, indicator.everywhereAt - now);
+      const done = 1 - Math.min(1, left / EDGE_CACHE_MS);
+      return Math.min(
+        99,
+        Math.round(REACHING_FROM + (100 - REACHING_FROM) * done),
+      );
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * The indicator's words: Publishing, Reaching visitors, Live -- with the
+ * percentage while there is one. The step is behind it, on hover.
+ */
+export function describeIndicator(
+  indicator: PublishIndicator,
+  now: number,
+): string {
+  const percent = indicatorPercent(indicator, now);
+  const suffix = percent === null ? "" : ` ${percent}%`;
+  switch (indicator.kind) {
+    case "publishing":
+      return `Publishing${suffix}`;
     case "reaching":
-      return "Reaching visitors";
+      return `Reaching visitors${suffix}`;
     case "building":
       return indicator.count > 1
         ? `Building ${indicator.count} publishes`
@@ -90,10 +136,7 @@ export function explainIndicator(
     case "publishing":
       if (!indicator.mine)
         return "Another editor's changes are being published.";
-      if (indicator.step === null) return "Your changes are being published.";
-      return indicator.percent === null
-        ? indicator.step
-        : `${indicator.step} · ${indicator.percent}%`;
+      return indicator.step ?? "Your changes are being published.";
     case "reaching": {
       const left = Math.max(
         1,

@@ -8,6 +8,7 @@ import {
   describeIndicator,
   explainIndicator,
   indicatorOfSummary,
+  indicatorPercent,
   isInFlight,
   type PublishIndicator,
 } from "../../publish/publishIndicatorView";
@@ -266,9 +267,10 @@ export function DeploymentsStatus({
     given ??
     indicatorOfSummary(summarizeDeployments(deployments, studioIsDeployer));
   const { containerRef } = useDeploymentsList({ open, onOpenChange });
-  const label = describeIndicator(indicator);
   const inFlight = isInFlight(indicator);
   const now = useNow(indicator.kind === "reaching");
+  const label = describeIndicator(indicator, now);
+  const percent = indicatorPercent(indicator, now);
 
   return (
     <div ref={containerRef} className="relative">
@@ -286,7 +288,13 @@ export function DeploymentsStatus({
             )}
           >
             <IndicatorIcon indicator={indicator} />
-            <span>{label}</span>
+            <span className="tabular-nums">{label}</span>
+            {inFlight &&
+              (percent !== null ? (
+                <ProgressBar percent={percent} className="w-16" />
+              ) : (
+                <IndeterminateBar className="w-16" />
+              ))}
             <ChevronUp
               size={12}
               className={cn(
@@ -324,6 +332,23 @@ function useNow(ticking: boolean): number {
     return () => clearInterval(timer);
   }, [ticking]);
   return now;
+}
+
+/**
+ * A bar with no number behind it: a publish built where nothing reports how
+ * far -- another editor's, or CI's. It says "under way", not "this far".
+ */
+function IndeterminateBar({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "block h-1 overflow-hidden rounded-full bg-border-primary",
+        className,
+      )}
+    >
+      <span className="block h-full w-1/3 rounded-full bg-bg-brand-secondary animate-pulse" />
+    </span>
+  );
 }
 
 function IndicatorIcon({ indicator }: { indicator: PublishIndicator }) {

@@ -221,6 +221,9 @@ export function useSiteHandoff(
             kind: "running",
             step: message.label,
             elapsedMs: message.elapsedMs,
+            ...(message.percent !== undefined
+              ? { percent: message.percent }
+              : {}),
           });
         } else if (message.type === "job-result") {
           if (waiting.current?.jobId !== message.result.jobId) return;

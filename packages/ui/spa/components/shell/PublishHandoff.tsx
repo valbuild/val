@@ -26,7 +26,13 @@ export type HandoffState =
   /** The tab is open and loading the Studio. */
   | { kind: "opening" }
   /** The tab is building or publishing; `step` is `describeDeployPhase`. */
-  | { kind: "running"; step: string; elapsedMs: number }
+  | {
+      kind: "running";
+      step: string;
+      elapsedMs: number;
+      /** How far the tab's build has got; absent from a tab that predates it. */
+      percent?: number;
+    }
   /**
    * The tab built it and handed it to the content service, which checks the
    * site renders and puts it live -- the tab has closed. Followed by this

@@ -1,22 +1,29 @@
 import { useEffect, type ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import { Toaster, toast } from "../../designSystem/sonner";
-import { PublishHandoffCard, type HandoffState } from "../PublishHandoff";
+import {
+  PublishHandoffCard,
+  StudioPublishPage,
+  type PublishPageResult,
+  type PublishStep,
+} from "../PublishHandoff";
 import { StatusBar } from "../StatusBar";
 import type { ShellDeployment } from "../types";
-import type { PublishIndicator } from "../../../publish/publishIndicatorView";
-import { EDGE_CACHE_MS } from "../../../publish/publishIndicator";
+import {
+  EDGE_CACHE_MS,
+  type PublishIndicator,
+} from "../../../publish/publishIndicatorView";
 
 /**
  * The status bar's one publish indicator, in every state a publish passes
- * through.
+ * through -- in Chrome, where the Studio builds the site in the tab, and in
+ * Safari, where a builder tab does and reports back.
  *
- * It spins until every visitor gets the change -- which is about a minute
- * after "Live", once each edge's cache of the site's pointer has run out -- and
- * says so in one of three words: Publishing, Reaching visitors, Live. The step
- * and the percentage are behind it, on hover. It spins for anyone's publish,
- * not only this editor's. The list opens on a click and never by itself, and
- * the "Published" toast comes when it stops spinning.
+ * It spins until every visitor gets the change, about a minute after "Live",
+ * once each edge's cache of the site's pointer has run out: Publishing N%,
+ * then Reaching visitors N%, then Live. The step is behind it, on hover. It
+ * spins for anyone's publish, not only this editor's. The list opens on a
+ * click and never by itself, and the "Published" toast comes when it stops.
  */
 const meta: Meta = {
   title: "Shell/PublishIndicator",
@@ -76,6 +83,13 @@ function ToastOnMount({ show }: { show: () => void }) {
   return <Toaster />;
 }
 
+const showPublished = () =>
+  toast("Published", {
+    id: "story-published",
+    description: "Every visitor now sees your changes.",
+    duration: Infinity,
+  });
+
 const earlier: ShellDeployment = {
   commitSha: "a1b2c3d4e5f6",
   state: "success",
@@ -119,143 +133,72 @@ const pushed: ShellDeployment = {
   isLive: false,
 };
 
-const reaching = (mine: boolean): PublishIndicator => ({
+const mine = (step: string, percent: number | null): PublishIndicator => ({
+  kind: "publishing",
+  mine: true,
+  step,
+  percent,
+});
+
+/** Live `secondsAgo` ago: rendered fresh, so the bar reads the same each time. */
+const reaching = (isMine: boolean, secondsAgo = 30): PublishIndicator => ({
   kind: "reaching",
-  mine,
-  // Rendered fresh, so the countdown reads ~40s whenever it is looked at.
-  everywhereAt: Date.now() + EDGE_CACHE_MS - 20_000,
+  mine: isMine,
+  everywhereAt: Date.now() + EDGE_CACHE_MS - secondsAgo * 1000,
 });
 
 type SceneStory = StoryObj<typeof Scene>;
 
-/**
- * At rest: nothing is on its way, and every visitor sees the latest published
- * changes. Hover: "Every visitor sees the latest published changes."
- */
+// ---------------------------------------------------------------------------
+// Chrome: the Studio builds the site in the tab.
+// ---------------------------------------------------------------------------
+
+/** At rest: every visitor sees the latest published changes. */
 export const Live: SceneStory = {
   render: () => <Scene indicator={{ kind: "live" }} />,
 };
 
-/**
- * This editor pressed Publish and this tab is building it. One word, a
- * spinner; the step and the percentage on hover: "Building · 12%".
- */
-export const PublishingHere: SceneStory = {
-  render: () => (
-    <Scene
-      indicator={{
-        kind: "publishing",
-        mine: true,
-        step: "Building",
-        percent: 12,
-      }}
-    />
-  ),
+/** Pressed: the tab is building. Hover: "Building". */
+export const ChromeBuilding: SceneStory = {
+  render: () => <Scene indicator={mine("Building", 12)} />,
 };
 
-/** The same, later in the build: "Uploading 3 of 7 · 52%". */
-export const PublishingUploading: SceneStory = {
-  render: () => (
-    <Scene
-      indicator={{
-        kind: "publishing",
-        mine: true,
-        step: "Uploading 3 of 7",
-        percent: 52,
-      }}
-    />
-  ),
+/** Uploading what it built. Hover: "Uploading 3 of 7". */
+export const ChromeUploading: SceneStory = {
+  render: () => <Scene indicator={mine("Uploading 3 of 7", 52)} />,
 };
 
 /**
- * Safari: a builder tab builds it, and this page shows that tab's step, with
- * no percentage, since none is reported back. No card: the card is for a tab
- * that was blocked or failed.
+ * Handed to content, which checks the site renders and seals it. Hover:
+ * "Checking the site renders".
  */
-export const PublishingInBuilderTab: SceneStory = {
-  render: () => (
-    <Scene
-      indicator={{
-        kind: "publishing",
-        mine: true,
-        step: "Uploading 3 of 7",
-        percent: null,
-      }}
-    />
-  ),
+export const ChromeChecking: SceneStory = {
+  render: () => <Scene indicator={mine("Checking the site renders", 64)} />,
 };
 
 /**
- * Another editor pressed Publish. Every Studio on the branch hears the job on
- * content's websocket, so it spins here too. Hover: "Another editor's changes
- * are being published."
+ * Live, and the edges are catching up: the bar keeps filling with the clock.
+ * Hover: "Live. Every visitor sees your changes within 30s."
  */
-export const PublishingByAnotherEditor: SceneStory = {
-  render: () => (
-    <Scene
-      indicator={{
-        kind: "publishing",
-        mine: false,
-        step: null,
-        percent: null,
-      }}
-    />
-  ),
-};
-
-/**
- * Live, and not yet at every edge: the site's pointer has moved, and each
- * Cloudflare location may serve the old build for up to a minute. Still
- * spinning, so "stopped" keeps meaning "every visitor sees it". Hover: "Live.
- * Every visitor sees your changes within 40s."
- */
-export const ReachingVisitors: SceneStory = {
+export const ChromeReachingVisitors: SceneStory = {
   render: () => <Scene indicator={reaching(true)} />,
 };
 
-/** Another editor's publish, at the same stage: "…sees the changes within 40s." */
-export const ReachingVisitorsAnotherEditor: SceneStory = {
-  render: () => <Scene indicator={reaching(false)} />,
-};
-
-export const ReachingVisitorsLight: SceneStory = {
-  render: () => <Scene theme="light" indicator={reaching(true)} />,
-};
-
-/**
- * The end of the window: the spinner stops, and the editor who published gets
- * the one announcement -- a toast. Other editors get no toast: the indicator
- * stopping is theirs.
- */
-export const LiveEverywhereToast: SceneStory = {
+/** Every visitor has it: the spinner stops, and the one toast. */
+export const ChromeLiveEverywhere: SceneStory = {
   render: () => (
     <Scene indicator={{ kind: "live" }}>
-      <ToastOnMount
-        show={() =>
-          toast("Published", {
-            id: "story-published",
-            description: "Every visitor now sees your changes.",
-            duration: Infinity,
-          })
-        }
-      />
+      <ToastOnMount show={showPublished} />
     </Scene>
   ),
 };
 
-/**
- * The list, opened by a click: the publish that went live, how long it took,
- * and each step. It never opens by itself any more.
- */
+/** The list, opened by a click: the publish, and each step's time. */
 export const ListOpen: SceneStory = {
   render: () => <Scene open indicator={{ kind: "live" }} />,
 };
 
-/**
- * This editor's publish failed. The indicator turns red and stays so until
- * something newer goes live; the toast is where Try again and Discard are,
- * and it stays until it is answered.
- */
+/** Failed: red until something newer goes live; the toast has the actions. */
 export const Failed: SceneStory = {
   render: () => (
     <Scene indicator={{ kind: "failed" }}>
@@ -274,40 +217,29 @@ export const Failed: SceneStory = {
   ),
 };
 
-/**
- * Safari, and the browser blocked the builder tab. The one case the card
- * still appears in the Studio: something needs a click. The publish is
- * waiting for that tab, so the indicator spins.
- */
-export const BuilderTabBlocked: SceneStory = {
-  render: () => {
-    const state: HandoffState = { kind: "blocked" };
-    return (
-      <Scene
-        indicator={{
-          kind: "publishing",
-          mine: true,
-          step: "Loading the builder",
-          percent: 0,
-        }}
-      >
-        <div className="absolute right-4 bottom-[3.75rem]">
-          <PublishHandoffCard
-            state={state}
-            onOpenStudio={() => undefined}
-            onDismiss={() => undefined}
-          />
-        </div>
-      </Scene>
-    );
-  },
-};
+// ---------------------------------------------------------------------------
+// Someone else's publish, and CI's.
+// ---------------------------------------------------------------------------
 
 /**
- * A connected project: content pushed the commit and CI is building it. The
- * same spinner, the feed's word for it; it becomes "Reaching visitors" when
- * CI's build goes live.
+ * Another editor pressed Publish. Nothing reports how far their build is, so
+ * the bar pulses rather than counting. Hover: "Another editor's changes are
+ * being published."
  */
+export const AnotherEditorPublishing: SceneStory = {
+  render: () => (
+    <Scene
+      indicator={{ kind: "publishing", mine: false, step: null, percent: null }}
+    />
+  ),
+};
+
+/** Their publish is live, and the edges are catching up: a real bar again. */
+export const AnotherEditorReachingVisitors: SceneStory = {
+  render: () => <Scene indicator={reaching(false)} />,
+};
+
+/** Connected: content pushed the commit, and CI is building it. */
 export const ConnectedBuilding: SceneStory = {
   render: () => (
     <Scene
@@ -315,5 +247,154 @@ export const ConnectedBuilding: SceneStory = {
       deployments={[pushed, earlier]}
       indicator={{ kind: "building", count: 1 }}
     />
+  ),
+};
+
+export const ReachingVisitorsLight: SceneStory = {
+  render: () => <Scene theme="light" indicator={reaching(true)} />,
+};
+
+// ---------------------------------------------------------------------------
+// Safari: the Studio cannot build, so it opens a builder tab that does.
+// ---------------------------------------------------------------------------
+
+/** A job's steps in the builder tab: they end at the upload. */
+const JOB_STEPS = [
+  "Starting the publish",
+  "Loading the builder",
+  "Reading the site",
+  "Building",
+  "Preparing the upload",
+  "Uploading",
+  "Checking the upload",
+];
+const JOB_TIMES = [1_100, 900, 300, 6_200, 400, 2_100, 600];
+
+function jobStepsAt(current: number, currentLabel?: string): PublishStep[] {
+  return JOB_STEPS.map((label, i) => ({
+    label: i === current && currentLabel ? currentLabel : label,
+    status: i < current ? "done" : i === current ? "current" : "todo",
+    ms: i <= current ? JOB_TIMES[i] : undefined,
+  }));
+}
+
+/**
+ * The builder window Safari opens: a small popup over the Studio, the size
+ * `openBuilderWindow` asks for, drawn with a window's title bar so it reads
+ * as the separate window it is.
+ */
+function BuilderWindow({
+  steps,
+  elapsedMs,
+  result,
+}: {
+  steps: PublishStep[];
+  elapsedMs: number;
+  result?: PublishPageResult;
+}) {
+  return (
+    <div
+      className="absolute left-16 top-6 w-[420px] overflow-hidden rounded-lg border border-border-float shadow-2xl"
+      style={{ height: 520 }}
+    >
+      <div className="flex h-7 items-center gap-1.5 bg-bg-secondary px-3">
+        <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
+        <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
+        <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
+        <span className="ml-3 truncate text-[11px] text-fg-secondary-alt">
+          example.com/val?publish-handoff=…
+        </span>
+      </div>
+      <div className="h-[calc(100%-1.75rem)] overflow-hidden">
+        <StudioPublishPage
+          commit="j_7c41e09a"
+          steps={steps}
+          elapsedMs={elapsedMs}
+          result={result}
+          onOpenStudio={() => undefined}
+          onClose={() => undefined}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Pressed. Safari opens the builder window from the click; the Studio's
+ * indicator starts at 0% and follows the window from here.
+ */
+export const SafariPressed: SceneStory = {
+  render: () => (
+    <Scene indicator={mine("Starting the publish", 0)}>
+      <BuilderWindow steps={jobStepsAt(0)} elapsedMs={1_000} />
+    </Scene>
+  ),
+};
+
+/** The window builds; its step and percentage come back to the Studio. */
+export const SafariBuilding: SceneStory = {
+  render: () => (
+    <Scene indicator={mine("Building", 12)}>
+      <BuilderWindow steps={jobStepsAt(3)} elapsedMs={9_000} />
+    </Scene>
+  ),
+};
+
+export const SafariUploading: SceneStory = {
+  render: () => (
+    <Scene indicator={mine("Uploading 3 of 7", 52)}>
+      <BuilderWindow
+        steps={jobStepsAt(5, "Uploading 3 of 7")}
+        elapsedMs={12_000}
+      />
+    </Scene>
+  ),
+};
+
+/**
+ * The window handed its build to content and closes itself in 5 s. The
+ * Studio carries on: content checks the site renders.
+ */
+export const SafariHandedOver: SceneStory = {
+  render: () => (
+    <Scene indicator={mine("Checking the site renders", 64)}>
+      <BuilderWindow
+        steps={jobStepsAt(7)}
+        elapsedMs={13_000}
+        result={{ kind: "handed-off", closingInS: 5 }}
+      />
+    </Scene>
+  ),
+};
+
+/** The window has closed. Live, and the edges are catching up. */
+export const SafariReachingVisitors: SceneStory = {
+  render: () => <Scene indicator={reaching(true)} />,
+};
+
+/** Every visitor has it: the same ending as Chrome. */
+export const SafariLiveEverywhere: SceneStory = {
+  render: () => (
+    <Scene indicator={{ kind: "live" }}>
+      <ToastOnMount show={showPublished} />
+    </Scene>
+  ),
+};
+
+/**
+ * Safari blocked the window. The one card the Studio still shows: it needs a
+ * click, and the publish waits for it at 0%.
+ */
+export const SafariBlocked: SceneStory = {
+  render: () => (
+    <Scene indicator={mine("Starting the publish", 0)}>
+      <div className="absolute right-4 bottom-[3.75rem]">
+        <PublishHandoffCard
+          state={{ kind: "blocked" }}
+          onOpenStudio={() => undefined}
+          onDismiss={() => undefined}
+        />
+      </div>
+    </Scene>
   ),
 };

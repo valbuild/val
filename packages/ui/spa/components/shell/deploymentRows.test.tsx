@@ -103,7 +103,7 @@ describe("the publish indicator", () => {
       </TooltipProvider>,
     );
     const button = screen.getByRole("button", {
-      name: "Deployments: Reaching visitors",
+      name: /^Deployments: Reaching visitors \d+%$/,
     });
     expect(button.getAttribute("aria-busy")).toBe("true");
   });

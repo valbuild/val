@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useStudioDeployState } from "../ValProvider";
 import { joinHandoff, leaveTo, type TabHandoff } from "../../publish/handoff";
 import {
+  deployPercent,
   describeDeployPhase,
   describeDeployStep,
 } from "../../publish/deployProgress";
@@ -212,6 +213,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
         type: "phase",
         label: describeDeployPhase(state.phase),
         elapsedMs: now - state.startedAt,
+        percent: deployPercent(state.phase),
       });
       return;
     }
@@ -221,6 +223,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
       type: "phase",
       label: describeDeployPhase(state.phase),
       elapsedMs: now - startedAt.current,
+      percent: deployPercent(state.phase),
     });
   }, [state, now, goingLive]);
 

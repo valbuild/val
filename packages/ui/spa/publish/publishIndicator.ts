@@ -3,12 +3,15 @@ import { summarizeDeployments } from "../components/shell/Deployments";
 import { deployPercent, describeDeployPhase } from "./deployProgress";
 import type { StudioDeployState } from "./useStudioDeploy";
 import {
+  EDGE_CACHE_MS,
   indicatorOfSummary,
   type PublishIndicator,
 } from "./publishIndicatorView";
 
 export {
+  EDGE_CACHE_MS,
   describeIndicator,
+  indicatorPercent,
   explainIndicator,
   isInFlight,
   type PublishIndicator,
@@ -29,9 +32,6 @@ export {
  * Plain functions, so the states are tested and drawn in stories without a
  * provider.
  */
-
-/** How long a Cloudflare location may serve the build before the last one. */
-export const EDGE_CACHE_MS = 60_000;
 
 /**
  * A job on this branch as the content websocket last reported it. Every
@@ -59,10 +59,11 @@ export function publishIndicator(input: {
   /** This tab's publish, seen through its publish jobs: `publishProgress`. */
   own: StudioDeployState;
   /**
-   * The step a builder tab this page opened last reported, while it builds.
-   * WebKit's publish: this page's own deploy never runs.
+   * The step a builder tab this page opened last reported, and how far it
+   * has got, while it builds. WebKit's publish: this page's own deploy never
+   * runs, so the tab's numbers are the only ones there are.
    */
-  builderStep?: string | null;
+  builder?: { step: string; percent: number | null } | null;
   /** Every job on the branch, as the websocket reported it. */
   jobs?: readonly ObservedJob[];
   /** The deploy feed, when there is one. */
@@ -77,12 +78,12 @@ export function publishIndicator(input: {
   const deployments = input.deployments ?? [];
 
   if (own.status === "running") {
-    const builderStep = input.builderStep ?? null;
+    const builder = input.builder ?? null;
     return {
       kind: "publishing",
       mine: true,
-      step: builderStep ?? describeDeployPhase(own.phase),
-      percent: builderStep !== null ? null : deployPercent(own.phase),
+      step: builder?.step ?? describeDeployPhase(own.phase),
+      percent: builder !== null ? builder.percent : deployPercent(own.phase),
     };
   }
   if (

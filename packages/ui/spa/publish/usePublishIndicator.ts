@@ -16,19 +16,19 @@ import type { StudioDeployState } from "./useStudioDeploy";
  */
 export function usePublishIndicator(input: {
   own: StudioDeployState;
-  builderStep: string | null;
+  builder: { step: string; percent: number | null } | null;
   jobs: readonly ObservedJob[];
   deployments: ShellDeployment[] | undefined;
   studioIsDeployer: boolean;
 }): PublishIndicator {
-  const { own, builderStep, jobs, deployments, studioIsDeployer } = input;
+  const { own, builder, jobs, deployments, studioIsDeployer } = input;
   /** The last time the moment below arrived. */
   const [tick, setTick] = useState(() => Date.now());
   const { indicator, nextAt } = useMemo(() => {
     const now = Math.max(tick, Date.now());
     const indicator = publishIndicator({
       own,
-      builderStep,
+      builder,
       jobs,
       deployments,
       studioIsDeployer,
@@ -45,7 +45,7 @@ export function usePublishIndicator(input: {
             )
           : null;
     return { indicator, nextAt };
-  }, [own, builderStep, jobs, deployments, studioIsDeployer, tick]);
+  }, [own, builder, jobs, deployments, studioIsDeployer, tick]);
   useEffect(() => {
     if (nextAt === null || !Number.isFinite(nextAt)) return;
     const timer = setTimeout(

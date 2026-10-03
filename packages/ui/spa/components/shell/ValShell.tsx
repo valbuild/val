@@ -342,7 +342,13 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const observedPublishJobs = useObservedPublishJobs();
   const publishIndicatorState = usePublishIndicator({
     own: deployState,
-    builderStep: handoff.state?.kind === "running" ? handoff.state.step : null,
+    builder:
+      handoff.state?.kind === "running"
+        ? {
+            step: handoff.state.step,
+            percent: handoff.state.percent ?? null,
+          }
+        : null,
     jobs: observedPublishJobs,
     deployments: data.deployments,
     studioIsDeployer,

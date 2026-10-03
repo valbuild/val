@@ -2,7 +2,9 @@ import type { ShellDeployment } from "../components/shell/types";
 import {
   EDGE_CACHE_MS,
   RUNNING_JOB_STALE_MS,
+  describeIndicator,
   explainIndicator,
+  indicatorPercent,
   isInFlight,
   publishIndicator,
   type ObservedJob,
@@ -63,21 +65,22 @@ describe("this editor's publish", () => {
       step: "Building",
       percent: 12,
     });
-    expect(explainIndicator(indicator, 1)).toBe("Building · 12%");
+    expect(describeIndicator(indicator, 1)).toBe("Publishing 12%");
+    expect(explainIndicator(indicator, 1)).toBe("Building");
   });
 
-  test("while a builder tab builds it: that tab's step, and no percentage", () => {
+  test("while a builder tab builds it: that tab's step and percentage", () => {
     expect(
       publishIndicator({
         own: building,
-        builderStep: "Uploading 3 of 7",
+        builder: { step: "Uploading 3 of 7", percent: 52 },
         now: 1,
       }),
     ).toEqual({
       kind: "publishing",
       mine: true,
       step: "Uploading 3 of 7",
-      percent: null,
+      percent: 52,
     });
   });
 
@@ -92,6 +95,16 @@ describe("this editor's publish", () => {
     expect(isInFlight(indicator)).toBe(true);
     expect(explainIndicator(indicator, 30_000)).toBe(
       "Live. Every visitor sees your changes within 40s.",
+    );
+  });
+
+  test("the bar keeps filling while the edges catch up, and never reaches 100", () => {
+    const indicator = publishIndicator({ own: liveAt(0), now: 0 });
+    expect(indicatorPercent(indicator, 0)).toBe(88);
+    expect(indicatorPercent(indicator, EDGE_CACHE_MS / 2)).toBe(94);
+    expect(indicatorPercent(indicator, EDGE_CACHE_MS - 1)).toBe(99);
+    expect(describeIndicator(indicator, EDGE_CACHE_MS / 2)).toBe(
+      "Reaching visitors 94%",
     );
   });
 
