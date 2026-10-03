@@ -261,3 +261,35 @@ the open group).
 6. Held patches count as _settled_ but not _applied_ (`chainSettled`), because
    the editor holds every field inert until the chain settles. A held patch that
    counted as neither would dim the Studio permanently.
+
+7. **A save and a stage or unstage are sent in one order.** Membership moves on
+   the server two ways — a stage or unstage, and a save, whose write and
+   closure the server unions into the group — and the server applies them in
+   the order they arrive. A save always went after the group changes made
+   before it. Until `holdGroupChangesFor` (in `createSystem`), a change made
+   while a save was on the wire was sent at once, and the two raced: an unstage
+   of the insert under an edit that landed before the edit's save was undone
+   by the save's union, silently, and one whose forward closure missed the
+   edit (the review screen's patch sets had not caught up with it) and landed
+   after left the edit in the group without the insert — a hole a reload
+   showed, which `holdBackOverHoles` only hides in the tab that made the
+   unstage.
+
+   Now a save takes a hold before it resolves its closure, and every change
+   made after that waits until the save is answered — saved, refused, a
+   conflict, an error, or the system disposed. No deadlock: a save waits only
+   for the changes queued before its hold, and only the ones queued after wait
+   for it. An unstage that waited re-closes over the save's ids against a
+   grouping that covers them, so the edit goes out with the insert. And a
+   write the tab has already taken out of its scope when its save goes — the
+   click went out while an earlier attempt at the save failed — is followed
+   by an unstage of its own, ordered behind it, since the server puts a write
+   in its author's group whatever the request says. The server's group after
+   both is this tab's latest intent, and prefix-closed
+   (`patchGroupSaveRace.test.ts`, and the e2e in `http/patchGroups.spec.ts`).
+
+   What is left: a stage or unstage now waits up to one save round trip before
+   it is sent (the screen moves at once, as before). And an unstage made with
+   NO save in flight is still sent with the forward closure the review screen
+   computed; if that screen's patch sets are behind the chain it can still
+   under-close, as it could before — only a save's own ids are re-closed.
