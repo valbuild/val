@@ -172,15 +172,24 @@ function typecheck(name: string, options: WireOptions): string {
     );
     return "";
   } catch (error) {
-    const result = error as {
-      status?: number | null;
-      stdout?: string;
-      stderr?: string;
-    };
     // No exit status means tsc never ran (ENOENT, say). Reading that as "no
     // errors" is how this test passed for weeks while checking nothing.
-    if (typeof result.status !== "number") throw error;
-    return `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
+    //
+    // Not `instanceof Error`: jest runs this file in its own realm, and the
+    // error child_process throws comes from Node's, so it is never one.
+    if (
+      typeof error !== "object" ||
+      error === null ||
+      !("status" in error) ||
+      typeof error.status !== "number"
+    ) {
+      throw error;
+    }
+    const stdout =
+      "stdout" in error && typeof error.stdout === "string" ? error.stdout : "";
+    const stderr =
+      "stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
+    return `${stdout}${stderr}`.trim();
   }
 }
 
