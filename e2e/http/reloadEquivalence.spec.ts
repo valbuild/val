@@ -167,6 +167,9 @@ test("Ada's own publish never takes it off the screen of her other browser", asy
   try {
     const elsewhere = await other.newPage();
     await openHttpStudio(elsewhere);
+    // Again: `next dev` can reload an open page while it compiles for a new
+    // one, so this page is opened after the other one is up.
+    await openHttpStudio(page);
     await markLive(page);
     // What this page shows for the edited field, read straight off the store.
     const shown = () =>
@@ -270,6 +273,98 @@ test("Ada's own publish never takes it off the screen of her other browser", asy
       "the edit after the publish pulled published changes into Ada's",
     ).toEqual([]);
     await expectSameAsReload(browser, page, "ada", "Ada published elsewhere");
+  } finally {
+    await other.close();
+  }
+});
+
+test("Ada publishes three times in a row, and nothing she published leaves her open Studio", async ({
+  page,
+  browser,
+}) => {
+  /*
+   * Edit, publish, edit again, publish again -- with the site still serving
+   * the build from before the first publish, and no reload in between. Each
+   * round's value has to stay on screen from the moment it is typed, each
+   * later edit has to leave the earlier published ones where they are, and
+   * the page has to agree with a reload at the end.
+   *
+   * Published from Ada's other browser, so this page learns of every publish
+   * the way a Studio does on a project that publishes as jobs: from the
+   * websocket, not from a publish of its own.
+   */
+  const NAMES = ["Ada, round one", "Ada, round two", "Ada, round three"];
+  const FIELDS = ["teddy", "freekh", "teddy"] as const;
+  await openHttpStudio(page);
+  const other = await contextAs(browser, "ada");
+  try {
+    const elsewhere = await other.newPage();
+    await openHttpStudio(elsewhere);
+    // Again: `next dev` can reload an open page while it compiles for a new
+    // one, so this page is opened after the other one is up.
+    await openHttpStudio(page);
+    await markLive(page);
+    await page.evaluate(() => {
+      const widened: string[][] = [];
+      Reflect.set(window, "__valWidened", widened);
+      const stores = Reflect.get(window, "__VAL_STORES__") as {
+        system: {
+          patchSync: {
+            events: {
+              on(
+                type: string,
+                listener: (event: { type: string; patches: string[] }) => void,
+              ): unknown;
+            };
+          };
+        };
+      };
+      stores.system.patchSync.events.on("patch:group-widened", (event) => {
+        widened.push(event.patches);
+      });
+    });
+    const shown = (author: string) =>
+      page.evaluate(
+        ({ module, author }) => {
+          const stores = Reflect.get(window, "__VAL_STORES__") as {
+            system: {
+              sourceStore: { allSources(): Record<string, unknown> };
+            };
+          };
+          const authors = stores.system.sourceStore.allSources()[module] as
+            | Record<string, { name?: unknown } | undefined>
+            | undefined;
+          return authors?.[author]?.name;
+        },
+        { module: AUTHORS, author },
+      );
+    const expected: Record<string, string> = {};
+    for (const [round, name] of NAMES.entries()) {
+      const field = FIELDS[round];
+      await writePatch(page, AUTHORS, [
+        { op: "replace", path: [field, "name"], value: name },
+      ]);
+      expected[field] = name;
+      for (const [author, value] of Object.entries(expected)) {
+        await expect.poll(() => shown(author), { timeout: 30_000 }).toBe(value);
+      }
+      expect(
+        await publishAll(elsewhere, `Ada ships round ${round + 1}`),
+      ).toMatchObject({ status: "published" });
+      // Given time to hear of the publish, then nothing has moved.
+      await page.waitForTimeout(2_000);
+      for (const [author, value] of Object.entries(expected)) {
+        expect(
+          await shown(author),
+          `round ${round + 1}: ${author} left the open Studio after the publish`,
+        ).toBe(value);
+      }
+    }
+    expect(
+      await page.evaluate(() => Reflect.get(window, "__valWidened")),
+      "an edit after a publish pulled published changes into Ada's",
+    ).toEqual([]);
+    await expectSameAsReload(browser, page, "ada", "Ada published three times");
   } finally {
     await other.close();
   }
