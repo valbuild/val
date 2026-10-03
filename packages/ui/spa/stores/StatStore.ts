@@ -5,10 +5,9 @@ import type { SystemEvent } from "./types";
 /**
  * The subset of the `/stat` response this prototype reacts to.
  *
- * The real response also carries `schemaSha` / `sourcesSha`, which is how the
- * schema and source stores learn they need to refetch. Left out here because
- * nothing exercises it yet — the field it would add is an input to
- * `SchemaStore.receive`, not a new event.
+ * `sourcesSha` and `schemaSha` say which build answered: the first so its
+ * chain is put on that build's source (`BaseAlignment`), the second so a
+ * Studio running another schema is told to reload (`SchemaFreshnessWatch`).
  *
  * `baseSha` IS here, because the write path needs it and nothing else can supply
  * it: a `PUT /patches` against an empty chain names `{ type: "head", headBaseSha }`
@@ -102,6 +101,13 @@ export type StatSnapshot = {
    * base the Studio has, as it always was.
    */
   sourcesSha?: string;
+  /**
+   * The answering build's `schemaSha` — the same fold `HostStore` runs over the
+   * bundle's schemas, so the two can be compared. See `SchemaFreshnessWatch`.
+   *
+   * Optional: absent means "not reported", and nothing is concluded from it.
+   */
+  schemaSha?: string;
 };
 
 /**
@@ -140,6 +146,8 @@ export class StatStore {
   /** The version of the ADOPTED head, which is {@link headPatchId}'s. */
   private headVersion: number | undefined = undefined;
   private baseSha: string | null = null;
+  /** See {@link currentSchemaSha}. */
+  private schemaSha: string | null = null;
   /** The publish head. See {@link StatSnapshot.headCommitSha}. */
   private headCommitSha: string | null = null;
   /**
@@ -189,6 +197,19 @@ export class StatStore {
       // Older than an answer already in hand. Dropped before the ticket
       // moves, so it cannot cancel a newer stat still being prepared.
       return;
+    }
+    if (
+      snapshot.schemaSha !== undefined &&
+      snapshot.schemaSha !== this.schemaSha
+    ) {
+      /*
+       * After the ordering check — a late answer from before a deploy would
+       * otherwise name the old schema to a page that has just reloaded into
+       * the new one — but before the preparer: a stat held back while another
+       * build's base is fetched still says which schema that build runs.
+       */
+      this.schemaSha = snapshot.schemaSha;
+      this.events.emit({ type: "stat:schema", schemaSha: snapshot.schemaSha });
     }
     if (snapshot.headVersion !== undefined) {
       this.newestHeadVersion = snapshot.headVersion;
@@ -277,6 +298,14 @@ export class StatStore {
         removed: snapshot.removed,
       });
     }
+  }
+
+  /**
+   * The `schemaSha` the most recent `/stat` reported, or `null` before one has.
+   * See {@link StatSnapshot.schemaSha}.
+   */
+  currentSchemaSha(): string | null {
+    return this.schemaSha;
   }
 
   currentPatchIds(): PatchId[] {

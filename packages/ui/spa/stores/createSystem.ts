@@ -21,6 +21,7 @@ import {
   type UploadFile,
 } from "./PatchStore";
 import { StatStore } from "./StatStore";
+import { SchemaFreshnessWatch } from "./SchemaFreshnessWatch";
 import { StatusStore } from "./StatusStore";
 import {
   PatchSync,
@@ -1338,6 +1339,8 @@ export function createSystem(options: SystemOptions): System {
   );
   const unsubscribe = [
     baseAlignment.listenTo(stat),
+    // Says "reload" when the server runs a schema this page does not.
+    new SchemaFreshnessWatch(host, stat, status).listen(),
     patchStore.listenTo(stat, sourceStore),
     /*
      * A patch this client just wrote joins the scope — BEFORE the source store
