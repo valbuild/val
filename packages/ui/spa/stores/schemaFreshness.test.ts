@@ -322,3 +322,56 @@ test("a page that agrees with the server asks nothing", async () => {
   expect(system.reads).toHaveLength(0);
   expect(freshness(system)).toBe("current");
 });
+
+test("a fresh read that fails is no answer: the late old build still asks for nothing", async () => {
+  // The read fails twice, then answers with the schema the page runs.
+  const answers: (() => string)[] = [
+    () => {
+      throw new Error("503");
+    },
+    () => {
+      throw new Error("network");
+    },
+    () => newSha,
+  ];
+  const system = makeAskingSystem(() => {
+    const next = answers.shift();
+    if (next === undefined) throw new Error("asked too often");
+    return next();
+  });
+  system.host.receive(after());
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headVersion: 4,
+    schemaSha: newSha,
+  });
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headVersion: 4,
+    schemaSha: oldSha,
+  });
+  await jest.advanceTimersByTimeAsync(SCHEMA_DISAGREEMENT_GRACE_MS * 20);
+
+  expect(system.reads).toHaveLength(3);
+  expect(freshness(system)).toBe("current");
+});
+
+test("a deploy behind failing reads is still reported once a read answers", async () => {
+  let failing = true;
+  const system = makeAskingSystem(() => {
+    if (failing) throw new Error("503");
+    return newSha;
+  });
+  system.host.receive(before());
+  stat(system, oldSha);
+  stat(system, newSha);
+  await jest.advanceTimersByTimeAsync(SCHEMA_DISAGREEMENT_GRACE_MS * 4);
+  expect(freshness(system)).toBe("current");
+
+  failing = false;
+  await jest.advanceTimersByTimeAsync(60_000);
+
+  expect(freshness(system)).toBe("out-of-date");
+});

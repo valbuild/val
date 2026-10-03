@@ -14,6 +14,9 @@ export const SCHEMA_DISAGREEMENT_GRACE_MS = 3_000;
  */
 export type ReadServedSchemaSha = () => Promise<string | null>;
 
+/** The longest wait between fresh reads that keep failing. */
+const MAX_SCHEMA_READ_BACKOFF_MS = 60_000;
+
 /**
  * Tells the editor to reload when the server is running a schema this page is
  * not.
@@ -61,6 +64,8 @@ export class SchemaFreshnessWatch {
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** A disagreement was seen, and no fresh read has settled it yet. */
   private unsettled = false;
+  /** Fresh reads in a row that came back with no answer. */
+  private failedReads = 0;
   private readonly graceMs: number;
   private readonly readServedSchemaSha: ReadServedSchemaSha | undefined;
 
@@ -134,12 +139,28 @@ export class SchemaFreshnessWatch {
     }
     const running = this.host.schemaSha();
     if (served === null || running === null) {
-      // No fresh answer: the cached one is the best there is, and the next
-      // stat checks again.
-      this.unsettled = false;
-      if (this.disagree()) this.status.reportSchemaOutOfDate();
+      /*
+       * No answer is not an answer. Falling back to the cached one would
+       * bring back exactly what the fresh read is for — a late answer from the
+       * old build opening a dialog that cannot be dismissed — so ask again,
+       * backing off, until a read comes back.
+       */
+      this.failedReads += 1;
+      if (this.timer === null) {
+        this.timer = setTimeout(
+          () => {
+            this.timer = null;
+            void this.settle();
+          },
+          Math.min(
+            this.graceMs * 2 ** this.failedReads,
+            MAX_SCHEMA_READ_BACKOFF_MS,
+          ),
+        );
+      }
       return;
     }
+    this.failedReads = 0;
     this.unsettled = false;
     if (served !== running) this.status.reportSchemaOutOfDate();
   }
