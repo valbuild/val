@@ -32,9 +32,24 @@ export const VideoPlayer = forwardRef<
     endTime?: number;
     className?: string;
     onError?: (message: string) => void;
+    /**
+     * A preview rather than a player: no controls, no sound, playing on its
+     * own and round again — what a gallery tile shows while it is hovered.
+     */
+    preview?: boolean;
   }
 >(function VideoPlayer(
-  { src, isHls, poster, tracks, startTime, endTime, className, onError },
+  {
+    src,
+    isHls,
+    poster,
+    tracks,
+    startTime,
+    endTime,
+    className,
+    onError,
+    preview = false,
+  },
   forwardedRef,
 ) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -121,7 +136,10 @@ export const VideoPlayer = forwardRef<
     <video
       ref={ref}
       className={className}
-      controls
+      controls={!preview}
+      muted={preview}
+      autoPlay={preview}
+      loop={preview}
       playsInline
       preload="metadata"
       // A remote file is on another origin: without CORS, the frame the

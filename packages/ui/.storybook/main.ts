@@ -10,6 +10,10 @@ const config: StorybookConfig = {
     "@storybook/addon-links",
     "@storybook/addon-themes",
   ],
+  // Media the stories play: a video, an HLS stream (a directory, so it cannot
+  // be a hashed import), its poster and captions. Here rather than in
+  // `public/`, which the SPA build copies into what is published.
+  staticDirs: [{ from: "./static/media", to: "/storybook-media" }],
   framework: {
     name: "@storybook/react-vite",
     options: {},
