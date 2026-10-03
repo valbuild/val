@@ -1007,7 +1007,64 @@ export function createSystem(options: SystemOptions): System {
     if (undecided.length === 0) {
       return;
     }
-    extendPatchGroup(undecided);
+    /*
+     * Members the server lists that this tab took OUT.
+     *
+     * With none, every undecided member can come in. With some, a new member
+     * may be written on top of one of them — another tab, still showing it,
+     * wrote a change in the same patch set, and its closure put it back on the
+     * server. Adopting that change without the patch beneath it is a hole in
+     * the middle of a patch set, the one shape a group must never have: its
+     * paths were computed against a state that included the missing patch.
+     * So those members wait for patch sets, and only the ones whose prefix
+     * needs nothing this tab took out are adopted.
+     */
+    const takenOut = annotated.patchIds.filter(
+      (patchId) => !scope.has(patchId) && decidedPatchIds.has(patchId),
+    );
+    if (takenOut.length === 0) {
+      extendPatchGroup(undecided);
+      return;
+    }
+    void adoptAroundHoles(undecided, takenOut);
+  }
+
+  /**
+   * Adopt the members of `candidates` whose prefix closure does not need any of
+   * `takenOut`. See {@link adoptOwnGroupMembers}.
+   *
+   * Nothing on failure: a member left out shows as unstaged until the next
+   * annotation, while a member let in over a hole publishes a change against
+   * the wrong content.
+   */
+  async function adoptAroundHoles(
+    candidates: readonly PatchId[],
+    takenOut: readonly PatchId[],
+  ): Promise<void> {
+    try {
+      /*
+       * A build that carries its own chain, as the write closure uses, and
+       * only the candidates it covers. The groups arrive before the records of
+       * the same response, so a build planned then has not seen the change
+       * being adopted, and a closure over it would miss what it sits on. The
+       * rest are asked about again when their records arrive (`patch:receive`).
+       */
+      let build = await computePatchSetsBuild();
+      const covers = (patchId: PatchId) => build.chain.includes(patchId);
+      if (!candidates.every(covers)) build = await computePatchSetsBuild();
+      const index = indexPatchSets(build.sets, build.chain);
+      if (patchGroupIds === null) return;
+      const scope = new Set(patchGroupIds);
+      const safe = candidates.filter((patchId) => {
+        if (!covers(patchId)) return false;
+        if (scope.has(patchId) || decidedPatchIds.has(patchId)) return false;
+        const needs = stageClosure(index, scope, [patchId]);
+        return takenOut.every((patchId) => !needs.has(patchId));
+      });
+      if (safe.length > 0) extendPatchGroup(safe);
+    } catch {
+      // See the docblock: leaving a member out is the recoverable direction.
+    }
   }
   /** One whole-project validation at a time. See `validateEverything`. */
   let fullValidationRunning = false;
@@ -1425,6 +1482,11 @@ export function createSystem(options: SystemOptions): System {
      * response, so the scope has grown by the time `applyEntries` asks.
      */
     patchStore.events.on("patch:groups", () => {
+      adoptOwnGroupMembers();
+    }),
+    // And when records land: a member waiting on patch sets to show it needs
+    // nothing this tab took out (see `adoptAroundHoles`) is asked about again.
+    patchStore.events.on("patch:receive", () => {
       adoptOwnGroupMembers();
     }),
     sourceStore.listenTo(patchStore),
