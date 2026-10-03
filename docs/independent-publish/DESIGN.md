@@ -194,15 +194,19 @@ follow, and both were wrong before:
   on the system until a write created a group, and a reload, another browser or
   a closed tab lost it.
 
-Two things go stale in opposite directions and must not be confused. The chain
-**annotation** refreshes only inside a fetch for MISSING patch ids, so on a quiet
-branch it is arbitrarily old; `ownPatchGroupId` comes from the last save response
-and is cleared the moment a publish makes it wrong. So `ownPatchGroupId` wins
-where it is set, and `markPublished` also closes the annotation's copy of any
-group whose every patch it just shipped — nothing else ever will, because
-`forgetPublished` drops those ids and the next `/stat` files them as stale. Named
-the closed group instead and every stage is a 409 (now resent to `~`, which
-lands it in the open group).
+Two things go stale in opposite directions and must not be confused. The
+**groups** a current content service sends come with every `/stat` and every
+websocket `patches` message, at the chain version they were read at, and
+REPLACE what this tab holds — so they are never older than the last change the
+server announced (invariant 5). Only an older server's annotation on
+`GET /patches`, the unversioned fallback, refreshes just inside a fetch for
+MISSING patch ids and can be arbitrarily old on a quiet branch; for it,
+`markPublished` closes the local copy of any group whose every patch it just
+shipped, since `forgetPublished` drops those ids and nothing else would.
+`ownPatchGroupId` comes from the last save or stage answer and is cleared the
+moment a publish makes it wrong, so it wins where it is set. Named the closed
+group instead and every stage is a 409 (now resent to `~`, which lands it in
+the open group).
 
 ## Invariants worth attacking in review
 

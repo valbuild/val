@@ -229,3 +229,61 @@ test.each([
     errors.mockRestore();
   },
 );
+
+test("a write whose closure moves membership is saved after the group changes made before it", async () => {
+  const saves: PatchId[][] = [];
+  const pending: ((answer: Answer) => void)[] = [];
+  const system = createSystem({
+    fetchPatches: async (patchIds) => ({
+      patches: patchIds.includes(P) ? [record] : [],
+    }),
+    createPatchId: () => "mine" as PatchId,
+    stagePatches: () => new Promise((resolve) => pending.push(resolve)),
+    unstagePatches: () => new Promise((resolve) => pending.push(resolve)),
+    savePatches: async ({ patches, parentRef }) => {
+      saves.push(patches.map((patch) => patch.patchId));
+      return {
+        status: "saved",
+        newPatchIds: patches.map((patch) => patch.patchId),
+        parentRef,
+      };
+    },
+  });
+  system.host.receive(project());
+  system.stat.receiveStat({ patches: [], baseSha: "sha", profileId: ME });
+  system.seedPatchGroup([]);
+  system.stat.receiveStat({
+    patches: [P],
+    baseSha: "sha",
+    headVersion: 1,
+    patchGroups: [group([P])],
+    profileId: ME,
+  });
+  await system.patchSync.flush();
+  await settle();
+  // Every write's closure names P, as one written on top of P's insert would.
+  system.setPatchGroupResolver(async () => ({ withPatchIds: [P] }));
+
+  // P is unstaged, and the unstage is not answered yet.
+  system.setPatchGroup([]);
+  system.persistPatchGroupChange(undefined, {
+    type: "unstage",
+    patchIds: [P],
+    withPatchIds: [],
+  });
+  await settle();
+  expect(pending).toHaveLength(1);
+
+  await system.patchStore.createPatch(A, [
+    { op: "replace", path: ["title"], value: "mine" },
+  ]);
+  await settle();
+  // The save waits: sent now, its closure could land before the unstage, and
+  // the unstage would then take P out from under it.
+  expect(saves).toEqual([]);
+
+  pending[0]({ status: "ok", headVersion: 2 });
+  await system.patchSync.flush();
+  await settle();
+  expect(saves).toEqual([["mine"]]);
+});

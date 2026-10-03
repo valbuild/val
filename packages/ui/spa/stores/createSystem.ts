@@ -1691,10 +1691,13 @@ export function createSystem(options: SystemOptions): System {
      * every id it ever wrote, and lay them over the groups it is shown.
      */
     patchStore.events.on("patch:chain", () => {
-      if (unconfirmed.size === 0) return;
+      if (unconfirmed.size === 0 && closureOfWrite.size === 0) return;
       const held = new Set(
         patchStore.allRecords().map((record) => record.patchId),
       );
+      for (const patchId of closureOfWrite.keys()) {
+        if (!held.has(patchId)) closureOfWrite.delete(patchId);
+      }
       let pruned = false;
       for (const patchId of unconfirmed.keys()) {
         if (held.has(patchId)) continue;
@@ -2210,6 +2213,14 @@ export function createSystem(options: SystemOptions): System {
        * rather than in the caller because every caller would have to remember.
        */
       patchSync.setPatchGroupResolver(async (patchIds) => {
+        /*
+         * Behind the group changes already made. A write's closure moves
+         * membership too, so a save racing an earlier unstage could land first
+         * and have the unstage take its prerequisite out after it — a write in
+         * the group without the patch it was written on. Waiting here orders
+         * the save after them, and computes the closure against what they left.
+         */
+        await groupChanges;
         const membership = await resolver(patchIds);
         if (membership !== undefined) {
           // Joins with the write, so it is confirmed with the write's save.
