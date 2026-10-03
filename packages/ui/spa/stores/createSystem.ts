@@ -743,6 +743,13 @@ export function createSystem(options: SystemOptions): System {
        * off the screen while the last two are still on their way.
        */
       generation: number;
+      /**
+       * Whether the patch was in the scope before this entry's marking: what
+       * a refusal puts back when there are no server groups to reconcile to.
+       * Not inferred from `type` — after Stage → Unstage, both refused, that
+       * would leave the patch staged when neither change ever happened.
+       */
+      wasIn: boolean;
     }
   >();
   let unconfirmedGeneration = 0;
@@ -936,7 +943,7 @@ export function createSystem(options: SystemOptions): System {
      * a known gap — nothing would correct the screen on a quiet branch until a
      * reload.
      */
-    dropUnconfirmed(entries, change.type);
+    dropUnconfirmed(entries);
     console.error("Val: could not update patch group", res.message);
   }
 
@@ -1133,23 +1140,36 @@ export function createSystem(options: SystemOptions): System {
     type: "stage" | "unstage",
   ): void {
     const generation = ++unconfirmedGeneration;
+    // Read before the caller moves the scope, which every caller does after.
+    const scope = new Set(patchGroupIds ?? []);
     for (const patchId of patchIds) {
-      unconfirmed.set(patchId, { type, version: null, generation });
+      unconfirmed.set(patchId, {
+        type,
+        version: null,
+        generation,
+        wasIn: scope.has(patchId),
+      });
     }
   }
 
   /** The entries a change is answering for: theirs as they stand when it is made. */
-  type ChangeEntries = ReadonlyMap<PatchId, number>;
+  type ChangeEntries = ReadonlyMap<
+    PatchId,
+    { generation: number; wasIn: boolean }
+  >;
 
   function entriesOf(
     patchIds: Iterable<PatchId>,
     type: "stage" | "unstage",
   ): ChangeEntries {
-    const entries = new Map<PatchId, number>();
+    const entries = new Map<PatchId, { generation: number; wasIn: boolean }>();
     for (const patchId of patchIds) {
       const entry = unconfirmed.get(patchId);
       if (entry !== undefined && entry.type === type) {
-        entries.set(patchId, entry.generation);
+        entries.set(patchId, {
+          generation: entry.generation,
+          wasIn: entry.wasIn,
+        });
       }
     }
     return entries;
@@ -1163,25 +1183,31 @@ export function createSystem(options: SystemOptions): System {
    * {@link reconcileScope} waits for them — so the move itself is undone here,
    * for exactly the patches whose entries this change still owned.
    */
-  function dropUnconfirmed(
-    entries: ChangeEntries,
-    type: "stage" | "unstage",
-  ): void {
-    const dropped: PatchId[] = [];
-    for (const [patchId, generation] of entries) {
-      if (unconfirmed.get(patchId)?.generation !== generation) continue;
-      unconfirmed.delete(patchId);
-      dropped.push(patchId);
+  function dropUnconfirmed(entries: ChangeEntries): void {
+    const dropped = new Map<PatchId, boolean>();
+    for (const [patchId, { generation, wasIn }] of entries) {
+      const current = unconfirmed.get(patchId);
+      if (current === undefined) continue;
+      if (current.generation === generation) {
+        unconfirmed.delete(patchId);
+        // The entry's own, not the one taken when the change was made: an
+        // earlier change refused since then may have moved it back.
+        dropped.set(patchId, current.wasIn);
+      } else if (current.generation > generation) {
+        // A later click took the entry over, starting from where this change
+        // left the scope. This change never happened, so it starts from here.
+        unconfirmed.set(patchId, { ...current, wasIn });
+      }
     }
     if (
       patchStore.groups() === undefined &&
       patchGroupIds !== null &&
-      dropped.length > 0
+      dropped.size > 0
     ) {
       const next = new Set(patchGroupIds);
-      for (const patchId of dropped) {
-        if (type === "stage") next.delete(patchId);
-        else next.add(patchId);
+      for (const [patchId, wasIn] of dropped) {
+        if (wasIn) next.add(patchId);
+        else next.delete(patchId);
       }
       patchGroupIds = [...next];
       sourceStore.setVisiblePatchIds(patchGroupIds);
@@ -1202,7 +1228,7 @@ export function createSystem(options: SystemOptions): System {
     version: number | undefined,
   ): void {
     if (version === undefined) return;
-    for (const [patchId, generation] of entries) {
+    for (const [patchId, { generation }] of entries) {
       const entry = unconfirmed.get(patchId);
       if (
         entry !== undefined &&
@@ -2257,7 +2283,7 @@ export function createSystem(options: SystemOptions): System {
         .catch((error: unknown) => {
           // A throw must not stop every later change from going out. What it
           // put on screen goes back, as for a refusal.
-          dropUnconfirmed(entries, change.type);
+          dropUnconfirmed(entries);
           console.error("Val: could not update patch group", error);
         });
     },

@@ -204,3 +204,28 @@ test("a refused stage is taken back before the first groups have arrived", async
   expect(read(system)).toBe("base");
   errors.mockRestore();
 });
+
+test.each([
+  ["stage", "unstage", false],
+  ["unstage", "stage", true],
+] as const)(
+  "%s then %s, both refused before the first groups: back where it started",
+  async (first, second, startedIn) => {
+    const system = makeSystem({ stat: false });
+    const errors = jest.spyOn(console, "error").mockImplementation(() => {});
+    system.stat.receiveStat({ patches: [P], baseSha: "sha" });
+    await system.patchSync.flush();
+    await settle();
+    system.seedPatchGroup(startedIn ? [P] : []);
+    expect(system.patchStore.groups()).toBeUndefined();
+
+    click(system, first);
+    click(system, second);
+    await answer(system, { status: "error", message: "refused" });
+    await answer(system, { status: "error", message: "refused" });
+
+    expect(system.patchGroup()?.includes(P) ?? false).toBe(startedIn);
+    expect(read(system)).toBe(startedIn ? "theirs" : "base");
+    errors.mockRestore();
+  },
+);
