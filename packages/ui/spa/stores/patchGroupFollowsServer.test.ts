@@ -448,4 +448,30 @@ describe("my publish, announced while the old build is served", () => {
     );
     expect(system.patchStore.pendingAmong(["p" as PatchId]).size).toBe(0);
   });
+
+  test("the next edit does not pull it back in as a change it depends on", async () => {
+    // Read as unstaged, the published patch was a predecessor of every later
+    // edit to its module: the edit took it along as its closure, and the
+    // Studio announced "1 change was added to your changes" for work that was
+    // already published.
+    const system = await published({ appliedPatches: ["p" as PatchId] });
+    const widened: PatchId[][] = [];
+    system.patchSync.events.on("patch:group-widened", (event) => {
+      if (event.type === "patch:group-widened") widened.push(event.patches);
+    });
+    system.setPatchGroupResolver(async (patchIds) => ({
+      withPatchIds: await system.computeWriteClosure(patchIds),
+    }));
+
+    const created = await system.patchStore.createPatch(A, [
+      { op: "replace", path: ["title"], value: "after the publish" },
+    ]);
+    if (created.status !== "created") throw new Error(created.status);
+    await system.patchSync.flush();
+    await settle();
+
+    expect(widened).toEqual([]);
+    expect(system.patchGroup()).not.toContain("p");
+    expect(read(system, A)).toBe("after the publish");
+  });
 });

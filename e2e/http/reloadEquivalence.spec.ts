@@ -237,6 +237,38 @@ test("Ada's own publish never takes it off the screen of her other browser", asy
       ]),
       "the open Studio showed something other than the published value",
     ).toEqual([NAME]);
+    /*
+     * And the next edit does not take the published change along. Read as
+     * unstaged, it was a predecessor of every later edit to its module, and the
+     * Studio said "1 change was added to your changes" about work that was
+     * already published.
+     */
+    await page.evaluate(() => {
+      const widened: string[][] = [];
+      Reflect.set(window, "__valWidened", widened);
+      const stores = Reflect.get(window, "__VAL_STORES__") as {
+        system: {
+          patchSync: {
+            events: {
+              on(
+                type: string,
+                listener: (event: { type: string; patches: string[] }) => void,
+              ): unknown;
+            };
+          };
+        };
+      };
+      stores.system.patchSync.events.on("patch:group-widened", (event) => {
+        widened.push(event.patches);
+      });
+    });
+    await writePatch(page, AUTHORS, [
+      { op: "replace", path: ["freekh", "name"], value: "Ada, after" },
+    ]);
+    expect(
+      await page.evaluate(() => Reflect.get(window, "__valWidened")),
+      "the edit after the publish pulled published changes into Ada's",
+    ).toEqual([]);
     await expectSameAsReload(browser, page, "ada", "Ada published elsewhere");
   } finally {
     await other.close();
