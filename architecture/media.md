@@ -262,7 +262,7 @@ those two properties you are relying on.
 
 The Studio renames from two places: a gallery's file properties (the pencil
 next to the name) and the **Rename** button of a standalone `s.image()` /
-`s.file()` field. A gallery-backed field does not rename its file — the file is
+`s.file()` / `s.video()` field (a video stream: see "Renaming a video"). A gallery-backed field does not rename its file — the file is
 shared with every other field that picked it — and its Rename sends you to the
 gallery instead. The rules live in `packages/ui/spa/utils/renameMediaFile.ts`;
 `useRenameMediaFile` is the part that talks to the stores.
@@ -427,15 +427,42 @@ progressive file) and the hotspot as `object-position`. hls.js is the APP's
 dependency, passed in as `hls={() => import("hls.js")}` and called only for a
 stream in a browser that cannot play one natively.
 
+### The CLI: metadata and moving between local and remote
+
+`video:add-metadata` reads the size and length of a local file with small
+parsers in `@valbuild/server` — mp4/mov boxes (`isoBmff.ts`), WebM/Matroska
+headers (`ebml.ts`) and HLS playlists (`hls.ts`) — so an app's server gets no
+media library. They read headers only, never the frames. A file that does not
+declare its length (a browser recording, a fragmented mp4 without `mehd`) gets
+its size and a message to add the duration by hand.
+
+`video:upload-remote` / `video:download-remote` move EVERY file the video
+names, in one fix (`videoRemote.ts`). Validation reports it as one error for
+the whole video whichever file is on the wrong side — a remote video with a
+local poster is half a migration, not a choice. Upward, the stream is placed
+bottom-up exactly as the Studio places an upload (playlists rewritten to name
+refs); downward, playlists are rewritten back to relative names. The patch
+rewrites each `path` in place with an `add`, so nothing authored is touched.
+The upload session (token, project settings, bucket) is opened once per fix
+(`remoteUpload.ts`), so a video's files share a bucket.
+
+### Renaming a video
+
+A progressive video renames like any field's file (above). A stream's NAME is
+its directory, so renaming one moves every file in it (`renameVideo.ts`): the
+files are read back from where the player gets them — a served playlist names
+the others relatively, through the draft endpoint, or by remote ref, and all
+three are read back to the same `/public` path — the playlists are normalised
+to relative names, and the stream is placed under the new directory with the
+same `placeHls` an upload uses. Remote streams are re-placed too rather than
+relabelled: a draft is found by the ref it was uploaded under, so inner refs
+with old labels would send the draft endpoint to the wrong patch. Old local
+files are deleted, as for any rename. Poster and captions keep their names.
+
 ### What is not there yet
 
-- **CLI metadata** reads mp4/mov boxes and HLS playlists with a small parser in
-  `@valbuild/server` (no media library in an app's server). A hand-written
-  `.webm` is reported, not fixed: upload it in the Studio.
-- **Moving a video between local and remote** has no `--fix`: re-upload it in
-  the Studio. A remote video's metadata is not re-checked locally.
-- **Rename** is not offered for videos, and **history restore** re-uploads a
-  stream's master playlist but not the segments it names.
+- **History restore** re-uploads a stream's master playlist but not the
+  segments it names.
 - Uploads still travel as base64 JSON like every other file, so a large video
   costs a third more on the wire and is hashed on the main thread.
 

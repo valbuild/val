@@ -58,6 +58,12 @@ import {
 import { canTranscodeVideo } from "../../utils/video/transcodeSupport";
 import { sha256Hex } from "../../utils/video/sha256";
 import { isVtt, srtToVtt } from "../../utils/video/srtToVtt";
+import {
+  buildStreamRenamePatch,
+  readStream,
+} from "../../utils/video/renameVideo";
+import { RenameFileButton } from "./RenameFileButton";
+import { useValPortal } from "../ValPortalProvider";
 
 const type = "video";
 
@@ -100,6 +106,7 @@ export function VideoField({
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const captionInputRef = useRef<HTMLInputElement>(null);
+  const portalContainer = useValPortal();
   useEffect(() => {
     return () => {
       if (localUrl) {
@@ -496,6 +503,60 @@ export function VideoField({
       ? phase.progress
       : null;
 
+  /**
+   * Rename a stream: every file of it moves to the new directory, so the
+   * bytes are read back from where the player gets them, in the same patch
+   * as the new `path`. See `renameVideo.ts`.
+   */
+  const renameStream = async (newBase: string): Promise<string | null> => {
+    if (!source) return "There is no video to rename.";
+    try {
+      const files = await readStream(
+        source.path,
+        urlOf(source),
+        async (url) => {
+          const res = await fetch(url);
+          if (!res.ok) {
+            throw new Error(`Could not read ${url}: HTTP ${res.status}`);
+          }
+          return {
+            bytes: new Uint8Array(await res.arrayBuffer()),
+            mimeType:
+              res.headers.get("content-type")?.split(";")[0] ||
+              Internal.filenameToMimeType(new URL(url).pathname) ||
+              "application/octet-stream",
+          };
+        },
+        window.location.href,
+      );
+      const built = buildStreamRenamePatch({
+        patchPath,
+        masterPath: source.path,
+        newBase,
+        files,
+        schema,
+        sha256: Internal.getSHA256Hash,
+      });
+      if (built.status === "unchanged") return null;
+      if (built.status === "error") return built.message;
+      let failed: string | null = null;
+      setPhase({ kind: "uploading", progress: 0 });
+      await addAndUploadPatchWithFileOps(
+        built.patch,
+        "file",
+        (message) => {
+          failed = message;
+        },
+        () => {},
+      );
+      setPhase({ kind: "idle" });
+      return failed;
+    } catch (err) {
+      setPhase({ kind: "idle" });
+      return err instanceof Error ? err.message : String(err);
+    }
+  };
+
   const actions = (
     <>
       <Button
@@ -507,6 +568,23 @@ export function VideoField({
         <Upload className="mr-1.5 h-3.5 w-3.5" />
         {source ? "Replace" : "Choose video"}
       </Button>
+      {source && filename && !readonly && !clientSideOnly && (
+        <RenameFileButton
+          path={path}
+          filePath={source.path}
+          filename={filename}
+          metadata={{
+            mimeType: source.mimeType,
+            ...(source.width !== undefined ? { width: source.width } : {}),
+            ...(source.height !== undefined ? { height: source.height } : {}),
+          }}
+          fileType="file"
+          referencedModule={undefined}
+          disabled={busy}
+          portalContainer={portalContainer}
+          rename={isHls ? renameStream : undefined}
+        />
+      )}
       {schema.opt && source && !readonly && (
         <Button
           variant="ghost"

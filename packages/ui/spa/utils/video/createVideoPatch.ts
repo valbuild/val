@@ -65,7 +65,7 @@ export type CreateVideoPatchInput = {
   schema: SerializedVideoSchema;
 };
 
-type Placed = {
+export type Placed = {
   /** What the source names the file by: the local path, or the remote ref. */
   ref: string;
   file: UploadFile;
@@ -164,7 +164,7 @@ export function bytesToBase64(bytes: Uint8Array): string {
  * first, then the media playlists (rewritten to name the segments' refs and
  * hashed only after that), then the master.
  */
-function placeHls(
+export function placeHls(
   directory: string,
   files: Record<string, UploadFile>,
   input: Pick<CreateVideoPatchInput, "remote" | "schema">,
