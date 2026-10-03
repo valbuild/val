@@ -27,9 +27,19 @@ import type { SerializedSchema } from "./schema";
  * description still previews as `#3` until someone writes the preview.
  */
 /**
- * A RENDER is how the FIELD ITSELF is laid out in the editor, and it applies
- * only when you are looking at the field: `.render({ as: "inline" })` on an
- * array/record item.
+ * A RENDER is how a field is laid out in the editor, and it applies only when
+ * you are looking at the field. It is declared by a CONTAINER about its
+ * children, never by a child about itself: `s.array(item).render({ as: "inline" })`
+ * and `s.record(item).render({ as: "inline" })`. The one other schema that takes
+ * a render is `s.keyOf(...)`, where it means something of its own (see
+ * `KeyOfSchema.render`).
+ *
+ * Why the container: inline is a property of the LIST — "my items are edited in
+ * their rows" — and the item schema is the wrong place to say it. An item can be
+ * reused in a list that wants preview rows and one that wants forms; a tagged
+ * union had to be declared inline on every variant (or on any one of them,
+ * which was worse); and a schema that was not an item carried a setting that
+ * did nothing. Putting it on the container makes all three go away.
  *
  * It is deliberately the ONE thing a render can say. What a string looks like
  * when it holds more than a line is the schema's own business — `.multiline()`
@@ -46,7 +56,7 @@ import type { SerializedSchema } from "./schema";
  *
  * A render is static configuration - plain data, with no closure behind it and
  * no dependency on source - which is why it lives in the SERIALIZED schema
- * (`SerializedStringSchema.render`) and is read straight off it where the field
+ * (`SerializedArraySchema.render`) and is read straight off it where the field
  * is drawn. There is no render pipeline, no store and no host round-trip.
  *
  * That "static" is an ASSUMPTION we are taking deliberately, for simplicity,
@@ -57,57 +67,47 @@ import type { SerializedSchema } from "./schema";
  * conflating them is what this file was split up to undo.
  */
 /**
- * `{ as: "inline" }` on a field that is the ITEM of an array or record: the
- * container renders the field itself inside each (sortable) row, instead of a
- * clickable preview row that navigates to it. This is what a page-builder list
- * is made of: `s.array(s.object({...}).render({ as: "inline" }))`.
+ * `{ as: "inline" }` on an array or record: the container renders each of its
+ * DIRECT items' own editor inside its (sortable) row, instead of a clickable
+ * preview row that navigates to it. This is what a page-builder list is made
+ * of: `s.array(s.discriminatedUnion("type", hero, text)).render({ as: "inline" })`.
  *
- * On a field that is not directly under an array or record it is inert — an
- * object's fields are already laid out in place.
+ * It reaches one level down and no further: in
+ * `s.array(s.object({ tags: s.array(s.string()) })).render({ as: "inline" })`
+ * the objects are inline and `tags` keeps its own default.
  *
- * Like every render it is static configuration (see the top of this file): it
- * travels whole in the serialized schema and the editor reads it straight off
- * the item schema it already has.
+ * Not available on `s.router(...)`, `s.imageset(...)` or `s.fileset(...)`:
+ * pages and media have UIs of their own, and `RecordSchema.render` throws there.
+ *
+ * On `s.keyOf(...)` the same value means something else: the selected entry's
+ * content is shown below the selector. That is the keyOf field's own layout,
+ * and is not read by any list.
  */
 export type InlineRender = { as: "inline" };
 
 /**
- * What `.render(...)` takes on every field, and what the serialized schema
- * carries verbatim.
+ * What `.render(...)` takes, and what the serialized schema carries verbatim.
  */
 export type FieldRender = InlineRender;
 
 /**
- * Is this item schema edited INSIDE its list row, rather than behind a
- * clickable preview row that navigates to it?
+ * Does this CONTAINER edit its items inside their list rows, rather than behind
+ * clickable preview rows that navigate to them?
+ *
+ * Pass the array or record — never the item. Anything else answers `false`,
+ * `s.keyOf` included: its render is about the keyOf field, not about a list.
  *
  * The one answer, so that the list rows, the nav-stop rule (`getNavPath`) and
  * the add buttons cannot drift apart — they are three readings of the same
  * question, and a disagreement between them is a row you can edit in place but
  * that "add" navigates away from.
  *
- * A discriminated union counts as inline when the union itself declares it OR
- * when ANY of its variants does. A page-builder list is
- * `s.array(s.discriminatedUnion("type", block, block, ...))` and the natural
- * place to write the render is on the blocks, one per block type — the union
- * is a dispatch, not something the
- * author thinks of as the field. `some` rather than `every` because the row
- * draws the union's own editor (the tag selector plus the matched variant's
- * fields), which handles every variant either way: with `every`, adding one
- * variant and forgetting its `.render` would silently turn the whole list back
- * into preview rows.
- *
- * This is the ONLY place a render is allowed to be read from anywhere but the
- * schema it was declared on. It stays static (see the top of this file): the
- * answer is a function of the serialized schema alone, never of the value the
- * row happens to hold.
+ * It stays static (see the top of this file): the answer is a function of the
+ * serialized schema alone, never of the value the row happens to hold.
  */
-export function isInlineRender(schema: SerializedSchema): boolean {
-  if (schema.render?.as === "inline") {
-    return true;
+export function isInlineRender(container: SerializedSchema): boolean {
+  if (container.type !== "array" && container.type !== "record") {
+    return false;
   }
-  if (schema.type === "discriminated-union") {
-    return schema.items.some((item) => item.render?.as === "inline");
-  }
-  return false;
+  return container.render?.as === "inline";
 }

@@ -1,5 +1,11 @@
 # @valbuild/tanstack-build
 
+## 0.139.0
+
+### Patch Changes
+
+- [#782](https://github.com/valbuild/val/pull/782) [`ab97279`](https://github.com/valbuild/val/commit/ab9727935223bd8356976a15d09cb69a523e1140) Thanks [@freekh](https://github.com/freekh)! - The `src/val/project-source.d.ts` that wiring a project up to the platform writes now actually declares `platform:project-source`. It was a module (it ended in `export {}`), which made its `declare module` an augmentation of a module that does not exist, so `import { FILES } from "platform:project-source"` in the generated `val.server.ts` failed to resolve in an editor and in `tsc`. Re-wiring a project rewrites the file.
+
 ## 0.138.6
 
 ### Patch Changes
