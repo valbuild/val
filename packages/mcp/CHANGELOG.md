@@ -1,5 +1,14 @@
 # @valbuild/mcp
 
+## 0.139.1
+
+### Patch Changes
+
+- Updated dependencies [[`db13bed`](https://github.com/valbuild/val/commit/db13bed902f9f9147feb5be07ce47fe8b5b143f9), [`5ea70ce`](https://github.com/valbuild/val/commit/5ea70cefde3c74961cfa76b4a5f4c333b850b60a)]:
+  - @valbuild/core@0.139.1
+  - @valbuild/server@0.139.1
+  - @valbuild/shared@0.139.1
+
 ## 0.139.0
 
 ### Patch Changes
