@@ -201,7 +201,7 @@ export const ListOpen: SceneStory = {
 /** Failed: red until something newer goes live; the toast has the actions. */
 export const Failed: SceneStory = {
   render: () => (
-    <Scene indicator={{ kind: "failed" }}>
+    <Scene indicator={{ kind: "failed", cause: "publish" }}>
       <ToastOnMount
         show={() =>
           toast.error("Could not publish", {

@@ -55,6 +55,38 @@ export type ObservedJob = {
  */
 export const RUNNING_JOB_STALE_MS = 10 * 60_000;
 
+/** A job reported running, and heard of recently enough to believe. */
+function isRunning(job: ObservedJob, now: number): boolean {
+  return job.status === "running" && now - job.seenAt < RUNNING_JOB_STALE_MS;
+}
+
+/** When the feed's newest row last moved, or `null` for none or no time. */
+function newestDeploymentAt(deployments: ShellDeployment[]): number | null {
+  const newest = deployments[0];
+  if (newest === undefined) return null;
+  const at = new Date(newest.updatedAt).getTime();
+  return Number.isNaN(at) ? null : at;
+}
+
+/**
+ * When the indicator next changes with nothing else changing, or `null`: the
+ * end of the edge window, or the first believed running job going stale.
+ * Only the believed ones -- one already stale was dropped, and its deadline,
+ * being past, would schedule a timer that fires at once, again and again.
+ */
+export function nextIndicatorChangeAt(
+  indicator: PublishIndicator,
+  jobs: readonly ObservedJob[],
+  now: number,
+): number | null {
+  if (indicator.kind === "reaching") return indicator.everywhereAt;
+  if (indicator.kind !== "publishing" || indicator.mine) return null;
+  const deadlines = jobs
+    .filter((job) => isRunning(job, now))
+    .map((job) => job.seenAt + RUNNING_JOB_STALE_MS);
+  return deadlines.length > 0 ? Math.min(...deadlines) : null;
+}
+
 export function publishIndicator(input: {
   /** This tab's publish, seen through its publish jobs: `publishProgress`. */
   own: StudioDeployState;
@@ -86,12 +118,7 @@ export function publishIndicator(input: {
       percent: builder !== null ? builder.percent : deployPercent(own.phase),
     };
   }
-  if (
-    jobs.some(
-      (job) =>
-        job.status === "running" && now - job.seenAt < RUNNING_JOB_STALE_MS,
-    )
-  ) {
+  if (jobs.some((job) => isRunning(job, now))) {
     return { kind: "publishing", mine: false, step: null, percent: null };
   }
 
@@ -112,15 +139,12 @@ export function publishIndicator(input: {
       liveAt = at;
     }
   };
+  const newestAt = newestDeploymentAt(deployments);
   if (studioIsDeployer) {
     for (const job of jobs) {
       if (job.status === "sealed") moved(job.sealedAt);
     }
-    const newest = deployments[0];
-    if (newest !== undefined) {
-      const at = new Date(newest.updatedAt).getTime();
-      if (!Number.isNaN(at)) moved(at);
-    }
+    moved(newestAt);
   }
   if (liveAt !== null && now < liveAt + EDGE_CACHE_MS) {
     return {
@@ -130,13 +154,21 @@ export function publishIndicator(input: {
     };
   }
 
-  // Ours failed, and nothing has gone live since: Try again is in its toast.
+  /*
+   * Ours failed, and nothing has happened since: Try again is in its toast.
+   * Anything newer -- a publish that went live, or a connected project's
+   * newer row in the feed, building or built -- is the story now, so the
+   * failure gives way to it rather than holding "Not published" until this
+   * tab publishes again.
+   */
+  const failedAt = own.status === "done" ? (own.finishedAt ?? 0) : 0;
   if (
     own.status === "done" &&
     own.result.status === "failed" &&
-    (liveAt === null || (own.finishedAt ?? 0) > liveAt)
+    (liveAt === null || failedAt > liveAt) &&
+    (newestAt === null || failedAt > newestAt)
   ) {
-    return { kind: "failed" };
+    return { kind: "failed", cause: "publish" };
   }
 
   return indicatorOfSummary(

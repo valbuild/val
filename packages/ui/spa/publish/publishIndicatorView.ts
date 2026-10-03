@@ -32,7 +32,11 @@ export type PublishIndicator =
   /** Connected: CI is building one or more pushed commits. */
   | { kind: "building"; count: number }
   /** This editor's publish, or the newest one in the feed, failed. */
-  | { kind: "failed" }
+  /**
+   * Something did not go out. `publish`: this editor's publish -- its toast
+   * has Try again. `build`: the feed's newest build failed, CI's or a host's.
+   */
+  | { kind: "failed"; cause: "publish" | "build" }
   /** The newest publish was reported building over an hour ago. */
   | { kind: "unknown" }
   | { kind: "live" }
@@ -50,7 +54,7 @@ export function indicatorOfSummary(
     case "building":
       return { kind: "building", count: summary.count };
     case "failed":
-      return { kind: "failed" };
+      return { kind: "failed", cause: "build" };
     case "unknown":
       return { kind: "unknown" };
     case "live":
@@ -117,7 +121,7 @@ export function describeIndicator(
         ? `Building ${indicator.count} publishes`
         : "Building";
     case "failed":
-      return "Not published";
+      return indicator.cause === "publish" ? "Not published" : "Build failed";
     case "unknown":
       return "Deploy status unknown";
     case "live":
@@ -147,7 +151,9 @@ export function explainIndicator(
     case "building":
       return "The site is being built from the published changes.";
     case "failed":
-      return "The last publish did not go out. The site is unchanged.";
+      return indicator.cause === "publish"
+        ? "Your last publish did not go out. The site is unchanged."
+        : "The newest build failed. The site still serves the one before it.";
     case "unknown":
       return "The newest publish has not reported back for over an hour.";
     case "live":

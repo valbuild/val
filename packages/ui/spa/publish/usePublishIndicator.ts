@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ShellDeployment } from "../components/shell/types";
 import {
-  RUNNING_JOB_STALE_MS,
+  nextIndicatorChangeAt,
   publishIndicator,
   type ObservedJob,
   type PublishIndicator,
@@ -34,20 +34,10 @@ export function usePublishIndicator(input: {
       studioIsDeployer,
       now,
     });
-    const nextAt =
-      indicator.kind === "reaching"
-        ? indicator.everywhereAt
-        : indicator.kind === "publishing" && !indicator.mine
-          ? Math.min(
-              ...jobs
-                .filter((job) => job.status === "running")
-                .map((job) => job.seenAt + RUNNING_JOB_STALE_MS),
-            )
-          : null;
-    return { indicator, nextAt };
+    return { indicator, nextAt: nextIndicatorChangeAt(indicator, jobs, now) };
   }, [own, builder, jobs, deployments, studioIsDeployer, tick]);
   useEffect(() => {
-    if (nextAt === null || !Number.isFinite(nextAt)) return;
+    if (nextAt === null) return;
     const timer = setTimeout(
       () => setTick(Date.now()),
       Math.max(0, nextAt - Date.now()) + 50,

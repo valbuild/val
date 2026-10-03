@@ -6,6 +6,7 @@ import {
   explainIndicator,
   indicatorPercent,
   isInFlight,
+  nextIndicatorChangeAt,
   publishIndicator,
   type ObservedJob,
 } from "./publishIndicator";
@@ -125,7 +126,7 @@ describe("this editor's publish", () => {
         deployments: [row()],
         now: 6_000,
       }),
-    ).toEqual({ kind: "failed" });
+    ).toEqual({ kind: "failed", cause: "publish" });
   });
 });
 
@@ -203,6 +204,68 @@ describe("another editor's publish", () => {
         now: 9_000 + EDGE_CACHE_MS,
       }),
     ).toEqual({ kind: "live" });
+  });
+});
+
+test("a build the feed reports failed says so, in the feed's words", () => {
+  const indicator = publishIndicator({
+    own: idle,
+    deployments: [row({ state: "failure", isLive: false })],
+    now: 0,
+  });
+  expect(indicator).toEqual({ kind: "failed", cause: "build" });
+  expect(describeIndicator(indicator, 0)).toBe("Build failed");
+});
+
+test("connected: a newer row in the feed takes over from an older failure of ours", () => {
+  expect(
+    publishIndicator({
+      own: failedAt(5_000),
+      deployments: [
+        row({
+          state: "pending",
+          isLive: false,
+          updatedAt: new Date(9_000).toISOString(),
+        }),
+      ],
+      now: 10_000,
+    }),
+  ).toEqual({ kind: "building", count: 1 });
+});
+
+test("an older row in the feed does not hide a newer failure of ours", () => {
+  expect(
+    publishIndicator({
+      own: failedAt(9_000),
+      deployments: [row({ updatedAt: new Date(5_000).toISOString() })],
+      now: 10_000,
+    }),
+  ).toEqual({ kind: "failed", cause: "publish" });
+});
+
+describe("when the indicator next changes by itself", () => {
+  test("at the end of the edge window", () => {
+    const indicator = publishIndicator({ own: liveAt(1_000), now: 2_000 });
+    expect(nextIndicatorChangeAt(indicator, [], 2_000)).toBe(
+      1_000 + EDGE_CACHE_MS,
+    );
+  });
+
+  test("when a believed running job goes stale, never at a stale one's past deadline", () => {
+    const now = RUNNING_JOB_STALE_MS + 5_000;
+    const jobs = [
+      job({ id: "stale", seenAt: 0 }),
+      job({ id: "fresh", seenAt: now - 1_000 }),
+    ];
+    const indicator = publishIndicator({ own: idle, jobs, now });
+    expect(indicator).toMatchObject({ kind: "publishing", mine: false });
+    expect(nextIndicatorChangeAt(indicator, jobs, now)).toBe(
+      now - 1_000 + RUNNING_JOB_STALE_MS,
+    );
+  });
+
+  test("not at all while nothing is on a clock", () => {
+    expect(nextIndicatorChangeAt({ kind: "live" }, [], 0)).toBeNull();
   });
 });
 
