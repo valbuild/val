@@ -1,5 +1,8 @@
 import type { ShellDeployment } from "../components/shell/types";
-import { summarizeDeployments } from "../components/shell/Deployments";
+import {
+  deploymentProgress,
+  summarizeDeployments,
+} from "../components/shell/Deployments";
 import { deployPercent, describeDeployPhase } from "./deployProgress";
 import type { StudioDeployState } from "./useStudioDeploy";
 import {
@@ -144,7 +147,16 @@ export function publishIndicator(input: {
     for (const job of jobs) {
       if (job.status === "sealed") moved(job.sealedAt);
     }
-    moved(newestAt);
+    // A failed row is not a seal: the feed's summary says "Build failed" for
+    // it, and a minute of "Reaching visitors" first would be a minute of
+    // saying the opposite.
+    const newest = deployments[0];
+    if (
+      newest !== undefined &&
+      deploymentProgress(newest, studioIsDeployer) !== "failed"
+    ) {
+      moved(newestAt);
+    }
   }
   if (liveAt !== null && now < liveAt + EDGE_CACHE_MS) {
     return {

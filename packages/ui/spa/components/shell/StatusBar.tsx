@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 import { CircleDot, Cloud, GitBranch, Info, Terminal } from "lucide-react";
-import type { PublishIndicator } from "../../publish/publishIndicatorView";
+import {
+  isInFlight,
+  type PublishIndicator,
+} from "../../publish/publishIndicatorView";
 import { cn } from "../designSystem/cn";
 import { Checkbox } from "../designSystem/checkbox";
 import {
@@ -118,18 +121,27 @@ export function StatusBar({
         </>
       )}
       <div className="ml-auto flex items-center gap-3">
-        {mode === "http" && deployments !== undefined && (
-          <>
-            <DeploymentsStatus
-              deployments={deployments}
-              studioIsDeployer={studioIsDeployer}
-              indicator={publishIndicator}
-              open={deploymentsOpen}
-              onOpenChange={onDeploymentsOpenChange ?? (() => undefined)}
-            />
-            <Divider />
-          </>
-        )}
+        {/*
+          With no deploy feed there is no list and no resting state to show,
+          but a publish under way, or one that failed, is still news: the
+          indicator shows for that alone, over an empty list.
+        */}
+        {mode === "http" &&
+          (deployments !== undefined ||
+            (publishIndicator !== undefined &&
+              (isInFlight(publishIndicator) ||
+                publishIndicator.kind === "failed"))) && (
+            <>
+              <DeploymentsStatus
+                deployments={deployments ?? []}
+                studioIsDeployer={studioIsDeployer}
+                indicator={publishIndicator}
+                open={deploymentsOpen}
+                onOpenChange={onDeploymentsOpenChange ?? (() => undefined)}
+              />
+              <Divider />
+            </>
+          )}
         {mode === "fs" && (
           <>
             <span className="inline-flex items-center gap-1.5">

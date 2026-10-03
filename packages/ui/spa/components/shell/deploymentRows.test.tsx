@@ -3,6 +3,8 @@ import { render, screen } from "@testing-library/react";
 import { DeploymentRows, DeploymentsStatus } from "./Deployments";
 import { ShellDeployment } from "./types";
 import { TooltipProvider } from "../designSystem/tooltip";
+import { StatusBar } from "./StatusBar";
+import type { PublishIndicator } from "../../publish/publishIndicatorView";
 
 /**
  * The rows of the deploy feed, which are a feed and not an inbox.
@@ -120,5 +122,39 @@ describe("the publish indicator", () => {
     );
     const button = screen.getByRole("button", { name: "Deployments: Live" });
     expect(button.getAttribute("aria-busy")).toBe("false");
+  });
+});
+
+/**
+ * A project with no deploy feed still sees its own publish: the indicator
+ * shows while something is under way or failed, and stays out of the way
+ * otherwise.
+ */
+describe("the status bar with no deploy feed", () => {
+  const bar = (indicator: PublishIndicator) => (
+    <TooltipProvider>
+      <StatusBar
+        breakpoint="desktop"
+        saveState="saved"
+        mode="http"
+        autoSave={false}
+        onAutoSaveChange={jest.fn()}
+        publishIndicator={indicator}
+      />
+    </TooltipProvider>
+  );
+
+  test("shows a publish under way", () => {
+    render(
+      bar({ kind: "publishing", mine: true, step: "Building", percent: 12 }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Deployments: Publishing 12%" }),
+    ).not.toBeNull();
+  });
+
+  test("shows nothing at rest", () => {
+    render(bar({ kind: "none" }));
+    expect(screen.queryByRole("button", { name: /^Deployments:/ })).toBeNull();
   });
 });

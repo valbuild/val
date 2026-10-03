@@ -269,6 +269,23 @@ describe("when the indicator next changes by itself", () => {
   });
 });
 
+test("managed: a failed newest row is a failure at once, not a minute of reaching visitors", () => {
+  expect(
+    publishIndicator({
+      own: idle,
+      deployments: [
+        row({
+          state: "failure",
+          isLive: false,
+          updatedAt: new Date(50_000).toISOString(),
+        }),
+      ],
+      studioIsDeployer: true,
+      now: 55_000,
+    }),
+  ).toEqual({ kind: "failed", cause: "build" });
+});
+
 test("nothing in flight and nothing published", () => {
   expect(publishIndicator({ own: idle, now: 0 })).toEqual({ kind: "none" });
 });
