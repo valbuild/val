@@ -442,3 +442,25 @@ test("a rollback to the schema of a late answer is still reported", async () => 
 
   expect(freshness(system)).toBe("out-of-date");
 });
+
+test("a read still out when the system is disposed reports nothing", async () => {
+  const answers: ((sha: string) => void)[] = [];
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => "p" as PatchId,
+    readServedSchemaSha: () =>
+      new Promise<string>((resolve) => answers.push(resolve)),
+  });
+  system.host.receive(before());
+  stat(system, oldSha);
+  stat(system, newSha);
+  await jest.advanceTimersByTimeAsync(SCHEMA_DISAGREEMENT_GRACE_MS);
+  expect(answers).toHaveLength(1);
+
+  system.dispose();
+  answers[0](newSha);
+  await jest.advanceTimersByTimeAsync(SCHEMA_DISAGREEMENT_GRACE_MS * 20);
+
+  expect(freshness(system)).toBe("current");
+  expect(answers).toHaveLength(1);
+});

@@ -72,6 +72,8 @@ export class SchemaFreshnessWatch {
   private changedDuringRead = false;
   /** The editor has been told to reload. */
   private reported = false;
+  /** Torn down with the system. Nothing is read, scheduled or reported after. */
+  private stopped = false;
   private readonly graceMs: number;
   private readonly readServedSchemaSha: ReadServedSchemaSha | undefined;
 
@@ -102,6 +104,8 @@ export class SchemaFreshnessWatch {
     return () => {
       offStat();
       offHost();
+      // A read still out answers into nothing: see `settle`.
+      this.stopped = true;
       this.cancel();
     };
   }
@@ -136,7 +140,7 @@ export class SchemaFreshnessWatch {
   }
 
   private schedule(delayMs: number): void {
-    if (this.timer !== null) return;
+    if (this.stopped || this.timer !== null) return;
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.settle();
@@ -150,7 +154,7 @@ export class SchemaFreshnessWatch {
   }
 
   private async settle(): Promise<void> {
-    if (this.reported) return;
+    if (this.reported || this.stopped) return;
     const read = this.readServedSchemaSha;
     if (read === undefined) {
       if (this.disagree()) this.report();
@@ -166,6 +170,7 @@ export class SchemaFreshnessWatch {
       served = null;
     }
     this.reading = false;
+    if (this.stopped) return;
     const running = this.host.schemaSha();
     if (served === null || running === null) {
       /*
