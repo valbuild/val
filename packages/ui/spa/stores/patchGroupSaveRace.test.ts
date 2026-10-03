@@ -11,6 +11,9 @@ import {
   type StagePatches,
 } from "./createSystem";
 import type { SavePatches, SaveResult } from "./PatchSync";
+import { PatchSetStore } from "./PatchSetStore";
+import { ReferenceStore } from "./ReferenceStore";
+import { SearchStore } from "./SearchStore";
 import type { PatchRecord } from "./types";
 
 /**
@@ -429,4 +432,62 @@ test("disposing while a save's closure is still being worked out sends the chang
 
   // Nothing is on the wire to race, so the click goes out now.
   expect(server.requests.map((request) => request.kind)).toEqual(["stage"]);
+});
+
+test("with no grouping, unstaging one write of a batch takes the later writes of that batch with it", async () => {
+  const server = makeServer("on-answer");
+  let groupingFails = false;
+  const patchSets = new PatchSetStore();
+  let next = 0;
+  const system = createSystem({
+    workerRealm: {
+      search: new SearchStore(),
+      references: new ReferenceStore(),
+      patchSets: {
+        getPatchSets: async (request) => {
+          if (groupingFails) throw new Error("no grouping in this test");
+          return patchSets.getPatchSets(request);
+        },
+      },
+    },
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => `batch-${++next}` as PatchId,
+    savePatches: server.savePatches,
+    stagePatches: server.stagePatches,
+    unstagePatches: server.unstagePatches,
+    saveBackoffMs: () => 0,
+  });
+  system.host.receive(project());
+  system.seedPatchGroup([]);
+  system.setPatchGroupResolver(async () => ({ withPatchIds: [] }));
+
+  // Two writes made before there is a parent to save against, so they go out
+  // as ONE batch once a stat arrives: the second sits on the first.
+  for (const value of ["first", "second"]) {
+    const res = await system.patchStore.createPatch(LIST, [
+      { op: "replace", path: ["items", "0"], value },
+    ]);
+    if (res.status !== "created") throw new Error(`createPatch: ${res.status}`);
+  }
+  const [first, second] = ["batch-1", "batch-2"] as PatchId[];
+  system.stat.receiveStat({ patches: [], baseSha: "sha", profileId: ME });
+  for (let i = 0; i < 20 && server.saves.length === 0; i++) await settle();
+  expect(server.saves).toHaveLength(1);
+
+  // The user unstages the first write alone while the save is in flight, and
+  // the grouping cannot be had to work out what sits on it.
+  groupingFails = true;
+  click(system, { type: "unstage", patchIds: [first], withPatchIds: [] });
+  server.saves[0].answer();
+  await settle();
+
+  expect(server.requests.at(-1)).toEqual({
+    kind: "unstage",
+    patchIds: [first],
+    withPatchIds: [second],
+  });
+  // Never the second write without the first beneath it.
+  expect(server.members.has(first)).toBe(false);
+  expect(server.members.has(second)).toBe(false);
+  expect(system.patchGroup()).not.toContain(second);
 });

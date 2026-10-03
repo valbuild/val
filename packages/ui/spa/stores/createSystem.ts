@@ -1216,14 +1216,26 @@ export function createSystem(options: SystemOptions): System {
       doomed = candidates.filter((patchId) => !surviving.has(patchId));
     } catch {
       /*
-       * No grouping. The closure the write carried is the record of what it
-       * was written on, so if the unstage names any of that, the write goes
-       * too: unstaging an edit the user can stage again is recoverable, and a
-       * hole is not.
+       * No grouping, so err towards taking too much: unstaging an edit the
+       * user can stage again is recoverable, and a hole is not.
+       *
+       * The closure the write carried is the record of what it was written
+       * on, so if the unstage names any of that, the whole batch goes. And a
+       * batch is in chain order, so if it names one of the batch's own writes,
+       * every later write in the batch may sit on it and goes too -- left
+       * behind, it would stay staged over the write the user took out.
        */
-      doomed = write.withPatchIds.some((patchId) => named.has(patchId))
-        ? write.patchIds.filter((patchId) => !named.has(patchId))
-        : [];
+      if (write.withPatchIds.some((patchId) => named.has(patchId))) {
+        doomed = write.patchIds.filter((patchId) => !named.has(patchId));
+      } else {
+        const first = write.patchIds.findIndex((patchId) => named.has(patchId));
+        doomed =
+          first === -1
+            ? []
+            : write.patchIds
+                .slice(first + 1)
+                .filter((patchId) => !named.has(patchId));
+      }
     }
     if (doomed.length === 0) {
       return { change, entries: new Map() };
