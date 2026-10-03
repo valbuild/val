@@ -1,5 +1,24 @@
 # @valbuild/server
 
+## 0.138.6
+
+### Patch Changes
+
+- [#774](https://github.com/valbuild/val/pull/774) [`9d28775`](https://github.com/valbuild/val/commit/9d287750631b239b70bc7545e3b9fa9011e81db7) Thanks [@freekh](https://github.com/freekh)! - Publishing from a phone is quicker to follow, and fails less.
+
+  - The builder tab closes once it has built and uploaded your change. Checking that the site renders and putting it live no longer need the tab, so you don't have to keep it open.
+  - After the builder tab closes you get one "Published" message, not three.
+  - If a publish fails, the builder tab gives the same reason as the Studio's message, not a vaguer one.
+  - If the builder tab is closed, or your phone pauses it in the background before it finishes, you're no longer stuck with Publish greyed out until you reload. After a short wait the Studio says the tab stopped answering, and pressing Publish again picks the publish up where it left off. Nothing is lost or published twice.
+  - A publish no longer fails with "This deployment cannot prepare a publish job for this project" when the site happens to answer from a server that hasn't loaded your changes yet.
+
+- [#774](https://github.com/valbuild/val/pull/774) [`9d28775`](https://github.com/valbuild/val/commit/9d287750631b239b70bc7545e3b9fa9011e81db7) Thanks [@freekh](https://github.com/freekh)! - Edits no longer disappear from a site on Val Build for up to a minute after its first publish.
+
+  For a short while after a publish, the site can still serve the previous build. If that build was the project's starting template, it was treated as though it already had the new changes, so they vanished from the page until the new build reached you. Each build now tells Val's content service which build it is, and gets exactly the changes it is missing.
+
+- Updated dependencies [[`9d28775`](https://github.com/valbuild/val/commit/9d287750631b239b70bc7545e3b9fa9011e81db7)]:
+  - @valbuild/ui@0.138.6
+
 ## 0.138.5
 
 ### Patch Changes

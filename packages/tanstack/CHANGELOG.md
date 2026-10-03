@@ -1,5 +1,20 @@
 # @valbuild/tanstack
 
+## 0.138.6
+
+### Patch Changes
+
+- [#774](https://github.com/valbuild/val/pull/774) [`9d28775`](https://github.com/valbuild/val/commit/9d287750631b239b70bc7545e3b9fa9011e81db7) Thanks [@freekh](https://github.com/freekh)! - Edits no longer disappear from a site on Val Build for up to a minute after its first publish.
+
+  For a short while after a publish, the site can still serve the previous build. If that build was the project's starting template, it was treated as though it already had the new changes, so they vanished from the page until the new build reached you. Each build now tells Val's content service which build it is, and gets exactly the changes it is missing.
+
+- Updated dependencies [[`9d28775`](https://github.com/valbuild/val/commit/9d287750631b239b70bc7545e3b9fa9011e81db7), [`9d28775`](https://github.com/valbuild/val/commit/9d287750631b239b70bc7545e3b9fa9011e81db7)]:
+  - @valbuild/ui@0.138.6
+  - @valbuild/server@0.138.6
+  - @valbuild/react@0.138.6
+  - @valbuild/language-server@0.138.6
+  - @valbuild/mcp@0.138.6
+
 ## 0.138.5
 
 ### Patch Changes
