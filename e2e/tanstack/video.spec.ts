@@ -5,7 +5,7 @@ import {
   type Locator,
 } from "@playwright/test";
 import { clearPatchChain, openStudio } from "../studio";
-import { serverField, serverFileOps } from "./serverState";
+import { serverField, serverFileOps, withoutWebCodecs } from "./serverState";
 
 /**
  * `s.video()` in the Studio, against the showcase's `examples/tanstack/src/content/video.val.ts`.
@@ -109,12 +109,13 @@ test("a streaming field falls back to the original where the browser cannot conv
   page,
   request,
 }) => {
+  await withoutWebCodecs(page);
   await openStudio(page, `/val/~${MODULE}?p=%22stream%22`);
   const studio = page.locator("#val-shadow-root");
   await videoPicker(studio).setInputFiles(CLIP);
 
   await expect(
-    studio.locator("text=cannot convert video to a stream"),
+    studio.getByText("cannot convert video to a stream (it needs WebCodecs"),
   ).toBeVisible({ timeout: 60_000 });
   await expect
     .poll(() => fieldValue(request, "stream"), { timeout: 60_000 })
