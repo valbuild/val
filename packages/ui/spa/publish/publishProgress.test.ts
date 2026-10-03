@@ -222,3 +222,67 @@ test("a connected job CI builds does not step back after the hand-off", () => {
     deployPercent(after.phase),
   );
 });
+
+describe("a second press, queued behind the job still being built", () => {
+  const queuedBehind = (
+    running: PublishJobsState["running"],
+  ): PublishJobsState => ({
+    requests: [
+      {
+        requestId: "r1",
+        pressedAt: 1_000,
+        status: { kind: "publishing" },
+        jobId: "J1",
+      },
+      { requestId: "r2", pressedAt: 3_000, status: { kind: "queued" } },
+    ],
+    running,
+  });
+
+  test("reads queued while the first job builds, not the first job's build", () => {
+    const building: StudioDeployState = {
+      status: "running",
+      phase: { kind: "building" },
+      startedAt: 1_500,
+      phaseStartedAt: 2_000,
+      commit: null,
+    };
+    expect(
+      publishProgress(
+        building,
+        queuedBehind({ jobId: "J1", phase: null }),
+        3_500,
+      ),
+    ).toMatchObject({ status: "running", phase: { kind: "queued" } });
+  });
+
+  test("and while the first job hands off: never the first job's 60%", () => {
+    expect(
+      publishProgress(
+        uploaded,
+        queuedBehind({ jobId: "J1", phase: { kind: "handing-off" } }),
+        5_100,
+      ),
+    ).toMatchObject({ status: "running", phase: { kind: "queued" } });
+  });
+
+  test("a queued press this tab's running job does carry is that job's", () => {
+    expect(
+      publishProgress(
+        uploaded,
+        {
+          requests: [
+            {
+              requestId: "r2",
+              pressedAt: 3_000,
+              status: { kind: "queued" },
+              jobId: "J2",
+            },
+          ],
+          running: { jobId: "J2", phase: { kind: "handing-off" } },
+        },
+        5_100,
+      ),
+    ).toMatchObject({ status: "running", phase: { kind: "confirming" } });
+  });
+});

@@ -1,5 +1,9 @@
 import type { DeployStep, StudioDeployState } from "./useStudioDeploy";
-import { isSettled, type PublishJobsState } from "./publishJobs";
+import {
+  isSettled,
+  type PublishJobsState,
+  type TrackedPublish,
+} from "./publishJobs";
 
 /**
  * How far a publish has got, as every progress surface already reads it: one
@@ -13,13 +17,36 @@ import { isSettled, type PublishJobsState } from "./publishJobs";
  * only while it runs, or when it is newer than that press: an update, which
  * is not a job at all.
  */
+/**
+ * Whether the job this tab is running carries a press: by the job id the
+ * press knows, or -- before it knows one -- by not being queued, which a
+ * press a running job carries is not. The same rule `publishJobs` hands off
+ * by.
+ */
+function carries(jobId: string, request: TrackedPublish): boolean {
+  return request.jobId !== undefined
+    ? request.jobId === jobId
+    : request.status.kind !== "queued";
+}
+
 export function publishProgress(
   deploy: StudioDeployState,
   jobs: PublishJobsState,
   now: number,
 ): StudioDeployState {
-  if (deploy.status === "running") return deploy;
   const latest = jobs.requests.at(-1);
+  /*
+   * The newest press, when it waits behind a job that does not carry it: a
+   * second press made while the first is still building. The bar is about
+   * that press, so it reads "queued" from the moment it is made -- showing
+   * the earlier job's build instead dropped it from there to 0% the moment
+   * that job handed off.
+   */
+  const waitingBehind =
+    latest !== undefined &&
+    latest.status.kind === "queued" &&
+    !(jobs.running !== null && carries(jobs.running.jobId, latest));
+  if (deploy.status === "running" && !waitingBehind) return deploy;
   if (latest === undefined) return deploy;
   if (
     deploy.status === "done" &&
@@ -47,7 +74,7 @@ export function publishProgress(
 
   const status = latest.status;
   if (!isSettled(status)) {
-    if (jobs.running !== null) {
+    if (jobs.running !== null && carries(jobs.running.jobId, latest)) {
       /*
        * This tab built the job and is handing it to content: the upload is
        * done and the check is next. Not "reading", which is where the bar
