@@ -535,8 +535,8 @@ export function ValProvider({
    * Two fields only. The store system needs the ordered patch ids to learn about
    * another session's work, and `baseSha` so a write has an honest `parentRef` —
    * without it `PatchSync` reports every edit unsaveable. `sourcesSha` says
-   * which build answered; `schemaSha` / `jsonEntriesSha` are inputs to a
-   * refetch it does not do yet.
+   * which build answered and `schemaSha` which schema it runs;
+   * `jsonEntriesSha` is an input to a refetch it does not do yet.
    */
   const statPatches =
     "data" in stat && stat.data ? stat.data.patches : undefined;
@@ -586,6 +586,9 @@ export function ValProvider({
    */
   const statSourcesSha =
     "data" in stat && stat.data ? stat.data.sourcesSha : undefined;
+  /** Which schema that build runs. See `SchemaFreshnessWatch`. */
+  const statSchemaSha =
+    "data" in stat && stat.data ? stat.data.schemaSha : undefined;
   /**
    * Who holds what, read with the chain. The source of this client's view of
    * the groups — see `PatchStore.receiveStatGroups`.
@@ -604,6 +607,7 @@ export function ValProvider({
             headPatchId: statPatchHead,
             headVersion: statHeadVersion,
             sourcesSha: statSourcesSha,
+            schemaSha: statSchemaSha,
             patchGroups: statPatchGroups,
             profileId: statProfileId,
           }
@@ -617,6 +621,7 @@ export function ValProvider({
       statPatchHead,
       statHeadVersion,
       statSourcesSha,
+      statSchemaSha,
       statPatchGroups,
       statProfileId,
     ],

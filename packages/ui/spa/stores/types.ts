@@ -231,6 +231,12 @@ export type SystemEvent =
       path: SourcePath;
       moduleFilePath: ModuleFilePath;
     }
+  /**
+   * `/stat` named a schema other than the last one it named. On RECEIVE, not
+   * adoption: a stat held back while another build's base is fetched still
+   * says which schema that build runs. See `SchemaFreshnessWatch`.
+   */
+  | { type: "stat:schema"; schemaSha: string }
   /** `/stat` announced the ordered patch-id list. Data not fetched yet. */
   | {
       type: "stat:receive";
