@@ -788,8 +788,8 @@ importers:
   packages/tanstack-build:
     dependencies:
       '@rolldown/browser':
-        specifier: ^1.2.5
-        version: 1.2.9
+        specifier: ^1.2.12
+        version: 1.2.12
       react:
         specifier: '>=19.0.0'
         version: 19.2.8
@@ -4378,8 +4378,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@rolldown/browser@1.2.9':
-    resolution: {integrity: sha512-jXpkubt9wKaXrae/Ljb++yIjWurtIzV2kMLLbCaMDTti5g262xeHjB5m4SIovOsYXaP5frUqh7uc4Xt9QtFRnQ==}
+  '@rolldown/browser@1.2.12':
+    resolution: {integrity: sha512-FEXyXOZuvrw4Zny0ythDCLKxfsqiU8DgQvufDxWzWqWKpiW0YsPVw3hE6Nq99tW35ljommtCcnsxuqo9CNi89w==}
     hasBin: true
 
   '@rolldown/pluginutils@1.0.1':
@@ -13054,7 +13054,7 @@ snapshots:
   '@rolldown/binding-win32-x64-msvc@1.2.6':
     optional: true
 
-  '@rolldown/browser@1.2.9':
+  '@rolldown/browser@1.2.12':
     dependencies:
       '@emnapi/core': 2.0.0-alpha.5
       '@emnapi/runtime': 2.0.0-alpha.5
