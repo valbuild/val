@@ -1,7 +1,7 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
-import { wiredValServer, type WireOptions } from "./wire";
+import { wireUp, wiredValServer, type WireOptions } from "./wire";
 
 /**
  * Does the `val.server.ts` this package GENERATES compile against the
@@ -72,21 +72,6 @@ const DEAD_BRANCH =
   /error TS2339: Property '(commit|branch)' does not exist on type 'never'\./;
 
 /**
- * Ambient names the isolate really does provide.
- *
- * Declared rather than waved through, so a typo in one of them is still an
- * error. `__PLATFORM_SECRETS` and `__PLATFORM_PROJECT_ID` are the platform's
- * own, injected into the isolate at startup.
- */
-const AMBIENT = `
-export {};
-declare global {
-  var __PLATFORM_SECRETS: Record<string, string> | undefined;
-  var __PLATFORM_PROJECT_ID: string | undefined;
-}
-`;
-
-/**
  * Stand-ins for the two modules every Val project has.
  *
  * Real ones, not `any`: the point is to resolve `@valbuild/tanstack/server`
@@ -119,13 +104,23 @@ function typecheck(name: string, options: WireOptions): string {
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(path.join(dir, "src", "val"), { recursive: true });
 
-  fs.writeFileSync(path.join(dir, "ambient.d.ts"), AMBIENT);
-  fs.writeFileSync(path.join(dir, "val.config.ts"), VAL_CONFIG);
-  fs.writeFileSync(path.join(dir, "val.modules.ts"), VAL_MODULES);
-  fs.writeFileSync(
-    path.join(dir, "src", "val", "val.server.ts"),
-    wiredValServer(options),
+  /*
+   * Everything `wireUp` writes, not just `val.server.ts`.
+   *
+   * The generated file imports `platform:project-source` and reads the
+   * platform's globals, and what types them is `project-source.d.ts` -- which
+   * `wireUp` writes beside it. A hand-written stand-in for that file is a
+   * second copy that drifts: this one declared the globals and not the module,
+   * so the import has not resolved since the template gained it.
+   */
+  const { files } = wireUp(
+    { "val.config.ts": VAL_CONFIG, "val.modules.ts": VAL_MODULES },
+    options,
   );
+  for (const [file, content] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+    fs.writeFileSync(path.join(dir, file), content);
+  }
   /*
    * `paths` rather than a devDependency on `@valbuild/tanstack`.
    *
@@ -168,15 +163,33 @@ function typecheck(name: string, options: WireOptions): string {
   );
 
   try {
+    // This package's own `tsc`: the workspace root declares no typescript,
+    // so a root `.bin/tsc` exists only by accident of an install.
     execFileSync(
-      path.join(__dirname, "..", "..", "..", "node_modules", ".bin", "tsc"),
+      path.join(__dirname, "..", "node_modules", ".bin", "tsc"),
       ["-p", dir],
       { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
     return "";
   } catch (error) {
-    const result = error as { stdout?: string; stderr?: string };
-    return `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
+    // No exit status means tsc never ran (ENOENT, say). Reading that as "no
+    // errors" is how this test passed for weeks while checking nothing.
+    //
+    // Not `instanceof Error`: jest runs this file in its own realm, and the
+    // error child_process throws comes from Node's, so it is never one.
+    if (
+      typeof error !== "object" ||
+      error === null ||
+      !("status" in error) ||
+      typeof error.status !== "number"
+    ) {
+      throw error;
+    }
+    const stdout =
+      "stdout" in error && typeof error.stdout === "string" ? error.stdout : "";
+    const stderr =
+      "stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
+    return `${stdout}${stderr}`.trim();
   }
 }
 
