@@ -2,6 +2,7 @@ import { Patch } from "@valbuild/core/patch";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import {
   newestCommitSha,
+  PatchGroup,
   ValClient,
   ValCommit,
   ValDeployment,
@@ -58,6 +59,11 @@ const WebSocketServerMessage = z.union([
     headPatchId: PatchId.nullable().optional(),
     /** The chain version of that head. See `headVersion` on {@link StatData}. */
     headVersion: z.number().optional(),
+    /**
+     * Who holds what, read with `patches` and `headVersion`. Absent from a
+     * content service that predates sending it.
+     */
+    patchGroups: z.array(PatchGroup).optional(),
   }),
   z.object({
     type: z.literal("deployment"),
@@ -205,6 +211,11 @@ export const StatData = z.object({
    * reported".
    */
   headVersion: z.number().optional(),
+  /**
+   * Every group on the branch and what each holds, read with `patches` and
+   * `headVersion`. `http` only, and absent where there are no groups.
+   */
+  patchGroups: z.array(PatchGroup).optional(),
   /**
    * The newest commit, which is the PUBLISH head.
    *
@@ -570,6 +581,15 @@ async function execStat(
                         // came with is a parent the server will refuse.
                         headPatchId: message.headPatchId,
                         headVersion: message.headVersion,
+                        /*
+                         * And the groups, for the same reason: they are read
+                         * at that version. A message without them clears the
+                         * old ones rather than keeping them — the old groups
+                         * beside the new version would say a stage or unstage
+                         * the server has made is not there, and the scope
+                         * would follow that.
+                         */
+                        patchGroups: message.patchGroups,
                       },
                       waitStart:
                         "waitStart" in prev ? prev.waitStart : Date.now(),

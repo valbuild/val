@@ -6,6 +6,7 @@ import type {
   ValModules,
 } from "@valbuild/core";
 import type { System } from "../createSystem";
+import type { PatchGroupT } from "@valbuild/shared/internal";
 import { ValSystemProvider } from "./SystemContext";
 
 /**
@@ -65,6 +66,10 @@ export function ValStoreProvider({
     headVersion?: number;
     /** See {@link StatSnapshot.sourcesSha}. Which build answered. */
     sourcesSha?: string;
+    /** See {@link StatSnapshot.patchGroups}. Who holds what. */
+    patchGroups?: PatchGroupT[];
+    /** See {@link StatSnapshot.profileId}. Who is asking. */
+    profileId?: string | null;
   } | null;
   children: ReactNode;
 }) {
@@ -145,6 +150,10 @@ export function ValStoreProvider({
       // Which build answered, so a chain from a build other than the bundle's
       // is put on that build's base. See `BaseAlignment`.
       sourcesSha: stat.sourcesSha,
+      // Who holds what, and who is asking, so the scope follows the server's
+      // groups. See `PatchStore.receiveStatGroups`.
+      patchGroups: stat.patchGroups,
+      profileId: stat.profileId,
     });
   }, [system, stat, received]);
 

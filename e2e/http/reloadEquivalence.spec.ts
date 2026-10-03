@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import {
   contextAs,
   mock,
@@ -8,6 +8,7 @@ import {
   writePatch,
 } from "./httpMode";
 import { expectSameAsReload, markLive } from "./reloadEquivalence";
+import { actOnFirstRow, openReview } from "./staging";
 
 /**
  * An open Studio shows what a reload would — after each thing that can happen
@@ -17,12 +18,6 @@ import { expectSameAsReload, markLive } from "./reloadEquivalence";
  * here is one way the server's state can move while a Studio is open: another
  * browser of the same user, another user, a publish. The assertion is the
  * same every time, which is the point — a divergence anywhere is the same bug.
- *
- * Known to diverge today, and so not here yet: a stage or an unstage made in
- * another browser of the same user, a stage made elsewhere after this browser
- * unstaged the same change, and a stage made before the user has a group. All
- * four are gap 5 in `docs/independent-publish/DESIGN.md`, and they land here
- * with the fix that closes it.
  */
 
 const AUTHORS = "/content/authors.val.ts";
@@ -145,4 +140,164 @@ test("Ada's own publish, seen from her other browser", async ({
   } finally {
     await other.close();
   }
+});
+
+function studioOf(page: Page) {
+  return page.locator("#val-shadow-root");
+}
+
+test("a change Ada stages in another browser", async ({ page, browser }) => {
+  // Ada has a group, and Linus has a change she can stage into it.
+  await openHttpStudio(page);
+  await writePatch(page, AUTHORS, [
+    { op: "replace", path: ["freekh", "name"], value: "Ada, pending" },
+  ]);
+  const linus = await contextAs(browser, "linus");
+  const other = await contextAs(browser, "ada");
+  try {
+    const theirs = await linus.newPage();
+    await openHttpStudio(theirs);
+    await writePatch(theirs, AUTHORS, [
+      { op: "replace", path: ["teddy", "name"], value: "Linus, staged by Ada" },
+    ]);
+    await linus.close();
+
+    const elsewhere = await other.newPage();
+    await openHttpStudio(elsewhere);
+    await openHttpStudio(page);
+    await markLive(page);
+    await openReview(elsewhere, studioOf(elsewhere));
+    await actOnFirstRow(
+      studioOf(elsewhere),
+      "Stage",
+      "Linus's change was not offered for staging",
+    );
+    await expectSameAsReload(
+      browser,
+      page,
+      "ada",
+      "Ada staged in her other browser",
+    );
+  } finally {
+    await other.close();
+  }
+});
+
+test("a change Ada unstages in another browser", async ({ page, browser }) => {
+  await openHttpStudio(page);
+  await writePatch(page, AUTHORS, [
+    { op: "replace", path: ["teddy", "name"], value: "Ada, then unstaged" },
+  ]);
+  const other = await contextAs(browser, "ada");
+  try {
+    const elsewhere = await other.newPage();
+    await openHttpStudio(elsewhere);
+    await openHttpStudio(page);
+    await markLive(page);
+    await openReview(elsewhere, studioOf(elsewhere));
+    await actOnFirstRow(
+      studioOf(elsewhere),
+      "Unstage",
+      "Ada's change was not offered for unstaging",
+    );
+    await expectSameAsReload(
+      browser,
+      page,
+      "ada",
+      "Ada unstaged in her other browser",
+    );
+  } finally {
+    await other.close();
+  }
+});
+
+test("a change re-staged elsewhere after this browser unstaged it", async ({
+  page,
+  browser,
+}) => {
+  /*
+   * This browser's unstage is remembered so that a STALE annotation cannot
+   * undo it. A later stage made elsewhere is not stale, and a reload shows it.
+   */
+  const other = await contextAs(browser, "ada");
+  const linus = await contextAs(browser, "linus");
+  try {
+    // Every page opened up front, so `next dev` is done compiling before
+    // anything here depends on `page` not having been reloaded.
+    const elsewhere = await other.newPage();
+    await openHttpStudio(elsewhere);
+    const theirs = await linus.newPage();
+    await openHttpStudio(theirs);
+    await openHttpStudio(page);
+
+    await writePatch(page, AUTHORS, [
+      { op: "replace", path: ["teddy", "name"], value: "Ada, back and forth" },
+    ]);
+    await openReview(page, studioOf(page));
+    await actOnFirstRow(
+      studioOf(page),
+      "Unstage",
+      "Ada's change was not offered for unstaging",
+    );
+    await markLive(page);
+
+    // The other browser has never seen the change staged, so it reads the
+    // group fresh and stages it back.
+    await openHttpStudio(elsewhere);
+    await openReview(elsewhere, studioOf(elsewhere));
+    await actOnFirstRow(
+      studioOf(elsewhere),
+      "Stage",
+      "Ada's change was not offered for staging again",
+    );
+    // A write elsewhere makes `page` fetch, which brings the annotation.
+    await writePatch(theirs, AUTHORS, [
+      { op: "replace", path: ["freekh", "name"], value: "Linus, unrelated" },
+    ]);
+    await expectSameAsReload(
+      browser,
+      page,
+      "ada",
+      "Ada re-staged in her other browser",
+    );
+  } finally {
+    await linus.close();
+    await other.close();
+  }
+});
+
+test("a change staged while Ada has no group yet", async ({
+  page,
+  browser,
+}) => {
+  /*
+   * Ada has no open group, so the stage goes to `~`, which the content
+   * service reads as her open group and creates for it. It is on the server at
+   * once, and so a reload shows it. (It used to be held in this tab until her
+   * next write created a group, and a reload lost it.)
+   */
+  const linus = await contextAs(browser, "linus");
+  try {
+    const theirs = await linus.newPage();
+    await openHttpStudio(theirs);
+    await writePatch(theirs, AUTHORS, [
+      { op: "replace", path: ["teddy", "name"], value: "Linus, held by Ada" },
+    ]);
+  } finally {
+    await linus.close();
+  }
+  await openHttpStudio(page);
+  await markLive(page);
+  await openReview(page, studioOf(page));
+  await actOnFirstRow(
+    studioOf(page),
+    "Stage",
+    "Linus's change was not offered for staging",
+  );
+  await expectSameAsReload(
+    browser,
+    page,
+    "ada",
+    "Ada staged before she had a group",
+  );
 });

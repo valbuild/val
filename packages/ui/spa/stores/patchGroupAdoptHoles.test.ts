@@ -113,3 +113,52 @@ test("a change written on top of one this tab unstaged is not adopted alone", as
   // And a change that needs nothing taken out is adopted as before.
   expect(scope).toContain(unrelated);
 });
+
+test("with versioned groups too: an unconfirmed unstage keeps a change over it out", async () => {
+  /*
+   * The same shape on the path a current content service takes: the groups
+   * come with every stat, at a version. This tab's unstage of `insert` has not
+   * been answered when a stat lists both it and `edit`.
+   */
+  const system = createSystem({
+    fetchPatches: async (patchIds) => ({
+      patches: patchIds.flatMap((patchId) =>
+        records[patchId] ? [records[patchId]] : [],
+      ),
+    }),
+    createPatchId: () => "local" as PatchId,
+    // Never answered, so the unstage stays this tab's and unconfirmed.
+    unstagePatches: () => new Promise(() => {}),
+  });
+  system.host.receive(project());
+  const stat = (version: number, groups: PatchGroupT[]) =>
+    system.stat.receiveStat({
+      patches: [insert, edit, unrelated].slice(0, version === 1 ? 1 : 3),
+      baseSha: "sha",
+      headVersion: version,
+      patchGroups: groups,
+      profileId: ME,
+    });
+  system.stat.receiveStat({ patches: [], baseSha: "sha", profileId: ME });
+  system.seedPatchGroup([]);
+  stat(1, [group([insert])]);
+  await system.patchSync.flush();
+  await settle();
+  expect(system.patchGroup()).toContain(insert);
+
+  system.setPatchGroup([]);
+  system.persistPatchGroupChange("g-mine", {
+    type: "unstage",
+    patchIds: [insert],
+    withPatchIds: [],
+  });
+
+  stat(2, [group([insert, edit, unrelated])]);
+  await system.patchSync.flush();
+  for (let i = 0; i < 5; i++) await settle();
+
+  const scope = system.patchGroup() ?? [];
+  expect(scope).not.toContain(insert);
+  expect(scope).not.toContain(edit);
+  expect(scope).toContain(unrelated);
+});

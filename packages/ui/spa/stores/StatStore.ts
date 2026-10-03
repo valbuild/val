@@ -1,4 +1,5 @@
 import type { PatchId } from "@valbuild/core";
+import type { PatchGroupT } from "@valbuild/shared/internal";
 import { StoreBus } from "./StoreBus";
 import type { SystemEvent } from "./types";
 
@@ -102,6 +103,21 @@ export type StatSnapshot = {
    * base the Studio has, as it always was.
    */
   sourcesSha?: string;
+  /**
+   * Every group on the branch and which of `patches` each holds, read in the
+   * same transaction as the list and {@link headVersion}.
+   *
+   * What this client's view of the groups is taken from: on every stat, so a
+   * stage or an unstage made in another browser reaches this one with the next
+   * stat rather than the next reload. See `PatchStore.receiveStatGroups`.
+   * Absent where the server has no groups or predates sending them.
+   */
+  patchGroups?: PatchGroupT[];
+  /**
+   * Who `/stat` says is asking, so the system can tell which group is theirs
+   * without waiting for the shell to. `null` where it does not know.
+   */
+  profileId?: string | null;
 };
 
 /**
@@ -140,6 +156,8 @@ export class StatStore {
   /** The version of the ADOPTED head, which is {@link headPatchId}'s. */
   private headVersion: number | undefined = undefined;
   private baseSha: string | null = null;
+  /** See {@link currentProfileId}. */
+  private profileId: string | null = null;
   /** The publish head. See {@link StatSnapshot.headCommitSha}. */
   private headCommitSha: string | null = null;
   /**
@@ -261,11 +279,20 @@ export class StatStore {
         this.supersededHead = null;
       }
     }
+    if (snapshot.profileId !== undefined) {
+      this.profileId = snapshot.profileId;
+    }
     this.events.emit({
       type: "stat:receive",
       patches: [...this.patches],
       ...(snapshot.appliedPatches !== undefined
         ? { appliedPatches: [...snapshot.appliedPatches] }
+        : {}),
+      ...(snapshot.patchGroups !== undefined
+        ? { patchGroups: snapshot.patchGroups }
+        : {}),
+      ...(snapshot.headVersion !== undefined
+        ? { headVersion: snapshot.headVersion }
         : {}),
     });
     if (snapshot.removed !== undefined && snapshot.removed.length > 0) {
@@ -277,6 +304,14 @@ export class StatStore {
         removed: snapshot.removed,
       });
     }
+  }
+
+  /**
+   * Who the last stat said is asking, or `null` before one has said. See
+   * {@link StatSnapshot.profileId}.
+   */
+  currentProfileId(): string | null {
+    return this.profileId;
   }
 
   currentPatchIds(): PatchId[] {

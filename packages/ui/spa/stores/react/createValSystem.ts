@@ -593,7 +593,13 @@ export function createValSystem(
                   : {}),
               };
             }
-            return { status: "ok" };
+            return {
+              status: "ok",
+              ...(res.json.headVersion !== undefined
+                ? { headVersion: res.json.headVersion }
+                : {}),
+              patchGroupId: res.json.patchGroupId,
+            };
           },
           unstagePatches: async (request) => {
             const res = await client("/patch-groups/~/patches", "DELETE", {
@@ -617,7 +623,13 @@ export function createValSystem(
                   : {}),
               };
             }
-            return { status: "ok" };
+            return {
+              status: "ok",
+              ...(res.json.headVersion !== undefined
+                ? { headVersion: res.json.headVersion }
+                : {}),
+              patchGroupId: res.json.patchGroupId,
+            };
           },
           savePatches: async ({
             patches,

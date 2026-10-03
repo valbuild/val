@@ -479,6 +479,11 @@ export class PatchStore {
         this.lastBaseSha = baseSha;
       }
       this.receiveApplied(event.appliedPatches);
+      // Before the ids: a record the fetch below brings in is applied, or held,
+      // against the groups as THIS stat describes them.
+      if (event.patchGroups !== undefined) {
+        this.receiveStatGroups(event.patchGroups, event.headVersion);
+      }
       void this.onStatPatchIds(event.patches, baseMoved);
     });
     const offApply = source.events.on("source:patch-apply", (event) => {
@@ -695,6 +700,10 @@ export class PatchStore {
       });
     }
     if (
+      // Once a stat carries the groups, they come from there and nowhere else:
+      // this annotation is read separately from the chain and carries no
+      // version, so it can be older than what a stat has already said.
+      !this.statCarriesGroups &&
       res.patchGroups !== undefined &&
       !sameGroups(this.patchGroups, res.patchGroups)
     ) {
@@ -1880,6 +1889,61 @@ export class PatchStore {
    */
   groups(): PatchGroupT[] | undefined {
     return this.patchGroups;
+  }
+
+  /**
+   * The chain version {@link groups} was read at, or `undefined` when it was
+   * not read from a stat — an older server's annotation, which carries none.
+   *
+   * What the system compares its own unconfirmed group changes against: one
+   * the server answered at version `v` is shown as this client made it until
+   * the groups are at least `v`, and then the groups say it.
+   */
+  groupsReadAt(): number | undefined {
+    return this.groupsVersionRead;
+  }
+
+  /** See {@link groupsReadAt}. */
+  private groupsVersionRead: number | undefined = undefined;
+  /** See {@link receiveStatGroups}. */
+  private statCarriesGroups = false;
+
+  /**
+   * The groups as a stat reports them: every group on the branch and which of
+   * the listed patches each holds, at the version the list was read at.
+   *
+   * The server's account, taken whole on every stat. That is what makes a
+   * stage, an unstage or a write in another browser reach this one: the
+   * content service announces each of them, every client re-stats, and here
+   * it is.
+   *
+   * An EMPTY list does not turn groups on. "This branch has no groups yet" is
+   * how every project looks before its first write, and the annotation on
+   * `GET /patches` has always left groups off in that state — so the
+   * deployment is latched as having groups by the first non-empty answer, as
+   * it always was.
+   */
+  receiveStatGroups(groups: PatchGroupT[], version: number | undefined): void {
+    this.statCarriesGroups = true;
+    let changed = false;
+    if (
+      !(groups.length === 0 && this.patchGroups === undefined) &&
+      !sameGroups(this.patchGroups, groups)
+    ) {
+      this.patchGroups = groups;
+      changed = true;
+    }
+    if (groups.length > 0 && !this.patchGroupsSeen) {
+      this.patchGroupsSeen = true;
+      changed = true;
+    }
+    if (version !== undefined && version !== this.groupsVersionRead) {
+      // A reader comparing against the version has to be woken even when the
+      // groups did not move: what it was waiting for may now be covered.
+      this.groupsVersionRead = version;
+      changed = true;
+    }
+    if (changed) this.bumpGroups();
   }
 
   /**

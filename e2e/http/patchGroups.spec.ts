@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import {
   contextAs,
   mock,
@@ -9,6 +9,7 @@ import {
   USERS,
   writePatch,
 } from "./httpMode";
+import { actOnFirstRow, openReview } from "./staging";
 
 /**
  * Independent publish, against a content service that actually has groups.
@@ -248,82 +249,6 @@ test.describe("patch groups in http mode", () => {
 });
 
 /**
- * Reach the review screen the way an editor does.
- *
- * `page.goto("/val/compare")` looks equivalent and is not: it reloads the SPA,
- * throwing away the intake and the pending edit the view exists to show. Review
- * is the route in, and it only appears once there is something to review — so
- * clicking it is also the wait for the edit having landed.
- *
- * The name is matched WITHOUT requiring a count, unlike the `fs` suite's
- * version. Review's badge is `hasNetChanges ? pendingChanges : 0`, and a held
- * patch makes the scoped source equal base — so once everything is unstaged the
- * button is still there and still works, but it reads "Review changes" rather
- * than "Review 1 change". Requiring the digits made this test unable to reach
- * the one screen a held change can be put back from.
- */
-async function openReview(page: Page, studio: Locator): Promise<void> {
-  const review = studio.getByRole("button", {
-    name: /^Review( \d+)? changes?$/,
-  });
-  await expect(review).toBeVisible({ timeout: 30_000 });
-  await review.click();
-}
-
-/**
- * The rows of one half of the review page.
- *
- * SCOPED, and that is the whole point of this helper. The page lists staged
- * rows above unstaged ones, so "the first checkbox" is whichever half happens
- * to be non-empty — and pressing Stage on an already-staged row is a no-op
- * that leaves the assertion to fail three steps later, naming the group rather
- * than the click. The old per-row buttons could not be got wrong this way: a
- * Stage button only existed on a row that was unstaged.
- */
-function rowsIn(studio: Locator, section: "Staged" | "Unstaged"): Locator {
-  /*
-   * By the info button's label, through CSS `:has()`.
-   *
-   * Not `filter({ has: getByRole("heading") })`: an inner locator built from
-   * the shadow-root handle does not re-root onto the section, so it matched
-   * nothing and the failure read as "no staging control" over a screenshot
-   * plainly showing one. And not `:has-text("Staged")` either — that matches
-   * "Unstaged" as a substring, which is the same bug the other way round. An
-   * attribute selector is exact.
-   */
-  return studio
-    .locator(`section:has([aria-label="What ${section.toLowerCase()} means"])`)
-    .getByRole("checkbox");
-}
-
-/**
- * Act on one change, through the controls an editor actually has.
- *
- * The review page separates SELECTING from ACTING — a tick box per row, and
- * one button for whatever is ticked — because one control cannot answer both
- * "is this going out" and "am I about to change that". So this is two
- * gestures, and it has to be: a test that reached past the selection would be
- * asserting on a button the user cannot press without first choosing what it
- * applies to.
- */
-async function actOnFirstRow(
-  studio: Locator,
-  action: "Stage" | "Unstage",
-  absentMessage: string,
-): Promise<void> {
-  // Stage acts on an UNSTAGED row and vice versa.
-  const row = rowsIn(
-    studio,
-    action === "Stage" ? "Unstaged" : "Staged",
-  ).first();
-  await expect(row, absentMessage).toBeVisible({ timeout: 30_000 });
-  await row.click();
-  const button = studio.getByRole("button", { name: action, exact: true });
-  await expect(button).toBeEnabled({ timeout: 30_000 });
-  await button.click();
-}
-
-/**
  * The staging CONTROLS, which until now existed only in stories.
  *
  * Everything above drives the scope through the system. This drives the button,
@@ -505,27 +430,38 @@ test.describe("the staging controls", () => {
     );
 
     /*
-     * Nowhere to send it yet, so Bob's group must be untouched — and no group
-     * of Alice's may have been invented to hold it.
+     * Bob's group is untouched, and the stage is on the server AT ONCE: sent
+     * to `~`, which the content service reads as Alice's open group and creates
+     * for it. It used to be held in this tab until her next write created the
+     * group — and a reload or her other browser never saw it.
      */
+    await expect
+      .poll(
+        async () => {
+          const state = await mock.state();
+          return state.patchGroups
+            .filter(
+              (group) =>
+                group.authorId === USERS.ada.profileId &&
+                group.publishedAt === null,
+            )
+            .map((group) => group.patchIds);
+        },
+        { message: "the stage did not reach the content service at once" },
+      )
+      .toEqual([[bobPatch]]);
     const during = await mock.state();
     expect(
-      during.patchGroups.find((group) => group.patchIds.includes(bobPatch))
-        ?.authorId,
-    ).toBe(USERS.linus.profileId);
-    expect(
-      during.patchGroups.filter(
+      during.patchGroups.find(
         (group) =>
-          group.authorId === USERS.ada.profileId && group.publishedAt === null,
+          group.authorId === USERS.linus.profileId &&
+          group.patchIds.includes(bobPatch),
       ),
-      "an open group appeared for Alice before she wrote anything",
-    ).toHaveLength(0);
+      "Bob's own group lost his change",
+    ).toBeDefined();
 
     /*
-     * Alice types again. That creates her next group, and the held stage goes
-     * out with it — which is why the queue lives on the system: this write
-     * happens after she has navigated off the review screen that took the
-     * click.
+     * Alice types again. Her write joins the group the stage created.
      */
     const alicePatch = await writePatch(page, AUTHORS, [
       { op: "replace", path: ["teddy", "name"], value: "Alice, again" },
@@ -544,7 +480,7 @@ test.describe("the staging controls", () => {
         },
         {
           message:
-            "the post-publish write joined no group, or the held stage never went out",
+            "the post-publish write did not join the group the stage created",
         },
       )
       .toEqual([alicePatch, bobPatch].sort());
