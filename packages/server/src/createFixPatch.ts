@@ -9,6 +9,10 @@ import {
   ValidationError,
 } from "@valbuild/core";
 import {
+  extractVideoMetadataFromUrl,
+  nameForTypeOf,
+} from "./remoteVideoMetadata";
+import {
   isNotRoot,
   JSONValue,
   Patch,
@@ -260,10 +264,10 @@ export async function createFixPatch(
         continue;
       }
       const fileRef = current.value.path;
-      if (typeof fileRef !== "string" || Internal.isRemoteMediaPath(fileRef)) {
+      if (typeof fileRef !== "string") {
         remainingErrors.push({
           ...validationError,
-          message: `Cannot read video metadata: '${String(fileRef)}' is not a local file`,
+          message: `Cannot read video metadata: the video has no path`,
           fixes: undefined,
         });
         continue;
@@ -847,7 +851,11 @@ export async function getVideoMetadata(
   fileRef: string,
 ): Promise<VideoMetadata> {
   // Not read into memory: only the headers are, and a video is mostly not
-  // headers.
+  // headers. A remote video's headers are read over HTTP, with Range
+  // requests, so it is not downloaded either.
+  if (Internal.isRemoteMediaPath(fileRef)) {
+    return extractVideoMetadataFromUrl(fileRef, nameForTypeOf(fileRef));
+  }
   return extractVideoMetadataFromFile(path.join(projectRoot, fileRef));
 }
 

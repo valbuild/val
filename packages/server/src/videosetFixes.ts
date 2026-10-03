@@ -21,6 +21,10 @@
  * Nothing here imports `fixHandlers.ts` at runtime: that module registers
  * these handlers, and a cycle would hand it undefined ones.
  */
+import {
+  extractVideoMetadataFromUrl,
+  nameForTypeOf,
+} from "./remoteVideoMetadata";
 import fs from "fs";
 import path from "path";
 import ts from "typescript";
@@ -357,8 +361,9 @@ function resolveVideoset(
 
 /**
  * `videos:add-metadata`: the entry's KEY is its file, and it must be on disk
- * and a kind Val can read the size and length of here — the same
- * preconditions as `video:add-metadata`, asked of the key instead of `path`.
+ * (or on Val Remote, read over HTTP) and a kind Val can read the size and
+ * length of here — the same preconditions as `video:add-metadata`, asked of
+ * the key instead of `path`.
  */
 export async function handleVideosetMetadata(
   ctx: FixHandlerContext,
@@ -370,14 +375,8 @@ export async function handleVideosetMetadata(
       errorMessage: `Expected a video set entry at ${ctx.sourcePath}`,
     };
   }
-  if (galleryEntryOf(key).remote) {
-    return {
-      success: false,
-      errorMessage: `Cannot read video metadata: '${key}' is not a local file`,
-    };
-  }
   const absolute = path.join(ctx.projectRoot, key);
-  if (!ctx.fs.fileExists(absolute)) {
+  if (!galleryEntryOf(key).remote && !ctx.fs.fileExists(absolute)) {
     return { success: false, errorMessage: `File ${absolute} does not exist` };
   }
   const entry = ctx.validationError.value;
@@ -732,9 +731,6 @@ export async function videosetAddMetadataPatch({
   if (key === undefined) {
     return fail(`Expected a video set entry at ${sourcePath}`);
   }
-  if (galleryEntryOf(key).remote) {
-    return fail(`Cannot read video metadata: '${key}' is not a local file`);
-  }
   let current: unknown = validationError.value;
   if (moduleSource !== undefined && moduleSchema !== undefined) {
     const parent = resolveVideoset(
@@ -751,7 +747,9 @@ export async function videosetAddMetadataPatch({
   }
   let metadata: VideoMetadata;
   try {
-    metadata = await extractVideoMetadataFromFile(path.join(projectRoot, key));
+    metadata = galleryEntryOf(key).remote
+      ? await extractVideoMetadataFromUrl(key, nameForTypeOf(key))
+      : await extractVideoMetadataFromFile(path.join(projectRoot, key));
   } catch (err) {
     return fail(
       `Failed to read video metadata from ${key}: ${

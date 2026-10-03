@@ -147,6 +147,15 @@ describe("s.videoset()", () => {
     ).toEqual(["videos:upload-remote"]);
   });
 
+  test("remote: missing metadata on a remote entry is a fix too, read over HTTP", () => {
+    const schema = deserializeSchema(
+      s.videoset({ dir: "/public/val/videos" }).remote()["executeSerialize"](),
+    );
+    expect(
+      fixesOf(schema["executeValidate"](path, { [REMOTE]: { alt: null } })),
+    ).toEqual(["videos:add-metadata"]);
+  });
+
   test("not remote: a remote entry is refused", () => {
     const schema = s.videoset({ dir: "/public/val/videos" });
     expect(fixesOf(schema["executeValidate"](path, { [REMOTE]: MP4 }))).toEqual(

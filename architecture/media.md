@@ -444,6 +444,19 @@ media library. They read headers only, never the frames. A file that does not
 declare its length (a browser recording, a fragmented mp4 without `mehd`) gets
 its size and a message to add the duration by hand.
 
+A REMOTE video is read the same way, over HTTP, without being downloaded
+(`remoteVideoMetadata.ts`). The parsers are synchronous and ask a `ByteSource`
+for bytes; for a remote file that source is a cache of `Range` responses, and
+a read it cannot answer throws, the missing range is fetched (with 64 KB of
+read-ahead), and the parser runs again from the start. Re-parsing headers is
+microseconds next to a request, and it keeps one parser for disk and remote.
+An mp4 with `moov` first is one request; one with `moov` behind its frames is
+about three, however large; an HLS stream is the master and one media
+playlist. It relies on the content host answering `Range` — `/file/...` in
+valbuild/home does — and a host that ignores it still works, by sending the
+whole file once. So core asks for a remote video's metadata like a local
+one's (`video:add-metadata`, `videos:add-metadata` for a set entry).
+
 `video:upload-remote` / `video:download-remote` move EVERY file the video
 names, in one fix (`videoRemote.ts`). Validation reports it as one error for
 the whole video whichever file is on the wrong side — a remote video with a
