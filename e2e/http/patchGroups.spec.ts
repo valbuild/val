@@ -9,7 +9,7 @@ import {
   USERS,
   writePatch,
 } from "./httpMode";
-import { actOnFirstRow, openReview } from "./staging";
+import { actOnFirstRow, openReview, rowsIn } from "./staging";
 
 /**
  * Independent publish, against a content service that actually has groups.
@@ -484,6 +484,135 @@ test.describe("the staging controls", () => {
         },
       )
       .toEqual([alicePatch, bobPatch].sort());
+  });
+
+  /**
+   * An unstage clicked while a save is on the wire.
+   *
+   * A save moves membership too — the server puts the write in its author's
+   * group — and the server applies a save and an unstage in the order they
+   * ARRIVE. The second write here sits on the first (same field, same patch
+   * set), and the user unstages the first while the second's `PUT /patches`
+   * is held. Sent at once, the unstage landed first and the save then put the
+   * second write back on its own: a group holding an edit without the one it
+   * was written on, which a reload shows and the click never meant. Now the
+   * unstage waits for the save's answer, and the server ends with nothing.
+   *
+   * Deterministic because the save is held by the test, not raced: the
+   * unstage cannot be sent before it is released, and the order is read off
+   * the requests themselves.
+   */
+  test("an unstage clicked while a save is in flight is sent after it", async ({
+    page,
+  }) => {
+    await openHttpStudio(page);
+    const first = await writePatch(page, AUTHORS, [
+      { op: "replace", path: ["teddy", "name"], value: "Ada, first" },
+    ]);
+    const patchGroupId = (await mock.state()).patchGroups[0]?.patchGroupId;
+    expect(patchGroupId, "the write created no group").toBeTruthy();
+
+    const studio = page.locator("#val-shadow-root");
+    await openReview(page, studio);
+    await expect(rowsIn(studio, "Staged").first()).toBeVisible({
+      timeout: 30_000,
+    });
+
+    const order: string[] = [];
+    let release: (() => void) | null = null;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const isSave = (url: URL) => url.pathname.endsWith("/api/val/patches");
+    await page.route(isSave, async (route) => {
+      if (route.request().method() !== "PUT") {
+        await route.fallback();
+        return;
+      }
+      order.push("save sent");
+      await released;
+      const response = await route.fetch();
+      order.push("save answered");
+      await route.fulfill({ response });
+    });
+    page.on("request", (request) => {
+      if (
+        request.method() === "DELETE" &&
+        new URL(request.url()).pathname.endsWith("/patch-groups/~/patches")
+      ) {
+        order.push("unstage sent");
+      }
+    });
+
+    // The second write. Not flushed here: its save is the one being held.
+    const second = await page.evaluate(
+      async ({ mfp, ops }) => {
+        const bag = window as unknown as {
+          __VAL_STORES__: {
+            system: {
+              patchStore: {
+                createPatch(
+                  moduleFilePath: string,
+                  patch: unknown[],
+                ): Promise<{ status: string; record?: { patchId: string } }>;
+              };
+            };
+          };
+        };
+        const res = await bag.__VAL_STORES__.system.patchStore.createPatch(
+          mfp,
+          ops,
+        );
+        if (res.record === undefined) {
+          throw new Error(`createPatch failed: ${JSON.stringify(res)}`);
+        }
+        return res.record.patchId;
+      },
+      {
+        mfp: AUTHORS,
+        ops: [{ op: "replace", path: ["teddy", "name"], value: "Ada, second" }],
+      },
+    );
+    await expect.poll(() => order).toEqual(["save sent"]);
+
+    await actOnFirstRow(
+      studio,
+      "Unstage",
+      "the review screen offered no staging control while a save was held",
+    );
+    // The click has landed on screen...
+    await expect.poll(() => scope(page)).not.toContain(first);
+    // ...and gone nowhere else: it is waiting for the save. Given a moment to
+    // be sent, so that a client that does not wait fails here rather than by
+    // luck further down.
+    await page.waitForTimeout(1_000);
+    expect(order).toEqual(["save sent"]);
+
+    if (release === null) throw new Error("the save was never held");
+    const letGo: () => void = release;
+    letGo();
+
+    await expect
+      .poll(
+        async () =>
+          (await mock.state()).patchGroups.find(
+            (group) => group.patchGroupId === patchGroupId,
+          )?.patchIds,
+        { message: "the save put back what the unstage took out" },
+      )
+      .toEqual([]);
+    expect(order).toEqual(["save sent", "save answered", "unstage sent"]);
+    // Both writes are still in the chain — held, not discarded.
+    const chain = (await mock.state()).patches.map((patch) => patch.patchId);
+    expect(chain).toEqual(expect.arrayContaining([first, second]));
+
+    // And a reload shows what this tab did.
+    await page.unroute(isSave);
+    await openHttpStudio(page);
+    await expect.poll(() => scope(page)).toEqual([]);
+    await expect
+      .poll(() => peek(page, TEDDY))
+      .toMatchObject({ status: "ready", data: "Theodor René Carlsen" });
   });
 });
 
