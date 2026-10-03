@@ -733,6 +733,14 @@ pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
   e2e/insecure-context.spec.ts                                       # ~4 min
 ```
 
+`webkit-http` runs the publishing specs (`http/reloadEquivalence`, `http/publish`)
+in WebKit — Safari's engine, and every iOS browser's. It is declared only when
+asked for by name (`--project=webkit-http`), because a bare `playwright test`
+runs every project and WebKit is not installed in most places this runs: it
+needs `pnpm exec playwright install --with-deps webkit`. CI does not run it
+yet: adding it to the `e2e` matrix means changing `.github/workflows/check.yml`,
+one entry plus installing the matrix's browser rather than always chromium.
+
 Notes:
 
 - `pnpm run build` at the root is NOT recursive — it only runs `preconstruct build && pnpm --filter @valbuild/ui build`. Do not use `pnpm -r build` to verify CI; recursive build pulls in example-project fixtures that aren't part of CI and have unrelated pre-existing issues.

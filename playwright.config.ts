@@ -64,6 +64,20 @@ if (requestedProjects.has("screens")) {
 }
 
 /**
+ * Whether `--project=webkit-http` was asked for by name.
+ *
+ * Opt-in for the reason `screens` is: a bare `playwright test` runs every
+ * project there is, and WebKit is not installed where most people run this --
+ * it needs `playwright install --with-deps webkit`. Carried to the workers in
+ * the environment for the same reason as `VAL_E2E_SCREENS`.
+ */
+const webkitRequested =
+  requestedProjects.has("webkit-http") || process.env.VAL_E2E_WEBKIT === "1";
+if (requestedProjects.has("webkit-http")) {
+  process.env.VAL_E2E_WEBKIT = "1";
+}
+
+/**
  * Which apps this run needs, and therefore which servers start.
  *
  * `webServer` is global with no per-project form, so for a long time every run
@@ -80,7 +94,8 @@ if (requestedProjects.has("screens")) {
 const needsNextApp =
   willRun("chromium") || willRun("warmup") || willRun("screens");
 /** `examples/next` again, in proxy mode, plus the mock content host. */
-const needsHttpApp = willRun("chromium-http");
+const needsHttpApp =
+  willRun("chromium-http") || (webkitRequested && willRun("webkit-http"));
 /** `examples/tanstack`. */
 const needsTanstackApp = willRun("tanstack") || willRun("tanstack-warmup");
 
@@ -235,6 +250,29 @@ export default defineConfig({
         },
       },
     },
+    /*
+     * Publishing in Safari's engine: what an editor on an iPhone or a Mac
+     * runs, and what `chromium-http` cannot speak for. The specs that publish
+     * and then hold the open Studio to what a reload shows -- the bugs there
+     * lived in the websocket and the stores, which every engine runs, but only
+     * running them says so. Only present when asked for by name: see
+     * `webkitRequested`.
+     */
+    ...(webkitRequested
+      ? [
+          {
+            name: "webkit-http",
+            testMatch: [
+              "http/reloadEquivalence.spec.ts",
+              "http/publish.spec.ts",
+            ],
+            use: {
+              baseURL: `http://localhost:${HTTP_APP_PORT}`,
+              browserName: "webkit" as const,
+            },
+          },
+        ]
+      : []),
     // Not a test project, and only present when asked for by name:
     // `pnpm exec playwright test --project=screens` takes screenshots of the
     // shell for a human to look at. It asserts nothing about correctness and
