@@ -69,6 +69,8 @@ export const REMOTE_FIX_COMMANDS: Partial<Record<ValidationFix, string>> = {
   "files:upload-remote": VAL_UPLOAD_REMOTE_COMMAND,
   "image:download-remote": VAL_DOWNLOAD_REMOTE_COMMAND,
   "file:download-remote": VAL_DOWNLOAD_REMOTE_COMMAND,
+  "video:upload-remote": VAL_UPLOAD_REMOTE_COMMAND,
+  "video:download-remote": VAL_DOWNLOAD_REMOTE_COMMAND,
 };
 
 export const REMOTE_FIX_TITLES: Partial<Record<ValidationFix, string>> = {
@@ -78,6 +80,10 @@ export const REMOTE_FIX_TITLES: Partial<Record<ValidationFix, string>> = {
   "files:upload-remote": "Val: upload this gallery's files to Val Remote",
   "image:download-remote": "Val: download this image into the project",
   "file:download-remote": "Val: download this file into the project",
+  "video:upload-remote":
+    "Val: upload this video (and its poster and captions) to Val Remote",
+  "video:download-remote":
+    "Val: download this video (and its poster and captions) into the project",
 };
 
 /** Arguments a remote-fix command is invoked with. */

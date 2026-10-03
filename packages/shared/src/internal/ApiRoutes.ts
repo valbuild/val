@@ -50,6 +50,8 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("images:upload-remote"),
   z.literal("file:add-metadata"),
   z.literal("video:add-metadata"),
+  z.literal("video:upload-remote"),
+  z.literal("video:download-remote"),
   z.literal("file:check-metadata"),
   z.literal("file:check-remote"),
   z.literal("file:upload-remote"),

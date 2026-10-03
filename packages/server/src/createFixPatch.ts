@@ -25,6 +25,7 @@ import { galleryEntryOf } from "./galleryEntryKey";
 import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
 import path from "path";
 import { checkRemoteRef, downloadFileFromRemote } from "./checkRemoteRef";
+import { rewriteVideoPathsPatch } from "./videoRemote";
 
 // A remaining error may optionally carry a more specific `sourcePath` than the
 // one the fix was created from. This is used by gallery checks, where a single
@@ -97,6 +98,7 @@ export async function createFixPatch(
     [sourcePath: SourcePath]: {
       ref: string;
       metadata?: Record<string, unknown>;
+      refs?: Record<string, string>;
     };
   },
   moduleSource?: Source,
@@ -331,6 +333,35 @@ export async function createFixPatch(
           path: sourceToPatchPath(sourcePath),
         });
       }
+    } else if (
+      fix === "video:upload-remote" ||
+      fix === "video:download-remote"
+    ) {
+      // The handler moved the files (`videoRemote.ts`); what is left is to
+      // point each path the value holds at where its file now is. Read from
+      // the module rather than the error, which carries the value as it was
+      // validated.
+      const moved = remoteFiles[sourcePath]?.refs;
+      if (!moved) {
+        remainingErrors.push({
+          ...validationError,
+          message:
+            fix === "video:upload-remote"
+              ? "Cannot point the video at Val Remote: its files were not uploaded"
+              : "Cannot point the video at its local files: they were not downloaded",
+          fixes: undefined,
+        });
+        continue;
+      }
+      const current =
+        moduleSource !== undefined && moduleSchema !== undefined
+          ? Internal.resolvePath(
+              Internal.splitModuleFilePathAndModulePath(sourcePath)[1],
+              moduleSource,
+              moduleSchema,
+            ).source
+          : validationError.value;
+      patch.push(...rewriteVideoPathsPatch(sourcePath, current, moved));
     } else if (
       fix === "images:upload-remote" ||
       fix === "files:upload-remote"

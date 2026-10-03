@@ -19,6 +19,12 @@ import {
  *     rotated.mp4
  *   ffmpeg -i tiny.mp4 -c copy \
  *     -movflags frag_keyframe+empty_moov+default_base_moof fragmented.mp4
+ *   ffmpeg -f lavfi -i testsrc=size=64x48:rate=10 -t 1 -c:v libvpx \
+ *     -b:v 50k -vf setsar=2/1 -fflags +bitexact -flags:v +bitexact \
+ *     anamorphic.webm
+ *   ffmpeg -f lavfi -i testsrc=size=64x48:rate=10 -frames:v 10 \
+ *     -c:v libvpx -b:v 50k -fflags +bitexact -flags:v +bitexact -live 1 \
+ *     -f webm pipe:1 > live.webm
  *
  * Real rather than synthesized, because what is under test is that the
  * container headers are read the way a browser reads them.
@@ -39,9 +45,34 @@ describe("extractVideoMetadata", () => {
     });
   });
 
-  test("a webm: the mime type, and nothing Val would have to decode Matroska for", async () => {
+  test("a webm: its dimensions, its length, and the extension's mime type", async () => {
     expect(await extractVideoMetadata(...fixture("tiny.webm"))).toEqual({
       mimeType: "video/webm",
+      width: 64,
+      height: 48,
+      duration: 1,
+    });
+  });
+
+  test("a webm that does not declare its length, as a recording does: the size, and no made-up length", async () => {
+    expect(await extractVideoMetadata(...fixture("live.webm"))).toEqual({
+      mimeType: "video/webm",
+      width: 64,
+      height: 48,
+    });
+  });
+
+  test("an mkv is read like a WebM: the same container", async () => {
+    expect(
+      await extractVideoMetadata(
+        "/public/val/clip.mkv",
+        fs.readFileSync(path.join(fixtures, "tiny.webm")),
+      ),
+    ).toEqual({
+      mimeType: "video/x-matroska",
+      width: 64,
+      height: 48,
+      duration: 1,
     });
   });
 
@@ -75,22 +106,30 @@ describe("extractVideoMetadata", () => {
     expect(
       await extractVideoMetadataFromFile(path.join(fixtures, "tiny.mp4")),
     ).toEqual({ mimeType: "video/mp4", width: 64, height: 48, duration: 1 });
+    expect(
+      await extractVideoMetadataFromFile(path.join(fixtures, "tiny.webm")),
+    ).toEqual({ mimeType: "video/webm", width: 64, height: 48, duration: 1 });
   });
 
   test("what to do when Val cannot read it says so", () => {
     expect(
-      unreadableVideoMetadataMessage("/public/val/a.webm", [
+      unreadableVideoMetadataMessage("/public/val/a.avi", [
         "width",
         "height",
         "duration",
       ]),
     ).toBe(
-      "Val cannot read the size and length of a .webm file on the command line. Upload it again in the Val Studio, or add width, height and duration by hand.",
+      "Val cannot read the size and length of a .avi file on the command line. Upload it again in the Val Studio, or add width, height and duration by hand.",
     );
     expect(
       unreadableVideoMetadataMessage("/public/val/a.mp4", ["duration"]),
     ).toBe(
       "Val could not read the duration of /public/val/a.mp4. Upload it again in the Val Studio, or add duration by hand.",
+    );
+    expect(
+      unreadableVideoMetadataMessage("/public/val/a.webm", ["duration"]),
+    ).toBe(
+      "Val could not read the duration of /public/val/a.webm. Upload it again in the Val Studio, or add duration by hand.",
     );
   });
 

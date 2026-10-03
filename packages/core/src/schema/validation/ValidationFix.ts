@@ -18,6 +18,13 @@ export const ValidationFix = [
   // re-checked once it has them, because reading a video is not cheap enough
   // to do on every validate.
   "video:add-metadata",
+  // A video that should be on Val Remote but is on disk, or the reverse. One
+  // fix moves EVERY file the video names — the video (for an HLS stream, the
+  // playlists and segments, with each playlist rewritten to name the others
+  // where they now are), its poster and its caption tracks — because a video
+  // half on each side is not one that plays.
+  "video:upload-remote",
+  "video:download-remote",
   "keyof:check-keys",
   "router:check-route",
   "locale:check-locale",

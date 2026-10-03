@@ -527,6 +527,7 @@ export const EXT_TO_MIME_TYPES: Record<string, string> = {
   qfx: "application/vnd.intu.qfx",
   mov: "video/quicktime",
   vtt: "text/vtt",
+  mkv: "video/x-matroska",
   rar: "application/x-rar-compressed",
   ram: "audio/x-pn-realaudio",
   rmp: "audio/x-pn-realaudio-plugin",

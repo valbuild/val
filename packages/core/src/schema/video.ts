@@ -227,21 +227,27 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
       ]);
     }
 
+    // Every file the video names has to be where the schema says, and one fix
+    // moves them all — a video on the content host with its poster still in
+    // the repository is half a migration, not a choice. The error is reported
+    // once for the whole video, never per file.
     const isRemotePath = isRemoteMediaPath(src.path);
-    if (this.isRemote && !isRemotePath) {
+    const misplaced = filesOfVideoSource(src).filter(
+      (file) => isRemoteMediaPath(file) !== this.isRemote,
+    );
+    if (misplaced.length > 0) {
       return report([
-        {
-          message: `Expected a remote video, but got a local file. Upload it again in the Val Studio to store it remotely.`,
-          value: src,
-        },
-      ]);
-    }
-    if (!this.isRemote && isRemotePath) {
-      return report([
-        {
-          message: `Expected a local video (a path under /public), but found a remote one.`,
-          value: src,
-        },
+        this.isRemote
+          ? {
+              message: `Expected a remote video, but ${misplaced.length === 1 ? "this file is" : `${misplaced.length} files are`} stored locally: ${misplaced.join(", ")}`,
+              value: src,
+              fixes: ["video:upload-remote"],
+            }
+          : {
+              message: `Expected a local video (files under /public), but ${misplaced.length === 1 ? "this file is" : `${misplaced.length} files are`} remote: ${misplaced.join(", ")}`,
+              value: src,
+              fixes: ["video:download-remote"],
+            },
       ]);
     }
 
@@ -520,6 +526,38 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
   }
 }
 
+/**
+ * Every file a video value names: the video, its poster and each caption
+ * track. An HLS stream's segments are not here — they are named by its
+ * playlists, not by the value.
+ */
+export function filesOfVideoSource(src: VideoSource): string[] {
+  const files = [src.path];
+  if (
+    src.poster &&
+    typeof src.poster === "object" &&
+    typeof src.poster.path === "string"
+  ) {
+    files.push(src.poster.path);
+  }
+  if (Array.isArray(src.captions)) {
+    for (const track of src.captions) {
+      if (
+        track &&
+        typeof track === "object" &&
+        typeof track.path === "string"
+      ) {
+        files.push(track.path);
+      }
+    }
+  }
+  return files;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function stripQuery(path: string): string {
   return path.split("?")[0];
 }
@@ -615,14 +653,6 @@ function validatePoster(src: VideoSource): ValidationError[] {
       },
     ];
   }
-  if (isRemoteMediaPath(poster.path) !== isRemoteMediaPath(src.path)) {
-    return [
-      {
-        message: `The poster must be stored where the video is (${isRemoteMediaPath(src.path) ? "remote" : "local"}).`,
-        value: src,
-      },
-    ];
-  }
   return [];
 }
 
@@ -640,21 +670,16 @@ function validateCaptions(src: VideoSource): ValidationError[] {
   const seen = new Set<string>();
   src.captions.forEach((track: unknown, i) => {
     const at = `Caption track ${i + 1}`;
-    if (typeof track !== "object" || track === null || Array.isArray(track)) {
+    if (!isRecord(track)) {
       errors.push({ message: `${at} must be an object.`, value: src });
       return;
     }
-    const t = track as Record<string, unknown>;
+    const t = track;
     if (typeof t.path !== "string") {
       errors.push({ message: `${at} has no 'path'.`, value: src });
     } else if (filenameToMimeType(stripQuery(t.path)) !== "text/vtt") {
       errors.push({
         message: `${at} must be a WebVTT (.vtt) file. Got: ${t.path}`,
-        value: src,
-      });
-    } else if (isRemoteMediaPath(t.path) !== isRemoteMediaPath(src.path)) {
-      errors.push({
-        message: `${at} must be stored where the video is (${isRemoteMediaPath(src.path) ? "remote" : "local"}).`,
         value: src,
       });
     }

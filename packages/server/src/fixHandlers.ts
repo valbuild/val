@@ -46,13 +46,13 @@ import {
   unreadableVideoMetadataMessage,
 } from "./extractMetadata";
 import { galleryEntryOf } from "./galleryEntryKey";
-import { getFileExt } from "./getFileExt";
-import {
-  getPersonalAccessTokenPath,
-  parsePersonalAccessTokenFile,
-} from "./personalAccessTokens";
 import type { Service } from "./Service";
 import type { IValFSHost } from "./ValFSHost";
+import { openRemoteUploadSession, uploadBytesToRemote } from "./remoteUpload";
+import {
+  handleVideoDownloadRemote,
+  handleVideoUploadRemote,
+} from "./videoRemote";
 
 export type { IValFSHost };
 
@@ -81,8 +81,6 @@ export type IValRemote = {
   ): Promise<{ success: true } | { success: false; error: string }>;
 };
 
-const textEncoder = new TextEncoder();
-
 // Types for handler system
 export type ValModule = Awaited<ReturnType<Service["get"]>>;
 
@@ -106,15 +104,23 @@ export type FixHandlerContext = {
   file: string;
   fs: IValFSHost;
   // Shared state
-  remoteFiles: Record<
-    SourcePath,
-    { ref: string; metadata?: Record<string, unknown> }
-  >;
+  remoteFiles: Record<SourcePath, RemoteFileMove>;
   publicProjectId?: string;
   remoteFileBuckets?: string[];
   remoteFilesCounter: number;
   remote: IValRemote;
   project: string | undefined;
+};
+
+/**
+ * Where a fix moved a media value's file. `refs` is for a value that names
+ * SEVERAL files — a video's poster, captions and stream — keyed by the path
+ * the value held, so the patch can rewrite each one where it is.
+ */
+export type RemoteFileMove = {
+  ref: string;
+  metadata?: Record<string, unknown>;
+  refs?: Record<string, string>;
 };
 
 export type FixHandlerResult = {
@@ -224,8 +230,8 @@ export async function handleFileMetadata(
 /**
  * `video:add-metadata`: the bytes must be on disk (core never asks this of a
  * remote video), and they must be a kind of file Val can read the size and
- * length of here. A `.webm` is not — only the Studio reads those, in the
- * browser — so it is refused with what to do instead, unless all that is
+ * length of here: mp4/mov boxes, WebM/Matroska headers and HLS playlists.
+ * Anything else is refused with what to do instead, unless all that is
  * missing is the mime type, which the extension answers.
  */
 export async function handleVideoMetadata(
@@ -283,31 +289,6 @@ async function uploadRemoteFileCore(
     };
   }
 
-  const patFile = getPersonalAccessTokenPath(ctx.projectRoot);
-  if (!ctx.fs.fileExists(patFile)) {
-    return {
-      success: false,
-      errorMessage: `File: ${path.join(ctx.projectRoot, ctx.file)} has remote images that are not uploaded and you are not logged in.\n\nFix this error by logging in:\n\t"npx val login"\n`,
-    };
-  }
-
-  const patFileContent = ctx.fs.readFile(patFile);
-  if (patFileContent === undefined) {
-    return {
-      success: false,
-      errorMessage: `Could not read personal access token file at ${patFile}`,
-    };
-  }
-
-  const parsedPatFile = parsePersonalAccessTokenFile(patFileContent);
-  if (!parsedPatFile.success) {
-    return {
-      success: false,
-      errorMessage: `Error parsing personal access token file: ${parsedPatFile.error}. You need to login again.`,
-    };
-  }
-  const { pat } = parsedPatFile.data;
-
   if (ctx.remoteFiles[ctx.sourcePath]) {
     return {
       success: true,
@@ -315,54 +296,11 @@ async function uploadRemoteFileCore(
     };
   }
 
-  const projectName = ctx.project;
-  let publicProjectId = ctx.publicProjectId;
-  let remoteFileBuckets = ctx.remoteFileBuckets;
-  let remoteFilesCounter = ctx.remoteFilesCounter;
-
-  if (!publicProjectId || !remoteFileBuckets) {
-    if (!projectName) {
-      return {
-        success: false,
-        errorMessage:
-          "Project name not found. Add project name to val.config or set the VAL_PROJECT environment variable",
-      };
-    }
-    const settingsRes = await ctx.remote.getSettings(projectName, { pat });
-    if (!settingsRes.success) {
-      return {
-        success: false,
-        errorMessage: `Could not get public project id: ${settingsRes.message}.`,
-      };
-    }
-    publicProjectId = settingsRes.data.publicProjectId;
-    remoteFileBuckets = settingsRes.data.remoteFileBuckets.map((b) => b.bucket);
+  const opened = await openRemoteUploadSession(ctx);
+  if (!opened.success) {
+    return opened.result;
   }
-
-  if (!publicProjectId) {
-    return {
-      success: false,
-      errorMessage: "Could not get public project id",
-    };
-  }
-
-  if (!projectName) {
-    return {
-      success: false,
-      errorMessage: `Could not get project. Check that your val.config has the 'project' field set, or set it using the VAL_PROJECT environment variable`,
-    };
-  }
-
-  remoteFilesCounter += 1;
-  const bucket =
-    remoteFileBuckets[remoteFilesCounter % remoteFileBuckets.length];
-
-  if (!bucket) {
-    return {
-      success: false,
-      errorMessage: `Internal error: could not allocate a bucket for the remote file located at ${ctx.sourcePath}`,
-    };
-  }
+  const { session } = opened;
 
   const fileBuffer = ctx.fs.readBuffer(filePath);
   if (fileBuffer === undefined) {
@@ -375,49 +313,20 @@ async function uploadRemoteFileCore(
   const relativeFilePath = path
     .relative(ctx.projectRoot, filePath)
     .split(path.sep)
-    .join("/") as `public/${string}`;
+    .join("/");
 
-  if (!relativeFilePath.startsWith("public/")) {
-    return {
-      success: false,
-      errorMessage: `File path must be within the public/ directory (e.g. public/path/to/file.txt). Got: ${relativeFilePath}`,
-    };
-  }
-
-  const fileHash = Internal.remote.getFileHash(fileBuffer);
-  const coreVersion = Internal.VERSION.core || "unknown";
-  const fileExt = getFileExt(filePath);
-  const ref = Internal.remote.createRemoteRef(ctx.remote.remoteHost, {
-    publicProjectId,
-    coreVersion,
-    bucket,
-    validationHash: Internal.remote.getValidationHash(
-      coreVersion,
-      schema,
-      fileExt,
-      metadata,
-      fileHash,
-      textEncoder,
-    ),
-    fileHash,
-    filePath: relativeFilePath,
-  });
-
-  const remoteFileUpload = await ctx.remote.uploadFile(
-    projectName,
-    bucket,
-    fileHash,
-    fileExt,
+  const uploaded = await uploadBytesToRemote(
+    ctx,
+    session,
+    relativeFilePath,
     fileBuffer,
-    { pat },
+    metadata,
+    schema,
   );
-
-  if (!remoteFileUpload.success) {
-    return {
-      success: false,
-      errorMessage: `Could not upload remote file: '${ref}'. Error: ${remoteFileUpload.error}`,
-    };
+  if (!uploaded.success) {
+    return { success: false, errorMessage: uploaded.error };
   }
+  const { ref } = uploaded;
 
   ctx.remoteFiles[ctx.sourcePath] = {
     ref,
@@ -427,9 +336,9 @@ async function uploadRemoteFileCore(
   return {
     success: true,
     shouldApplyPatch: true,
-    publicProjectId,
-    remoteFileBuckets,
-    remoteFilesCounter,
+    publicProjectId: session.publicProjectId,
+    remoteFileBuckets: session.remoteFileBuckets,
+    remoteFilesCounter: session.remoteFilesCounter,
     events: [
       { type: "remote-uploading", ref },
       { type: "remote-uploaded", ref },
@@ -906,6 +815,8 @@ export const currentFixHandlers: Record<
   "files:upload-remote": handleRemoteGalleryFileUpload,
   "image:download-remote": handleRemoteFileDownload,
   "file:download-remote": handleRemoteFileDownload,
+  "video:upload-remote": handleVideoUploadRemote,
+  "video:download-remote": handleVideoDownloadRemote,
   "image:check-remote": handleRemoteFileCheck,
   "images:check-remote": handleRemoteFileCheck,
   "file:check-remote": handleRemoteFileCheck,

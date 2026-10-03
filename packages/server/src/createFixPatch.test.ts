@@ -185,6 +185,10 @@ describe("video:add-metadata", () => {
         path.join(projectRoot, "public", "val", `intro.${ext}`),
       );
     }
+    fs.copyFileSync(
+      path.join(__dirname, "__fixtures__", "video", "live.webm"),
+      path.join(projectRoot, "public", "val", "recording.webm"),
+    );
   });
   afterAll(() => {
     fs.rmSync(projectRoot, { recursive: true, force: true });
@@ -234,13 +238,24 @@ describe("video:add-metadata", () => {
     ]);
   });
 
-  test("a webm's size and length are not guessed: nothing is written, and it says what to do", async () => {
+  test("a webm's size and length are read from the file", async () => {
     const res = await fixFor({ path: "/public/val/intro.webm" });
+    expect(res?.patch).toEqual([
+      { op: "add", path: ["intro", "mimeType"], value: "video/webm" },
+      { op: "add", path: ["intro", "width"], value: 64 },
+      { op: "add", path: ["intro", "height"], value: 48 },
+      { op: "add", path: ["intro", "duration"], value: 1 },
+    ]);
+    expect(res?.remainingErrors).toEqual([]);
+  });
+
+  test("a recorded webm that does not declare its length: its duration is not guessed, nothing is written, and it says what to do", async () => {
+    const res = await fixFor({ path: "/public/val/recording.webm" });
     expect(res?.patch).toEqual([]);
     expect(res?.remainingErrors).toEqual([
       expect.objectContaining({
         message:
-          "Val cannot read the size and length of a .webm file on the command line. Upload it again in the Val Studio, or add width, height and duration by hand.",
+          "Val could not read the duration of /public/val/recording.webm. Upload it again in the Val Studio, or add duration by hand.",
       }),
     ]);
   });

@@ -179,6 +179,27 @@ describe("VideoSchema", () => {
     ).toBe(false);
   });
 
+  test("one fix moves every file of the video, wherever the stray one is", () => {
+    const remotePath =
+      "https://remote.val.build/file/p/proj/b/01/v/1.0.0/h/abc/f/def/p/public/val/intro.mp4";
+    // The video is remote, its poster and caption are not.
+    const res = validate(s.video().remote(), {
+      path: remotePath,
+      mimeType: "video/mp4",
+      poster: { path: "/public/val/intro-poster.webp" },
+      captions: [{ path: "/public/val/en.vtt", srclang: "en" }],
+    });
+    expect(res && res[PATH]).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("2 files are stored locally"),
+        fixes: ["video:upload-remote"],
+      }),
+    ]);
+    expect(
+      (validate(s.video(), { ...complete, path: remotePath }) || {})[PATH],
+    ).toEqual([expect.objectContaining({ fixes: ["video:download-remote"] })]);
+  });
+
   test("nullable", () => {
     expect(validate(s.video().nullable(), null)).toBe(false);
     expect(messages(validate(s.video(), null))).toEqual([
