@@ -1,6 +1,7 @@
 import type { Json, ModuleFilePath, PatchId } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
 import type { ValClient, PatchGroupT } from "@valbuild/shared/internal";
+import { statSnapshotOf } from "./statSnapshotOf";
 import { createSystem, type System } from "../createSystem";
 import type { SchemaValidationBridge } from "../bridges";
 import { createSchemaValidationBridge } from "../../validation/schemaValidationBridge";
@@ -747,19 +748,7 @@ export function createValSystem(
               // is the right answer for a `/stat` that is also failing.
               return;
             }
-            built?.stat.receiveStat({
-              baseSha: res.json.baseSha,
-              sourcesSha: res.json.sourcesSha,
-              patches: res.json.patches,
-              appliedPatches: res.json.appliedPatches,
-              headCommitSha: res.json.headCommitSha,
-              // The new head is the whole point of this call: a conflict means
-              // the parent we named was not it. `fs` answers without one.
-              headPatchId:
-                "headPatchId" in res.json ? res.json.headPatchId : undefined,
-              headVersion:
-                "headVersion" in res.json ? res.json.headVersion : undefined,
-            });
+            built?.stat.receiveStat(statSnapshotOf(res.json));
           },
         }
       : {}),

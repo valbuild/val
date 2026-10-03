@@ -8,6 +8,7 @@ import {
 } from "@valbuild/core";
 import { createSystem } from "./createSystem";
 import { SCHEMA_DISAGREEMENT_GRACE_MS } from "./SchemaFreshnessWatch";
+import { statSnapshotOf, type StatResponseJson } from "./react/statSnapshotOf";
 
 /**
  * A Studio open across a schema deploy is told to reload.
@@ -192,4 +193,36 @@ test("a stat dropped as older is not believed about its schema", () => {
   jest.advanceTimersByTime(SCHEMA_DISAGREEMENT_GRACE_MS * 2);
 
   expect(freshness(system)).toBe("current");
+});
+
+test("a stat read by the conflict re-sync carries the schema too", () => {
+  /*
+   * A save that hits a moved head re-syncs with its own `/stat`, outside the
+   * provider's poll. That is often how a client first meets a server that has
+   * been redeployed — the websocket message was missed, and the next poll can
+   * be twenty minutes away — so it has to carry `schemaSha` like any other.
+   */
+  const system = makeSystem();
+  system.host.receive(before());
+  stat(system, oldSha);
+
+  const json: StatResponseJson = {
+    type: "use-websocket",
+    url: "wss://example",
+    nonce: "n",
+    baseSha: "sha",
+    sourcesSha: "sources",
+    schemaSha: newSha,
+    commits: [],
+    deployments: [],
+    patches: [],
+    appliedPatches: [],
+    profileId: null,
+    mode: "http",
+    config: {},
+  };
+  system.stat.receiveStat(statSnapshotOf(json));
+  jest.advanceTimersByTime(SCHEMA_DISAGREEMENT_GRACE_MS);
+
+  expect(freshness(system)).toBe("out-of-date");
 });
