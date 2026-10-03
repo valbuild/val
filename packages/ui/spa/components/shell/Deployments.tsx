@@ -279,7 +279,6 @@ export function DeploymentsStatus({
           <button
             type="button"
             aria-expanded={open}
-            aria-busy={inFlight}
             aria-label={`Deployments: ${label}`}
             onClick={() => onOpenChange(!open)}
             className={cn(
@@ -289,12 +288,16 @@ export function DeploymentsStatus({
           >
             <IndicatorIcon indicator={indicator} />
             <span className="tabular-nums">{label}</span>
-            {inFlight &&
-              (percent !== null ? (
-                <ProgressBar percent={percent} className="w-16" />
-              ) : (
-                <IndeterminateBar className="w-16" />
-              ))}
+            {/* Drawn here, said by the progressbar beside the button. */}
+            {inFlight && (
+              <span aria-hidden className="contents">
+                {percent !== null ? (
+                  <ProgressBar percent={percent} className="w-16" />
+                ) : (
+                  <IndeterminateBar className="w-16" />
+                )}
+              </span>
+            )}
             <ChevronUp
               size={12}
               className={cn(
@@ -310,6 +313,22 @@ export function DeploymentsStatus({
           </TooltipContent>
         )}
       </Tooltip>
+      {/*
+        The progress, for assistive tech. Beside the button rather than in it:
+        a button's contents are presentational, so a progressbar inside one is
+        never announced. No value while nothing reports one -- that is what an
+        indeterminate progressbar is.
+      */}
+      {inFlight && (
+        <span
+          role="progressbar"
+          aria-label={describeIndicator(indicator, now).replace(/ \d+%$/, "")}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          {...(percent !== null ? { "aria-valuenow": percent } : {})}
+          className="sr-only"
+        />
+      )}
       {open && (
         <DeploymentsList
           deployments={deployments}

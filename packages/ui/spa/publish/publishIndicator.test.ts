@@ -7,6 +7,7 @@ import {
   indicatorPercent,
   isInFlight,
   nextIndicatorChangeAt,
+  otherEditorsJobs,
   publishIndicator,
   type ObservedJob,
 } from "./publishIndicator";
@@ -284,6 +285,46 @@ test("managed: a failed newest row is a failure at once, not a minute of reachin
       now: 55_000,
     }),
   ).toEqual({ kind: "failed", cause: "build" });
+});
+
+describe("whose job it is", () => {
+  test("this tab's own jobs are left out, however the socket last saw them", () => {
+    const observed = [
+      job({ id: "ours-settled" }),
+      job({ id: "ours-running" }),
+      job({ id: "theirs" }),
+    ];
+    expect(
+      otherEditorsJobs(observed, {
+        requests: [
+          {
+            requestId: "r1",
+            pressedAt: 0,
+            status: { kind: "live", commit: "C1" },
+            jobId: "ours-settled",
+          },
+        ],
+        running: { jobId: "ours-running", phase: null },
+      }).map((j) => j.id),
+    ).toEqual(["theirs"]);
+  });
+
+  test("so a lost 'sealed' nudge for ours cannot hide our own Live", () => {
+    const jobs = otherEditorsJobs([job({ id: "ours", seenAt: 9_000 })], {
+      requests: [
+        {
+          requestId: "r1",
+          pressedAt: 0,
+          status: { kind: "live", commit: "C1" },
+          jobId: "ours",
+        },
+      ],
+      running: null,
+    });
+    expect(
+      publishIndicator({ own: liveAt(10_000), jobs, now: 20_000 }),
+    ).toMatchObject({ kind: "reaching", mine: true });
+  });
 });
 
 test("nothing in flight and nothing published", () => {

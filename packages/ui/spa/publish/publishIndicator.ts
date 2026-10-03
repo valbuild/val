@@ -5,6 +5,7 @@ import {
 } from "../components/shell/Deployments";
 import { deployPercent, describeDeployPhase } from "./deployProgress";
 import type { StudioDeployState } from "./useStudioDeploy";
+import type { PublishJobsState } from "./publishJobs";
 import {
   EDGE_CACHE_MS,
   indicatorOfSummary,
@@ -58,6 +59,24 @@ export type ObservedJob = {
  */
 export const RUNNING_JOB_STALE_MS = 10 * 60_000;
 
+/**
+ * The jobs the websocket reported that are not this tab's own: this tab's are
+ * told by its requests, which are authoritative, and a lost "sealed" nudge
+ * must not leave one of them looking like another editor's publish still
+ * running over a request that already settled.
+ */
+export function otherEditorsJobs(
+  observed: readonly ObservedJob[],
+  mine: PublishJobsState,
+): readonly ObservedJob[] {
+  const own = new Set<string>();
+  if (mine.running !== null) own.add(mine.running.jobId);
+  for (const request of mine.requests) {
+    if (request.jobId !== undefined) own.add(request.jobId);
+  }
+  return own.size === 0 ? observed : observed.filter((job) => !own.has(job.id));
+}
+
 /** A job reported running, and heard of recently enough to believe. */
 function isRunning(job: ObservedJob, now: number): boolean {
   return job.status === "running" && now - job.seenAt < RUNNING_JOB_STALE_MS;
@@ -99,7 +118,10 @@ export function publishIndicator(input: {
    * runs, so the tab's numbers are the only ones there are.
    */
   builder?: { step: string; percent: number | null } | null;
-  /** Every job on the branch, as the websocket reported it. */
+  /**
+   * Other editors' jobs on the branch, as the websocket reported them -- not
+   * this tab's own: see {@link otherEditorsJobs}.
+   */
   jobs?: readonly ObservedJob[];
   /** The deploy feed, when there is one. */
   deployments?: ShellDeployment[];

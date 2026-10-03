@@ -91,7 +91,7 @@ import {
   usePublishSummary,
   useStudioDeployState,
   useSiteHandoffState,
-  useObservedPublishJobs,
+  useOtherPublishJobs,
   useStudioIsDeployer,
   useHasNetChanges,
   useOwnPendingChangeCount,
@@ -339,7 +339,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
 
   const data: ShellData =
     state.status === "success" ? state.data : EMPTY_SHELL_DATA;
-  const observedPublishJobs = useObservedPublishJobs();
+  const otherPublishJobs = useOtherPublishJobs();
   const publishIndicatorState = usePublishIndicator({
     own: deployState,
     builder:
@@ -349,7 +349,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
             percent: handoff.state.percent ?? null,
           }
         : null,
-    jobs: observedPublishJobs,
+    jobs: otherPublishJobs,
     deployments: data.deployments,
     studioIsDeployer,
   });

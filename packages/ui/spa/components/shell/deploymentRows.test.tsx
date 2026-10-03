@@ -104,10 +104,15 @@ describe("the publish indicator", () => {
         />
       </TooltipProvider>,
     );
-    const button = screen.getByRole("button", {
-      name: /^Deployments: Reaching visitors \d+%$/,
+    expect(
+      screen.queryByRole("button", {
+        name: /^Deployments: Reaching visitors \d+%$/,
+      }),
+    ).not.toBeNull();
+    const progress = screen.getByRole("progressbar", {
+      name: "Reaching visitors",
     });
-    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(Number(progress.getAttribute("aria-valuenow"))).toBeGreaterThan(87);
   });
 
   test("rests at Live, without one, by the feed's own summary", () => {
@@ -120,8 +125,10 @@ describe("the publish indicator", () => {
         />
       </TooltipProvider>,
     );
-    const button = screen.getByRole("button", { name: "Deployments: Live" });
-    expect(button.getAttribute("aria-busy")).toBe("false");
+    expect(
+      screen.queryByRole("button", { name: "Deployments: Live" }),
+    ).not.toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
   });
 });
 
@@ -151,6 +158,20 @@ describe("the status bar with no deploy feed", () => {
     expect(
       screen.queryByRole("button", { name: "Deployments: Publishing 12%" }),
     ).not.toBeNull();
+    expect(
+      screen
+        .getByRole("progressbar", { name: "Publishing" })
+        .getAttribute("aria-valuenow"),
+    ).toBe("12");
+  });
+
+  test("another editor's publish is an indeterminate progressbar", () => {
+    render(bar({ kind: "publishing", mine: false, step: null, percent: null }));
+    expect(
+      screen
+        .getByRole("progressbar", { name: "Publishing" })
+        .hasAttribute("aria-valuenow"),
+    ).toBe(false);
   });
 
   test("shows nothing at rest", () => {

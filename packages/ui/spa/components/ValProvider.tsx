@@ -8,7 +8,11 @@ import {
   type TrackedPublish,
 } from "../publish/publishJobs";
 import { publishProgress } from "../publish/publishProgress";
-import { EDGE_CACHE_MS, type ObservedJob } from "../publish/publishIndicator";
+import {
+  EDGE_CACHE_MS,
+  otherEditorsJobs,
+  type ObservedJob,
+} from "../publish/publishIndicator";
 import { runStudioJob } from "../publish/runStudioJob";
 import { PUBLISH_TAB_ID } from "../publish/tabId";
 import { canBuildHere } from "../publish/handoff";
@@ -2529,9 +2533,18 @@ export function useStudioBuildsInTab(): boolean {
   return mode === "managed" || (mode === "connected" && publishesAsJobs);
 }
 
-/** See {@link ValContextValue.observedPublishJobs}. */
-export function useObservedPublishJobs(): readonly ObservedJob[] {
-  return useContext(ValContext).observedPublishJobs;
+/**
+ * Other editors' publish jobs, as the websocket last reported them: every job
+ * on the branch but this tab's own. This tab's own are told by its requests
+ * (`publishProgress`), which are authoritative -- a lost "sealed" nudge must
+ * not leave one of them looking like someone else's publish still running.
+ */
+export function useOtherPublishJobs(): readonly ObservedJob[] {
+  const { observedPublishJobs, publishJobsState } = useContext(ValContext);
+  return useMemo(
+    () => otherEditorsJobs(observedPublishJobs, publishJobsState),
+    [observedPublishJobs, publishJobsState],
+  );
 }
 
 /** See {@link ValContextValue.handoff}. */
