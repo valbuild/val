@@ -593,7 +593,12 @@ export function createValSystem(
                   : {}),
               };
             }
-            return { status: "ok" };
+            return {
+              status: "ok",
+              ...(res.json.headVersion !== undefined
+                ? { headVersion: res.json.headVersion }
+                : {}),
+            };
           },
           unstagePatches: async (request) => {
             const res = await client("/patch-groups/~/patches", "DELETE", {
@@ -617,7 +622,12 @@ export function createValSystem(
                   : {}),
               };
             }
-            return { status: "ok" };
+            return {
+              status: "ok",
+              ...(res.json.headVersion !== undefined
+                ? { headVersion: res.json.headVersion }
+                : {}),
+            };
           },
           savePatches: async ({
             patches,

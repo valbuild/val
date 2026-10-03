@@ -291,33 +291,20 @@ export type System = HostRealm &
       request: Parameters<StagePatches>[0],
     ): ReturnType<StagePatches>;
     /**
-     * Send a group change, or hold it until there is a group to send it to.
+     * Send a group change, now.
      *
      * `patchGroupId` is `undefined` whenever this author has no open group:
-     * before their first write on a branch, and again after every publish,
-     * because a publish closes the group and the next one is created by the
-     * next write. The review screen is usable in both windows — unstaging
-     * somebody else's patch, or re-staging one unstaged earlier — and every such
-     * change used to reach only the local scope and then be lost on reload.
-     *
-     * Held on the SYSTEM rather than in the review screen, because the screen
-     * unmounts the moment the user navigates off it to make the write that
-     * creates the group. A queue that lives on the screen is a queue that is
-     * gone before it can be flushed.
+     * before their first write on a branch, and again after every publish. It
+     * is sent anyway — with no id the content API stages into the caller's
+     * open group and creates it if there is none — so the change is on the
+     * server the moment it is made. It used to be held in this tab's memory
+     * until a write created a group, which a reload, another browser or a
+     * closed tab lost.
      */
     persistPatchGroupChange(
       patchGroupId: string | undefined,
       change: PatchGroupChangeRequest,
     ): void;
-    /**
-     * Send everything {@link System.persistPatchGroupChange} deferred.
-     *
-     * Called when a group id appears. In chain order of the user's clicks: the
-     * server unions on stage and removes on unstage, so replaying the moves in
-     * the order they were made lands on the membership the user asked for, even
-     * when they toggled the same patch twice.
-     */
-    flushPatchGroupChanges(patchGroupId: string): void;
     /** The current group, or `null` when unscoped. See {@link System.setPatchGroup}. */
     patchGroup(): readonly PatchId[] | null;
     /**
@@ -390,7 +377,11 @@ export type System = HostRealm &
  * schema, and one implementation of that rule is the point.
  */
 export type StagePatches = (request: {
-  patchGroupId: string;
+  /**
+   * The group to change, or `undefined` for the caller's open group on the
+   * branch — which a stage creates if there is none.
+   */
+  patchGroupId?: string;
   /** What the user asked for. */
   patchIds: PatchId[];
   /**
@@ -405,7 +396,15 @@ export type StagePatches = (request: {
    */
   withPatchIds: PatchId[];
 }) => Promise<
-  | { status: "ok" }
+  | {
+      status: "ok";
+      /**
+       * The chain version the change committed at, where the server says. See
+       * `unconfirmed` in `createSystem`: the change is shown as made here until
+       * the groups are read at this version or later.
+       */
+      headVersion?: number;
+    }
   | {
       status: "error";
       message: string;
@@ -422,21 +421,7 @@ export type StagePatches = (request: {
     }
 >;
 
-/**
- * One move of this author's group, as it goes on the wire.
- *
- * Named because it is also what gets QUEUED when the group does not exist yet —
- * see {@link System.persistPatchGroupChange}.
- */
-/**
- * How many un-persistable group changes to remember.
- *
- * Only reached on a branch where the group never comes into existence, which
- * means the user never writes — so this is a bound on a pathological session,
- * not a working one.
- */
-const MAX_DEFERRED_GROUP_CHANGES = 100;
-
+/** One move of this author's group, as it goes on the wire. */
 export type PatchGroupChangeRequest = {
   type: "stage" | "unstage";
   /** What the user asked for. */
@@ -724,10 +709,25 @@ export function createSystem(options: SystemOptions): System {
    */
   let ownPatchGroupId: string | undefined;
   /**
-   * Group changes made while this author had no open group. See
-   * {@link System.persistPatchGroupChange}.
+   * What this tab has done to its group that the server's groups may not show
+   * yet: its own writes, and its stages and unstages.
+   *
+   * The scope is the server's account of this user's open group with these
+   * laid over it. Each entry says which way the patch moved and, once the
+   * server has answered, the chain version the change committed at. The
+   * groups a stat brings are read at a version too, and an entry is dropped
+   * once they are at least as new — from then on they say it. Until then the
+   * entry wins, because a stat read before the change landed would otherwise
+   * undo, on screen, something the user just did.
+   *
+   * `version: null` is "not answered yet", or answered by a server that does
+   * not version its chain. Those entries never expire on a version; a refusal
+   * removes them, which puts the screen back to what the server holds.
    */
-  let deferredGroupChanges: PatchGroupChangeRequest[] = [];
+  const unconfirmed = new Map<
+    PatchId,
+    { type: "stage" | "unstage"; version: number | null }
+  >();
 
   /**
    * Does committing exactly these patches leave this client's group empty?
@@ -750,11 +750,10 @@ export function createSystem(options: SystemOptions): System {
     /*
      * The SERVER's account of the group as well as this tab's scope.
      *
-     * The scope is seeded once and then grows on this tab's own writes and on
-     * whatever {@link adoptOwnGroupMembers} takes from the annotation — which
-     * is the annotation as last FETCHED. Between fetches, a second tab of the
-     * same author can still have added ids the scope does not hold, and an id
-     * this tab unstaged is deliberately never re-adopted. Deciding from the scope
+     * The scope follows the server's groups ({@link reconcileScope}), but only
+     * as of the last stat, with this tab's unconfirmed changes laid over it —
+     * so in the moment between another tab's change and the stat that brings
+     * it, the scope can be one change behind. Deciding from the scope
      * alone passed this check on a group that still held unshipped work — and
      * the content API closes what it is named without looking, so those patches
      * fell into a closed group and out of the next one, and the other tab's
@@ -862,7 +861,8 @@ export function createSystem(options: SystemOptions): System {
 
   /** One stage or unstage, on the wire. Failures are logged, not thrown. */
   async function sendPatchGroupChange(
-    patchGroupId: string,
+    /** `undefined` is the caller's open group, created by a stage if needed. */
+    patchGroupId: string | undefined,
     change: PatchGroupChangeRequest,
   ): Promise<void> {
     const call =
@@ -872,42 +872,49 @@ export function createSystem(options: SystemOptions): System {
       // there, and the local scope has already moved.
       return;
     }
+    const moved = [...change.patchIds, ...change.withPatchIds];
     const res = await call({
-      patchGroupId,
+      ...(patchGroupId !== undefined ? { patchGroupId } : {}),
       patchIds: change.patchIds,
       withPatchIds: change.withPatchIds,
     });
-    if (res.status === "error") {
-      if (res.reason === "group-published") {
-        /*
-         * Somebody CLOSED this group — this same author publishing from another
-         * tab, since a group is one person's.
-         *
-         * Forgotten rather than retried: a published group is immutable, so a
-         * tab that keeps naming it answers every stage and unstage with the
-         * same 409, silently, for the rest of the session. Nothing else would
-         * correct it — the annotation refreshes only inside a fetch for MISSING
-         * patch ids, and there are none to fetch on a quiet branch.
-         *
-         * Forgetting hands the question back to `useCurrentPatchGroup`, which
-         * falls through to the annotation and then to the deferred queue, so
-         * the next write creates the next group and the click is replayed into
-         * it. Exactly the window the queue exists for.
-         */
-        patchStore.forgetOwnPatchGroup();
+    if (res.status === "ok") {
+      if (res.headVersion !== undefined) {
+        // The chain moved, as for a save: a stat read before this answer is
+        // older than what this client now knows.
+        stat.noteHeadVersion(res.headVersion);
       }
-      /*
-       * KNOWN GAP: nothing puts the local scope back.
-       *
-       * `PatchStore` re-reads the group annotation only inside a fetch it makes
-       * for MISSING patch ids, so on a quiet branch the request that would
-       * correct the screen may never happen — the user keeps seeing a stage the
-       * server refused until they reload. Same root cause as a stage in one tab
-       * reaching another only when some later fetch happens to carry the
-       * annotation. See `docs/independent-publish/DESIGN.md`, gap 5.
-       */
-      console.error("Val: could not update patch group", res.message);
+      confirmUnconfirmed(moved, change.type, res.headVersion);
+      return;
     }
+    if (res.reason === "group-published" && patchGroupId !== undefined) {
+      /*
+       * Somebody CLOSED this group — this same author publishing from another
+       * tab, since a group is one person's.
+       *
+       * Forgotten, so this tab stops naming an id that will answer every stage
+       * with the same 409. And the change is sent again, to whichever group is
+       * open now — created by this very request if none is — so the click the
+       * user made is not lost to a publish they made somewhere else.
+       */
+      patchStore.forgetOwnPatchGroup();
+      await sendPatchGroupChange(undefined, change);
+      return;
+    }
+    /*
+     * Refused. The screen goes back to what the server holds: the entries this
+     * change put over the server's groups are dropped, and the scope is
+     * recomputed without them. Before the groups came with every stat this was
+     * a known gap — nothing would correct the screen on a quiet branch until a
+     * reload.
+     */
+    for (const patchId of moved) {
+      if (unconfirmed.get(patchId)?.type === change.type) {
+        unconfirmed.delete(patchId);
+      }
+    }
+    reconcileScope();
+    console.error("Val: could not update patch group", res.message);
   }
 
   /**
@@ -949,66 +956,102 @@ export function createSystem(options: SystemOptions): System {
     patchStore.notifyGroupsChanged();
   }
   /**
-   * Ids this tab has made an explicit decision about — staged or unstaged —
-   * through {@link System.setPatchGroup}.
+   * Make the scope what the server says this user's open group holds, with
+   * {@link unconfirmed} laid over it.
    *
-   * What {@link adoptOwnGroupMembers} must never override. The annotation is
-   * routinely older than the last click: an unstage here removes the patch from
-   * the group on the server too, but a fetch whose response was read before
-   * that landed still lists it, and adopting from it would put back what the
-   * user just took out — the dangerous direction, because the next publish
-   * ships it. Only ever grows; a decision is not undone by a later annotation.
+   * Runs whenever the groups move — every stat carries them, and the content
+   * service announces every write, stage, unstage and publish — so a change
+   * made in another tab or browser of the same user reaches this one without a
+   * reload, and what this tab shows and publishes is what a reload would.
+   *
+   * WHICH group is the user's: the open one whose author is the profile `/stat`
+   * names. Before a stat has named one, the id the shell resolved
+   * (`ownPatchGroupId`, from `useCurrentPatchGroup`). Never a group with no
+   * author, nor one the groups show published.
+   *
+   * Versioned groups (from a stat) REPLACE the scope: a member the server no
+   * longer lists is unstaged here too. Unversioned ones (an older server's
+   * annotation on `GET /patches`, which can be older than what this tab has
+   * seen) only ADD — they cannot be trusted to remove.
+   *
+   * A no-op while unscoped (`null`): fs mode, or no groups on this deployment.
    */
-  const decidedPatchIds = new Set<PatchId>();
-
-  /**
-   * Widen the scope to members the server has put in this user's OPEN group
-   * and this tab has never had a say about.
-   *
-   * The server puts every write in its author's open group, including a write
-   * from ANOTHER tab or device of the same user. That patch reaches this chain
-   * through `PatchStore`'s missing-id fetch, which refreshes the annotation in
-   * the same response — but the scope was seeded once and grew only on this
-   * tab's own writes, so the patch landed as unstaged: not on screen here, and
-   * left out of a publish from here, while the server held it in the very
-   * group that publish was closing.
-   *
-   * Which group is ours is NOT decided here. `ownPatchGroupId` is the shell's
-   * answer from `useCurrentPatchGroup`, which owns that decision and its
-   * guards (the author must be known; the save response wins over the
-   * annotation; a group the annotation shows published is not named). This
-   * only refuses to go further than the annotation itself supports: a group
-   * it shows published, or one with no author, is never adopted from.
-   *
-   * Only ADDS. A member the annotation no longer lists is not removed — see
-   * gap 5 in `docs/independent-publish/DESIGN.md` for what that leaves open.
-   *
-   * Through {@link extendPatchGroup}, so source and the publish set move in
-   * one call, exactly as they do for this tab's own writes.
-   */
-  function adoptOwnGroupMembers(): void {
-    if (patchGroupIds === null || ownPatchGroupId === undefined) {
-      return;
+  function reconcileScope(): void {
+    if (patchGroupIds === null) return;
+    const groups = patchStore.groups();
+    if (groups === undefined) return;
+    const readAt = patchStore.groupsReadAt();
+    if (readAt !== undefined) {
+      for (const [patchId, entry] of unconfirmed) {
+        if (entry.version !== null && entry.version <= readAt) {
+          unconfirmed.delete(patchId);
+        }
+      }
     }
-    const annotated = patchStore
-      .groups()
-      ?.find((group) => group.patchGroupId === ownPatchGroupId);
+    const profileId = stat.currentProfileId();
+    const mine = groups.find(
+      (group) =>
+        group.publishedAt === null &&
+        group.authorId !== null &&
+        (profileId !== null
+          ? group.authorId === profileId
+          : group.patchGroupId === ownPatchGroupId),
+    );
+    const next = new Set<PatchId>(readAt !== undefined ? [] : patchGroupIds);
+    for (const patchId of mine?.patchIds ?? []) next.add(patchId);
+    for (const [patchId, entry] of unconfirmed) {
+      if (entry.type === "stage") next.add(patchId);
+      else next.delete(patchId);
+    }
     if (
-      annotated === undefined ||
-      annotated.publishedAt !== null ||
-      annotated.authorId === null
+      next.size === patchGroupIds.length &&
+      patchGroupIds.every((patchId) => next.has(patchId))
     ) {
       return;
     }
-    const scope = new Set(patchGroupIds);
-    const undecided = annotated.patchIds.filter(
-      (patchId) => !scope.has(patchId) && !decidedPatchIds.has(patchId),
-    );
-    if (undecided.length === 0) {
-      return;
-    }
-    extendPatchGroup(undecided);
+    patchGroupIds = [...next];
+    // Same call for both halves, for the reason `setPatchGroup` documents: what
+    // is visible and what will ship must not come apart.
+    sourceStore.setVisiblePatchIds(patchGroupIds);
+    patchStore.notifyGroupsChanged();
   }
+
+  /**
+   * The closure each write carried, by the write's id, until its save is
+   * answered. See the `patch:saved` listener.
+   */
+  const closureOfWrite = new Map<PatchId, PatchId[]>();
+
+  /** Record that these patches moved, here, ahead of the server's groups. */
+  function markUnconfirmed(
+    patchIds: Iterable<PatchId>,
+    type: "stage" | "unstage",
+  ): void {
+    for (const patchId of patchIds) {
+      unconfirmed.set(patchId, { type, version: null });
+    }
+  }
+
+  /**
+   * The server answered a change: what it moved is shown as moved until the
+   * groups are read at `version` or later. Without a version the entries stay
+   * as they are — an older server, which this tab cannot ask to catch up.
+   */
+  function confirmUnconfirmed(
+    patchIds: Iterable<PatchId>,
+    type: "stage" | "unstage",
+    version: number | undefined,
+  ): void {
+    if (version === undefined) return;
+    for (const patchId of patchIds) {
+      const entry = unconfirmed.get(patchId);
+      if (entry !== undefined && entry.type === type && entry.version === null) {
+        unconfirmed.set(patchId, { type, version });
+      }
+    }
+    reconcileScope();
+  }
+
   /** One whole-project validation at a time. See `validateEverything`. */
   let fullValidationRunning = false;
   /**
@@ -1416,16 +1459,34 @@ export function createSystem(options: SystemOptions): System {
      * correct, but a rebuild of the module's whole chain on every keystroke.
      */
     patchStore.events.on("patch:create", (event) => {
+      // In the group on the server by construction — the content API puts a
+      // write in its author's open group — but not in the groups this tab has
+      // been shown until a stat after the save. See `unconfirmed`.
+      markUnconfirmed(event.patches, "stage");
       extendPatchGroup(event.patches);
     }),
     /*
-     * The annotation moved: our open group may hold a patch written in another
-     * tab. Registered before the source store for the same reason as above —
-     * `PatchStore` bumps the groups BEFORE it delivers the records of the same
-     * response, so the scope has grown by the time `applyEntries` asks.
+     * The groups moved: a stat, the server's answer to this tab's own change,
+     * or this tab moving its scope. Registered before the source store for the
+     * same reason as above — `PatchStore` takes a stat's groups BEFORE it
+     * delivers the records of that stat, so the scope is right by the time
+     * `applyEntries` asks whether to hold one.
      */
     patchStore.events.on("patch:groups", () => {
-      adoptOwnGroupMembers();
+      reconcileScope();
+    }),
+    /*
+     * A save answered with the chain version it committed at: the write, and
+     * the closure that joined the group with it, are in every listing from
+     * that version on.
+     */
+    patchSync.events.on("patch:saved", (event) => {
+      const saved: PatchId[] = [];
+      for (const patchId of event.patches) {
+        saved.push(patchId, ...(closureOfWrite.get(patchId) ?? []));
+        closureOfWrite.delete(patchId);
+      }
+      confirmUnconfirmed(saved, "stage", event.headVersion);
     }),
     sourceStore.listenTo(patchStore),
     // The write is the one path that is not demand-driven: a local patch has to
@@ -1907,12 +1968,10 @@ export function createSystem(options: SystemOptions): System {
     setOwnPatchGroupId(patchGroupId) {
       ownPatchGroupId = patchGroupId;
       /*
-       * The annotation can name our group before the shell does — the write
-       * from elsewhere that CREATED it arrives with the annotation, and the
-       * shell resolves the id only on its next render. So the members are
-       * adopted here as well as on `patch:groups`.
+       * Before a stat has named the user, this id is how their group is found
+       * — and the groups can arrive before the shell has resolved it.
        */
-      adoptOwnGroupMembers();
+      reconcileScope();
     },
     setPatchGroupResolver(resolver) {
       if (resolver === undefined) {
@@ -1936,6 +1995,11 @@ export function createSystem(options: SystemOptions): System {
       patchSync.setPatchGroupResolver(async (patchIds) => {
         const membership = await resolver(patchIds);
         if (membership !== undefined) {
+          // Joins with the write, so it is confirmed with the write's save.
+          markUnconfirmed(membership.withPatchIds, "stage");
+          for (const patchId of patchIds) {
+            closureOfWrite.set(patchId, [...membership.withPatchIds]);
+          }
           extendPatchGroup([...patchIds, ...membership.withPatchIds]);
           /*
            * And SAY SO, when the closure brought somebody else's work along.
@@ -1984,74 +2048,7 @@ export function createSystem(options: SystemOptions): System {
       if (change.patchIds.length === 0 && change.withPatchIds.length === 0) {
         return;
       }
-      if (patchGroupId === undefined) {
-        /*
-         * Nothing to stage into yet. Held rather than dropped — see the
-         * declaration; the alternative was a control that moved the screen and
-         * silently persisted nothing.
-         *
-         * Capped so a user clicking away at a review screen on a branch whose
-         * group never materialises cannot grow this without bound. The oldest
-         * moves are the ones a later toggle is most likely to have already
-         * undone, so they are the ones dropped.
-         */
-        deferredGroupChanges.push(change);
-        if (deferredGroupChanges.length > MAX_DEFERRED_GROUP_CHANGES) {
-          deferredGroupChanges = deferredGroupChanges.slice(
-            -MAX_DEFERRED_GROUP_CHANGES,
-          );
-        }
-        return;
-      }
       void sendPatchGroupChange(patchGroupId, change);
-    },
-    flushPatchGroupChanges(patchGroupId) {
-      if (deferredGroupChanges.length === 0) return;
-      const queued = deferredGroupChanges;
-      // Cleared BEFORE sending, so a change made while the flush is in flight
-      // queues behind nothing and is sent on its own rather than being replayed
-      // twice by the next flush.
-      deferredGroupChanges = [];
-      /*
-       * Replayed against the CURRENT scope, not verbatim.
-       *
-       * Verbatim was wrong in the very case the queue exists for. The group id
-       * appears because the user went and wrote something, and that write runs
-       * its own closure: a queued unstage of a patch the closure then pulled
-       * back in would be replayed afterwards and take it out of the group on
-       * the server — while the local scope, and therefore publish, still held
-       * it. The result was a hole in front of the user's own patch, surfacing a
-       * publish refusal naming raw ids, and only after a reload.
-       *
-       * The local scope is what this client intends the group to be, and every
-       * click has already been folded into it. So the queue is only a means of
-       * persisting that intent, and where the two disagree the scope wins —
-       * which is the write winning over the earlier click, as it must.
-       *
-       * Snapshotted once, so a scope change during the flush cannot make two
-       * entries in one replay disagree with each other.
-       */
-      const scope = patchGroupIds === null ? null : new Set(patchGroupIds);
-      void (async () => {
-        for (const change of queued) {
-          const inScope = (patchId: PatchId) =>
-            scope === null ||
-            (change.type === "stage"
-              ? scope.has(patchId)
-              : !scope.has(patchId));
-          // Both halves are filtered the same way. Filtering only the union and
-          // then intersecting would let the request name an id it is no longer
-          // sending.
-          const patchIds = change.patchIds.filter(inScope);
-          const withPatchIds = change.withPatchIds.filter(inScope);
-          if (patchIds.length === 0 && withPatchIds.length === 0) continue;
-          await sendPatchGroupChange(patchGroupId, {
-            ...change,
-            patchIds,
-            withPatchIds,
-          });
-        }
-      })();
     },
     seedPatchGroup(ids) {
       /*
@@ -2084,15 +2081,21 @@ export function createSystem(options: SystemOptions): System {
     },
     setPatchGroup(ids) {
       if (ids !== null) {
-        // Both directions are decisions: what moved in and what moved out.
+        /*
+         * Both directions are this tab's doing, ahead of the server: what moved
+         * in and what moved out. Held over the server's groups until it answers
+         * and a stat shows the answer — see `unconfirmed`.
+         */
         const before = new Set(patchGroupIds ?? []);
         const after = new Set(ids);
-        for (const patchId of after) {
-          if (!before.has(patchId)) decidedPatchIds.add(patchId);
-        }
-        for (const patchId of before) {
-          if (!after.has(patchId)) decidedPatchIds.add(patchId);
-        }
+        markUnconfirmed(
+          [...after].filter((patchId) => !before.has(patchId)),
+          "stage",
+        );
+        markUnconfirmed(
+          [...before].filter((patchId) => !after.has(patchId)),
+          "unstage",
+        );
       }
       patchGroupIds = ids === null ? null : [...ids];
       // Source is scoped in the same call, so "what I can see" and "what I will

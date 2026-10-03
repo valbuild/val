@@ -2,6 +2,7 @@ import { Patch } from "@valbuild/core/patch";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import {
   newestCommitSha,
+  PatchGroup,
   ValClient,
   ValCommit,
   ValDeployment,
@@ -200,6 +201,11 @@ export const StatData = z.object({
    * reported".
    */
   headVersion: z.number().optional(),
+  /**
+   * Every group on the branch and what each holds, read with `patches` and
+   * `headVersion`. `http` only, and absent where there are no groups.
+   */
+  patchGroups: z.array(PatchGroup).optional(),
   /**
    * The newest commit, which is the PUBLISH head.
    *

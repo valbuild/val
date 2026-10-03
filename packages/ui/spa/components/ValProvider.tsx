@@ -572,6 +572,12 @@ export function ValProvider({
    */
   const statSourcesSha =
     "data" in stat && stat.data ? stat.data.sourcesSha : undefined;
+  /**
+   * Who holds what, read with the chain. The source of this client's view of
+   * the groups — see `PatchStore.receiveStatGroups`.
+   */
+  const statPatchGroups =
+    "data" in stat && stat.data ? stat.data.patchGroups : undefined;
   const storeStat = useMemo(
     () =>
       baseSha !== undefined && statPatches !== undefined
@@ -584,6 +590,8 @@ export function ValProvider({
             headPatchId: statPatchHead,
             headVersion: statHeadVersion,
             sourcesSha: statSourcesSha,
+            patchGroups: statPatchGroups,
+            profileId: statProfileId,
           }
         : null,
     [
@@ -595,6 +603,8 @@ export function ValProvider({
       statPatchHead,
       statHeadVersion,
       statSourcesSha,
+      statPatchGroups,
+      statProfileId,
     ],
   );
 

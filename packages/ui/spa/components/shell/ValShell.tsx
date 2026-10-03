@@ -255,7 +255,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const ownPendingChanges = useOwnPendingChangeCount();
   usePatchGroupWrites();
   usePatchGroupScope();
-  usePatchGroupFlush();
+  usePatchGroupIdentity();
   const portalContainer = useValPortal();
   const discardAll = useDiscardAll();
   /*
@@ -1473,10 +1473,9 @@ function usePatchGroupChange(
        * perfectly usable in: before this author's first write on a branch, and
        * after every publish, since a publish closes the group and the next one
        * is created by the next write. This used to return here, so a stage made
-       * in either window moved the screen and persisted nothing. The system
-       * holds it and sends it when a group exists — the queue cannot live here,
-       * because this screen unmounts as soon as the user navigates off to make
-       * the write that creates the group.
+       * in either window moved the screen and persisted nothing. It is sent
+       * with no id instead, and the content API stages it into the caller's
+       * open group, creating one if there is none.
        */
       val.system.persistPatchGroupChange(patchGroupId, {
         type: change.type,
@@ -1539,29 +1538,17 @@ function usePatchGroupWrites(): void {
 }
 
 /**
- * Send the group changes that were made before there was a group.
+ * Tell the system which group is this user's.
  *
- * At SHELL level for the same reason the queue is on the system: the id
- * normally appears because the user left the review screen and typed
- * something, so the component that took the clicks is unmounted by the time
- * there is anywhere to send them. This one is mounted throughout.
- *
- * Runs on every id change, not only the first. A publish closes the group, so a
- * session goes through this repeatedly — and the id it flushes into is always
- * the current open group, never the closed one the clicks were made against.
+ * `publish` has to tell the content API which group its commit empties, and
+ * the scope needs to know whose group it follows before a stat has named the
+ * user.
  */
-function usePatchGroupFlush(): void {
+function usePatchGroupIdentity(): void {
   const val = useValSystem();
   const group = useCurrentPatchGroup();
 
-  useEffect(() => {
-    if (val === null || group.patchGroupId === undefined) return;
-    val.system.flushPatchGroupChanges(group.patchGroupId);
-  }, [val, group.patchGroupId]);
-
   /*
-   * And the same id reaches `publish`, which has to tell the content API which
-   * group its commit empties.
    *
    * Set from here because resolving "which group is mine" needs the author id
    * and the chain annotation, and `useCurrentPatchGroup` is the one place that

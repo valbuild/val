@@ -937,3 +937,180 @@ test("a publish carries the chain version it moved to", async () => {
     restore();
   }
 });
+
+/**
+ * `home` after `valbuild/home#135`: a group change carries the chain version it
+ * committed at, and `~` names the caller's open group.
+ *
+ * The fixtures above are the older `home`, which answers without a version and
+ * must keep parsing until every deployment has the new one.
+ */
+const HOME_STAGE_VERSIONED = { ...HOME_STAGE, headVersion: 7 };
+/** `home` — an unstage of `~` by a caller with no open group. */
+const HOME_UNSTAGE_NO_GROUP = {
+  patchGroupId: null,
+  patchIds: [] as string[],
+  headVersion: 7,
+};
+
+test("a stage with no group named goes to `~`, on this build's branch", async () => {
+  const stage = opsAnswering(HOME_STAGE_VERSIONED, 200, {
+    git: { commit: "c", branch: "feature" },
+  });
+  try {
+    const res = await stage.ops.stagePatches(
+      undefined,
+      ["33333333-3333-4333-8333-333333333333" as PatchId],
+      [],
+      PROFILE,
+    );
+
+    expect(stage.sent[0].url).toBe(
+      `${CONTENT_URL}/v1/${PROJECT}/patch-groups/~/patches`,
+    );
+    // The branch this build READS on, so the group it stages into is the group
+    // it is shown.
+    expect(stage.sent[0].body).toMatchObject({ branch: "feature" });
+    expect(res).toMatchObject({
+      patchGroupId: "11111111-1111-4111-8111-111111111111",
+      headVersion: 7,
+    });
+  } finally {
+    stage.restore();
+  }
+});
+
+test("a build with no repository leaves the branch to the content API", async () => {
+  const stage = opsAnswering(HOME_STAGE_VERSIONED, 200, { git: null });
+  try {
+    await stage.ops.stagePatches(
+      undefined,
+      ["33333333-3333-4333-8333-333333333333" as PatchId],
+      [],
+      PROFILE,
+    );
+    expect(stage.sent[0].body).not.toHaveProperty("branch");
+  } finally {
+    stage.restore();
+  }
+});
+
+test("an unstage of `~` with no open group parses as nothing to remove", async () => {
+  const unstage = opsAnswering(HOME_UNSTAGE_NO_GROUP);
+  try {
+    const res = await unstage.ops.unstagePatches(
+      undefined,
+      ["33333333-3333-4333-8333-333333333333" as PatchId],
+      [],
+      PROFILE,
+    );
+    expect(res.error).toBe(undefined);
+    expect(res).toMatchObject({ patchGroupId: null, patchIds: [] });
+  } finally {
+    unstage.restore();
+  }
+});
+
+test("an older home's answer, with no version, still parses", async () => {
+  const stage = opsAnswering(HOME_STAGE);
+  try {
+    const res = await stage.ops.stagePatches(
+      "11111111-1111-4111-8111-111111111111",
+      ["33333333-3333-4333-8333-333333333333" as PatchId],
+      [],
+      PROFILE,
+    );
+    expect(res.error).toBe(undefined);
+    expect(res).not.toHaveProperty("headVersion");
+  } finally {
+    stage.restore();
+  }
+});
+
+/**
+ * `home` — `Api["/applicable/patches"]["GET"]["res"]`, the fields groups ride
+ * on: `patchGroupIds` per patch, and the groups themselves without members.
+ */
+const HOME_APPLICABLE_WITH_GROUPS = {
+  patches: [
+    {
+      path: "/content/page.val.ts",
+      patch: null,
+      patchId: "33333333-3333-4333-8333-333333333333",
+      baseSha: "base",
+      authorId: "22222222-2222-4222-8222-222222222222",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      applied: null,
+      patchGroupIds: ["11111111-1111-4111-8111-111111111111"],
+    },
+    {
+      path: "/content/page.val.ts",
+      patch: null,
+      patchId: "44444444-4444-4444-8444-444444444444",
+      baseSha: "base",
+      authorId: "55555555-5555-4555-8555-555555555555",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      applied: null,
+      patchGroupIds: [],
+    },
+  ],
+  headPatchId: "44444444-4444-4444-8444-444444444444",
+  headVersion: 9,
+  patchGroups: [
+    {
+      patchGroupId: "11111111-1111-4111-8111-111111111111",
+      authorId: "22222222-2222-4222-8222-222222222222",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      publishedAt: null,
+    },
+    {
+      patchGroupId: "66666666-6666-4666-8666-666666666666",
+      authorId: "55555555-5555-4555-8555-555555555555",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      publishedAt: null,
+    },
+  ],
+  commits: [],
+  deployments: [],
+};
+
+test("the chain's own annotation becomes the groups, read with its version", async () => {
+  const { ops, restore } = opsAnswering(HOME_APPLICABLE_WITH_GROUPS);
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: true });
+
+    expect(res.headVersion).toBe(9);
+    expect(res.patchGroups).toEqual([
+      {
+        patchGroupId: "11111111-1111-4111-8111-111111111111",
+        authorId: "22222222-2222-4222-8222-222222222222",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        publishedAt: null,
+        patchIds: ["33333333-3333-4333-8333-333333333333"],
+      },
+      // Listed with no members: groups exist, and this one holds none of the
+      // listed patches. Not the same answer as "no groups here".
+      {
+        patchGroupId: "66666666-6666-4666-8666-666666666666",
+        authorId: "55555555-5555-4555-8555-555555555555",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        publishedAt: null,
+        patchIds: [],
+      },
+    ]);
+  } finally {
+    restore();
+  }
+});
+
+test("a content API that sends no groups leaves them absent, not empty", async () => {
+  const { patchGroups: _omit, ...withoutGroups } = HOME_APPLICABLE_WITH_GROUPS;
+  void _omit;
+  const { ops, restore } = opsAnswering(withoutGroups);
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: true });
+    expect(res).not.toHaveProperty("patchGroups");
+  } finally {
+    restore();
+  }
+});

@@ -831,10 +831,31 @@ const getApplicablePatches: Handler = (req, res, url) => {
       baseSha: patch.baseSha,
       createdAt: patch.createdAt,
       applied: patch.applied,
+      // Which groups hold it, as `home` annotates every listed patch — read
+      // with the list and `headVersion`, which is what the Studio's view of
+      // the groups is taken from.
+      ...(state.patchGroupsEnabled
+        ? {
+            patchGroupIds: [...state.patchGroups.values()]
+              .filter((group) => group.patchIds.has(patch.patchId))
+              .map((group) => group.patchGroupId),
+          }
+        : {}),
     });
   }
   json(res, 200, {
     patches,
+    // The groups themselves, without members: those are on the patches.
+    ...(state.patchGroupsEnabled
+      ? {
+          patchGroups: [...state.patchGroups.values()].map((group) => ({
+            patchGroupId: group.patchGroupId,
+            authorId: group.authorId,
+            createdAt: group.createdAt,
+            publishedAt: group.publishedAt,
+          })),
+        }
+      : {}),
     /*
      * The head of the chain, which a writer names as its parent. `home` reports
      * it because its list leaves out what the caller's build contains; this
@@ -1173,15 +1194,52 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
     return;
   }
   const patchGroupId = decodeURIComponent(url.pathname.split("/").at(-2) ?? "");
-  const group = resolveOwnOpenGroup(req, res, patchGroupId);
-  if (group === null) {
-    return;
-  }
   const body = await readJsonBody<{
     patchIds: string[];
     withPatchIds?: string[];
     coreVersion?: string | null;
+    branch?: string;
   }>(req);
+  let group: MockPatchGroup | null;
+  if (patchGroupId === "~") {
+    /*
+     * `home`'s `resolveTargetGroup`: the caller's open group on the branch. A
+     * stage creates it, as a write does; an unstage with none answers `null`.
+     */
+    const profileId = req.headers["x-val-profile-id"];
+    if (typeof profileId !== "string" || profileId.length === 0) {
+      res.writeHead(403, { "Content-Type": "text/plain", ...corsHeaders(res) });
+      res.end(
+        "Cannot resolve the caller's profile, so there is no group of theirs to change",
+      );
+      return;
+    }
+    const branch = body?.branch ?? PROJECT_BRANCH;
+    if (req.method === "POST") {
+      group = getOrCreateOpenGroup(profileId, branch);
+    } else {
+      group =
+        [...state.patchGroups.values()].find(
+          (candidate) =>
+            candidate.publishedAt === null &&
+            candidate.branch === branch &&
+            candidate.authorId === profileId,
+        ) ?? null;
+      if (group === null) {
+        json(res, 200, {
+          patchGroupId: null,
+          patchIds: [],
+          headVersion: chainVersion,
+        });
+        return;
+      }
+    }
+  } else {
+    group = resolveOwnOpenGroup(req, res, patchGroupId);
+    if (group === null) {
+      return;
+    }
+  }
   // `patchIds` is what the user asked for and `withPatchIds` is what came with
   // it. Both join or leave the group; only the first half is `explicit`, which
   // is how `home` files them.
@@ -1213,9 +1271,19 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
       group.askedForPatchIds.delete(patchId);
     }
   }
+  /*
+   * A change is versioned and announced, as `home` does: a listing carries
+   * membership, so every Studio on the branch has to re-read it — the
+   * websocket's `patches` message is what makes them.
+   */
+  if (explicit.length + dependency.length > 0) {
+    chainVersion += 1;
+    broadcastChain();
+  }
   json(res, 200, {
     patchGroupId: group.patchGroupId,
     patchIds: [...group.patchIds],
+    headVersion: chainVersion,
   });
 };
 
