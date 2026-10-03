@@ -1003,6 +1003,7 @@ export function createSystem(options: SystemOptions): System {
       if (entry.type === "stage") next.add(patchId);
       else next.delete(patchId);
     }
+    holdBackOverHoles(next, mine?.patchIds ?? []);
     if (
       next.size === patchGroupIds.length &&
       patchGroupIds.every((patchId) => next.has(patchId))
@@ -1016,11 +1017,92 @@ export function createSystem(options: SystemOptions): System {
     patchStore.notifyGroupsChanged();
   }
 
+  /** The tail of the group changes being sent. See `persistPatchGroupChange`. */
+  let groupChanges: Promise<void> = Promise.resolve();
+
   /**
    * The closure each write carried, by the write's id, until its save is
    * answered. See the `patch:saved` listener.
    */
   const closureOfWrite = new Map<PatchId, PatchId[]>();
+
+  /**
+   * The last answer to "which of these new members sit on a patch this tab
+   * took out", for the inputs in `key`. See {@link holdBackOverHoles}.
+   */
+  let holeCheck: { key: string; blocked: ReadonlySet<PatchId> } | null = null;
+  /** The key a check is running for, so one runs per question. */
+  let holeCheckRunning: string | null = null;
+
+  /**
+   * Keep out of `next` any member that would join over a hole.
+   *
+   * The server's group can list a patch this tab took out — this tab's unstage
+   * has not reached it, or another tab, still showing the patch, wrote on top
+   * of it and its closure put it back. Then a member that is NEW here may have
+   * been written on top of that patch: an edit of an item the taken-out patch
+   * inserted, say. Letting it in without the patch beneath it is a hole in the
+   * middle of a patch set, the one shape a group must never have — its paths
+   * were computed against a state that had the missing patch.
+   *
+   * Whether a member sits on one needs patch sets, which are async. So until
+   * an answer for exactly these inputs is in, every such new member is held
+   * back (shown as unstaged, the recoverable direction), and the answer
+   * re-runs the reconcile. The chain version is in the key, so records that
+   * arrive later ask again (`patch:receive`).
+   */
+  function holdBackOverHoles(
+    next: Set<PatchId>,
+    serverMembers: readonly PatchId[],
+  ): void {
+    if (patchGroupIds === null) return;
+    const current = new Set(patchGroupIds);
+    const added = [...next].filter((patchId) => !current.has(patchId)).sort();
+    const takenOut = serverMembers.filter((patchId) => !next.has(patchId));
+    if (added.length === 0 || takenOut.length === 0) return;
+    const key = JSON.stringify([
+      added,
+      [...takenOut].sort(),
+      patchStore.chainVersion(),
+    ]);
+    if (holeCheck?.key === key) {
+      for (const patchId of holeCheck.blocked) next.delete(patchId);
+      return;
+    }
+    for (const patchId of added) next.delete(patchId);
+    if (holeCheckRunning === key) return;
+    holeCheckRunning = key;
+    const base = new Set(next);
+    void (async () => {
+      let blocked: Set<PatchId>;
+      try {
+        // A build that carries its own chain, and only what it covers is
+        // let in — the same care the write closure takes.
+        let build = await computePatchSetsBuild();
+        const covered = () => new Set(build.chain);
+        if (!added.every((patchId) => covered().has(patchId))) {
+          build = await computePatchSetsBuild();
+        }
+        const chain = covered();
+        const index = indexPatchSets(build.sets, build.chain);
+        blocked = new Set(
+          added.filter((patchId) => {
+            if (!chain.has(patchId)) return true;
+            const needs = stageClosure(index, base, [patchId]);
+            return takenOut.some((out) => needs.has(out));
+          }),
+        );
+      } catch {
+        // Nothing let in: a member left out shows as unstaged until the next
+        // answer, while one let in over a hole ships a change against the
+        // wrong content.
+        blocked = new Set(added);
+      }
+      if (holeCheckRunning === key) holeCheckRunning = null;
+      holeCheck = { key, blocked };
+      reconcileScope();
+    })();
+  }
 
   /** Record that these patches moved, here, ahead of the server's groups. */
   function markUnconfirmed(
@@ -1491,6 +1573,11 @@ export function createSystem(options: SystemOptions): System {
         closureOfWrite.delete(patchId);
       }
       confirmUnconfirmed(saved, "stage", event.headVersion);
+    }),
+    // And when records land: a member held back until patch sets show it needs
+    // nothing this tab took out (see `holdBackOverHoles`) is asked about again.
+    patchStore.events.on("patch:receive", () => {
+      reconcileScope();
     }),
     sourceStore.listenTo(patchStore),
     // The write is the one path that is not demand-driven: a local patch has to
@@ -2052,7 +2139,26 @@ export function createSystem(options: SystemOptions): System {
       if (change.patchIds.length === 0 && change.withPatchIds.length === 0) {
         return;
       }
-      void sendPatchGroupChange(patchGroupId, change);
+      /*
+       * One at a time, in the order they were made. The server unions on
+       * stage and removes on unstage, so a stage and an unstage of the same
+       * patch landing in the other order leave it staged on the server while
+       * this tab shows it unstaged. Behind the previous change, its 409 retry
+       * included.
+       */
+      groupChanges = groupChanges
+        .then(() => sendPatchGroupChange(patchGroupId, change))
+        .catch((error: unknown) => {
+          // A throw must not stop every later change from going out. What it
+          // put on screen goes back, as for a refusal.
+          for (const patchId of [...change.patchIds, ...change.withPatchIds]) {
+            if (unconfirmed.get(patchId)?.type === change.type) {
+              unconfirmed.delete(patchId);
+            }
+          }
+          reconcileScope();
+          console.error("Val: could not update patch group", error);
+        });
     },
     seedPatchGroup(ids) {
       /*

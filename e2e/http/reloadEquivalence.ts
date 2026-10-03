@@ -35,6 +35,7 @@ type Bag = {
       patchStore: {
         allRecords(): { patchId: string; appliedAt?: unknown }[];
         unstagedPatchIds(): ReadonlySet<string>;
+        pendingAmong(patchIds: Iterable<string>): Set<string>;
         chainSettled(): boolean;
         patchGroupsSupported(): boolean;
       };
@@ -50,10 +51,14 @@ export function showing(page: Page): Promise<Showing> {
     const { system } = stores;
     const scope = system.patchGroup();
     const inScope = scope === null ? null : new Set(scope);
-    const pending = system.patchStore
+    // The store's own answer to "has this shipped", which also counts what
+    // this tab's publish shipped before any record says so — what a publish
+    // from here would leave out.
+    const chain = system.patchStore
       .allRecords()
-      .filter((record) => !record.appliedAt)
       .map((record) => record.patchId);
+    const stillPending = system.patchStore.pendingAmong(chain);
+    const pending = chain.filter((patchId) => stillPending.has(patchId));
     return {
       // Through JSON so the comparison is of values, not of identities.
       sources: JSON.parse(JSON.stringify(system.sourceStore.allSources())),
@@ -136,18 +141,19 @@ export async function expectSameAsReload(
   message: string,
 ): Promise<void> {
   /*
-   * A marker on the live page, checked at the end. `next dev` can full-reload
-   * an open page while it compiles for a new one, and a live page that was
-   * reloaded under the test agrees with the fresh one for the wrong reason.
+   * The live page must have been marked BEFORE the event under test. `next
+   * dev` can full-reload an open page while it compiles for a new one, and a
+   * page reloaded between the event and here agrees with the fresh one for
+   * the wrong reason — so the marker is required, never created here.
    */
-  if (marked.has(live)) {
-    expect(
-      await live.evaluate(() => Reflect.get(window, "__valReloadMarker")),
-      "the live page was reloaded after it was marked, so it proves nothing",
-    ).toBe(true);
-  } else {
-    await markLive(live);
-  }
+  expect(
+    marked.has(live),
+    "call markLive(page) before the event this compares, or a reload can pass it",
+  ).toBe(true);
+  expect(
+    await live.evaluate(() => Reflect.get(window, "__valReloadMarker")),
+    "the live page was reloaded after it was marked, so it proves nothing",
+  ).toBe(true);
   const context = await contextAs(browser, user);
   try {
     const fresh = await context.newPage();

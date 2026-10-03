@@ -290,3 +290,63 @@ test("a change refused because the group shipped is resent to the open group", a
 
   expect(sent.map((call) => call.patchGroupId)).toEqual(["g1", undefined]);
 });
+
+test("changes go out one at a time, so the server applies them in order", async () => {
+  /*
+   * The server unions on stage and removes on unstage. Two requests in flight
+   * at once can land in either order, and a stage then an unstage arriving
+   * reversed leaves the patch staged on the server while this tab shows it
+   * unstaged.
+   */
+  const started: string[] = [];
+  let releaseFirst = () => {};
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => "p" as PatchId,
+    stagePatches: () => {
+      started.push("stage");
+      return new Promise((resolve) => {
+        releaseFirst = () => resolve({ status: "ok" });
+      });
+    },
+    unstagePatches: async () => {
+      started.push("unstage");
+      return { status: "ok" };
+    },
+  });
+  system.host.receive(project());
+
+  system.persistPatchGroupChange(undefined, stage(["a" as PatchId]));
+  system.persistPatchGroupChange(undefined, unstage(["a" as PatchId]));
+  await settle();
+  expect(started).toEqual(["stage"]);
+
+  releaseFirst();
+  await settle();
+  await settle();
+  expect(started).toEqual(["stage", "unstage"]);
+});
+
+test("a change that throws does not stop the ones after it", async () => {
+  const errors = jest.spyOn(console, "error").mockImplementation(() => {});
+  const sent: string[] = [];
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => "p" as PatchId,
+    stagePatches: async () => {
+      throw new Error("network down");
+    },
+    unstagePatches: async () => {
+      sent.push("unstage");
+      return { status: "ok" };
+    },
+  });
+  system.host.receive(project());
+
+  system.persistPatchGroupChange(undefined, stage(["a" as PatchId]));
+  system.persistPatchGroupChange(undefined, unstage(["b" as PatchId]));
+  for (let i = 0; i < 3; i++) await settle();
+
+  expect(sent).toEqual(["unstage"]);
+  errors.mockRestore();
+});

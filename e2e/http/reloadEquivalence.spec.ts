@@ -1,4 +1,4 @@
-import { test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import {
   contextAs,
   mock,
@@ -45,6 +45,7 @@ test("a change Ada writes in another browser", async ({ page, browser }) => {
   try {
     const elsewhere = await other.newPage();
     await openHttpStudio(elsewhere);
+    await markLive(page);
     await writePatch(elsewhere, AUTHORS, [
       { op: "replace", path: ["teddy", "name"], value: "from another browser" },
     ]);
@@ -64,6 +65,7 @@ test("a change another user writes", async ({ page, browser }) => {
   try {
     const theirs = await linus.newPage();
     await openHttpStudio(theirs);
+    await markLive(page);
     await writePatch(theirs, AUTHORS, [
       { op: "replace", path: ["teddy", "name"], value: "Linus, pending" },
     ]);
@@ -85,10 +87,15 @@ test("a change another user publishes, before it is built", async ({
   try {
     const theirs = await linus.newPage();
     await openHttpStudio(theirs);
+    await markLive(page);
     await writePatch(theirs, AUTHORS, [
       { op: "replace", path: ["teddy", "name"], value: "Linus, published" },
     ]);
-    await publishAll(theirs, "Linus ships");
+    // Asserted, because `publishAll` reports a refusal rather than throwing,
+    // and two pages agreeing on an unpublished draft would pass this test.
+    expect(await publishAll(theirs, "Linus ships")).toMatchObject({
+      status: "published",
+    });
     await expectSameAsReload(browser, page, "ada", "Linus published");
   } finally {
     await linus.close();
@@ -100,7 +107,10 @@ test("Ada's own publish, before it is built", async ({ page, browser }) => {
   await writePatch(page, AUTHORS, [
     { op: "replace", path: ["teddy", "name"], value: "Ada, published" },
   ]);
-  await publishAll(page, "Ada ships");
+  await markLive(page);
+  expect(await publishAll(page, "Ada ships")).toMatchObject({
+    status: "published",
+  });
   await expectSameAsReload(browser, page, "ada", "Ada published");
 });
 
@@ -117,7 +127,10 @@ test("Ada's own publish, seen from her other browser", async ({
     const elsewhere = await other.newPage();
     await openHttpStudio(elsewhere);
     await openHttpStudio(page);
-    await publishAll(elsewhere, "Ada ships from the other browser");
+    await markLive(page);
+    expect(
+      await publishAll(elsewhere, "Ada ships from the other browser"),
+    ).toMatchObject({ status: "published" });
     await expectSameAsReload(
       browser,
       page,
@@ -152,6 +165,7 @@ test("a change Ada stages in another browser", async ({ page, browser }) => {
     const elsewhere = await other.newPage();
     await openHttpStudio(elsewhere);
     await openHttpStudio(page);
+    await markLive(page);
     await openReview(elsewhere, studioOf(elsewhere));
     await actOnFirstRow(
       studioOf(elsewhere),
@@ -179,6 +193,7 @@ test("a change Ada unstages in another browser", async ({ page, browser }) => {
     const elsewhere = await other.newPage();
     await openHttpStudio(elsewhere);
     await openHttpStudio(page);
+    await markLive(page);
     await openReview(elsewhere, studioOf(elsewhere));
     await actOnFirstRow(
       studioOf(elsewhere),
@@ -256,8 +271,10 @@ test("a change staged while Ada has no group yet", async ({
   browser,
 }) => {
   /*
-   * Held on the system until a write creates a group to send it to. A reload
-   * before then does not have it.
+   * Ada has no open group, so the stage goes to `~`, which the content
+   * service reads as her open group and creates for it. It is on the server at
+   * once, and so a reload shows it. (It used to be held in this tab until her
+   * next write created a group, and a reload lost it.)
    */
   const linus = await contextAs(browser, "linus");
   try {
@@ -270,13 +287,13 @@ test("a change staged while Ada has no group yet", async ({
     await linus.close();
   }
   await openHttpStudio(page);
+  await markLive(page);
   await openReview(page, studioOf(page));
   await actOnFirstRow(
     studioOf(page),
     "Stage",
     "Linus's change was not offered for staging",
   );
-  await markLive(page);
   await expectSameAsReload(
     browser,
     page,
