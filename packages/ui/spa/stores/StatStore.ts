@@ -301,6 +301,16 @@ export class StatStore {
   }
 
   /**
+   * A fresh read of which schema the server runs, taken as the latest answer.
+   * See `SchemaFreshnessWatch`, which asks it when a cached answer is in doubt.
+   */
+  noteServedSchemaSha(schemaSha: string): void {
+    if (schemaSha === this.schemaSha) return;
+    this.schemaSha = schemaSha;
+    this.events.emit({ type: "stat:schema", schemaSha });
+  }
+
+  /**
    * The `schemaSha` the most recent `/stat` reported, or `null` before one has.
    * See {@link StatSnapshot.schemaSha}.
    */

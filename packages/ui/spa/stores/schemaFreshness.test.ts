@@ -375,3 +375,70 @@ test("a deploy behind failing reads is still reported once a read answers", asyn
 
   expect(freshness(system)).toBe("out-of-date");
 });
+
+test("fresh reads go one at a time, and a change while one is out asks again", async () => {
+  const answers: ((sha: string) => void)[] = [];
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => "p" as PatchId,
+    readServedSchemaSha: () =>
+      new Promise<string>((resolve) => answers.push(resolve)),
+  });
+  system.host.receive(after());
+  const at = (schemaSha: string) =>
+    system.stat.receiveStat({
+      patches: [],
+      baseSha: "sha",
+      headVersion: 4,
+      schemaSha,
+    });
+  at(newSha);
+  at(oldSha);
+  await jest.advanceTimersByTimeAsync(SCHEMA_DISAGREEMENT_GRACE_MS);
+  expect(answers).toHaveLength(1);
+
+  // While that read is out, the cached answer moves again, and again.
+  at(newSha);
+  at(oldSha);
+  await jest.advanceTimersByTimeAsync(SCHEMA_DISAGREEMENT_GRACE_MS * 4);
+  expect(answers).toHaveLength(1);
+
+  // Its answer cannot decide: it was asked before what came after it.
+  answers[0](newSha);
+  await jest.advanceTimersByTimeAsync(0);
+  expect(answers).toHaveLength(1);
+  await jest.advanceTimersByTimeAsync(SCHEMA_DISAGREEMENT_GRACE_MS);
+  expect(answers).toHaveLength(2);
+  answers[1](newSha);
+  await jest.advanceTimersByTimeAsync(SCHEMA_DISAGREEMENT_GRACE_MS * 4);
+
+  expect(answers).toHaveLength(2);
+  expect(freshness(system)).toBe("current");
+});
+
+test("a rollback to the schema of a late answer is still reported", async () => {
+  // The server runs the new schema, then is rolled back to the old one.
+  let served = newSha;
+  const system = makeAskingSystem(() => served);
+  system.host.receive(after());
+  const at = (schemaSha: string) =>
+    system.stat.receiveStat({
+      patches: [],
+      baseSha: "sha",
+      headVersion: 4,
+      schemaSha,
+    });
+  at(newSha);
+  // A late answer from the old build, settled by a fresh read.
+  at(oldSha);
+  await graceAndRead();
+  expect(freshness(system)).toBe("current");
+
+  // The rollback. Its stat names the old schema — which is what the cache
+  // held, had the fresh read not put the new one back.
+  served = oldSha;
+  at(oldSha);
+  await graceAndRead();
+
+  expect(freshness(system)).toBe("out-of-date");
+});

@@ -66,6 +66,12 @@ export class SchemaFreshnessWatch {
   private unsettled = false;
   /** Fresh reads in a row that came back with no answer. */
   private failedReads = 0;
+  /** A fresh read is out. There is never more than one. */
+  private reading = false;
+  /** The schemas moved while it was out, so its answer cannot decide. */
+  private changedDuringRead = false;
+  /** The editor has been told to reload. */
+  private reported = false;
   private readonly graceMs: number;
   private readonly readServedSchemaSha: ReadServedSchemaSha | undefined;
 
@@ -112,31 +118,54 @@ export class SchemaFreshnessWatch {
   }
 
   private check(): void {
+    // One-way: once the editor has been told, there is nothing left to watch.
+    if (this.reported) return;
     if (this.disagree()) {
       this.unsettled = true;
     } else if (this.readServedSchemaSha === undefined || !this.unsettled) {
       this.cancel();
       return;
     }
+    if (this.reading) {
+      // The read in flight was asked before this — its answer may already be
+      // out of date. Another goes out after it, never beside it.
+      this.changedDuringRead = true;
+      return;
+    }
+    this.schedule(this.graceMs);
+  }
+
+  private schedule(delayMs: number): void {
     if (this.timer !== null) return;
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.settle();
-    }, this.graceMs);
+    }, delayMs);
+  }
+
+  private report(): void {
+    this.reported = true;
+    this.cancel();
+    this.status.reportSchemaOutOfDate();
   }
 
   private async settle(): Promise<void> {
+    if (this.reported) return;
     const read = this.readServedSchemaSha;
     if (read === undefined) {
-      if (this.disagree()) this.status.reportSchemaOutOfDate();
+      if (this.disagree()) this.report();
       return;
     }
+    if (!this.unsettled || this.reading) return;
+    this.reading = true;
+    this.changedDuringRead = false;
     let served: string | null;
     try {
       served = await read();
     } catch {
       served = null;
     }
+    this.reading = false;
     const running = this.host.schemaSha();
     if (served === null || running === null) {
       /*
@@ -146,23 +175,33 @@ export class SchemaFreshnessWatch {
        * backing off, until a read comes back.
        */
       this.failedReads += 1;
-      if (this.timer === null) {
-        this.timer = setTimeout(
-          () => {
-            this.timer = null;
-            void this.settle();
-          },
-          Math.min(
-            this.graceMs * 2 ** this.failedReads,
-            MAX_SCHEMA_READ_BACKOFF_MS,
-          ),
-        );
-      }
+      this.schedule(
+        Math.min(
+          this.graceMs * 2 ** this.failedReads,
+          MAX_SCHEMA_READ_BACKOFF_MS,
+        ),
+      );
       return;
     }
     this.failedReads = 0;
+    if (this.changedDuringRead) {
+      // Something moved while this read was out: it is asked again, so the
+      // answer that decides was asked after everything it has to explain.
+      this.changedDuringRead = false;
+      this.schedule(this.graceMs);
+      return;
+    }
     this.unsettled = false;
-    if (served !== running) this.status.reportSchemaOutOfDate();
+    if (served !== running) {
+      this.report();
+      return;
+    }
+    /*
+     * And the cache takes the answer. Left on the late answer that started
+     * this, the next deploy could be a rollback TO that schema — its `/stat`
+     * would then look like nothing changed, and never be checked.
+     */
+    this.stat.noteServedSchemaSha(served);
   }
 
   private cancel(): void {
