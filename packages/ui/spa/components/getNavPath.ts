@@ -12,22 +12,18 @@ import { resolvePatchPath } from "../resolvePatchPath";
  * This defines the logic for when we should stop while moving up the path.
  * It must be in sync with the logic in the rest of UX - we should consider if there's a way to avoid an implicit contract
  *
- * An array/record item marked `.render({ as: "inline" })` is edited inside its
- * parent's list, so it is not a place navigation can stop — we keep walking up
- * to the nearest ancestor that is shown as its own page. (Strings in arrays
- * used to be inlined implicitly; inlining is now opt-in via `render`.)
+ * The item of an array or record that declares `.render({ as: "inline" })` is
+ * edited inside its parent's list, so it is not a place navigation can stop —
+ * we keep walking up to the nearest ancestor that is shown as its own page.
  *
- * `isInlineRender` rather than a read of `schema.render`, so that this agrees
- * with what the list actually drew — a tagged union is inline when its
- * VARIANTS declare it, and a nav stop the list has no row to navigate from is
- * a click that lands nowhere.
+ * `isInlineRender` of the PARENT rather than a read of `schema.render`, so
+ * that this agrees with what the list actually drew: the render belongs to the
+ * container, and a nav stop the list has no row to navigate from is a click
+ * that lands nowhere.
  */
-function isSchemaNavStop(
-  schema: SerializedSchema,
-  parentSchema: SerializedSchema | null,
-): boolean {
+function isSchemaNavStop(parentSchema: SerializedSchema | null): boolean {
   if (parentSchema?.type === "array" || parentSchema?.type === "record") {
-    return !isInlineRender(schema);
+    return !isInlineRender(parentSchema);
   }
   return false;
 }
@@ -105,7 +101,7 @@ export function resolveNavPath(
   for (let i = resolutionRes.allResolved.length - 1; i >= 0; i--) {
     const resolved = resolutionRes.allResolved[i];
     const parent = resolutionRes.allResolved[i - 1];
-    if (isSchemaNavStop(resolved.schema, parent?.schema || null)) {
+    if (isSchemaNavStop(parent?.schema || null)) {
       if (resolved.modulePath === "") {
         return { status: "resolved", path: moduleFilePath };
       }

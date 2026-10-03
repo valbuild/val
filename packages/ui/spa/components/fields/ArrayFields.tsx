@@ -128,18 +128,18 @@ export function ArrayFields({
     previewAtPathData !== undefined &&
     (hasUnsavedOwnEdit || shallowSourceAtPath.status === "loading");
   /**
-   * An inline item schema picks the list, and it does so BEFORE the `inline`
+   * The array's own render picks the list, and it does so BEFORE the `inline`
    * prop below and before anything to do with `preview`.
    *
    * `render` and `preview` answer different questions (see
    * `architecture/render-and-preview.md`), and where they both have something
-   * to say about a list row, the render wins: `.render({ as: "inline" })` is
-   * the author saying "this is edited here", and a `.preview(...)` on the same
-   * schema then describes the value for the places it is only referred to — a
-   * search hit, a reference, the collapsed header of its own row — not for the
-   * field itself.
+   * to say about a list row, the render wins: `.render({ as: "inline" })` on
+   * the array is the author saying "these are edited here", and a
+   * `.preview(...)` on the item then describes the value for the places it is
+   * only referred to — a search hit, a reference, the collapsed header of its
+   * own row — not for the field itself.
    */
-  if (isInlineRender(schema.item)) {
+  if (isInlineRender(schema)) {
     return (
       <div className="relative w-full">
         {previewAtPath?.status === "error" && (
