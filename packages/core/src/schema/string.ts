@@ -1,6 +1,5 @@
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { ItemPreviewInput, PreviewItem } from "../preview";
-import { FieldRender } from "../render";
 import { SourcePath } from "../val";
 import {
   ValidationError,
@@ -16,16 +15,6 @@ type StringOptions = {
 
 export type SerializedStringSchema = {
   type: "string";
-  /**
-   * How this field is laid out in the editor, carried WHOLE rather than as a
-   * marker.
-   *
-   * A render is static configuration — no closure, no dependency on source — so
-   * unlike a `preview` it serializes in full, and the editor reads it straight
-   * off the schema it already has. See `render.ts` for what that assumption
-   * buys, and what to do if a render ever needs to stop being static.
-   */
-  render?: FieldRender;
   /**
    * Set by `.multiline()`: the field is a growing text box rather than a
    * single-line input.
@@ -67,7 +56,6 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     private readonly customValidateFunctions: ((
       src: Src,
     ) => false | string)[] = [],
-    private readonly renderInput: FieldRender | null = null,
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
@@ -102,7 +90,6 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
@@ -135,7 +122,6 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       this.description,
@@ -168,7 +154,6 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       this.description,
@@ -195,7 +180,6 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       this.description,
@@ -232,7 +216,6 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.isRaw,
       this.customValidateFunctions.concat(validationFunction),
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       this.description,
@@ -330,7 +313,6 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       true,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       this.description,
@@ -345,7 +327,6 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
       isReadonly,
       this.isHidden,
       this.description,
@@ -360,7 +341,6 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
       isHidden,
       this.description,
@@ -394,7 +374,6 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       true,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       this.description,
@@ -419,7 +398,6 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
   protected executeSerialize(): SerializedSchema {
     return {
       type: "string",
-      render: this.renderInput ?? undefined,
       multiline: this.isMultiline ? true : undefined,
       preview: this.previewInput ? true : undefined,
       options: {
@@ -463,39 +441,11 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       this.description,
       this.previewInput,
       true,
-    );
-  }
-
-  /**
-   * How this field is laid out in the editor when it is the item of an array or
-   * record: `{ as: "inline" }` renders the field itself inside each row,
-   * instead of a preview row that navigates to it.
-   *
-   * Static configuration, not a callback — see `render.ts`. What a CONTAINER
-   * shows for its items is a `preview`, which is a different thing entirely.
-   *
-   * @example
-   * const schema = s.array(s.string().render({ as: "inline" }));
-   * export default c.define("/example.val.ts", schema, ["First", "Second"]);
-   */
-  render(input: FieldRender): StringSchema<Src> {
-    return new StringSchema<Src>(
-      this.options,
-      this.opt,
-      this.isRaw,
-      this.customValidateFunctions,
-      input,
-      this.isReadonly,
-      this.isHidden,
-      this.description,
-      this.previewInput,
-      this.isMultiline,
     );
   }
 
@@ -516,7 +466,6 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       this.opt,
       this.isRaw,
       this.customValidateFunctions,
-      this.renderInput,
       this.isReadonly,
       this.isHidden,
       this.description,

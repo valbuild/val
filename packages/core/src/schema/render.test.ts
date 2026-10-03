@@ -4,6 +4,7 @@ import { SelectorSource } from "../selector";
 import { SourcePath } from "../val";
 import { deserializeSchema } from "./deserialize";
 import { isInlineRender } from "../render";
+import { nextAppRouter } from "../router";
 
 const { s, c } = initVal();
 
@@ -15,172 +16,131 @@ const authors = c.define(
 
 describe("Schema.render({ as: 'inline' })", () => {
   test("serialize: defaults to no render", () => {
-    const serialized = s.object({ a: s.string() })["executeSerialize"]();
-    expect(serialized.render).toBe(undefined);
+    const serialized = s.array(s.string())["executeSerialize"]();
+    expect(serialized.type === "array" && serialized.render).toBe(undefined);
   });
 
-  test("serialize: render({ as: 'inline' }) is carried in the serialized schema", () => {
+  test("serialize: carried on the CONTAINER, not on its item", () => {
     const serialized = s
-      .object({ a: s.string() })
+      .array(s.object({ a: s.string() }))
       .render({ as: "inline" })
       ["executeSerialize"]();
+    if (serialized.type !== "array") {
+      throw new Error("expected array schema");
+    }
     expect(serialized.render).toEqual({ as: "inline" });
+    expect("render" in serialized.item).toBe(false);
   });
 
-  test("inline render serializes across every schema type", () => {
+  test("only array, record and keyOf take a render", () => {
     const schemas: Schema<SelectorSource>[] = [
-      s.string().render({ as: "inline" }),
-      s.number().render({ as: "inline" }),
-      s.boolean().render({ as: "inline" }),
-      s.literal("a").render({ as: "inline" }),
-      s.date().render({ as: "inline" }),
-      s.datetime().render({ as: "inline" }),
-      s.color().render({ as: "inline" }),
-      s.code().render({ as: "inline" }),
-      s.route().render({ as: "inline" }),
-      s.richtext().render({ as: "inline" }),
-      s.image().render({ as: "inline" }),
-      s.file().render({ as: "inline" }),
       s.array(s.string()).render({ as: "inline" }),
-      s.object({ a: s.string() }).render({ as: "inline" }),
       s.record(s.string()).render({ as: "inline" }),
-      s
-        .union("type", s.object({ type: s.literal("a") }))
-        .render({ as: "inline" }),
       s.keyOf(authors).render({ as: "inline" }),
     ];
     for (const schema of schemas) {
-      expect(schema["executeSerialize"]().render).toEqual({ as: "inline" });
+      const serialized = schema["executeSerialize"]();
+      if (
+        serialized.type !== "array" &&
+        serialized.type !== "record" &&
+        serialized.type !== "keyOf"
+      ) {
+        throw new Error("expected a schema that takes a render");
+      }
+      expect(serialized.render).toEqual({ as: "inline" });
     }
   });
 
   test("render is preserved regardless of chaining order", () => {
     const before = s
-      .object({ a: s.string() })
+      .array(s.string())
       .render({ as: "inline" })
       .describe("desc")
       ["executeSerialize"]();
     const after = s
-      .object({ a: s.string() })
+      .array(s.string())
       .describe("desc")
       .render({ as: "inline" })
       ["executeSerialize"]();
-    expect(before.render).toEqual({ as: "inline" });
-    expect(after.render).toEqual({ as: "inline" });
+    expect(isInlineRender(before)).toBe(true);
+    expect(isInlineRender(after)).toBe(true);
   });
 
-  test("render is preserved through nullable(), readonly(), hidden() and validate()", () => {
-    const base = s.object({ a: s.string() }).render({ as: "inline" });
-    for (const schema of [
-      base.nullable(),
-      base.readonly(),
-      base.hidden(),
-      base.validate(() => false),
-    ]) {
-      expect(schema["executeSerialize"]().render).toEqual({ as: "inline" });
+  test("render is preserved through every chained builder", () => {
+    const array = s.array(s.string()).render({ as: "inline" });
+    const record = s.record(s.string()).render({ as: "inline" });
+    const chained: Schema<SelectorSource>[] = [
+      array.nullable(),
+      array.readonly(),
+      array.hidden(),
+      array.validate(() => false),
+      array.preview(() => ({ title: "x" })),
+      record.nullable(),
+      record.readonly(),
+      record.hidden(),
+      record.validate(() => false),
+      record.preview(() => ({ title: "x" })),
+    ];
+    for (const schema of chained) {
+      expect(isInlineRender(schema["executeSerialize"]())).toBe(true);
     }
   });
 
   test("a second render replaces the first (last wins)", () => {
     const twice = s
-      .object({ a: s.string() })
+      .array(s.string())
       .render({ as: "inline" })
       .render({ as: "inline" })
       ["executeSerialize"]();
-    expect(twice.render).toEqual({ as: "inline" });
-  });
-
-  test("multiline and an inline render are independent, in either order", () => {
-    const before = s
-      .string()
-      .multiline()
-      .render({ as: "inline" })
-      ["executeSerialize"]();
-    const after = s
-      .string()
-      .render({ as: "inline" })
-      .multiline()
-      ["executeSerialize"]();
-    for (const serialized of [before, after]) {
-      if (serialized.type !== "string") {
-        throw new Error("expected string schema");
-      }
-      expect(serialized.render).toEqual({ as: "inline" });
-      expect(serialized.multiline).toBe(true);
-    }
+    expect(isInlineRender(twice)).toBe(true);
   });
 
   test("render does not mutate the schema it was called on", () => {
-    const base = s.object({ a: s.string() });
+    const base = s.array(s.string());
     base.render({ as: "inline" });
-    expect(base["executeSerialize"]().render).toBe(undefined);
+    expect(isInlineRender(base["executeSerialize"]())).toBe(false);
   });
 
   test("render survives a serialize -> deserialize -> serialize round-trip on a nested page-builder shape", () => {
     // The motivating shape: sortable lists of inline objects, nested.
-    const schema = s.array(
-      s
-        .object({
+    const schema = s
+      .array(
+        s.object({
           title: s.string(),
-          sections: s.array(
-            s
-              .object({
-                title: s.string(),
-                content: s.richtext(),
-              })
-              .render({ as: "inline" }),
-          ),
-        })
-        .render({ as: "inline" }),
-    );
+          sections: s
+            .array(s.object({ title: s.string(), content: s.richtext() }))
+            .render({ as: "inline" }),
+          tags: s.record(s.string()).render({ as: "inline" }),
+        }),
+      )
+      .render({ as: "inline" });
     const serialized = schema["executeSerialize"]();
     const roundTripped = deserializeSchema(serialized)["executeSerialize"]();
     expect(roundTripped).toEqual(serialized);
     if (roundTripped.type !== "array" || roundTripped.item.type !== "object") {
       throw new Error("expected array of object schema");
     }
-    expect(roundTripped.item.render).toEqual({ as: "inline" });
-    const sections = roundTripped.item.items.sections;
-    if (sections.type !== "array") {
-      throw new Error("expected array schema");
-    }
-    expect(sections.item.render).toEqual({ as: "inline" });
+    expect(isInlineRender(roundTripped)).toBe(true);
+    expect(isInlineRender(roundTripped.item.items.sections)).toBe(true);
+    expect(isInlineRender(roundTripped.item.items.tags)).toBe(true);
   });
 
-  /**
-   * `inline` is the whole of what a render says now. A string that needs more
-   * than a line says so with `.multiline()`, and code is `s.code()` — neither
-   * is a render, so neither can be confused for one here.
-   */
-  test("inline is a string's only render; multiline is not one", () => {
-    const multiline = s.string().multiline()["executeSerialize"]();
-    if (multiline.type !== "string") {
-      throw new Error("expected string schema");
-    }
-    expect(multiline.render).toBe(undefined);
-    expect(multiline.multiline).toBe(true);
-    expect(
-      s.string().render({ as: "inline" })["executeSerialize"]().render,
-    ).toEqual({ as: "inline" });
-    const roundTripped = deserializeSchema(
-      s.string().multiline().render({ as: "inline" })["executeSerialize"](),
-    )["executeSerialize"]();
-    expect(roundTripped.render).toEqual({ as: "inline" });
-    expect(roundTripped.type === "string" && roundTripped.multiline).toBe(true);
+  test("a keyOf render round-trips", () => {
+    const serialized = s
+      .keyOf(authors)
+      .render({ as: "inline" })
+      ["executeSerialize"]();
+    expect(deserializeSchema(serialized)["executeSerialize"]()).toEqual(
+      serialized,
+    );
   });
 
-  test("an inline item does not change the container's preview", () => {
-    const plain = s.array(
-      s.object({ name: s.string() }).preview(({ val }) => ({
-        title: val.name,
-      })),
-    );
-    const inline = s.array(
-      s
-        .object({ name: s.string() })
-        .preview(({ val }) => ({ title: val.name }))
-        .render({ as: "inline" }),
-    );
+  test("an inline list does not change its preview", () => {
+    const item = s
+      .object({ name: s.string() })
+      .preview(({ val }) => ({ title: val.name }));
+    const plain = s.array(item);
+    const inline = s.array(item).render({ as: "inline" });
     const src = [{ name: "Ada" }];
     expect(inline["executePreview"]("/test.val.ts" as SourcePath, src)).toEqual(
       plain["executePreview"]("/test.val.ts" as SourcePath, src),
@@ -189,126 +149,120 @@ describe("Schema.render({ as: 'inline' })", () => {
 
   test("render does not change validation results", () => {
     const path = "/test" as SourcePath;
-    const plain = s.object({ a: s.string().minLength(3) });
-    const inline = s
-      .object({ a: s.string().minLength(3) })
-      .render({ as: "inline" });
-    expect(inline["executeValidate"](path, { a: "ok" })).toEqual(
-      plain["executeValidate"](path, { a: "ok" }),
+    const plain = s.array(s.string().minLength(3));
+    const inline = s.array(s.string().minLength(3)).render({ as: "inline" });
+    expect(inline["executeValidate"](path, ["ok"])).toEqual(
+      plain["executeValidate"](path, ["ok"]),
     );
-    expect(inline["executeValidate"](path, { a: "abc" })).toEqual(
-      plain["executeValidate"](path, { a: "abc" }),
+    expect(inline["executeValidate"](path, ["abc"])).toEqual(
+      plain["executeValidate"](path, ["abc"]),
     );
+  });
+
+  describe("pages and media have UIs of their own", () => {
+    test("render on a router throws", () => {
+      expect(() =>
+        s.router(nextAppRouter, s.string()).render({ as: "inline" }),
+      ).toThrow(/s\.router/);
+    });
+
+    test("router after render throws too", () => {
+      expect(() =>
+        s.record(s.string()).render({ as: "inline" }).router(nextAppRouter),
+      ).toThrow(/s\.router/);
+    });
+
+    test("render on an imageset or fileset throws", () => {
+      expect(() =>
+        s.imageset({ dir: "/public/val/images" }).render({ as: "inline" }),
+      ).toThrow(/s\.imageset/);
+      expect(() =>
+        s
+          .fileset({ accept: "application/pdf", dir: "/public/val/files" })
+          .render({ as: "inline" }),
+      ).toThrow(/s\.fileset/);
+    });
   });
 });
 
 describe("isInlineRender", () => {
-  test("reads the render off the schema it was declared on", () => {
-    expect(
-      isInlineRender(s.string().render({ as: "inline" })["executeSerialize"]()),
-    ).toBe(true);
-    expect(isInlineRender(s.string()["executeSerialize"]())).toBe(false);
-    // `multiline` is a property of the schema, not a render — so it must not be
-    // mistaken for one by the question that decides how a list row is drawn.
-    expect(isInlineRender(s.string().multiline()["executeSerialize"]())).toBe(
-      false,
-    );
-    expect(
-      isInlineRender(s.code({ language: "typescript" })["executeSerialize"]()),
-    ).toBe(false);
+  test("reads the render off the CONTAINER", () => {
     expect(
       isInlineRender(
-        s
-          .code({ language: "typescript" })
-          .render({ as: "inline" })
-          ["executeSerialize"](),
+        s.array(s.string()).render({ as: "inline" })["executeSerialize"](),
       ),
     ).toBe(true);
-  });
-
-  test("a discriminated union is inline when its VARIANTS declare it", () => {
-    // How a page-builder list is written: the render goes on the blocks, one
-    // per block type, and the union is the dispatch between them. The union
-    // schema itself carries no render at all, so reading `render` off the
-    // array's item schema alone answers `false` for the very shape the render
-    // exists for.
-    const blocks = s.discriminatedUnion(
-      "type",
-      s
-        .object({ type: s.literal("text"), text: s.string() })
-        .render({ as: "inline" }),
-      s
-        .object({ type: s.literal("code"), code: s.string() })
-        .render({ as: "inline" }),
+    expect(
+      isInlineRender(
+        s.record(s.string()).render({ as: "inline" })["executeSerialize"](),
+      ),
+    ).toBe(true);
+    expect(isInlineRender(s.array(s.string())["executeSerialize"]())).toBe(
+      false,
     );
-    const serialized = blocks["executeSerialize"]();
-    expect(serialized.render).toBe(undefined);
-    expect(isInlineRender(serialized)).toBe(true);
+    expect(isInlineRender(s.record(s.string())["executeSerialize"]())).toBe(
+      false,
+    );
   });
 
-  test("one inline variant is enough", () => {
-    // `some`, not `every`: the row draws the union's own editor either way, so
-    // a variant added later without a render must not silently turn the whole
-    // list back into preview rows.
+  test("a page-builder list of tagged blocks is inline from the list alone", () => {
     const serialized = s
-      .discriminatedUnion(
-        "type",
-        s
-          .object({ type: s.literal("text"), text: s.string() })
-          .render({ as: "inline" }),
-        s.object({ type: s.literal("code"), code: s.string() }),
-      )
-      ["executeSerialize"]();
-    expect(isInlineRender(serialized)).toBe(true);
-  });
-
-  test("a discriminated union with no inline variant is not inline", () => {
-    const serialized = s
-      .discriminatedUnion(
-        "type",
-        s.object({ type: s.literal("text"), text: s.string() }),
-        s.object({ type: s.literal("code"), code: s.string() }),
-      )
-      ["executeSerialize"]();
-    expect(isInlineRender(serialized)).toBe(false);
-  });
-
-  test("the union's own render still counts", () => {
-    const serialized = s
-      .discriminatedUnion(
-        "type",
-        s.object({ type: s.literal("text"), text: s.string() }),
-        s.object({ type: s.literal("code"), code: s.string() }),
+      .array(
+        s.discriminatedUnion(
+          "type",
+          s.object({ type: s.literal("text"), text: s.string() }),
+          s.object({ type: s.literal("code"), code: s.string() }),
+        ),
       )
       .render({ as: "inline" })
       ["executeSerialize"]();
     expect(isInlineRender(serialized)).toBe(true);
+    if (serialized.type !== "array") {
+      throw new Error("expected array schema");
+    }
+    // The union is the item; it says nothing about the list it is in.
+    expect(isInlineRender(serialized.item)).toBe(false);
   });
 
-  test("an enum is inline only when it says so itself", () => {
-    expect(isInlineRender(s.enum("a", "b")["executeSerialize"]())).toBe(false);
+  test("reaches one level down: a nested list keeps its own default", () => {
+    const serialized = s
+      .array(s.object({ tags: s.array(s.string()) }))
+      .render({ as: "inline" })
+      ["executeSerialize"]();
+    if (serialized.type !== "array" || serialized.item.type !== "object") {
+      throw new Error("expected array of object schema");
+    }
+    expect(isInlineRender(serialized)).toBe(true);
+    expect(isInlineRender(serialized.item.items.tags)).toBe(false);
+  });
+
+  test("a keyOf's render is about the field, not a list — never inline here", () => {
     expect(
       isInlineRender(
-        s.enum("a", "b").render({ as: "inline" })["executeSerialize"](),
+        s.keyOf(authors).render({ as: "inline" })["executeSerialize"](),
       ),
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  test("a leaf is never a container", () => {
+    expect(isInlineRender(s.string()["executeSerialize"]())).toBe(false);
+    expect(
+      isInlineRender(s.object({ a: s.string() })["executeSerialize"]()),
+    ).toBe(false);
   });
 
   test("survives serialize -> deserialize", () => {
-    const blocks = s.array(
-      s.discriminatedUnion(
-        "type",
-        s
-          .object({ type: s.literal("text"), text: s.string() })
-          .render({ as: "inline" }),
-      ),
-    );
+    const blocks = s
+      .array(
+        s.discriminatedUnion(
+          "type",
+          s.object({ type: s.literal("text"), text: s.string() }),
+        ),
+      )
+      .render({ as: "inline" });
     const roundTripped = deserializeSchema(blocks["executeSerialize"]())[
       "executeSerialize"
     ]();
-    if (roundTripped.type !== "array") {
-      throw new Error("expected array schema");
-    }
-    expect(isInlineRender(roundTripped.item)).toBe(true);
+    expect(isInlineRender(roundTripped)).toBe(true);
   });
 });
