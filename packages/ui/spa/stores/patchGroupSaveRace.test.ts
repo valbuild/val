@@ -491,3 +491,62 @@ test("with no grouping, unstaging one write of a batch takes the later writes of
   expect(server.members.has(second)).toBe(false);
   expect(system.patchGroup()).not.toContain(second);
 });
+
+test("a retried batch whose earlier write was unstaged during the backoff takes the later writes out with it", async () => {
+  const errors = jest.spyOn(console, "error").mockImplementation(() => {});
+  const server = makeServer("on-answer");
+  let wake: (() => void) | null = null;
+  let next = 0;
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => `retry-${++next}` as PatchId,
+    savePatches: server.savePatches,
+    stagePatches: server.stagePatches,
+    unstagePatches: server.unstagePatches,
+    saveBackoffMs: () => 0,
+    saveSleep: () =>
+      new Promise((resolve) => {
+        wake = () => resolve();
+      }),
+  });
+  system.host.receive(project());
+  system.seedPatchGroup([]);
+  system.setPatchGroupResolver(async () => ({ withPatchIds: [] }));
+
+  // Two writes made before there is a parent, so they go out as ONE batch.
+  for (const value of ["first", "second"]) {
+    const res = await system.patchStore.createPatch(LIST, [
+      { op: "replace", path: ["items", "0"], value },
+    ]);
+    if (res.status !== "created") throw new Error(`createPatch: ${res.status}`);
+  }
+  const [first, second] = ["retry-1", "retry-2"] as PatchId[];
+  system.stat.receiveStat({ patches: [], baseSha: "sha", profileId: ME });
+  for (let i = 0; i < 20 && server.saves.length === 0; i++) await settle();
+  expect(server.saves).toHaveLength(1);
+
+  // The first attempt fails, and during the backoff -- no save in flight --
+  // the user unstages the first write alone: an under-closed click.
+  server.saves[0].answer({ status: "network-error", message: "offline" });
+  await settle();
+  click(system, { type: "unstage", patchIds: [first], withPatchIds: [] });
+  await settle();
+  errors.mockRestore();
+
+  if (wake === null) throw new Error("the save was not retried");
+  const retry: () => void = wake;
+  retry();
+  for (let i = 0; i < 20 && server.saves.length === 1; i++) await settle();
+  expect(server.saves).toHaveLength(2);
+  // Off the screen before the save goes, not only after the server answers.
+  expect(system.patchGroup()).not.toContain(second);
+
+  server.saves[1].answer();
+  await settle();
+
+  // The server ends with neither: never the second write over a hole.
+  expect(server.members.has(first)).toBe(false);
+  expect(server.members.has(second)).toBe(false);
+  expect(system.patchGroup()).not.toContain(first);
+  expect(system.patchGroup()).not.toContain(second);
+});

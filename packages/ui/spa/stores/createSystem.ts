@@ -2509,9 +2509,27 @@ export function createSystem(options: SystemOptions): System {
          * as a click would be. When the whole batch is out, so is the closure
          * it brings: it was only ever coming for the write.
          */
-        const heldOut = patchIds.filter(
+        /*
+         * And every later write of the batch with it. A batch is in chain
+         * order, so a later write can sit on one the user took out -- and the
+         * click that took it out may have been under-closed (sent while no
+         * save was in flight, during a retry's backoff, so nothing repaired
+         * it). Saving the batch stages all of it; unstaging only the write
+         * that was out would leave the later ones staged over a hole. The
+         * same conservative rule as `unstageOverWrite`'s fallback: an edit
+         * the user can stage again is recoverable, and a hole is not.
+         */
+        const firstOut = patchIds.findIndex(
           (patchId) => !scope.has(patchId) && !decidedSince(patchId),
         );
+        const heldOut =
+          firstOut === -1
+            ? []
+            : patchIds
+                .slice(firstOut)
+                .filter((patchId) => !decidedSince(patchId));
+        // Those still on screen leave it, so it shows what the server will hold.
+        narrowPatchGroup(heldOut.filter((patchId) => scope.has(patchId)));
         const allHeldOut = heldOut.length === patchIds.length;
         const joining = allHeldOut
           ? []
