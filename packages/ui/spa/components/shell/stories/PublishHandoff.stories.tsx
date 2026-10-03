@@ -222,7 +222,7 @@ function StudioTab({
   return (
     <div data-mode={theme} style={{ height: "100svh" }}>
       <StudioPublishPage
-        commit="188fa4a3c1e2d9b0"
+        jobId="j_7c41e09a"
         steps={steps}
         elapsedMs={elapsedMs}
         result={result}

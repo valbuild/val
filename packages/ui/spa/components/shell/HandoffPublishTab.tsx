@@ -272,7 +272,9 @@ export function HandoffPublishTab({ id }: { id: string }) {
   return (
     <div style={{ height: "100svh" }}>
       <StudioPublishPage
-        commit={waiting.kind === "started" ? (waiting.jobId ?? "") : ""}
+        {...(waiting.kind === "started" && waiting.jobId
+          ? { jobId: waiting.jobId }
+          : {})}
         steps={steps}
         elapsedMs={elapsedMs}
         result={result}

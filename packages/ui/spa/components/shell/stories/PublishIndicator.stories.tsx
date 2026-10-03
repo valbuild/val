@@ -307,7 +307,7 @@ function BuilderWindow({
       </div>
       <div className="h-[calc(100%-1.75rem)] overflow-hidden">
         <StudioPublishPage
-          commit="j_7c41e09a"
+          jobId="j_7c41e09a"
           steps={steps}
           elapsedMs={elapsedMs}
           result={result}

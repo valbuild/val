@@ -262,14 +262,15 @@ export function FailureDetails({ details }: { details: string }) {
 }
 
 /**
- * The Studio tab the overlay opened, while it builds and publishes one commit.
+ * The builder tab a page that cannot build opened -- the overlay, or a
+ * Safari Studio -- while it builds and publishes one job.
  *
  * A page of its own rather than the Studio behind a toast: the person did not
  * come here to edit, they came because the site sent them, and the one thing
  * this tab has to say is how far the publish has got.
  */
 export function StudioPublishPage({
-  commit,
+  jobId,
   steps,
   elapsedMs,
   result,
@@ -277,7 +278,12 @@ export function StudioPublishPage({
   onOpenStudio,
   onClose,
 }: {
-  commit: string;
+  /**
+   * The publish job it is building, once it has arrived: what a bug report
+   * names. Not a commit -- a job's commit is minted at the seal, after this
+   * tab is done.
+   */
+  jobId?: string;
   steps: PublishStep[];
   elapsedMs: number;
   result?: PublishPageResult;
@@ -288,8 +294,9 @@ export function StudioPublishPage({
   return (
     <div className="min-h-full w-full flex items-center justify-center bg-bg-primary text-fg-primary p-6">
       <div className="w-full max-w-md rounded-xl border border-border-float bg-bg-float shadow-sm p-6">
+        {/* Held open before the job arrives, so the heading does not move. */}
         <p className="text-xs text-fg-secondary-alt font-mono">
-          {commit.slice(0, 7)}
+          {jobId ? `Job ${jobId.slice(0, 7)}` : "\u00a0"}
         </p>
         <h1 className="mt-1 text-lg font-semibold">
           {result?.kind === "live"
@@ -307,7 +314,7 @@ export function StudioPublishPage({
               ? "Val is checking that the site renders and will put it live. You can close this tab: the page you published from says when it is live."
               : result?.kind === "failed"
                 ? result.message
-                : `Started from the site ${seconds(elapsedMs)} ago. Keep this open until it is built.`}
+                : `Started ${seconds(elapsedMs)} ago. Keep this window open until it is built.`}
         </p>
         {result?.kind === "failed" && result.details && (
           <FailureDetails details={result.details} />
