@@ -12,8 +12,8 @@ import { resolvePatchPath } from "../resolvePatchPath";
  * This defines the logic for when we should stop while moving up the path.
  * It must be in sync with the logic in the rest of UX - we should consider if there's a way to avoid an implicit contract
  *
- * The item of an array or record that declares `.render({ as: "inline" })` is
- * edited inside its parent's list, so it is not a place navigation can stop —
+ * An item whose array or record parent declares `.render({ as: "inline" })` is
+ * edited inside that parent's list, so it is not a place navigation can stop —
  * we keep walking up to the nearest ancestor that is shown as its own page.
  *
  * `isInlineRender` of the PARENT rather than a read of `schema.render`, so
