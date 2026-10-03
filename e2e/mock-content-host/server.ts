@@ -1215,11 +1215,29 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
     coreVersion?: string | null;
     branch?: string;
   }>(req);
+  // `patchIds` is what the user asked for and `withPatchIds` is what came with
+  // it. Both join or leave the group; only the first half is `explicit`, which
+  // is how `home` files them.
+  const explicit = body?.patchIds ?? [];
+  const dependency = body?.withPatchIds ?? [];
+  const requested = [...explicit, ...dependency];
+  /*
+   * Refused before anything changes, as `home`'s handler is: its transaction
+   * commits an error result, so a group created first would outlive the 400.
+   */
+  if (req.method === "POST") {
+    const unknown = requested.find((patchId) => !state.patches.has(patchId));
+    if (unknown !== undefined) {
+      json(res, 400, { message: `Unknown patch id: ${unknown}` });
+      return;
+    }
+  }
   let group: MockPatchGroup | null;
   if (patchGroupId === "~") {
     /*
      * `home`'s `resolveTargetGroup`: the caller's open group on the branch. A
-     * stage creates it, as a write does; an unstage with none answers `null`.
+     * stage creates it, as a write does, but only once there is something to
+     * put in it; an unstage, or an empty stage, with none open answers `null`.
      */
     const profileId = req.headers["x-val-profile-id"];
     if (typeof profileId !== "string" || profileId.length === 0) {
@@ -1230,24 +1248,23 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
       return;
     }
     const branch = body?.branch ?? PROJECT_BRANCH;
-    if (req.method === "POST") {
+    group =
+      [...state.patchGroups.values()].find(
+        (candidate) =>
+          candidate.publishedAt === null &&
+          candidate.branch === branch &&
+          candidate.authorId === profileId,
+      ) ?? null;
+    if (group === null && req.method === "POST" && requested.length > 0) {
       group = getOrCreateOpenGroup(profileId, branch);
-    } else {
-      group =
-        [...state.patchGroups.values()].find(
-          (candidate) =>
-            candidate.publishedAt === null &&
-            candidate.branch === branch &&
-            candidate.authorId === profileId,
-        ) ?? null;
-      if (group === null) {
-        json(res, 200, {
-          patchGroupId: null,
-          patchIds: [],
-          headVersion: chainVersion,
-        });
-        return;
-      }
+    }
+    if (group === null) {
+      json(res, 200, {
+        patchGroupId: null,
+        patchIds: [],
+        headVersion: chainVersion,
+      });
+      return;
     }
   } else {
     group = resolveOwnOpenGroup(req, res, patchGroupId);
@@ -1255,17 +1272,9 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
       return;
     }
   }
-  // `patchIds` is what the user asked for and `withPatchIds` is what came with
-  // it. Both join or leave the group; only the first half is `explicit`, which
-  // is how `home` files them.
-  const explicit = body?.patchIds ?? [];
-  const dependency = body?.withPatchIds ?? [];
-  for (const patchId of [...explicit, ...dependency]) {
+  let changed = 0;
+  for (const patchId of requested) {
     if (req.method === "POST") {
-      if (!state.patches.has(patchId)) {
-        json(res, 400, { message: `Unknown patch id: ${patchId}` });
-        return;
-      }
       /*
        * The reason is recorded on FIRST entry only, because `home`'s upsert is
        * `ON CONFLICT DO NOTHING` — so a patch that arrived as a dependency
@@ -1277,21 +1286,24 @@ const mutatePatchGroup: Handler = async (req, res, url) => {
        * groups on a rule of its own), and both times a test was green against a
        * server that does not behave that way.
        */
-      if (!group.patchIds.has(patchId) && explicit.includes(patchId)) {
+      if (group.patchIds.has(patchId)) continue;
+      if (explicit.includes(patchId)) {
         group.askedForPatchIds.add(patchId);
       }
       group.patchIds.add(patchId);
+      changed += 1;
     } else {
-      group.patchIds.delete(patchId);
+      if (group.patchIds.delete(patchId)) changed += 1;
       group.askedForPatchIds.delete(patchId);
     }
   }
   /*
    * A change is versioned and announced, as `home` does: a listing carries
    * membership, so every Studio on the branch has to re-read it — the
-   * websocket's `patches` message is what makes them.
+   * websocket's `patches` message is what makes them. A retry that moves no
+   * membership moves nothing, and answers the version it read.
    */
-  if (explicit.length + dependency.length > 0) {
+  if (changed > 0) {
     chainVersion += 1;
     broadcastChain();
   }

@@ -374,3 +374,26 @@ test("an unscoped client is left unscoped", async () => {
   expect(system.patchGroup()).toBe(null);
   expect(read(system, A)).toBe("pending");
 });
+
+test("a write that has left the chain is not laid over the groups, versioned or not", async () => {
+  // A server that answers saves without a version: this tab's own write stays
+  // unconfirmed, as `fs` mode's always do.
+  const system = makeSystem();
+  scope(system);
+  await stat(system, 1, [], [group([])]);
+  const created = await system.patchStore.createPatch(A, [
+    { op: "replace", path: ["title"], value: "shipped" },
+  ]);
+  if (created.status !== "created") throw new Error(created.status);
+  const mine = created.record.patchId;
+  await system.patchSync.flush();
+  await stat(system, 2, [mine], [group([mine])]);
+  expect(system.patchGroup()).toContain(mine);
+
+  // Published and built: the chain no longer lists it, and the user's next
+  // group does not either.
+  await stat(system, 3, [], [group([], { id: "g-next" })]);
+  await settle();
+
+  expect(system.patchGroup()).not.toContain(mine);
+});

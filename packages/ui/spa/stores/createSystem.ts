@@ -1579,6 +1579,28 @@ export function createSystem(options: SystemOptions): System {
     patchStore.events.on("patch:receive", () => {
       reconcileScope();
     }),
+    /*
+     * A patch that has left the chain — published, discarded, refused, removed
+     * by the server — has nothing left to confirm. Its entry goes with it,
+     * whether or not a version ever came: `fs` mode and a server without
+     * versions never send one, and a long-lived Studio would otherwise keep
+     * every id it ever wrote, and lay them over the groups it is shown.
+     */
+    patchStore.events.on("patch:chain", () => {
+      if (unconfirmed.size === 0) return;
+      const held = new Set(
+        patchStore.allRecords().map((record) => record.patchId),
+      );
+      let pruned = false;
+      for (const patchId of unconfirmed.keys()) {
+        if (held.has(patchId)) continue;
+        unconfirmed.delete(patchId);
+        pruned = true;
+      }
+      // A stat delivers its groups before its chain, so the scope was
+      // reconciled with the entry still in place.
+      if (pruned) reconcileScope();
+    }),
     sourceStore.listenTo(patchStore),
     // The write is the one path that is not demand-driven: a local patch has to
     // reach the server whether or not anything reads it again. So the sync
