@@ -582,6 +582,85 @@ describe("ImagesSchema", () => {
     });
   });
 
+  /**
+   * A field picked from a gallery holds the gallery's KEY. In a `.remote()`
+   * gallery an uploaded entry is keyed by its ref, so the field holds the ref
+   * -- which is what the Studio's picker writes, and what `val validate --fix`
+   * writes when it uploads the entry. Whether the bytes belong on Val Remote
+   * is the gallery's to say and to fix, not the field's.
+   */
+  describe("a field picked from a remote gallery", () => {
+    const REF =
+      "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/images/remote.webp";
+    const LOCAL = "/public/val/images/local.webp";
+    const ENTRY: ImagesetEntryMetadata = {
+      width: 800,
+      height: 600,
+      mimeType: "image/webp",
+      alt: null,
+    };
+
+    function fieldOf(remote: boolean) {
+      const { s, c } = initVal();
+      const schema = s.imageset({ dir: "/public/val/images" });
+      const gallery = c.define(
+        "/content/gallery.val.ts",
+        remote ? schema.remote() : schema,
+        { [REF]: ENTRY, [LOCAL]: ENTRY },
+      );
+      return s.image(gallery);
+    }
+
+    test("holding the gallery's ref is valid, not a download", () => {
+      const result = fieldOf(true)["executeValidate"]("path" as SourcePath, {
+        path: REF,
+      });
+      expect(result).toBe(false);
+    });
+
+    test("holding a local key the gallery has is valid: uploading it is the gallery's fix", () => {
+      const result = fieldOf(true)["executeValidate"]("path" as SourcePath, {
+        path: LOCAL,
+      });
+      expect(result).toBe(false);
+    });
+
+    test("a ref the gallery does not have is a membership error", () => {
+      const missing = REF.replace("remote.webp", "other.webp");
+      const result = fieldOf(true)["executeValidate"]("path" as SourcePath, {
+        path: missing,
+      });
+      expect(result).toEqual({
+        path: [
+          {
+            message: `The gallery does not have an image at '${missing}'.`,
+            value: { path: missing },
+          },
+        ],
+      });
+    });
+
+    test("a ref whose local path is the gallery's key is valid: an upload through the field", () => {
+      // The Studio stores the ref in the field and keys the entry by the local
+      // path inside it, which is also how `fillFromGallery` reads it.
+      const uploaded =
+        "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/images/local.webp";
+      const result = fieldOf(true)["executeValidate"]("path" as SourcePath, {
+        path: uploaded,
+      });
+      expect(result).toBe(false);
+    });
+
+    test("the gallery's own key errors are where a misplaced ref is reported", () => {
+      // The same ref in a gallery that is not `.remote()`: the field is fine,
+      // the gallery's key is not.
+      const result = fieldOf(false)["executeValidate"]("path" as SourcePath, {
+        path: REF,
+      });
+      expect(result).toBe(false);
+    });
+  });
+
   describe("directory validation", () => {
     test("should reject paths with wrong prefix", () => {
       const schema = imageset({

@@ -6,6 +6,7 @@ export default modules(config, [
   { def: () => import("./content/basic-errors.val") },
   { def: () => import("./content/basic-files.val") },
   { def: () => import("./content/basic-image.val") },
+  { def: () => import("./content/basic-fixable-and-unfixable.val") },
   { def: () => import("./content/basic-image-from-gallery.val") },
   { def: () => import("./content/basic-image-from-galleries.val") },
   { def: () => import("./content/basic-gallery.val") },

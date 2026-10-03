@@ -175,8 +175,9 @@ export async function* runValidation({
       };
       return;
     } else {
+      // What is still wrong with this module once every handler has run: an
+      // error that was fixed is not counted, one that was not is.
       let fileErrors = 0;
-      let fixedErrors = 0;
       if (valModule.errors) {
         if (valModule.errors.validation) {
           // Resolve schema/source fixes (keyof:check-keys, router:check-route)
@@ -265,7 +266,6 @@ export async function* runValidation({
               }
 
               if (result.appliedFix) {
-                fixedErrors += 1;
                 yield { type: "fix-applied", file, sourcePath };
               }
 
@@ -306,7 +306,6 @@ export async function* runValidation({
                       sourcePath: other.moduleFilePath,
                     };
                   }
-                  fixedErrors += 1;
                   yield { type: "fix-applied", file, sourcePath };
                 } else if (
                   !fix &&
@@ -339,8 +338,11 @@ export async function* runValidation({
             }
           }
         }
+        // Valid means nothing is left, not that as many errors were fixed as
+        // are left: one fix and one error that no fix touches add up to the
+        // same count, and printed a module with an error in it as valid.
         if (
-          fixedErrors === fileErrors &&
+          fileErrors === 0 &&
           (!valModule.errors.fatal || valModule.errors.fatal.length == 0)
         ) {
           yield {

@@ -27,8 +27,10 @@ import {
   type ValidationFix,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
+import type { Patch } from "@valbuild/core/patch";
 import {
   awaitValLoginConfirmation,
+  classifyJsonValuesOp,
   createFixPatch,
   findAndEvalValConfigFile,
   getPersonalAccessTokenPath,
@@ -49,6 +51,7 @@ import {
   type TextEdit,
 } from "vscode-languageserver";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { jsonEntryEditFor } from "./jsonEntryEdit";
 import { minimalTextEdit } from "./textEdit";
 import { pathToUri } from "./uri";
 import type { ValProject } from "./ValProject";
@@ -392,9 +395,11 @@ export function createValCommands(deps: ValCommandDeps): {
     // them in the same edit, so one undo takes back all of it.
     const unwritten: string[] = [];
     for (const other of outcome.otherModulePatches ?? []) {
-      const otherEdit = editForModulePatch(project.valRoot, other);
-      if (otherEdit) {
-        (changes[otherEdit.uri] ??= []).push(otherEdit.edit);
+      const otherEdits = await editsForModulePatch(project, other);
+      if (otherEdits) {
+        for (const otherEdit of otherEdits) {
+          (changes[otherEdit.uri] ??= []).push(otherEdit.edit);
+        }
       } else {
         unwritten.push(other.moduleFilePath);
       }
@@ -413,38 +418,89 @@ export function createValCommands(deps: ValCommandDeps): {
   }
 
   /**
-   * The edit for a patch to another module than the one the command ran on,
-   * against the editor's buffer when the file is open and the disk otherwise.
+   * The edits for a patch to another module than the one the command ran on,
+   * against the editor's buffers when the files are open and the disk
+   * otherwise. `undefined` when any part of it cannot be written: half a rename
+   * is worse than a warning naming the module.
+   *
+   * A `.jsonValues()` entry's value is in its own `*.val.json`, not in the
+   * `.val.ts` — so the ops are split by the entry they land in, and each
+   * entry's go through `jsonEntryEditFor`, the same routing a quick fix inside
+   * an entry uses. Only what is left is applied to the `.val.ts`.
    */
-  function editForModulePatch(
-    valRoot: string,
+  async function editsForModulePatch(
+    project: ValProject,
     other: ModulePatch,
-  ): { uri: string; edit: TextEdit } | undefined {
-    const uri = pathToUri(path.join(valRoot, other.moduleFilePath));
-    let otherDocument = deps.getDocument(uri);
-    if (!otherDocument) {
-      let text: string;
-      try {
-        text = fs.readFileSync(
-          path.join(valRoot, other.moduleFilePath),
-          "utf8",
-        );
-      } catch {
-        return undefined;
-      }
-      otherDocument = TextDocument.create(uri, "typescript", 0, text);
-    }
-    const otherBefore = otherDocument.getText();
-    const otherPatched = patchSourceFile(otherBefore, other.patch);
-    if (result.isErr(otherPatched)) {
+  ): Promise<{ uri: string; edit: TextEdit }[] | undefined> {
+    const { valRoot } = project;
+    const moduleFile = path.join(valRoot, other.moduleFilePath);
+    const uri = pathToUri(moduleFile);
+    const valTsText = readBuffer(moduleFile);
+    if (valTsText === undefined) {
       return undefined;
     }
-    const otherEdit = minimalTextEdit(
-      otherBefore,
-      otherPatched.value.text,
-      otherDocument,
-    );
-    return otherEdit && { uri, edit: otherEdit };
+    const moduleResult = await project.getModule(other.moduleFilePath, {
+      validate: false,
+    });
+    const schema =
+      moduleResult.status === "ok" ? moduleResult.content.schema : undefined;
+
+    const valTsOps: Patch = [];
+    const entryOps = new Map<string, Patch>();
+    for (const op of other.patch) {
+      const cls = schema && classifyJsonValuesOp(schema, op.path);
+      if (cls && cls.kind === "entry") {
+        const ops = entryOps.get(cls.entryKey) ?? [];
+        ops.push(op);
+        entryOps.set(cls.entryKey, ops);
+      } else {
+        valTsOps.push(op);
+      }
+    }
+
+    const edits: { uri: string; edit: TextEdit }[] = [];
+    for (const ops of entryOps.values()) {
+      const entryEdit = jsonEntryEditFor({
+        patch: ops,
+        schema,
+        moduleFilePath: other.moduleFilePath,
+        valTsText,
+        valRoot,
+        read: readBuffer,
+      });
+      if (!entryEdit) {
+        return undefined;
+      }
+      edits.push(entryEdit);
+    }
+    if (valTsOps.length > 0) {
+      const patched = patchSourceFile(valTsText, valTsOps);
+      if (result.isErr(patched)) {
+        return undefined;
+      }
+      const edit = minimalTextEdit(
+        valTsText,
+        patched.value.text,
+        TextDocument.create(uri, "typescript", 0, valTsText),
+      );
+      if (edit) {
+        edits.push({ uri, edit });
+      }
+    }
+    return edits;
+  }
+
+  /** A file as the editor has it, falling back to disk. */
+  function readBuffer(fsPath: string): string | undefined {
+    const open = deps.getDocument(pathToUri(fsPath));
+    if (open) {
+      return open.getText();
+    }
+    try {
+      return fs.readFileSync(fsPath, "utf8");
+    } catch {
+      return undefined;
+    }
   }
 
   return {

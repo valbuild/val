@@ -7,6 +7,7 @@ import {
 import {
   GalleryImageSource,
   ImageSource,
+  galleryKeyOf,
   isRemoteMediaPath,
 } from "../source/media";
 import { getValPath, ModulePath, SourcePath } from "../val";
@@ -263,10 +264,17 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
         ],
       } as ValidationErrors;
     }
+    // A field picked from a gallery holds the gallery's KEY, and whether that
+    // key is a local path or a remote ref is the gallery's to decide — and its
+    // to fix: uploading an entry renames its key, and the fields that hold it
+    // with it. So such a field only asks whether the gallery has it, below.
+    // Asking here as well reported every image picked from a `.remote()`
+    // gallery as one to download, because the field itself is never remote.
+    const galleryEntries = this.galleryEntries();
     // Remote-ness is a property of the path, not of a marker on the value:
     // anything outside /public is remote.
     const isRemotePath = isRemoteMediaPath(src.path);
-    if (this.isRemote && !isRemotePath) {
+    if (!galleryEntries && this.isRemote && !isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -278,7 +286,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
         ],
       } as ValidationErrors;
     }
-    if (this.isRemote && isRemotePath) {
+    if (!galleryEntries && this.isRemote && isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -290,7 +298,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
         ],
       } as ValidationErrors;
     }
-    if (!this.isRemote && isRemotePath) {
+    if (!galleryEntries && !this.isRemote && isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -322,7 +330,6 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
       }
     }
 
-    const galleryEntries = this.galleryEntries();
     if (galleryEntries) {
       // The dimensions and mime type of a gallery image are stored once, in the
       // gallery. Repeating them on the field is how the two get to disagree.
@@ -340,7 +347,9 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
           ],
         } as ValidationErrors;
       }
-      if (!(src.path in galleryEntries)) {
+      // The same match reading the field makes (`fillFromGallery`): the key,
+      // or the local path inside a ref an upload through the field stored.
+      if (galleryKeyOf(src.path, (key) => key in galleryEntries) === null) {
         return {
           [path]: [
             ...customValidationErrors,

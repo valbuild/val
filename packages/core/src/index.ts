@@ -164,6 +164,7 @@ import { getFileHash, hashToRemoteFileHash } from "./remote/fileHash";
 import { splitRemoteRef } from "./remote/splitRemoteRef";
 import {
   fillFromGallery,
+  galleryKeyOf,
   HLS_MIME_TYPE,
   isHlsVideo,
   isRemoteMediaPath,
@@ -409,6 +410,7 @@ const Internal = {
   isRemoteMediaPath,
   media: {
     fillFromGallery,
+    galleryKeyOf,
     isHlsVideo,
     HLS_MIME_TYPE,
   },
