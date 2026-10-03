@@ -26,7 +26,13 @@ export type HandoffState =
   /** The tab is open and loading the Studio. */
   | { kind: "opening" }
   /** The tab is building or publishing; `step` is `describeDeployPhase`. */
-  | { kind: "running"; step: string; elapsedMs: number }
+  | {
+      kind: "running";
+      step: string;
+      elapsedMs: number;
+      /** How far the tab's build has got; absent from a tab that predates it. */
+      percent?: number;
+    }
   /**
    * The tab built it and handed it to the content service, which checks the
    * site renders and puts it live -- the tab has closed. Followed by this
@@ -41,16 +47,17 @@ export type HandoffState =
   | { kind: "failed"; message: string; details?: string; followed?: boolean };
 
 /**
- * Is the card the only thing that will say this? Not once the tab has handed
- * the job on, where a page with its own publish surfaces (the Studio's toast
- * and deploy list) already follows it -- a card saying "Live" beside them
- * said it twice. The overlay has none, and shows the card throughout.
+ * The card in the Studio, where the status bar's indicator already follows
+ * the build -- the tab's step while it runs, and the edges after Live. So it
+ * is only for what needs a hand: a blocked tab, or one that failed.
  */
-export function handoffCardIsNews(state: HandoffState): boolean {
-  if (state.kind === "checking") return false;
-  if (state.kind === "live" || state.kind === "failed")
-    return state.followed !== true;
-  return true;
+export function handoffCardInStudio(state: HandoffState): boolean {
+  // Not "live" either, followed or not: a site update's tab reports its own
+  // Live, and the indicator and the toast already say it here.
+  return (
+    state.kind === "blocked" ||
+    (state.kind === "failed" && state.followed !== true)
+  );
 }
 
 export function PublishHandoffCard({
@@ -243,14 +250,15 @@ export function FailureDetails({ details }: { details: string }) {
 }
 
 /**
- * The Studio tab the overlay opened, while it builds and publishes one commit.
+ * The builder tab a page that cannot build opened -- the overlay, or a
+ * Safari Studio -- while it builds and publishes one job.
  *
  * A page of its own rather than the Studio behind a toast: the person did not
  * come here to edit, they came because the site sent them, and the one thing
  * this tab has to say is how far the publish has got.
  */
 export function StudioPublishPage({
-  commit,
+  jobId,
   steps,
   elapsedMs,
   result,
@@ -258,7 +266,12 @@ export function StudioPublishPage({
   onOpenStudio,
   onClose,
 }: {
-  commit: string;
+  /**
+   * The publish job it is building, once it has arrived: what a bug report
+   * names. Not a commit -- a job's commit is minted at the seal, after this
+   * tab is done.
+   */
+  jobId?: string;
   steps: PublishStep[];
   elapsedMs: number;
   result?: PublishPageResult;
@@ -269,8 +282,9 @@ export function StudioPublishPage({
   return (
     <div className="min-h-full w-full flex items-center justify-center bg-bg-primary text-fg-primary p-6">
       <div className="w-full max-w-md rounded-xl border border-border-float bg-bg-float shadow-sm p-6">
+        {/* Held open before the job arrives, so the heading does not move. */}
         <p className="text-xs text-fg-secondary-alt font-mono">
-          {commit.slice(0, 7)}
+          {jobId ? `Job ${jobId.slice(0, 7)}` : "\u00a0"}
         </p>
         <h1 className="mt-1 text-lg font-semibold">
           {result?.kind === "live"
@@ -288,7 +302,7 @@ export function StudioPublishPage({
               ? "Val is checking that the site renders and will put it live. You can close this tab: the page you published from says when it is live."
               : result?.kind === "failed"
                 ? result.message
-                : `Started from the site ${seconds(elapsedMs)} ago. Keep this open until it is built.`}
+                : `Started ${seconds(elapsedMs)} ago. Keep this window open until it is built.`}
         </p>
         {result?.kind === "failed" && result.details && (
           <FailureDetails details={result.details} />

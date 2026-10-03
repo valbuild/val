@@ -47,7 +47,8 @@ import { pendingPatchSets } from "../../utils/computeChangedSourcePaths";
 import type { Profile } from "../ValProvider";
 import { cn } from "../designSystem/cn";
 import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
-import { PublishHandoffCard, handoffCardIsNews } from "./PublishHandoff";
+import { PublishHandoffCard, handoffCardInStudio } from "./PublishHandoff";
+import { usePublishIndicator } from "../../publish/usePublishIndicator";
 import { LoginDialog } from "../LoginDialog";
 import { PatchErrorsDialog } from "../PatchErrorsDialog";
 import { GlobalErrors } from "../GlobalErrors";
@@ -90,6 +91,7 @@ import {
   usePublishSummary,
   useStudioDeployState,
   useSiteHandoffState,
+  useOtherPublishJobs,
   useStudioIsDeployer,
   useHasNetChanges,
   useOwnPendingChangeCount,
@@ -337,6 +339,20 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
 
   const data: ShellData =
     state.status === "success" ? state.data : EMPTY_SHELL_DATA;
+  const otherPublishJobs = useOtherPublishJobs();
+  const publishIndicatorState = usePublishIndicator({
+    own: deployState,
+    builder:
+      handoff.state?.kind === "running"
+        ? {
+            step: handoff.state.step,
+            percent: handoff.state.percent ?? null,
+          }
+        : null,
+    jobs: otherPublishJobs,
+    deployments: data.deployments,
+    studioIsDeployer,
+  });
 
   /**
    * The route, as a selection id.
@@ -1134,7 +1150,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         editorOverride={overrideEditor}
         publishSlot={<PublishButton />}
         publishState={publishState}
-        deployState={deployState}
+        publishIndicator={publishIndicatorState}
         saveState={saveState}
         autoSave={autoPublish}
         onAutoSaveChange={setAutoPublish}
@@ -1251,13 +1267,13 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         pendingChangesProgress={pendingChangesProgress}
         pendingChangesError={pendingChangesError}
       />
-      {handoff.state !== null && handoffCardIsNews(handoff.state) && (
+      {handoff.state !== null && handoffCardInStudio(handoff.state) && (
         /*
          * A publish this Studio handed to a builder tab, because it cannot
-         * build here. Above the status bar, where the deploy item is, or
-         * above the phone's bottom bar. Only while the tab has it: once it is
-         * content's, this Studio's own toast and deploy list follow it, and a
-         * card saying "Live" beside them said it twice.
+         * build here -- only when something needs doing about it: the tab was
+         * blocked, or it failed. While it builds, the status bar's indicator
+         * says so, with the tab's step; once it is content's, this Studio's
+         * own indicator and toast follow it. See `handoffCardInStudio`.
          */
         <div className={cn("fixed right-4 z-window", CLEAR_OF_BOTTOM_BARS)}>
           <PublishHandoffCard

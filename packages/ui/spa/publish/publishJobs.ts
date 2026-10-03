@@ -46,6 +46,12 @@ export type TrackedPublish = {
   builtBy?: "studio" | "ci";
   /** When this tab first saw it settled. */
   settledAt?: number;
+  /**
+   * The job that carries it, once this tab knows: the one the press came
+   * back with, or the one this tab ran and handed off. So the status bar can
+   * tell this tab's own job from another editor's on the websocket.
+   */
+  jobId?: string;
 };
 
 export type PublishJobsState = {
@@ -182,7 +188,7 @@ export function createPublishJobs(options: {
             request.handedOffAt !== undefined ||
             !carries(job.id, request)
               ? request
-              : { ...request, handedOffAt: at, builtBy },
+              : { ...request, handedOffAt: at, builtBy, jobId: job.id },
           ),
         });
       }
@@ -266,6 +272,7 @@ export function createPublishJobs(options: {
       pressedAt: at,
       status: request,
       ...(isSettled(request) ? { settledAt: at } : {}),
+      ...(job !== null ? { jobId: job.id } : {}),
     };
     const known = state.requests.some((r) => r.requestId === requestId);
     set({
