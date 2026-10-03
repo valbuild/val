@@ -47,9 +47,30 @@ export function publishProgress(
 
   const status = latest.status;
   if (!isSettled(status)) {
-    // This tab holds the job and is preparing it: the deploy has not begun.
     if (jobs.running !== null) {
-      return running({ kind: "reading" }, latest.pressedAt);
+      /*
+       * This tab built the job and is handing it to content: the upload is
+       * done and the check is next. Not "reading", which is where the bar
+       * started -- that sent a publish from 60% back to 8% and up to 64%.
+       */
+      if (
+        jobs.running.phase?.kind === "handing-off" &&
+        deploy.status === "done" &&
+        deploy.result.status === "uploaded" &&
+        (deploy.finishedAt ?? 0) >= latest.pressedAt
+      ) {
+        return running(
+          { kind: "confirming" },
+          deploy.finishedAt ?? latest.pressedAt,
+          built,
+        );
+      }
+      /*
+       * Preparing it, or between two runs of it: the deploy has not begun.
+       * The deploy's own first step, so the bar does not step back when it
+       * does.
+       */
+      return running({ kind: "getting-ready" }, latest.pressedAt);
     }
     if (status.kind === "queued") {
       return running({ kind: "queued" }, latest.pressedAt);

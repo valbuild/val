@@ -1,5 +1,8 @@
 import type { PublishRequestStatus } from "@valbuild/shared/internal";
+import { deployPercent } from "./deployProgress";
 import type { PublishJobsState, TrackedPublish } from "./publishJobs";
+import type { DeployPhase } from "./runStudioDeploy";
+import type { JobPhase } from "./runStudioJob";
 import { publishProgress } from "./publishProgress";
 import type { StudioDeployState } from "./useStudioDeploy";
 
@@ -137,4 +140,85 @@ test("a job CI builds is building after the hand-off, not being checked", () => 
     phase: { kind: "building" },
     phaseStartedAt: 5_000,
   });
+});
+
+test("a job built in this tab never goes backwards, from the press to Live", () => {
+  const publishing: PublishRequestStatus = { kind: "publishing" };
+  const runningDeploy = (phase: DeployPhase): StudioDeployState => ({
+    status: "running",
+    phase,
+    startedAt: 1_500,
+    phaseStartedAt: 1_500,
+    commit: null,
+  });
+  const job = (phase: JobPhase | null): PublishJobsState["running"] => ({
+    jobId: "J1",
+    phase,
+  });
+  const build: DeployPhase[] = [
+    { kind: "getting-ready" },
+    { kind: "reading" },
+    { kind: "building" },
+    { kind: "declaring" },
+    { kind: "uploading", done: 3, total: 7 },
+    { kind: "confirming" },
+  ];
+  const views = [
+    // Pressed, and the job is being prepared.
+    publishProgress(idle, jobs(publishing, {}, job(null)), 1_100),
+    publishProgress(
+      idle,
+      jobs(publishing, {}, job({ kind: "preparing" })),
+      1_200,
+    ),
+    // The build, in this tab.
+    ...build.map((phase) =>
+      publishProgress(
+        runningDeploy(phase),
+        jobs(publishing, {}, job({ kind: "deploying", phase })),
+        2_000,
+      ),
+    ),
+    // Uploaded, and reporting it to content.
+    publishProgress(
+      uploaded,
+      jobs(publishing, {}, job({ kind: "handing-off" })),
+      5_100,
+    ),
+    // Content has it.
+    publishProgress(
+      uploaded,
+      jobs(publishing, { handedOffAt: 5_200 }, job({ kind: "handing-off" })),
+      5_200,
+    ),
+    publishProgress(uploaded, jobs(publishing, { handedOffAt: 5_200 }), 5_300),
+  ];
+  const percents = views.map((view) =>
+    view.status === "running" ? deployPercent(view.phase) : 100,
+  );
+  expect(percents).toEqual([...percents].sort((a, b) => a - b));
+  expect(views.at(-1)).toMatchObject({ phase: { kind: "verifying" } });
+});
+
+test("a connected job CI builds does not step back after the hand-off", () => {
+  const before = publishProgress(
+    idle,
+    jobs(
+      { kind: "publishing" },
+      {},
+      { jobId: "J1", phase: { kind: "handing-off" } },
+    ),
+    2_000,
+  );
+  const after = publishProgress(
+    idle,
+    jobs({ kind: "publishing" }, { handedOffAt: 2_500, builtBy: "ci" }),
+    3_000,
+  );
+  if (before.status !== "running" || after.status !== "running") {
+    throw new Error("expected both to be running");
+  }
+  expect(deployPercent(before.phase)).toBeLessThanOrEqual(
+    deployPercent(after.phase),
+  );
 });
