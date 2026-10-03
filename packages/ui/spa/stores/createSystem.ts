@@ -750,9 +750,11 @@ export function createSystem(options: SystemOptions): System {
     /*
      * The SERVER's account of the group as well as this tab's scope.
      *
-     * The scope is seeded once and then grows only on this tab's own writes, so
-     * the same author writing or staging from a second tab adds ids the
-     * annotation knows about and the scope never will. Deciding from the scope
+     * The scope is seeded once and then grows on this tab's own writes and on
+     * whatever {@link adoptOwnGroupMembers} takes from the annotation — which
+     * is the annotation as last FETCHED. Between fetches, a second tab of the
+     * same author can still have added ids the scope does not hold, and an id
+     * this tab unstaged is deliberately never re-adopted. Deciding from the scope
      * alone passed this check on a group that still held unshipped work — and
      * the content API closes what it is named without looking, so those patches
      * fell into a closed group and out of the next one, and the other tab's
@@ -901,7 +903,8 @@ export function createSystem(options: SystemOptions): System {
        * for MISSING patch ids, so on a quiet branch the request that would
        * correct the screen may never happen — the user keeps seeing a stage the
        * server refused until they reload. Same root cause as a stage in one tab
-       * not reaching another. See `docs/independent-publish/DESIGN.md`.
+       * reaching another only when some later fetch happens to carry the
+       * annotation. See `docs/independent-publish/DESIGN.md`, gap 5.
        */
       console.error("Val: could not update patch group", res.message);
     }
@@ -944,6 +947,124 @@ export function createSystem(options: SystemOptions): System {
     // is visible and what will ship must not come apart.
     sourceStore.setVisiblePatchIds(patchGroupIds);
     patchStore.notifyGroupsChanged();
+  }
+  /**
+   * Ids this tab has made an explicit decision about — staged or unstaged —
+   * through {@link System.setPatchGroup}.
+   *
+   * What {@link adoptOwnGroupMembers} must never override. The annotation is
+   * routinely older than the last click: an unstage here removes the patch from
+   * the group on the server too, but a fetch whose response was read before
+   * that landed still lists it, and adopting from it would put back what the
+   * user just took out — the dangerous direction, because the next publish
+   * ships it. Only ever grows; a decision is not undone by a later annotation.
+   */
+  const decidedPatchIds = new Set<PatchId>();
+
+  /**
+   * Widen the scope to members the server has put in this user's OPEN group
+   * and this tab has never had a say about.
+   *
+   * The server puts every write in its author's open group, including a write
+   * from ANOTHER tab or device of the same user. That patch reaches this chain
+   * through `PatchStore`'s missing-id fetch, which refreshes the annotation in
+   * the same response — but the scope was seeded once and grew only on this
+   * tab's own writes, so the patch landed as unstaged: not on screen here, and
+   * left out of a publish from here, while the server held it in the very
+   * group that publish was closing.
+   *
+   * Which group is ours is NOT decided here. `ownPatchGroupId` is the shell's
+   * answer from `useCurrentPatchGroup`, which owns that decision and its
+   * guards (the author must be known; the save response wins over the
+   * annotation; a group the annotation shows published is not named). This
+   * only refuses to go further than the annotation itself supports: a group
+   * it shows published, or one with no author, is never adopted from.
+   *
+   * Only ADDS. A member the annotation no longer lists is not removed — see
+   * gap 5 in `docs/independent-publish/DESIGN.md` for what that leaves open.
+   *
+   * Through {@link extendPatchGroup}, so source and the publish set move in
+   * one call, exactly as they do for this tab's own writes.
+   */
+  function adoptOwnGroupMembers(): void {
+    if (patchGroupIds === null || ownPatchGroupId === undefined) {
+      return;
+    }
+    const annotated = patchStore
+      .groups()
+      ?.find((group) => group.patchGroupId === ownPatchGroupId);
+    if (
+      annotated === undefined ||
+      annotated.publishedAt !== null ||
+      annotated.authorId === null
+    ) {
+      return;
+    }
+    const scope = new Set(patchGroupIds);
+    const undecided = annotated.patchIds.filter(
+      (patchId) => !scope.has(patchId) && !decidedPatchIds.has(patchId),
+    );
+    if (undecided.length === 0) {
+      return;
+    }
+    /*
+     * Members the server lists that this tab took OUT.
+     *
+     * With none, every undecided member can come in. With some, a new member
+     * may be written on top of one of them — another tab, still showing it,
+     * wrote a change in the same patch set, and its closure put it back on the
+     * server. Adopting that change without the patch beneath it is a hole in
+     * the middle of a patch set, the one shape a group must never have: its
+     * paths were computed against a state that included the missing patch.
+     * So those members wait for patch sets, and only the ones whose prefix
+     * needs nothing this tab took out are adopted.
+     */
+    const takenOut = annotated.patchIds.filter(
+      (patchId) => !scope.has(patchId) && decidedPatchIds.has(patchId),
+    );
+    if (takenOut.length === 0) {
+      extendPatchGroup(undecided);
+      return;
+    }
+    void adoptAroundHoles(undecided, takenOut);
+  }
+
+  /**
+   * Adopt the members of `candidates` whose prefix closure does not need any of
+   * `takenOut`. See {@link adoptOwnGroupMembers}.
+   *
+   * Nothing on failure: a member left out shows as unstaged until the next
+   * annotation, while a member let in over a hole publishes a change against
+   * the wrong content.
+   */
+  async function adoptAroundHoles(
+    candidates: readonly PatchId[],
+    takenOut: readonly PatchId[],
+  ): Promise<void> {
+    try {
+      /*
+       * A build that carries its own chain, as the write closure uses, and
+       * only the candidates it covers. The groups arrive before the records of
+       * the same response, so a build planned then has not seen the change
+       * being adopted, and a closure over it would miss what it sits on. The
+       * rest are asked about again when their records arrive (`patch:receive`).
+       */
+      let build = await computePatchSetsBuild();
+      const covers = (patchId: PatchId) => build.chain.includes(patchId);
+      if (!candidates.every(covers)) build = await computePatchSetsBuild();
+      const index = indexPatchSets(build.sets, build.chain);
+      if (patchGroupIds === null) return;
+      const scope = new Set(patchGroupIds);
+      const safe = candidates.filter((patchId) => {
+        if (!covers(patchId)) return false;
+        if (scope.has(patchId) || decidedPatchIds.has(patchId)) return false;
+        const needs = stageClosure(index, scope, [patchId]);
+        return takenOut.every((patchId) => !needs.has(patchId));
+      });
+      if (safe.length > 0) extendPatchGroup(safe);
+    } catch {
+      // See the docblock: leaving a member out is the recoverable direction.
+    }
   }
   /** One whole-project validation at a time. See `validateEverything`. */
   let fullValidationRunning = false;
@@ -1353,6 +1474,20 @@ export function createSystem(options: SystemOptions): System {
      */
     patchStore.events.on("patch:create", (event) => {
       extendPatchGroup(event.patches);
+    }),
+    /*
+     * The annotation moved: our open group may hold a patch written in another
+     * tab. Registered before the source store for the same reason as above —
+     * `PatchStore` bumps the groups BEFORE it delivers the records of the same
+     * response, so the scope has grown by the time `applyEntries` asks.
+     */
+    patchStore.events.on("patch:groups", () => {
+      adoptOwnGroupMembers();
+    }),
+    // And when records land: a member waiting on patch sets to show it needs
+    // nothing this tab took out (see `adoptAroundHoles`) is asked about again.
+    patchStore.events.on("patch:receive", () => {
+      adoptOwnGroupMembers();
     }),
     sourceStore.listenTo(patchStore),
     // The write is the one path that is not demand-driven: a local patch has to
@@ -1833,6 +1968,13 @@ export function createSystem(options: SystemOptions): System {
     },
     setOwnPatchGroupId(patchGroupId) {
       ownPatchGroupId = patchGroupId;
+      /*
+       * The annotation can name our group before the shell does — the write
+       * from elsewhere that CREATED it arrives with the annotation, and the
+       * shell resolves the id only on its next render. So the members are
+       * adopted here as well as on `patch:groups`.
+       */
+      adoptOwnGroupMembers();
     },
     setPatchGroupResolver(resolver) {
       if (resolver === undefined) {
@@ -2003,6 +2145,17 @@ export function createSystem(options: SystemOptions): System {
       patchStore.notifyGroupsChanged();
     },
     setPatchGroup(ids) {
+      if (ids !== null) {
+        // Both directions are decisions: what moved in and what moved out.
+        const before = new Set(patchGroupIds ?? []);
+        const after = new Set(ids);
+        for (const patchId of after) {
+          if (!before.has(patchId)) decidedPatchIds.add(patchId);
+        }
+        for (const patchId of before) {
+          if (!after.has(patchId)) decidedPatchIds.add(patchId);
+        }
+      }
       patchGroupIds = ids === null ? null : [...ids];
       // Source is scoped in the same call, so "what I can see" and "what I will
       // publish" cannot come apart.
