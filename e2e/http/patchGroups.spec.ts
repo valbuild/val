@@ -430,27 +430,38 @@ test.describe("the staging controls", () => {
     );
 
     /*
-     * Nowhere to send it yet, so Bob's group must be untouched — and no group
-     * of Alice's may have been invented to hold it.
+     * Bob's group is untouched, and the stage is on the server AT ONCE: sent
+     * to `~`, which the content service reads as Alice's open group and creates
+     * for it. It used to be held in this tab until her next write created the
+     * group — and a reload or her other browser never saw it.
      */
+    await expect
+      .poll(
+        async () => {
+          const state = await mock.state();
+          return state.patchGroups
+            .filter(
+              (group) =>
+                group.authorId === USERS.ada.profileId &&
+                group.publishedAt === null,
+            )
+            .map((group) => group.patchIds);
+        },
+        { message: "the stage did not reach the content service at once" },
+      )
+      .toEqual([[bobPatch]]);
     const during = await mock.state();
     expect(
-      during.patchGroups.find((group) => group.patchIds.includes(bobPatch))
-        ?.authorId,
-    ).toBe(USERS.linus.profileId);
-    expect(
-      during.patchGroups.filter(
+      during.patchGroups.find(
         (group) =>
-          group.authorId === USERS.ada.profileId && group.publishedAt === null,
+          group.authorId === USERS.linus.profileId &&
+          group.patchIds.includes(bobPatch),
       ),
-      "an open group appeared for Alice before she wrote anything",
-    ).toHaveLength(0);
+      "Bob's own group lost his change",
+    ).toBeDefined();
 
     /*
-     * Alice types again. That creates her next group, and the held stage goes
-     * out with it — which is why the queue lives on the system: this write
-     * happens after she has navigated off the review screen that took the
-     * click.
+     * Alice types again. Her write joins the group the stage created.
      */
     const alicePatch = await writePatch(page, AUTHORS, [
       { op: "replace", path: ["teddy", "name"], value: "Alice, again" },
@@ -469,7 +480,7 @@ test.describe("the staging controls", () => {
         },
         {
           message:
-            "the post-publish write joined no group, or the held stage never went out",
+            "the post-publish write did not join the group the stage created",
         },
       )
       .toEqual([alicePatch, bobPatch].sort());
