@@ -87,6 +87,15 @@ describe("fillFromGallery", () => {
     expect(filled).toEqual({ path: REMOTE_REF, ...galleryEntry });
   });
 
+  test("finds a remote ref by the local key an upload through the field writes", () => {
+    // The Studio keys the gallery entry by the local path inside the ref, with
+    // its leading slash, and stores the ref in the field.
+    const filled = fillFromGallery({ path: REMOTE_REF }, schema, () => ({
+      "/public/val/hero_a1b2c.png": galleryEntry,
+    }));
+    expect(filled).toEqual({ path: REMOTE_REF, ...galleryEntry });
+  });
+
   test("leaves an authored alt alone", () => {
     const filled = fillFromGallery(
       { path: "/public/img/hero_a1b2c.png", alt: "An override" },

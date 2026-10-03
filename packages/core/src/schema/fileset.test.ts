@@ -4,6 +4,7 @@ import {
   FilesetEntryMetadata,
   SerializedFilesetSchema,
 } from "./fileset";
+import { initVal } from "../initVal";
 
 // Strip deferred-check errors (require CLI/filesystem context, not schema validation)
 function filterCheckErrors(
@@ -480,6 +481,46 @@ describe("FilesSchema", () => {
         e.message.includes("not in expected directory"),
       );
       expect(hasDirectoryError).toBe(true);
+    });
+  });
+
+  /** As for an image: a field holds its gallery's key, and the gallery decides where the bytes are. */
+  describe("a field picked from a remote gallery", () => {
+    const REF =
+      "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/files/remote.pdf";
+
+    function fieldOf() {
+      const { s, c } = initVal();
+      const gallery = c.define(
+        "/content/files.val.ts",
+        s
+          .fileset({ dir: "/public/val/files", accept: "application/pdf" })
+          .remote(),
+        { [REF]: { mimeType: "application/pdf" } },
+      );
+      return s.file(gallery);
+    }
+
+    test("holding the gallery's ref is valid, not a download", () => {
+      const result = fieldOf()["executeValidate"]("path" as SourcePath, {
+        path: REF,
+      });
+      expect(result).toBe(false);
+    });
+
+    test("a ref the gallery does not have is a membership error", () => {
+      const missing = REF.replace("remote.pdf", "other.pdf");
+      const result = fieldOf()["executeValidate"]("path" as SourcePath, {
+        path: missing,
+      });
+      expect(result).toEqual({
+        path: [
+          {
+            message: `The gallery does not have a file at '${missing}'.`,
+            value: { path: missing },
+          },
+        ],
+      });
     });
   });
 
