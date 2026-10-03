@@ -33,6 +33,7 @@ export type {
   VideoStreamOption,
   VideoStreamOptions,
 } from "./schema/video";
+import { videosetEntryVideoSchema } from "./schema/videoset";
 export type {
   VideosetEntryMetadata,
   VideosetOptions,
@@ -393,6 +394,7 @@ const Internal = {
   VERSION: {
     core: corePackageJson.version,
   },
+  videosetEntryVideoSchema,
   // A view's read-path plumbing: `Internal` rather than the public surface,
   // because an app never builds or unwraps a handle — it passes one to
   // `useVal`.

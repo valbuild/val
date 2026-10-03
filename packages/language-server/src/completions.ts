@@ -326,7 +326,11 @@ function createSchemaDrivenCompletions({
     const galleryFiles =
       container.mediaType === "images"
         ? files.images(directory)
-        : files.list(directory);
+        : container.mediaType === "videos"
+          ? // A stream is keyed by its master playlist; its media playlists
+            // and segments are part of it, never keys of their own.
+            files.videos(directory)
+          : files.list(directory);
     return items(
       galleryFiles.map((file) => file.ref),
       CompletionItemKind.File,

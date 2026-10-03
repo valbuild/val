@@ -300,8 +300,7 @@ export class VideoSchema<
         },
       ];
     }
-    const entry =
-      gallery.entries === null ? null : gallery.entries[src.path];
+    const entry = gallery.entries === null ? null : gallery.entries[src.path];
     if (entry === undefined) {
       return [
         {

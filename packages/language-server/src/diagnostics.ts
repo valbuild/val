@@ -156,6 +156,8 @@ const FILE_FIXES: readonly string[] = [
   "file:download-remote",
   // Local only: core never asks a remote video for its metadata.
   "video:add-metadata",
+  // The same, for a video set's entry, whose file is its KEY.
+  "videos:add-metadata",
 ];
 
 function build(
@@ -284,7 +286,7 @@ export function createValDiagnostics({
       // handlers do when their precondition fails.
       const missing =
         valRoot && fixes?.some((fix) => FILE_FIXES.includes(fix))
-          ? missingFileRef({ sourcePath, content, valRoot })
+          ? missingFileRef({ sourcePath, content, valRoot, fixes })
           : undefined;
       if (missing) {
         diagnostics.push(
@@ -365,10 +367,12 @@ function missingFileRef({
   sourcePath,
   content,
   valRoot,
+  fixes,
 }: {
   sourcePath: string;
   content: ValModuleContent;
   valRoot: string;
+  fixes: readonly string[];
 }): string | undefined {
   if (!content.source || !content.schema) {
     return undefined;
@@ -382,7 +386,10 @@ function missingFileRef({
       content.source,
       content.schema,
     );
-    const ref = (resolved.source as Record<string, unknown> | undefined)?.path;
+    const ref = fixes.includes("videos:add-metadata")
+      ? // A video set entry is keyed by its file; the value has no `path`.
+        Internal.splitModulePath(modulePath).pop()
+      : (resolved.source as Record<string, unknown> | undefined)?.path;
     if (typeof ref !== "string") {
       return undefined;
     }
@@ -538,7 +545,7 @@ function longestResolvedPrefixRange(
  * Gallery checks core emits unconditionally.
  *
  * `RecordSchema.validate` attaches these to every `s.imageset()` / `s.fileset()`
- * module whether or not anything is actually wrong (see
+ * / `s.videoset()` module whether or not anything is actually wrong (see
  * `packages/core/src/schema/record.ts`): they are placeholders asking someone to
  * go and look. `val validate` looks by running the matching fix handler, which
  * reports success when the directory is unique and every file is accounted for.
@@ -550,8 +557,10 @@ function longestResolvedPrefixRange(
 const GALLERY_CHECK_FIXES: readonly string[] = [
   "images:check-unique-folder",
   "files:check-unique-folder",
+  "videos:check-unique-folder",
   "images:check-all-files",
   "files:check-all-files",
+  "videos:check-all-files",
 ];
 
 export function isGalleryCheckFix(fix: string): boolean {
@@ -697,7 +706,9 @@ function dropDeferredPlaceholders(
  * A gallery-backed field pointing at something the gallery does not have.
  *
  * `ImageSchema.validate` reports this (`packages/core/src/schema/image.ts`:
- * "The gallery does not have an image at '…'") but attaches no `ValidationFix`,
+ * "The gallery does not have an image at '…'"), and `VideoSchema.validate` the
+ * same for a field picked from an `s.videoset()` ("The set does not have a
+ * video at '…'"), but neither attaches a `ValidationFix`,
  * because the remedy is not a change to this module: either the gallery gains an
  * entry, or the file moves into the gallery's directory. Both are edits to
  * somewhere else, which is not what a `ValidationFix` describes.
@@ -713,8 +724,8 @@ export type GalleryMembership = {
   dir?: string;
   /** The path the field currently holds. */
   path: string;
-  /** `image` or `file`, for wording and for which metadata to read. */
-  mediaType: "image" | "file";
+  /** `image`, `file` or `video`, for wording and for which metadata to read. */
+  mediaType: "image" | "file" | "video";
 };
 
 export function galleryMembershipAt({
@@ -743,7 +754,9 @@ export function galleryMembershipAt({
     !schema ||
     typeof schema !== "object" ||
     !("type" in schema) ||
-    (schema.type !== "image" && schema.type !== "file")
+    (schema.type !== "image" &&
+      schema.type !== "file" &&
+      schema.type !== "video")
   ) {
     return undefined;
   }

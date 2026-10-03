@@ -91,9 +91,11 @@ describe("s.videoset()", () => {
         "/public/val/videos/clip.mp4": { ...MP4, duration: -1 },
       }),
     );
-    expect(Object.values(errors).flat().map((e) => e.message)).toEqual([
-      "Expected 'duration' to be a positive number, got '-1'",
-    ]);
+    expect(
+      Object.values(errors)
+        .flat()
+        .map((e) => e.message),
+    ).toEqual(["Expected 'duration' to be a positive number, got '-1'"]);
   });
 
   test("accept is checked for files, and not for streams", () => {

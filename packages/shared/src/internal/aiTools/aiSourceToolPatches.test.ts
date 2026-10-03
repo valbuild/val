@@ -306,3 +306,53 @@ describe("describeContainerAtPath", () => {
     expect(res.message).toContain("does not exist");
   });
 });
+
+describe("a video set is not an image gallery", () => {
+  const videosModule = serialize(
+    c.define(
+      "/content/videos.val.ts",
+      s.videoset({ dir: "/public/val/videos" }),
+      {
+        "/public/val/videos/a.mp4": {
+          mimeType: "video/mp4",
+          width: 64,
+          height: 48,
+          duration: 1,
+          alt: null,
+        },
+      },
+    ),
+  );
+
+  /**
+   * There is no tool that adds a video, so pointing a caller at the image
+   * gallery tool (which is what a gallery gets) would send it round in a
+   * circle: say so instead.
+   */
+  test("duplicating into it is refused, without sending the caller to the image tool", () => {
+    const res = buildDuplicatePatch(
+      {
+        sourcePath: ["/public/val/videos/a.mp4"],
+        destinationPath: ["/public/val/videos/b.mp4"],
+      },
+      videosModule.schema,
+      videosModule.source,
+    );
+    expect(res).toEqual({
+      kind: "error",
+      message: expect.stringContaining("video set"),
+    });
+  });
+
+  test("so is scaffolding an empty entry", () => {
+    const res = buildEmptyAtPathPatch(
+      { destinationPath: ["/public/val/videos/b.mp4"] },
+      videosModule.schema,
+      videosModule.source,
+    );
+    expect(res).toEqual({
+      kind: "error",
+      message: expect.stringContaining("Val Studio"),
+    });
+  });
+});

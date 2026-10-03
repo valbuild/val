@@ -10,7 +10,8 @@ import { canTranscodeVideo } from "./transcodeSupport";
 import { sha256Hex } from "./sha256";
 
 export type PreparePhase =
-  { kind: "reading" } | { kind: "converting"; progress: number };
+  | { kind: "reading" }
+  | { kind: "converting"; progress: number };
 
 export type PreparedVideo =
   | {

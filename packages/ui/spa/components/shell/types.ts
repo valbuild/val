@@ -220,7 +220,10 @@ export type ShellDataModule = {
 };
 
 export type ShellNotificationKind =
-  "content" | "media" | "publish" | "validation";
+  | "content"
+  | "media"
+  | "publish"
+  | "validation";
 
 export type ShellNotification = {
   id: string;

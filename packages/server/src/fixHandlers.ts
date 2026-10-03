@@ -45,7 +45,7 @@ import {
   canReadVideoMetadata,
   unreadableVideoMetadataMessage,
 } from "./extractMetadata";
-import { galleryEntryOf } from "./galleryEntryKey";
+import { checkGalleryFiles } from "./galleryFiles";
 import type { Service } from "./Service";
 import type { IValFSHost } from "./ValFSHost";
 import { openRemoteUploadSession, uploadBytesToRemote } from "./remoteUpload";
@@ -53,8 +53,16 @@ import {
   handleVideoDownloadRemote,
   handleVideoUploadRemote,
 } from "./videoRemote";
+import {
+  handleVideosetCheckAllFiles,
+  handleVideosetCheckRemote,
+  handleVideosetMetadata,
+  handleVideosetUploadRemote,
+} from "./videosetFixes";
+import type { Patch } from "@valbuild/core/patch";
 
 export type { IValFSHost };
+export { checkGalleryFiles };
 
 export type IValRemote = {
   remoteHost: string;
@@ -133,6 +141,16 @@ export type FixHandlerResult = {
   // The handler did nothing because `--fix` was off, but the error IS fixable:
   // report it as such instead of as a plain validation error.
   fixableErrorMessage?: string;
+  /**
+   * Patches to OTHER modules than the one the fix is about, for the caller to
+   * apply alongside the fix's own patch (and only when it applies that one).
+   *
+   * A fix normally rewrites one value. Renaming a key that other modules name
+   * cannot be one: `videos:upload-remote` renames a set entry's key to its
+   * remote ref, and every `s.video(set)` field holding the old key would name
+   * a video the set no longer has.
+   */
+  otherModulePatches?: ModulePatch[];
   // Updated shared state
   publicProjectId?: string;
   remoteFileBuckets?: string[];
@@ -140,6 +158,9 @@ export type FixHandlerResult = {
   // Events to emit
   events?: ValidationEvent[];
 };
+
+/** A patch, and the module it is for. */
+export type ModulePatch = { moduleFilePath: ModuleFilePath; patch: Patch };
 
 export type FixHandler = (ctx: FixHandlerContext) => Promise<FixHandlerResult>;
 
@@ -583,67 +604,6 @@ export async function handleUniqueFolderCheck(
   return { success: true };
 }
 
-/**
- * What is out of step between a gallery's entries and its directory.
- *
- * Two questions, and they treat a remote entry differently — which is the whole
- * reason this is separate from the handler around it:
- *
- * - **Missing**: an entry with no bytes at its local path. Asked of LOCAL
- *   entries only. A remote entry's bytes live on the content host, and nothing
- *   puts a copy in the working tree: `saveOrUploadFiles` uploads the remote
- *   descriptors and copies only the local ones into the tree, so a remote entry
- *   added through the Studio (or over MCP) has no local file by design, and
- *   demanding one would mean committing remote bytes to git — which is what
- *   remote storage exists to avoid. Whether those bytes really are on the host
- *   is a different check, `image:check-remote`, which already runs for exactly
- *   these entries.
- * - **Untracked**: a file in the directory that no entry claims. Asked of every
- *   entry, remote included, and that is why they are normalised to their local
- *   path: `val validate --fix` promotes a local file to a remote ref and leaves
- *   the file where it was, so a remote entry can perfectly well have one.
- */
-export function checkGalleryFiles(input: {
-  entryKeys: string[];
-  dir: string;
-  projectRoot: string;
-  fs: Pick<IValFSHost, "fileExists" | "readDirectory">;
-}): { missingTrackedFiles: string[]; untrackedFiles: string[] } {
-  const { dir, projectRoot, fs } = input;
-  const entries = input.entryKeys.map(galleryEntryOf);
-  const trackedFiles = new Set(entries.map((entry) => entry.localPath));
-
-  const missingTrackedFiles = entries
-    .filter(
-      (entry) =>
-        !entry.remote &&
-        !fs.fileExists(path.join(projectRoot, entry.localPath)),
-    )
-    .map((entry) => entry.localPath);
-
-  const filesInDir: string[] = [];
-  try {
-    const found = fs.readDirectory(
-      path.join(projectRoot, dir),
-      undefined,
-      undefined,
-      ["**/*"],
-    );
-    for (const entry of found) {
-      filesInDir.push(
-        "/" + path.relative(projectRoot, entry).split(path.sep).join("/"),
-      );
-    }
-  } catch {
-    // directory doesn't exist — no untracked files possible
-  }
-
-  return {
-    missingTrackedFiles,
-    untrackedFiles: filesInDir.filter((f) => !trackedFiles.has(f)),
-  };
-}
-
 export async function handleCheckAllFiles(
   ctx: FixHandlerContext,
 ): Promise<FixHandlerResult> {
@@ -817,6 +777,11 @@ export const currentFixHandlers: Record<
   "file:download-remote": handleRemoteFileDownload,
   "video:upload-remote": handleVideoUploadRemote,
   "video:download-remote": handleVideoDownloadRemote,
+  "videos:add-metadata": handleVideosetMetadata,
+  "videos:upload-remote": handleVideosetUploadRemote,
+  "videos:check-remote": handleVideosetCheckRemote,
+  "videos:check-unique-folder": handleUniqueFolderCheck,
+  "videos:check-all-files": handleVideosetCheckAllFiles,
   "image:check-remote": handleRemoteFileCheck,
   "images:check-remote": handleRemoteFileCheck,
   "file:check-remote": handleRemoteFileCheck,

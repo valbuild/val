@@ -131,3 +131,24 @@ describe("buildImageGalleryPatch", () => {
     ]);
   });
 });
+
+describe("a video set", () => {
+  test("is named as what it is, not as a gallery of the wrong shape", () => {
+    const { schema, source } = serialize(
+      c.define(
+        "/content/videos.val.ts",
+        s.videoset({ dir: "/public/val/videos" }),
+        {},
+      ),
+    );
+    const result = buildRemoveImageGalleryEntryPatch(
+      { filePath: "/public/val/videos/a.mp4" },
+      schema,
+      source,
+    );
+    expect(result).toEqual({
+      kind: "error",
+      message: expect.stringContaining("video set (s.videoset())"),
+    });
+  });
+});

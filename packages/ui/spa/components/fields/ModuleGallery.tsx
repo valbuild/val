@@ -194,18 +194,13 @@ export function ModuleGallery({
     (remoteFiles.status === "loading" || remoteFiles.status === "not-asked");
 
   /**
-   * What a video's remote validation hash is computed from. A set has no
-   * video schema of its own, so one is made of what it says — as the image
-   * gallery does above for an image.
+   * What a video's remote validation hash is computed from: the same
+   * synthesized schema `val validate --fix` uploads a set's videos with, or
+   * the two would name the same file by two refs.
    */
   const videoSchema = React.useMemo<SerializedVideoSchema>(
-    () => ({
-      type: "video",
-      opt: false,
-      remote: !!requireRemote,
-      options: accept ? { accept } : undefined,
-    }),
-    [requireRemote, accept],
+    () => Internal.videosetEntryVideoSchema({ accept, dir: schema?.dir }),
+    [accept, schema],
   );
 
   const files: GalleryFile[] = rawSource

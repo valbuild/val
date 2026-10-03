@@ -26,6 +26,10 @@ import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
 import path from "path";
 import { checkRemoteRef, downloadFileFromRemote } from "./checkRemoteRef";
 import { rewriteVideoPathsPatch } from "./videoRemote";
+import {
+  videosetAddMetadataPatch,
+  videosetCheckAllFilesPatch,
+} from "./videosetFixes";
 
 // A remaining error may optionally carry a more specific `sourcePath` than the
 // one the fix was created from. This is used by gallery checks, where a single
@@ -300,6 +304,29 @@ export async function createFixPatch(
           patch.push({ op: "add", path: patchPath.concat(field), value });
         }
       }
+    } else if (fix === "videos:add-metadata") {
+      // A set entry's twin of `video:add-metadata`: the file is the entry's
+      // KEY, and only what is missing is written.
+      const fixed = await videosetAddMetadataPatch({
+        projectRoot: config.projectRoot,
+        sourcePath,
+        validationError,
+        moduleSource,
+        moduleSchema,
+      });
+      patch.push(...fixed.patch);
+      remainingErrors.push(...fixed.remainingErrors);
+    } else if (fix === "videos:check-all-files") {
+      const fixed = await videosetCheckAllFilesPatch({
+        projectRoot: config.projectRoot,
+        apply,
+        sourcePath,
+        validationError,
+        moduleSource,
+        moduleSchema,
+      });
+      patch.push(...fixed.patch);
+      remainingErrors.push(...fixed.remainingErrors);
     } else if (fix === "image:upload-remote" || fix === "file:upload-remote") {
       const remoteFile = remoteFiles[sourcePath];
       let metadata = remoteFile.metadata as JSONValue | undefined;
@@ -364,11 +391,15 @@ export async function createFixPatch(
       patch.push(...rewriteVideoPathsPatch(sourcePath, current, moved));
     } else if (
       fix === "images:upload-remote" ||
-      fix === "files:upload-remote"
+      fix === "files:upload-remote" ||
+      fix === "videos:upload-remote"
     ) {
       // Gallery entry: the record is keyed by the file path, so uploading to
       // remote means renaming the key from the local path to the remote URL
-      // (remove the old key, add the new one with the same metadata).
+      // (remove the old key, add the new one with the same metadata). A video
+      // set's entry is renamed to its MASTER playlist's ref for a stream: the
+      // playlists and segments it names went up with it, and are named by the
+      // uploaded master, not by the set.
       const remoteFile = remoteFiles[sourcePath];
       if (!remoteFile) {
         remainingErrors.push({

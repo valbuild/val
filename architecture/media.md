@@ -454,6 +454,16 @@ rewrites each `path` in place with an `add`, so nothing authored is touched.
 The upload session (token, project settings, bucket) is opened once per fix
 (`remoteUpload.ts`), so a video's files share a bucket.
 
+For a set (`videosetFixes.ts`): `videos:add-metadata` reads an entry's
+file by its KEY; `videos:check-all-files` adds untracked videos and untracked
+streams (one entry per master playlist) and drops entries whose file is gone
+— a file named by any video field (a poster, a caption track) counts as
+tracked, so they can share the set's directory; and `videos:upload-remote`
+moves an entry's files and renames its key, rewriting every `s.video(set)`
+field that names it in the same run (`otherModulePatches`). Both the CLI and
+the Studio hash a set's upload against `Internal.videosetEntryVideoSchema`,
+the one definition, so the two cannot name the same file by different refs.
+
 ### Renaming a video
 
 A progressive video renames like any field's file (above). A stream's NAME is

@@ -74,8 +74,17 @@ export {
   handleJsonValuesExtractEntry,
   handleExternalUpload,
 } from "./fixHandlers";
+export {
+  handleVideosetMetadata,
+  handleVideosetUploadRemote,
+  handleVideosetCheckRemote,
+  handleVideosetCheckAllFiles,
+  videosetEntryVideoSchema,
+  filesOfVideosetEntry,
+} from "./videosetFixes";
 export type {
   FixHandler,
+  ModulePatch,
   FixHandlerContext,
   FixHandlerResult,
   IValRemote,

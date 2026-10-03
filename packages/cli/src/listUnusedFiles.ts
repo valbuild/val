@@ -2,6 +2,7 @@ import {
   Internal,
   ModuleFilePath,
   ModulePath,
+  SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
 import { createService, filesOfVideo } from "@valbuild/server";
@@ -60,6 +61,38 @@ export async function listUnusedFiles({ root }: { root?: string }) {
         },
       );
     }
+    // A media collection (`s.imageset()`, `s.fileset()`, `s.videoset()`) is
+    // keyed by its files, and an entry that is fine reports no error either —
+    // so, as for a video, they are found by walking the source. A video set's
+    // stream holds every playlist and segment its master names.
+    if (valModule.source !== undefined && valModule.schema) {
+      forEachMediaCollection(
+        valModule.source,
+        valModule.schema,
+        (entries, mediaType) => {
+          for (const [key, entry] of Object.entries(entries)) {
+            const refs =
+              mediaType === "videos"
+                ? filesOfVideo(
+                    {
+                      path: key,
+                      mimeType:
+                        isObject(entry) && typeof entry.mimeType === "string"
+                          ? entry.mimeType
+                          : undefined,
+                    },
+                    { projectRoot },
+                  )
+                : [key];
+            for (const ref of refs) {
+              if (!Internal.isRemoteMediaPath(ref)) {
+                filesUsedByVal.push(path.join(projectRoot, ...ref.split("/")));
+              }
+            }
+          }
+        },
+      );
+    }
     // TODO: not sure using validation is the best way to do this, but it works currently.
     if (valModule.errors) {
       if (valModule.errors.validation) {
@@ -113,4 +146,50 @@ function isFileRef(value: unknown): value is { path: string } {
     "path" in value &&
     typeof value.path === "string"
   );
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Every media collection in a module's source, with its entries.
+ *
+ * `traverseSchemaSource` visits leaves, and a collection is a record whose
+ * KEYS are what matters, so it never shows up there.
+ */
+function forEachMediaCollection(
+  source: unknown,
+  schema: SerializedSchema,
+  visit: (
+    entries: Record<string, unknown>,
+    mediaType: "files" | "images" | "videos",
+  ) => void,
+): void {
+  if (schema.type === "record") {
+    if (!isObject(source)) {
+      return;
+    }
+    if (schema.mediaType) {
+      visit(source, schema.mediaType);
+      return;
+    }
+    for (const value of Object.values(source)) {
+      forEachMediaCollection(value, schema.item, visit);
+    }
+  } else if (schema.type === "object") {
+    if (!isObject(source)) {
+      return;
+    }
+    for (const [key, item] of Object.entries(schema.items)) {
+      forEachMediaCollection(source[key], item, visit);
+    }
+  } else if (schema.type === "array") {
+    if (!Array.isArray(source)) {
+      return;
+    }
+    for (const value of source) {
+      forEachMediaCollection(value, schema.item, visit);
+    }
+  }
 }

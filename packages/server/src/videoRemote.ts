@@ -21,9 +21,18 @@ import { Internal, type SerializedVideoSchema } from "@valbuild/core";
 import { sourceToPatchPath } from "@valbuild/core/patch";
 import type { Patch } from "@valbuild/core/patch";
 import type { SourcePath } from "@valbuild/core";
-import type { FixHandlerContext, FixHandlerResult } from "./fixHandlers";
+import type {
+  FixHandlerContext,
+  FixHandlerResult,
+  ValidationEvent,
+} from "./fixHandlers";
 import { mapHlsUris } from "./hls";
-import { openRemoteUploadSession, uploadBytesToRemote } from "./remoteUpload";
+import {
+  openRemoteUploadSession,
+  uploadBytesToRemote,
+  type RemoteUploadSession,
+} from "./remoteUpload";
+import { filesOfVideo } from "./videoFiles";
 import { downloadFileFromRemote } from "./checkRemoteRef";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -98,14 +107,17 @@ function playlistUris(text: string): string[] {
   return uris;
 }
 
+/** What a file is to the video that names it, which decides its hash basis. */
+type VideoFileRole = "video" | "poster" | "caption" | "stream";
+
 /**
  * What a file's validation hash is computed from — the same as the Studio
  * computes for an upload (`createVideoPatch`), so a video moved by the CLI and
  * one uploaded in the Studio carry refs of the same kind.
  */
-function metadataOf(
+export function metadataOf(
   localRef: string,
-  role: "video" | "poster" | "caption" | "stream",
+  role: VideoFileRole,
   video: Record<string, unknown>,
 ): Record<string, unknown> {
   const mimeType = Internal.filenameToMimeType(localRef);
@@ -120,6 +132,113 @@ function metadataOf(
     };
   }
   return { mimeType };
+}
+
+/**
+ * Places a video's local files on Val Remote, each once, and remembers where.
+ *
+ * The one implementation of "upload a video" for every fix that does it: a
+ * video field (`video:upload-remote`), and an entry of an `s.videoset()`
+ * (`videos:upload-remote`). What differs between the two is which files go up
+ * and what their refs are hashed against, so those are the arguments.
+ *
+ * A playlist goes up AFTER everything it names, rewritten to name their refs:
+ * the content host serves a file by its hash, so a relative name in a playlist
+ * resolves to nothing there — and a playlist's own ref is the hash of its
+ * rewritten bytes, so what it names must have refs first.
+ */
+export function createVideoUploader(
+  ctx: FixHandlerContext,
+  session: RemoteUploadSession,
+  schema: SerializedVideoSchema,
+  metadataFor: (
+    localRef: string,
+    role: VideoFileRole,
+  ) => Record<string, unknown>,
+): {
+  /** Uploads `localRef` (and, for a playlist, all it names); returns its ref. */
+  put(localRef: string, role: VideoFileRole): Promise<string>;
+  /** Local ref → remote ref, for every file uploaded so far. */
+  moved: Map<string, string>;
+  events: ValidationEvent[];
+} {
+  const moved = new Map<string, string>();
+  const events: ValidationEvent[] = [];
+  const put = async (
+    localRef: string,
+    role: VideoFileRole,
+  ): Promise<string> => {
+    const already = moved.get(localRef);
+    if (already !== undefined) {
+      return already;
+    }
+    const absolute = path.join(ctx.projectRoot, localRef);
+    const buffer = ctx.fs.readBuffer(absolute);
+    if (buffer === undefined) {
+      throw new Error(`Error reading file: ${absolute}`);
+    }
+    let bytes = buffer;
+    if (isPlaylist(localRef)) {
+      // Bottom-up: what this playlist names goes up first, so the refs it is
+      // rewritten to exist — and so its own hash is of the rewritten bytes.
+      const text = buffer.toString("utf-8");
+      const refs = new Map<string, string>();
+      for (const uri of playlistUris(text)) {
+        const target = resolvePlaylistUri(uri, localRef);
+        if (target !== undefined) {
+          refs.set(uri, await put(target, "stream"));
+        }
+      }
+      bytes = Buffer.from(
+        mapHlsUris(text, (uri) => refs.get(uri) ?? uri),
+        "utf-8",
+      );
+    }
+    const uploaded = await uploadBytesToRemote(
+      ctx,
+      session,
+      localRef.replace(/^\//, ""),
+      bytes,
+      metadataFor(localRef, role),
+      schema,
+    );
+    if (!uploaded.success) {
+      throw new Error(uploaded.error);
+    }
+    moved.set(localRef, uploaded.ref);
+    events.push({ type: "remote-uploaded", ref: uploaded.ref });
+    return uploaded.ref;
+  };
+  return { put, moved, events };
+}
+
+/**
+ * The first of `refs` — and of every file an HLS stream among them names —
+ * that is not on disk, as an absolute path.
+ *
+ * Asked before anything goes up: a missing segment found after the master's
+ * siblings were uploaded leaves bytes on the content host that nothing names.
+ */
+export function firstMissingVideoFile(
+  ctx: Pick<FixHandlerContext, "projectRoot" | "fs">,
+  refs: { path: string; mimeType?: string }[],
+): string | undefined {
+  for (const ref of refs) {
+    const files = filesOfVideo(
+      { path: ref.path, mimeType: ref.mimeType },
+      {
+        projectRoot: ctx.projectRoot,
+        readFile: (absolute) => ctx.fs.readBuffer(absolute),
+      },
+    );
+    for (const file of files) {
+      const absolute = path.join(ctx.projectRoot, file);
+      if (!ctx.fs.fileExists(absolute)) {
+        return absolute;
+      }
+    }
+  }
+  return undefined;
 }
 
 function resolveVideo(ctx: FixHandlerContext):
@@ -163,6 +282,23 @@ function resolveVideo(ctx: FixHandlerContext):
   return { success: true, video, schema: resolved.schema };
 }
 
+/**
+ * The paths of a video FIELD that its fix moves.
+ *
+ * All of them for a video of its own. For a field picked from an
+ * `s.videoset()` (`referencedModule`), only the poster and the captions: the
+ * video file is the set's — its key there — and moving it from here would
+ * leave the field naming a file the set does not have. The set's own fix
+ * (`videos:upload-remote`) moves it, and rewrites the fields that name it.
+ */
+function movablePathsOf(
+  video: Record<string, unknown>,
+  schema: SerializedVideoSchema,
+): { at: string[]; path: string }[] {
+  const setBacked = schema.referencedModule !== undefined;
+  return videoPathsOf(video).filter(({ at }) => !setBacked || at[0] !== "path");
+}
+
 export async function handleVideoUploadRemote(
   ctx: FixHandlerContext,
 ): Promise<FixHandlerResult> {
@@ -187,19 +323,25 @@ export async function handleVideoUploadRemote(
     };
   }
 
-  const toUpload = videoPathsOf(video).filter(
+  const toUpload = movablePathsOf(video, schema).filter(
     ({ path: ref }) => !Internal.isRemoteMediaPath(ref),
   );
   // Every file is checked before any goes up: a missing caption found after
   // the video was uploaded leaves bytes on the content host that nothing names.
-  for (const { path: ref } of toUpload) {
-    const absolute = path.join(ctx.projectRoot, ref);
-    if (!ctx.fs.fileExists(absolute)) {
-      return {
-        success: false,
-        errorMessage: `File ${absolute} does not exist`,
-      };
-    }
+  const missing = firstMissingVideoFile(
+    ctx,
+    toUpload.map(({ at, path: ref }) => ({
+      path: ref,
+      ...(at[0] === "path" && typeof video.mimeType === "string"
+        ? { mimeType: video.mimeType }
+        : {}),
+    })),
+  );
+  if (missing !== undefined) {
+    return {
+      success: false,
+      errorMessage: `File ${missing} does not exist`,
+    };
   }
 
   const opened = await openRemoteUploadSession(ctx);
@@ -207,58 +349,13 @@ export async function handleVideoUploadRemote(
     return opened.result;
   }
   const { session } = opened;
-  const moved = new Map<string, string>();
-  const events: FixHandlerResult["events"] = [];
-
-  const put = async (
-    localRef: string,
-    role: "video" | "poster" | "caption" | "stream",
-  ): Promise<string> => {
-    const already = moved.get(localRef);
-    if (already !== undefined) {
-      return already;
-    }
-    const absolute = path.join(ctx.projectRoot, localRef);
-    const buffer = ctx.fs.readBuffer(absolute);
-    if (buffer === undefined) {
-      throw new Error(`Error reading file: ${absolute}`);
-    }
-    let bytes = buffer;
-    if (isPlaylist(localRef)) {
-      // Bottom-up: what this playlist names goes up first, so the refs it is
-      // rewritten to exist — and so its own hash is of the rewritten bytes.
-      const text = buffer.toString("utf-8");
-      const refs = new Map<string, string>();
-      for (const uri of playlistUris(text)) {
-        const target = resolvePlaylistUri(uri, localRef);
-        if (target !== undefined) {
-          refs.set(uri, await put(target, "stream"));
-        }
-      }
-      bytes = Buffer.from(
-        mapHlsUris(text, (uri) => refs.get(uri) ?? uri),
-        "utf-8",
-      );
-    }
-    const uploaded = await uploadBytesToRemote(
-      ctx,
-      session,
-      localRef.replace(/^\//, ""),
-      bytes,
-      metadataOf(localRef, role, video),
-      schema,
-    );
-    if (!uploaded.success) {
-      throw new Error(uploaded.error);
-    }
-    moved.set(localRef, uploaded.ref);
-    events.push({ type: "remote-uploaded", ref: uploaded.ref });
-    return uploaded.ref;
-  };
+  const uploader = createVideoUploader(ctx, session, schema, (localRef, role) =>
+    metadataOf(localRef, role, video),
+  );
 
   try {
     for (const { at, path: ref } of toUpload) {
-      await put(
+      await uploader.put(
         ref,
         at[0] === "poster"
           ? "poster"
@@ -274,7 +371,7 @@ export async function handleVideoUploadRemote(
     };
   }
 
-  const refs = Object.fromEntries(moved);
+  const refs = Object.fromEntries(uploader.moved);
   ctx.remoteFiles[ctx.sourcePath] = {
     ref: refs[String(video.path)] ?? String(video.path),
     refs,
@@ -285,7 +382,7 @@ export async function handleVideoUploadRemote(
     publicProjectId: session.publicProjectId,
     remoteFileBuckets: session.remoteFileBuckets,
     remoteFilesCounter: session.remoteFilesCounter,
-    events,
+    events: uploader.events,
   };
 }
 
@@ -302,7 +399,7 @@ export async function handleVideoDownloadRemote(
   if (!resolved.success) {
     return resolved.result;
   }
-  const { video } = resolved;
+  const { video, schema } = resolved;
   const moved = new Map<string, string>();
 
   const fetchTo = async (ref: string): Promise<string> => {
@@ -351,7 +448,7 @@ export async function handleVideoDownloadRemote(
   };
 
   try {
-    for (const { path: ref } of videoPathsOf(video)) {
+    for (const { path: ref } of movablePathsOf(video, schema)) {
       if (Internal.isRemoteMediaPath(ref)) {
         await fetchTo(ref);
       }

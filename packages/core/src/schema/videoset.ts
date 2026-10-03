@@ -5,7 +5,7 @@ import { ObjectSchema } from "./object";
 import { StringSchema, string } from "./string";
 import { NumberSchema } from "./number";
 import type { AltSchema, AltSource, AltSourceOf } from "./imageset";
-import type { VideoStreamOption } from "./video";
+import type { SerializedVideoSchema, VideoStreamOption } from "./video";
 import { DEFAULT_VIDEO_ACCEPT } from "./video";
 
 /**
@@ -153,3 +153,27 @@ export const videoset = <
     stream: options.stream,
   });
 };
+
+/**
+ * The video schema a set's entry is hashed against, for a remote ref.
+ *
+ * The set's item schema is an object, but a remote ref's validation hash is
+ * computed over a MEDIA schema, so one is synthesized from the set — the one
+ * definition the CLI's upload (`videos:upload-remote`) and the Studio's (the
+ * set's gallery) both use, because two copies are two hashes for the same
+ * file. `stream` is left out: it says what is done to an upload on its way
+ * in, not whether the bytes that arrived are valid.
+ */
+export function videosetEntryVideoSchema(set: {
+  accept?: string;
+  dir?: string;
+}): SerializedVideoSchema {
+  return {
+    type: "video",
+    opt: false,
+    options: {
+      ...(set.accept ? { accept: set.accept } : {}),
+      ...(set.dir ? { dir: set.dir } : {}),
+    },
+  };
+}
