@@ -1,5 +1,33 @@
 # @valbuild/ui
 
+## 0.139.1
+
+### Patch Changes
+
+- [#785](https://github.com/valbuild/val/pull/785) [`238057d`](https://github.com/valbuild/val/commit/238057d2f17a6bdd22d0bd4316dd8e3a8843a85d) Thanks [@freekh](https://github.com/freekh)! - Publishing has one indicator in the Studio's status bar, and it spins until every visitor sees the change.
+
+  - **Publishing 42% → Reaching visitors 94% → Live**, with a progress bar. Live is not the end: each edge may serve the previous version for up to a minute after the site switches, so the indicator keeps spinning, and the bar keeps filling, until that has passed. When it stops, every visitor sees the change. The step ("Building", "Uploading 3 of 7") is on hover.
+  - **It spins for anyone's publish**, not only yours: another editor's publish shows here too.
+  - **One "Published" toast**, for the person who published, when every visitor sees the change, instead of at the moment the site switched.
+  - **The Deployments list no longer opens by itself.** Click the indicator to see it.
+  - **Safari:** the Studio no longer shows a second progress card while the builder tab works. The builder tab now reports its percentage, so the Studio's bar matches it, and the card only appears when the tab was blocked or failed.
+
+- [#777](https://github.com/valbuild/val/pull/777) [`8f08418`](https://github.com/valbuild/val/commit/8f0841882d13c991d31dfbb03dd4873c9ab636b4) Thanks [@freekh](https://github.com/freekh)! - Changes you make in one browser or tab now show up in your other open Studios without a reload, and are included when you publish from them.
+
+  Before, a Studio that was already open kept showing the old value for a change you had made somewhere else, and publishing from it left that change out, until the page was reloaded. A change you have unstaged in a Studio stays unstaged there.
+
+- [#785](https://github.com/valbuild/val/pull/785) [`238057d`](https://github.com/valbuild/val/commit/238057d2f17a6bdd22d0bd4316dd8e3a8843a85d) Thanks [@freekh](https://github.com/freekh)! - The publishing percentage no longer falls back after the upload. A publish built in the Studio tab used to climb to about 60%, drop to 8% while the tab handed the build over, and then jump to 64%. It now goes straight from the upload to the site check.
+
+- [#780](https://github.com/valbuild/val/pull/780) [`db13bed`](https://github.com/valbuild/val/commit/db13bed902f9f9147feb5be07ce47fe8b5b143f9) Thanks [@freekh](https://github.com/freekh)! - When a new version of your site with a changed schema is deployed while Val Studio is open, the Studio now asks you to reload before you keep editing, instead of carrying on with the old schema.
+
+- [#781](https://github.com/valbuild/val/pull/781) [`5ea70ce`](https://github.com/valbuild/val/commit/5ea70cefde3c74961cfa76b4a5f4c333b850b60a) Thanks [@freekh](https://github.com/freekh)! - Every open Studio now shows the same changes, staged the same way, as a reload would.
+
+  - Staging or unstaging a change in one browser or tab now shows up in your other open Studios right away, without a reload, and publishing from any of them ships the same set.
+  - A change you stage before you have made any edit of your own is saved straight away, instead of being kept in the tab until your first edit and lost if you reloaded first.
+  - If staging a change fails, the Studio now goes back to showing what is actually saved, instead of keeping the failed change on screen until a reload.
+
+  This needs the Val Build content service released alongside this version.
+
 ## 0.139.0
 
 ### Minor Changes

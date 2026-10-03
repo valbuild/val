@@ -1,5 +1,11 @@
 # @valbuild/core
 
+## 0.139.1
+
+### Patch Changes
+
+- [#780](https://github.com/valbuild/val/pull/780) [`db13bed`](https://github.com/valbuild/val/commit/db13bed902f9f9147feb5be07ce47fe8b5b143f9) Thanks [@freekh](https://github.com/freekh)! - When a new version of your site with a changed schema is deployed while Val Studio is open, the Studio now asks you to reload before you keep editing, instead of carrying on with the old schema.
+
 ## 0.139.0
 
 ### Minor Changes
