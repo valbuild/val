@@ -14,6 +14,7 @@
 import { splitRemoteRef } from "../remote/splitRemoteRef";
 import type { SerializedFileSchema } from "../schema/file";
 import type { SerializedImageSchema } from "../schema/image";
+import type { SerializedVideoSchema } from "../schema/video";
 
 /** What must stay in frame when a page crops an image. */
 export type MediaHotspot = {
@@ -90,28 +91,19 @@ export type VideoCaptionSource = {
 };
 
 /**
- * A video: a progressive file (`video/mp4`, `video/webm`) or an HLS stream
- * (`application/vnd.apple.mpegurl`, whose `path` is the master playlist).
+ * What a video FIELD authors, on top of the file it names: the description,
+ * the crop, the poster, the trim and the caption tracks.
  *
- * `mimeType` is REQUIRED, and it is the one media type where it is. Two
- * reasons, and the second is the one that forced it. A page has to know which
- * of the two it is holding before it can play it at all — an `.m3u8` handed
- * to a `<video src>` plays only in Safari. And every media source is "a `path`
- * plus optional fields", so without one required field an image and a video
- * are the same type to the compiler, and a reader could not give a video its
- * own resolved shape (a poster URL, a URL per caption track).
+ * This is the whole value of a field picked from an `s.videoset()`
+ * (`s.video(videosetVal)`) — the mime type, size and length live in the set,
+ * keyed by `path`, and repeating them here is how two copies of one fact get
+ * to disagree. The poster, captions and times stay with the FIELD: one video
+ * used in two places can be trimmed and captioned differently in each.
  *
- * `width`, `height`, `duration` and `mimeType` are read from the bytes;
- * everything else is authored. Times are in seconds from the start of the
- * file.
+ * Times are in seconds from the start of the file.
  */
-export type VideoSource = {
+export type GalleryVideoSource = {
   readonly path: string;
-  readonly mimeType: string;
-  readonly width?: number;
-  readonly height?: number;
-  /** Seconds. */
-  readonly duration?: number;
   /** Describes the video for someone who cannot see it. */
   readonly alt?: string;
   /** What must stay in frame when a page crops the video (`object-position`). */
@@ -130,6 +122,42 @@ export type VideoSource = {
    */
   readonly patch_id?: string;
 };
+
+/**
+ * A video: a progressive file (`video/mp4`, `video/webm`) or an HLS stream
+ * (`application/vnd.apple.mpegurl`, whose `path` is the master playlist).
+ *
+ * `mimeType` is REQUIRED on a video of its own: a page has to know which of
+ * the two it is holding before it can play it at all — an `.m3u8` handed to a
+ * `<video src>` plays only in Safari. (What tells a video's TYPE apart from an
+ * image's is its declared keys, see {@link IsVideoSource}, because a field
+ * picked from a set has no `mimeType` of its own.)
+ *
+ * `width`, `height`, `duration` and `mimeType` are read from the bytes;
+ * everything else is authored.
+ */
+export type VideoSource = GalleryVideoSource & {
+  readonly mimeType: string;
+  readonly width?: number;
+  readonly height?: number;
+  /** Seconds. */
+  readonly duration?: number;
+};
+
+/**
+ * Whether a source TYPE is a video's.
+ *
+ * Every media source is "a `path` plus optional fields", so assignability
+ * cannot tell an image from a video: an image is assignable to a set-backed
+ * video and the other way round. The keys a type DECLARES can — only a video
+ * declares `posterTime` — so the readers' conditional types ask this before
+ * they ask about images.
+ */
+export type IsVideoSource<T> = T extends { readonly path: string }
+  ? "posterTime" extends keyof T
+    ? true
+    : false
+  : false;
 
 /** The mime type of an HLS master playlist. */
 export const HLS_MIME_TYPE = "application/vnd.apple.mpegurl";
@@ -214,7 +242,7 @@ export function resolveMedia<S extends { readonly path: string }>(
  * `patch_id`: replacing only the poster drafts the poster, and the video keeps
  * its published URL.
  */
-export type ResolvedVideo<S extends VideoSource = VideoSource> = Omit<
+export type ResolvedVideo<S extends GalleryVideoSource = VideoSource> = Omit<
   S,
   "poster" | "captions"
 > & {
@@ -230,7 +258,7 @@ export type ResolvedVideo<S extends VideoSource = VideoSource> = Omit<
  * function so the reader can tag the video's own URL (stega) without tagging
  * the poster's and the captions', which are not where an edit lands.
  */
-export function resolveVideo<S extends VideoSource>(
+export function resolveVideo<S extends GalleryVideoSource>(
   src: S,
   videoUrl: (src: S) => string = mediaUrl,
 ): ResolvedVideo<S> {
@@ -245,7 +273,7 @@ export function resolveVideo<S extends VideoSource>(
   return withCaptions(resolved, captions);
 }
 
-function withCaptions<S extends VideoSource>(
+function withCaptions<S extends GalleryVideoSource>(
   resolved: ResolvedVideo<S>,
   captions: S["captions"],
 ): ResolvedVideo<S> {
@@ -267,12 +295,17 @@ function withCaptions<S extends VideoSource>(
 
 function isMediaSchema(
   schema: unknown,
-): schema is SerializedImageSchema | SerializedFileSchema {
+): schema is
+  | SerializedImageSchema
+  | SerializedFileSchema
+  | SerializedVideoSchema {
   return (
     typeof schema === "object" &&
     schema !== null &&
     "type" in schema &&
-    (schema.type === "image" || schema.type === "file")
+    (schema.type === "image" ||
+      schema.type === "file" ||
+      schema.type === "video")
   );
 }
 
@@ -328,10 +361,11 @@ export function fillFromGallery<S extends { readonly path: string }>(
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
     return src;
   }
-  const { width, height, mimeType, alt } = entry as {
+  const { width, height, mimeType, duration, alt } = entry as {
     width?: number;
     height?: number;
     mimeType?: string;
+    duration?: number;
     alt?: unknown;
   };
   const hasOwnAlt = typeof (src as { alt?: unknown }).alt === "string";
@@ -340,6 +374,7 @@ export function fillFromGallery<S extends { readonly path: string }>(
     ...(width !== undefined ? { width } : {}),
     ...(height !== undefined ? { height } : {}),
     ...(mimeType !== undefined ? { mimeType } : {}),
+    ...(duration !== undefined ? { duration } : {}),
     ...(!hasOwnAlt && typeof alt === "string" ? { alt } : {}),
   };
 }

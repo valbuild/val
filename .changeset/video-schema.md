@@ -31,3 +31,20 @@ const schema = s.object({
 - `.remote()` works for videos. `npx val validate --fix` moves a video to Val Remote, or back into the project, together with its poster, captions and every file of an HLS stream.
 
 A video value always has a `mimeType`: it is how a page knows whether it has an `.mp4` or an `.m3u8`.
+
+New: `s.videoset()`, a collection of videos, like `s.imageset()` for images.
+
+```ts
+const videosVal = c.define(
+  "/content/videos.val.ts",
+  s.videoset({ dir: "/public/val/videos", stream: { type: "hls" } }),
+  {},
+);
+const schema = s.object({ intro: s.video(videosVal) });
+```
+
+- **Upload once, use anywhere.** A set's entry holds what is true of the file: its type, size, length and a description. A field that picks from the set (`s.video(videosVal)`) keeps its own poster, start and end, focal point and captions, so the same clip can open one page at 0:02 and another at 0:10.
+- **Media in the Studio.** A set is listed under Media and opens as a gallery of videos. You can upload into it (with `stream`, uploads become HLS streams), edit each video's description, rename a video, and delete a video that nothing uses. Renaming a video updates every field that uses it. An HLS stream is one entry, and renaming or deleting it moves or removes all of its files.
+- **Picking.** A set-backed field picks from the set, or uploads into it.
+- `useVal` and `fetchVal` fill in the set's `mimeType`, `width`, `height` and `duration`, so `<ValVideo>` works the same either way.
+- `.remote()` works for sets. `npx val validate --fix` fills in missing metadata for an entry, adds untracked videos found in the set's directory, and moves a set's videos to Val Remote.

@@ -43,6 +43,7 @@ interface FilePropertiesModalProps {
   onFileDelete?: (index: number) => void;
   parentPath?: string;
   imageMode?: boolean;
+  videoMode?: boolean;
   loading?: boolean;
   disabled?: boolean;
   container?: HTMLElement | null;
@@ -59,6 +60,7 @@ export function FilePropertiesModal({
   onFileDelete,
   parentPath,
   imageMode,
+  videoMode,
   loading,
   disabled,
   container,
@@ -87,6 +89,9 @@ export function FilePropertiesModal({
   };
 
   const isImage = file.metadata.mimeType.startsWith("image/");
+  // A set's entries carry a description whatever their type: an HLS stream's
+  // is `application/vnd.apple.mpegurl`, which is not `video/*`.
+  const describable = (imageMode && isImage) || !!videoMode;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -127,8 +132,8 @@ export function FilePropertiesModal({
               </div>
             )}
 
-            {/* Alt Text (only for images in imageMode) */}
-            {imageMode && isImage && onAltTextChange && (
+            {/* Description: for images in imageMode, and every video of a set */}
+            {describable && onAltTextChange && (
               <div
                 className={cn("flex flex-col gap-1", {
                   "border-[red] border p-2 rounded":
@@ -158,7 +163,11 @@ export function FilePropertiesModal({
                       onAltTextChange?.(fileIndex, e.target.value);
                     }}
                     autoFocus
-                    placeholder="Describe this image..."
+                    placeholder={
+                      videoMode
+                        ? "What happens in the video..."
+                        : "Describe this image..."
+                    }
                   />
                   {file.fieldSpecificErrors?.alt &&
                     file.fieldSpecificErrors.alt.length > 0 && (
@@ -206,6 +215,17 @@ export function FilePropertiesModal({
                   </span>
                   <span className="text-sm text-fg-primary">
                     {file.metadata.width} × {file.metadata.height} px
+                  </span>
+                </div>
+              )}
+
+              {typeof file.metadata.duration === "number" && (
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-xs font-medium text-fg-secondary">
+                    Length
+                  </span>
+                  <span className="text-sm text-fg-primary">
+                    {formatDuration(file.metadata.duration)}
                   </span>
                 </div>
               )}
@@ -368,4 +388,13 @@ function CompareLink({ sourcePath }: { sourcePath: SourcePath }) {
       View in Compare
     </a>
   );
+}
+
+/** `1:05`, `1:02:03`: a video's length as a player shows it. */
+function formatDuration(seconds: number): string {
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
 }

@@ -113,6 +113,11 @@ const galleryVal = c.define(
   s.imageset({ dir: "/public/val/images" }),
   {},
 );
+const videosVal = c.define(
+  "/videos.val.ts",
+  s.videoset({ dir: "/public/val/videos" }),
+  {},
+);
 
 export const constructor = s;
 export const content = c;
@@ -147,9 +152,11 @@ export const probes = {
   router: s.router(nextAppRouter, s.object({ title: s.string() })),
   imageset: s.imageset({ dir: "/public/val/images" }),
   fileset: s.fileset({ accept: "*/*", dir: "/public/val/files" }),
+  videoset: s.videoset({ dir: "/public/val/videos" }),
   settings: s.settings(),
 };
 export const galleryBackedImage = s.image(galleryVal);
+export const setBackedVideo = s.video(videosVal);
 `;
 
 /**
@@ -284,6 +291,12 @@ describe("schema JSDoc examples: every method has one", () => {
       ),
     ).toEqual([]);
   });
+
+  test("s.video(set): every method has an example", () => {
+    expect(
+      methodsWithoutExample("s.video(set)", exportedType("setBackedVideo")),
+    ).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -401,6 +414,24 @@ export default c.define(
   "/gallery.val.ts",
   s.imageset({ dir: "/public/val/images" }),
   {},
+);
+`,
+  ],
+  [
+    "videos.val.ts",
+    `import { s, c } from "./val.config";
+export default c.define(
+  "/videos.val.ts",
+  s.videoset({ dir: "/public/val/videos" }),
+  {
+    "/public/val/videos/intro_51df2.mp4": {
+      mimeType: "video/mp4",
+      width: 1280,
+      height: 720,
+      duration: 12.5,
+      alt: null,
+    },
+  },
 );
 `,
   ],

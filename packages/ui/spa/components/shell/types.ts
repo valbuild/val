@@ -1,4 +1,8 @@
-import { ModuleFilePath, SourcePath } from "@valbuild/core";
+import {
+  MediaCollectionType,
+  ModuleFilePath,
+  SourcePath,
+} from "@valbuild/core";
 import { AvailableRoute } from "../NavMenu/NewPageForm";
 
 /**
@@ -169,7 +173,7 @@ export type ShellMediaGallery = {
    */
   moduleFilePath: string;
   itemCount: number;
-  mediaType: "images" | "files";
+  mediaType: MediaCollectionType;
   /**
    * The files in the gallery.
    *
@@ -216,10 +220,7 @@ export type ShellDataModule = {
 };
 
 export type ShellNotificationKind =
-  | "content"
-  | "media"
-  | "publish"
-  | "validation";
+  "content" | "media" | "publish" | "validation";
 
 export type ShellNotification = {
   id: string;

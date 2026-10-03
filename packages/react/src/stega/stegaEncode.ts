@@ -13,7 +13,8 @@ import {
   SerializedFileSchema,
   SerializedImageSchema,
   SerializedVideoSchema,
-  VideoSource,
+  GalleryVideoSource,
+  IsVideoSource,
   VideoCaptionSource,
   MediaHotspot,
   RichTextOptions,
@@ -276,9 +277,12 @@ export type StegaOfSource<T extends Source> = Json extends T
   : T extends RichTextSource<infer O>
     ? RichText<O>
     : // Above `ImageSource`: a video is structurally an image too (a `path`
-      // and optional fields), and only its required `mimeType` tells them
-      // apart -- so this arm has to be asked first.
-      T extends VideoSource
+      // and optional fields), so this arm has to be asked first. Its declared
+      // keys are what tell them apart (`IsVideoSource`): a field picked from a
+      // set has no `mimeType` of its own, so a required one cannot. Not
+      // distributive by itself, and need not be — the arm above already
+      // split a union into its members.
+      IsVideoSource<T> extends true
       ? Video
       : T extends ImageSource
         ? Image
@@ -622,8 +626,17 @@ export function stegaEncode(
       sourceOrSelector &&
       typeof sourceOrSelector === "object"
     ) {
-      return Internal.resolveVideo(sourceOrSelector, (src: VideoSource) =>
-        rec(Internal.mediaUrl(src), recOpts),
+      // A set-backed video gets its mimeType, size and length from the set
+      // first: `Video` promises a `mimeType`, and the field has none.
+      const src = opts.getModule
+        ? Internal.media.fillFromGallery(
+            sourceOrSelector,
+            recOpts.schema,
+            opts.getModule,
+          )
+        : sourceOrSelector;
+      return Internal.resolveVideo(src, (video: GalleryVideoSource) =>
+        rec(Internal.mediaUrl(video), recOpts),
       );
     }
     if (
@@ -845,7 +858,7 @@ function collectReferencedModulesFromSchema(
   schema: SerializedSchema,
   acc: Set<string>,
 ): void {
-  if (isFileSchema(schema) || isImageSchema(schema)) {
+  if (isFileSchema(schema) || isImageSchema(schema) || isVideoSchema(schema)) {
     if (schema.referencedModule) {
       acc.add(schema.referencedModule);
     }

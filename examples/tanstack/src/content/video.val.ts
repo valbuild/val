@@ -1,4 +1,5 @@
 import { s, c } from "../../val.config";
+import videosVal from "./videos.val";
 
 /**
  * `s.video()`: a progressive file, or an HLS stream the Studio makes.
@@ -16,6 +17,10 @@ import { s, c } from "../../val.config";
  * - `hotspot`: what stays in frame when the page crops the video.
  * - `alt`: what happens in the video, for people who cannot see it.
  * - `captions`: one WebVTT file per language (`.srt` is converted on upload).
+ *
+ * `fromSet` picks from an `s.videoset()` instead (`videos.val.ts`): it names
+ * the video by `path` and carries the authored fields; the type, size and
+ * length are the set's, and a reader fills them in.
  *
  * `ValVideo` renders all of it; see `_site.showcase.tsx`.
  */
@@ -46,6 +51,14 @@ export default c.define(
       })
       .nullable()
       .describe("Uploads are converted to an HLS stream in the browser"),
+    /**
+     * Picked from the set. Uploading here adds to the set; the set's `stream`
+     * option says what an upload becomes.
+     */
+    fromSet: s
+      .video(videosVal)
+      .nullable()
+      .describe("Pick a video from the collection, or upload one into it"),
   }),
   {
     clip: {
@@ -88,6 +101,11 @@ export default c.define(
         height: 360,
         mimeType: "image/webp",
       },
+    },
+    fromSet: {
+      path: "/public/val/videoset/intro_51df2.mp4",
+      alt: "The test pattern, from 0:01",
+      startTime: 1,
     },
   },
 );

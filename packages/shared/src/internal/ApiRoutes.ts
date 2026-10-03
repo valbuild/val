@@ -52,6 +52,9 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("video:add-metadata"),
   z.literal("video:upload-remote"),
   z.literal("video:download-remote"),
+  z.literal("videos:add-metadata"),
+  z.literal("videos:check-remote"),
+  z.literal("videos:upload-remote"),
   z.literal("file:check-metadata"),
   z.literal("file:check-remote"),
   z.literal("file:upload-remote"),
@@ -66,6 +69,8 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("files:check-unique-folder"),
   z.literal("images:check-all-files"),
   z.literal("files:check-all-files"),
+  z.literal("videos:check-unique-folder"),
+  z.literal("videos:check-all-files"),
   z.literal("jsonValues:extract-entry"),
   z.literal("view:check-module"),
 ]);

@@ -1,10 +1,17 @@
-import { Internal, type SerializedVideoSchema } from "@valbuild/core";
+import {
+  Internal,
+  type ModuleFilePath,
+  type SerializedVideoSchema,
+  type SourcePath,
+} from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
+import { array } from "@valbuild/core/fp";
 import { mapPlaylistUris, playlistUris, isPlaylistPath } from "./hlsPlaylist";
 import {
   bytesToBase64,
   localPathOf,
   placeHls,
+  type Placed,
   type RemoteUploadConfig,
   type UploadFile,
 } from "./createVideoPatch";
@@ -178,20 +185,29 @@ export type StreamRenameResult =
   | { status: "unchanged" }
   | { status: "error"; message: string };
 
+/** A stream placed under its new directory, before any patch names it. */
+type PlacedRename =
+  | {
+      status: "ok";
+      placed: { master: Placed; all: Placed[] };
+      /** The old local files, for a local stream; none for a remote one. */
+      deletes: string[];
+      remote: boolean;
+    }
+  | { status: "unchanged" }
+  | { status: "error"; message: string };
+
 /**
- * The patch that moves a stream to a directory named `newBase_<hash>`:
- * `path` pointed at the new master, every file uploaded under the new
- * directory, and — for a local stream — every old file deleted, because a
- * rename that left them would be a copy.
+ * The part of a rename that is the same wherever the stream is named from:
+ * the new directory, every file placed under it, and the old files to delete.
  */
-export function buildStreamRenamePatch(args: {
-  patchPath: string[];
+function placeRenamedStream(args: {
   masterPath: string;
   newBase: string;
   files: Record<string, FetchedFile>;
   schema: SerializedVideoSchema;
   sha256: (bytes: Uint8Array) => string;
-}): StreamRenameResult {
+}): PlacedRename {
   const directory = streamDirectoryOf(args.masterPath);
   if (directory === null) {
     return {
@@ -235,33 +251,153 @@ export function buildStreamRenamePatch(args: {
     { remote, schema: args.schema },
     args.sha256,
   );
+  return {
+    status: "ok",
+    placed,
+    // Remote bytes are stored by hash, so there is nothing to delete — and a
+    // remote delete would be filed under a URL `ValOpsFS` reads as a path.
+    deletes:
+      remote === null
+        ? Object.keys(args.files).map(
+            (name) =>
+              `/${[...directory.parent.split("/").filter(Boolean), directory.name, name].join("/")}`,
+          )
+        : [],
+    remote: remote !== null,
+  };
+}
+
+/** One `file` op per placed file, filed at `at`. */
+function fileOps(placed: Placed[], at: string[], remote: boolean): Patch {
+  return placed.map((file): Patch[number] => ({
+    op: "file",
+    path: at,
+    filePath: file.ref,
+    value: file.file.dataUrl,
+    metadata: { mimeType: file.file.mimeType },
+    remote,
+  }));
+}
+
+function deleteOps(deletes: string[], at: string[]): Patch {
+  return deletes.map((filePath): Patch[number] => ({
+    op: "file",
+    path: at,
+    filePath,
+    value: null,
+    remote: false,
+  }));
+}
+
+/**
+ * The patch that moves a stream to a directory named `newBase_<hash>`:
+ * `path` pointed at the new master, every file uploaded under the new
+ * directory, and — for a local stream — every old file deleted, because a
+ * rename that left them would be a copy.
+ */
+export function buildStreamRenamePatch(args: {
+  patchPath: string[];
+  masterPath: string;
+  newBase: string;
+  files: Record<string, FetchedFile>;
+  schema: SerializedVideoSchema;
+  sha256: (bytes: Uint8Array) => string;
+}): StreamRenameResult {
+  const moved = placeRenamedStream(args);
+  if (moved.status !== "ok") {
+    return moved;
+  }
   const patch: Patch = [
     // "add" on the key, never a whole-value replace: the description, times
     // and captions beside it stay exactly as they are.
     {
       op: "add",
       path: args.patchPath.concat("path"),
-      value: placed.master.ref,
+      value: moved.placed.master.ref,
     },
-    ...placed.all.map((file): Patch[number] => ({
-      op: "file",
-      path: args.patchPath,
-      filePath: file.ref,
-      value: file.file.dataUrl,
-      metadata: { mimeType: file.file.mimeType },
-      remote: remote !== null,
-    })),
-    // Remote bytes are stored by hash, so there is nothing to delete — and a
-    // remote delete would be filed under a URL `ValOpsFS` reads as a path.
-    ...(remote === null
-      ? Object.keys(args.files).map((name): Patch[number] => ({
-          op: "file",
-          path: args.patchPath,
-          filePath: `/${[...directory.parent.split("/").filter(Boolean), directory.name, name].join("/")}`,
-          value: null,
-          remote: false,
-        }))
-      : []),
+    ...fileOps(moved.placed.all, args.patchPath, moved.remote),
+    ...deleteOps(moved.deletes, args.patchPath),
   ];
-  return { status: "ok", patch, newPath: placed.master.ref };
+  return { status: "ok", patch, newPath: moved.placed.master.ref };
+}
+
+/** A field naming the stream being renamed. See `MediaReferrer`. */
+export type StreamReferrer = {
+  sourcePath: SourcePath;
+  hasPatchId: boolean;
+};
+
+export type StreamEntryRenameResult =
+  | {
+      status: "ok";
+      newPath: string;
+      /** The set's own patch: written first, and it carries the upload. */
+      primary: Patch;
+      /** One per module naming the stream, written after `primary`. */
+      referrers: { moduleFilePath: ModuleFilePath; patch: Patch }[];
+    }
+  | { status: "unchanged" }
+  | { status: "error"; message: string };
+
+/**
+ * The same move for a stream that is an ENTRY of an `s.videoset()`: the entry
+ * moves to its new key (its metadata and description with it), and every
+ * `s.video(set)` field naming it is pointed at the new master.
+ *
+ * A field that holds a `patch_id` uploaded these bytes itself and is still a
+ * draft — the app reads a draft's URL off the field — so it is given the files
+ * again under the new names, as `buildMediaRenamePatches` does for an image.
+ */
+export function buildStreamEntryRenamePatches(args: {
+  setPatchPath: string[];
+  key: string;
+  existingKeys: readonly string[];
+  newBase: string;
+  files: Record<string, FetchedFile>;
+  schema: SerializedVideoSchema;
+  sha256: (bytes: Uint8Array) => string;
+  referrers: StreamReferrer[];
+}): StreamEntryRenameResult {
+  const moved = placeRenamedStream({ ...args, masterPath: args.key });
+  if (moved.status !== "ok") {
+    return moved;
+  }
+  const newPath = moved.placed.master.ref;
+  if (args.existingKeys.includes(newPath) && newPath !== args.key) {
+    return {
+      status: "error",
+      message: `The set already has a video at ${newPath}.`,
+    };
+  }
+  const fromPath = [...args.setPatchPath, args.key];
+  const toPath = [...args.setPatchPath, newPath];
+  if (!array.isNonEmpty(fromPath) || !array.isNonEmpty(toPath)) {
+    return { status: "error", message: "Not an entry of a set." };
+  }
+  const primary: Patch = [
+    { op: "move", from: fromPath, path: toPath },
+    ...fileOps(moved.placed.all, toPath, moved.remote),
+    ...deleteOps(moved.deletes, fromPath),
+  ];
+  const byModule = new Map<ModuleFilePath, Patch>();
+  for (const referrer of args.referrers) {
+    const [moduleFilePath, modulePath] =
+      Internal.splitModuleFilePathAndModulePath(referrer.sourcePath);
+    const at = Internal.createPatchPath(modulePath);
+    const ops = byModule.get(moduleFilePath) ?? [];
+    ops.push({ op: "add", path: [...at, "path"], value: newPath });
+    if (referrer.hasPatchId) {
+      ops.push(...fileOps(moved.placed.all, at, moved.remote));
+    }
+    byModule.set(moduleFilePath, ops);
+  }
+  return {
+    status: "ok",
+    newPath,
+    primary,
+    referrers: Array.from(byModule, ([moduleFilePath, patch]) => ({
+      moduleFilePath,
+      patch,
+    })),
+  };
 }

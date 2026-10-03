@@ -206,6 +206,8 @@ function deserializeSchemaImpl(
               accept: serialized.accept ?? "*/*",
               dir: serialized.dir ?? "/public/val",
               remote: serialized.remote ?? false,
+              encode: serialized.encode,
+              stream: serialized.stream,
               altSchema: serialized.alt
                 ? deserializeSchema(serialized.alt)
                 : undefined,
@@ -305,6 +307,14 @@ function deserializeSchemaImpl(
         false,
         serialized.description,
         serialized.render ?? null,
+        null,
+        serialized.referencedModule
+          ? {
+              modulePath: serialized.referencedModule,
+              entries: null,
+              remote: serialized.remote ?? false,
+            }
+          : null,
       );
     case "date":
       return new DateSchema(

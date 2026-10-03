@@ -21,8 +21,8 @@ export type FileReferrer = {
 };
 
 /**
- * Every image/file field pointing into the gallery `parent` — gallery-backed
- * `s.image()` / `s.file()` fields, and the inline images of a rich text field
+ * Every media field pointing into the gallery `parent` — gallery-backed
+ * `s.image()` / `s.file()` fields, set-backed `s.video()` fields, and the inline images of a rich text field
  * whose `img` schema is gallery-backed.
  */
 export function getFileReferrers(
@@ -50,7 +50,11 @@ export function getFileReferrers(
     });
   };
   traverseSchemas(schemas, sources, (sourcePath, schema, source) => {
-    if (schema.type === "image" || schema.type === "file") {
+    if (
+      schema.type === "image" ||
+      schema.type === "file" ||
+      schema.type === "video"
+    ) {
       if (schema.referencedModule === parent) {
         add(sourcePath, source);
       }
@@ -72,8 +76,6 @@ export function getFileReferrers(
       schema.type === "keyOf" ||
       schema.type === "route" ||
       schema.type === "locale" ||
-      // A video is never gallery-backed: its files are its own.
-      schema.type === "video" ||
       // A view holds no source, so it references no file of its own.
       schema.type === "view"
     ) {

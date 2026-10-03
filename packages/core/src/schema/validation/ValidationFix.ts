@@ -25,6 +25,11 @@ export const ValidationFix = [
   // half on each side is not one that plays.
   "video:upload-remote",
   "video:download-remote",
+  // A `s.videoset()` entry without what is read from its bytes. The set's own
+  // twin of `video:add-metadata`: the file is the entry's KEY, not a `path`.
+  "videos:add-metadata",
+  "videos:check-remote",
+  "videos:upload-remote",
   "keyof:check-keys",
   "router:check-route",
   "locale:check-locale",
@@ -32,6 +37,8 @@ export const ValidationFix = [
   "files:check-unique-folder",
   "images:check-all-files",
   "files:check-all-files",
+  "videos:check-unique-folder",
+  "videos:check-all-files",
   "jsonValues:extract-entry",
   "record:fill-keys",
   // Entries written inline in a `.val.ts` whose record is `.external()`. Moves

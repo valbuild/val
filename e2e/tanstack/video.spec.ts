@@ -1,5 +1,11 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Locator,
+} from "@playwright/test";
 import { clearPatchChain, openStudio } from "../studio";
+import { serverField, serverFileOps } from "./serverState";
 
 /**
  * `s.video()` in the Studio, against the showcase's `examples/tanstack/src/content/video.val.ts`.
@@ -22,26 +28,11 @@ function videoPicker(studio: Locator): Locator {
   return studio.locator('input[type="file"][id^="video_input:"]');
 }
 
-function fieldValue(page: Page, field: string): Promise<unknown> {
-  return page.evaluate(
-    ({ mfp, field }) => {
-      const peek = (
-        window as unknown as {
-          __VAL_STORES__: {
-            system: {
-              sourceStore: {
-                peek(p: string): { status: string; data?: unknown };
-              };
-            };
-          };
-        }
-      ).__VAL_STORES__.system.sourceStore.peek(mfp);
-      if (peek.status !== "ready") return peek.status;
-      const data = peek.data as Record<string, unknown> | null;
-      return data ? data[field] : null;
-    },
-    { mfp: MODULE, field },
-  );
+function fieldValue(
+  request: APIRequestContext,
+  field: string,
+): Promise<unknown> {
+  return serverField(request, MODULE, field);
 }
 
 test("a committed video renders with its poster and caption track", async ({
@@ -73,13 +64,14 @@ test("an empty video field renders instead of a stack trace", async ({
 
 test("an upload writes the metadata and a poster, and the draft plays", async ({
   page,
+  request,
 }) => {
   await openStudio(page, `/val/~${MODULE}?p=%22background%22`);
   const studio = page.locator("#val-shadow-root");
   await videoPicker(studio).setInputFiles(CLIP);
 
   await expect
-    .poll(() => fieldValue(page, "background"), { timeout: 60_000 })
+    .poll(() => fieldValue(request, "background"), { timeout: 60_000 })
     .toMatchObject({
       path: expect.stringMatching(
         /^\/public\/val\/videos\/clip-320x180_[0-9a-f]{5}\.webm$/,
@@ -115,6 +107,7 @@ test("an upload writes the metadata and a poster, and the draft plays", async ({
 
 test("a streaming field falls back to the original where the browser cannot convert", async ({
   page,
+  request,
 }) => {
   await openStudio(page, `/val/~${MODULE}?p=%22stream%22`);
   const studio = page.locator("#val-shadow-root");
@@ -124,7 +117,7 @@ test("a streaming field falls back to the original where the browser cannot conv
     studio.locator("text=cannot convert video to a stream"),
   ).toBeVisible({ timeout: 60_000 });
   await expect
-    .poll(() => fieldValue(page, "stream"), { timeout: 60_000 })
+    .poll(() => fieldValue(request, "stream"), { timeout: 60_000 })
     .toMatchObject({
       path: expect.stringMatching(/\.webm$/),
       mimeType: "video/webm",
@@ -132,33 +125,14 @@ test("a streaming field falls back to the original where the browser cannot conv
 });
 
 test.describe("rename", () => {
-  /** Every `file` op in the chain: what an upload or a rename wrote or deleted. */
-  function fileOps(
-    page: Page,
+  /** Every `file` op the server holds: what an upload or a rename wrote or deleted. */
+  async function fileOps(
+    request: APIRequestContext,
   ): Promise<{ filePath: string; deleted: boolean }[]> {
-    return page.evaluate(() => {
-      const store = (
-        window as unknown as {
-          __VAL_STORES__: {
-            system: {
-              patchStore: {
-                allRecords(): {
-                  patch: { op: string; filePath?: string; value?: unknown }[];
-                }[];
-              };
-            };
-          };
-        }
-      ).__VAL_STORES__.system.patchStore;
-      return store
-        .allRecords()
-        .flatMap((record) => record.patch)
-        .filter((op) => op.op === "file" && typeof op.filePath === "string")
-        .map((op) => ({
-          filePath: op.filePath ?? "",
-          deleted: op.value === null,
-        }));
-    });
+    return (await serverFileOps(request)).map(({ filePath, deleted }) => ({
+      filePath,
+      deleted,
+    }));
   }
 
   async function rename(studio: Locator, to: string) {
@@ -170,13 +144,14 @@ test.describe("rename", () => {
 
   test("a video file is renamed: copied under the new name, the old one deleted", async ({
     page,
+    request,
   }) => {
     await openStudio(page, `/val/~${MODULE}?p=%22clip%22`);
     const studio = page.locator("#val-shadow-root");
     await rename(studio, "team-intro");
 
     await expect
-      .poll(() => fieldValue(page, "clip"), { timeout: 60_000 })
+      .poll(() => fieldValue(request, "clip"), { timeout: 60_000 })
       .toMatchObject({
         path: "/public/val/videos/team-intro_51df2.mp4",
         // Everything authored stays where it was.
@@ -184,7 +159,7 @@ test.describe("rename", () => {
         captions: [{ srclang: "en", label: "English" }],
       });
     await expect
-      .poll(() => fileOps(page), { timeout: 30_000 })
+      .poll(() => fileOps(request), { timeout: 30_000 })
       .toEqual([
         {
           filePath: "/public/val/videos/team-intro_51df2.mp4",
@@ -196,13 +171,14 @@ test.describe("rename", () => {
 
   test("a stream is renamed as a directory: every file moves, and the draft is served as a stream", async ({
     page,
+    request,
   }) => {
     await openStudio(page, `/val/~${MODULE}?p=%22stream%22`);
     const studio = page.locator("#val-shadow-root");
     await rename(studio, "team-stream");
 
     await expect
-      .poll(() => fieldValue(page, "stream"), { timeout: 60_000 })
+      .poll(() => fieldValue(request, "stream"), { timeout: 60_000 })
       .toMatchObject({
         path: "/public/val/videos/team-stream_05198/master.m3u8",
         mimeType: "application/vnd.apple.mpegurl",
@@ -219,7 +195,7 @@ test.describe("rename", () => {
     await expect
       .poll(
         async () =>
-          (await fileOps(page))
+          (await fileOps(request))
             .map((op) => `${op.deleted ? "-" : "+"}${op.filePath}`)
             .sort(),
         { timeout: 30_000 },
@@ -234,23 +210,12 @@ test.describe("rename", () => {
     // The renamed draft is servable as a stream: the master names its media
     // playlists through the draft endpoint, under the rename's patch id.
     const masterPath = "/public/val/videos/team-stream_05198/master.m3u8";
-    const patchId = await page.evaluate(
-      (path) =>
-        (
-          window as unknown as {
-            __VAL_STORES__: {
-              system: {
-                patchStore: { filePatchIds(): ReadonlyMap<string, string> };
-              };
-            };
-          }
-        ).__VAL_STORES__.system.patchStore
-          .filePatchIds()
-          .get(path) ?? null,
-      masterPath,
-    );
+    const patchId =
+      (await serverFileOps(request)).find(
+        (op) => op.filePath === masterPath && !op.deleted,
+      )?.patchId ?? null;
     expect(patchId).not.toBeNull();
-    const served = await page.request.get(
+    const served = await request.get(
       `/api/val/files${masterPath}?patch_id=${patchId}`,
     );
     expect(served.status()).toBe(200);

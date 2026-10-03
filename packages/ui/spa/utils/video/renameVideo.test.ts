@@ -1,6 +1,7 @@
 import { Internal, initVal } from "@valbuild/core";
-import type { SerializedVideoSchema } from "@valbuild/core";
+import type { SerializedVideoSchema, SourcePath } from "@valbuild/core";
 import {
+  buildStreamEntryRenamePatches,
   buildStreamRenamePatch,
   localOfUri,
   readStream,
@@ -198,5 +199,99 @@ describe("renaming a stream", () => {
         sha256,
       }),
     ).toEqual({ status: "unchanged" });
+  });
+});
+
+describe("renaming a stream that is an entry of a set", () => {
+  test("the entry moves, and every field naming it follows", async () => {
+    const files = await readStream(
+      `${DIR}/master.m3u8`,
+      `/api/val/files${DIR}/master.m3u8?patch_id=p1`,
+      draftServer(),
+      "http://localhost:3000/val",
+    );
+    const built = buildStreamEntryRenamePatches({
+      setPatchPath: [],
+      key: `${DIR}/master.m3u8`,
+      existingKeys: [`${DIR}/master.m3u8`],
+      newBase: "Team intro",
+      files,
+      schema: serialized(false),
+      sha256,
+      referrers: [
+        {
+          sourcePath: '/page.val.ts?p="hero"' as SourcePath,
+          hasPatchId: false,
+        },
+        {
+          sourcePath: '/other.val.ts?p="a".0."video"' as SourcePath,
+          hasPatchId: true,
+        },
+      ],
+    });
+    if (built.status !== "ok") throw new Error(JSON.stringify(built));
+    const newKey = "/public/val/teamintro_abcde/master.m3u8";
+    expect(built.newPath).toBe(newKey);
+    expect(built.primary[0]).toEqual({
+      op: "move",
+      from: [`${DIR}/master.m3u8`],
+      path: [newKey],
+    });
+    const fileOps = built.primary.flatMap((op) =>
+      op.op === "file" ? [op] : [],
+    );
+    // Uploaded at the moved entry, deleted at the old one.
+    expect(
+      fileOps
+        .filter((op) => op.value !== null)
+        .every((op) => op.path.join("/") === newKey),
+    ).toBe(true);
+    expect(
+      fileOps
+        .filter((op) => op.value === null)
+        .map((op) => op.filePath)
+        .sort(),
+    ).toEqual(
+      Object.keys(LOCAL)
+        .map((name) => `${DIR}/${name}`)
+        .sort(),
+    );
+    expect(built.referrers).toEqual([
+      {
+        moduleFilePath: "/page.val.ts",
+        patch: [{ op: "add", path: ["hero", "path"], value: newKey }],
+      },
+      {
+        moduleFilePath: "/other.val.ts",
+        patch: expect.arrayContaining([
+          { op: "add", path: ["a", "0", "video", "path"], value: newKey },
+        ]),
+      },
+    ]);
+    // A draft referrer gets the files again, under the new names.
+    expect(
+      built.referrers[1].patch.filter((op) => op.op === "file"),
+    ).toHaveLength(Object.keys(LOCAL).length);
+  });
+
+  test("a rename onto a key the set already has is refused", async () => {
+    const files = await readStream(
+      `${DIR}/master.m3u8`,
+      `/api/val/files${DIR}/master.m3u8?patch_id=p1`,
+      draftServer(),
+      "http://localhost:3000/val",
+    );
+    const taken = "/public/val/outro_abcde/master.m3u8";
+    const built = buildStreamEntryRenamePatches({
+      setPatchPath: [],
+      key: `${DIR}/master.m3u8`,
+      existingKeys: [`${DIR}/master.m3u8`, taken],
+      newBase: "outro",
+      files,
+      schema: serialized(false),
+      sha256,
+      referrers: [],
+    });
+    expect(built.status).toBe("error");
   });
 });

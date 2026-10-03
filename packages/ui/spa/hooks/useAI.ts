@@ -2476,7 +2476,7 @@ Never tell the user to navigate manually — offer to navigate for them instead.
 - record: a collection of items with the same shape (e.g. blog posts, products)
   - router: next-app-router / tanstack-router — pages in this site, shown under "Pages" in the left menu
   - router: external-url-router — external links, shown under "External Sites" in the left menu
-  - mediaType: "image" or "file" — a media gallery grouped by directory
+  - mediaType: "images", "videos" or "files" — a media gallery grouped by directory
 - array: an ordered list of items
 - string / number / boolean / date: plain values
 - richtext: array of block nodes as JSON

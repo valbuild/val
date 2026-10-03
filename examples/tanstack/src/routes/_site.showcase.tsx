@@ -135,6 +135,16 @@ function Showcase() {
             style={{ maxWidth: "24rem", width: "100%", height: "auto" }}
           />
         )}
+        {/* From `s.videoset()`: the reader fills in the set's metadata. */}
+        {video.fromSet && (
+          <ValVideo
+            src={video.fromSet}
+            hls={() => import("hls.js")}
+            controls
+            data-testid="video-from-set"
+            style={{ maxWidth: "24rem", width: "100%", height: "auto" }}
+          />
+        )}
       </section>
 
       <section>

@@ -1,8 +1,7 @@
 import {
   DEFAULT_VIDEO_ACCEPT,
-  DEFAULT_VIDEO_RENDITIONS,
-  DEFAULT_VIDEO_SEGMENT_DURATION,
   Internal,
+  ModuleFilePath,
   SourcePath,
   type SerializedVideoSchema,
   type VideoCaptionSource,
@@ -19,7 +18,9 @@ import { FieldSourceError } from "../FieldSourceError";
 import { PreviewLoading, PreviewNull } from "../Preview";
 import {
   useFilePatchIds,
+  useModuleSchema,
   useShallowSourceAtPath,
+  useSourceAtPath,
   useValConfig,
   useValField,
 } from "../ValFieldProvider";
@@ -40,32 +41,34 @@ import {
   bytesToBase64,
   createCaptionPatch,
   createPosterPatch,
+  createSetBackedVideoPatch,
   createVideoPatch,
   localPathOf,
   roundTime,
   type PosterUpload,
   type RemoteUploadConfig,
-  type UploadFile,
-  type VideoUpload,
 } from "../../utils/video/createVideoPatch";
 import {
-  blobToDataUrl,
   captureFrame,
   captureFrameFromElement,
   defaultPosterTime,
-  readVideoInfo,
   type CapturedFrame,
-  type VideoInfo,
 } from "../../utils/video/readVideo";
-import { canTranscodeVideo } from "../../utils/video/transcodeSupport";
+import { prepareVideoUpload } from "../../utils/video/prepareVideoUpload";
 import { sha256Hex } from "../../utils/video/sha256";
 import { isVtt, srtToVtt } from "../../utils/video/srtToVtt";
 import {
   buildStreamRenamePatch,
   readStream,
 } from "../../utils/video/renameVideo";
+import { fetchStreamFile } from "../../utils/video/fetchStreamFile";
 import { RenameFileButton } from "./RenameFileButton";
 import { useValPortal } from "../ValPortalProvider";
+import { ModuleMediaPicker } from "../MediaPicker/MediaPicker";
+import type { GalleryEntry } from "../MediaPicker/MediaPicker";
+import { prettyModuleName } from "../MediaPicker/GalleryUploadTarget";
+import { cn } from "../designSystem/cn";
+import { isJsonArray } from "../../utils/isJsonArray";
 
 const type = "video";
 
@@ -94,7 +97,22 @@ export function VideoField({
     addPatch,
     patchPath,
     addAndUploadPatchWithFileOps,
+    addModuleFilePatch,
   } = useValField(path, type);
+  /**
+   * The `s.videoset()` this field picks from, if it does. Read before the
+   * early returns below so the hooks run in the same order every render.
+   */
+  const referencedModule =
+    schemaAtPath.status === "success" && schemaAtPath.data.type === "video"
+      ? (schemaAtPath.data.referencedModule as ModuleFilePath | undefined)
+      : undefined;
+  const setSchemaData = useModuleSchema(referencedModule);
+  const setSchema = setSchemaData?.type === "record" ? setSchemaData : null;
+  const setEntry = useVideosetEntry(
+    referencedModule,
+    sourceAtPath.status === "success" ? sourceAtPath.data?.path : undefined,
+  );
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -157,12 +175,32 @@ export function VideoField({
   }
   const clientSideOnly =
     sourceAtPath.status === "success" && sourceAtPath.clientSideOnly;
+  /**
+   * What is known about the FILE: a set-backed field's value carries none of
+   * it, so it is read off the set's entry, the way `fillFromGallery` does for
+   * a page.
+   */
+  const fileInfo = {
+    mimeType: setEntry?.mimeType ?? source?.mimeType,
+    width: setEntry?.width ?? source?.width,
+    height: setEntry?.height ?? source?.height,
+    duration: setEntry?.duration ?? source?.duration,
+  };
   const busy = phase.kind !== "idle";
   const remoteUploadDisabled =
     !!schema.remote && remoteFiles.status !== "ready";
-  const disabled = !!readonly || remoteUploadDisabled;
-  const dir = schema.options?.dir ?? "/public/val";
-  const accept = schema.options?.accept ?? DEFAULT_VIDEO_ACCEPT;
+  // A set-backed field whose set is not in `val.modules` cannot add to it.
+  const setMissing = !!referencedModule && setSchema === null;
+  const disabled = !!readonly || remoteUploadDisabled || setMissing;
+  // The field's own option wins, then its set's — as for an image and its
+  // gallery. `s.video(set)` serializes no `dir` or `accept` of its own.
+  const dir = schema.options?.dir ?? setSchema?.dir ?? "/public/val";
+  const accept =
+    schema.options?.accept ?? setSchema?.accept ?? DEFAULT_VIDEO_ACCEPT;
+  const stream =
+    schema.options?.stream !== undefined
+      ? schema.options.stream
+      : setSchema?.stream;
   const remote: RemoteUploadConfig | null =
     schema.remote && remoteFiles.status === "ready" && currentRemoteFileBucket
       ? {
@@ -241,112 +279,21 @@ export function VideoField({
   const upload = async (file: File) => {
     setError(null);
     setNotice(null);
-    const mimeType = file.type || Internal.filenameToMimeType(file.name) || "";
-    if (mimeType && !mimeType.startsWith("video/")) {
-      setError(`${file.name} is not a video.`);
-      return;
-    }
-    if (mimeType && !Internal.mimeTypeMatchesAccept(mimeType, accept)) {
-      setError(
-        `${file.name} is a ${mimeType}, and this field takes ${accept}.`,
-      );
-      return;
-    }
-    setPhase({ kind: "reading" });
     const objectUrl = URL.createObjectURL(file);
     setLocalUrl(objectUrl);
     try {
-      let info: VideoInfo | null = null;
-      try {
-        info = await readVideoInfo(objectUrl);
-      } catch {
-        // Not playable here. A stream may still be made of it — the
-        // converter decodes with WebCodecs, not with this element.
-      }
-      let upload: VideoUpload | null = null;
-      let metadata = info;
-      const stream = schema.options?.stream;
-      if (stream && canTranscodeVideo()) {
-        const sourceBytes = new Uint8Array(await file.arrayBuffer());
-        const sourceSha256 = await sha256Hex(sourceBytes);
-        setPhase({ kind: "converting", progress: 0 });
-        // Imported here rather than at the top: it is the worker's entry point,
-        // and nothing else in the Studio needs it.
-        const { transcodeToHls } =
-          await import("../../utils/video/transcodeVideo");
-        const result = await transcodeToHls(
-          file,
-          {
-            renditions: stream.renditions ?? DEFAULT_VIDEO_RENDITIONS,
-            segmentDuration:
-              stream.segmentDuration ?? DEFAULT_VIDEO_SEGMENT_DURATION,
-          },
-          (progress) =>
-            setPhase({
-              kind: "converting",
-              progress: Math.round(progress * 100),
-            }),
-        );
-        if (result.status === "error") {
-          setError(`Could not convert the video: ${result.message}`);
-          return;
-        }
-        if (result.status === "done") {
-          const files: Record<string, UploadFile> = {};
-          for (const output of result.files) {
-            const bytes = new Uint8Array(output.bytes);
-            files[output.name] = {
-              bytes,
-              mimeType: output.mimeType,
-              sha256: await sha256Hex(bytes),
-              dataUrl: await blobToDataUrl(
-                new Blob([bytes], { type: output.mimeType }),
-              ),
-            };
-          }
-          upload = {
-            kind: "hls",
-            files,
-            sourceSha256,
-            sourceMimeType: mimeType || "video/mp4",
-          };
-          metadata = {
-            width: result.width,
-            height: result.height,
-            duration: result.duration,
-          };
-        } else {
-          setNotice(
-            `This browser cannot convert video to a stream (${result.message}), so the file was uploaded as it is.`,
-          );
-        }
-      } else if (stream) {
-        setNotice(
-          "This browser cannot convert video to a stream (it needs WebCodecs, on https or localhost), so the file was uploaded as it is.",
-        );
-      }
-      if (!metadata) {
-        setError(
-          "This browser cannot read this video. An .mp4 with H.264 video plays everywhere.",
-        );
+      const prepared = await prepareVideoUpload(
+        file,
+        objectUrl,
+        { accept, stream },
+        setPhase,
+      );
+      if (prepared.status === "error") {
+        setError(prepared.message);
         return;
       }
-      if (upload === null) {
-        if (!mimeType) {
-          setError(`Could not tell what kind of video ${file.name} is.`);
-          return;
-        }
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        upload = {
-          kind: "file",
-          file: {
-            bytes,
-            mimeType,
-            sha256: await sha256Hex(bytes),
-            dataUrl: await blobToDataUrl(file),
-          },
-        };
-      }
+      setNotice(prepared.notice);
+      const { metadata } = prepared;
       const posterTime = defaultPosterTime(metadata.duration);
       let poster: PosterUpload | null = null;
       try {
@@ -356,26 +303,46 @@ export function VideoField({
       } catch {
         // No poster is not a failed upload: the page shows the first frame.
       }
-      const { patch } = createVideoPatch(
-        {
-          patchPath,
-          dir,
-          filename: file.name,
-          upload,
-          metadata,
-          poster,
-          posterTime: poster ? posterTime : null,
-          keep: {
-            alt: source?.alt,
-            hotspot: source?.hotspot,
-            captions: source?.captions,
-          },
-          remote,
-          schema,
+      const input = {
+        patchPath,
+        dir,
+        filename: file.name,
+        upload: prepared.upload,
+        metadata,
+        poster,
+        posterTime: poster ? posterTime : null,
+        keep: {
+          alt: source?.alt,
+          hotspot: source?.hotspot,
+          captions: source?.captions,
         },
-        Internal.getSHA256Hash,
-      );
-      await uploadPatch(patch);
+        remote,
+        schema,
+      };
+      if (referencedModule) {
+        const { patch, entry } = createSetBackedVideoPatch(
+          input,
+          Internal.getSHA256Hash,
+        );
+        // The set gets its entry only once the bytes are up: an entry naming
+        // a file that never arrived is worse than a moment without one.
+        await uploadPatch(patch, () =>
+          addModuleFilePatch(
+            referencedModule,
+            [
+              {
+                op: "add",
+                path: [entry.key],
+                value: { ...entry.value, alt: null },
+              },
+            ],
+            "record",
+          ),
+        );
+      } else {
+        const { patch } = createVideoPatch(input, Internal.getSHA256Hash);
+        await uploadPatch(patch);
+      }
     } catch (err) {
       console.error("Val: video upload failed", err);
       setError(
@@ -490,13 +457,13 @@ export function VideoField({
 
   const detail = source
     ? [
-        source.width && source.height
-          ? `${source.width}×${source.height}`
+        fileInfo.width && fileInfo.height
+          ? `${fileInfo.width}×${fileInfo.height}`
           : null,
-        typeof source.duration === "number"
-          ? formatTime(source.duration)
+        typeof fileInfo.duration === "number"
+          ? formatTime(fileInfo.duration)
           : null,
-        isHls ? "HLS stream" : (source.mimeType ?? null),
+        isHls ? "HLS stream" : (fileInfo.mimeType ?? null),
       ]
         .filter(Boolean)
         .join(" · ")
@@ -517,19 +484,7 @@ export function VideoField({
       const files = await readStream(
         source.path,
         urlOf(source),
-        async (url) => {
-          const res = await fetch(url);
-          if (!res.ok) {
-            throw new Error(`Could not read ${url}: HTTP ${res.status}`);
-          }
-          return {
-            bytes: new Uint8Array(await res.arrayBuffer()),
-            mimeType:
-              res.headers.get("content-type")?.split(";")[0] ||
-              Internal.filenameToMimeType(new URL(url).pathname) ||
-              "application/octet-stream",
-          };
-        },
+        fetchStreamFile,
         window.location.href,
       );
       const built = buildStreamRenamePatch({
@@ -562,30 +517,83 @@ export function VideoField({
 
   const actions = (
     <>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={disabled || busy}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <Upload className="mr-1.5 h-3.5 w-3.5" />
-        {source ? "Replace" : "Choose video"}
-      </Button>
+      {/*
+       * One control for "which video", as in the image field: a field picking
+       * from a set opens the set, with the upload inside it; a field with its
+       * own file has nothing to choose between, so the button is the dialog.
+       */}
+      {referencedModule ? (
+        <ModuleMediaPicker
+          compact
+          isVideo
+          modulePath={referencedModule}
+          selectedRef={source?.path ?? null}
+          disabled={disabled || busy}
+          portalContainer={portalContainer}
+          footer={
+            <button
+              type="button"
+              disabled={disabled || busy}
+              onClick={() => fileInputRef.current?.click()}
+              className={cn(
+                "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs",
+                "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
+                "disabled:pointer-events-none disabled:opacity-50",
+              )}
+            >
+              <Upload size={13} />
+              Upload into {prettyModuleName(referencedModule)}
+            </button>
+          }
+          onSelect={(entry: GalleryEntry) => {
+            setLocalUrl(null);
+            // Only the path: what is true of the file stays in the set. The
+            // times, poster and captions were about the video it replaces.
+            write([
+              {
+                op: "replace",
+                path: patchPath,
+                value: { path: entry.filePath },
+              },
+            ]);
+          }}
+        />
+      ) : (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={disabled || busy}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <Upload className="mr-1.5 h-3.5 w-3.5" />
+          {source ? "Replace" : "Choose video"}
+        </Button>
+      )}
       {source && filename && !readonly && !clientSideOnly && (
         <RenameFileButton
           path={path}
           filePath={source.path}
           filename={filename}
-          metadata={{
-            mimeType: source.mimeType,
-            ...(source.width !== undefined ? { width: source.width } : {}),
-            ...(source.height !== undefined ? { height: source.height } : {}),
-          }}
+          metadata={
+            fileInfo.mimeType === undefined
+              ? undefined
+              : {
+                  mimeType: fileInfo.mimeType,
+                  ...(fileInfo.width !== undefined
+                    ? { width: fileInfo.width }
+                    : {}),
+                  ...(fileInfo.height !== undefined
+                    ? { height: fileInfo.height }
+                    : {}),
+                }
+          }
           fileType="file"
-          referencedModule={undefined}
+          // A set's video is renamed in the set, where every field using it
+          // is rewritten with it; the button says so and goes there.
+          referencedModule={referencedModule}
           disabled={busy}
           portalContainer={portalContainer}
-          rename={isHls ? renameStream : undefined}
+          rename={isHls && !referencedModule ? renameStream : undefined}
         />
       )}
       {schema.opt && source && !readonly && (
@@ -1071,4 +1079,44 @@ export function VideoPreview({ path }: { path: SourcePath }) {
     return <PreviewNull path={path} />;
   }
   return <Film size={12} />;
+}
+
+type VideosetEntryInfo = {
+  mimeType?: string;
+  width?: number;
+  height?: number;
+  duration?: number;
+};
+
+const NO_PATH = "" as SourcePath;
+
+/**
+ * The set entry a set-backed field points at, read on its own: one entry by
+ * path, so the field does not subscribe to the whole set. Unlike an image
+ * gallery's, a set's entries are keyed by exactly the path the field holds
+ * (a remote one by its ref), so there is one key to read, not two.
+ */
+function useVideosetEntry(
+  setModule: ModuleFilePath | undefined,
+  videoPath: string | undefined,
+): VideosetEntryInfo | undefined {
+  const entryPath =
+    setModule && videoPath
+      ? (Internal.createValPathOfItem(setModule, videoPath) ?? NO_PATH)
+      : NO_PATH;
+  const entry = useSourceAtPath(entryPath);
+  if (entryPath === NO_PATH || entry.status !== "success") {
+    return undefined;
+  }
+  const data = entry.data;
+  if (typeof data !== "object" || data === null || isJsonArray(data)) {
+    return undefined;
+  }
+  const { mimeType, width, height, duration } = data;
+  return {
+    mimeType: typeof mimeType === "string" ? mimeType : undefined,
+    width: typeof width === "number" ? width : undefined,
+    height: typeof height === "number" ? height : undefined,
+    duration: typeof duration === "number" ? duration : undefined,
+  };
 }

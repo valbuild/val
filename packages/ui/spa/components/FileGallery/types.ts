@@ -7,6 +7,8 @@ export interface FileMetadata {
   mimeType: string;
   alt?: string;
   hotspot?: { x: number; y: number };
+  /** Seconds. A video's. */
+  duration?: number;
 }
 
 export interface GalleryFile {
@@ -60,6 +62,11 @@ export interface FileGalleryProps {
   defaultViewMode?: ViewMode;
   showSearch?: boolean;
   imageMode?: boolean;
+  /**
+   * An `s.videoset()`: entries are videos, each with a description, and the
+   * previews are players rather than pictures.
+   */
+  videoMode?: boolean;
   loading?: boolean;
   disabled?: boolean;
   onUploadClick?: () => void;

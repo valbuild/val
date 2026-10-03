@@ -7,6 +7,7 @@ interface FileGalleryItemProps {
   onClick: () => void;
   viewMode: ViewMode;
   imageMode?: boolean;
+  videoMode?: boolean;
 }
 
 export function FileGalleryItem({
@@ -14,6 +15,7 @@ export function FileGalleryItem({
   onClick,
   viewMode,
   imageMode,
+  videoMode,
 }: FileGalleryItemProps) {
   // Calculate aspect ratio for masonry layout
   const hasValidDimensions =
@@ -58,8 +60,8 @@ export function FileGalleryItem({
         >
           {file.filename}
         </p>
-        {imageMode &&
-          file.metadata.mimeType.startsWith("image/") &&
+        {((imageMode && file.metadata.mimeType.startsWith("image/")) ||
+          videoMode) &&
           file.metadata.alt && (
             <p
               className="truncate text-xs text-fg-secondary"

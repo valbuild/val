@@ -4,7 +4,12 @@ import { Val as ArrayVal } from "./array";
 import { Val as PrimitiveVal } from "./primitive";
 import { Json, JsonArray, JsonObject, JsonPrimitive } from "../Json";
 import { Path, Selector } from "../selector";
-import { MediaSource, ResolvedVideo, VideoSource } from "../source/media";
+import {
+  GalleryVideoSource,
+  IsVideoSource,
+  MediaSource,
+  ResolvedVideo,
+} from "../source/media";
 
 export type SerializedVal = {
   val: SerializedVal | Json;
@@ -21,8 +26,10 @@ export function isSerializedVal(val: unknown): val is SerializedVal {
 
 export type JsonOfSource<T extends Source> = Json extends T
   ? Json
-  : T extends VideoSource
-    ? ResolvedVideo<T>
+  : T extends GalleryVideoSource
+    ? IsVideoSource<T> extends true
+      ? ResolvedVideo<T>
+      : T & { url: string }
     : T extends MediaSource
       ? T & { url: string }
       : T extends SourceObject

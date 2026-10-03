@@ -124,6 +124,10 @@ const nullableAfterValidate: Record<
     .imageset({ dir: "/public/val/images" })
     .validate(() => MESSAGE)
     .nullable(),
+  videoset: s
+    .videoset({ dir: "/public/val/videos" })
+    .validate(() => MESSAGE)
+    .nullable(),
 };
 
 describe(".validate() survives .nullable()", () => {

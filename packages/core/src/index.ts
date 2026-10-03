@@ -27,11 +27,17 @@ export type {
 } from "./schema/image";
 export type { FileMetadata } from "./schema/file";
 export type {
+  GalleryVideoOptions,
   VideoMetadata,
   VideoOptions,
   VideoStreamOption,
   VideoStreamOptions,
 } from "./schema/video";
+export type {
+  VideosetEntryMetadata,
+  VideosetOptions,
+  SerializedVideosetSchema,
+} from "./schema/videoset";
 export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/media";
@@ -52,6 +58,8 @@ export type {
   MediaSource,
   GalleryImageSource,
   GalleryFileSource,
+  GalleryVideoSource,
+  IsVideoSource,
   VideoSource,
   VideoPosterSource,
   VideoCaptionSource,
@@ -171,7 +179,11 @@ import {
 } from "./schema/colorFormat";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
-export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
+export {
+  type SerializedRecordSchema,
+  type MediaCollectionType,
+  RecordSchema,
+} from "./schema/record";
 export { type SerializedStringSchema, StringSchema } from "./schema/string";
 export { type SerializedNumberSchema, NumberSchema } from "./schema/number";
 export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";

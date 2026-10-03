@@ -24,6 +24,7 @@ import { locale } from "./schema/locale";
 import { route } from "./schema/route";
 import { router } from "./schema/router";
 import { imageset } from "./schema/imageset";
+import { videoset } from "./schema/videoset";
 import { settings } from "./schema/settings";
 // import { i18n, I18n } from "./schema/future/i18n";
 // import { oneOf } from "./schema/future/oneOf";
@@ -246,6 +247,15 @@ export type InitSchema = {
    *     { path: "/public/val/intro_en_8f2a1.vtt", srclang: "en", label: "English" },
    *   ],
    * });
+   *
+   * @example
+   * // Picked from a set: mimeType, width, height and duration live there.
+   * import videosVal from "./videos.val"; // an s.videoset() module
+   * const schema = s.video(videosVal);
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/videos/intro_51df2.mp4",
+   *   startTime: 2,
+   * });
    */
   readonly video: typeof video;
   /**
@@ -394,6 +404,28 @@ export type InitSchema = {
    */
   readonly fileset: typeof fileset;
   /**
+   * Define a collection of videos. A field picks from it with
+   * `s.video(videosVal)`.
+   *
+   * @example
+   * ```typescript
+   * const schema = s.videoset({
+   *   dir: "/public/val/videos",
+   *   stream: { type: "hls" },
+   * });
+   * export default c.define("/content/videos.val.ts", schema, {
+   *   "/public/val/videos/intro_51df2.mp4": {
+   *     mimeType: "video/mp4",
+   *     width: 1280,
+   *     height: 720,
+   *     duration: 12.5,
+   *     alt: "The team, introducing itself",
+   *   },
+   * });
+   * ```
+   */
+  readonly videoset: typeof videoset;
+  /**
    * Define the project's settings.
    *
    * One per project, at the root of the content tree — a module file path with
@@ -451,6 +483,7 @@ export function initSchema() {
     route,
     router,
     imageset,
+    videoset,
     settings,
     // i18n: i18n(locales),
   };

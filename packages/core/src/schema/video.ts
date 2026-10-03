@@ -1,11 +1,21 @@
-import { isHlsVideo, isRemoteMediaPath, VideoSource } from "../source/media";
+import {
+  GalleryVideoSource,
+  isHlsVideo,
+  isRemoteMediaPath,
+  VideoSource,
+} from "../source/media";
 import {
   CustomValidateFunction,
   Schema,
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { SourcePath } from "../val";
+import { getValPath, SourcePath } from "../val";
+import type { ValModule } from "../module";
+import { getSource } from "../module";
+import { GetSchema } from "../selector";
+import type { AltSource } from "./imageset";
+import type { VideosetEntryMetadata } from "./videoset";
 import {
   ValidationError,
   ValidationErrors,
@@ -54,6 +64,34 @@ export type VideoOptions = {
   stream?: VideoStreamOption;
 };
 
+/**
+ * What a SET-BACKED field (`s.video(videosVal)`) may say for itself.
+ *
+ * Not `VideoOptions`: `dir` and `accept` belong to the set. `stream` is the
+ * exception, as `encode` is for an image: it is about what happens to an
+ * upload on its way in, so a field that wants the file as it was picked,
+ * where its set streams, has to be able to say `stream: false`.
+ */
+export type GalleryVideoOptions = {
+  stream?: VideoStreamOption;
+};
+
+/**
+ * The set a field picks from: its entries as they were when the module was
+ * evaluated (the published set — see `GalleryImageSource` for why that is
+ * enough), and whether it stores its videos on Val Remote.
+ */
+export type VideoGallery = {
+  modulePath: string;
+  /**
+   * `null` for a schema that was DESERIALIZED: the serialized form names the
+   * set, not its contents, so whether the set has the entry is a question
+   * for the set's own module — which the Studio validates anyway.
+   */
+  entries: Record<string, VideosetEntryMetadata<AltSource>> | null;
+  remote: boolean;
+};
+
 export type SerializedVideoSchema = {
   type: "video";
   /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
@@ -64,6 +102,8 @@ export type SerializedVideoSchema = {
   opt: boolean;
   remote?: boolean;
   customValidate?: boolean;
+  /** The `s.videoset()` module this field picks from, if it is set-backed. */
+  referencedModule?: string;
   readonly?: boolean;
   hidden?: boolean;
   description?: string;
@@ -80,7 +120,9 @@ export const DEFAULT_VIDEO_ACCEPT = "video/*";
 export const DEFAULT_VIDEO_RENDITIONS = [1080, 720, 480];
 export const DEFAULT_VIDEO_SEGMENT_DURATION = 6;
 
-export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
+export class VideoSchema<
+  Src extends GalleryVideoSource | null,
+> extends Schema<Src> {
   constructor(
     private readonly options?: VideoOptions,
     private readonly opt: boolean = false,
@@ -91,6 +133,7 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
     private readonly description?: string,
     private readonly renderInput: FieldRender | null = null,
     private readonly previewInput: ItemPreviewInput<Src> | null = null,
+    private readonly gallery: VideoGallery | null = null,
   ) {
     super();
   }
@@ -126,6 +169,7 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
       description ?? undefined,
       this.renderInput,
       this.previewInput,
+      this.gallery,
     );
   }
 
@@ -157,6 +201,7 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
       this.description,
       this.renderInput,
       this.previewInput,
+      this.gallery,
     );
   }
 
@@ -198,6 +243,7 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
       this.description,
       this.renderInput,
       this.previewInput,
+      this.gallery,
     );
   }
 
@@ -227,6 +273,66 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
       ]);
     }
 
+    if (this.gallery) {
+      return report(this.validateFromGallery(src, this.gallery));
+    }
+    return report(this.validateOwn(src));
+  }
+
+  /**
+   * A set-backed field: the file and what was read from it are the set's,
+   * so the field is checked for what is its own, and for pointing at an
+   * entry the set has.
+   */
+  private validateFromGallery(
+    src: GalleryVideoSource,
+    gallery: VideoGallery,
+  ): ValidationError[] {
+    const own = ownMetadataOf(src);
+    const repeated = (
+      ["mimeType", "width", "height", "duration"] as const
+    ).filter((key) => own[key] !== undefined);
+    if (repeated.length > 0) {
+      return [
+        {
+          message: `A video from a set must not carry its own ${repeated.join(", ")}: ${repeated.length === 1 ? "it is" : "they are"} stored in the set.`,
+          value: src,
+        },
+      ];
+    }
+    const entry =
+      gallery.entries === null ? null : gallery.entries[src.path];
+    if (entry === undefined) {
+      return [
+        {
+          message: `The set does not have a video at '${src.path}'.`,
+          value: src,
+        },
+      ];
+    }
+    // The poster and the captions are the field's own files, and live where
+    // the set keeps its videos. The video itself is the set's to move.
+    const misplaced = filesOfVideoSource(src)
+      .slice(1)
+      .filter((file) => isRemoteMediaPath(file) !== gallery.remote);
+    if (misplaced.length > 0) {
+      return [misplacedError(src, misplaced, gallery.remote)];
+    }
+    const duration =
+      entry !== null && typeof entry.duration === "number" && entry.duration > 0
+        ? entry.duration
+        : undefined;
+    return [
+      ...validateTimes(src, duration),
+      ...validateHotspot(src),
+      ...validatePoster(src),
+      ...validateCaptions(src),
+    ];
+  }
+
+  /** A video of its own: it carries the file, and what was read from it. */
+  private validateOwn(src: GalleryVideoSource): ValidationError[] {
+    const own = ownMetadataOf(src);
     // Every file the video names has to be where the schema says, and one fix
     // moves them all — a video on the content host with its poster still in
     // the repository is half a migration, not a choice. The error is reported
@@ -236,23 +342,14 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
       (file) => isRemoteMediaPath(file) !== this.isRemote,
     );
     if (misplaced.length > 0) {
-      return report([
-        this.isRemote
-          ? {
-              message: `Expected a remote video, but ${misplaced.length === 1 ? "this file is" : `${misplaced.length} files are`} stored locally: ${misplaced.join(", ")}`,
-              value: src,
-              fixes: ["video:upload-remote"],
-            }
-          : {
-              message: `Expected a local video (files under /public), but ${misplaced.length === 1 ? "this file is" : `${misplaced.length} files are`} remote: ${misplaced.join(", ")}`,
-              value: src,
-              fixes: ["video:download-remote"],
-            },
-      ]);
+      return [misplacedError(src, misplaced, this.isRemote)];
     }
 
     const errors: ValidationError[] = [];
-    const isHls = isHlsVideo(src);
+    const isHls = isHlsVideo({
+      path: src.path,
+      mimeType: stringOrUndefined(own.mimeType),
+    });
     const extensionMimeType = filenameToMimeType(stripQuery(src.path));
     if (isHls) {
       if (!stripQuery(src.path).toLowerCase().endsWith(".m3u8")) {
@@ -267,29 +364,29 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
         value: src,
       });
     } else if (
-      src.mimeType !== undefined &&
-      extensionMimeType !== src.mimeType
+      own.mimeType !== undefined &&
+      extensionMimeType !== own.mimeType
     ) {
       errors.push({
-        message: `Mime type and file extension not matching. Mime type is '${src.mimeType}' but file extension is '${extensionMimeType}'`,
+        message: `Mime type and file extension not matching. Mime type is '${String(own.mimeType)}' but file extension is '${extensionMimeType}'`,
         value: src,
       });
     }
 
-    if (src.mimeType !== undefined && typeof src.mimeType !== "string") {
+    if (own.mimeType !== undefined && typeof own.mimeType !== "string") {
       errors.push({ message: `'mimeType' must be a string.`, value: src });
-    } else if (src.mimeType !== undefined && !isHls) {
+    } else if (own.mimeType !== undefined && !isHls) {
       const accept = this.options?.accept ?? DEFAULT_VIDEO_ACCEPT;
-      if (!mimeTypeMatchesAccept(src.mimeType, accept)) {
+      if (!mimeTypeMatchesAccept(own.mimeType, accept)) {
         errors.push({
-          message: `Mime type mismatch. Found '${src.mimeType}' but schema accepts '${accept}'`,
+          message: `Mime type mismatch. Found '${own.mimeType}' but schema accepts '${accept}'`,
           value: src,
         });
       }
     }
 
     for (const key of ["width", "height", "duration"] as const) {
-      const value = src[key];
+      const value = own[key];
       if (
         value !== undefined &&
         (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
@@ -300,12 +397,16 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
         });
       }
     }
-    errors.push(...validateTimes(src));
+    const duration =
+      typeof own.duration === "number" && own.duration > 0
+        ? own.duration
+        : undefined;
+    errors.push(...validateTimes(src, duration));
     errors.push(...validateHotspot(src));
     errors.push(...validatePoster(src));
     errors.push(...validateCaptions(src));
     if (errors.length > 0) {
-      return report(errors);
+      return errors;
     }
 
     // Everything authored is fine. What is left is what is read from the
@@ -315,22 +416,20 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
     if (!isRemotePath) {
       const missing = (
         ["mimeType", "width", "height", "duration"] as const
-      ).filter((key) => src[key] === undefined);
+      ).filter((key) => own[key] === undefined);
       if (missing.length > 0) {
-        return report([
+        return [
           {
             message: `Video metadata is missing: ${missing.join(", ")}.`,
             value: src,
             fixes: ["video:add-metadata"],
           },
-        ]);
+        ];
       }
-    } else if (src.mimeType === undefined) {
-      return report([
-        { message: `A video must have a 'mimeType'.`, value: src },
-      ]);
+    } else if (own.mimeType === undefined) {
+      return [{ message: `A video must have a 'mimeType'.`, value: src }];
     }
-    return report([]);
+    return [];
   }
 
   protected executeAssert(
@@ -396,6 +495,7 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
       this.description,
       this.renderInput,
       this.previewInput,
+      this.gallery,
     );
   }
 
@@ -410,6 +510,7 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
       this.description,
       this.renderInput,
       this.previewInput,
+      this.gallery,
     );
   }
 
@@ -424,6 +525,7 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
       this.description,
       this.renderInput,
       this.previewInput,
+      this.gallery,
     );
   }
 
@@ -462,6 +564,7 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
       this.description,
       input,
       this.previewInput,
+      this.gallery,
     );
   }
 
@@ -492,6 +595,7 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
       this.description,
       this.renderInput,
       select,
+      this.gallery,
     );
   }
 
@@ -519,6 +623,7 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
+      referencedModule: this.gallery?.modulePath,
       readonly: this.isReadonly,
       hidden: this.isHidden,
       description: this.description,
@@ -531,7 +636,7 @@ export class VideoSchema<Src extends VideoSource | null> extends Schema<Src> {
  * track. An HLS stream's segments are not here — they are named by its
  * playlists, not by the value.
  */
-export function filesOfVideoSource(src: VideoSource): string[] {
+export function filesOfVideoSource(src: GalleryVideoSource): string[] {
   const files = [src.path];
   if (
     src.poster &&
@@ -554,6 +659,47 @@ export function filesOfVideoSource(src: VideoSource): string[] {
   return files;
 }
 
+/**
+ * What the value says about its file, typed as what it IS rather than what
+ * it should be: a set-backed field's type has none of these, and is checked
+ * for carrying them anyway, because hand-written JSON never saw the type.
+ */
+function ownMetadataOf(
+  src: GalleryVideoSource,
+): Record<"mimeType" | "width" | "height" | "duration", unknown> {
+  const value: Record<string, unknown> = { ...src };
+  return {
+    mimeType: value.mimeType,
+    width: value.width,
+    height: value.height,
+    duration: value.duration,
+  };
+}
+
+function stringOrUndefined(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function misplacedError(
+  src: GalleryVideoSource,
+  misplaced: string[],
+  shouldBeRemote: boolean,
+): ValidationError {
+  const these =
+    misplaced.length === 1 ? "this file is" : `${misplaced.length} files are`;
+  return shouldBeRemote
+    ? {
+        message: `Expected a remote video, but ${these} stored locally: ${misplaced.join(", ")}`,
+        value: src,
+        fixes: ["video:upload-remote"],
+      }
+    : {
+        message: `Expected a local video (files under /public), but ${these} remote: ${misplaced.join(", ")}`,
+        value: src,
+        fixes: ["video:download-remote"],
+      };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -566,12 +712,11 @@ function isNonNegativeNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
-function validateTimes(src: VideoSource): ValidationError[] {
+function validateTimes(
+  src: GalleryVideoSource,
+  duration: number | undefined,
+): ValidationError[] {
   const errors: ValidationError[] = [];
-  const duration =
-    typeof src.duration === "number" && src.duration > 0
-      ? src.duration
-      : undefined;
   for (const key of ["posterTime", "startTime", "endTime"] as const) {
     const value = src[key];
     if (value === undefined) {
@@ -602,7 +747,7 @@ function validateTimes(src: VideoSource): ValidationError[] {
   return errors;
 }
 
-function validateHotspot(src: VideoSource): ValidationError[] {
+function validateHotspot(src: GalleryVideoSource): ValidationError[] {
   if (src.hotspot === undefined) {
     return [];
   }
@@ -627,7 +772,7 @@ function validateHotspot(src: VideoSource): ValidationError[] {
   return [];
 }
 
-function validatePoster(src: VideoSource): ValidationError[] {
+function validatePoster(src: GalleryVideoSource): ValidationError[] {
   if (src.poster === undefined) {
     return [];
   }
@@ -658,7 +803,7 @@ function validatePoster(src: VideoSource): ValidationError[] {
 
 const CAPTION_KINDS = ["subtitles", "captions"];
 
-function validateCaptions(src: VideoSource): ValidationError[] {
+function validateCaptions(src: GalleryVideoSource): ValidationError[] {
   if (src.captions === undefined) {
     return [];
   }
@@ -731,9 +876,64 @@ function validateCaptions(src: VideoSource): ValidationError[] {
 }
 
 /**
+ * A video picked from a set (`s.videoset()`). What is true of the file —
+ * its type, size and length — lives in the set; the field carries what one
+ * page chose about it.
+ */
+export function video(
+  videosetModule: ValModule<Record<string, VideosetEntryMetadata<AltSource>>>,
+  galleryOptions?: GalleryVideoOptions,
+): VideoSchema<GalleryVideoSource>;
+/**
  * Define a video: an `.mp4` / `.webm` file, or an HLS stream the Studio makes
  * from an upload when `stream` is set.
  */
-export function video(options?: VideoOptions): VideoSchema<VideoSource> {
-  return new VideoSchema(options);
+export function video(options?: VideoOptions): VideoSchema<VideoSource>;
+export function video(
+  options?:
+    | VideoOptions
+    | ValModule<Record<string, VideosetEntryMetadata<AltSource>>>,
+  galleryOptions?: GalleryVideoOptions,
+): VideoSchema<VideoSource> | VideoSchema<GalleryVideoSource> {
+  if (options === undefined || !isVideosetModule(options)) {
+    return new VideoSchema<VideoSource>(options);
+  }
+  const modulePath = getValPath(options);
+  if (modulePath === undefined) {
+    throw new Error(
+      `Invalid argument passed to s.video(). Expected a ValModule constructed through c.define, but got an object without a valid module path.`,
+    );
+  }
+  const setSchema = options[GetSchema]?.["executeSerialize"]();
+  if (setSchema?.type !== "record" || setSchema.mediaType !== "videos") {
+    throw new Error(
+      `s.video(${modulePath}): the module must be an s.videoset(). Got ${setSchema?.type === "record" ? `a record of ${setSchema.mediaType ?? "values"}` : (setSchema?.type ?? "no schema")}.`,
+    );
+  }
+  return new VideoSchema<GalleryVideoSource>(
+    galleryOptions?.stream !== undefined
+      ? { stream: galleryOptions.stream }
+      : undefined,
+    false,
+    setSchema.remote ?? false,
+    [],
+    false,
+    false,
+    undefined,
+    null,
+    null,
+    {
+      modulePath,
+      entries: getSource(options),
+      remote: setSchema.remote ?? false,
+    },
+  );
+}
+
+function isVideosetModule(
+  value:
+    | VideoOptions
+    | ValModule<Record<string, VideosetEntryMetadata<AltSource>>>,
+): value is ValModule<Record<string, VideosetEntryMetadata<AltSource>>> {
+  return GetSchema in value;
 }

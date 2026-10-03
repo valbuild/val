@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { Internal } from "@valbuild/core";
 import { cn } from "../designSystem/cn";
 import { FilePreview } from "./FilePreview";
 import { FieldPatchAuthors } from "../FieldPatchAuthors";
@@ -36,6 +37,9 @@ function SortIcon({
 }
 
 function formatMimeType(mimeType: string): string {
+  if (mimeType === Internal.media.HLS_MIME_TYPE) {
+    return "HLS";
+  }
   // Show a simplified version, e.g., "JPEG" instead of "image/jpeg"
   const [, subtype] = mimeType.split("/");
   return subtype?.toUpperCase() ?? mimeType;

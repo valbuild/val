@@ -258,15 +258,22 @@ export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
           type: z.literal("record"),
           item: SerializedSchema,
           opt: z.boolean(),
-          // Optional gallery marker for files/images
+          // Optional gallery marker for files/images/videos
           mediaType: z
-            .union([z.literal("files"), z.literal("images")])
+            .union([
+              z.literal("files"),
+              z.literal("images"),
+              z.literal("videos"),
+            ])
             .optional(),
           // Optional legacy gallery metadata
           accept: z.string().optional(),
           dir: z.string().optional(),
           remote: z.boolean().optional(),
           encode: ImageEncodeOption.optional(),
+          // A videoset's: see `VideoStreamOption` below for why it is spelled
+          // out rather than passed through.
+          stream: VideoStreamOption.optional(),
           alt: SerializedSchema.optional(),
           moduleMetadata: z
             .record(z.string(), z.record(z.string(), z.any()))
@@ -336,6 +343,8 @@ export const SerializedVideoSchema: z.ZodType<SerializedVideoSchemaT> =
     options: VideoOptions.optional(),
     opt: z.boolean(),
     remote: z.boolean().optional(),
+    // The `s.videoset()` a set-backed field picks from.
+    referencedModule: z.string().optional(),
   });
 
 export const DateOptions = z.object({

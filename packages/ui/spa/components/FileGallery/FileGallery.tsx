@@ -35,6 +35,7 @@ export function FileGallery({
   defaultViewMode = "list",
   showSearch = true,
   imageMode = false,
+  videoMode = false,
   loading = false,
   disabled = false,
   onUploadClick,
@@ -340,6 +341,7 @@ export function FileGallery({
                 onClick={() => handleItemClick(index)}
                 viewMode={viewMode}
                 imageMode={imageMode}
+                videoMode={videoMode}
               />
             ))}
           </div>
@@ -352,6 +354,7 @@ export function FileGallery({
                 onClick={() => handleItemClick(index)}
                 viewMode={viewMode}
                 imageMode={imageMode}
+                videoMode={videoMode}
               />
             ))}
           </div>
@@ -382,6 +385,7 @@ export function FileGallery({
         onFileDelete={onFileDelete}
         parentPath={parentPath}
         imageMode={imageMode}
+        videoMode={videoMode}
         loading={loading}
         disabled={disabled || renaming !== null}
         container={portalContainer}

@@ -2,6 +2,7 @@ import {
   Internal,
   type SerializedVideoSchema,
   type VideoCaptionSource,
+  type GalleryVideoSource,
   type VideoPosterSource,
   type VideoSource,
 } from "@valbuild/core";
@@ -219,35 +220,34 @@ export function createVideoPatch(
   input: CreateVideoPatchInput,
   sha256: (bytes: Uint8Array) => string,
 ): { patch: Patch; value: VideoSource } {
-  const dir = input.dir.replace(/\/+$/, "");
-  let video: Placed;
-  let videoFiles: Placed[];
-  let mimeType: string;
-  if (input.upload.kind === "file") {
-    const name = storedFilename(
-      input.filename,
-      input.upload.file.mimeType,
-      input.upload.file.sha256,
-    );
-    video = place(`${dir}/${name}`, input.upload.file, input, {
-      mimeType: input.upload.file.mimeType,
-      width: input.metadata.width,
-      height: input.metadata.height,
-    });
-    videoFiles = [video];
-    mimeType = input.upload.file.mimeType;
-  } else {
-    const directory = `${dir}/${storedFilename(
-      input.filename,
-      input.upload.sourceMimeType,
-      input.upload.sourceSha256,
-    ).replace(/\.[^./]*$/, "")}`;
-    const hls = placeHls(directory, input.upload.files, input, sha256);
-    video = hls.master;
-    videoFiles = hls.all;
-    mimeType = Internal.media.HLS_MIME_TYPE;
-  }
+  const built = buildVideoPatch(input, sha256, true);
+  return {
+    patch: built.patch,
+    value: { ...built.value, ...built.entry.value },
+  };
+}
 
+/**
+ * The same upload into a field that picks from an `s.videoset()`: the field's
+ * value names the video and carries what is the field's own — description,
+ * focal point, poster, captions — and `entry` is what the SET gets, written
+ * once the bytes are up. The bytes are filed at the field, so the field
+ * carries the `patch_id` a page reads a draft's URL off.
+ */
+export function createSetBackedVideoPatch(
+  input: CreateVideoPatchInput,
+  sha256: (bytes: Uint8Array) => string,
+): { patch: Patch; value: GalleryVideoSource; entry: VideosetEntry } {
+  return buildVideoPatch(input, sha256, false);
+}
+
+function buildVideoPatch(
+  input: CreateVideoPatchInput,
+  sha256: (bytes: Uint8Array) => string,
+  ownMetadata: boolean,
+): { patch: Patch; value: GalleryVideoSource; entry: VideosetEntry } {
+  const dir = input.dir.replace(/\/+$/, "");
+  const { video, files: videoFiles, mimeType } = placeVideo(input, sha256);
   let poster: VideoPosterSource | undefined;
   let posterPlaced: Placed | null = null;
   if (input.poster) {
@@ -277,12 +277,20 @@ export function createVideoPatch(
     };
   }
 
-  const value: VideoSource = {
+  const entry: VideosetEntry = {
+    key: video.ref,
+    value: {
+      mimeType,
+      width: input.metadata.width,
+      height: input.metadata.height,
+      duration: roundTime(input.metadata.duration),
+    },
+  };
+  const value: GalleryVideoSource = {
     path: video.ref,
-    mimeType,
-    width: input.metadata.width,
-    height: input.metadata.height,
-    duration: roundTime(input.metadata.duration),
+    // A set-backed field names its video and nothing more: what is true of
+    // the file is the set's, and core refuses a field that repeats it.
+    ...(ownMetadata ? entry.value : {}),
     ...(input.keep.alt !== undefined ? { alt: input.keep.alt } : {}),
     ...(input.keep.hotspot !== undefined
       ? { hotspot: input.keep.hotspot }
@@ -327,7 +335,93 @@ export function createVideoPatch(
         ]
       : []),
   ];
-  return { patch, value };
+  return { patch, value, entry };
+}
+
+/** What an `s.videoset()` entry is keyed by, and what it holds. */
+export type VideosetEntry = {
+  key: string;
+  value: { mimeType: string; width: number; height: number; duration: number };
+};
+
+/**
+ * The video's own files, placed: one file, or every file of a stream with
+ * the master playlist as the one the source names.
+ */
+function placeVideo(
+  input: Pick<
+    CreateVideoPatchInput,
+    "dir" | "filename" | "upload" | "metadata" | "remote" | "schema"
+  >,
+  sha256: (bytes: Uint8Array) => string,
+): { video: Placed; files: Placed[]; mimeType: string } {
+  const dir = input.dir.replace(/\/+$/, "");
+  if (input.upload.kind === "file") {
+    const name = storedFilename(
+      input.filename,
+      input.upload.file.mimeType,
+      input.upload.file.sha256,
+    );
+    const video = place(`${dir}/${name}`, input.upload.file, input, {
+      mimeType: input.upload.file.mimeType,
+      width: input.metadata.width,
+      height: input.metadata.height,
+    });
+    return { video, files: [video], mimeType: input.upload.file.mimeType };
+  }
+  const directory = `${dir}/${storedFilename(
+    input.filename,
+    input.upload.sourceMimeType,
+    input.upload.sourceSha256,
+  ).replace(/\.[^./]*$/, "")}`;
+  const hls = placeHls(directory, input.upload.files, input, sha256);
+  return {
+    video: hls.master,
+    files: hls.all,
+    mimeType: Internal.media.HLS_MIME_TYPE,
+  };
+}
+
+/**
+ * The patch that adds an upload to an `s.videoset()`: the entry, keyed by
+ * the video's path (an HLS stream's by its master playlist), and one `file`
+ * op per file, filed AT the entry — where the server stamps the `patch_id`
+ * the set's own previews are served by.
+ *
+ * `setPatchPath` is the set record's own patch path: `[]` for a module root.
+ */
+export function createVideosetEntryPatch(
+  input: Pick<
+    CreateVideoPatchInput,
+    "dir" | "filename" | "upload" | "metadata" | "remote" | "schema"
+  > & { setPatchPath: string[] },
+  sha256: (bytes: Uint8Array) => string,
+): { patch: Patch; entry: VideosetEntry } {
+  const { video, files, mimeType } = placeVideo(input, sha256);
+  const entry: VideosetEntry = {
+    key: video.ref,
+    value: {
+      mimeType,
+      width: input.metadata.width,
+      height: input.metadata.height,
+      duration: roundTime(input.metadata.duration),
+    },
+  };
+  const at = input.setPatchPath.concat(entry.key);
+  return {
+    entry,
+    patch: [
+      { op: "add", path: at, value: { ...entry.value, alt: null } },
+      ...files.map((placed): Patch[number] => ({
+        op: "file",
+        path: at,
+        filePath: placed.ref,
+        value: placed.file.dataUrl,
+        metadata: { mimeType: placed.file.mimeType },
+        remote: input.remote !== null,
+      })),
+    ],
+  };
 }
 
 /**

@@ -11,6 +11,54 @@ import { getFileReferrers, getReferencedFiles } from "./getReferencedFiles";
 const { s, c } = initVal();
 
 describe("getReferencedFiles", () => {
+  test("find a set-backed video field naming an entry of the set", () => {
+    const videosModule = c.define(
+      "/videos.val.ts",
+      s.videoset({ dir: "/public/val/videos" }),
+      {
+        "/public/val/videos/intro_51df2.mp4": {
+          mimeType: "video/mp4",
+          width: 1280,
+          height: 720,
+          duration: 12.5,
+          alt: null,
+        },
+        "/public/val/videos/other_12345.mp4": {
+          mimeType: "video/mp4",
+          width: 1280,
+          height: 720,
+          duration: 3,
+          alt: null,
+        },
+      },
+    );
+    const pageModule = c.define(
+      "/page.val.ts",
+      s.object({ intro: s.video(videosModule) }),
+      {
+        intro: { path: "/public/val/videos/intro_51df2.mp4", startTime: 1 },
+      },
+    );
+    const { schemas, sources } = getTestData([videosModule, pageModule]);
+    expect(
+      getReferencedFiles(
+        schemas,
+        sources,
+        "/videos.val.ts" as ModuleFilePath,
+        "/public/val/videos/intro_51df2.mp4",
+      ),
+    ).toEqual(['/page.val.ts?p="intro"']);
+    // The other entry is used by nothing, so it can be deleted.
+    expect(
+      getReferencedFiles(
+        schemas,
+        sources,
+        "/videos.val.ts" as ModuleFilePath,
+        "/public/val/videos/other_12345.mp4",
+      ),
+    ).toEqual([]);
+  });
+
   test("find image field referencing module", () => {
     const imagesModule = c.define(
       "/images.val.ts",

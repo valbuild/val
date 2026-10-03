@@ -1,10 +1,12 @@
 import * as React from "react";
 import {
+  DEFAULT_VIDEO_ACCEPT,
   FileMetadata,
   ImageMetadata,
   Internal,
   SerializedFileSchema,
   SerializedImageSchema,
+  SerializedVideoSchema,
   SourcePath,
 } from "@valbuild/core";
 import { array } from "@valbuild/core/fp";
@@ -39,6 +41,18 @@ import { readFile, readFileFromFile } from "../../utils/readFile";
 import { getFileExt } from "../../utils/getFileExt";
 import { refToUrl } from "../MediaPicker/refToUrl";
 import { useUploadRequest } from "../UploadRequest";
+import { useRenameStreamEntry } from "../useRenameStreamEntry";
+import {
+  prepareVideoUpload,
+  type PreparePhase,
+} from "../../utils/video/prepareVideoUpload";
+import {
+  createVideosetEntryPatch,
+  localPathOf,
+} from "../../utils/video/createVideoPatch";
+import { isPlaylistPath } from "../../utils/video/hlsPlaylist";
+import { readStream } from "../../utils/video/renameVideo";
+import { fetchStreamFile } from "../../utils/video/fetchStreamFile";
 
 const textEncoder = new TextEncoder();
 
@@ -91,6 +105,10 @@ export function ModuleGallery({
   const [progressPercentage, setProgressPercentage] = React.useState<
     number | null
   >(null);
+  /** Reading or converting a video, before its bytes start going up. */
+  const [videoPhase, setVideoPhase] = React.useState<PreparePhase | null>(null);
+  /** A stream was asked for and could not be made here; said, not failed. */
+  const [uploadNotice, setUploadNotice] = React.useState<string | null>(null);
 
   const handleProgress = React.useCallback(
     (
@@ -125,6 +143,7 @@ export function ModuleGallery({
       : null;
 
   const imageMode = schema?.mediaType === "images";
+  const videoMode = schema?.mediaType === "videos";
   const directory = schema?.dir ?? "/public/val";
   const accept = schema?.accept;
   /**
@@ -174,12 +193,29 @@ export function ModuleGallery({
     requireRemote === true &&
     (remoteFiles.status === "loading" || remoteFiles.status === "not-asked");
 
+  /**
+   * What a video's remote validation hash is computed from. A set has no
+   * video schema of its own, so one is made of what it says — as the image
+   * gallery does above for an image.
+   */
+  const videoSchema = React.useMemo<SerializedVideoSchema>(
+    () => ({
+      type: "video",
+      opt: false,
+      remote: !!requireRemote,
+      options: accept ? { accept } : undefined,
+    }),
+    [requireRemote, accept],
+  );
+
   const files: GalleryFile[] = rawSource
     ? Object.entries(rawSource).map(([ref, meta]) => {
         const mimeType = typeof meta.mimeType === "string" ? meta.mimeType : "";
         const width = typeof meta.width === "number" ? meta.width : 0;
         const height = typeof meta.height === "number" ? meta.height : 0;
         const alt = typeof meta.alt === "string" ? meta.alt : undefined;
+        const duration =
+          typeof meta.duration === "number" ? meta.duration : undefined;
         const hotspot =
           typeof meta.hotspot === "object" &&
           meta.hotspot !== null &&
@@ -228,14 +264,21 @@ export function ModuleGallery({
           filePatchesByAuthorIds[author].push(patch);
         }
 
-        const { filename, folder } = getRefParts(ref);
+        // A stream is named by its directory: every master is `master.m3u8`,
+        // and the directory is what a rename renames.
+        const { filename, folder } =
+          videoMode && isPlaylistPath(localPathOf(ref))
+            ? getRefParts(
+                localPathOf(ref).slice(0, localPathOf(ref).lastIndexOf("/")),
+              )
+            : getRefParts(ref);
 
         return {
           ref,
           url: refToUrl(ref, filePatchIds),
           filename,
           folder,
-          metadata: { mimeType, width, height, alt, hotspot },
+          metadata: { mimeType, width, height, alt, hotspot, duration },
           fieldSpecificErrors: {
             alt:
               altSpecificValidationErrors.length > 0
@@ -258,31 +301,64 @@ export function ModuleGallery({
       if (!rawSource) return;
       const ref = Object.keys(rawSource)[index];
       if (!ref) return;
-      const patch: Patch = [
-        {
-          op: "remove",
-          path: [...patchPath, ref] as unknown as array.NonEmptyArray<string>,
-        },
-        {
-          op: "file",
-          path: [...patchPath, ref],
-          filePath: ref,
-          value: null,
-          remote: Internal.remote.splitRemoteRef(ref).status === "success",
-        },
-      ];
+      const isRemoteRef =
+        Internal.remote.splitRemoteRef(ref).status === "success";
       setUploading(true);
-      addAndUploadPatchWithFileOps(
-        patch,
-        imageMode ? "image" : "file",
-        (msg) => setUploadError(msg),
-        () => {},
-      ).finally(() => setUploading(false));
+      (async () => {
+        let filePaths = [ref];
+        if (videoMode && !isRemoteRef && isPlaylistPath(localPathOf(ref))) {
+          // A local stream is a directory of files, and they all go: the
+          // master alone would leave every playlist and segment behind it.
+          try {
+            const files = await readStream(
+              ref,
+              refToUrl(ref, filePatchIds),
+              fetchStreamFile,
+              window.location.href,
+            );
+            const directory = ref.slice(0, ref.lastIndexOf("/"));
+            filePaths = Object.keys(files).map(
+              (name) => `${directory}/${name}`,
+            );
+          } catch (err) {
+            // A stream that cannot be read is still one that can be removed;
+            // what is left behind, `val validate` reports as untracked.
+            console.warn("Val: could not list the stream's files", err);
+          }
+        }
+        const patch: Patch = [
+          {
+            op: "remove",
+            path: [...patchPath, ref] as unknown as array.NonEmptyArray<string>,
+          },
+          ...filePaths.map((filePath): Patch[number] => ({
+            op: "file",
+            path: [...patchPath, ref],
+            filePath,
+            value: null,
+            remote: isRemoteRef,
+          })),
+        ];
+        await addAndUploadPatchWithFileOps(
+          patch,
+          imageMode ? "image" : "file",
+          (msg) => setUploadError(msg),
+          () => {},
+        );
+      })().finally(() => setUploading(false));
     },
-    [rawSource, patchPath, imageMode, addAndUploadPatchWithFileOps],
+    [
+      rawSource,
+      patchPath,
+      imageMode,
+      videoMode,
+      filePatchIds,
+      addAndUploadPatchWithFileOps,
+    ],
   );
 
   const renameMediaFile = useRenameMediaFile(path);
+  const renameStreamEntry = useRenameStreamEntry(path);
   const handleFileRename = React.useCallback(
     async (
       index: number,
@@ -299,20 +375,31 @@ export function ModuleGallery({
       }
       const mimeType =
         typeof meta.mimeType === "string" ? meta.mimeType : undefined;
-      const res = await renameMediaFile({
-        kind: "gallery-entry",
-        key: ref,
-        newBase,
-        metadata:
-          mimeType === undefined
-            ? undefined
-            : imageMode &&
-                typeof meta.width === "number" &&
-                typeof meta.height === "number"
-              ? { mimeType, width: meta.width, height: meta.height }
-              : { mimeType },
-        fileType: imageMode ? "image" : "file",
-      });
+      // A stream is a directory, and the directory is its name: every file
+      // in it moves. See `renameVideo.ts`.
+      const res =
+        videoMode && isPlaylistPath(localPathOf(ref))
+          ? await renameStreamEntry({
+              key: ref,
+              newBase,
+              url: refToUrl(ref, filePatchIds),
+              existingKeys: Object.keys(rawSource),
+              schema: videoSchema,
+            })
+          : await renameMediaFile({
+              kind: "gallery-entry",
+              key: ref,
+              newBase,
+              metadata:
+                mimeType === undefined
+                  ? undefined
+                  : imageMode &&
+                      typeof meta.width === "number" &&
+                      typeof meta.height === "number"
+                    ? { mimeType, width: meta.width, height: meta.height }
+                    : { mimeType },
+              fileType: imageMode ? "image" : "file",
+            });
       if (res.status === "ok") {
         return { status: "ok", newRef: res.newPath };
       }
@@ -321,7 +408,15 @@ export function ModuleGallery({
       }
       return res;
     },
-    [rawSource, imageMode, renameMediaFile],
+    [
+      rawSource,
+      imageMode,
+      videoMode,
+      renameMediaFile,
+      renameStreamEntry,
+      filePatchIds,
+      videoSchema,
+    ],
   );
 
   const handleAltTextChange = React.useCallback(
@@ -342,6 +437,71 @@ export function ModuleGallery({
       addPatch(patch, "record");
     },
     [rawSource, patchPath, addPatch],
+  );
+
+  /**
+   * One video into the set: read, converted to a stream when the set asks
+   * and this browser can, and uploaded as the entry and its files. The same
+   * step a video field takes (`prepareVideoUpload`), with the patch naming a
+   * set entry instead of a field.
+   */
+  const uploadVideo = React.useCallback(
+    async (file: File) => {
+      const objectUrl = URL.createObjectURL(file);
+      try {
+        const prepared = await prepareVideoUpload(
+          file,
+          objectUrl,
+          { accept: accept ?? DEFAULT_VIDEO_ACCEPT, stream: schema?.stream },
+          setVideoPhase,
+        );
+        if (prepared.status === "error") {
+          setUploadError(prepared.message);
+          return;
+        }
+        if (prepared.notice) {
+          setUploadNotice(prepared.notice);
+        }
+        const { patch } = createVideosetEntryPatch(
+          {
+            setPatchPath: patchPath,
+            dir: directory,
+            filename: file.name,
+            upload: prepared.upload,
+            metadata: prepared.metadata,
+            remote: requireRemote ? remoteData : null,
+            schema: videoSchema,
+          },
+          Internal.getSHA256Hash,
+        );
+        setVideoPhase(null);
+        await addAndUploadPatchWithFileOps(
+          patch,
+          "file",
+          (msg) => setUploadError(msg),
+          handleProgress,
+        );
+      } catch (err) {
+        console.error("Val: video upload failed", err);
+        setUploadError(
+          `Could not upload the video: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+        setVideoPhase(null);
+      }
+    },
+    [
+      accept,
+      schema,
+      patchPath,
+      directory,
+      requireRemote,
+      remoteData,
+      videoSchema,
+      addAndUploadPatchWithFileOps,
+      handleProgress,
+    ],
   );
 
   const computeRef = React.useCallback(
@@ -454,6 +614,18 @@ export function ModuleGallery({
           "Remote uploads are not available. Please try again later.",
         );
         ev.target.value = "";
+        return;
+      }
+      if (videoMode) {
+        const file = ev.target.files?.[0];
+        ev.target.value = "";
+        if (!file) return;
+        setUploadNotice(null);
+        setUploading(true);
+        uploadVideo(file).finally(() => {
+          setUploading(false);
+          setProgressPercentage(null);
+        });
         return;
       }
       if (imageMode) {
@@ -576,6 +748,8 @@ export function ModuleGallery({
     },
     [
       imageMode,
+      videoMode,
+      uploadVideo,
       directory,
       patchPath,
       addAndUploadPatchWithFileOps,
@@ -622,10 +796,13 @@ export function ModuleGallery({
       });
       if (droppedFiles.length === 0) return;
       setUploadError(null);
+      setUploadNotice(null);
       setUploading(true);
       (async () => {
         for (const file of droppedFiles) {
-          if (imageMode) {
+          if (videoMode) {
+            await uploadVideo(file);
+          } else if (imageMode) {
             const res = await readImageFromFile(file, encode).catch(() => null);
             if (!res || !res.width || !res.height || !res.mimeType) continue;
             const metadata: ImageMetadata = {
@@ -721,6 +898,8 @@ export function ModuleGallery({
     },
     [
       imageMode,
+      videoMode,
+      uploadVideo,
       patchPath,
       addAndUploadPatchWithFileOps,
       requireRemote,
@@ -771,6 +950,18 @@ export function ModuleGallery({
           {uploadError}
         </div>
       )}
+      {uploadNotice && (
+        <p role="status" className="mb-2 text-xs text-fg-secondary">
+          {uploadNotice}
+        </p>
+      )}
+      {videoPhase && (
+        <p role="status" className="mb-2 text-xs text-fg-secondary">
+          {videoPhase.kind === "reading"
+            ? "Reading the video…"
+            : `Converting to a stream… ${videoPhase.progress}%`}
+        </p>
+      )}
       {progressPercentage === null ? (
         <div className="h-[2px] mb-2" />
       ) : (
@@ -791,8 +982,11 @@ export function ModuleGallery({
         files={files}
         parentPath={moduleFilePath}
         imageMode={imageMode}
+        videoMode={videoMode}
         onAltTextChange={
-          imageMode && !readonly ? handleAltTextChange : undefined
+          (imageMode || videoMode) && !readonly
+            ? handleAltTextChange
+            : undefined
         }
         onFileDelete={readonly ? undefined : handleFileDelete}
         onFileRename={readonly ? undefined : handleFileRename}

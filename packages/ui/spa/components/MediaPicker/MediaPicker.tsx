@@ -12,6 +12,7 @@ import {
   ChevronsUpDown,
   ImageIcon,
   FileIcon,
+  FileVideo,
   Images,
   Search,
 } from "lucide-react";
@@ -39,6 +40,8 @@ export interface MediaPickerListProps {
   onSelect: (entry: GalleryEntry) => void;
   /** Whether this is for images (shows thumbnails) or files */
   isImage?: boolean;
+  /** Whether this picks from an `s.videoset()`: rows show the length. */
+  isVideo?: boolean;
   /** Converts a gallery file path to a displayable URL (e.g. for patch-state files) */
   getUrl?: (filePath: string) => string;
   /** Auto-focus the search input on mount */
@@ -130,6 +133,7 @@ export function MediaPickerList({
   selectedRef,
   onSelect,
   isImage = false,
+  isVideo = false,
   getUrl,
   autoFocus = false,
   maxHeight: maxHeightProp,
@@ -248,14 +252,24 @@ export function MediaPickerList({
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={isImage ? "Search images..." : "Search files..."}
+          placeholder={
+            isImage
+              ? "Search images..."
+              : isVideo
+                ? "Search videos..."
+                : "Search files..."
+          }
           className="flex h-10 w-full bg-transparent py-3 text-sm outline-none placeholder:text-fg-secondary disabled:cursor-not-allowed disabled:opacity-50"
         />
       </div>
 
       {rows.length === 0 ? (
         <div className="py-6 text-center text-sm text-fg-secondary">
-          {isImage ? "No images found." : "No files found."}
+          {isImage
+            ? "No images found."
+            : isVideo
+              ? "No videos found."
+              : "No files found."}
         </div>
       ) : (
         <div ref={scrollRef} className="overflow-auto" style={{ maxHeight }}>
@@ -284,7 +298,7 @@ export function MediaPickerList({
                 );
               }
 
-              const filename = row.filePath.split("/").pop() || row.filePath;
+              const filename = displayNameOf(row.filePath);
               const isSelected = selectedRef === row.filePath;
               const isActive = virtualRow.index === activeIndex;
               const alt =
@@ -330,6 +344,8 @@ export function MediaPickerList({
                     <div className="h-8 w-8 shrink-0 flex items-center justify-center rounded bg-bg-secondary">
                       {isImage ? (
                         <ImageIcon className="h-4 w-4 text-fg-secondary" />
+                      ) : isVideo ? (
+                        <FileVideo className="h-4 w-4 text-fg-secondary" />
                       ) : (
                         <FileIcon className="h-4 w-4 text-fg-secondary" />
                       )}
@@ -358,6 +374,7 @@ export function MediaPicker({
   portalContainer,
   selectedRef,
   isImage = false,
+  isVideo = false,
   moduleEntries,
   onSelect,
   getUrl,
@@ -371,9 +388,7 @@ export function MediaPicker({
     return null;
   }
 
-  const selectedFilename = selectedRef
-    ? selectedRef.split("/").pop() || selectedRef
-    : null;
+  const selectedFilename = selectedRef ? displayNameOf(selectedRef) : null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -403,7 +418,11 @@ export function MediaPicker({
           >
             <span className="truncate">
               {selectedFilename ||
-                (isImage ? "Select from gallery..." : "Select from files...")}
+                (isImage
+                  ? "Select from gallery..."
+                  : isVideo
+                    ? "Select from videos..."
+                    : "Select from files...")}
             </span>
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
@@ -421,6 +440,7 @@ export function MediaPicker({
           moduleEntries={moduleEntries}
           selectedRef={selectedRef}
           isImage={isImage}
+          isVideo={isVideo}
           getUrl={getUrl}
           autoFocus={open}
           onSelect={(entry) => {
@@ -448,4 +468,16 @@ export function ModuleMediaPicker({
   return (
     <MediaPicker moduleEntries={moduleEntries} getUrl={getUrl} {...rest} />
   );
+}
+
+/**
+ * What a row is called: the file's name — or, for an HLS stream, the name of
+ * its directory, since every stream's master playlist is `master.m3u8`.
+ */
+function displayNameOf(filePath: string): string {
+  const segments = servedPath(filePath).split("?")[0].split("/");
+  const name = segments.pop() || filePath;
+  return name.toLowerCase().endsWith(".m3u8") && segments.length > 0
+    ? (segments.pop() ?? name)
+    : name;
 }

@@ -1,14 +1,15 @@
-# Media: `s.imageset()`, `s.fileset()`, `s.image()`, `s.file()`, `s.video()`
+# Media: `s.imageset()`, `s.fileset()`, `s.videoset()`, `s.image()`, `s.file()`, `s.video()`
 
 ## The four names are two pairs on different axes
 
 `s.imageset()` / `s.fileset()` are **whole-module collections**. `s.image()` /
 `s.file()` are **fields**. They are not variants of each other.
 
-|       | collection (is the module)           | field (lives at a path)                                |
-| ----- | ------------------------------------ | ------------------------------------------------------ |
-| image | `s.imageset({ dir, accept?, alt? })` | `s.image({ dir, accept })` or `s.image(galleryModule)` |
-| file  | `s.fileset({ dir, accept })`         | `s.file({ accept })` or `s.file(collectionModule)`     |
+|       | collection (is the module)                    | field (lives at a path)                                         |
+| ----- | --------------------------------------------- | --------------------------------------------------------------- |
+| image | `s.imageset({ dir, accept?, alt? })`          | `s.image({ dir, accept })` or `s.image(galleryModule)`          |
+| file  | `s.fileset({ dir, accept })`                  | `s.file({ accept })` or `s.file(collectionModule)`              |
+| video | `s.videoset({ dir, accept?, alt?, stream? })` | `s.video({ dir, accept, stream })` or `s.video(videosetModule)` |
 
 Remote is a **method, not an option**, everywhere: `s.imageset({...}).remote()`,
 `s.fileset({...}).remote()`, `s.image().remote()`, `s.file().remote()`. It used to
@@ -349,10 +350,12 @@ blocking, and upload sets `alt: null` — so such a gallery is unpublishable unt
 someone types alt text. Correct, but it means uploading alone never reaches a
 publishable state there.
 
-## Video: `s.video()`
+## Video: `s.video()` and `s.videoset()`
 
-A video is a third kind of media FIELD — there is no video collection — and it
-is the one media value that names several files.
+A video is a third kind of media, and the one media value that names several
+files. It comes in both shapes the others do: a field of its own
+(`s.video()`), or a field that picks from a collection (`s.video(videosVal)`
+over an `s.videoset()`) — see "A set of videos" below.
 
 ```ts
 { path: "/public/val/intro_3b9d7.mp4", mimeType: "video/mp4",   // or an HLS master playlist
@@ -362,12 +365,17 @@ is the one media value that names several files.
   captions: [{ path: "/public/val/intro-en_8f2a1.vtt", srclang: "en", label, kind, default }] }
 ```
 
-**`mimeType` is required**, for two reasons. A page has to know whether it
-holds an `.mp4` or an `.m3u8` before it can play it. And every media source is
-"a `path` plus optional fields", so without one required field an image and a
-video are the same type: `StegaOfSource` asks `T extends VideoSource` BEFORE
-`T extends ImageSource`, and only the required `mimeType` keeps images out of
-that arm.
+**`mimeType` is required** on a video of its own: a page has to know whether
+it holds an `.mp4` or an `.m3u8` before it can play it. (A set-backed field has
+none — the set's entry has it, and the reader fills it in.)
+
+**What tells a video from an image is its declared keys, not a required one.**
+Every media source is "a `path` plus optional fields", so structurally an image
+and a video are the same type. `IsVideoSource<T>` asks whether `posterTime` is
+a key of `T` — every video source type declares it, no image type does — and
+`StegaOfSource` / `JsonOfSource` ask it BEFORE the image arm. It used to be the
+required `mimeType`; a set-backed field has no `mimeType` of its own, so that
+sent it down the image arm and `useVal` handed a page an `Image`.
 
 **Every file is its own media object with its own `patch_id`.** The video, the
 poster and each caption track are uploaded by `file` ops whose `path` is the
@@ -458,6 +466,64 @@ same `placeHls` an upload uses. Remote streams are re-placed too rather than
 relabelled: a draft is found by the ref it was uploaded under, so inner refs
 with old labels would send the draft endpoint to the wrong patch. Old local
 files are deleted, as for any rename. Poster and captions keep their names.
+
+### A set of videos: `s.videoset()`
+
+```ts
+const videosVal = c.define(
+  "/content/videos.val.ts",
+  s.videoset({ dir: "/public/val/videos", stream: { type: "hls" } }),
+  {
+    "/public/val/videos/intro_51df2.mp4": {
+      mimeType: "video/mp4",
+      width: 1280,
+      height: 720,
+      duration: 12.5,
+      alt: null,
+    },
+    "/public/val/videos/intro_05198/master.m3u8": {
+      mimeType: "application/vnd.apple.mpegurl",
+      width: 1920,
+      height: 1080,
+      duration: 30,
+      alt: null,
+    },
+  },
+);
+const page = s.object({ intro: s.video(videosVal) });
+// page source: { intro: { path: "/public/val/videos/intro_51df2.mp4", startTime: 2 } }
+```
+
+The split between the entry and the field is **what is true of the FILE versus
+what one page chose about it**. The entry has the type, size, length and a
+description; the field has its own description, poster, start and end, focal
+point and captions — so one clip can open one page at 0:02 and another at
+0:10, each with its own poster, without being uploaded twice. Core refuses a
+set-backed field that repeats `mimeType` / `width` / `height` / `duration`,
+the same rule as an image and its gallery.
+
+- **A stream is ONE entry, keyed by its master playlist.** The playlists and
+  segments beside it belong to it: the gallery names it by its directory (as
+  the picker does), a delete removes every file of it, and a rename moves the
+  directory and rewrites every field naming it (`buildStreamEntryRenamePatches`).
+- **Keys are exact.** An entry is keyed by exactly the `path` a field holds —
+  the remote ref for a remote set — so there is one key to look up, not the
+  two an image gallery has to try (`fillFromGallery` still tries both).
+- **`stream`, `dir` and `accept` are the set's.** `s.video(set)` serializes
+  none of them; the Studio reads them off the set, and `s.video(set, { stream:
+false })` is the one override, as `encode` is for an image.
+- **Uploading in a set-backed field adds to the set.** The bytes are filed at
+  the FIELD (so the field carries the `patch_id` a page reads a draft's URL
+  off), and the set's entry is written once they are up
+  (`createSetBackedVideoPatch`). Uploading in the set itself files them at the
+  entry (`createVideosetEntryPatch`). Both go through `prepareVideoUpload`, the
+  one place a picked file is read and — when asked — converted.
+- **Poster and captions stay the field's files**, and live where the set's
+  videos do: for a remote set, a local poster is `video:upload-remote` on the
+  field, which moves the poster and captions and never the video.
+- **A deserialized set-backed schema** (what the Studio validates with) knows
+  which set it points at but not its entries, so it does not claim an entry is
+  missing — the set's own module is validated anyway.
 
 ### What is not there yet
 

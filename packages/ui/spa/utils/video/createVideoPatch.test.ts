@@ -4,7 +4,9 @@ import {
   bytesToBase64,
   createCaptionPatch,
   createPosterPatch,
+  createSetBackedVideoPatch,
   createVideoPatch,
+  createVideosetEntryPatch,
   type UploadFile,
 } from "./createVideoPatch";
 
@@ -270,5 +272,115 @@ describe("createCaptionPatch", () => {
       path: ["hero", "captions", "1"],
     });
     expect(patch[1]).toMatchObject({ nestedFilePath: ["captions", "1"] });
+  });
+});
+
+describe("videosets", () => {
+  const video = file("mp4 bytes", "video/mp4");
+
+  test("an upload into a set is the entry, with its files filed at it", () => {
+    const { patch, entry } = createVideosetEntryPatch(
+      {
+        setPatchPath: [],
+        dir: "/public/val/videos",
+        filename: "Intro.mp4",
+        upload: { kind: "file", file: video },
+        metadata,
+        remote: null,
+        schema: schemaOf(s.video()),
+      },
+      sha256,
+    );
+    expect(entry.key).toMatch(
+      /^\/public\/val\/videos\/intro_[0-9a-f]{5}\.mp4$/,
+    );
+    expect(patch[0]).toEqual({
+      op: "add",
+      path: [entry.key],
+      value: {
+        mimeType: "video/mp4",
+        width: 1920,
+        height: 1080,
+        duration: 12.35,
+        alt: null,
+      },
+    });
+    expect(patch.slice(1)).toEqual([
+      {
+        op: "file",
+        path: [entry.key],
+        filePath: entry.key,
+        value: video.dataUrl,
+        metadata: { mimeType: "video/mp4" },
+        remote: false,
+      },
+    ]);
+  });
+
+  test("a stream in a set is keyed by its master, and every file goes up", () => {
+    const { patch, entry } = createVideosetEntryPatch(
+      {
+        setPatchPath: [],
+        dir: "/public/val/videos",
+        filename: "intro.mov",
+        upload: {
+          kind: "hls",
+          files: {
+            "master.m3u8": file(MASTER, "application/vnd.apple.mpegurl"),
+            "playlist-1.m3u8": file(MEDIA, "application/vnd.apple.mpegurl"),
+            "segments-1.mp4": file("segments", "video/mp4"),
+          },
+          sourceSha256: sha256(textEncoder.encode("source")),
+          sourceMimeType: "video/quicktime",
+        },
+        metadata,
+        remote: null,
+        schema: schemaOf(s.video()),
+      },
+      sha256,
+    );
+    expect(entry.key).toMatch(
+      /^\/public\/val\/videos\/intro_[0-9a-f]{5}\/master\.m3u8$/,
+    );
+    expect(entry.value.mimeType).toBe("application/vnd.apple.mpegurl");
+    const fileOps = patch.flatMap((op) => (op.op === "file" ? [op] : []));
+    expect(fileOps.map((op) => op.filePath.split("/").pop()).sort()).toEqual([
+      "master.m3u8",
+      "playlist-1.m3u8",
+      "segments-1.mp4",
+    ]);
+    expect(fileOps.every((op) => op.path.join("/") === entry.key)).toBe(true);
+  });
+
+  test("a set-backed field names the video, and the set gets the metadata", () => {
+    const { patch, value, entry } = createSetBackedVideoPatch(
+      {
+        patchPath: ["intro"],
+        dir: "/public/val/videos",
+        filename: "Intro.mp4",
+        upload: { kind: "file", file: video },
+        metadata,
+        poster: null,
+        posterTime: null,
+        keep: { alt: "Hello" },
+        remote: null,
+        schema: schemaOf(s.video()),
+      },
+      sha256,
+    );
+    expect(value).toEqual({ path: entry.key, alt: "Hello" });
+    expect(entry.value).toEqual({
+      mimeType: "video/mp4",
+      width: 1920,
+      height: 1080,
+      duration: 12.35,
+    });
+    // The bytes are the FIELD's upload: it carries the draft's patch id.
+    expect(patch[0]).toEqual({
+      op: "replace",
+      path: ["intro"],
+      value: { path: entry.key, alt: "Hello" },
+    });
+    expect(patch[1]).toMatchObject({ op: "file", path: ["intro"] });
   });
 });
