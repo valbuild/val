@@ -129,7 +129,7 @@ export { ModuleFilePathSep };
 import { SelectorSource, getSchema } from "./selector";
 import { ModulePath, SourcePath, getValPath, isVal } from "./val";
 import { createValPathOfItem } from "./selector/SelectorProxy";
-import { getSHA256Hash } from "./getSha256";
+import { createHash, getSHA256Hash } from "./getSha256";
 import { Operation } from "./patch";
 import { initSchema } from "./initSchema";
 import {
@@ -465,6 +465,11 @@ const Internal = {
   isExternalFileRef,
   createValPathOfItem,
   getSHA256Hash,
+  /**
+   * The same hash as `getSHA256Hash`, fed a chunk at a time: what a caller
+   * hashing hundreds of megabytes uses to give the thread back between chunks.
+   */
+  createSHA256Hash: () => createHash("sha256"),
   initSchema,
   getMimeType,
   mimeTypeToFileExt,

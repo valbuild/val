@@ -21,6 +21,10 @@
  * Nothing here imports `fixHandlers.ts` at runtime: that module registers
  * these handlers, and a cycle would hand it undefined ones.
  */
+import {
+  extractVideoMetadataFromUrl,
+  nameForTypeOf,
+} from "./remoteVideoMetadata";
 import fs from "fs";
 import path from "path";
 import ts from "typescript";
@@ -50,7 +54,7 @@ import type {
   FixHandlerResult,
   ModulePatch,
 } from "./fixHandlers";
-import { checkGalleryFiles } from "./galleryFiles";
+import { checkGalleryFiles, incompleteGalleryEntries } from "./galleryFiles";
 import { galleryEntryOf, type GalleryEntryKey } from "./galleryEntryKey";
 import { isHlsMasterPlaylist } from "./hls";
 import { openRemoteUploadSession } from "./remoteUpload";
@@ -338,8 +342,9 @@ function resolveVideoset(
 
 /**
  * `videos:add-metadata`: the entry's KEY is its file, and it must be on disk
- * and a kind Val can read the size and length of here — the same
- * preconditions as `video:add-metadata`, asked of the key instead of `path`.
+ * (or on Val Remote, read over HTTP) and a kind Val can read the size and
+ * length of here — the same preconditions as `video:add-metadata`, asked of
+ * the key instead of `path`.
  */
 export async function handleVideosetMetadata(
   ctx: FixHandlerContext,
@@ -351,14 +356,8 @@ export async function handleVideosetMetadata(
       errorMessage: `Expected a video set entry at ${ctx.sourcePath}`,
     };
   }
-  if (galleryEntryOf(key).remote) {
-    return {
-      success: false,
-      errorMessage: `Cannot read video metadata: '${key}' is not a local file`,
-    };
-  }
   const absolute = path.join(ctx.projectRoot, key);
-  if (!ctx.fs.fileExists(absolute)) {
+  if (!galleryEntryOf(key).remote && !ctx.fs.fileExists(absolute)) {
     return { success: false, errorMessage: `File ${absolute} does not exist` };
   }
   const entry = ctx.validationError.value;
@@ -513,6 +512,16 @@ export async function handleVideosetCheckAllFiles(
     return set;
   }
   const readFile = (absolute: string) => ctx.fs.readBuffer(absolute);
+  const incompleteEntries = incompleteGalleryEntries({
+    entryKeys: Object.keys(set.entries),
+    projectRoot: ctx.projectRoot,
+    fs: ctx.fs,
+    filesOfEntry: (entry, key) =>
+      filesOfVideosetEntry(entry, set.entries[key], {
+        projectRoot: ctx.projectRoot,
+        readFile,
+      }),
+  });
   const { untrackedFiles } = checkGalleryFiles({
     entryKeys: Object.keys(set.entries),
     dir,
@@ -524,6 +533,12 @@ export async function handleVideosetCheckAllFiles(
         readFile,
       }),
   });
+  if (incompleteEntries.length > 0) {
+    return {
+      success: false,
+      errorMessage: incompleteMessage(incompleteEntries),
+    };
+  }
   if (untrackedFiles.length === 0) {
     return { success: true, shouldApplyPatch: true };
   }
@@ -599,6 +614,13 @@ export async function videosetCheckAllFilesPatch({
     return fail(set.errorMessage);
   }
   const recordPath = patchPathOf(sourcePath);
+  const incompleteEntries = incompleteGalleryEntries({
+    entryKeys: Object.keys(set.entries),
+    projectRoot,
+    fs: ts.sys,
+    filesOfEntry: (entry, key) =>
+      filesOfVideosetEntry(entry, set.entries[key], { projectRoot }),
+  });
   const { missingTrackedFiles, untrackedFiles } = checkGalleryFiles({
     entryKeys: Object.keys(set.entries),
     dir,
@@ -609,6 +631,14 @@ export async function videosetCheckAllFilesPatch({
     filesOfEntry: (entry, key) =>
       filesOfVideosetEntry(entry, set.entries[key], { projectRoot }),
   });
+
+  if (incompleteEntries.length > 0) {
+    remainingErrors.push({
+      ...validationError,
+      message: incompleteMessage(incompleteEntries),
+      fixes: undefined,
+    });
+  }
 
   for (const missing of missingTrackedFiles) {
     if (apply) {
@@ -713,9 +743,6 @@ export async function videosetAddMetadataPatch({
   if (key === undefined) {
     return fail(`Expected a video set entry at ${sourcePath}`);
   }
-  if (galleryEntryOf(key).remote) {
-    return fail(`Cannot read video metadata: '${key}' is not a local file`);
-  }
   let current: unknown = validationError.value;
   if (moduleSource !== undefined && moduleSchema !== undefined) {
     const parent = resolveVideoset(
@@ -732,7 +759,9 @@ export async function videosetAddMetadataPatch({
   }
   let metadata: VideoMetadata;
   try {
-    metadata = await extractVideoMetadataFromFile(path.join(projectRoot, key));
+    metadata = galleryEntryOf(key).remote
+      ? await extractVideoMetadataFromUrl(key, nameForTypeOf(key))
+      : await extractVideoMetadataFromFile(path.join(projectRoot, key));
   } catch (err) {
     return fail(
       `Failed to read video metadata from ${key}: ${
@@ -757,4 +786,20 @@ export async function videosetAddMetadataPatch({
     }
   }
   return { patch, remainingErrors: [] };
+}
+
+/**
+ * What to say about streams whose master is there and some of whose files are
+ * not. Not fixable: the entry still names a video someone uploaded, and only
+ * they have the rest of it.
+ */
+function incompleteMessage(
+  incomplete: { key: string; missing: string[] }[],
+): string {
+  return incomplete
+    .map(
+      ({ key, missing }) =>
+        `Video '${key}' is missing ${missing.length === 1 ? "a file it names" : `${missing.length} files it names`}: ${missing.join(", ")}. It stops playing where they are. Upload it again, or put the files back.`,
+    )
+    .join(" ");
 }

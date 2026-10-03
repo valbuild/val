@@ -42,7 +42,7 @@ export async function openRemoteUploadSession(
   const patFile = getPersonalAccessTokenPath(ctx.projectRoot);
   if (!ctx.fs.fileExists(patFile)) {
     return fail(
-      `File: ${path.join(ctx.projectRoot, ctx.file)} has remote images that are not uploaded and you are not logged in.\n\nFix this error by logging in:\n\t"npx val login"\n`,
+      `File: ${path.join(ctx.projectRoot, ctx.file)} has remote files that are not uploaded and you are not logged in.\n\nFix this error by logging in:\n\t"npx val login"\n`,
     );
   }
 

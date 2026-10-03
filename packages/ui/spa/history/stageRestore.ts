@@ -5,6 +5,9 @@ import {
   type SourcePath,
 } from "@valbuild/core";
 import type { JSONValue, Patch } from "@valbuild/core/patch";
+import { isPlaylistPath, playlistUris } from "../utils/video/hlsPlaylist";
+import { localOfUri } from "../utils/video/renameVideo";
+import { localPathOf } from "../utils/video/createVideoPatch";
 
 /**
  * Turn "put this old value here" into a patch.
@@ -95,8 +98,8 @@ function walk(
   if (schema.type === "video") {
     // A video names up to three kinds of file, each with its own `patch_id`
     // once restored: the video, its poster and every caption track. An HLS
-    // stream's segments are named by its playlists, not by the value, and are
-    // not found here — restoring a stream re-uploads its master playlist only.
+    // stream's playlists and segments are named by its master, not by the
+    // value: `filesNamedByPlaylist` follows them once the master is fetched.
     if (isObject(value) && typeof value["path"] === "string") {
       found.push({
         filePath: value["path"],
@@ -158,6 +161,33 @@ function walk(
       walk(variant, value, at, found);
     }
   }
+}
+
+/**
+ * The files a playlist names, as the paths they were stored under: a local
+ * stream names its siblings relatively, a remote one by ref. Restoring a
+ * stream fetches these too — the master alone is a stream that plays nothing.
+ */
+export function filesNamedByPlaylist(
+  playlistPath: string,
+  text: string,
+): string[] {
+  const named: string[] = [];
+  for (const uri of playlistUris(text)) {
+    if (Internal.remote.splitRemoteRef(uri).status === "success") {
+      named.push(uri);
+      continue;
+    }
+    const local = localOfUri(uri, playlistPath);
+    if (local !== null) {
+      named.push(local);
+    }
+  }
+  return named;
+}
+
+export function isPlaylistFile(filePath: string): boolean {
+  return isPlaylistPath(localPathOf(filePath));
 }
 
 function isObject(value: JSONValue): value is { [key: string]: JSONValue } {

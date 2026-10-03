@@ -5,7 +5,12 @@ import {
   type Locator,
 } from "@playwright/test";
 import { clearPatchChain, openStudio, patchThroughStore } from "../studio";
-import { serverField, serverFileOps, serverSource } from "./serverState";
+import {
+  serverField,
+  serverFileOps,
+  serverSource,
+  withoutWebCodecs,
+} from "./serverState";
 
 /**
  * `s.videoset()` and the `s.video(set)` field that picks from it, against the
@@ -72,12 +77,13 @@ test("an upload into the set adds an entry with its metadata", async ({
   page,
   request,
 }) => {
+  await withoutWebCodecs(page);
   await openStudio(page, `/val/~${SET}`);
   const studio = page.locator("#val-shadow-root");
   await studio.locator('input[type="file"]').first().setInputFiles(CLIP);
 
   await expect(
-    studio.locator("text=cannot convert video to a stream"),
+    studio.getByText("cannot convert video to a stream (it needs WebCodecs"),
   ).toBeVisible({ timeout: 60_000 });
   await expect
     .poll(
@@ -121,6 +127,9 @@ test("an upload in a set-backed field goes into the set, and the field names it"
   page,
   request,
 }) => {
+  // The set streams; this test is about where an upload goes, not about
+  // what it becomes, so it is the same file on every browser.
+  await withoutWebCodecs(page);
   await openStudio(page, `/val/~${PAGE}?p=%22fromSet%22`);
   const studio = page.locator("#val-shadow-root");
   const before = await setKeys(request);

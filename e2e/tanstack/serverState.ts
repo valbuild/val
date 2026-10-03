@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext } from "@playwright/test";
+import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
 /**
  * What the SERVER holds, read over HTTP — what these specs assert on.
@@ -66,4 +66,20 @@ export async function serverFileOps(
         patchId: patch.patchId,
       })),
   );
+}
+
+/**
+ * Take WebCodecs away from the page, so a streaming upload takes the
+ * fallback: the original file goes up and the Studio says why.
+ *
+ * Whether a browser can encode H.264 depends on how it was built — the
+ * Chromium Playwright downloads cannot, the one on a CI runner can — so a
+ * test about the fallback has to make it happen rather than assume it.
+ * Not about the server, but every spec that uploads video needs it.
+ */
+export async function withoutWebCodecs(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(globalThis, "VideoEncoder");
+    Reflect.deleteProperty(globalThis, "VideoDecoder");
+  });
 }

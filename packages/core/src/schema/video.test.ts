@@ -169,13 +169,21 @@ describe("VideoSchema", () => {
     expect(
       messages(validate(s.video(), { ...complete, path: remotePath })),
     ).toEqual([expect.stringContaining("Expected a local video")]);
-    // A remote video's bytes cannot be re-read locally, so its metadata is
-    // not asked for -- only the mime type, which says how to play it.
+    // A remote video's metadata is asked for like a local one's: the CLI
+    // reads its headers over HTTP, with Range requests.
     expect(
-      validate(s.video().remote(), {
+      (validate(s.video().remote(), {
         path: remotePath,
         mimeType: "video/mp4",
+      }) || {})[PATH],
+    ).toEqual([
+      expect.objectContaining({
+        message: "Video metadata is missing: width, height, duration.",
+        fixes: ["video:add-metadata"],
       }),
+    ]);
+    expect(
+      validate(s.video().remote(), { ...complete, path: remotePath }),
     ).toBe(false);
   });
 

@@ -11,6 +11,7 @@ import {
   AuthorId,
   BaseSha,
   BinaryFileType,
+  BinaryFileReader,
   GenericErrorMessage,
   MetadataOfType,
   OpsMetadata,
@@ -1329,6 +1330,34 @@ export class ValOpsFS extends ValOps {
     };
   }
 
+  override async openBinaryFile(
+    filePath: string,
+    fromPatch: { patchId: PatchId; remote: boolean } | null,
+  ): Promise<BinaryFileReader | null> {
+    let absPath: string | null;
+    if (fromPatch) {
+      const patchesDir = this.getPatchesDir();
+      absPath = this.wherePatchFileIs(
+        patchBinaryFile(patchesDir, fromPatch.patchId, filePath),
+        stagedPatchBinaryFile(patchesDir, fromPatch.patchId, filePath),
+      );
+    } else {
+      absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
+      if (!this.host.fileExists(absPath)) {
+        absPath = null;
+      }
+    }
+    if (absPath === null) {
+      return null;
+    }
+    const path = absPath;
+    return {
+      size: this.host.binaryFileSize(path),
+      read: async (start, end) =>
+        this.host.readBinaryFileRange(path, start, end),
+    };
+  }
+
   override async getBinaryFile(filePath: string): Promise<Buffer | null> {
     const absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
     if (!this.host.fileExists(absPath)) {
@@ -1477,6 +1506,38 @@ class FSOpsHost {
 
   readBinaryFile(path: string): Buffer {
     return fs.readFileSync(path);
+  }
+
+  binaryFileSize(path: string): number {
+    return fs.statSync(path).size;
+  }
+
+  /** Bytes `start` to `end` inclusive, and only those, read off disk. */
+  async readBinaryFileRange(
+    path: string,
+    start: number,
+    end: number,
+  ): Promise<Buffer> {
+    const handle = await fs.promises.open(path, "r");
+    try {
+      const buffer = Buffer.alloc(Math.max(0, end - start + 1));
+      let filled = 0;
+      while (filled < buffer.length) {
+        const { bytesRead } = await handle.read(
+          buffer,
+          filled,
+          buffer.length - filled,
+          start + filled,
+        );
+        if (bytesRead === 0) {
+          break;
+        }
+        filled += bytesRead;
+      }
+      return buffer.subarray(0, filled);
+    } finally {
+      await handle.close();
+    }
   }
 
   readUtf8File(path: string): string {

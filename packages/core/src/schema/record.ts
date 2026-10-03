@@ -649,15 +649,14 @@ export class RecordSchema<
     const errors: ValidationError[] = [];
 
     if (type === "videos") {
-      // What is read from the bytes. Missing is a fix (the CLI reads them);
+      // What is read from the bytes. Missing is a fix (the CLI reads them,
+      // from disk or — for a remote entry — over HTTP with Range requests);
       // present and wrong is an error, because a fix that overwrote an
-      // authored number would be guessing which of the two was right. A
-      // remote entry's bytes are on the content host, where the Studio read
-      // them before uploading, so nothing local can fill them in.
+      // authored number would be guessing which of the two was right.
       const missing = (
         ["mimeType", "width", "height", "duration"] as const
       ).filter((k) => entryObj[k] === undefined);
-      if (missing.length > 0 && !this.isRemoteUrl(key)) {
+      if (missing.length > 0) {
         return {
           [path]: [
             {

@@ -250,16 +250,19 @@ export async function handleFileMetadata(
 }
 
 /**
- * `video:add-metadata`: the bytes must be on disk (core never asks this of a
- * remote video), and they must be a kind of file Val can read the size and
- * length of here: mp4/mov boxes, WebM/Matroska headers and HLS playlists.
- * Anything else is refused with what to do instead, unless all that is
- * missing is the mime type, which the extension answers.
+ * `video:add-metadata`: the bytes must be on disk, or on Val Remote (read
+ * over HTTP, headers only — see `remoteVideoMetadata.ts`), and they must be a
+ * kind of file Val can read the size and length of here: mp4/mov boxes,
+ * WebM/Matroska headers and HLS playlists. Anything else is refused with what
+ * to do instead, unless all that is missing is the mime type, which the
+ * extension answers.
  */
 export async function handleVideoMetadata(
   ctx: FixHandlerContext,
 ): Promise<FixHandlerResult> {
-  const exists = await handleFileMetadata(ctx);
+  const exists: FixHandlerResult = isRemoteVideoAt(ctx)
+    ? { success: true, shouldApplyPatch: true }
+    : await handleFileMetadata(ctx);
   if (!exists.success) {
     return exists;
   }
@@ -287,6 +290,26 @@ export async function handleVideoMetadata(
     };
   }
   return exists;
+}
+
+/** Whether the video at the error's path is on Val Remote. */
+function isRemoteVideoAt(ctx: FixHandlerContext): boolean {
+  if (!ctx.valModule.source || !ctx.valModule.schema) {
+    return false;
+  }
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+  const video: unknown = Internal.resolvePath(
+    modulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  ).source;
+  return (
+    isRecord(video) &&
+    typeof video.path === "string" &&
+    Internal.isRemoteMediaPath(video.path)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

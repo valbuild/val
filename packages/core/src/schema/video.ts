@@ -336,7 +336,6 @@ export class VideoSchema<
     // moves them all — a video on the content host with its poster still in
     // the repository is half a migration, not a choice. The error is reported
     // once for the whole video, never per file.
-    const isRemotePath = isRemoteMediaPath(src.path);
     const misplaced = filesOfVideoSource(src).filter(
       (file) => isRemoteMediaPath(file) !== this.isRemote,
     );
@@ -409,24 +408,20 @@ export class VideoSchema<
     }
 
     // Everything authored is fine. What is left is what is read from the
-    // bytes, which this package cannot do — so it is handed on as a fix. A
-    // remote video's bytes are on the content host, where the Studio read them
-    // before uploading; nothing local can re-read them.
-    if (!isRemotePath) {
-      const missing = (
-        ["mimeType", "width", "height", "duration"] as const
-      ).filter((key) => own[key] === undefined);
-      if (missing.length > 0) {
-        return [
-          {
-            message: `Video metadata is missing: ${missing.join(", ")}.`,
-            value: src,
-            fixes: ["video:add-metadata"],
-          },
-        ];
-      }
-    } else if (own.mimeType === undefined) {
-      return [{ message: `A video must have a 'mimeType'.`, value: src }];
+    // bytes, which this package cannot do — so it is handed on as a fix. The
+    // CLI reads a local file's headers from disk and a remote one's over
+    // HTTP, with Range requests, so neither is downloaded whole.
+    const missing = (
+      ["mimeType", "width", "height", "duration"] as const
+    ).filter((key) => own[key] === undefined);
+    if (missing.length > 0) {
+      return [
+        {
+          message: `Video metadata is missing: ${missing.join(", ")}.`,
+          value: src,
+          fixes: ["video:add-metadata"],
+        },
+      ];
     }
     return [];
   }

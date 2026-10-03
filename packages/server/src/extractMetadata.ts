@@ -160,7 +160,7 @@ function isHlsPath(filename: string): boolean {
   return path.extname(filename).toLowerCase() === ".m3u8";
 }
 
-function extractFromByteSource(
+export function extractFromByteSource(
   filename: string,
   source: ByteSource,
 ): VideoMetadata {
@@ -189,11 +189,16 @@ function extractFromByteSource(
   return metadata;
 }
 
-function extractHlsMetadata(
-  filename: string,
+/**
+ * An HLS stream's metadata from its master playlist's text, and — for the
+ * duration — the first media playlist it names, which `readMediaPlaylist`
+ * fetches by the URI the master gives (relative to it, or a remote ref). The
+ * one implementation for a stream on disk and one on Val Remote.
+ */
+export async function readHlsMetadata(
   text: string,
-  readFile: (absolutePath: string) => Buffer | undefined,
-): VideoMetadata {
+  readMediaPlaylist: (uri: string) => Promise<string | undefined>,
+): Promise<VideoMetadata> {
   const metadata: VideoMetadata = { mimeType: Internal.media.HLS_MIME_TYPE };
   if (!isHlsMasterPlaylist(text)) {
     // A media playlist on its own: it knows how long it is, not how big.
@@ -210,23 +215,34 @@ function extractHlsMetadata(
     metadata.height = largest.height;
   }
   // Every rendition is the same length, so the first one listed is as good as
-  // any. Only a relative URI can be read from disk: the Studio writes relative
-  // URIs into a local stream, and a remote one is never re-read locally.
+  // any.
   const first = variants[0];
-  if (first && isRelativeUri(first.uri)) {
-    const mediaPlaylist = readFile(
-      path.resolve(path.dirname(filename), first.uri.split(/[?#]/)[0]),
-    );
-    if (mediaPlaylist) {
-      const duration = roundSeconds(
-        sumHlsSegmentDurations(mediaPlaylist.toString("utf-8")),
-      );
+  if (first) {
+    const mediaPlaylist = await readMediaPlaylist(first.uri);
+    if (mediaPlaylist !== undefined) {
+      const duration = roundSeconds(sumHlsSegmentDurations(mediaPlaylist));
       if (duration !== undefined) {
         metadata.duration = duration;
       }
     }
   }
   return metadata;
+}
+
+function extractHlsMetadata(
+  filename: string,
+  text: string,
+  readFile: (absolutePath: string) => Buffer | undefined,
+): Promise<VideoMetadata> {
+  // Only a relative URI can be read from disk: the Studio writes relative
+  // URIs into a local stream.
+  return readHlsMetadata(text, async (uri) =>
+    isRelativeUri(uri)
+      ? readFile(
+          path.resolve(path.dirname(filename), uri.split(/[?#]/)[0]),
+        )?.toString("utf-8")
+      : undefined,
+  );
 }
 
 function isRelativeUri(uri: string): boolean {
