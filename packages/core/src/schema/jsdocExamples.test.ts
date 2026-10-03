@@ -137,6 +137,7 @@ export const probes = {
   richtext: s.richtext(),
   image: s.image(),
   file: s.file(),
+  video: s.video(),
   date: s.date(),
   datetime: s.datetime(),
   color: s.color(),

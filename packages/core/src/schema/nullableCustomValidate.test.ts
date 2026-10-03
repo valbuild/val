@@ -80,6 +80,10 @@ const nullableAfterValidate: Record<
     .record(s.string())
     .validate(() => MESSAGE)
     .nullable(),
+  video: s
+    .video()
+    .validate(() => MESSAGE)
+    .nullable(),
   file: s
     .file()
     .validate(() => MESSAGE)

@@ -34,7 +34,11 @@ import type { SerializedSchema } from "./index";
  * instead would reintroduce exactly the silent skip described above.
  */
 export function hasRemoteFileSchema(schema: SerializedSchema): boolean {
-  if (schema.type === "file" || schema.type === "image") {
+  if (
+    schema.type === "file" ||
+    schema.type === "image" ||
+    schema.type === "video"
+  ) {
     return !!schema.remote;
   } else if (schema.type === "richtext") {
     if (typeof schema.options?.img === "object") {
@@ -116,7 +120,11 @@ export function hasRemoteFileSchema(schema: SerializedSchema): boolean {
  * already has a data-loss incident attached to it (see above).
  */
 export function hasMediaSchema(schema: SerializedSchema): boolean {
-  if (schema.type === "file" || schema.type === "image") {
+  if (
+    schema.type === "file" ||
+    schema.type === "image" ||
+    schema.type === "video"
+  ) {
     return true;
   } else if (schema.type === "richtext") {
     // `img` is `boolean | SerializedImageSchema`: `true` means inline images are

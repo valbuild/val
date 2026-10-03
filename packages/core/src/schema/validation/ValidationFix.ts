@@ -13,6 +13,11 @@ export const ValidationFix = [
   "file:check-remote",
   "files:check-remote",
   "files:upload-remote",
+  // A video's mimeType, width, height and duration, read from its bytes. One
+  // code for both "missing" and "check": unlike an image, a video is never
+  // re-checked once it has them, because reading a video is not cheap enough
+  // to do on every validate.
+  "video:add-metadata",
   "keyof:check-keys",
   "router:check-route",
   "locale:check-locale",

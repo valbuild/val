@@ -1100,3 +1100,43 @@ describe("reading a view is lazy", () => {
     ]);
   });
 });
+
+describe("video", () => {
+  const schema = s.object({ hero: s.video() });
+  const valModule = c.define("/video.val.ts", schema, {
+    hero: {
+      path: "/public/val/intro_3b9d7.mp4",
+      mimeType: "video/mp4",
+      width: 1920,
+      height: 1080,
+      duration: 30,
+      posterTime: 2,
+      poster: { path: "/public/val/intro_poster_1a2b3.webp" },
+      captions: [{ path: "/public/val/intro_en.vtt", srclang: "en" }],
+    },
+  });
+
+  test("the video, its poster and each caption track get a url", () => {
+    const res: ResolvedVal<typeof valModule> = stegaEncode(valModule, {});
+    expect(vercelStegaSplit(res.hero.url).cleaned).toBe("/val/intro_3b9d7.mp4");
+    // Only the video's own url carries the edit tag: the poster and the
+    // captions are parts of the field, not fields of their own.
+    expect(vercelStegaDecode(res.hero.url)).toStrictEqual({
+      origin: "val.build",
+      data: { valPath: '/video.val.ts?p="hero"' },
+    });
+    expect(res.hero.poster?.url).toBe("/val/intro_poster_1a2b3.webp");
+    expect(res.hero.captions?.[0].url).toBe("/val/intro_en.vtt");
+    expect(res.hero.mimeType).toBe("video/mp4");
+  });
+
+  test("a video is typed as a video, not as an image", () => {
+    type Hero = ResolvedVal<typeof valModule>["hero"];
+    const captionUrl: Hero extends {
+      captions?: readonly { url: string }[];
+    }
+      ? true
+      : false = true;
+    void captionUrl;
+  });
+});

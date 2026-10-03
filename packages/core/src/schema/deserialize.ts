@@ -11,6 +11,7 @@ import { DateSchema } from "./date";
 import { DateTimeSchema } from "./datetime";
 import { FileSchema } from "./file";
 import { ImageSchema } from "./image";
+import { VideoSchema } from "./video";
 import { KeyOfSchema } from "./keyOf";
 import { ValViewSchema } from "./view";
 import { LiteralSchema } from "./literal";
@@ -289,6 +290,17 @@ function deserializeSchemaImpl(
         serialized.remote,
         [],
         {},
+        false,
+        false,
+        serialized.description,
+        serialized.render ?? null,
+      );
+    case "video":
+      return new VideoSchema(
+        serialized.options,
+        serialized.opt,
+        serialized.remote,
+        [],
         false,
         false,
         serialized.description,

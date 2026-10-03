@@ -71,6 +71,9 @@ function isSkippableFixCode(fix: ValidationFix): boolean {
     case "file:check-remote":
     case "files:check-remote":
     case "files:upload-remote":
+    // The Studio writes a video's metadata itself when it uploads one, so this
+    // is only ever a hand-written value, which `val validate --fix` reads.
+    case "video:add-metadata":
     case "images:check-unique-folder":
     case "files:check-unique-folder":
     case "images:check-all-files":

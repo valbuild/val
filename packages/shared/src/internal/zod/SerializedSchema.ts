@@ -21,6 +21,7 @@ import {
   type SerializedColorSchema as SerializedColorSchemaT,
   type SerializedCodeSchema as SerializedCodeSchemaT,
   type SerializedImageSchema as SerializedImageSchemaT,
+  type SerializedVideoSchema as SerializedVideoSchemaT,
   type SerializedSettingsSchema as SerializedSettingsSchemaT,
   CODE_LANGUAGES,
 } from "@valbuild/core";
@@ -311,6 +312,32 @@ export const SerializedFileSchema: z.ZodType<SerializedFileSchemaT> = z.object({
   referencedModule: z.string().optional(),
 });
 
+// `stream` is the one option that changes what an upload BECOMES, so it is
+// declared field by field: these z.objects strip unknown keys, and a stream
+// dropped in transit is a Studio that uploads a 2 GB mp4 where an HLS stream
+// was asked for.
+export const VideoStreamOption = z.union([
+  z.literal(false),
+  z.object({
+    type: z.literal("hls"),
+    renditions: z.array(z.number()).optional(),
+    segmentDuration: z.number().optional(),
+  }),
+]);
+export const VideoOptions = z.object({
+  dir: z.string().optional(),
+  accept: z.string().optional(),
+  stream: VideoStreamOption.optional(),
+});
+export const SerializedVideoSchema: z.ZodType<SerializedVideoSchemaT> =
+  z.object({
+    ...commonSchemaFields,
+    type: z.literal("video"),
+    options: VideoOptions.optional(),
+    opt: z.boolean(),
+    remote: z.boolean().optional(),
+  });
+
 export const DateOptions = z.object({
   from: z.string().optional(),
   to: z.string().optional(),
@@ -450,5 +477,6 @@ export const SerializedSchema: z.ZodType<SerializedSchemaT> = z.union([
   SerializedCodeSchema,
   SerializedSettingsSchema,
   SerializedImageSchema,
+  SerializedVideoSchema,
   SerializedValViewSchema,
 ]);

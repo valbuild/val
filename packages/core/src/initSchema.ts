@@ -14,6 +14,7 @@ import { keyOf } from "./schema/keyOf";
 import { view } from "./schema/view";
 import { record } from "./schema/record";
 import { file } from "./schema/file";
+import { video } from "./schema/video";
 import { fileset } from "./schema/fileset";
 import { date } from "./schema/date";
 import { datetime } from "./schema/datetime";
@@ -222,6 +223,32 @@ export type InitSchema = {
    */
   readonly file: typeof file;
   /**
+   * Define a video.
+   *
+   * A video is an object with a `path` and a `mimeType`: an `.mp4` / `.webm`
+   * file, or — with `stream: { type: "hls" }` — an HLS stream the Studio
+   * transcodes an upload into, in the browser. `width`, `height` and
+   * `duration` are read from the file (`npx val validate --fix` adds them);
+   * `posterTime`, `startTime`, `endTime`, `hotspot`, `alt` and `captions` are
+   * authored in the Studio.
+   *
+   * @example
+   * const schema = s.video({ stream: { type: "hls" } });
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/intro_3b9d7/master.m3u8",
+   *   mimeType: "application/vnd.apple.mpegurl",
+   *   width: 1920,
+   *   height: 1080,
+   *   duration: 42.5,
+   *   startTime: 2,
+   *   alt: "The team walking into the office",
+   *   captions: [
+   *     { path: "/public/val/intro_en_8f2a1.vtt", srclang: "en", label: "English" },
+   *   ],
+   * });
+   */
+  readonly video: typeof video;
+  /**
    * Define a date.
    *
    * @example
@@ -414,6 +441,7 @@ export function initSchema() {
     view,
     record,
     file,
+    video,
     fileset,
     date,
     datetime,

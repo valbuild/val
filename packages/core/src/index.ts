@@ -26,6 +26,12 @@ export type {
   ImageEncodeOptions,
 } from "./schema/image";
 export type { FileMetadata } from "./schema/file";
+export type {
+  VideoMetadata,
+  VideoOptions,
+  VideoStreamOption,
+  VideoStreamOptions,
+} from "./schema/video";
 export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/media";
@@ -46,6 +52,10 @@ export type {
   MediaSource,
   GalleryImageSource,
   GalleryFileSource,
+  VideoSource,
+  VideoPosterSource,
+  VideoCaptionSource,
+  ResolvedVideo,
 } from "./source/media";
 export type {
   AllRichTextOptions,
@@ -145,9 +155,12 @@ import { getFileHash, hashToRemoteFileHash } from "./remote/fileHash";
 import { splitRemoteRef } from "./remote/splitRemoteRef";
 import {
   fillFromGallery,
+  HLS_MIME_TYPE,
+  isHlsVideo,
   isRemoteMediaPath,
   mediaUrl,
   resolveMedia,
+  resolveVideo,
 } from "./source/media";
 import {
   colorToHex,
@@ -164,6 +177,13 @@ export { type SerializedNumberSchema, NumberSchema } from "./schema/number";
 export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";
 export { type SerializedImageSchema, ImageSchema } from "./schema/image";
 export { type SerializedFileSchema, FileSchema } from "./schema/file";
+export {
+  type SerializedVideoSchema,
+  VideoSchema,
+  DEFAULT_VIDEO_ACCEPT,
+  DEFAULT_VIDEO_RENDITIONS,
+  DEFAULT_VIDEO_SEGMENT_DURATION,
+} from "./schema/video";
 export { type SerializedDateSchema, DateSchema } from "./schema/date";
 export {
   type SerializedSettingsSchema,
@@ -371,9 +391,12 @@ const Internal = {
   viewModulesOf,
   mediaUrl,
   resolveMedia,
+  resolveVideo,
   isRemoteMediaPath,
   media: {
     fillFromGallery,
+    isHlsVideo,
+    HLS_MIME_TYPE,
   },
   getSchema,
   getValPath,

@@ -12,6 +12,9 @@ import {
   SerializedLiteralSchema,
   SerializedFileSchema,
   SerializedImageSchema,
+  SerializedVideoSchema,
+  VideoSource,
+  VideoCaptionSource,
   MediaHotspot,
   RichTextOptions,
   ImageSource,
@@ -209,6 +212,42 @@ export type File = {
   readonly mimeType?: string;
 };
 
+/**
+ * A video as a consumer sees it: what was authored, plus a generated `url` on
+ * the video, on its poster and on each caption track.
+ *
+ * Only the video's own `url` carries the edit tag — a click on the player
+ * reaches the field. The poster and the captions are parts of the same field,
+ * not fields of their own, so their URLs are plain.
+ *
+ * An HLS stream (`mimeType` `application/vnd.apple.mpegurl`) plays natively in
+ * Safari and needs a library such as hls.js everywhere else; `url` is then the
+ * master playlist.
+ */
+export type Video = {
+  readonly path: string;
+  readonly url: ValEncodedString;
+  readonly mimeType: string;
+  readonly width?: number;
+  readonly height?: number;
+  readonly duration?: number;
+  readonly alt?: string;
+  readonly hotspot?: MediaHotspot;
+  readonly posterTime?: number;
+  readonly poster?: {
+    readonly path: string;
+    readonly url: string;
+    readonly width?: number;
+    readonly height?: number;
+    readonly mimeType?: string;
+  };
+  readonly startTime?: number;
+  readonly endTime?: number;
+  readonly captions?: readonly (Omit<VideoCaptionSource, "patch_id"> & {
+    readonly url: string;
+  })[];
+};
+
 export type StegaOfRichTextSource<T extends Source> = Json extends T
   ? Json
   : T extends ImageSource
@@ -236,28 +275,33 @@ export type StegaOfSource<T extends Source> = Json extends T
   ? Json
   : T extends RichTextSource<infer O>
     ? RichText<O>
-    : T extends ImageSource
-      ? Image
-      : T extends FileSource
-        ? File
-        : // A view is a pointer at another module: nothing of it is rendered, so
-          // there is nothing here to encode or to read. `ValView<Target>`
-          // names what is behind it and exposes no properties.
-          T extends ValViewSource<string, infer Target>
-          ? ValView<Target>
-          : T extends SourceObject
-            ? {
-                [key in keyof T]: StegaOfSource<T[key]>;
-              }
-            : T extends SourceArray
-              ? StegaOfSource<T[number]>[]
-              : T extends RawString
-                ? string
-                : string extends T
-                  ? ValEncodedString
-                  : T extends JsonPrimitive
-                    ? T
-                    : never;
+    : // Above `ImageSource`: a video is structurally an image too (a `path`
+      // and optional fields), and only its required `mimeType` tells them
+      // apart -- so this arm has to be asked first.
+      T extends VideoSource
+      ? Video
+      : T extends ImageSource
+        ? Image
+        : T extends FileSource
+          ? File
+          : // A view is a pointer at another module: nothing of it is rendered, so
+            // there is nothing here to encode or to read. `ValView<Target>`
+            // names what is behind it and exposes no properties.
+            T extends ValViewSource<string, infer Target>
+            ? ValView<Target>
+            : T extends SourceObject
+              ? {
+                  [key in keyof T]: StegaOfSource<T[key]>;
+                }
+              : T extends SourceArray
+                ? StegaOfSource<T[number]>[]
+                : T extends RawString
+                  ? string
+                  : string extends T
+                    ? ValEncodedString
+                    : T extends JsonPrimitive
+                      ? T
+                      : never;
 
 /**
  * What resolving `T` gives back — the one definition the framework readers
@@ -574,6 +618,16 @@ export function stegaEncode(
     }
     if (
       recOpts &&
+      isVideoSchema(recOpts.schema) &&
+      sourceOrSelector &&
+      typeof sourceOrSelector === "object"
+    ) {
+      return Internal.resolveVideo(sourceOrSelector, (src: VideoSource) =>
+        rec(Internal.mediaUrl(src), recOpts),
+      );
+    }
+    if (
+      recOpts &&
       (isImageSchema(recOpts.schema) || isFileSchema(recOpts.schema)) &&
       sourceOrSelector &&
       typeof sourceOrSelector === "object"
@@ -773,6 +827,12 @@ function isFileSchema(
   schema: SerializedSchema | undefined,
 ): schema is SerializedFileSchema {
   return schema?.type === "file";
+}
+
+function isVideoSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedVideoSchema {
+  return schema?.type === "video";
 }
 
 function isImageSchema(

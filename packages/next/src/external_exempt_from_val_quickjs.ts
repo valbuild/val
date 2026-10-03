@@ -2,7 +2,12 @@
 export { Schema, type SerializedSchema } from "@valbuild/core";
 export type { SourceObject, SourcePrimitive, Source } from "@valbuild/core";
 export type { ValModule, SerializedModule } from "@valbuild/core";
-export type { FileSource, ImageSource, MediaSource } from "@valbuild/core";
+export type {
+  FileSource,
+  ImageSource,
+  MediaSource,
+  VideoSource,
+} from "@valbuild/core";
 export type { RichTextSource } from "@valbuild/core";
 export {
   type Val,
@@ -33,6 +38,7 @@ export {
   type ValEncodedString,
   type File,
   type Image,
+  type Video,
   type RichText,
 } from "@valbuild/react/stega";
 
