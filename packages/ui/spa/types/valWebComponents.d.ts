@@ -26,6 +26,15 @@ declare module "react" {
         /** `fs` locally, `http` deployed: what "sign in again" means. */
         mode?: "fs" | "http";
       }>;
+      "val-ai-setup": CustomElementProps<{
+        /** `org/name` of the project whose AI key this is. */
+        project: string;
+        /** The Studio's proxy to Val Build. */
+        "api-base"?: string;
+        theme?: "light" | "dark";
+        /** `fs` locally, `http` deployed: what "sign in again" means. */
+        mode?: "fs" | "http";
+      }>;
       "val-members": CustomElementProps<{
         /** The organization whose members these are. */
         org: string;

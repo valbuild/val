@@ -541,7 +541,8 @@ export function hostLabel(url: string): string {
  *
  * The member list is reached through `/manage-members/<org>`, which the admin
  * app keeps for exactly this — it redirects to wherever the org's members
- * currently live, so Val does not have to track that page moving.
+ * currently live, so Val does not have to track that page moving. The
+ * project's AI keys are `/manage-ai/<org>/<project>`, for the same reason.
  */
 export function toAdminLinks(
   config: { project?: string; appHost?: string } | undefined,
@@ -558,6 +559,7 @@ export function toAdminLinks(
   return {
     project: `${host}/~/${encodeURIComponent(org)}/${encodeURIComponent(project)}`,
     members: `${host}/manage-members/${encodeURIComponent(org)}`,
+    ai: `${host}/manage-ai/${encodeURIComponent(org)}/${encodeURIComponent(project)}`,
   };
 }
 

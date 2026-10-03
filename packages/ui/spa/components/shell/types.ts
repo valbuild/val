@@ -508,6 +508,11 @@ export type ShellAdminLinks = {
   project: string;
   /** The organisation's member list. */
   members: string;
+  /**
+   * The project's AI keys: `/manage-ai/<org>/<project>`, which the admin app
+   * keeps for this and redirects to the project's AI tab.
+   */
+  ai: string;
 };
 
 /**

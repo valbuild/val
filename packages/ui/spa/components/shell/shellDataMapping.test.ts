@@ -683,6 +683,7 @@ describe("toAdminLinks", () => {
     expect(toAdminLinks({ project: "acme/marketing-site", appHost })).toEqual({
       project: "https://admin.val.build/~/acme/marketing-site",
       members: "https://admin.val.build/manage-members/acme",
+      ai: "https://admin.val.build/manage-ai/acme/marketing-site",
     });
   });
 
@@ -711,6 +712,7 @@ describe("toAdminLinks", () => {
     ).toEqual({
       project: "https://admin.val.build/~/acme/marketing-site",
       members: "https://admin.val.build/manage-members/acme",
+      ai: "https://admin.val.build/manage-ai/acme/marketing-site",
     });
   });
 });
