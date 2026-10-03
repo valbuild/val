@@ -41,6 +41,10 @@ import {
   ValidationFix,
 } from "@valbuild/core";
 import { extractJsonValuesEntry } from "./extractJsonValuesEntry";
+import {
+  canReadVideoMetadata,
+  unreadableVideoMetadataMessage,
+} from "./extractMetadata";
 import { galleryEntryOf } from "./galleryEntryKey";
 import { getFileExt } from "./getFileExt";
 import {
@@ -215,6 +219,50 @@ export async function handleFileMetadata(
   }
 
   return { success: true, shouldApplyPatch: true };
+}
+
+/**
+ * `video:add-metadata`: the bytes must be on disk (core never asks this of a
+ * remote video), and they must be a kind of file Val can read the size and
+ * length of here. A `.webm` is not — only the Studio reads those, in the
+ * browser — so it is refused with what to do instead, unless all that is
+ * missing is the mime type, which the extension answers.
+ */
+export async function handleVideoMetadata(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  const exists = await handleFileMetadata(ctx);
+  if (!exists.success) {
+    return exists;
+  }
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+  if (!ctx.valModule.source || !ctx.valModule.schema) {
+    return exists;
+  }
+  const video: unknown = Internal.resolvePath(
+    modulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  ).source;
+  if (!isRecord(video) || typeof video.path !== "string") {
+    return exists;
+  }
+  const missing = ["width", "height", "duration"].filter(
+    (field) => video[field] === undefined,
+  );
+  if (missing.length > 0 && !canReadVideoMetadata(video.path)) {
+    return {
+      success: false,
+      errorMessage: unreadableVideoMetadataMessage(video.path, missing),
+    };
+  }
+  return exists;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // Shared upload core used by both the single-field (handleRemoteFileUpload)
@@ -851,6 +899,7 @@ export const currentFixHandlers: Record<
   "image:add-metadata": handleFileMetadata,
   "file:check-metadata": handleFileMetadata,
   "file:add-metadata": handleFileMetadata,
+  "video:add-metadata": handleVideoMetadata,
   "image:upload-remote": handleRemoteFileUpload,
   "file:upload-remote": handleRemoteFileUpload,
   "images:upload-remote": handleRemoteGalleryFileUpload,

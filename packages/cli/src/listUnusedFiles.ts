@@ -1,5 +1,11 @@
-import { ModuleFilePath, ModulePath, SourcePath } from "@valbuild/core";
-import { createService } from "@valbuild/server";
+import {
+  Internal,
+  ModuleFilePath,
+  ModulePath,
+  SourcePath,
+} from "@valbuild/core";
+import { createService, filesOfVideo } from "@valbuild/server";
+import { traverseSchemaSource } from "@valbuild/shared/internal";
 import { glob } from "fast-glob";
 import path from "path";
 import { findAndEvalValConfigFile } from "./utils/evalValConfigFile";
@@ -32,6 +38,28 @@ export async function listUnusedFiles({ root }: { root?: string }) {
     const valModule = await service.get(moduleId, "" as ModulePath, {
       validate: true,
     });
+    // A video is found by walking the source, not by its validation errors:
+    // unlike an image, a video with all its metadata reports none, so the
+    // errors below would call every finished video unused. And a video names
+    // more than its `path` — a poster, caption tracks, and a stream's
+    // playlists and segments — which `filesOfVideo` is the one answer to.
+    if (valModule.source !== undefined && valModule.schema) {
+      traverseSchemaSource(
+        valModule.source,
+        valModule.schema,
+        moduleId as string as SourcePath,
+        ({ source, schema }) => {
+          if (schema.type !== "video") {
+            return;
+          }
+          for (const ref of filesOfVideo(source, { projectRoot })) {
+            if (!Internal.isRemoteMediaPath(ref)) {
+              filesUsedByVal.push(path.join(projectRoot, ...ref.split("/")));
+            }
+          }
+        },
+      );
+    }
     // TODO: not sure using validation is the best way to do this, but it works currently.
     if (valModule.errors) {
       if (valModule.errors.validation) {

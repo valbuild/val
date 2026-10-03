@@ -92,6 +92,43 @@ function walk(
     }
     return;
   }
+  if (schema.type === "video") {
+    // A video names up to three kinds of file, each with its own `patch_id`
+    // once restored: the video, its poster and every caption track. An HLS
+    // stream's segments are named by its playlists, not by the value, and are
+    // not found here — restoring a stream re-uploads its master playlist only.
+    if (isObject(value) && typeof value["path"] === "string") {
+      found.push({
+        filePath: value["path"],
+        fieldPath: at,
+        metadata:
+          typeof value["mimeType"] === "string"
+            ? { mimeType: value["mimeType"] }
+            : undefined,
+      });
+      const poster = value["poster"];
+      if (poster && isObject(poster) && typeof poster["path"] === "string") {
+        found.push({
+          filePath: poster["path"],
+          fieldPath: [...at, "poster"],
+          metadata: undefined,
+        });
+      }
+      const captions = value["captions"];
+      if (Array.isArray(captions)) {
+        captions.forEach((track, index) => {
+          if (isObject(track) && typeof track["path"] === "string") {
+            found.push({
+              filePath: track["path"],
+              fieldPath: [...at, "captions", index.toString()],
+              metadata: { mimeType: "text/vtt" },
+            });
+          }
+        });
+      }
+    }
+    return;
+  }
   if (schema.type === "object" && isObject(value)) {
     for (const [key, itemSchema] of Object.entries(schema.items)) {
       const child = value[key];

@@ -19,6 +19,7 @@ import { LiteralPreview } from "./fields/LiteralPreview";
 import { RecordPreview } from "./fields/RecordFields";
 import { RichTextPreview } from "./fields/RichTextField";
 import { FilePreview } from "./fields/FileField";
+import { VideoPreview } from "./fields/VideoField";
 import { SettingsPreview } from "./fields/SettingsFields";
 import { Loader2 } from "lucide-react";
 
@@ -88,6 +89,8 @@ export function Preview({
     return <RichTextPreview path={path} />;
   } else if (type === "file") {
     return <FilePreview path={path} />;
+  } else if (type === "video") {
+    return <VideoPreview path={path} />;
   } else if (type === "view") {
     // A view has no value of its own to preview.
     return null;

@@ -231,6 +231,25 @@ describe("createPublicValFiles", () => {
     );
   });
 
+  test("offers videos, and of a stream only its master playlist", () => {
+    const stream = path.join(dir, "public", "val", "clip_abc12");
+    fs.mkdirSync(stream);
+    for (const name of ["master.m3u8", "720p.m3u8", "intro.vtt"]) {
+      fs.writeFileSync(path.join(stream, name), "x");
+    }
+    fs.writeFileSync(path.join(dir, "public", "val", "intro.mp4"), "x");
+    fs.writeFileSync(path.join(dir, "public", "val", "intro.webm"), "x");
+    expect(
+      createPublicValFiles({ valRoot: dir })
+        .videos()
+        .map((f) => f.ref),
+    ).toEqual([
+      "/public/val/clip_abc12/master.m3u8",
+      "/public/val/intro.mp4",
+      "/public/val/intro.webm",
+    ]);
+  });
+
   test("returns nothing when the directory does not exist", () => {
     expect(
       createPublicValFiles({ valRoot: path.join(dir, "nope") }).list(),

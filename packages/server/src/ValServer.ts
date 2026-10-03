@@ -40,6 +40,11 @@ import {
 import { clientConfig } from "./clientConfig";
 import { z } from "zod";
 import { probeUrl } from "./linkCheck/probeUrl";
+import { parseRangeHeader } from "./httpRange";
+import {
+  isHlsPlaylistPath,
+  rewriteDraftPlaylist,
+} from "./rewriteDraftPlaylist";
 import { ValOpsFS } from "./ValOpsFS";
 import { readCommittedBinaryFiles } from "./readCommittedBinaryFiles";
 import { splitJobPrepare } from "./jobPrepare";
@@ -3885,16 +3890,15 @@ export const ValServer = (
         // nothing fetches it backend-to-backend. Neither half of the argument
         // above transfers. See architecture/media.md, "Why /files has no auth,
         // and /history/files does".
-        let fileBuffer;
-        let mimeType: string | undefined;
         const remote = query.remote === "true";
-        if (query.patch_id) {
+        const patchId = query.patch_id;
+        let fileBuffer: Buffer | null;
+        if (patchId) {
           fileBuffer = await serverOps.getBase64EncodedBinaryFileFromPatch(
             filePath,
-            query.patch_id as PatchId,
+            patchId as PatchId,
             remote,
           );
-          mimeType = Internal.filenameToMimeType(filePath);
         } else {
           if (serverOps instanceof ValOpsHttp && remote) {
             console.error(
@@ -3904,22 +3908,7 @@ export const ValServer = (
           fileBuffer = await serverOps.getBinaryFile(filePath);
         }
 
-        if (fileBuffer) {
-          return {
-            status: 200,
-            headers: {
-              // TODO: we could use ETag and return 304 instead
-              "Content-Type": mimeType || "application/octet-stream",
-              // TODO: a file requested with a patch_id is immutable for that
-              // patch, so it could be served "public, max-age=20000, immutable"
-              // instead. There used to be a `cacheControl` variable here for
-              // that, but its only assignment was commented out, so every
-              // response has always taken the revalidate branch.
-              "Cache-Control": "public, max-age=0, must-revalidate",
-            },
-            body: bufferToReadableStream(fileBuffer),
-          };
-        } else {
+        if (!fileBuffer) {
           return {
             status: 404,
             json: {
@@ -3927,6 +3916,64 @@ export const ValServer = (
             },
           };
         }
+        // A DRAFT playlist names files that are drafts too, at URLs that only
+        // resolve once published. See `rewriteDraftPlaylist`.
+        const body =
+          patchId && isHlsPlaylistPath(filePath)
+            ? Buffer.from(
+                rewriteDraftPlaylist(fileBuffer.toString("utf-8"), {
+                  playlistPath: filePath,
+                  patchId,
+                  remote,
+                }),
+                "utf-8",
+              )
+            : fileBuffer;
+        const headers = {
+          // TODO: we could use ETag and return 304 instead
+          // From the extension, published or draft: a `<video>` and an HLS
+          // player both decide what they are holding by it, and it used to be
+          // set for drafts only.
+          "Content-Type":
+            Internal.filenameToMimeType(filePath) || "application/octet-stream",
+          // TODO: a file requested with a patch_id is immutable for that
+          // patch, so it could be served "public, max-age=20000, immutable"
+          // instead. There used to be a `cacheControl` variable here for
+          // that, but its only assignment was commented out, so every
+          // response has always taken the revalidate branch.
+          "Cache-Control": "public, max-age=0, must-revalidate",
+          "Accept-Ranges": "bytes",
+        };
+        // Ranges are cut from the bytes in hand, in every mode: `ValOpsHttp`
+        // fetches a file from the content service whole (base64 in JSON), so
+        // there is no upstream byte stream to forward a Range header to.
+        const range = parseRangeHeader(req.headers.range, body.length);
+        if (range.kind === "unsatisfiable") {
+          return {
+            status: 416,
+            headers: { ...headers, "Content-Range": `bytes */${body.length}` },
+            json: {
+              message: `Range not satisfiable: ${req.headers.range}`,
+            },
+          };
+        }
+        if (range.kind === "range") {
+          const slice = body.subarray(range.start, range.end + 1);
+          return {
+            status: 206,
+            headers: {
+              ...headers,
+              "Content-Range": `bytes ${range.start}-${range.end}/${body.length}`,
+              "Content-Length": String(slice.length),
+            },
+            body: bufferToReadableStream(slice),
+          };
+        }
+        return {
+          status: 200,
+          headers: { ...headers, "Content-Length": String(body.length) },
+          body: bufferToReadableStream(body),
+        };
       },
     },
   };

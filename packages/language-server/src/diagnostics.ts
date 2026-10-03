@@ -154,6 +154,8 @@ const FILE_FIXES: readonly string[] = [
   "file:check-metadata",
   "file:upload-remote",
   "file:download-remote",
+  // Local only: core never asks a remote video for its metadata.
+  "video:add-metadata",
 ];
 
 function build(

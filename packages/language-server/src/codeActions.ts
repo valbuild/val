@@ -70,6 +70,9 @@ const LOCAL_FIXES: readonly ValidationFix[] = [
   "image:check-metadata",
   "file:add-metadata",
   "file:check-metadata",
+  // A local video's mimeType, width, height and duration, read from the file
+  // (or, for an HLS stream, from its playlists) on disk.
+  "video:add-metadata",
   // Gallery metadata: createFixPatch reads each entry's file and corrects the
   // stored metadata, dropping entries whose file has gone. Filesystem only.
   "images:check-all-files",
@@ -99,6 +102,7 @@ const FIX_TITLES: Partial<Record<ValidationFix, string>> = {
   "image:check-metadata": "Val: update image metadata",
   "file:add-metadata": "Val: add file metadata",
   "file:check-metadata": "Val: update file metadata",
+  "video:add-metadata": "Val: add video metadata",
   "images:check-all-files": "Val: update gallery image metadata",
   "files:check-all-files": "Val: update gallery file metadata",
   "jsonValues:extract-entry": "Val: move entry into its own .val.json",

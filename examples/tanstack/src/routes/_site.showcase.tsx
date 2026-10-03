@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Internal, ValImage, ValRichText } from "@valbuild/tanstack";
+import { Internal, ValImage, ValRichText, ValVideo } from "@valbuild/tanstack";
 import { useVal, useValRoute } from "../val/client";
 import { NotFound } from "../components/NotFound";
 import pageVal from "./_site.showcase.val";
@@ -7,6 +7,7 @@ import themeVal from "../content/theme.val";
 import galleryVal from "../content/gallery.val";
 import downloadsVal from "../content/downloads.val";
 import mediaVal from "../content/media.val";
+import videoVal from "../content/video.val";
 import linksVal from "../content/links.val";
 import kbVal from "../content/kb.val";
 import translatedVal from "../content/translated.val";
@@ -30,6 +31,7 @@ function Showcase() {
   const gallery = useVal(galleryVal);
   const downloads = useVal(downloadsVal);
   const media = useVal(mediaVal);
+  const video = useVal(videoVal);
   const links = useVal(linksVal);
   const kb = useVal(kbVal);
   const translated = useVal(translatedVal);
@@ -109,6 +111,29 @@ function Showcase() {
           <p>
             <a href={media.fromDownloads.url}>The attached handbook</a>
           </p>
+        )}
+      </section>
+
+      <section>
+        <h2>s.video()</h2>
+        <p>{page.notes.video}</p>
+        {/*
+         * hls.js is handed in rather than bundled by Val: it is loaded only
+         * when the video is a stream AND the browser cannot play one itself,
+         * so a page of mp4s never downloads it.
+         */}
+        <ValVideo
+          src={video.clip}
+          controls
+          style={{ maxWidth: "24rem", width: "100%", height: "auto" }}
+        />
+        {video.stream && (
+          <ValVideo
+            src={video.stream}
+            hls={() => import("hls.js")}
+            controls
+            style={{ maxWidth: "24rem", width: "100%", height: "auto" }}
+          />
         )}
       </section>
 

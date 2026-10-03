@@ -72,6 +72,8 @@ export function getFileReferrers(
       schema.type === "keyOf" ||
       schema.type === "route" ||
       schema.type === "locale" ||
+      // A video is never gallery-backed: its files are its own.
+      schema.type === "video" ||
       // A view holds no source, so it references no file of its own.
       schema.type === "view"
     ) {

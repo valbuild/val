@@ -40,6 +40,8 @@ export default c.define(
           "s.fileset(): the same collection for files that are not images.",
         media:
           "Single s.image() and s.file() fields, both plain and gallery-backed.",
+        video:
+          "s.video(): an mp4 with a poster, captions, a start time and a focal point, and the same video as an HLS stream the Studio converted in the browser.",
         links:
           "externalPageRouter: pages that are not in this app, keyed by their whole URL.",
         kb: "A .jsonValues() record: each entry is its own file, loaded on demand.",

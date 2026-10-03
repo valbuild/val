@@ -1048,12 +1048,23 @@ export abstract class ValOps {
                 // when constructing the url we use the patch id (and the file path)
                 // to fetch the right file
                 // NOTE: overwrite and use last patch_id if multiple patches modify the same file
-                fileFixOps[op.path.join("/")] = [
+                //
+                // Keyed by where the patch_id LANDS — the field's path plus
+                // `nestedFilePath` — not by the field's path alone. A video's
+                // poster and caption files are file ops on the video's own path
+                // with `nestedFilePath` ["poster"] / ["captions", "0"]; keyed by
+                // `op.path` they overwrote the video's entry (and each other),
+                // so only one of the files got a patch_id and the rest were
+                // looked for at a published URL that holds nothing. JSON rather
+                // than a "/" join because a segment can contain "/" (a gallery
+                // key is a file path).
+                const patchIdPath = op.path
+                  .concat(...(op.nestedFilePath || []))
+                  .concat("patch_id");
+                fileFixOps[JSON.stringify(patchIdPath)] = [
                   {
                     op: "add",
-                    path: op.path
-                      .concat(...(op.nestedFilePath || []))
-                      .concat("patch_id"),
+                    path: patchIdPath,
                     value: patchId,
                   },
                 ];

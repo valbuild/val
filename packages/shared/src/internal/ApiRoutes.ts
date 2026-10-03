@@ -1918,6 +1918,10 @@ export const Api = {
             .optional(),
           remote: onlyOneStringQueryParam.optional(),
         },
+        // A `<video>` seeks with byte ranges, Safari will not play one from a
+        // server that ignores them, and HLS segments that are byte ranges of
+        // one file are fetched no other way.
+        headers: { range: z.string().optional() },
       },
       res: z.union([
         unauthorizedResponse,
@@ -1926,6 +1930,11 @@ export const Api = {
           status: z.literal(200),
           body: z.instanceof(ReadableStream),
         }),
+        z.object({
+          status: z.literal(206),
+          body: z.instanceof(ReadableStream),
+        }),
+        z.object({ status: z.literal(416), json: GenericError }),
       ]),
     },
   },
@@ -2325,6 +2334,8 @@ export type ApiEndpoint = {
       z.ZodSchema<ValidQueryParamTypes, string[] | undefined>
     >;
     cookies?: Record<string, z.ZodSchema<string | undefined>>;
+    /** Request headers, by LOWER-CASE name. Server side only. */
+    headers?: Record<string, z.ZodSchema<string | undefined>>;
   };
   res: z.ZodSchema<
     | {
@@ -2383,6 +2394,16 @@ export type ServerOf<Api extends ApiGuard> = {
               ? {
                   [key in keyof Api[Route][Method]["req"]["cookies"]]: z.infer<
                     Api[Route][Method]["req"]["cookies"][key]
+                  >;
+                }
+              : undefined;
+            headers: Api[Route][Method]["req"]["headers"] extends Record<
+              string,
+              z.ZodSchema<string | undefined>
+            >
+              ? {
+                  [key in keyof Api[Route][Method]["req"]["headers"]]: z.infer<
+                    Api[Route][Method]["req"]["headers"][key]
                   >;
                 }
               : undefined;

@@ -1,4 +1,4 @@
-# Media: `s.imageset()`, `s.fileset()`, `s.image()`, `s.file()`
+# Media: `s.imageset()`, `s.fileset()`, `s.image()`, `s.file()`, `s.video()`
 
 ## The four names are two pairs on different axes
 
@@ -348,6 +348,96 @@ publish gate. A **required alt** (`s.imageset({ alt: s.string().minLength(4) })`
 blocking, and upload sets `alt: null` — so such a gallery is unpublishable until
 someone types alt text. Correct, but it means uploading alone never reaches a
 publishable state there.
+
+## Video: `s.video()`
+
+A video is a third kind of media FIELD — there is no video collection — and it
+is the one media value that names several files.
+
+```ts
+{ path: "/public/val/intro_3b9d7.mp4", mimeType: "video/mp4",   // or an HLS master playlist
+  width: 1920, height: 1080, duration: 42.5,                    // read from the bytes
+  alt, hotspot, posterTime, startTime, endTime,                 // authored
+  poster: { path: "/public/val/intro-poster_1a2b3.webp", width, height, mimeType },
+  captions: [{ path: "/public/val/intro-en_8f2a1.vtt", srclang: "en", label, kind, default }] }
+```
+
+**`mimeType` is required**, for two reasons. A page has to know whether it
+holds an `.mp4` or an `.m3u8` before it can play it. And every media source is
+"a `path` plus optional fields", so without one required field an image and a
+video are the same type: `StegaOfSource` asks `T extends VideoSource` BEFORE
+`T extends ImageSource`, and only the required `mimeType` keeps images out of
+that arm.
+
+**Every file is its own media object with its own `patch_id`.** The video, the
+poster and each caption track are uploaded by `file` ops whose `path` is the
+FIELD and whose `nestedFilePath` (`["poster"]`, `["captions", "2"]`) says where
+the `patch_id` goes. `ValOps` keys its patch-id injection by path AND nested
+path — keyed by path alone, the poster's op overwrote the video's and one of
+the two drafts would not resolve. `resolveVideo` is the one implementation of
+"a URL for each of them"; stega tags only the video's own `url`.
+
+**Editing is per property** (`add` on `posterTime`, `captions/1/label`, ...),
+never a whole-value replace, so `schemaTypesOfPath` lets a patch path continue
+below a video. Only a new upload replaces the whole value, and it keeps `alt`,
+`hotspot` and `captions` (a replaced video is usually the same video re-cut)
+but drops the times and the poster, which are positions in the old file.
+
+### Streaming
+
+`s.video({ stream: { type: "hls" } })` makes the Studio convert an upload to
+HLS **in the browser**, in `utils/video/transcode.worker.ts`: mediabunny over
+WebCodecs, one H.264 rendition per height in `renditions` that fits the upload
+(never an upscale), AAC audio, CMAF with `singleFilePerPlaylist` so a rendition
+is two files (playlist + byte-ranged media) rather than hundreds of segments.
+The converter is a lazy chunk of the Studio bundle — an app installs nothing,
+and an editor downloads it only when they upload to a streaming field. AAC
+encoding is missing from several browsers' WebCodecs, so mediabunny's WASM AAC
+encoder is loaded in exactly that case.
+
+Where the browser cannot (no WebCodecs — which includes every insecure context
+— or no H.264 encoder), the ORIGINAL file is uploaded and the field says so.
+`stream` is a request, not a guarantee, which is why validation accepts an mp4
+in a streaming field and does not hold an HLS playlist to `accept` (`accept` is
+what an editor may pick; the playlist is what the Studio made of it).
+
+The stream is a directory named like a file would be — `${dir}/${name}_${hash5}/`
+holding `master.m3u8`, `playlist-N.m3u8` and `segments-N.mp4` — and the field's
+`path` is the master playlist.
+
+- **Local**: the playlists name their siblings RELATIVELY, so a published
+  stream is just static files. A DRAFT is served by `/api/val/files?patch_id=…`,
+  and a relative name resolved against that URL loses the query; so `/files`
+  rewrites a draft playlist as it serves it, pointing every URI at the draft
+  endpoint with the same `patch_id`.
+- **Remote**: the content host serves a file by its hash, so a relative name
+  resolves to nothing there. `createVideoPatch` places the files bottom-up —
+  segments, then media playlists rewritten to name the segments' refs, then
+  the master — and each playlist's ref is the hash of its REWRITTEN bytes.
+
+Seeking, Safari playback at all, and byte-ranged HLS need **Range requests**:
+`/api/val/files` answers them, and so does the content host's `/file/...`
+route (valbuild/home).
+
+### Reading one in an app
+
+`ValVideo` (Next and TanStack) renders the poster, the caption tracks, the
+start/end (seek on load, pause at the end, plus a `#t=` fragment for a
+progressive file) and the hotspot as `object-position`. hls.js is the APP's
+dependency, passed in as `hls={() => import("hls.js")}` and called only for a
+stream in a browser that cannot play one natively.
+
+### What is not there yet
+
+- **CLI metadata** reads mp4/mov boxes and HLS playlists with a small parser in
+  `@valbuild/server` (no media library in an app's server). A hand-written
+  `.webm` is reported, not fixed: upload it in the Studio.
+- **Moving a video between local and remote** has no `--fix`: re-upload it in
+  the Studio. A remote video's metadata is not re-checked locally.
+- **Rename** is not offered for videos, and **history restore** re-uploads a
+  stream's master playlist but not the segments it names.
+- Uploads still travel as base64 JSON like every other file, so a large video
+  costs a third more on the wire and is hashed on the main thread.
 
 ## Fixtures
 

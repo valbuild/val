@@ -517,6 +517,16 @@ export function createValApiRouter<Res>(
       if (!cookiesRes.success) {
         return zodErrorResult(cookiesRes.error, "invalid cookies");
       }
+      // Only the headers a route declares reach it, by lower-case name — the
+      // same opt-in as cookies, so a route's inputs stay listed in Api.
+      const headersRes = reqDefinition.headers
+        ? getHeaders(req, reqDefinition.headers)
+        : ({ success: true, data: {} } as z.ZodSafeParseSuccess<
+            Record<string, string>
+          >);
+      if (!headersRes.success) {
+        return zodErrorResult(headersRes.error, "invalid headers");
+      }
       const actualQueryParams = groupQueryParams(
         Array.from(url.searchParams.entries()),
       );
@@ -570,6 +580,7 @@ export function createValApiRouter<Res>(
         res = await endpointImpl({
           body: bodyRes.data,
           cookies: cookiesRes.data,
+          headers: headersRes.data,
           query,
           path,
         });
@@ -711,4 +722,18 @@ function getCookies<
           : never;
       }>
     | z.ZodSafeParseError<Record<string, string>>;
+}
+
+function getHeaders(
+  req: Request,
+  headersDef: Record<string, z.ZodSchema<string | undefined>>,
+): z.ZodSafeParseResult<Record<string, string | undefined>> {
+  const input: Record<string, string> = {};
+  for (const name of Object.keys(headersDef)) {
+    const value = req.headers?.get(name);
+    if (value !== null && value !== undefined) {
+      input[name] = value;
+    }
+  }
+  return z.object(headersDef).safeParse(input);
 }
