@@ -382,7 +382,7 @@ test("a save that fails releases the changes waiting on it", async () => {
   expect(items(system)).toEqual(["one"]);
 });
 
-test("disposing during a save releases the changes waiting on it", async () => {
+test("disposing during a save sends the changes waiting on it once the save is answered, never before", async () => {
   const { server, system } = await setUp("on-answer");
 
   click(system, { type: "unstage", patchIds: [insert], withPatchIds: [write] });
@@ -390,13 +390,43 @@ test("disposing during a save releases the changes waiting on it", async () => {
   // Held while the save is in flight...
   expect(server.requests.map((request) => request.kind)).toEqual(["save"]);
 
-  // ...and the save is never answered: the system is torn down under it.
+  // ...and still held when the system is torn down under it: `dispose` does
+  // not cancel the request, so an unstage sent now could land first and have
+  // the save put back what it took out.
   system.dispose();
   await settle();
+  expect(server.requests.map((request) => request.kind)).toEqual(["save"]);
 
-  // The click still reaches the server rather than waiting for ever.
+  // The save lands, and the click follows it rather than being lost.
+  server.saves[0].answer();
+  await settle();
   expect(server.requests.map((request) => request.kind)).toEqual([
     "save",
     "unstage",
   ]);
+  expect(server.members.has(insert)).toBe(false);
+  expect(server.members.has(write)).toBe(false);
+});
+
+test("disposing while a save's closure is still being worked out sends the changes waiting on it", async () => {
+  const server = makeServer("on-answer");
+  const system = makeSystem(server);
+  await statNow(system, server, [insert]);
+  // A closure that never answers: no save can be sent behind it.
+  system.setPatchGroupResolver(() => new Promise(() => {}));
+  const res = await system.patchStore.createPatch(LIST, [
+    { op: "replace", path: ["items", "0"], value: "new, edited" },
+  ]);
+  if (res.status !== "created") throw new Error(`createPatch: ${res.status}`);
+  await settle();
+
+  click(system, { type: "stage", patchIds: [insert], withPatchIds: [] });
+  await settle();
+  expect(server.requests).toEqual([]);
+
+  system.dispose();
+  await settle();
+
+  // Nothing is on the wire to race, so the click goes out now.
+  expect(server.requests.map((request) => request.kind)).toEqual(["stage"]);
 });

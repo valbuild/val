@@ -1084,6 +1084,12 @@ export function createSystem(options: SystemOptions): System {
     patchIds: readonly PatchId[];
     /** The closure it carries, once the resolver has answered. */
     withPatchIds: PatchId[];
+    /**
+     * The resolver has answered, so `PatchSync` may have sent the save. From
+     * here on only `PatchSync` releases the hold, when the save settles: see
+     * `dispose`.
+     */
+    handedOver: boolean;
   };
   let writeInFlight: WriteInFlight | null = null;
 
@@ -1107,8 +1113,8 @@ export function createSystem(options: SystemOptions): System {
    * change the save waits for that also waits for the save.
    *
    * Released by `PatchSync` once the save is answered, however it was answered
-   * (see `WriteMembership.release`), and by `dispose`, since a save that will
-   * never be answered must not hold every later change back with it.
+   * (see `WriteMembership.release`) -- and by `dispose`, but only while the
+   * resolver is still working, when no save can be on the wire yet.
    */
   function holdGroupChangesFor(patchIds: readonly PatchId[]): WriteInFlight {
     let release = () => {};
@@ -1123,6 +1129,7 @@ export function createSystem(options: SystemOptions): System {
       },
       patchIds: [...patchIds],
       withPatchIds: [],
+      handedOver: false,
     };
     writeInFlight = write;
     return write;
@@ -2464,6 +2471,7 @@ export function createSystem(options: SystemOptions): System {
           throw error;
         }
         if (membership === undefined || patchGroupIds === null) {
+          write.handedOver = true;
           return { patchGroup: membership, release: write.release };
         }
         write.withPatchIds = [...membership.withPatchIds];
@@ -2545,6 +2553,7 @@ export function createSystem(options: SystemOptions): System {
             patches: widenedBy,
           });
         }
+        write.handedOver = true;
         return { patchGroup: membership, release: write.release };
       });
     },
@@ -3185,12 +3194,22 @@ export function createSystem(options: SystemOptions): System {
       // torn-down system — in a test, after the test that made it has finished.
       patchSync.dispose();
       /*
-       * A save in flight may never be answered now — `PatchSync` stops
-       * listening for it — and the group changes made during it must still go
-       * out rather than wait for ever: the user made them, and a stage or an
-       * unstage that never reaches the server is lost on the next load.
+       * The group changes made during a save must still go out -- the user
+       * made them, and a stage or an unstage that never reaches the server is
+       * lost on the next load -- but never AHEAD of that save.
+       *
+       * Once the resolver has answered, the save may be on the wire, and
+       * `dispose` does not cancel the request: released here, an unstage could
+       * land first and the save's union put back what it took out, which is
+       * the race the hold exists to close. `PatchSync` releases the hold in a
+       * `finally` when the save settles, stopped or not, so those changes go
+       * out then. Before the resolver has answered no save can be sent --
+       * `PatchSync` checks `stopped` before sending -- and the resolver may
+       * never answer once the system is torn down, so the hold goes now.
        */
-      writeInFlight?.release();
+      if (writeInFlight !== null && !writeInFlight.handedOver) {
+        writeInFlight.release();
+      }
     },
   };
 }
