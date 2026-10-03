@@ -933,8 +933,12 @@ export function ValProvider({
               .get()
               .requests.filter((request) => !isSettled(request.status))
               .at(-1)?.requestId ?? null;
-          return handoff.runJob(job, PUBLISH_TAB_ID, pressed, () =>
-            client.renew(job.id, PUBLISH_TAB_ID),
+          return handoff.runJob(
+            job,
+            PUBLISH_TAB_ID,
+            pressed,
+            () => client.renew(job.id, PUBLISH_TAB_ID),
+            () => client.cancel(job.id),
           );
         }
         return runStudioJob({
@@ -964,6 +968,8 @@ export function ValProvider({
   onPublishSettled.current = (request) => {
     const status = request.status;
     const id = `publish:${request.requestId}`;
+    // A publish a builder tab handed to content: the card's last word.
+    handoffRef.current.settled(request.requestId, status);
     if (status.kind === "live") {
       markObserved(status.commit);
       toast("Published", { id, description: "Your changes are live." });

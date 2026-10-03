@@ -159,6 +159,15 @@ type ValServerOverrides = Partial<{
    */
   publishJob?: string;
   /**
+   * The build the platform is running this server in, by its hash, when a
+   * platform says (`VAL_BUILD`). Sent with every position this server asks
+   * the content service about, because it is the one thing that says WHICH
+   * build is asking: after a publish, an edge can keep serving the previous
+   * build for up to a minute, and without it that build is placed at the new
+   * one -- whose changes it does not hold, so they drop out of the overlay.
+   */
+  publishBuild?: string;
+  /**
    * The base url of Val.
    *
    * Typically this should not be set.

@@ -73,6 +73,13 @@ export type ValHttpMode = {
    * should set it.
    */
   publishJob?: string;
+  /**
+   * The build the platform runs this server in, by its hash: which build is
+   * asking, when a request is still served by the previous one after a
+   * publish. Handed over at runtime by the platform (`VAL_BUILD`); nothing
+   * else should set it.
+   */
+  publishBuild?: string;
 };
 
 /**

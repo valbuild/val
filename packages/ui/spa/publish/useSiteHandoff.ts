@@ -1,5 +1,8 @@
 import { useCallback, useRef, useState } from "react";
-import type { PublishTabJob } from "@valbuild/shared/internal";
+import type {
+  PublishRequestStatus,
+  PublishTabJob,
+} from "@valbuild/shared/internal";
 import type { HandoffState } from "../components/shell/PublishHandoff";
 import {
   canBuildHere,
@@ -13,6 +16,21 @@ import { RENEW_EVERY_MS, type StudioJobResult } from "./runStudioJob";
  * How long a refused renewal waits for the tab's own report. See `runJob`.
  */
 export const LOST_GRACE_MS = 3_000;
+
+/**
+ * How long a tab may be silent before this page stops waiting for it.
+ *
+ * A tab says it is `alive` every 2 s for as long as it is open, so this is
+ * many missed beats, not a slow step. Until its first word it gets longer:
+ * that is the Studio loading, which on a phone is seconds of download.
+ */
+export const TAB_SILENT_MS = 20_000;
+export const TAB_FIRST_WORD_MS = 90_000;
+const WATCH_EVERY_MS = 2_000;
+
+/** What the card says when the tab stopped answering. */
+export const TAB_GONE_MESSAGE =
+  "The Studio tab stopped answering: it was closed, or the phone paused it in the background. Nothing is lost -- press Publish to try again.";
 
 /**
  * The site's side of a publish handed to a Studio tab. See `handoff.ts`.
@@ -48,7 +66,21 @@ export interface UseSiteHandoff {
     tab: string,
     requestId: string | null,
     renew: () => Promise<boolean>,
+    /**
+     * Let the job go now, when the tab stopped answering while it still had
+     * it -- cancelled before the seal, so the next press starts a fresh job
+     * at once rather than joining one nobody is building. Only called while
+     * a renewal says the job is still this page's at a tab step: a job the
+     * tab handed to content just before it went quiet is never touched.
+     */
+    release?: () => Promise<boolean>,
   ) => Promise<StudioJobResult>;
+  /**
+   * A publish this page follows has settled. After the tab hands its job to
+   * content it closes, and the card's last word -- Live, or why not -- comes
+   * from this page's own tracker, through here. Ignored for any other request.
+   */
+  settled: (requestId: string, status: PublishRequestStatus) => void;
   /** The publish did not happen: the tab has nothing to build. */
   cancel: (message: string) => void;
   dismiss: () => void;
@@ -64,11 +96,38 @@ export function useSiteHandoff(
 ): UseSiteHandoff {
   const [state, setState] = useState<HandoffState | null>(null);
   const current = useRef<SiteHandoff | null>(null);
+  /** When the press that opened the tab was, for the card's "Live after". */
+  const startedAt = useRef<number | null>(null);
+  /**
+   * The request whose job the tab handed to content, and this page now
+   * follows to the end (`null`: whichever settles next, for a press this page
+   * could not name).
+   */
+  const following = useRef<{ requestId: string | null } | null>(null);
+  /** The request the job being run was pressed for. See `runJob`. */
+  const pressedFor = useRef<string | null>(null);
+  /**
+   * When the tab last said anything, and whether it ever has. A tab that goes
+   * quiet is gone -- closed, or suspended by a phone -- and a page that
+   * waited for it for ever held the job, and the Publish button, with it: the
+   * card at "running" has nothing to dismiss, so the editor was stuck until
+   * they reloaded. See {@link TAB_SILENT_MS}.
+   */
+  const heard = useRef<{ at: number; any: boolean }>({ at: 0, any: false });
+  /** The browser refused the tab: waiting on the editor's press, not on a tab. */
+  const blocked = useRef(false);
+  const watchdog = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopWatching = useCallback(() => {
+    if (watchdog.current !== null) clearInterval(watchdog.current);
+    watchdog.current = null;
+  }, []);
   /** The job handed to the tab, and who is waiting for the tab's part of it. */
   const waiting = useRef<{
     jobId: string;
     resolve: (result: StudioJobResult) => void;
     stop: () => void;
+    renew: () => Promise<boolean>;
+    release?: () => Promise<boolean>;
   } | null>(null);
 
   const settleWaiting = useCallback((result: StudioJobResult | "lost") => {
@@ -85,11 +144,74 @@ export function useSiteHandoff(
       if (!enabled || !buildsInTab || canBuildHere()) return;
       current.current?.close();
       settleWaiting("lost");
+      following.current = null;
+      startedAt.current = Date.now();
       const handoff = openHandoff();
       current.current = handoff;
-      setState(handoff.opened ? { kind: "opening" } : { kind: "blocked" });
+      blocked.current = !handoff.opened;
+      setState(blocked.current ? { kind: "blocked" } : { kind: "opening" });
+      heard.current = { at: Date.now(), any: false };
+      /*
+       * The page's own pauses are not the tab's silence: a phone suspends the
+       * page while the editor is in the builder tab, and the tab's messages
+       * arrive after the page's timers when it resumes. Judged from when the
+       * page was last in front, too.
+       */
+      let resumedAt = Date.now();
+      const onVisible = () => {
+        if (document.visibilityState === "visible") resumedAt = Date.now();
+      };
+      document.addEventListener("visibilitychange", onVisible);
+      stopWatching();
+      const gone = () => {
+        stopWatching();
+        document.removeEventListener("visibilitychange", onVisible);
+        if (current.current !== handoff) return;
+        /*
+         * Stop holding the job: the renewals end with the wait, its lease
+         * lapses, and the next press -- here, or anywhere -- takes it up. The
+         * request is still followed, for a tab that handed it to content just
+         * before it went quiet: a Live after this replaces the card.
+         */
+        const w = waiting.current;
+        following.current =
+          w !== null ? { requestId: pressedFor.current } : null;
+        if (w?.release) {
+          const release = w.release;
+          void (async () => {
+            const stillOurs = await w.renew().catch(() => false);
+            if (!stillOurs) return;
+            /*
+             * Cancelled, so it settles as such: nothing to follow, and the
+             * card keeps saying why rather than being cleared by it.
+             */
+            if (await release().catch(() => false)) following.current = null;
+          })();
+        }
+        settleWaiting("lost");
+        handoff.close();
+        current.current = null;
+        setState({ kind: "failed", message: TAB_GONE_MESSAGE });
+      };
+      watchdog.current = setInterval(() => {
+        if (current.current !== handoff) {
+          stopWatching();
+          document.removeEventListener("visibilitychange", onVisible);
+          return;
+        }
+        // Waiting on the editor's press, not on a tab.
+        if (blocked.current || document.visibilityState === "hidden") return;
+        const silentFor = Date.now() - Math.max(heard.current.at, resumedAt);
+        if (
+          silentFor > (heard.current.any ? TAB_SILENT_MS : TAB_FIRST_WORD_MS)
+        ) {
+          gone();
+        }
+      }, WATCH_EVERY_MS);
       handoff.onMessage((message) => {
         if (current.current !== handoff) return;
+        heard.current = { at: Date.now(), any: true };
+        blocked.current = false;
         if (message.type === "ready") {
           setState((prev) =>
             prev?.kind === "blocked" ? { kind: "opening" } : prev,
@@ -101,9 +223,18 @@ export function useSiteHandoff(
             elapsedMs: message.elapsedMs,
           });
         } else if (message.type === "job-result") {
-          if (waiting.current?.jobId === message.result.jobId) {
-            settleWaiting(message.result);
-          }
+          if (waiting.current?.jobId !== message.result.jobId) return;
+          settleWaiting(message.result);
+          if (message.result.status !== "handed-off") return;
+          /*
+           * Content has the build, and checks it and puts it live without the
+           * tab, which closes now. The rest is this page's to follow.
+           */
+          following.current = { requestId: pressedFor.current };
+          setState({ kind: "checking" });
+          stopWatching();
+          handoff.close();
+          current.current = null;
         } else if (message.type === "done") {
           setState(
             message.result.status === "failed"
@@ -117,23 +248,25 @@ export function useSiteHandoff(
               : { kind: "live", ms: message.ms },
           );
           settleWaiting("lost");
+          stopWatching();
           handoff.close();
           current.current = null;
         }
       });
     },
-    [enabled, settleWaiting],
+    [enabled, settleWaiting, stopWatching],
   );
 
   const active = useCallback(() => current.current !== null, []);
 
   const runJob = useCallback<UseSiteHandoff["runJob"]>(
-    (job, tab, requestId, renew) => {
+    (job, tab, requestId, renew, release) => {
       const handoff = current.current;
       if (handoff === null) {
         return Promise.resolve({ status: "lost", jobId: job.id });
       }
       settleWaiting("lost");
+      pressedFor.current = requestId;
       return new Promise<StudioJobResult>((resolve) => {
         let grace: ReturnType<typeof setTimeout> | null = null;
         const renewing = setInterval(() => {
@@ -156,6 +289,8 @@ export function useSiteHandoff(
         waiting.current = {
           jobId: job.id,
           resolve,
+          renew,
+          ...(release !== undefined ? { release } : {}),
           stop: () => {
             clearInterval(renewing);
             if (grace !== null) clearTimeout(grace);
@@ -167,25 +302,54 @@ export function useSiteHandoff(
     [settleWaiting],
   );
 
+  const settled = useCallback<UseSiteHandoff["settled"]>(
+    (requestId, status) => {
+      const followed = following.current;
+      if (followed === null) return;
+      if (followed.requestId !== null && followed.requestId !== requestId)
+        return;
+      following.current = null;
+      if (status.kind === "live" || status.kind === "nothing-to-publish") {
+        setState({
+          kind: "live",
+          ms: Date.now() - (startedAt.current ?? Date.now()),
+          followed: true,
+        });
+      } else if (status.kind === "failed") {
+        setState({
+          kind: "failed",
+          message: status.message,
+          followed: true,
+        });
+      } else {
+        setState(null);
+      }
+    },
+    [],
+  );
+
   const cancel = useCallback(
     (message: string) => {
+      stopWatching();
       current.current?.cancel(message);
       current.current?.close();
       current.current = null;
       settleWaiting("lost");
       setState(null);
     },
-    [settleWaiting],
+    [settleWaiting, stopWatching],
   );
 
   const dismiss = useCallback(() => {
     // A dismissed card is a handoff given up: the job's lease lapses, and
     // its requests go back to the queue for a tab that can build.
+    stopWatching();
+    following.current = null;
     current.current?.close();
     current.current = null;
     settleWaiting("lost");
     setState(null);
-  }, [settleWaiting]);
+  }, [settleWaiting, stopWatching]);
 
   const openStudio = useCallback(() => {
     const handoff = current.current;
@@ -194,11 +358,24 @@ export function useSiteHandoff(
       const opened =
         openBuilderWindow(handoff.url, `val-publish-${handoff.id}`) !== null;
       // Blocked again: keep offering the button rather than claiming it opened.
-      if (opened) setState({ kind: "opening" });
+      if (opened) {
+        blocked.current = false;
+        heard.current = { at: Date.now(), any: false };
+        setState({ kind: "opening" });
+      }
       return;
     }
     window.open("/val", "_blank");
   }, []);
 
-  return { state, prepare, active, runJob, cancel, dismiss, openStudio };
+  return {
+    state,
+    prepare,
+    active,
+    runJob,
+    settled,
+    cancel,
+    dismiss,
+    openStudio,
+  };
 }

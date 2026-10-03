@@ -145,3 +145,26 @@ describe("rebaking the publish job", () => {
     expect(bakedJob(rebakeGit(edited, git, "J-3"))).toBeUndefined();
   });
 });
+
+describe("which build is running", () => {
+  /*
+   * A build's hash is taken of its output, so it cannot be baked in: the
+   * platform hands it over at runtime (`VAL_BUILD`), the way it hands over
+   * secrets, and the server sends it to the content service, which places the
+   * build's overlay by it.
+   */
+  test("is read at runtime and handed to the server, and a rebake keeps it", () => {
+    const source = wired()[VAL_SERVER_PATH];
+    expect(source).toContain('const servedBuild = secret("VAL_BUILD");');
+    expect(source).toContain(
+      "...(servedBuild !== undefined ? { publishBuild: servedBuild } : {}),",
+    );
+    const rebaked = rebakeGit(
+      wired(),
+      { commit: "c".repeat(40), branch: "main" },
+      "J-1",
+    )[VAL_SERVER_PATH];
+    expect(rebaked).toContain('const servedBuild = secret("VAL_BUILD");');
+    expect(rebaked).toContain("{ publishBuild: servedBuild }");
+  });
+});

@@ -455,6 +455,8 @@ export class ValOpsHttp extends ValOps {
   private readonly projectSource: Record<string, string> | null;
   /** See `publishJob` on {@link ValApiOptions}; sent only with no commit. */
   private readonly publishJob: string | null;
+  /** See `publishBuild` on {@link ValApiOptions}; sent with every position. */
+  private readonly publishBuild: string | null;
 
   /** Did the host hand over the running build's source? See `projectSource`. */
   embedsSource(): boolean {
@@ -553,6 +555,8 @@ export class ValOpsHttp extends ValOps {
       projectSource?: Record<string, string>;
       /** See `publishJob` on {@link ValApiOptions}. */
       publishJob?: string;
+      /** See `publishBuild` on {@link ValApiOptions}. */
+      publishBuild?: string;
     },
   ) {
     super(valModules, options);
@@ -563,6 +567,7 @@ export class ValOpsHttp extends ValOps {
     this.root = options?.root ?? "";
     this.projectSource = options?.projectSource ?? null;
     this.publishJob = options?.publishJob ?? null;
+    this.publishBuild = options?.publishBuild ?? null;
     this.mirrorsSourceFiles = git !== null || this.projectSource !== null;
   }
   /**
@@ -643,6 +648,26 @@ export class ValOpsHttp extends ValOps {
    * a connected one content says is hosted on the platform (its CI publishes
    * through content). `false` before anything has been heard.
    */
+  /**
+   * Ask the content service what this project expects of its publisher, when
+   * nothing has been heard yet.
+   *
+   * What {@link publishesAsJobs} and {@link sourceMode} read is remembered
+   * from the overlay this server last fetched, and a server that has fetched
+   * none has heard nothing. That is not rare: the platform runs a site in many
+   * isolates, each with a Val server of its own, so a publish's prepare can
+   * reach one that has never served an overlay. It was refused ("This
+   * deployment cannot prepare a publish job") as though the project did not
+   * publish as jobs at all. Best effort: a content service that does not
+   * answer leaves it unheard, and the caller refuses as before.
+   */
+  async learnProjectExpectation(): Promise<void> {
+    if (this.projectExpectation !== null) return;
+    await this.fetchPatchesInternal({ excludePatchOps: true }).catch(
+      () => undefined,
+    );
+  }
+
   override publishesAsJobs(): boolean {
     const expected = this.projectExpectation;
     if (expected === null) return false;
@@ -1190,6 +1215,8 @@ export class ValOpsHttp extends ValOps {
           : this.publishJob !== null
             ? { job: this.publishJob }
             : {}),
+        // Which build is asking, beside what it says about itself.
+        ...(this.publishBuild !== null ? { build: this.publishBuild } : {}),
       }),
       headers: {
         ...this.authHeaders,
@@ -1404,6 +1431,16 @@ export class ValOpsHttp extends ValOps {
     } else if (this.publishJob !== null) {
       // A build a tab made has no commit, and says which job it was made for.
       params.push(["job", this.publishJob]);
+    }
+    /*
+     * And WHICH build this is, when the platform running it says: the only
+     * thing that places a build the edge still serves after a publish, which
+     * the service would otherwise take to be the new one. Sent with the commit
+     * or the job, which still say where a build is that the service has no
+     * publish of.
+     */
+    if (this.publishBuild !== null) {
+      params.push(["build", this.publishBuild]);
     }
     if (filters.patchIds) {
       for (const patchId of filters.patchIds) {

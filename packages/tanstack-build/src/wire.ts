@@ -237,6 +237,17 @@ const valContentUrl = secret("VAL_CONTENT_URL");
  * name its project keeps working with no secret set.
  */
 const valProject = secret("VAL_PROJECT");
+/*
+ * WHICH BUILD this is, as the platform running it says.
+ *
+ * Not baked like \`BUILT_FROM\`, because it cannot be: a build's hash is taken
+ * of its output, this file included. The platform hands it over at runtime,
+ * and Val sends it to the content service, which places this build's overlay
+ * by it -- the one answer that holds for the minute after a publish in which
+ * the edge still serves this build while the pointer already names the next.
+ * Ignored by a @valbuild/tanstack that predates it.
+ */
+const servedBuild = secret("VAL_BUILD");
 const valConfig = {
   ...config,
   ...(valProject !== undefined ? { project: valProject } : {}),
@@ -303,6 +314,7 @@ const http =
         ...(valContentUrl !== undefined ? { valContentUrl } : {}),
         projectSource: FILES,
         ...(BUILT_FOR_JOB !== null ? { publishJob: BUILT_FOR_JOB } : {}),
+        ...(servedBuild !== undefined ? { publishBuild: servedBuild } : {}),
       }
     : undefined;
 

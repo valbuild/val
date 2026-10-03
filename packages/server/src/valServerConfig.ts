@@ -323,6 +323,9 @@ export async function initHandlerOptions(
         ? { projectSource: opts.projectSource }
         : {}),
       ...(opts.publishJob !== undefined ? { publishJob: opts.publishJob } : {}),
+      ...(opts.publishBuild !== undefined
+        ? { publishBuild: opts.publishBuild }
+        : {}),
       project: maybeValProject,
       valEnableRedirectUrl,
       valDisableRedirectUrl,
@@ -403,6 +406,9 @@ export function createValOps(
           : {}),
         ...(options.publishJob !== undefined
           ? { publishJob: options.publishJob }
+          : {}),
+        ...(options.publishBuild !== undefined
+          ? { publishBuild: options.publishBuild }
           : {}),
       },
     );
