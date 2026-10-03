@@ -498,3 +498,32 @@ test("a /stat read outside the intake still says what the server removed", () =>
   expect(removed).toHaveLength(2);
   errors.mockRestore();
 });
+
+test("removed-patch notices are delivered once, even on a stat dropped as older", () => {
+  const system = makeSystem();
+  const errors = jest.spyOn(console, "error").mockImplementation(() => {});
+  const removed: unknown[] = [];
+  system.stat.events.on("patch:removed-by-server", (event) => {
+    removed.push(...event.removed);
+  });
+  system.stat.receiveStat({ patches: [], baseSha: "sha", headVersion: 5 });
+  // Older than what is held, so its chain is not adopted — but the server
+  // drained the notice into it, and it is said nowhere else.
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headVersion: 4,
+    removed: [{ patchId: "gone" as PatchId, reason: "unreadable" }],
+  });
+  expect(removed).toEqual([{ patchId: "gone", reason: "unreadable" }]);
+
+  system.stat.receiveStat({
+    patches: [],
+    baseSha: "sha",
+    headVersion: 6,
+    removed: [{ patchId: "later" as PatchId, reason: "unreadable" }],
+  });
+  system.stat.readopt();
+  expect(removed).toHaveLength(2);
+  errors.mockRestore();
+});

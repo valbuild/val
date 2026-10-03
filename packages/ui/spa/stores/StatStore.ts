@@ -192,7 +192,16 @@ export class StatStore {
    * this stat is adopted after the fetch -- and only if no newer stat arrived
    * meanwhile, since a newer answer is the one to believe.
    */
-  receiveStat(snapshot: StatSnapshot): void {
+  receiveStat(received: StatSnapshot): void {
+    /*
+     * The removed-patch notices first, once, and whatever becomes of the rest.
+     * The server drains them as it answers, so they are news whether or not
+     * this snapshot's chain is ever adopted — dropped as older, overtaken
+     * while prepared — and re-adopting it (`readopt`) must not say it twice.
+     * Only one thing listens, and that thing is the toast.
+     */
+    const { removed, ...snapshot } = received;
+    if (removed !== undefined) this.noteRemovedByServer(removed);
     if (this.isOlderThanNewest(snapshot)) {
       // Older than an answer already in hand. Dropped before the ticket
       // moves, so it cannot cancel a newer stat still being prepared.
@@ -289,12 +298,6 @@ export class StatStore {
         ? { appliedPatches: [...snapshot.appliedPatches] }
         : {}),
     });
-    if (snapshot.removed !== undefined) {
-      // A separate event, after the id list: what this says is not "the chain
-      // moved", it is "work you made no longer exists anywhere". Only one thing
-      // listens for it, and that thing is the toast.
-      this.noteRemovedByServer(snapshot.removed);
-    }
   }
 
   /**
