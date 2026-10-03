@@ -541,7 +541,8 @@ export function hostLabel(url: string): string {
  *
  * The member list is reached through `/manage-members/<org>`, which the admin
  * app keeps for exactly this — it redirects to wherever the org's members
- * currently live, so Val does not have to track that page moving.
+ * currently live, so Val does not have to track that page moving. The
+ * project's AI keys are `/manage-ai/<org>/<project>`, for the same reason.
  */
 export function toAdminLinks(
   config: { project?: string; appHost?: string } | undefined,
@@ -558,7 +559,27 @@ export function toAdminLinks(
   return {
     project: `${host}/~/${encodeURIComponent(org)}/${encodeURIComponent(project)}`,
     members: `${host}/manage-members/${encodeURIComponent(org)}`,
+    ai: `${host}/manage-ai/${encodeURIComponent(org)}/${encodeURIComponent(project)}`,
   };
+}
+
+/**
+ * Where the Studio loads Val Build's web components from: `/wc/v1` on the
+ * admin app, which `<val-project-switcher>` and the ones after it are built
+ * into (valbuild/home, `web-components/`).
+ *
+ * Only for a project `toAdminLinks` has links for. The components show that
+ * project's Val Build data, so a project that is not connected has nothing
+ * for them to show — and the plain name it has today is the right thing to
+ * leave in place.
+ */
+export function toWebComponentsUrl(
+  config: { project?: string; appHost?: string } | undefined,
+): string | undefined {
+  if (toAdminLinks(config) === undefined || !config?.appHost) {
+    return undefined;
+  }
+  return `${config.appHost.replace(/\/+$/, "")}/wc/v1`;
 }
 
 /**

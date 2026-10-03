@@ -381,6 +381,19 @@ export type ShellData = {
    * go — see `toAdminLinks`.
    */
   admin?: ShellAdminLinks;
+  /**
+   * Where Val Build's web components are served from — see
+   * `toWebComponentsUrl`. Absent when the project is not connected, which
+   * leaves the top bar's plain project name in place.
+   */
+  webComponentsUrl?: string;
+  /**
+   * Where this Studio runs: `fs` locally, `http` deployed. Handed to Val
+   * Build's web components as their `mode`, because signing in again is a
+   * different thing in each — `val login` locally, the Studio's sign-in when
+   * deployed. Absent while the mode is still unknown.
+   */
+  studioMode?: "fs" | "http";
   /** From `config.gitBranch`. Absent outside a git checkout. */
   branch?: string;
   /**
@@ -495,6 +508,11 @@ export type ShellAdminLinks = {
   project: string;
   /** The organisation's member list. */
   members: string;
+  /**
+   * The project's AI keys: `/manage-ai/<org>/<project>`, which the admin app
+   * keeps for this and redirects to the project's AI tab.
+   */
+  ai: string;
 };
 
 /**

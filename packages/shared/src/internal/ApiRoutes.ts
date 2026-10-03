@@ -88,6 +88,43 @@ const notFoundResponse = z.object({
 const GenericError = z.object({ message: z.string() });
 
 /**
+ * The header a request to `/admin/proxy` must carry. A cross-site form or
+ * `<img>` cannot set a custom header, so without it the proxy cannot be driven
+ * with the editor's cookie from another site.
+ */
+export const VAL_STUDIO_HEADER = "x-val-studio";
+
+/**
+ * What Val Build answered, mapped onto the statuses this server speaks: a
+ * `code` in the JSON is what the web components act on, so it is passed
+ * through untouched.
+ */
+const AdminProxyResponse = z.object({
+  status: z.union([
+    z.literal(200),
+    z.literal(400),
+    z.literal(401),
+    z.literal(403),
+    z.literal(404),
+    z.literal(500),
+  ]),
+  json: z.unknown(),
+});
+
+function adminProxyEndpoint() {
+  return {
+    req: {
+      path: z.string(),
+      rawQuery: z.string(),
+      headers: { [VAL_STUDIO_HEADER]: z.string().optional() },
+      cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      body: z.unknown(),
+    },
+    res: AdminProxyResponse,
+  };
+}
+
+/**
  * What answered when one URL was opened.
  *
  * The one place the Studio's `ExternalUrlProbeResult` and the server's
@@ -2276,6 +2313,42 @@ export const Api = {
       ]),
     },
   },
+  /*
+   * Val Build, on the editor's behalf, for the web components the Studio
+   * mounts from admin.val.build (`<val-project-switcher>` and the ones after
+   * it). `/admin/proxy/projects/overview?current=…` is
+   * `{valBuildUrl}/api/studio/v1/projects/overview?current=…`, with the
+   * editor's token from the session cookie: the component cannot send that
+   * token itself, because it is in an httpOnly cookie only this server reads.
+   *
+   * A pipe, deliberately: the path, the query and the JSON body go through as
+   * they are, so a new component or endpoint on Val Build needs no Val
+   * release. What it does NOT pass through is anything that would let it be
+   * aimed elsewhere — see `adminProxy.ts`.
+   */
+  /*
+   * Whether this Studio has a Val Build credential for the editor: a session,
+   * or in local development a `val login`. The Studio asks before it loads a
+   * web component, so a developer who never logged in sees the plain project
+   * name rather than a component explaining that they are not logged in.
+   */
+  "/admin/status": {
+    GET: {
+      req: {
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.object({
+        status: z.literal(200),
+        json: z.object({ connected: z.boolean() }),
+      }),
+    },
+  },
+  "/admin/proxy": {
+    GET: adminProxyEndpoint(),
+    POST: adminProxyEndpoint(),
+    PUT: adminProxyEndpoint(),
+    DELETE: adminProxyEndpoint(),
+  },
 } satisfies ApiGuard;
 
 // Types and helper types:
@@ -2324,6 +2397,16 @@ export type ApiEndpoint = {
       z.ZodSchema<ValidQueryParamTypes, string[] | undefined>
     >;
     cookies?: Record<string, z.ZodSchema<string | undefined>>;
+    /**
+     * Request headers, by lower-case name, parsed the way `cookies` are.
+     * Absent ones are `undefined`.
+     */
+    headers?: Record<string, z.ZodSchema<string | undefined>>;
+    /**
+     * The query string exactly as sent (`?a=1&b=2`, or `""`), for a route that
+     * forwards it rather than reading it. `query` is for routes that read it.
+     */
+    rawQuery?: z.ZodString;
   };
   res: z.ZodSchema<
     | {
@@ -2384,6 +2467,19 @@ export type ServerOf<Api extends ApiGuard> = {
                     Api[Route][Method]["req"]["cookies"][key]
                   >;
                 }
+              : undefined;
+            headers: Api[Route][Method]["req"]["headers"] extends Record<
+              string,
+              z.ZodSchema<string | undefined>
+            >
+              ? {
+                  [key in keyof Api[Route][Method]["req"]["headers"]]: z.infer<
+                    Api[Route][Method]["req"]["headers"][key]
+                  >;
+                }
+              : undefined;
+            rawQuery: Api[Route][Method]["req"]["rawQuery"] extends z.ZodString
+              ? string
               : undefined;
           }>,
         ) => Promise<z.infer<Api[Route][Method]["res"]>>

@@ -25,6 +25,8 @@ import { StudioMark } from "./ValLogo";
 import { ShellBreakpoint, ShellLogo, ShellPanel } from "./types";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 import { LocaleFilter } from "./LocaleFilter";
+import { ProjectSwitcher } from "./ProjectSwitcher";
+import { MembersShare, orgOfProject } from "./MembersShare";
 
 export type TopBarProps = {
   breakpoint: ShellBreakpoint;
@@ -34,6 +36,20 @@ export type TopBarProps = {
    * `ProjectName`.
    */
   projectHref?: string;
+  /**
+   * Where Val Build's web components are served from. With it (and a
+   * `projectHref`) the name becomes Val Build's project switcher, with the
+   * plain name as its fallback — see `ProjectSwitcher`.
+   */
+  webComponentsUrl?: string;
+  /**
+   * The organization's members page in Val Build. With it (and a
+   * `webComponentsUrl`) the bar gets Val Build's Share button — see
+   * `MembersShare`.
+   */
+  membersHref?: string;
+  /** See `ShellData.studioMode`. */
+  studioMode?: "fs" | "http";
   openPanel: ShellPanel | null;
   onTogglePanel: (panel: ShellPanel) => void;
   /** Opens the navigation: the rail's panels, reached from a menu button. */
@@ -154,6 +170,9 @@ export function TopBar({
   breakpoint,
   projectName,
   projectHref,
+  webComponentsUrl,
+  membersHref,
+  studioMode,
   openPanel,
   onTogglePanel,
   onOpenMenu,
@@ -183,6 +202,7 @@ export function TopBar({
 }: TopBarProps) {
   const isMobile = breakpoint === "mobile";
   const isDesktop = breakpoint === "desktop";
+  const org = orgOfProject(projectName);
   return (
     <header
       className={cn(
@@ -207,7 +227,19 @@ export function TopBar({
           <StudioMark logo={logo} className="h-5" blinking={isLoading} />
         </div>
       )}
-      <ProjectName projectName={projectName} projectHref={projectHref} />
+      {projectHref !== undefined && webComponentsUrl !== undefined ? (
+        <ProjectSwitcher
+          projectName={projectName}
+          projectHref={projectHref}
+          webComponentsUrl={webComponentsUrl}
+          studioMode={studioMode}
+          breakpoint={breakpoint}
+        >
+          <ProjectName projectName={projectName} projectHref={projectHref} />
+        </ProjectSwitcher>
+      ) : (
+        <ProjectName projectName={projectName} projectHref={projectHref} />
+      )}
       <SearchTrigger breakpoint={breakpoint} onClick={onOpenSearch} />
       <div className="ml-auto flex items-center gap-1.5 shrink-0">
         {/*
@@ -258,6 +290,22 @@ export function TopBar({
             <BarDivider />
           </>
         )}
+        {/*
+         * Who else is here, and a way to bring more people in: first of the
+         * things about the project rather than the change, and on a phone the
+         * one of them that stays in the top bar.
+         */}
+        {org !== null &&
+          membersHref !== undefined &&
+          webComponentsUrl !== undefined && (
+            <MembersShare
+              org={org}
+              membersHref={membersHref}
+              webComponentsUrl={webComponentsUrl}
+              studioMode={studioMode}
+              breakpoint={breakpoint}
+            />
+          )}
         {historyEnabled && (
           <IconButton
             label="History"
@@ -769,8 +817,10 @@ export function PublishButton({
 }
 
 /**
- * The project's name. Val runs one project per config, so this is a label
- * rather than a switcher — there is nothing to switch to.
+ * The project's name. Val runs one project per config, so switching projects
+ * is Val Build's to offer: with a connected project this is the fallback
+ * inside `ProjectSwitcher`, and what is shown until — or unless — Val Build's
+ * switcher loads.
  *
  * It is a link to the project in Val Build when there is one: the name is
  * where an editor already points at "this project", and everything Val does

@@ -1,3 +1,4 @@
+import { AiSetup } from "./AiSetup";
 import { useMemo } from "react";
 import type { Json } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
@@ -164,25 +165,33 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
           label: "Assistant",
           icon: Sparkles,
           content: (
-            <AssistantSettingsFields
-              value={{
-                enabled: enabledValue,
-                context: contextValue,
-                tone: toneValue,
-              }}
-              onChange={writeAssistantSetting}
-              maxLength={ASSISTANT_SETTINGS_MAX_LENGTH}
-              errors={{
-                context: contextErrors[0]?.message,
-                tone: toneErrors[0]?.message,
-              }}
-              onGenerateTone={
-                canMentionField && enabledValue !== false
-                  ? generateTone
-                  : undefined
-              }
-              readonly={readonly}
-            />
+            <>
+              {/*
+               * The key first: without one nothing below does anything, and
+               * adding it here, in the Studio, is the point. Renders nothing
+               * for a project that is not connected to Val Build.
+               */}
+              <AiSetup className="block pb-6 mb-6 border-b border-border-secondary" />
+              <AssistantSettingsFields
+                value={{
+                  enabled: enabledValue,
+                  context: contextValue,
+                  tone: toneValue,
+                }}
+                onChange={writeAssistantSetting}
+                maxLength={ASSISTANT_SETTINGS_MAX_LENGTH}
+                errors={{
+                  context: contextErrors[0]?.message,
+                  tone: toneErrors[0]?.message,
+                }}
+                onGenerateTone={
+                  canMentionField && enabledValue !== false
+                    ? generateTone
+                    : undefined
+                }
+                readonly={readonly}
+              />
+            </>
           ),
         },
         {

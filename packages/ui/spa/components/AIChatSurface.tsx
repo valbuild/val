@@ -6,11 +6,13 @@ import { useAIChatActions } from "./AIChatActionsContext";
 import {
   useAIConnectionError,
   useAIModelSelection,
+  useAvailableAIModel,
   useValMode,
 } from "./ValProvider";
 import { useSessionParam } from "./ValRouter";
 import { useAssistantAvailability } from "../hooks/useAssistantAvailability";
 import { EnableAssistantPrompt } from "./EnableAssistantPrompt";
+import { AiSetup } from "./shell/AiSetup";
 
 /**
  * The assistant, wired.
@@ -69,6 +71,7 @@ function ConnectedChat({ className }: { className?: string }) {
   const { chatEditorRef, flushPendingFieldRefs, setAskAssistantImpl } =
     useAIChatActions();
   const aiModels = useAIModelSelection();
+  const availableModel = useAvailableAIModel();
   const { sessionParam, setSessionParam } = useSessionParam();
   // Read once, on the first render. Later URL changes — a navigation rewriting
   // the query, a `popstate` — must not reach in and swap the conversation the
@@ -173,6 +176,21 @@ function ConnectedChat({ className }: { className?: string }) {
       isLoadingSession={isLoadingSession}
       onAnswerToolQuestions={answerToolQuestions}
       onCancelToolQuestion={cancelToolQuestion}
+      emptyStateOverride={
+        // Connected and still no model means no key reaches one: offer to add
+        // it here rather than let the first message fail with "no key". Not
+        // before the socket is up, or the setup would flash while it loads.
+        isConnected && availableModel === null ? (
+          <AiSetup
+            className="block p-1"
+            unavailable={
+              <p className="py-12 text-center text-sm text-fg-secondary">
+                No AI key is set up for this project yet.
+              </p>
+            }
+          />
+        ) : undefined
+      }
     />
   );
 }

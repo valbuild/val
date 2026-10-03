@@ -19,6 +19,7 @@ import { ShellAdminLinks } from "./types";
 const admin: ShellAdminLinks = {
   project: "https://admin.val.build/~/acme/marketing-site",
   members: "https://admin.val.build/manage-members/acme",
+  ai: "https://admin.val.build/manage-ai/acme/marketing-site",
 };
 
 function topBar(projectHref?: string) {
