@@ -1,4 +1,8 @@
-import { awaitingDeploymentInterval, StatData } from "./useStatus";
+import {
+  awaitingDeploymentInterval,
+  chainOfMessage,
+  StatData,
+} from "./useStatus";
 
 /**
  * How hard the Studio leans on `/stat` while a publish is on its way out.
@@ -128,5 +132,42 @@ describe("awaitingDeploymentInterval", () => {
         now,
       ),
     ).toBe(Infinity);
+  });
+});
+
+describe("chainOfMessage", () => {
+  const message = {
+    type: "patches" as const,
+    patches: ["p1", "p2"] as StatData["patches"],
+    headPatchId: "p2" as StatData["patches"][number],
+    headVersion: 7,
+    patchGroups: [],
+  };
+
+  // A publish moves the groups and the applied list at once. Kept apart, the
+  // publisher's other tabs saw the new groups beside the old applied list,
+  // read the published change as unstaged, and showed the old value.
+  test("takes which patches are applied from the message, with the groups", () => {
+    expect(
+      chainOfMessage(
+        { appliedPatches: [] },
+        { ...message, appliedPatches: ["p1"] as StatData["patches"] },
+      ),
+    ).toEqual({
+      patches: ["p1", "p2"],
+      headPatchId: "p2",
+      headVersion: 7,
+      patchGroups: [],
+      appliedPatches: ["p1"],
+    });
+  });
+
+  // Applied is one-way: a content service that does not send the list leaves
+  // the last one standing, which is incomplete but never wrong.
+  test("keeps the previous applied list when the message has none", () => {
+    expect(
+      chainOfMessage({ appliedPatches: ["p1"] as StatData["patches"] }, message)
+        .appliedPatches,
+    ).toEqual(["p1"]);
   });
 });

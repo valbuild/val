@@ -5,6 +5,7 @@ import {
   type SourcePath,
 } from "@valbuild/core";
 import type { PatchGroupT } from "@valbuild/shared/internal";
+import { chainOfMessage } from "../hooks/useStatus";
 import { createSystem } from "./createSystem";
 import type { PatchRecord } from "./types";
 
@@ -396,4 +397,81 @@ test("a write that has left the chain is not laid over the groups, versioned or 
   await settle();
 
   expect(system.patchGroup()).not.toContain(mine);
+});
+
+/*
+ * My own publish, made by the server — a publish job, or my other browser —
+ * and heard about over the websocket while the site still serves the build
+ * from before it.
+ *
+ * The publish takes the patches out of every group, closes mine, and marks
+ * them applied, all at one chain version. They stay in the chain until a build
+ * that contains them is served, and a reload shows them as published content.
+ * This tab has to as well — it once showed the pre-publish value, and counted
+ * the change as unstaged, until the page was reloaded.
+ */
+describe("my publish, announced while the old build is served", () => {
+  async function published(message: {
+    appliedPatches?: PatchId[];
+  }): Promise<TestSystem> {
+    const system = makeSystem();
+    system.records.set("p" as PatchId, record("p", A, "published"));
+    scope(system);
+    await stat(system, 1, ["p"], [group(["p"])]);
+    expect(read(system, A)).toBe("published");
+
+    // What `/stat` said last: nothing applied yet.
+    const previous = { appliedPatches: [] as PatchId[] };
+    system.stat.receiveStat({
+      ...chainOfMessage(previous, {
+        type: "patches",
+        patches: ["p" as PatchId],
+        headPatchId: "p" as PatchId,
+        headVersion: 2,
+        patchGroups: [group([], { published: true })],
+        ...message,
+      }),
+      baseSha: "sha",
+      profileId: ME,
+    });
+    await system.patchSync.flush();
+    await settle();
+    return system;
+  }
+
+  test("stays on screen, and is not counted as unstaged", async () => {
+    const system = await published({ appliedPatches: ["p" as PatchId] });
+
+    expect(read(system, A)).toBe("published");
+    expect(system.patchStore.unstagedPatchIds().has("p" as PatchId)).toBe(
+      false,
+    );
+    expect(system.patchStore.pendingAmong(["p" as PatchId]).size).toBe(0);
+  });
+
+  test("the next edit does not pull it back in as a change it depends on", async () => {
+    // Read as unstaged, the published patch was a predecessor of every later
+    // edit to its module: the edit took it along as its closure, and the
+    // Studio announced "1 change was added to your changes" for work that was
+    // already published.
+    const system = await published({ appliedPatches: ["p" as PatchId] });
+    const widened: PatchId[][] = [];
+    system.patchSync.events.on("patch:group-widened", (event) => {
+      if (event.type === "patch:group-widened") widened.push(event.patches);
+    });
+    system.setPatchGroupResolver(async (patchIds) => ({
+      withPatchIds: await system.computeWriteClosure(patchIds),
+    }));
+
+    const created = await system.patchStore.createPatch(A, [
+      { op: "replace", path: ["title"], value: "after the publish" },
+    ]);
+    if (created.status !== "created") throw new Error(created.status);
+    await system.patchSync.flush();
+    await settle();
+
+    expect(widened).toEqual([]);
+    expect(system.patchGroup()).not.toContain("p");
+    expect(read(system, A)).toBe("after the publish");
+  });
 });
