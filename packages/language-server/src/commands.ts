@@ -18,6 +18,7 @@
  */
 
 import fs from "fs";
+import path from "path";
 import {
   DEFAULT_CONTENT_HOST,
   DEFAULT_VAL_REMOTE_HOST,
@@ -39,6 +40,7 @@ import {
   uploadRemoteFile,
   ValLoginError,
   type IValRemote,
+  type ModulePatch,
 } from "@valbuild/server";
 import {
   ApplyWorkspaceEditRequest,
@@ -46,8 +48,9 @@ import {
   type Connection,
   type TextEdit,
 } from "vscode-languageserver";
-import type { TextDocument } from "vscode-languageserver-textdocument";
+import { TextDocument } from "vscode-languageserver-textdocument";
 import { minimalTextEdit } from "./textEdit";
+import { pathToUri } from "./uri";
 import type { ValProject } from "./ValProject";
 
 /** Names advertised in `executeCommandProvider.commands`. */
@@ -69,6 +72,9 @@ export const REMOTE_FIX_COMMANDS: Partial<Record<ValidationFix, string>> = {
   "files:upload-remote": VAL_UPLOAD_REMOTE_COMMAND,
   "image:download-remote": VAL_DOWNLOAD_REMOTE_COMMAND,
   "file:download-remote": VAL_DOWNLOAD_REMOTE_COMMAND,
+  "video:upload-remote": VAL_UPLOAD_REMOTE_COMMAND,
+  "video:download-remote": VAL_DOWNLOAD_REMOTE_COMMAND,
+  "videos:upload-remote": VAL_UPLOAD_REMOTE_COMMAND,
 };
 
 export const REMOTE_FIX_TITLES: Partial<Record<ValidationFix, string>> = {
@@ -78,6 +84,12 @@ export const REMOTE_FIX_TITLES: Partial<Record<ValidationFix, string>> = {
   "files:upload-remote": "Val: upload this gallery's files to Val Remote",
   "image:download-remote": "Val: download this image into the project",
   "file:download-remote": "Val: download this file into the project",
+  "video:upload-remote":
+    "Val: upload this video (and its poster and captions) to Val Remote",
+  "video:download-remote":
+    "Val: download this video (and its poster and captions) into the project",
+  "videos:upload-remote":
+    "Val: upload this video to Val Remote (and point the fields using it there)",
 };
 
 /** Arguments a remote-fix command is invoked with. */
@@ -375,12 +387,64 @@ export function createValCommands(deps: ValCommandDeps): {
     if (!edit) {
       return;
     }
+    const changes: Record<string, TextEdit[]> = { [args.uri]: [edit] };
+    // A fix that renames what other modules name (a video set's key) rewrites
+    // them in the same edit, so one undo takes back all of it.
+    const unwritten: string[] = [];
+    for (const other of outcome.otherModulePatches ?? []) {
+      const otherEdit = editForModulePatch(project.valRoot, other);
+      if (otherEdit) {
+        (changes[otherEdit.uri] ??= []).push(otherEdit.edit);
+      } else {
+        unwritten.push(other.moduleFilePath);
+      }
+    }
     // Applied through the client so it lands in the editor's undo history,
     // rather than written to disk under the user's cursor.
     await connection.sendRequest(ApplyWorkspaceEditRequest.type, {
       label: REMOTE_FIX_TITLES[args.fix] ?? `Val: ${args.fix}`,
-      edit: { changes: { [args.uri]: [edit] } },
+      edit: { changes },
     });
+    if (unwritten.length > 0) {
+      connection.window.showWarningMessage(
+        `Val: ${args.fix} could not rewrite ${unwritten.join(", ")}. Run "val validate" to see what still points at the old path.`,
+      );
+    }
+  }
+
+  /**
+   * The edit for a patch to another module than the one the command ran on,
+   * against the editor's buffer when the file is open and the disk otherwise.
+   */
+  function editForModulePatch(
+    valRoot: string,
+    other: ModulePatch,
+  ): { uri: string; edit: TextEdit } | undefined {
+    const uri = pathToUri(path.join(valRoot, other.moduleFilePath));
+    let otherDocument = deps.getDocument(uri);
+    if (!otherDocument) {
+      let text: string;
+      try {
+        text = fs.readFileSync(
+          path.join(valRoot, other.moduleFilePath),
+          "utf8",
+        );
+      } catch {
+        return undefined;
+      }
+      otherDocument = TextDocument.create(uri, "typescript", 0, text);
+    }
+    const otherBefore = otherDocument.getText();
+    const otherPatched = patchSourceFile(otherBefore, other.patch);
+    if (result.isErr(otherPatched)) {
+      return undefined;
+    }
+    const otherEdit = minimalTextEdit(
+      otherBefore,
+      otherPatched.value.text,
+      otherDocument,
+    );
+    return otherEdit && { uri, edit: otherEdit };
   }
 
   return {

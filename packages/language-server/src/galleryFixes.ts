@@ -25,7 +25,11 @@ import {
   type TextEdit,
 } from "vscode-languageserver";
 import type { TextDocument } from "vscode-languageserver-textdocument";
-import { extractFileMetadata, extractImageMetadata } from "@valbuild/server";
+import {
+  extractFileMetadata,
+  extractImageMetadata,
+  extractVideoMetadataFromFile,
+} from "@valbuild/server";
 import type { GalleryMembership } from "./diagnostics";
 import { supportsResourceOperation } from "./clientCapabilities";
 import { pathToUri } from "./uri";
@@ -69,7 +73,12 @@ export async function createGalleryMembershipActions({
     actions.push(register);
   }
 
-  if (allowRename && gallery.dir && onDisk) {
+  // A stream is a directory of files its master playlist names, and renaming
+  // the master alone would leave every one of them behind.
+  const isStream =
+    gallery.mediaType === "video" &&
+    gallery.path.split("?")[0].toLowerCase().endsWith(".m3u8");
+  if (allowRename && gallery.dir && onDisk && !isStream) {
     const move = createMoveIntoGalleryDirectoryAction({
       document,
       gallery,
@@ -138,7 +147,9 @@ async function createRegisterInGalleryAction({
       : `\n${insertion.indentation}${entry}\n${insertion.indentation.slice(2)}`,
   };
   return CodeAction.create(
-    `Val: add ${path.posix.basename(gallery.path)} to the gallery`,
+    `Val: add ${path.posix.basename(gallery.path)} to the ${
+      gallery.mediaType === "video" ? "video set" : "gallery"
+    }`,
     { changes: { [pathToUri(galleryFile)]: [edit] } },
     CodeActionKind.QuickFix,
   );
@@ -284,9 +295,26 @@ export function findRecordInsertion(sourceFile: ts.SourceFile): {
  */
 async function readMetadataSource(
   filePath: string,
-  mediaType: "image" | "file",
+  mediaType: "image" | "file" | "video",
 ): Promise<string | undefined> {
   try {
+    if (mediaType === "video") {
+      // All four or nothing: a set entry missing any of them is reported by
+      // `videos:add-metadata`, which says why it could not be read — a better
+      // place to land than a registered entry that is already wrong.
+      const metadata = await extractVideoMetadataFromFile(filePath);
+      if (
+        !metadata.mimeType ||
+        metadata.width === undefined ||
+        metadata.height === undefined ||
+        metadata.duration === undefined
+      ) {
+        return undefined;
+      }
+      return `mimeType: ${JSON.stringify(metadata.mimeType)}, width: ${
+        metadata.width
+      }, height: ${metadata.height}, duration: ${metadata.duration}, alt: null`;
+    }
     const buffer = fs.readFileSync(filePath);
     if (mediaType === "image") {
       const metadata = await extractImageMetadata(filePath, buffer);

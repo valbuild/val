@@ -49,6 +49,12 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("images:check-remote"),
   z.literal("images:upload-remote"),
   z.literal("file:add-metadata"),
+  z.literal("video:add-metadata"),
+  z.literal("video:upload-remote"),
+  z.literal("video:download-remote"),
+  z.literal("videos:add-metadata"),
+  z.literal("videos:check-remote"),
+  z.literal("videos:upload-remote"),
   z.literal("file:check-metadata"),
   z.literal("file:check-remote"),
   z.literal("file:upload-remote"),
@@ -63,6 +69,8 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("files:check-unique-folder"),
   z.literal("images:check-all-files"),
   z.literal("files:check-all-files"),
+  z.literal("videos:check-unique-folder"),
+  z.literal("videos:check-all-files"),
   z.literal("jsonValues:extract-entry"),
   z.literal("view:check-module"),
 ]);
@@ -1917,6 +1925,10 @@ export const Api = {
             .optional(),
           remote: onlyOneStringQueryParam.optional(),
         },
+        // A `<video>` seeks with byte ranges, Safari will not play one from a
+        // server that ignores them, and HLS segments that are byte ranges of
+        // one file are fetched no other way.
+        headers: { range: z.string().optional() },
       },
       res: z.union([
         unauthorizedResponse,
@@ -1925,6 +1937,11 @@ export const Api = {
           status: z.literal(200),
           body: z.instanceof(ReadableStream),
         }),
+        z.object({
+          status: z.literal(206),
+          body: z.instanceof(ReadableStream),
+        }),
+        z.object({ status: z.literal(416), json: GenericError }),
       ]),
     },
   },
@@ -2324,6 +2341,8 @@ export type ApiEndpoint = {
       z.ZodSchema<ValidQueryParamTypes, string[] | undefined>
     >;
     cookies?: Record<string, z.ZodSchema<string | undefined>>;
+    /** Request headers, by LOWER-CASE name. Server side only. */
+    headers?: Record<string, z.ZodSchema<string | undefined>>;
   };
   res: z.ZodSchema<
     | {
@@ -2382,6 +2401,16 @@ export type ServerOf<Api extends ApiGuard> = {
               ? {
                   [key in keyof Api[Route][Method]["req"]["cookies"]]: z.infer<
                     Api[Route][Method]["req"]["cookies"][key]
+                  >;
+                }
+              : undefined;
+            headers: Api[Route][Method]["req"]["headers"] extends Record<
+              string,
+              z.ZodSchema<string | undefined>
+            >
+              ? {
+                  [key in keyof Api[Route][Method]["req"]["headers"]]: z.infer<
+                    Api[Route][Method]["req"]["headers"][key]
                   >;
                 }
               : undefined;

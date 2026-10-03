@@ -135,7 +135,11 @@ export function emptyOf(
     // language nobody chose, which is the thing this whole feature exists to
     // make visible.
     return context?.selectedLocale ?? "";
-  } else if (schema.type === "file" || schema.type === "image") {
+  } else if (
+    schema.type === "file" ||
+    schema.type === "image" ||
+    schema.type === "video"
+  ) {
     return null; // returning null is the only thing we can do, however, it means that the patches cannot be applied yet since that might fail
   } else if (schema.type === "literal") {
     return schema.value;

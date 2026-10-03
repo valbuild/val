@@ -47,6 +47,7 @@ export function schemaTypesOfPath(
       current.type === "code" ||
       current.type === "file" ||
       current.type === "image" ||
+      current.type === "video" ||
       current.type === "keyOf" ||
       current.type === "route" ||
       current.type === "locale" ||
@@ -59,6 +60,12 @@ export function schemaTypesOfPath(
         if (patchPath[i] === "metadata") {
           break;
         }
+      }
+      if (current.type === "video") {
+        // A video is edited a property at a time — its poster time, a caption
+        // track's label — so that two editors changing different parts of one
+        // video do not overwrite each other. Everything below it is the video.
+        break;
       }
 
       if (i !== patchPath.length - 1) {

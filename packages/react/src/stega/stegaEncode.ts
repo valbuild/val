@@ -12,6 +12,10 @@ import {
   SerializedLiteralSchema,
   SerializedFileSchema,
   SerializedImageSchema,
+  SerializedVideoSchema,
+  GalleryVideoSource,
+  IsVideoSource,
+  VideoCaptionSource,
   MediaHotspot,
   RichTextOptions,
   ImageSource,
@@ -209,6 +213,42 @@ export type File = {
   readonly mimeType?: string;
 };
 
+/**
+ * A video as a consumer sees it: what was authored, plus a generated `url` on
+ * the video, on its poster and on each caption track.
+ *
+ * Only the video's own `url` carries the edit tag — a click on the player
+ * reaches the field. The poster and the captions are parts of the same field,
+ * not fields of their own, so their URLs are plain.
+ *
+ * An HLS stream (`mimeType` `application/vnd.apple.mpegurl`) plays natively in
+ * Safari and needs a library such as hls.js everywhere else; `url` is then the
+ * master playlist.
+ */
+export type Video = {
+  readonly path: string;
+  readonly url: ValEncodedString;
+  readonly mimeType: string;
+  readonly width?: number;
+  readonly height?: number;
+  readonly duration?: number;
+  readonly alt?: string;
+  readonly hotspot?: MediaHotspot;
+  readonly posterTime?: number;
+  readonly poster?: {
+    readonly path: string;
+    readonly url: string;
+    readonly width?: number;
+    readonly height?: number;
+    readonly mimeType?: string;
+  };
+  readonly startTime?: number;
+  readonly endTime?: number;
+  readonly captions?: readonly (Omit<VideoCaptionSource, "patch_id"> & {
+    readonly url: string;
+  })[];
+};
+
 export type StegaOfRichTextSource<T extends Source> = Json extends T
   ? Json
   : T extends ImageSource
@@ -236,28 +276,36 @@ export type StegaOfSource<T extends Source> = Json extends T
   ? Json
   : T extends RichTextSource<infer O>
     ? RichText<O>
-    : T extends ImageSource
-      ? Image
-      : T extends FileSource
-        ? File
-        : // A view is a pointer at another module: nothing of it is rendered, so
-          // there is nothing here to encode or to read. `ValView<Target>`
-          // names what is behind it and exposes no properties.
-          T extends ValViewSource<string, infer Target>
-          ? ValView<Target>
-          : T extends SourceObject
-            ? {
-                [key in keyof T]: StegaOfSource<T[key]>;
-              }
-            : T extends SourceArray
-              ? StegaOfSource<T[number]>[]
-              : T extends RawString
-                ? string
-                : string extends T
-                  ? ValEncodedString
-                  : T extends JsonPrimitive
-                    ? T
-                    : never;
+    : // Above `ImageSource`: a video is structurally an image too (a `path`
+      // and optional fields), so this arm has to be asked first. Its declared
+      // keys are what tell them apart (`IsVideoSource`): a field picked from a
+      // set has no `mimeType` of its own, so a required one cannot. Not
+      // distributive by itself, and need not be — the arm above already
+      // split a union into its members.
+      IsVideoSource<T> extends true
+      ? Video
+      : T extends ImageSource
+        ? Image
+        : T extends FileSource
+          ? File
+          : // A view is a pointer at another module: nothing of it is rendered, so
+            // there is nothing here to encode or to read. `ValView<Target>`
+            // names what is behind it and exposes no properties.
+            T extends ValViewSource<string, infer Target>
+            ? ValView<Target>
+            : T extends SourceObject
+              ? {
+                  [key in keyof T]: StegaOfSource<T[key]>;
+                }
+              : T extends SourceArray
+                ? StegaOfSource<T[number]>[]
+                : T extends RawString
+                  ? string
+                  : string extends T
+                    ? ValEncodedString
+                    : T extends JsonPrimitive
+                      ? T
+                      : never;
 
 /**
  * What resolving `T` gives back — the one definition the framework readers
@@ -574,6 +622,25 @@ export function stegaEncode(
     }
     if (
       recOpts &&
+      isVideoSchema(recOpts.schema) &&
+      sourceOrSelector &&
+      typeof sourceOrSelector === "object"
+    ) {
+      // A set-backed video gets its mimeType, size and length from the set
+      // first: `Video` promises a `mimeType`, and the field has none.
+      const src = opts.getModule
+        ? Internal.media.fillFromGallery(
+            sourceOrSelector,
+            recOpts.schema,
+            opts.getModule,
+          )
+        : sourceOrSelector;
+      return Internal.resolveVideo(src, (video: GalleryVideoSource) =>
+        rec(Internal.mediaUrl(video), recOpts),
+      );
+    }
+    if (
+      recOpts &&
       (isImageSchema(recOpts.schema) || isFileSchema(recOpts.schema)) &&
       sourceOrSelector &&
       typeof sourceOrSelector === "object"
@@ -775,6 +842,12 @@ function isFileSchema(
   return schema?.type === "file";
 }
 
+function isVideoSchema(
+  schema: SerializedSchema | undefined,
+): schema is SerializedVideoSchema {
+  return schema?.type === "video";
+}
+
 function isImageSchema(
   schema: SerializedSchema | undefined,
 ): schema is SerializedImageSchema {
@@ -785,7 +858,7 @@ function collectReferencedModulesFromSchema(
   schema: SerializedSchema,
   acc: Set<string>,
 ): void {
-  if (isFileSchema(schema) || isImageSchema(schema)) {
+  if (isFileSchema(schema) || isImageSchema(schema) || isVideoSchema(schema)) {
     if (schema.referencedModule) {
       acc.add(schema.referencedModule);
     }

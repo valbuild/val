@@ -13,6 +13,7 @@ export {
   type StegaOfRichTextSource,
   type File,
   type Image,
+  type Video,
   type RichText,
 } from "./stegaEncode";
 export { stegaDecodeStrings } from "./stegaDecodeStrings";

@@ -44,6 +44,9 @@ export function ImageCard({
   onDropFile,
   dropDisabled,
   compact,
+  media,
+  emptyLabel,
+  emptyIcon,
 }: {
   /** Resolved URL of the image, or null when the field is empty. */
   url: string | null;
@@ -66,6 +69,15 @@ export function ImageCard({
   dropDisabled?: boolean;
   /** Smaller, with the controls beside the picture. See above. */
   compact?: boolean;
+  /**
+   * What fills the card instead of the picture — a video field's player. The
+   * card stays the same: the size, the name under it, the controls over it,
+   * the drop. With `media` set, `url` only says whether the field is filled.
+   */
+  media?: ReactNode;
+  /** The empty card's words, for a field that does not hold an image. */
+  emptyLabel?: { drop: string; none: string };
+  emptyIcon?: ReactNode;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const canDrop = !!onDropFile && !dropDisabled;
@@ -107,22 +119,32 @@ export function ImageCard({
   const uploadingLabel = progressPercentage
     ? `Uploading… ${progressPercentage}%`
     : "Uploading…";
-  const picture = url && (
-    <button
-      type="button"
-      onClick={onOpenPreview}
-      disabled={!onOpenPreview}
-      aria-label="View image"
-      className="absolute inset-0 cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-focus disabled:cursor-default"
-    >
-      <MediaThumbnail
-        url={url}
-        alt={alt}
-        hotspot={hotspot}
-        checkerboard={mayBeTransparent(mimeType)}
-      />
-    </button>
-  );
+  const picture = media
+    ? url && <div className="absolute inset-0">{media}</div>
+    : url && (
+        <button
+          type="button"
+          onClick={onOpenPreview}
+          disabled={!onOpenPreview}
+          aria-label="View image"
+          className="absolute inset-0 cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-focus disabled:cursor-default"
+        >
+          <MediaThumbnail
+            url={url}
+            alt={alt}
+            hotspot={hotspot}
+            checkerboard={mayBeTransparent(mimeType)}
+          />
+        </button>
+      );
+  const emptyText = emptyLabel ?? {
+    drop: "Drop an image here, or",
+    none: "No image yet",
+  };
+  const emptyGlyph = (size: number, className: string) =>
+    emptyIcon ?? (
+      <ImagePlus size={size} strokeWidth={1.5} className={className} />
+    );
   const dropOverlay = dragOver && (
     <div className="pointer-events-none absolute inset-0 grid place-items-center bg-[color-mix(in_srgb,var(--bg-primary)_70%,transparent)] backdrop-blur-sm">
       <span className="flex items-center gap-1.5 text-xs font-medium text-fg-primary">
@@ -152,11 +174,7 @@ export function ImageCard({
             {progress}
           </div>
         ) : (
-          <ImagePlus
-            size={18}
-            strokeWidth={1.5}
-            className="mt-1 shrink-0 text-fg-secondary-alt"
-          />
+          emptyGlyph(18, "mt-1 shrink-0 text-fg-secondary-alt")
         )}
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-2">
           {url ? (
@@ -177,8 +195,8 @@ export function ImageCard({
               {uploading
                 ? uploadingLabel
                 : canDrop
-                  ? "Drop an image here, or"
-                  : "No image yet"}
+                  ? emptyText.drop
+                  : emptyText.none}
             </p>
           )}
           {!(uploading && !url) && (
@@ -206,17 +224,13 @@ export function ImageCard({
             : "border-border-primary",
         )}
       >
-        <ImagePlus
-          size={22}
-          strokeWidth={1.5}
-          className="text-fg-secondary-alt"
-        />
+        {emptyGlyph(22, "text-fg-secondary-alt")}
         <p className="text-xs text-fg-secondary">
           {uploading
             ? uploadingLabel
             : canDrop
-              ? "Drop an image here, or"
-              : "No image yet"}
+              ? emptyText.drop
+              : emptyText.none}
         </p>
         {!uploading && (
           <div className="flex flex-wrap items-center justify-center gap-1.5">

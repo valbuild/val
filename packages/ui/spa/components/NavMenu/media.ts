@@ -1,17 +1,22 @@
-import { ModuleFilePath, SerializedSchema } from "@valbuild/core";
+import {
+  MediaCollectionType,
+  ModuleFilePath,
+  SerializedSchema,
+} from "@valbuild/core";
 import { MediaModule, NavItemErrors } from "./types";
 
 /**
- * Whether a module is an `s.imageset()` / `s.fileset()` gallery.
+ * Whether a module is an `s.imageset()` / `s.fileset()` / `s.videoset()`
+ * gallery.
  *
- * Both are records with a `mediaType` marker on the SERIALIZED schema, so this
+ * All are records with a `mediaType` marker on the SERIALIZED schema, so this
  * needs no sources and costs nothing per keystroke.
  */
 export function isGallerySchema(
   schema: SerializedSchema | undefined,
 ): schema is SerializedSchema & {
   type: "record";
-  mediaType: "files" | "images";
+  mediaType: MediaCollectionType;
 } {
   return schema?.type === "record" && !!schema.mediaType;
 }

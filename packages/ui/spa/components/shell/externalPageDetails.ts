@@ -116,7 +116,8 @@ function describe(schema: SerializedSchema | undefined, value: Source): string {
     case "richtext":
       return flattenRichText(value).trim();
     case "image":
-    case "file": {
+    case "file":
+    case "video": {
       const path = asFields(value)?.get("path");
       return typeof path === "string" ? path : "";
     }

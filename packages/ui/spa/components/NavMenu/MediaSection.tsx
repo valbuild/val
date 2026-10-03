@@ -1,4 +1,4 @@
-import { Images, Paperclip } from "lucide-react";
+import { Film, Images, Paperclip } from "lucide-react";
 import { useMemo } from "react";
 import { cn } from "../designSystem/cn";
 import { MediaModule } from "./types";
@@ -72,7 +72,12 @@ export function MediaSection({
           <div className="flex flex-col">
             {media.map((entry) => {
               const isActive = currentPath?.startsWith(entry.moduleFilePath);
-              const Icon = entry.mediaType === "images" ? Images : Paperclip;
+              const Icon =
+                entry.mediaType === "images"
+                  ? Images
+                  : entry.mediaType === "videos"
+                    ? Film
+                    : Paperclip;
               return (
                 <button
                   key={entry.moduleFilePath}

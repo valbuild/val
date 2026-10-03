@@ -294,6 +294,18 @@ export async function* runValidation({
 
                 if (fix && fixPatch?.patch && fixPatch?.patch.length > 0) {
                   await service.patch(moduleFilePath, fixPatch.patch);
+                  // A fix that renames something other modules name (a video
+                  // set's key) rewrites them too, and only once its own patch
+                  // is in: a reference to a key that was never renamed is the
+                  // one thing worse than a stale one.
+                  for (const other of result.otherModulePatches ?? []) {
+                    await service.patch(other.moduleFilePath, other.patch);
+                    yield {
+                      type: "fix-applied",
+                      file: other.moduleFilePath.slice(1),
+                      sourcePath: other.moduleFilePath,
+                    };
+                  }
                   fixedErrors += 1;
                   yield { type: "fix-applied", file, sourcePath };
                 } else if (

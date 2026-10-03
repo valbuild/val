@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  Film,
   Image as ImageIcon,
   Loader2,
   Plus,
@@ -26,6 +27,13 @@ import { ShellBreakpoint, ShellMediaFile, ShellMediaGallery } from "./types";
 import { servedPath } from "../../utils/mediaPath";
 import { MediaThumbnail } from "../MediaThumbnail";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
+import type { MediaCollectionType } from "@valbuild/core";
+
+const MEDIA_COLLECTION_LABEL: Record<MediaCollectionType, string> = {
+  images: "Images",
+  videos: "Videos",
+  files: "Files",
+};
 
 export type MediaPanelProps = {
   breakpoint: ShellBreakpoint;
@@ -409,6 +417,8 @@ function FileRow({
             />
           ) : gallery.mediaType === "images" ? (
             <ImageIcon size={12} className="text-fg-secondary-alt" />
+          ) : gallery.mediaType === "videos" ? (
+            <Film size={12} className="text-fg-secondary-alt" />
           ) : (
             <FileText size={12} className="text-fg-secondary-alt" />
           )}
@@ -520,6 +530,8 @@ function UploadMenu({
             >
               {gallery.mediaType === "images" ? (
                 <ImageIcon size={13} className="mt-0.5 shrink-0" />
+              ) : gallery.mediaType === "videos" ? (
+                <Film size={13} className="mt-0.5 shrink-0" />
               ) : (
                 <FileText size={13} className="mt-0.5 shrink-0" />
               )}
@@ -528,7 +540,7 @@ function UploadMenu({
                   {servedPath(gallery.dir)}
                 </span>
                 <span className="block text-[0.6875rem] text-fg-secondary-alt">
-                  {gallery.mediaType === "images" ? "Images" : "Files"}
+                  {MEDIA_COLLECTION_LABEL[gallery.mediaType]}
                 </span>
               </span>
             </button>

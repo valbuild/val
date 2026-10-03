@@ -122,7 +122,13 @@ export function getValCompletionContext(
 }
 
 /** The properties Val computes from a file's bytes. */
-export const MEDIA_METADATA_KEYS = ["width", "height", "mimeType"] as const;
+export const MEDIA_METADATA_KEYS = [
+  "width",
+  "height",
+  "mimeType",
+  // A video's: never read for an image or a file, so never written for one.
+  "duration",
+] as const;
 export type MediaMetadataKey = (typeof MEDIA_METADATA_KEYS)[number];
 
 export type MediaPathObject = {

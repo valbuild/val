@@ -74,8 +74,12 @@ export function traverseSchemaSource(
     return;
   }
 
-  // Handle file/image
-  if (schema.type === "file" || schema.type === "image") {
+  // Handle file/image/video
+  if (
+    schema.type === "file" ||
+    schema.type === "image" ||
+    schema.type === "video"
+  ) {
     if (
       source &&
       typeof source === "object" &&

@@ -147,6 +147,15 @@ function checkGallerySchema(
   if (moduleSchema.type === "record" && moduleSchema.mediaType === "images") {
     return null;
   }
+  if (moduleSchema.type === "record" && moduleSchema.mediaType === "videos") {
+    // Said outright rather than as "not an images gallery": a set of videos
+    // looks like a gallery from here, and the tool can do nothing with one.
+    return {
+      kind: "error",
+      message:
+        "Module is a video set (s.videoset()), not an images gallery. Videos cannot be added or removed by this tool: upload them in Val Studio.",
+    };
+  }
   if (moduleSchema.type === "image") {
     return {
       kind: "wrong-tool",

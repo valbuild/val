@@ -14,6 +14,7 @@
 import { splitRemoteRef } from "../remote/splitRemoteRef";
 import type { SerializedFileSchema } from "../schema/file";
 import type { SerializedImageSchema } from "../schema/image";
+import type { SerializedVideoSchema } from "../schema/video";
 
 /** What must stay in frame when a page crops an image. */
 export type MediaHotspot = {
@@ -53,6 +54,129 @@ export type FileSource = GalleryFileSource & {
 };
 
 /**
+ * The still shown before a video plays — `<video poster>`.
+ *
+ * Derived, like a video's `width` and `height`: the Studio grabs the frame at
+ * {@link VideoSource.posterTime} and uploads it as an image, so a page can show
+ * it without decoding the video. It is a media object of its own (a `path`,
+ * and a `patch_id` while unpublished) because it is a file of its own.
+ */
+export type VideoPosterSource = {
+  readonly path: string;
+  readonly width?: number;
+  readonly height?: number;
+  readonly mimeType?: string;
+  readonly patch_id?: string;
+};
+
+/**
+ * One text track of a video — `<track src srclang label kind default>`.
+ *
+ * `path` is a WebVTT file, uploaded like any other file.
+ */
+export type VideoCaptionSource = {
+  readonly path: string;
+  /** BCP 47 language tag of the track, e.g. `en` or `nb-NO`. */
+  readonly srclang: string;
+  /** What a viewer picks from the player's caption menu, e.g. "English". */
+  readonly label?: string;
+  /**
+   * `subtitles` translate the dialogue; `captions` also describe the sound,
+   * for viewers who cannot hear it. @default "subtitles"
+   */
+  readonly kind?: "subtitles" | "captions";
+  /** Shown without the viewer turning it on. At most one track may say so. */
+  readonly default?: boolean;
+  readonly patch_id?: string;
+};
+
+/**
+ * What a video FIELD authors, on top of the file it names: the description,
+ * the crop, the poster, the trim and the caption tracks.
+ *
+ * This is the whole value of a field picked from an `s.videoset()`
+ * (`s.video(videosetVal)`) — the mime type, size and length live in the set,
+ * keyed by `path`, and repeating them here is how two copies of one fact get
+ * to disagree. The poster, captions and times stay with the FIELD: one video
+ * used in two places can be trimmed and captioned differently in each.
+ *
+ * Times are in seconds from the start of the file.
+ */
+export type GalleryVideoSource = {
+  readonly path: string;
+  /** Describes the video for someone who cannot see it. */
+  readonly alt?: string;
+  /** What must stay in frame when a page crops the video (`object-position`). */
+  readonly hotspot?: MediaHotspot;
+  /** Seconds. The frame the poster was taken from. */
+  readonly posterTime?: number;
+  readonly poster?: VideoPosterSource;
+  /** Seconds. Where playback starts. */
+  readonly startTime?: number;
+  /** Seconds. Where playback stops. */
+  readonly endTime?: number;
+  readonly captions?: readonly VideoCaptionSource[];
+  /**
+   * Set on a source whose bytes are not committed yet. Injected server-side and
+   * consumed only by {@link mediaUrl} — never written to a `.val.ts`.
+   */
+  readonly patch_id?: string;
+};
+
+/**
+ * A video: a progressive file (`video/mp4`, `video/webm`) or an HLS stream
+ * (`application/vnd.apple.mpegurl`, whose `path` is the master playlist).
+ *
+ * `mimeType` is REQUIRED on a video of its own: a page has to know which of
+ * the two it is holding before it can play it at all — an `.m3u8` handed to a
+ * `<video src>` plays only in Safari. (What tells a video's TYPE apart from an
+ * image's is its declared keys, see {@link IsVideoSource}, because a field
+ * picked from a set has no `mimeType` of its own.)
+ *
+ * `width`, `height`, `duration` and `mimeType` are read from the bytes;
+ * everything else is authored.
+ */
+export type VideoSource = GalleryVideoSource & {
+  readonly mimeType: string;
+  readonly width?: number;
+  readonly height?: number;
+  /** Seconds. */
+  readonly duration?: number;
+};
+
+/**
+ * Whether a source TYPE is a video's.
+ *
+ * Every media source is "a `path` plus optional fields", so assignability
+ * cannot tell an image from a video: an image is assignable to a set-backed
+ * video and the other way round. The keys a type DECLARES can — only a video
+ * declares `posterTime` — so the readers' conditional types ask this before
+ * they ask about images.
+ */
+export type IsVideoSource<T> = T extends { readonly path: string }
+  ? "posterTime" extends keyof T
+    ? true
+    : false
+  : false;
+
+/** The mime type of an HLS master playlist. */
+export const HLS_MIME_TYPE = "application/vnd.apple.mpegurl";
+
+/** Whether a video is an HLS stream rather than a single progressive file. */
+export function isHlsVideo(src: {
+  readonly path: string;
+  readonly mimeType?: string;
+}): boolean {
+  if (src.mimeType !== undefined) {
+    return (
+      src.mimeType === HLS_MIME_TYPE ||
+      src.mimeType.toLowerCase() === "application/x-mpegurl"
+    );
+  }
+  return src.path.split("?")[0].toLowerCase().endsWith(".m3u8");
+}
+
+/**
  * The structural supertype of every media source.
  *
  * It is a named member of the `Source` / `SelectorSource` unions rather than
@@ -60,7 +184,7 @@ export type FileSource = GalleryFileSource & {
  * `Source` excludes `undefined` — an object with optional properties does not
  * satisfy it.
  */
-export type MediaSource = ImageSource;
+export type MediaSource = ImageSource | VideoSource;
 
 /** A path is remote unless it is under `/public`. */
 export function isRemoteMediaPath(path: string): boolean {
@@ -110,14 +234,78 @@ export function resolveMedia<S extends { readonly path: string }>(
   return { ...src, url: mediaUrl(src) };
 }
 
+/**
+ * A video as a reader sees it: every file it names — the video itself, its
+ * poster and each caption track — carries the URL its bytes are served from.
+ *
+ * Each gets its own {@link mediaUrl} because each is its own file with its own
+ * `patch_id`: replacing only the poster drafts the poster, and the video keeps
+ * its published URL.
+ */
+export type ResolvedVideo<S extends GalleryVideoSource = VideoSource> = Omit<
+  S,
+  "poster" | "captions"
+> & {
+  readonly url: string;
+  readonly poster?: VideoPosterSource & { readonly url: string };
+  readonly captions?: readonly (VideoCaptionSource & {
+    readonly url: string;
+  })[];
+};
+
+/**
+ * The single implementation of {@link ResolvedVideo}. `url` is passed in as a
+ * function so the reader can tag the video's own URL (stega) without tagging
+ * the poster's and the captions', which are not where an edit lands.
+ */
+export function resolveVideo<S extends GalleryVideoSource>(
+  src: S,
+  videoUrl: (src: S) => string = mediaUrl,
+): ResolvedVideo<S> {
+  const { poster, captions, ...rest } = src;
+  const resolved: ResolvedVideo<S> = { ...rest, url: videoUrl(src) };
+  if (poster && typeof poster === "object" && typeof poster.path === "string") {
+    return withCaptions(
+      { ...resolved, poster: { ...poster, url: mediaUrl(poster) } },
+      captions,
+    );
+  }
+  return withCaptions(resolved, captions);
+}
+
+function withCaptions<S extends GalleryVideoSource>(
+  resolved: ResolvedVideo<S>,
+  captions: S["captions"],
+): ResolvedVideo<S> {
+  if (!Array.isArray(captions)) {
+    return resolved;
+  }
+  return {
+    ...resolved,
+    captions: captions
+      .filter(
+        (track): track is VideoCaptionSource =>
+          !!track &&
+          typeof track === "object" &&
+          typeof track.path === "string",
+      )
+      .map((track) => ({ ...track, url: mediaUrl(track) })),
+  };
+}
+
 function isMediaSchema(
   schema: unknown,
-): schema is SerializedImageSchema | SerializedFileSchema {
+): schema is
+  | SerializedImageSchema
+  | SerializedFileSchema
+  | SerializedVideoSchema {
   return (
     typeof schema === "object" &&
     schema !== null &&
     "type" in schema &&
-    (schema.type === "image" || schema.type === "file")
+    (schema.type === "image" ||
+      schema.type === "file" ||
+      schema.type === "video")
   );
 }
 
@@ -173,10 +361,11 @@ export function fillFromGallery<S extends { readonly path: string }>(
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
     return src;
   }
-  const { width, height, mimeType, alt } = entry as {
+  const { width, height, mimeType, duration, alt } = entry as {
     width?: number;
     height?: number;
     mimeType?: string;
+    duration?: number;
     alt?: unknown;
   };
   const hasOwnAlt = typeof (src as { alt?: unknown }).alt === "string";
@@ -185,6 +374,7 @@ export function fillFromGallery<S extends { readonly path: string }>(
     ...(width !== undefined ? { width } : {}),
     ...(height !== undefined ? { height } : {}),
     ...(mimeType !== undefined ? { mimeType } : {}),
+    ...(duration !== undefined ? { duration } : {}),
     ...(!hasOwnAlt && typeof alt === "string" ? { alt } : {}),
   };
 }

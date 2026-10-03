@@ -74,8 +74,17 @@ export {
   handleJsonValuesExtractEntry,
   handleExternalUpload,
 } from "./fixHandlers";
+export {
+  handleVideosetMetadata,
+  handleVideosetUploadRemote,
+  handleVideosetCheckRemote,
+  handleVideosetCheckAllFiles,
+  videosetEntryVideoSchema,
+  filesOfVideosetEntry,
+} from "./videosetFixes";
 export type {
   FixHandler,
+  ModulePatch,
   FixHandlerContext,
   FixHandlerResult,
   IValRemote,
@@ -95,7 +104,13 @@ export { uploadRemoteFile } from "./uploadRemoteFile";
 // the pieces needed to reproduce a `val validate --fix` decision inside an
 // editor, so that quick fixes take the same code path as the CLI and the Val UI
 // rather than reimplementing metadata extraction and remote-ref checking.
-export { extractImageMetadata, extractFileMetadata } from "./extractMetadata";
+export {
+  extractImageMetadata,
+  extractFileMetadata,
+  extractVideoMetadata,
+  extractVideoMetadataFromFile,
+} from "./extractMetadata";
+export { filesOfVideo } from "./videoFiles";
 export { validateMetadata } from "./validateMetadata";
 export { getValidationErrorFileRef } from "./getValidationErrorFileRef";
 export {

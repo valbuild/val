@@ -1,4 +1,8 @@
-import { SourcePath, ModuleFilePath } from "@valbuild/core";
+import {
+  MediaCollectionType,
+  SourcePath,
+  ModuleFilePath,
+} from "@valbuild/core";
 import { RoutePattern } from "@valbuild/shared/internal";
 
 /**
@@ -77,7 +81,8 @@ export type ExplorerItem = {
 };
 
 /**
- * A gallery module - `s.imageset()` or `s.fileset()` - shown under Media.
+ * A gallery module - `s.imageset()`, `s.fileset()` or `s.videoset()` - shown
+ * under Media.
  *
  * These are records keyed by file path with a `mediaType` marker, so the useful
  * unit in the nav menu is the DIRECTORY they are constrained to rather than the
@@ -88,8 +93,8 @@ export type MediaModule = {
   moduleFilePath: ModuleFilePath;
   /** The directory the gallery is constrained to, e.g. `/public/val/images`. */
   dir: string;
-  /** Whether this gallery holds images or arbitrary files. */
-  mediaType: "files" | "images";
+  /** Whether this gallery holds images, videos or arbitrary files. */
+  mediaType: MediaCollectionType;
   /** Validation errors attributable to this module. */
   errors?: NavItemErrors;
 };

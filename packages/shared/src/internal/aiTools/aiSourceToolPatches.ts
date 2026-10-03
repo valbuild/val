@@ -41,9 +41,27 @@ const GALLERY_REDIRECT: Extract<OpDecision, { kind: "wrong-tool" }> = {
     "Destination is a media gallery (s.imageset() / s.fileset()). Gallery entries are keyed by file path and carry a file on disk, so they cannot be created with a plain patch. Use add_session_image_to_gallery.",
 };
 
-/** An `s.imageset()` / `s.fileset()` record: a gallery, not an ordinary record. */
+/**
+ * A video set's entries are keyed by a file too, and a stream's by a
+ * directory of them — and there is no tool to send them to: a video is
+ * uploaded (and, for a stream, transcoded) in the Studio.
+ */
+const VIDEOSET_REFUSAL: Extract<OpDecision, { kind: "error" }> = {
+  kind: "error",
+  message:
+    "Destination is a video set (s.videoset()). Its entries are keyed by file path and carry video files, so they cannot be created with a plain patch, and no tool here uploads a video: add it in Val Studio.",
+};
+
+/** An `s.imageset()` / `s.fileset()` / `s.videoset()` record: a gallery, not an ordinary record. */
 function isGallery(schema: SerializedSchema): boolean {
   return schema.type === "record" && schema.mediaType !== undefined;
+}
+
+/** Where to send someone whose destination is (in) the gallery `schema`. */
+function galleryRedirect(schema: SerializedSchema): OpDecision {
+  return schema.type === "record" && schema.mediaType === "videos"
+    ? VIDEOSET_REFUSAL
+    : GALLERY_REDIRECT;
 }
 
 function decideOp(
@@ -58,7 +76,7 @@ function decideOp(
     destinationPath,
   );
   if (destination.kind === "gallery-traversed") {
-    return GALLERY_REDIRECT;
+    return galleryRedirect(destination.schema);
   }
   if (destination.kind === "richtext") {
     return {
@@ -70,7 +88,7 @@ function decideOp(
   }
   if (destination.kind === "leaf") {
     if (isGallery(destination.schema)) {
-      return GALLERY_REDIRECT;
+      return galleryRedirect(destination.schema);
     }
     // A richtext value the path lands exactly ON resolves as a leaf, not as
     // `kind: "richtext"` (which only fires when the walk continues INTO it).
@@ -111,7 +129,7 @@ function decideOp(
   // destination is a gallery entry; `isGallery` catches the case where the
   // parent IS the gallery and the destination is a new entry key in it.
   if (parent.kind === "gallery-traversed" || isGallery(parent.schema)) {
-    return GALLERY_REDIRECT;
+    return galleryRedirect(parent.schema);
   }
   const schema = parent.schema;
   if (schema.type === "array" || schema.type === "record") {
