@@ -49,6 +49,7 @@ export default modules(config, [
   { def: () => import("./content/images.val") },
   { def: () => import("./content/files.val") },
   { def: () => import("./content/page.val") },
+  { def: () => import("./content/cards.val") },
   { def: () => import("./content/local-images.val") },
   { def: () => import("./content/remote-image.val") },
 ]);
@@ -73,6 +74,20 @@ export default c.define(
   },
 );
 `,
+  // A field inside a `.jsonValues()` entry: its value is in the entry's
+  // `*.val.json`, which is where the rename has to land.
+  "content/cards.val.ts": `import { c, s } from "../val.config";
+import imagesVal from "./images.val";
+
+export default c.define(
+  "/content/cards.val.ts",
+  s.record(s.object({ image: s.image(imagesVal) })).jsonValues(),
+  {
+    "/a": c.json(() => import("./cards/a.val.json")),
+  },
+);
+`,
+  "content/cards/a.val.json": JSON.stringify({ image: { path: LOGO } }),
   "content/page.val.ts": `import { c, s } from "../val.config";
 import imagesVal from "./images.val";
 import filesVal from "./files.val";
@@ -220,6 +235,7 @@ describe("val validate with remote image and file collections", () => {
       },
     };
     const modules = [
+      "content/cards.val.ts",
       "content/files.val.ts",
       "content/images.val.ts",
       "content/page.val.ts",
@@ -257,8 +273,13 @@ describe("val validate with remote image and file collections", () => {
       ],
       attachment: { path: docRef },
     });
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(root, "content/cards/a.val.json"), "utf-8"),
+      ),
+    ).toEqual({ image: { path: logoRef } });
 
-    // And all three are valid against each other afterwards.
+    // And all of them are valid against each other afterwards.
     const again = await run(root, modules, false);
     expect(errorsOf(again)).toEqual([]);
     expect(again.at(-1)).toEqual({ type: "summary-success" });

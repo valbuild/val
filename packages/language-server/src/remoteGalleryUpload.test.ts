@@ -52,6 +52,7 @@ import { config } from "./val.config";
 export default modules(config, [
   { def: () => import("./content/images.val") },
   { def: () => import("./content/page.val") },
+  { def: () => import("./content/cards.val") },
 ]);
 `,
   "content/images.val.ts": `import { c, s } from "../val.config";
@@ -79,6 +80,24 @@ export default c.define(
   },
 );
 `,
+  // A `.jsonValues()` record: each entry's value is in its own `*.val.json`,
+  // not in the `.val.ts`, so the edit has to land there.
+  "content/cards.val.ts": `import { c, s } from "../val.config";
+import imagesVal from "./images.val";
+
+export default c.define(
+  "/content/cards.val.ts",
+  s.record(s.object({ image: s.image(imagesVal) })).jsonValues(),
+  {
+    "/a": c.json(() => import("./cards/a.val.json")),
+    "/b": c.json(() => import("./cards/b.val.json")),
+  },
+);
+`,
+  "content/cards/a.val.json":
+    JSON.stringify({ image: { path: LOGO } }, null, 2) + "\n",
+  "content/cards/b.val.json":
+    JSON.stringify({ image: { path: LOGO, alt: "B" } }, null, 2) + "\n",
   [LOGO.slice(1)]: PNG,
   ".val/pat.json": JSON.stringify({ pat: "test-pat" }),
 };
@@ -178,6 +197,11 @@ describe("uploading a remote gallery's entry from the editor", () => {
     const pageFile = path.join(valRoot, "content/page.val.ts");
     const galleryUri = `file://${galleryFile}`;
     const pageUri = `file://${pageFile}`;
+    const entryFiles = [
+      "content/cards/a.val.json",
+      "content/cards/b.val.json",
+    ].map((file) => path.join(valRoot, file));
+    const entryUris = entryFiles.map((file) => `file://${file}`);
     const galleryText = fs.readFileSync(galleryFile, "utf-8");
     session.openDocument(galleryUri, galleryText);
 
@@ -203,7 +227,9 @@ describe("uploading a remote gallery's entry from the editor", () => {
     expect(uploads).toHaveLength(1);
     expect(edits).toHaveLength(1);
     const changes = edits[0].edit.changes ?? {};
-    expect(Object.keys(changes).sort()).toEqual([galleryUri, pageUri].sort());
+    expect(Object.keys(changes).sort()).toEqual(
+      [galleryUri, pageUri, ...entryUris].sort(),
+    );
 
     const galleryAfter = TextDocument.applyEdits(
       TextDocument.create(galleryUri, "typescript", 1, galleryText),
@@ -228,5 +254,24 @@ describe("uploading a remote gallery's entry from the editor", () => {
     // The field and the rich text image, and the field's alt kept.
     expect(pageAfter.split(`"${ref}"`)).toHaveLength(3);
     expect(pageAfter).toContain('alt: "Kept"');
+
+    // Each `.jsonValues()` entry's field, in its own `*.val.json`.
+    const entriesAfter = entryFiles.map((file, i) =>
+      JSON.parse(
+        TextDocument.applyEdits(
+          TextDocument.create(
+            entryUris[i],
+            "json",
+            1,
+            fs.readFileSync(file, "utf-8"),
+          ),
+          changes[entryUris[i]],
+        ),
+      ),
+    );
+    expect(entriesAfter).toEqual([
+      { image: { path: ref } },
+      { image: { path: ref, alt: "B" } },
+    ]);
   });
 });
