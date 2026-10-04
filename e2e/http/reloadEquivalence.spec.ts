@@ -323,8 +323,8 @@ test("Ada publishes three times in a row, and nothing she published leaves her o
         widened.push(event.patches);
       });
     });
-    const shown = (author: string) =>
-      page.evaluate(
+    const shownOn = (on: Page, author: string) =>
+      on.evaluate(
         ({ module, author }) => {
           const stores = Reflect.get(window, "__VAL_STORES__") as {
             system: {
@@ -338,6 +338,7 @@ test("Ada publishes three times in a row, and nothing she published leaves her o
         },
         { module: AUTHORS, author },
       );
+    const shown = (author: string) => shownOn(page, author);
     const expected: Record<string, string> = {};
     for (const [round, name] of NAMES.entries()) {
       const field = FIELDS[round];
@@ -348,6 +349,16 @@ test("Ada publishes three times in a row, and nothing she published leaves her o
       for (const [author, value] of Object.entries(expected)) {
         await expect.poll(() => shown(author), { timeout: 30_000 }).toBe(value);
       }
+      /*
+       * And in the browser that publishes, before it does: it publishes what
+       * it holds, and it learns of this round's edit by the chain moving.
+       * Pressed before that, it has only the rounds already shipped and
+       * rightly answers `nothing-to-publish` -- which is what a person who
+       * looked at that browser first would never do.
+       */
+      await expect
+        .poll(() => shownOn(elsewhere, field), { timeout: 30_000 })
+        .toBe(name);
       expect(
         await publishAll(elsewhere, `Ada ships round ${round + 1}`),
       ).toMatchObject({ status: "published" });
