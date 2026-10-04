@@ -79,11 +79,14 @@ export function MediaInspector({
 }: MediaInspectorProps) {
   const blocked = deleteBlockedReason ?? null;
   return (
+    // The name and the actions stay where they are; what is between them
+    // scrolls. A panel that scrolled whole took Delete and Open off screen
+    // along with the heading that says which entry they act on.
     <aside
       aria-label={`${item.name} details`}
-      className="flex h-full min-h-0 flex-col overflow-y-auto"
+      className="flex h-full min-h-0 flex-col"
     >
-      <div className="flex items-center justify-between gap-2 px-4 pb-2 pt-3">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-secondary px-4 pb-2 pt-3">
         <h3 className="truncate text-sm font-semibold text-fg-primary">
           {item.name}
         </h3>
@@ -97,67 +100,69 @@ export function MediaInspector({
         </button>
       </div>
 
-      <div className="px-4">
-        {preview ?? <Preview kind={kind} item={item} />}
-        <p className="mt-2 text-xs text-fg-secondary">{factsOf(item)}</p>
-        {item.errors && item.errors.length > 0 && (
-          // Paths have no spaces to break at, and they are most of a message.
-          <div className="mt-2 [overflow-wrap:anywhere]">
-            <FieldValidationError
-              validationErrors={item.errors.map((message) => ({ message }))}
-            />
-          </div>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-4 px-4 py-4">
-        {onRename && !readonly && (
-          <Labelled label="Name">
-            <FilenameInput
-              filename={item.name}
-              disabled={renameDisabled}
-              onSave={(_newFilename, newBase) => onRename(newBase)}
-            />
-            {renameNote && (
-              <p className="px-2 text-[0.6875rem] text-fg-secondary-alt">
-                {renameNote}
-              </p>
-            )}
-          </Labelled>
-        )}
-
-        {kind !== "files" && !hideDescription && (
-          <Labelled label="Description" aside={descriptionAside}>
-            <Input
-              key={item.ref}
-              value={item.description ?? ""}
-              disabled={readonly || !onDescriptionChange}
-              placeholder={
-                kind === "videos"
-                  ? "What happens in the video..."
-                  : "Describe this image..."
-              }
-              // Written as it is typed, as every text field in the Studio is:
-              // the patch store folds the keystrokes into one change.
-              onChange={(ev) => onDescriptionChange?.(ev.target.value)}
-              className="h-8 text-sm"
-            />
-            {item.descriptionErrors && item.descriptionErrors.length > 0 && (
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="px-4 pt-3">
+          {preview ?? <Preview kind={kind} item={item} />}
+          <p className="mt-2 text-xs text-fg-secondary">{factsOf(item)}</p>
+          {item.errors && item.errors.length > 0 && (
+            // Paths have no spaces to break at, and they are most of a message.
+            <div className="mt-2 [overflow-wrap:anywhere]">
               <FieldValidationError
-                validationErrors={item.descriptionErrors.map((message) => ({
-                  message,
-                }))}
+                validationErrors={item.errors.map((message) => ({ message }))}
               />
-            )}
-          </Labelled>
-        )}
+            </div>
+          )}
+        </div>
 
-        {defaults && <div className="flex flex-col gap-5">{defaults}</div>}
+        <div className="flex flex-col gap-4 px-4 py-4">
+          {onRename && !readonly && (
+            <Labelled label="Name">
+              <FilenameInput
+                filename={item.name}
+                disabled={renameDisabled}
+                onSave={(_newFilename, newBase) => onRename(newBase)}
+              />
+              {renameNote && (
+                <p className="px-2 text-[0.6875rem] text-fg-secondary-alt">
+                  {renameNote}
+                </p>
+              )}
+            </Labelled>
+          )}
 
-        {usage && <Labelled label="Used in">{usage}</Labelled>}
+          {kind !== "files" && !hideDescription && (
+            <Labelled label="Description" aside={descriptionAside}>
+              <Input
+                key={item.ref}
+                value={item.description ?? ""}
+                disabled={readonly || !onDescriptionChange}
+                placeholder={
+                  kind === "videos"
+                    ? "What happens in the video..."
+                    : "Describe this image..."
+                }
+                // Written as it is typed, as every text field in the Studio is:
+                // the patch store folds the keystrokes into one change.
+                onChange={(ev) => onDescriptionChange?.(ev.target.value)}
+                className="h-8 text-sm"
+              />
+              {item.descriptionErrors && item.descriptionErrors.length > 0 && (
+                <FieldValidationError
+                  validationErrors={item.descriptionErrors.map((message) => ({
+                    message,
+                  }))}
+                />
+              )}
+            </Labelled>
+          )}
+
+          {defaults && <div className="flex flex-col gap-5">{defaults}</div>}
+
+          {usage && <Labelled label="Used in">{usage}</Labelled>}
+        </div>
       </div>
 
-      <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-border-secondary px-4 py-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border-secondary px-4 py-3">
         {/*
          * An anchor, not a button calling `window.open`: a middle click, a
          * modifier click and "Copy link address" all work on it.

@@ -80,6 +80,12 @@ export type MediaGalleryProps = {
    * story needs. `close` deselects.
    */
   renderInspector?: (item: MediaItem, close: () => void) => ReactNode;
+  /**
+   * Fill the height left in the scroll container the gallery is in (the
+   * Studio's content area), so the grid and the panel scroll rather than the
+   * page.
+   */
+  fillContainer?: boolean;
   /** An upload is in flight: the button says so and takes no second one. */
   uploading?: boolean;
   defaultView?: "grid" | "list";

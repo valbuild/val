@@ -12,7 +12,7 @@ import { CompareLink } from "../CompareLink";
 import { FieldPatchAuthors } from "../FieldPatchAuthors";
 import { MediaInspector } from "../MediaGallery/MediaInspector";
 import type { MediaItem, MediaKind } from "../MediaGallery/types";
-import { ConnectedReferencesList } from "../ReferencesList";
+import { ConnectedReferenceLinks } from "../ReferencesList";
 import { useReferencedFiles } from "../useReferencedFiles";
 import type { PendingPatch, Profile } from "../ValProvider";
 import { useNavigation } from "../ValRouter";
@@ -262,7 +262,7 @@ export function GalleryEntryInspector({
       renameDisabled={!referencesChecked}
       usage={
         refs.length > 0 ? (
-          <ConnectedReferencesList
+          <ConnectedReferenceLinks
             refs={refs}
             currentPath={currentSourcePath}
             onSelect={(navPath, { scrollToPath }) =>

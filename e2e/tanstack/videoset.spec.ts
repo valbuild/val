@@ -250,6 +250,45 @@ test("an upload in a set-backed field goes into the set, and the field names it"
   });
 });
 
+test("the gallery fills the window: the page does not scroll, the panel does", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const key = "/public/val/videoset/intro_51df2.mp4";
+  await openStudio(
+    page,
+    `/val/~${SET}?p=${encodeURIComponent(JSON.stringify(key))}`,
+  );
+  const studio = page.locator("#val-shadow-root");
+  const panel = studio.getByRole("complementary", {
+    name: "intro_51df2.mp4 details",
+  });
+  // Rendered in full: the references list is what used to scroll things.
+  await expect(panel.getByText("Used in")).toBeVisible({ timeout: 30_000 });
+  await expect(panel.getByRole("button", { name: /fromSet/ })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const area = document
+          .getElementById("val-shadow-root")
+          ?.shadowRoot?.getElementById("val-content-area");
+        return area ? area.scrollHeight - area.clientHeight : null;
+      }),
+    )
+    .toBe(0);
+  // The panel's own content is longer than the panel, and opens at its top.
+  const scrolling = await panel.evaluate((aside) => {
+    const body = aside.querySelector(":scope > .overflow-y-auto");
+    return body
+      ? {
+          top: body.scrollTop,
+          overflows: body.scrollHeight > body.clientHeight,
+        }
+      : null;
+  });
+  expect(scrolling).toEqual({ top: 0, overflows: true });
+});
+
 test.describe("renaming a video of the set", () => {
   async function renameOpenEntry(studio: Locator, to: string) {
     await studio.getByRole("button", { name: "Rename file" }).click();

@@ -1042,6 +1042,7 @@ export function ModuleGallery({
         onChange={handleUpload}
       />
       <MediaGallery
+        fillContainer
         kind={kind}
         items={items}
         uploads={uploads}

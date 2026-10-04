@@ -4,6 +4,7 @@ import { cn } from "../designSystem/cn";
 import { Input } from "../designSystem/input";
 import { MediaThumbnail } from "../MediaThumbnail";
 import { MediaInspector } from "./MediaInspector";
+import { useFillScrollContainer } from "./useFillScrollContainer";
 import { MediaTile, UploadTile } from "./MediaTile";
 import { factsOf } from "./format";
 import type { MediaGalleryProps, MediaItem, MediaKind } from "./types";
@@ -39,7 +40,18 @@ export function MediaGallery({
   uploading,
   defaultView = "grid",
   readonly,
+  fillContainer,
 }: MediaGalleryProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  /**
+   * The gallery is the page: it takes the height that is left, and its grid
+   * and its panel scroll inside it. A panel as tall as its content made the
+   * whole page scroll, and the grid scrolled away with it.
+   */
+  const fillHeight = useFillScrollContainer(rootRef, {
+    enabled: !!fillContainer,
+    min: 280,
+  });
   const [view, setView] = useState<"grid" | "list">(defaultView);
   const [query, setQuery] = useState("");
   const noun = NOUN[kind];
@@ -73,7 +85,11 @@ export function MediaGallery({
       : null);
 
   return (
-    <div className="relative flex min-h-[28rem] flex-col overflow-hidden rounded-lg border border-border-secondary bg-bg-primary">
+    <div
+      ref={rootRef}
+      style={fillHeight !== null ? { height: fillHeight } : undefined}
+      className="relative flex min-h-[17.5rem] flex-col overflow-hidden rounded-lg border border-border-secondary bg-bg-primary"
+    >
       <div className="flex items-center gap-2 border-b border-border-secondary px-3 py-2">
         <div className="relative min-w-0 flex-1">
           <Search
@@ -171,7 +187,7 @@ export function MediaGallery({
 
         {selected && (
           // Beside the grid where there is room; over it where there is not.
-          <div className="absolute inset-0 z-10 bg-bg-primary md:static md:z-auto md:w-80 md:shrink-0 md:border-l md:border-border-secondary">
+          <div className="absolute inset-0 z-10 bg-bg-primary md:static md:z-auto md:min-h-0 md:w-80 md:shrink-0 md:border-l md:border-border-secondary">
             {renderInspector ? (
               renderInspector(selected, () => onSelect(null))
             ) : (

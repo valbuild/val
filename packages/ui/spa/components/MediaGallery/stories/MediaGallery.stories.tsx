@@ -362,6 +362,39 @@ function EditingDefaults() {
   );
 }
 
+/**
+ * In the Studio the gallery fills what is left of the content area
+ * (`fillContainer`): the page does not scroll, the grid and the panel do.
+ * The box here stands in for the content area, with a heading above the
+ * gallery and room below it, as the Studio has.
+ */
+export const FillsItsContainer: Story = {
+  render: () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({
+      ...videos[i % videos.length],
+      ref: `${videos[i % videos.length].ref}?${i}`,
+      name: `${videos[i % videos.length].name} ${i + 1}`,
+    }));
+    return (
+      <div
+        style={{ height: 640, overflowY: "auto" }}
+        className="rounded-lg border border-dashed border-border-secondary"
+      >
+        <div className="px-6 pb-24 pt-6">
+          <h2 className="mb-4 text-xl font-semibold text-fg-primary">Videos</h2>
+          <Stateful
+            kind="videos"
+            items={many}
+            initiallySelected={many[1].ref}
+            fillContainer
+            {...handlers}
+          />
+        </div>
+      </div>
+    );
+  },
+};
+
 /** The list, for a long set or a narrow window. */
 export const VideosList: Story = {
   render: () => (
