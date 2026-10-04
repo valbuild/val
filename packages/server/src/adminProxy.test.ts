@@ -18,14 +18,16 @@ import path from "path";
  */
 
 const VAL_BUILD = "https://admin.example";
+/** Where the Studio API is: the content server, not Val Build's admin app. */
+const CONTENT = "https://content.example";
 
 describe("studioApiUrl", () => {
-  test("puts the path and query under /api/studio/v1/ on Val Build", () => {
+  test("puts the path and query under /v1/studio/ on the content server", () => {
     expect(
-      studioApiUrl(VAL_BUILD, "/projects/overview", "?current=acme%2Fsite"),
-    ).toBe(`${VAL_BUILD}/api/studio/v1/projects/overview?current=acme%2Fsite`);
-    expect(studioApiUrl(`${VAL_BUILD}/`, "/projects/search", "")).toBe(
-      `${VAL_BUILD}/api/studio/v1/projects/search`,
+      studioApiUrl(CONTENT, "/projects/overview", "?current=acme%2Fsite"),
+    ).toBe(`${CONTENT}/v1/studio/projects/overview?current=acme%2Fsite`);
+    expect(studioApiUrl(`${CONTENT}/`, "/projects/search", "")).toBe(
+      `${CONTENT}/v1/studio/projects/search`,
     );
   });
 
@@ -37,12 +39,12 @@ describe("studioApiUrl", () => {
     ["projects/overview", ""],
     ["/projects/overview", "current=x"],
   ])("refuses %p %p, which would leave the prefix", (path, query) => {
-    expect(studioApiUrl(VAL_BUILD, path, query)).toBeNull();
+    expect(studioApiUrl(CONTENT, path, query)).toBeNull();
   });
 
   test("cannot be pointed at another host", () => {
-    const url = studioApiUrl(VAL_BUILD, "//evil.example/x", "");
-    expect(url === null || new URL(url).origin === VAL_BUILD).toBe(true);
+    const url = studioApiUrl(CONTENT, "//evil.example/x", "");
+    expect(url === null || new URL(url).origin === CONTENT).toBe(true);
   });
 });
 
@@ -97,7 +99,7 @@ describe("the /admin/proxy route", () => {
         apiKey: "test-api-key",
         valSecret: SECRET,
         project: "acme/site",
-        valContentUrl: "http://localhost:9999",
+        valContentUrl: CONTENT,
         valBuildUrl: VAL_BUILD,
         versions: { core: "0.0.0-test", next: "0.0.0-test" },
       },
@@ -161,9 +163,7 @@ describe("the /admin/proxy route", () => {
     expect(res).toEqual({ status: 200, json: { results: [] } });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe(
-      `${VAL_BUILD}/api/studio/v1/projects/search?q=camp&limit=20`,
-    );
+    expect(url).toBe(`${CONTENT}/v1/studio/projects/search?q=camp&limit=20`);
     expect(init.method).toBe("GET");
     expect(init.redirect).toBe("manual");
     // The app's cookies stay here: only the token goes.
@@ -230,7 +230,7 @@ describe("the /admin/proxy route", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  test("refuses a path that would leave /api/studio/v1/, before calling out", async () => {
+  test("refuses a path that would leave /v1/studio/, before calling out", async () => {
     const res = await call({ path: "/%2e%2e/%2e%2e/val/auth/token" });
     expect(res.status).toBe(404);
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -307,6 +307,7 @@ describe("in fs mode", () => {
         {
           disableCache: true,
           valBuildUrl: VAL_BUILD,
+          valContentUrl: CONTENT,
           versions: { core: "0.0.0-test" },
         },
         config,
@@ -367,7 +368,7 @@ describe("in fs mode", () => {
       await get("/admin/proxy/projects/overview", { "x-val-studio": "1" }),
     ).toEqual({ status: 200, json: { results: [] } });
     const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe(`${VAL_BUILD}/api/studio/v1/projects/overview`);
+    expect(url).toBe(`${CONTENT}/v1/studio/projects/overview`);
     // The PAT, in the header the rest of Val Build reads it from -- and no
     // bearer beside it.
     expect(init.headers).toEqual({

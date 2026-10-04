@@ -12,7 +12,7 @@ import { ShellBreakpoint } from "./types";
  */
 
 const MEMBERS_HREF = "https://admin.val.build/manage-members/acme";
-const WC = "https://admin.val.build/wc/v1";
+const WC = "https://content.val.build/wc/v1";
 
 function topBar(
   props: {

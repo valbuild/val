@@ -32,7 +32,7 @@ export function MembersShare({
   org: string;
   /** `toAdminLinks(...).members`. */
   membersHref: string;
-  /** `toWebComponentsUrl`: `{appHost}/wc/v1`. */
+  /** `toWebComponentsUrl`: `{contentHost}/wc/v1`. */
   webComponentsUrl: string;
   studioMode?: "fs" | "http";
   breakpoint: ShellBreakpoint;

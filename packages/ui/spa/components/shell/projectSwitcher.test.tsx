@@ -14,7 +14,7 @@ import { ProjectSwitcher, loadWebComponentScript } from "./ProjectSwitcher";
  */
 
 const PROJECT_HREF = "https://admin.val.build/~/acme/marketing-site";
-const WC = "https://admin.val.build/wc/v1";
+const WC = "https://content.val.build/wc/v1";
 
 let fetchMock: jest.Mock<Promise<Response>, Parameters<typeof fetch>>;
 beforeEach(() => {

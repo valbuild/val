@@ -68,7 +68,7 @@ import { getModuleAtCommit } from "./history/getModuleAtCommit";
 import { getJsonEntryAtCommit } from "./history/getJsonEntryAtCommit";
 import { getSettings } from "./getSettings";
 import {
-  forwardToValBuild,
+  forwardToStudioApi,
   type AdminProxyResult,
   type ValBuildCredential,
 } from "./adminProxy";
@@ -373,8 +373,9 @@ export const ValServer = (
   };
 
   /**
-   * `/admin/proxy/*`, for the web components mounted from Val Build. See
-   * `adminProxy.ts` for what is forwarded and why.
+   * `/admin/proxy/*`, for Val Build's web components in the Studio: forwarded
+   * to the Studio API on the content server. See `adminProxy.ts` for what is
+   * forwarded and why.
    *
    * Three refusals before anything leaves this server, and the `code`s are
    * the ones the components act on:
@@ -427,13 +428,16 @@ export const ValServer = (
         },
       };
     }
-    return forwardToValBuild({
+    // To the content server, which serves the Studio API: Val Build's sign-in
+    // (`valBuildUrl`) is what makes the credential, the content server is
+    // what the components' data comes from.
+    return forwardToStudioApi({
       method,
       path: req.path,
       rawQuery: req.rawQuery,
       body: req.body,
       credential: credential.credential,
-      valBuildUrl: options.valBuildUrl,
+      contentUrl: options.valContentUrl,
     });
   };
 

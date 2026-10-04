@@ -1,8 +1,9 @@
 /**
- * Forwarding for `/admin/proxy/*`: Val Build's `/api/studio/v1/*`, called on
- * the editor's behalf with the token from their session.
+ * Forwarding for `/admin/proxy/*`: Val Build's Studio API, `/v1/studio/*` on
+ * the content server, called on the editor's behalf with the token from their
+ * session.
  *
- * The web components the Studio mounts from admin.val.build cannot call Val
+ * The web components the Studio mounts from content.val.build cannot call Val
  * Build themselves. The editor's credential is in this app's httpOnly
  * `val_session` cookie, and a cookie of admin.val.build's own would be
  * third-party on this page, which Safari and Firefox block. So they call this
@@ -10,13 +11,13 @@
  *
  * It is a pipe for the path, the query and a JSON body, so a new component or
  * endpoint needs no Val release. It is NOT a pipe for where the request goes:
- * the URL is built from `valBuildUrl` and must still be under
- * `/api/studio/v1/` after the URL parser has resolved `..`, `%2e%2e` and
- * backslashes. The editor's token can reach the endpoints written for the
- * Studio and nothing else on Val Build.
+ * the URL is built from `contentUrl` (the server's `valContentUrl`) and must
+ * still be under `/v1/studio/` after the URL parser has resolved `..`,
+ * `%2e%2e` and backslashes. The editor's token can reach the endpoints written
+ * for the Studio and nothing else on Val Build.
  */
 
-export const STUDIO_API_PREFIX = "/api/studio/v1/";
+export const STUDIO_API_PREFIX = "/v1/studio/";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -38,22 +39,23 @@ export type AdminProxyRequest = {
    * `val login` token of a developer running the Studio locally.
    */
   credential: ValBuildCredential;
-  valBuildUrl: string;
+  /** The content server, which serves the Studio API: `valContentUrl`. */
+  contentUrl: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 };
 
-export async function forwardToValBuild({
+export async function forwardToStudioApi({
   method,
   path,
   rawQuery,
   body,
   credential,
-  valBuildUrl,
+  contentUrl,
   fetchImpl = fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 }: AdminProxyRequest): Promise<AdminProxyResult> {
-  const url = studioApiUrl(valBuildUrl, path, rawQuery);
+  const url = studioApiUrl(contentUrl, path, rawQuery);
   if (url === null) {
     return {
       status: 404,
@@ -99,12 +101,12 @@ export async function forwardToValBuild({
 }
 
 /**
- * `{valBuildUrl}/api/studio/v1{path}{rawQuery}`, or null when the result is not
+ * `{contentUrl}/v1/studio{path}{rawQuery}`, or null when the result is not
  * under that prefix on that origin — the check that keeps the proxy from being
  * pointed anywhere else with the editor's token.
  */
 export function studioApiUrl(
-  valBuildUrl: string,
+  contentUrl: string,
   path: string,
   rawQuery: string,
 ): string | null {
@@ -114,7 +116,7 @@ export function studioApiUrl(
   let base: URL;
   let url: URL;
   try {
-    base = new URL(valBuildUrl);
+    base = new URL(contentUrl);
     url = new URL(`${STUDIO_API_PREFIX}${path.slice(1)}${rawQuery}`, base);
   } catch {
     return null;

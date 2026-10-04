@@ -34,7 +34,7 @@ export function ProjectSwitcher({
   /** `org/name`. */
   projectName: string;
   projectHref: string;
-  /** `toWebComponentsUrl`: `{appHost}/wc/v1`. */
+  /** `toWebComponentsUrl`: `{contentHost}/wc/v1`. */
   webComponentsUrl: string;
   /**
    * The component's `mode`. Locally (`fs`) an expired login is fixed by

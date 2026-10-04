@@ -719,27 +719,39 @@ describe("toAdminLinks", () => {
 
 describe("toWebComponentsUrl", () => {
   const appHost = "https://admin.val.build";
+  const contentHost = "https://content.val.build";
 
-  test("is /wc/v1 on the admin app, for a connected project", () => {
-    expect(
-      toWebComponentsUrl({ project: "acme/marketing-site", appHost }),
-    ).toBe("https://admin.val.build/wc/v1");
+  test("is /wc/v1 on the content server, for a connected project", () => {
     expect(
       toWebComponentsUrl({
         project: "acme/marketing-site",
-        appHost: `${appHost}/`,
+        appHost,
+        contentHost,
       }),
-    ).toBe("https://admin.val.build/wc/v1");
+    ).toBe("https://content.val.build/wc/v1");
+    expect(
+      toWebComponentsUrl({
+        project: "acme/marketing-site",
+        appHost,
+        contentHost: `${contentHost}/`,
+      }),
+    ).toBe("https://content.val.build/wc/v1");
   });
 
   test("is absent wherever toAdminLinks is: nothing of Val Build to show", () => {
-    expect(toWebComponentsUrl({ appHost })).toBeUndefined();
+    expect(toWebComponentsUrl({ appHost, contentHost })).toBeUndefined();
     expect(
-      toWebComponentsUrl({ project: "marketing-site", appHost }),
+      toWebComponentsUrl({ project: "marketing-site", appHost, contentHost }),
     ).toBeUndefined();
     expect(
-      toWebComponentsUrl({ project: "acme/marketing-site" }),
+      toWebComponentsUrl({ project: "acme/marketing-site", contentHost }),
     ).toBeUndefined();
     expect(toWebComponentsUrl(undefined)).toBeUndefined();
+  });
+
+  test("is absent without a content server to load from", () => {
+    expect(
+      toWebComponentsUrl({ project: "acme/marketing-site", appHost }),
+    ).toBeUndefined();
   });
 });

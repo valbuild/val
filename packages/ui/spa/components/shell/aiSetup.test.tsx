@@ -9,7 +9,7 @@ import { toAdminLinks } from "./shellDataMapping";
  * admin.val.build: what it shows is the link to the project's AI tab.
  */
 
-const WC = "https://admin.val.build/wc/v1";
+const WC = "https://content.val.build/wc/v1";
 const AI_HREF = "https://admin.val.build/manage-ai/acme/marketing-site";
 
 // The Studio's providers are not under test, and loading them pulls in the
@@ -23,6 +23,7 @@ jest.mock("../ValFieldProvider", () => ({
   useValConfig: () => ({
     project: "acme/marketing-site",
     appHost: "https://admin.val.build",
+    contentHost: "https://content.val.build",
   }),
 }));
 jest.mock("./useValBuildAccess", () => ({
