@@ -100,6 +100,49 @@ test.describe("a draft page, as the server renders it", () => {
     ).toEqual([]);
   });
 
+  test("a `.jsonValues()` entry the draft edits is in the server's HTML too", async ({
+    page,
+  }) => {
+    /*
+     * `/sources/~` keeps each entry of such a module as a marker -- its
+     * content lives in its own file -- so the draft has to carry the edited
+     * entries' content, or the page rendered the published entry first.
+     */
+    const ENTRY_DRAFT = "What is Val, as a draft?";
+    await openStudio(page);
+    await patchThroughStore(page, "/src/content/kb.val.ts", [
+      { op: "replace", path: ["what-is-val", "title"], value: ENTRY_DRAFT },
+    ]);
+    await page.goto("/api/val/enable?redirect_to=/showcase");
+    const showcase = async () => {
+      const res = await page.request.get("/showcase");
+      return (await res.text()).replace(/<script[\s\S]*?<\/script>/g, "");
+    };
+    await expect.poll(showcase, { timeout: 20_000 }).toContain(ENTRY_DRAFT);
+    expect(await showcase()).not.toContain("What is Val?<");
+
+    // And the browser hydrates the entry from the same draft.
+    const logged: string[] = [];
+    page.on("console", (message) => logged.push(message.text()));
+    page.on("pageerror", (error) => logged.push(error.message));
+    await page.goto("/showcase");
+    await expect
+      .poll(
+        () =>
+          page
+            .locator('[data-val-path*="/src/content/kb.val.ts"]')
+            .filter({ hasText: ENTRY_DRAFT })
+            .count(),
+        { timeout: 15_000 },
+      )
+      .toBeGreaterThan(0);
+    expect(
+      logged.filter((line) =>
+        /hydrat|did not match|mismatch|Seroval/i.test(line),
+      ),
+    ).toEqual([]);
+  });
+
   test("a visitor gets the published page, untagged", async ({
     page,
     browser,

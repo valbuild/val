@@ -10,6 +10,10 @@ import type { Json, ModuleFilePath } from "@valbuild/core";
  * browser's first render resolve the same text, and the page never shows the
  * published version first and the draft a moment later.
  *
+ * A `.jsonValues()` module is in the shape the Studio's own store gives it: the
+ * entries the draft edits hold their content, and every other entry is the
+ * thunkless marker the hooks resolve from the bundle.
+ *
  * Plain JSON, because it travels from a server function to the browser in the
  * page's loader data. `fetchValDraft` in `@valbuild/tanstack/server` reads it.
  */

@@ -11,10 +11,13 @@ import {
   ValConfig,
   ValModules,
   Internal,
+  type Json,
+  type PatchId,
   type ResolvableModule,
   SourceObject,
 } from "@valbuild/core";
 import {
+  JSON_ENTRIES_BATCH_MAX,
   VAL_SESSION_COOKIE,
   memoizePerRequest,
   type RequestScopedMemo,
@@ -276,6 +279,13 @@ export const initFetchValStega =
     });
   };
 
+/** What `fetchValDraft` reads: the tree, the entries, and the patches' ops. */
+export type DraftValServer = {
+  "/sources/~": ValServer["/sources/~"];
+  "/json": ValServer["/json"];
+  "/patches": Pick<ValServer["/patches"], "GET">;
+};
+
 /**
  * The draft a page in this request should start from, or `null` for none.
  *
@@ -290,7 +300,7 @@ export const initFetchValStega =
  */
 export const initFetchValDraft =
   (
-    valServerPromise: Promise<DraftSourcesValServer>,
+    valServerPromise: Promise<DraftValServer>,
     isEnabled: () => Promise<boolean>,
     getCookies: () => Promise<{
       get(name: string): { name: string; value: string } | undefined;
@@ -315,8 +325,18 @@ export const initFetchValDraft =
       }
       const sources: ValDraft["sources"] = {};
       for (const [path, module] of Object.entries(modules)) {
-        if (module.patches !== undefined) {
-          sources[path as ModuleFilePath] = module.source;
+        if (module.patches === undefined) {
+          continue;
+        }
+        const source = await withDraftJsonEntries(
+          valServerPromise,
+          sessionCookie,
+          path as ModuleFilePath,
+          module.source,
+          module.patches.applied,
+        );
+        if (source !== undefined) {
+          sources[path as ModuleFilePath] = source;
         }
       }
       return { sources };
@@ -327,6 +347,114 @@ export const initFetchValDraft =
       return null;
     }
   };
+
+/**
+ * A module's draft source, as the browser would have received it, with the
+ * `.jsonValues()` entries the draft edits filled in -- or `undefined` when
+ * they could not all be read, so the module is left out of the draft.
+ *
+ * Two things, both because `/sources/~` keeps each such entry as a MARKER
+ * (its content lives in its own file):
+ *
+ * - Read in-process, a marker still carries its `import()` thunk, which no
+ *   serializer can send. So the source is put in its wire shape first, the
+ *   same one the Studio gets over HTTP: a marker without its thunk, which the
+ *   hooks read as "no draft for this entry" and resolve from the bundle.
+ * - An entry edited in the draft is still a marker there, so the page would
+ *   render the published entry and swap it once the Studio loads it. Those
+ *   entries -- the ones an applied patch touches, and only those -- are read
+ *   through `/json` and put in place of their markers, which is the shape
+ *   the Studio's own store gives them once it has.
+ *
+ * Leaving the module out is the published render that existed before the
+ * draft did: worse than this, and never wrong for long.
+ */
+async function withDraftJsonEntries(
+  valServerPromise: Promise<DraftValServer>,
+  sessionCookie: string | undefined,
+  moduleFilePath: ModuleFilePath,
+  source: Json | undefined,
+  appliedPatchIds: PatchId[],
+): Promise<Json | undefined> {
+  if (source === undefined) {
+    return undefined;
+  }
+  const wire: Json = JSON.parse(JSON.stringify(source));
+  if (!isRecordOfJsonMarkers(source) || appliedPatchIds.length === 0) {
+    return wire;
+  }
+  const valServer = await valServerPromise;
+  const cookies = { [VAL_SESSION_COOKIE]: sessionCookie };
+  const patchesRes = await valServer["/patches"]["GET"]({
+    query: {
+      patch_id: appliedPatchIds,
+      exclude_patch_ops: false,
+      include_patch_groups: undefined,
+    },
+    cookies,
+  });
+  if (patchesRes.status !== 200) {
+    return undefined;
+  }
+  const edited = new Set<string>();
+  for (const { path, patch } of patchesRes.json.patches) {
+    if (path !== moduleFilePath) {
+      continue;
+    }
+    for (const op of patch ?? []) {
+      const touched = [op.path[0]];
+      if (op.op === "move" || op.op === "copy") {
+        touched.push(op.from[0]);
+      }
+      for (const key of touched) {
+        if (key === undefined) {
+          // A write of the whole record: no smaller set of entries to read.
+          return undefined;
+        }
+        if (Internal.isJson(source[key])) {
+          edited.add(key);
+        }
+      }
+    }
+  }
+  const keys = [...edited];
+  const draft = wire as Record<string, Json>;
+  for (let i = 0; i < keys.length; i += JSON_ENTRIES_BATCH_MAX) {
+    const res = await valServer["/json"]["GET"]({
+      query: {
+        path: moduleFilePath,
+        key: undefined,
+        keys: keys.slice(i, i + JSON_ENTRIES_BATCH_MAX),
+        offset: undefined,
+        limit: undefined,
+        apply_patches: true,
+        own_patch_groups_only: true,
+      },
+      cookies,
+    });
+    if (
+      res.status !== 200 ||
+      !("entries" in res.json) ||
+      res.json.errors.length > 0 ||
+      res.json.missing.length > 0
+    ) {
+      return undefined;
+    }
+    for (const { key, content } of res.json.entries) {
+      draft[key] = content;
+    }
+  }
+  return draft;
+}
+
+function isRecordOfJsonMarkers(source: Json): source is Record<string, Json> {
+  return (
+    typeof source === "object" &&
+    source !== null &&
+    !Array.isArray(source) &&
+    Object.values(source).some((value) => Internal.isJson(value))
+  );
+}
 
 function getHost(headers: { get(name: string): string | null } | undefined) {
   const host = headers?.get("host");
