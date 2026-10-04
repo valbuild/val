@@ -209,8 +209,9 @@ export const ValOverlayContext = React.createContext<{
   readonly store?: ValExternalStore;
   readonly draftMode: boolean | null;
   // Whether useValStega should suspend until draft data is loaded. False
-  // during SSR and hydration (the server store is never populated; draft data
-  // arrives via browser CustomEvents only); activated by ValProvider after
+  // during SSR and hydration (the server store is empty unless ValProvider was
+  // given a server-read `draft`, in which case it already holds the draft;
+  // otherwise draft data arrives via browser CustomEvents only); activated by ValProvider after
   // hydration — inside a transition, so static content stays visible while
   // hooks suspend — when its `suspend` prop is set and the Val Enable cookie
   // is present. Never deactivated once active.

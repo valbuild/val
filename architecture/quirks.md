@@ -1055,8 +1055,11 @@ independently wrong:
    when it has handed over everything it holds.
 3. **The gate must be ON for the render that decides.** It is not. `ValProvider`
    sets `suspendActive` in an effect, so the SSR and hydration renders never
-   consult it — and hydration is where `notFound()` is called. **This one is not
-   fixed.**
+   consult it — and hydration is where `notFound()` is called. **Not fixed on
+   its own terms, and on TanStack no longer needed:** with `<ValProvider
+draft>` the server renders from the draft it read, so the deciding render
+   already has the route. Without `draft` (and on Next) it is still open. See
+   below.
 
 ### Why (3) is not just a bug
 
@@ -1078,7 +1081,7 @@ effect, which is cheap, static — and always too late for a route.
 Restoring it is not enough on its own, though — this was tried. With the gate on
 during SSR the server suspends on `waitForLoad`, and the store it waits for is
 only ever filled from the browser (the studio pushes sources by `postMessage`;
-`ValExternalStore` has no server-side writer). So the request does not 404, it
+`ValExternalStore` had no server-side writer — it has one now, see below). So the request does not 404, it
 **hangs**: the example app's `/api/val/enable` redirect never finished loading.
 
 That is the actual shape of the remaining work: the server has to be able to

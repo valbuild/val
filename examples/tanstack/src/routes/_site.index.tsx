@@ -6,20 +6,8 @@ import pageVal, { type Content } from "./_site.index.val";
 import { NotFound } from "../components/NotFound";
 import siteVal from "../content/site.val";
 
-/**
- * See the component: a lazy child handed Val content as a prop.
- *
- * In the browser it waits a moment before loading, so it always hydrates
- * AFTER the component that read the content has hydrated and rendered again
- * -- the order that has to work, and the one a local dev server is otherwise
- * too fast to produce. The server renders it at once.
- */
-const Tagline = lazy(async () => {
-  if (typeof document !== "undefined") {
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-  }
-  return import("../components/Tagline");
-});
+/** See the component: a lazy child handed Val content as a prop. */
+const Tagline = lazy(() => import("../components/Tagline"));
 
 export const Route = createFileRoute("/_site/")({
   component: Home,

@@ -125,9 +125,11 @@ export const ValTanStackProvider = (props: {
    *
    * When set, hooks suspend until draft data has loaded — but only when the
    * Val Enable cookie is present, which is detected client-side after
-   * hydration. SSR and hydration always render the static committed source
-   * (draft data is browser-only), the gate then activates inside a transition
-   * so the static content stays visible while draft data loads. Production
+   * hydration. Without `draft`, SSR and hydration render the static committed
+   * source (draft data arrives in the browser), and the gate then activates
+   * inside a transition so that content stays visible while the draft loads.
+   * With `draft`, SSR and hydration already render the draft the server read,
+   * so there is nothing to wait for on the first render. Production
    * visitors without the cookie pay no cost, and layouts stay synchronous and
    * routes static.
    *
@@ -209,10 +211,12 @@ export const ValTanStackProvider = (props: {
     return store;
   }, [initialDraft]);
   // Whether useValStega should actually suspend. False during SSR and the
-  // hydration render — the server store is never populated (draft data
-  // arrives via browser CustomEvents only), so suspending there would just
-  // stall into the waitForLoad timeout, and hydration must render the static
-  // source so it matches the server HTML exactly. Activated post-hydration
+  // hydration render. Two paths: without `draft` the server store is empty
+  // (draft data arrives via browser CustomEvents only), so suspending there
+  // would just stall into the waitForLoad timeout, and hydration must render
+  // the static source so it matches the server HTML exactly; with `draft` the
+  // store is seeded above on BOTH sides, so SSR and hydration already render
+  // the draft and there is nothing to wait for. Keep the seed if this changes. Activated post-hydration
   // (in an effect, only when the Val Enable cookie is present) inside a
   // transition: React keeps the static content visible while hooks suspend
   // and then swaps to draft data as a normal update — no Suspense fallback
