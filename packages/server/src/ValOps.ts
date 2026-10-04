@@ -3069,7 +3069,7 @@ export type PatchReadError =
  * 3. a patch published after this build is kept whatever the scope: it is
  *    nobody's to hold back, and this build does not have it. One already in
  *    the build is dropped. `draftOverlay` decides which is which, from
- *    `commits`, and puts the published ones first.
+ *    `commits`.
  *
  * Filtered here rather than by asking `fetchPatches` for a list, and that is
  * load-bearing: both implementations read an empty `patchIds` as "no filter"
@@ -3106,18 +3106,17 @@ export function scopedModulePatches<
 }
 
 /**
- * The patches a DRAFT applies on top of this build's own source, in the order
- * it applies them: the ones published after this build first, then the
- * pending ones, each in chain order -- with `appliedAt` cleared, because this
- * build has none of them.
+ * The patches a DRAFT applies on top of this build's own source: the pending
+ * ones, and the ones published AFTER this build, in chain order -- with
+ * `appliedAt` cleared on the latter, because this build has none of them.
  *
  * Content places every caller at its own build (`getApplicablePatchesAndCommits`
  * in valbuild/home: "the earliest the caller has not seen") and returns the
  * commits after it as `commits`. A patch applied at one of those was
- * published AFTER this build and is not in it. Skipping those -- which both
- * draft paths did -- rendered the build's old base for the whole time between
- * the publish and the next build going live: the draft went back to the old
- * value, then forward again.
+ * published after this build and is not in it, so a draft has to apply it --
+ * skipping it showed the build's old value from the publish until the next
+ * build went live. `/sources/~` already applies them (`getSources` walks every
+ * patch it is given); the `.jsonValues()` entry path skipped them.
  *
  * A patch applied at a commit NOT in that list is already in this build --
  * content returns one only because it was asked for by id -- and is dropped:
@@ -3125,11 +3124,9 @@ export function scopedModulePatches<
  * does not report them) every applied patch is dropped, as before. Only
  * `ValOpsHttp` ever reports `appliedAt`; `fs` and memory stores report `null`.
  *
- * Published first because that is what the next build will be: its base is
- * this one plus the published patches, and pending ones go on top of that. So
- * the draft is the same answer from the old build and the new one, for the
- * same chain -- which is what makes a reload during a publish show what the
- * page already showed. `jobPrepare` builds a job's content the same way.
+ * Chain order, not published-first, because that is the order the Studio
+ * applies them in, and a draft page starts from the server's answer and is
+ * then kept up to date by the Studio's: the two must agree.
  *
  * For the reads that render a draft only. What to COMMIT still keys on
  * `appliedAt`: a published patch must never be published again.
@@ -3140,15 +3137,15 @@ export function draftOverlay<
   const afterThisBuild = new Set<string>(
     (commits ?? []).map((commit) => commit.commitSha),
   );
-  const published = patches
-    .filter(
-      (patch) =>
-        patch.appliedAt !== null &&
-        afterThisBuild.has(patch.appliedAt.commitSha),
-    )
-    .map((patch) => ({ ...patch, appliedAt: null }));
-  const pending = patches.filter((patch) => patch.appliedAt === null);
-  return [...published, ...pending];
+  const overlay: T[] = [];
+  for (const patch of patches) {
+    if (patch.appliedAt === null) {
+      overlay.push(patch);
+    } else if (afterThisBuild.has(patch.appliedAt.commitSha)) {
+      overlay.push({ ...patch, appliedAt: null });
+    }
+  }
+  return overlay;
 }
 
 export type OrderedPatches = {

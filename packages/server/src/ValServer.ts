@@ -48,7 +48,6 @@ import {
   AuthorId,
   BaseSha,
   CommitSha,
-  draftOverlay,
   formatPatchSourceError,
   OrderedPatches,
   SchemaSha,
@@ -2072,12 +2071,6 @@ export const ValServer = (
             },
           };
         }
-        // What this build's draft shows: published patches it does not have
-        // yet, then pending ones. See `draftOverlay`.
-        patchOps = {
-          ...patchOps,
-          patches: draftOverlay(patchOps.patches, patchOps.commits),
-        };
         const patchAnalysis = serverOps.analyzePatches(patchOps.patches);
         const schemasRes = await serverOps.getSchemas();
         let sourcesRes = await serverOps.getSources();

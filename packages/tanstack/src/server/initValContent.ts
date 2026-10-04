@@ -32,6 +32,7 @@ import {
   isJsonValuesRecordSchema,
 } from "../routeFromVal";
 import { valDraftMode, type ValDraftMode } from "./valDraftMode";
+import type { ValDraft } from "../ValDraft";
 import type { ValHttpMode } from "./initValServer";
 
 /*
@@ -273,6 +274,60 @@ export const initFetchValStega =
       console.error("Val: failed to fetch ", err);
       return stegaEncode(selector, {});
     });
+  };
+
+/**
+ * The draft a page in this request should start from, or `null` for none.
+ *
+ * `null` -- and no read at all -- unless draft mode is on: a visitor pays one
+ * cookie lookup. Otherwise the SAME read every
+ * `fetchVal` in the request shares (`loadDraftSources`, memoised per request),
+ * cut down to the modules the draft changes. See `ValDraft`.
+ *
+ * Exists because the hooks render on the server too, and had no draft there:
+ * a draft page was rendered as the published site and only then replaced, in
+ * the browser, by what the editor holds -- old text first on every load.
+ */
+export const initFetchValDraft =
+  (
+    valServerPromise: Promise<DraftSourcesValServer>,
+    isEnabled: () => Promise<boolean>,
+    getCookies: () => Promise<{
+      get(name: string): { name: string; value: string } | undefined;
+    }>,
+    getDraftSourcesScope: GetDraftSourcesScope,
+  ) =>
+  async (): Promise<ValDraft | null> => {
+    try {
+      if (!(await isEnabled())) {
+        return null;
+      }
+      // Possibly absent: a local `fs` server answers without one. The server
+      // decides, and a 401 is `null` -- the same rule `fetchVal` follows.
+      const sessionCookie = (await getCookies()).get(VAL_SESSION_COOKIE)?.value;
+      const modules = await memoizePerRequest(
+        await getDraftSourcesScope(),
+        sessionCookie ?? "",
+        () => loadDraftSources(valServerPromise, sessionCookie),
+      );
+      if (!modules) {
+        return null;
+      }
+      // The render this feeds tags draft text, as `fetchVal`'s does.
+      SET_AUTO_TAG_JSX_ENABLED(true);
+      const sources: ValDraft["sources"] = {};
+      for (const [path, module] of Object.entries(modules)) {
+        if (module.patches !== undefined) {
+          sources[path as ModuleFilePath] = module.source;
+        }
+      }
+      return { sources };
+    } catch (err) {
+      // Published content, as before this existed: a draft page that renders
+      // the site is a degraded preview, one that fails to render is an outage.
+      console.error("Val: could not read the draft", err);
+      return null;
+    }
   };
 
 function getHost(headers: { get(name: string): string | null } | undefined) {
@@ -765,6 +820,11 @@ export function initValContent(
   fetchValKeyStega: ReturnType<typeof initFetchValKeyStega>;
   fetchValRouteStega: ReturnType<typeof initFetchValRouteStega>;
   fetchValRouteUrl: ReturnType<typeof initFetchValRouteUrl>;
+  /**
+   * The draft for `<ValProvider draft>`, or `null`. Call it from a server
+   * function in the site layout's loader -- see `ValDraft`.
+   */
+  fetchValDraft: ReturnType<typeof initFetchValDraft>;
 } {
   const coreVersion = Internal.VERSION.core;
   if (!coreVersion) {
@@ -843,6 +903,12 @@ export function initValContent(
       valServerPromise,
       isEnabled,
       requestHeaders,
+      requestCookies,
+      draftSourcesScope,
+    ),
+    fetchValDraft: initFetchValDraft(
+      valServerPromise,
+      isEnabled,
       requestCookies,
       draftSourcesScope,
     ),

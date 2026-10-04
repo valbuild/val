@@ -209,6 +209,9 @@ export const Route = createFileRoute("/_site")({
 });
 ```
 
+Add the `draft` prop from [Preview and draft mode](#preview-and-draft-mode) so a
+draft page is rendered as the draft on the server too.
+
 A pathless layout adds no URL segment: `_site.index.tsx` is still `/`. Val
 modules named after those files follow the same rule, so
 `_site.posts.$postId.val.ts` holds `/posts/...` keys.
@@ -234,9 +237,10 @@ export const {
 ## Reading content
 
 **Prefer the hooks.** They work in both places a component runs: during SSR they
-resolve the published content, and in a browser with the Studio open they
-resolve what the editor currently holds — so an edit appears as it is typed,
-with no round trip and no loader.
+resolve the published content — or, when `ValProvider` is given the request's
+draft (see [Preview and draft mode](#preview-and-draft-mode)), the draft — and in
+a browser with the Studio open they resolve what the editor currently holds, so
+an edit appears as it is typed, with no round trip and no loader.
 
 ```tsx
 function Page() {
@@ -330,10 +334,51 @@ its own, so this package brings a cookie (`val_draft_mode`, `valDraftMode()` in
 read also carries Val's session cookie, which is a signed JWT the server
 verifies, so a forged draft cookie gets published content.
 
+**Render the draft on the server, too.** Without it the server renders the
+PUBLISHED page and the browser swaps the draft in once the overlay has loaded,
+so every draft page load shows the old text first and the new text a moment
+later. Read the request's draft in the site layout's loader and hand it to the
+provider:
+
+```tsx
+// src/val/server.ts: add `fetchValDraft` to what initValContent returns
+export const { fetchValDraft /* , fetchVal, ... */ } = initValContent(
+  config,
+  valModules,
+  { draftMode },
+);
+
+// src/routes/_site.tsx
+const getValDraft = createServerFn().handler(() => fetchValDraft());
+
+export const Route = createFileRoute("/_site")({
+  // On the server only: the overlay keeps the page up to date after that.
+  loader: () => (typeof document === "undefined" ? getValDraft() : null),
+  component: SiteLayout,
+});
+
+function SiteLayout() {
+  const draft = Route.useLoaderData();
+  return (
+    <ValProvider config={config} suspend draft={draft}>
+      {/* ... */}
+    </ValProvider>
+  );
+}
+```
+
+`fetchValDraft` returns `null` — after one cookie lookup, with no read — unless
+the request is in draft mode, so visitors pay nothing. In draft mode it returns
+the modules the draft changes, which the server renders with and the browser
+hydrates from: both produce the same page, tagged for editing from the first
+paint, and the overlay takes over from there.
+
 `suspend` on `ValProvider` makes `useValStega` / `useValRouteStega` wait for
 draft data before rendering, so a page that exists **only** in an unpublished
 draft renders instead of 404ing. Visitors without the Val Enable cookie pay
-nothing for it. It needs React 19 and a `<Suspense>` boundary (see above).
+nothing for it. It needs React 19 and a `<Suspense>` boundary (see above). With
+`draft` given, the server already has that page's content, so its first render
+does not 404 either.
 
 ## Images
 
@@ -370,6 +415,7 @@ SDK of your choice. See [`@valbuild/mcp`](https://www.npmjs.com/package/@valbuil
 | `valNextAppRouter`                  | `valApiHandler` — a `Request` in, a `Response` out |
 | `ValImage` wraps `next/image`       | `ValImage` is an `<img>`                           |
 | `fetchVal` in a Server Component    | hooks in components; `createServerFn` for loaders  |
+| client hooks render published SSR   | `ValProvider draft` renders the draft during SSR   |
 
 ## Schema reference
 

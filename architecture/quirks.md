@@ -1086,6 +1086,25 @@ supply draft sources during its own render — which `fetchVal` already does for
 server components, via `/sources/~` with patches applied. A client component's
 SSR pass has no equivalent, and giving it one is a good deal more than a prop.
 
+**On TanStack Start it has one now: `<ValProvider draft>`.** The site layout's
+loader calls `fetchValDraft()` through a server function, on the server only.
+That is the same per-request `/sources/~` read `fetchVal` makes, cut down to the
+modules the draft changes, and `null` after one cookie lookup for anyone not in
+draft mode. The provider seeds its store with it and starts with `draftMode`
+true and JSX tagging on, so the server renders the draft, tagged, and the
+browser's hydration render reads the same sources from the loader data and
+agrees with it. It does not hang, because nothing waits on the browser: the
+store is full before the first render, and `draftSourcesSynced` starts true
+(a module missing from a server-read draft has no changes, rather than "not
+sent yet"). TanStack can afford it because every request is rendered anyway —
+there is no static route for a cookie read to opt out of.
+
+It also fixed the more common symptom, which was not a 404 at all: every draft
+page load showed the published text and then, once the overlay had loaded, the
+draft. People notice it most right after publishing, when they reload to look.
+`e2e/tanstack/draftRender.spec.ts` pins it. Next still has the gap for client
+components; the cost argument below is why it has not followed.
+
 ### What a visitor pays
 
 Nothing. Measured on a fresh context with no `val_enable` cookie: **zero**
