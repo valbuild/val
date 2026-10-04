@@ -317,6 +317,36 @@ describe("videosets", () => {
     ]);
   });
 
+  test("a poster taken at upload is the entry's, filed beside the video", () => {
+    const poster = { ...file("webp", "image/webp"), width: 320, height: 180 };
+    const { patch, entry } = createVideosetEntryPatch(
+      {
+        setPatchPath: ["videos"],
+        dir: "/public/val/videos",
+        filename: "Intro.mp4",
+        upload: { kind: "file", file: video },
+        metadata,
+        remote: null,
+        schema: schemaOf(s.video()),
+        poster: { upload: poster, time: 1 },
+      },
+      sha256,
+    );
+    expect(patch.map((op) => [op.op, op.path.join("/")])).toEqual([
+      ["add", `videos/${entry.key}`],
+      ["file", `videos/${entry.key}`],
+      ["add", `videos/${entry.key}/posterTime`],
+      ["add", `videos/${entry.key}/poster`],
+      ["file", `videos/${entry.key}`],
+    ]);
+    expect(patch[4]).toMatchObject({
+      nestedFilePath: ["poster"],
+      filePath: expect.stringMatching(
+        /^\/public\/val\/videos\/intro-poster_[0-9a-f]{5}\.webp$/,
+      ),
+    });
+  });
+
   test("a stream in a set is keyed by its master, and every file goes up", () => {
     const { patch, entry } = createVideosetEntryPatch(
       {

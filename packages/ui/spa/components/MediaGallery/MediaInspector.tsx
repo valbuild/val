@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { ExternalLink, FileText, Trash2, X } from "lucide-react";
-import { cn } from "../designSystem/cn";
 import { Input } from "../designSystem/input";
 import {
   Tooltip,
@@ -12,7 +11,44 @@ import { FieldValidationError } from "../FieldValidationError";
 import { HotspotMarker } from "../fields/HotspotMarker";
 import { VideoPlayer } from "../fields/VideoPlayer";
 import { factsOf, typeLabel } from "./format";
-import type { MediaGalleryProps, MediaItem, MediaKind } from "./types";
+import type { MediaItem, MediaKind } from "./types";
+
+/** Everything about ONE open entry, as plain values and callbacks. */
+export type MediaInspectorProps = {
+  kind: MediaKind;
+  item: MediaItem;
+  onClose: () => void;
+  /** Nothing can be changed: no rename, description or delete. */
+  readonly?: boolean;
+  /**
+   * Replaces the default preview: the Studio's player, which the defaults
+   * editor takes frames and times from, or an image's focal-point picker.
+   */
+  preview?: ReactNode;
+  onDescriptionChange?: (description: string) => void;
+  /** Beside the description's label: who changed it. */
+  descriptionAside?: ReactNode;
+  /**
+   * The rest of what an entry holds for the fields that pick it — a video's
+   * poster, times, focal point and captions — below the description. A video
+   * passes its description in here too (`hideDescription`), because the same
+   * controls edit a video field.
+   */
+  defaults?: ReactNode;
+  hideDescription?: boolean;
+  /** Resolves to an error message, or null when it was renamed. */
+  onRename?: (newBase: string) => Promise<string | null>;
+  /** e.g. "Renaming updates the 2 places using it." */
+  renameNote?: string | null;
+  renameDisabled?: boolean;
+  /** Where the entry is used. */
+  usage?: ReactNode;
+  onDelete?: () => void;
+  /** Why it cannot be deleted now, or null when it can. */
+  deleteBlockedReason?: string | null;
+  /** More actions beside Open, e.g. the Studio's Compare link. */
+  extraActions?: ReactNode;
+};
 
 /**
  * The entry that is open, beside the grid rather than over it: an editor
@@ -27,26 +63,21 @@ export function MediaInspector({
   kind,
   item,
   onClose,
+  readonly,
+  preview,
   onDescriptionChange,
+  descriptionAside,
+  defaults,
+  hideDescription,
   onRename,
+  renameNote,
+  renameDisabled,
+  usage,
   onDelete,
   deleteBlockedReason,
-  renderUsage,
-  readonly,
-}: {
-  kind: MediaKind;
-  item: MediaItem;
-  onClose: () => void;
-} & Pick<
-  MediaGalleryProps,
-  | "onDescriptionChange"
-  | "onRename"
-  | "onDelete"
-  | "deleteBlockedReason"
-  | "renderUsage"
-  | "readonly"
->) {
-  const blocked = deleteBlockedReason?.(item) ?? null;
+  extraActions,
+}: MediaInspectorProps) {
+  const blocked = deleteBlockedReason ?? null;
   return (
     <aside
       aria-label={`${item.name} details`}
@@ -67,7 +98,7 @@ export function MediaInspector({
       </div>
 
       <div className="px-4">
-        <Preview kind={kind} item={item} />
+        {preview ?? <Preview kind={kind} item={item} />}
         <p className="mt-2 text-xs text-fg-secondary">{factsOf(item)}</p>
         {item.errors && item.errors.length > 0 && (
           // Paths have no spaces to break at, and they are most of a message.
@@ -84,23 +115,32 @@ export function MediaInspector({
           <Labelled label="Name">
             <FilenameInput
               filename={item.name}
-              onSave={(_newFilename, newBase) => onRename(item.ref, newBase)}
+              disabled={renameDisabled}
+              onSave={(_newFilename, newBase) => onRename(newBase)}
             />
+            {renameNote && (
+              <p className="px-2 text-[0.6875rem] text-fg-secondary-alt">
+                {renameNote}
+              </p>
+            )}
           </Labelled>
         )}
 
-        {kind !== "files" && (
-          <Labelled label="Description">
-            <DescriptionInput
+        {kind !== "files" && !hideDescription && (
+          <Labelled label="Description" aside={descriptionAside}>
+            <Input
               key={item.ref}
               value={item.description ?? ""}
-              readonly={readonly || !onDescriptionChange}
+              disabled={readonly || !onDescriptionChange}
               placeholder={
                 kind === "videos"
-                  ? "What happens in the video…"
-                  : "What the image shows…"
+                  ? "What happens in the video..."
+                  : "Describe this image..."
               }
-              onCommit={(text) => onDescriptionChange?.(item.ref, text)}
+              // Written as it is typed, as every text field in the Studio is:
+              // the patch store folds the keystrokes into one change.
+              onChange={(ev) => onDescriptionChange?.(ev.target.value)}
+              className="h-8 text-sm"
             />
             {item.descriptionErrors && item.descriptionErrors.length > 0 && (
               <FieldValidationError
@@ -112,12 +152,16 @@ export function MediaInspector({
           </Labelled>
         )}
 
-        {renderUsage && (
-          <Labelled label="Used in">{renderUsage(item)}</Labelled>
-        )}
+        {defaults && <div className="flex flex-col gap-5">{defaults}</div>}
+
+        {usage && <Labelled label="Used in">{usage}</Labelled>}
       </div>
 
-      <div className="mt-auto flex items-center gap-2 border-t border-border-secondary px-4 py-3">
+      <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-border-secondary px-4 py-3">
+        {/*
+         * An anchor, not a button calling `window.open`: a middle click, a
+         * modifier click and "Copy link address" all work on it.
+         */}
         <a
           href={item.url}
           target="_blank"
@@ -127,6 +171,7 @@ export function MediaInspector({
           <ExternalLink size={14} />
           Open
         </a>
+        {extraActions}
         {onDelete && !readonly && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -134,7 +179,7 @@ export function MediaInspector({
                 <button
                   type="button"
                   disabled={blocked !== null}
-                  onClick={() => onDelete(item.ref)}
+                  onClick={onDelete}
                   className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-fg-error-primary hover:bg-bg-error-primary disabled:pointer-events-none disabled:opacity-50"
                 >
                   <Trash2 size={14} />
@@ -188,51 +233,20 @@ function Preview({ kind, item }: { kind: MediaKind; item: MediaItem }) {
 
 function Labelled({
   label,
+  aside,
   children,
 }: {
   label: string;
-  children: React.ReactNode;
+  aside?: ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-fg-secondary">{label}</span>
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-medium text-fg-secondary">{label}</span>
+        {aside}
+      </div>
       {children}
     </div>
-  );
-}
-
-/**
- * Typed into freely, written when the editor leaves it or presses Enter — a
- * patch per keystroke would put one entry in the history per letter.
- */
-function DescriptionInput({
-  value,
-  readonly,
-  placeholder,
-  onCommit,
-}: {
-  value: string;
-  readonly?: boolean;
-  placeholder: string;
-  onCommit: (text: string) => void;
-}) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  const commit = () => {
-    if (draft !== value) onCommit(draft);
-  };
-  return (
-    <Input
-      value={draft}
-      disabled={readonly}
-      placeholder={placeholder}
-      onChange={(ev) => setDraft(ev.target.value)}
-      onBlur={commit}
-      onKeyDown={(ev) => {
-        if (ev.key === "Enter") commit();
-        if (ev.key === "Escape") setDraft(value);
-      }}
-      className={cn("h-8 text-sm")}
-    />
   );
 }

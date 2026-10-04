@@ -164,6 +164,7 @@ import {
 } from "./remote/validationBasis";
 import { getFileHash, hashToRemoteFileHash } from "./remote/fileHash";
 import { splitRemoteRef } from "./remote/splitRemoteRef";
+import { galleriesOf } from "./source/galleries";
 import {
   fillFromGallery,
   GALLERY_DEFAULT_GROUPS,
@@ -413,6 +414,7 @@ const Internal = {
   isRemoteMediaPath,
   media: {
     fillFromGallery,
+    galleriesOf,
     galleryEntryOf,
     GALLERY_DEFAULT_GROUPS,
     isHlsVideo,

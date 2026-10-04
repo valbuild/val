@@ -394,7 +394,16 @@ export function createVideosetEntryPatch(
   input: Pick<
     CreateVideoPatchInput,
     "dir" | "filename" | "upload" | "metadata" | "remote" | "schema"
-  > & { setPatchPath: string[] },
+  > & {
+    setPatchPath: string[];
+    /**
+     * The entry's poster, taken from the upload before it went anywhere. It
+     * is the gallery's thumbnail of the entry and the default every field
+     * picked from the set shows, so a stream — which a tile cannot seek in —
+     * has a picture from the start.
+     */
+    poster?: { upload: PosterUpload; time: number } | null;
+  },
   sha256: (bytes: Uint8Array) => string,
 ): { patch: Patch; entry: VideosetEntry } {
   const { video, files, mimeType } = placeVideo(input, sha256);
@@ -420,6 +429,17 @@ export function createVideosetEntryPatch(
         metadata: { mimeType: placed.file.mimeType },
         remote: input.remote !== null,
       })),
+      ...(input.poster
+        ? createPosterPatch({
+            patchPath: at,
+            dir: input.dir,
+            videoPath: entry.key,
+            poster: input.poster.upload,
+            posterTime: input.poster.time,
+            remote: input.remote,
+            schema: input.schema,
+          })
+        : []),
     ],
   };
 }
@@ -559,6 +579,6 @@ function stripHashSuffix(name: string): string {
  * A source as the JSON a patch carries. `undefined` is not JSON: a key set to
  * it would be written as a missing key by one side and as `null` by another.
  */
-function toJson(value: object): JSONValue {
+export function toJson(value: object): JSONValue {
   return JSON.parse(JSON.stringify(value));
 }

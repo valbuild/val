@@ -28,11 +28,16 @@ import {
 } from "../ValProvider";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
+import type { PendingPatch } from "../ValProvider";
 import { getRefParts } from "@valbuild/shared/internal";
 import { FieldLoading } from "../FieldLoading";
 import { Progress } from "../designSystem/progress";
-import { FileGallery } from "../FileGallery/FileGallery";
-import type { FileRenameResult, GalleryFile } from "../FileGallery/types";
+import { MediaGallery } from "../MediaGallery/MediaGallery";
+import type { MediaItem, MediaKind, MediaUpload } from "../MediaGallery/types";
+import { useNavigation } from "../ValRouter";
+import { GalleryEntryInspector } from "./GalleryEntryInspector";
+import { filesOfChoices, toPosterUpload } from "./VideoChoices";
+import { captureFrame, defaultPosterTime } from "../../utils/video/readVideo";
 import { useRenameMediaFile } from "../useRenameMediaFile";
 import { readImage, readImageFromFile } from "../../utils/readImage";
 import type { ReadImageEncode } from "../../utils/readImage";
@@ -88,6 +93,7 @@ export function ModuleGallery({
   const remoteFiles = useRemoteFiles();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
 
+  const navigation = useNavigation();
   const inputRef = React.useRef<HTMLInputElement>(null);
   /**
    * The Media panel can ask this gallery to open its file dialog.
@@ -101,6 +107,8 @@ export function ModuleGallery({
   const dragCounterRef = React.useRef(0);
   const [isDraggingOver, setIsDraggingOver] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
+  /** The name of the file going up, for its tile. */
+  const [uploadingName, setUploadingName] = React.useState<string | null>(null);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [progressPercentage, setProgressPercentage] = React.useState<
     number | null
@@ -203,37 +211,57 @@ export function ModuleGallery({
     [accept, schema],
   );
 
-  const files: GalleryFile[] = rawSource
+  /** A file's URL, including while it is a draft. */
+  const urlOf = React.useCallback(
+    (media: { path: string; patch_id?: string }) => {
+      const patchId = filePatchIds.get(media.path) ?? media.patch_id;
+      return Internal.mediaUrl({
+        path: media.path,
+        ...(patchId ? { patch_id: patchId } : {}),
+      });
+    },
+    [filePatchIds],
+  );
+
+  const kind: MediaKind = videoMode ? "videos" : imageMode ? "images" : "files";
+  /** Who changed each entry, by its key: for the panel's authors and Compare. */
+  const patchesByRef: Record<string, Record<string, PendingPatch[]>> = {};
+  const items: MediaItem[] = rawSource
     ? Object.entries(rawSource).map(([ref, meta]) => {
         const mimeType = typeof meta.mimeType === "string" ? meta.mimeType : "";
-        const width = typeof meta.width === "number" ? meta.width : 0;
-        const height = typeof meta.height === "number" ? meta.height : 0;
-        const alt = typeof meta.alt === "string" ? meta.alt : undefined;
-        const duration =
-          typeof meta.duration === "number" ? meta.duration : undefined;
         const hotspot =
           typeof meta.hotspot === "object" &&
           meta.hotspot !== null &&
-          "x" in (meta.hotspot as Record<string, unknown>) &&
-          "y" in (meta.hotspot as Record<string, unknown>) &&
-          typeof (meta.hotspot as Record<string, unknown>).x === "number" &&
-          typeof (meta.hotspot as Record<string, unknown>).y === "number"
+          "x" in meta.hotspot &&
+          "y" in meta.hotspot &&
+          typeof meta.hotspot.x === "number" &&
+          typeof meta.hotspot.y === "number"
+            ? { x: meta.hotspot.x, y: meta.hotspot.y }
+            : undefined;
+        const poster =
+          typeof meta.poster === "object" &&
+          meta.poster !== null &&
+          "path" in meta.poster &&
+          typeof meta.poster.path === "string"
             ? {
-                x: (meta.hotspot as { x: number }).x,
-                y: (meta.hotspot as { y: number }).y,
+                path: meta.poster.path,
+                ...("patch_id" in meta.poster &&
+                typeof meta.poster.patch_id === "string"
+                  ? { patch_id: meta.poster.patch_id }
+                  : {}),
               }
             : undefined;
         const itemPath = sourcePathOfItem(path, ref);
-        const genericValidationErrors = [];
-        const altSpecificValidationErrors = [];
+        const errors: string[] = [];
+        const descriptionErrors: string[] = [];
         for (const [errPath, errs] of Object.entries(allValidationErrors)) {
           if (!errPath.startsWith(itemPath)) {
             continue;
           }
           if (errPath === Internal.createValPathOfItem(itemPath, "alt")) {
-            altSpecificValidationErrors.push(...errs.map((err) => err.message));
+            descriptionErrors.push(...errs.map((err) => err.message));
           } else {
-            genericValidationErrors.push(...errs.map((err) => err.message));
+            errors.push(...errs.map((err) => err.message));
           }
         }
 
@@ -244,58 +272,52 @@ export function ModuleGallery({
          * link, as though nothing about it had changed.
          */
         const filePatchPath = [...patchPath, ref];
-        const filePatches = allModulePatches.filter((patch) =>
-          patch.patch.some((op) => isPatchPathWithin(op.path, filePatchPath)),
-        );
-        const filePatchesByAuthorIds: Record<
-          string,
-          (typeof allModulePatches)[number][]
-        > = {};
-        for (const patch of filePatches) {
-          const author = patch.authorId ?? "unknown";
-          if (!filePatchesByAuthorIds[author]) {
-            filePatchesByAuthorIds[author] = [];
+        const byAuthor: Record<string, PendingPatch[]> = {};
+        for (const patch of allModulePatches) {
+          if (
+            !patch.patch.some((op) => isPatchPathWithin(op.path, filePatchPath))
+          ) {
+            continue;
           }
-          filePatchesByAuthorIds[author].push(patch);
+          const author = patch.authorId ?? "unknown";
+          (byAuthor[author] ??= []).push(patch);
         }
+        patchesByRef[ref] = byAuthor;
 
         // A stream is named by its directory: every master is `master.m3u8`,
         // and the directory is what a rename renames.
-        const { filename, folder } =
-          videoMode && isPlaylistPath(localPathOf(ref))
-            ? getRefParts(
-                localPathOf(ref).slice(0, localPathOf(ref).lastIndexOf("/")),
-              )
-            : getRefParts(ref);
+        const isHls = videoMode && isPlaylistPath(localPathOf(ref));
+        const { filename, folder } = isHls
+          ? getRefParts(
+              localPathOf(ref).slice(0, localPathOf(ref).lastIndexOf("/")),
+            )
+          : getRefParts(ref);
 
         return {
           ref,
           url: refToUrl(ref, filePatchIds),
-          filename,
+          name: filename,
           folder,
-          metadata: { mimeType, width, height, alt, hotspot, duration },
-          fieldSpecificErrors: {
-            alt:
-              altSpecificValidationErrors.length > 0
-                ? altSpecificValidationErrors
-                : undefined,
-          },
-          validationErrors:
-            genericValidationErrors.length > 0
-              ? genericValidationErrors
-              : undefined,
-          patchesByAuthorIds: filePatchesByAuthorIds,
-          profilesByAuthorIds,
-          sourcePath: itemPath,
+          mimeType,
+          ...(typeof meta.width === "number" ? { width: meta.width } : {}),
+          ...(typeof meta.height === "number" ? { height: meta.height } : {}),
+          ...(typeof meta.duration === "number"
+            ? { duration: meta.duration }
+            : {}),
+          description: typeof meta.alt === "string" ? meta.alt : null,
+          ...(hotspot ? { hotspot } : {}),
+          // The entry's poster is its thumbnail: one still per video.
+          ...(poster ? { thumbnailUrl: urlOf(poster) } : {}),
+          ...(isHls ? { isHls } : {}),
+          ...(errors.length > 0 ? { errors } : {}),
+          ...(descriptionErrors.length > 0 ? { descriptionErrors } : {}),
         };
       })
     : [];
 
-  const handleFileDelete = React.useCallback(
-    (index: number) => {
-      if (!rawSource) return;
-      const ref = Object.keys(rawSource)[index];
-      if (!ref) return;
+  const deleteEntry = React.useCallback(
+    (ref: string) => {
+      if (!rawSource || !(ref in rawSource)) return;
       const isRemoteRef =
         Internal.remote.splitRemoteRef(ref).status === "success";
       setUploading(true);
@@ -321,6 +343,10 @@ export function ModuleGallery({
             console.warn("Val: could not list the stream's files", err);
           }
         }
+        // The entry's own poster and captions go with it: they are the
+        // set's files, named by nothing else (a field using the entry blocks
+        // the delete before it gets here).
+        const entryFiles = videoMode ? filesOfChoices(rawSource[ref]) : [];
         const patch: Patch = [
           {
             op: "remove",
@@ -332,6 +358,13 @@ export function ModuleGallery({
             filePath,
             value: null,
             remote: isRemoteRef,
+          })),
+          ...entryFiles.map((filePath): Patch[number] => ({
+            op: "file",
+            path: [...patchPath, ref],
+            filePath,
+            value: null,
+            remote: Internal.isRemoteMediaPath(filePath),
           })),
         ];
         await addAndUploadPatchWithFileOps(
@@ -354,19 +387,19 @@ export function ModuleGallery({
 
   const renameMediaFile = useRenameMediaFile(path);
   const renameStreamEntry = useRenameStreamEntry(path);
-  const handleFileRename = React.useCallback(
-    async (
-      index: number,
-      _newFilename: string,
-      newBase: string,
-    ): Promise<FileRenameResult> => {
+  /**
+   * Rename the entry `ref` to `newBase`; resolves to a message to show, or
+   * null. The panel follows the file to its new key: the old one is gone, and
+   * so is the URL that named it.
+   */
+  const renameEntry = React.useCallback(
+    async (ref: string, newBase: string): Promise<string | null> => {
       if (!rawSource) {
-        return { status: "error", message: "The gallery has not loaded." };
+        return "The gallery has not loaded.";
       }
-      const ref = Object.keys(rawSource)[index];
-      const meta = ref === undefined ? undefined : rawSource[ref];
-      if (ref === undefined || meta === undefined) {
-        return { status: "error", message: "That file is no longer here." };
+      const meta = rawSource[ref];
+      if (meta === undefined) {
+        return "That file is no longer here.";
       }
       const mimeType =
         typeof meta.mimeType === "string" ? meta.mimeType : undefined;
@@ -395,13 +428,17 @@ export function ModuleGallery({
                     : { mimeType },
               fileType: imageMode ? "image" : "file",
             });
-      if (res.status === "ok") {
-        return { status: "ok", newRef: res.newPath };
+      if (res.status === "ok" || res.status === "partial") {
+        const childPath = Internal.createValPathOfItem(
+          moduleFilePath as string as SourcePath,
+          res.newPath,
+        );
+        if (childPath) {
+          navigation.navigate(childPath, { replace: true });
+        }
+        return res.status === "partial" ? res.message : null;
       }
-      if (res.status === "partial") {
-        return { status: "partial", newRef: res.newPath, message: res.message };
-      }
-      return res;
+      return res.status === "error" ? res.message : null;
     },
     [
       rawSource,
@@ -411,14 +448,14 @@ export function ModuleGallery({
       renameStreamEntry,
       filePatchIds,
       videoSchema,
+      moduleFilePath,
+      navigation,
     ],
   );
 
-  const handleAltTextChange = React.useCallback(
-    (index: number, newAltText: string) => {
-      if (!rawSource) return;
-      const ref = Object.keys(rawSource)[index];
-      if (!ref) return;
+  const setDescription = React.useCallback(
+    (ref: string, newAltText: string) => {
+      if (!rawSource || !(ref in rawSource)) return;
       const patch: Patch = [
         {
           // "add", not "replace": on an object key the two mean the same thing,
@@ -457,6 +494,12 @@ export function ModuleGallery({
         if (prepared.notice) {
           setUploadNotice(prepared.notice);
         }
+        // The entry's poster, from the file as it was picked: it is the
+        // gallery's thumbnail, and a stream gives a tile nothing else.
+        const posterTime = defaultPosterTime(prepared.metadata.duration);
+        const poster = await captureFrame(objectUrl, posterTime)
+          .then(toPosterUpload)
+          .catch(() => null);
         const { patch } = createVideosetEntryPatch(
           {
             setPatchPath: patchPath,
@@ -466,6 +509,7 @@ export function ModuleGallery({
             metadata: prepared.metadata,
             remote: requireRemote ? remoteData : null,
             schema: videoSchema,
+            poster: poster ? { upload: poster, time: posterTime } : null,
           },
           Internal.getSHA256Hash,
         );
@@ -611,6 +655,7 @@ export function ModuleGallery({
         ev.target.value = "";
         return;
       }
+      setUploadingName(ev.target.files?.[0]?.name ?? null);
       if (videoMode) {
         const file = ev.target.files?.[0];
         ev.target.value = "";
@@ -795,6 +840,7 @@ export function ModuleGallery({
       setUploading(true);
       (async () => {
         for (const file of droppedFiles) {
+          setUploadingName(file.name);
           if (videoMode) {
             await uploadVideo(file);
           } else if (imageMode) {
@@ -913,6 +959,28 @@ export function ModuleGallery({
     ],
   );
 
+  /** The upload in flight, as a tile where it will land. */
+  const uploads: MediaUpload[] = uploading
+    ? [
+        {
+          id: "upload",
+          name: uploadingName ?? "Uploading",
+          phase:
+            videoPhase?.kind === "reading"
+              ? "reading"
+              : videoPhase?.kind === "converting"
+                ? "converting"
+                : "uploading",
+          progress:
+            videoPhase?.kind === "converting"
+              ? videoPhase.progress
+              : videoPhase?.kind === "reading"
+                ? null
+                : progressPercentage,
+        },
+      ]
+    : [];
+
   const showChildRef = React.useMemo(() => {
     if (!showChild) return null;
     const [, modulePath] = Internal.splitModuleFilePathAndModulePath(showChild);
@@ -973,23 +1041,77 @@ export function ModuleGallery({
         accept={accept}
         onChange={handleUpload}
       />
-      <FileGallery
-        files={files}
-        parentPath={moduleFilePath}
-        imageMode={imageMode}
-        videoMode={videoMode}
-        onAltTextChange={
-          (imageMode || videoMode) && !readonly
-            ? handleAltTextChange
-            : undefined
-        }
-        onFileDelete={readonly ? undefined : handleFileDelete}
-        onFileRename={readonly ? undefined : handleFileRename}
+      <MediaGallery
+        kind={kind}
+        items={items}
+        uploads={uploads}
+        uploading={uploading}
+        selectedRef={showChildRef}
+        onSelect={(ref) => {
+          const target =
+            ref === null
+              ? (moduleFilePath as string as SourcePath)
+              : Internal.createValPathOfItem(
+                  moduleFilePath as string as SourcePath,
+                  ref,
+                );
+          if (target) {
+            navigation.navigate(target);
+          }
+        }}
         onUploadClick={readonly ? undefined : () => inputRef.current?.click()}
         uploadDisabled={!canUpload}
-        uploading={uploading}
-        defaultOpenFileRef={showChildRef ?? undefined}
         isDraggingOver={isDraggingOver}
+        readonly={readonly}
+        renderInspector={(item, close) => (
+          <GalleryEntryInspector
+            key={item.ref}
+            kind={kind}
+            item={item}
+            entry={rawSource?.[item.ref]}
+            entryPatchPath={[...patchPath, item.ref]}
+            moduleFilePath={moduleFilePath}
+            close={close}
+            readonly={readonly}
+            write={(patch) => addPatch(patch, "record")}
+            onDescriptionChange={
+              kind === "files" || readonly
+                ? undefined
+                : (text) => setDescription(item.ref, text)
+            }
+            onRename={
+              readonly ? undefined : (newBase) => renameEntry(item.ref, newBase)
+            }
+            onDelete={
+              readonly
+                ? undefined
+                : () => {
+                    deleteEntry(item.ref);
+                    close();
+                  }
+            }
+            patchesByAuthorIds={patchesByRef[item.ref] ?? {}}
+            profilesByAuthorIds={profilesByAuthorIds}
+            video={
+              videoMode
+                ? {
+                    dir: directory,
+                    remote: requireRemote ? remoteData : null,
+                    requireRemote: !!requireRemote,
+                    schema: videoSchema,
+                    upload: (patch) =>
+                      addAndUploadPatchWithFileOps(
+                        patch,
+                        "file",
+                        (msg) => setUploadError(msg),
+                        () => {},
+                      ),
+                  }
+                : null
+            }
+            urlOf={urlOf}
+          />
+        )}
       />
     </div>
   );

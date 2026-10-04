@@ -545,7 +545,9 @@ description; `.jsonValues()` with `c.json()`; `tanstackRouter` and
 `externalPageRouter`; and the settings sections `locales`, `theme`, `studio`
 (`commitMessage`) and `assistant`; and `s.video()` both as an mp4 and as an
 HLS stream (`stream: { type: "hls" }`), rendered with `ValVideo`, and
-`s.videoset()` with an `s.video(videosVal)` field that picks from it. What it does NOT cover, and why: `.remote()` on media and
+`s.videoset()` with an `s.video(videosVal)` field that picks from it, the set's
+entries holding default posters, times, focal point and captions that the field
+partly overrides, and an image gallery entry with a default focal point. What it does NOT cover, and why: `.remote()` on media and
 `.external()` on a record, because both need credentials or an adapter a plain
 `pnpm dev` does not have — `examples/next` gates the remote one behind
 `NEXT_PUBLIC_VAL_EXAMPLE_REMOTE_MEDIA`. When you add to the list, add to that

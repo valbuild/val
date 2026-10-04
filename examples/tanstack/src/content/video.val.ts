@@ -19,8 +19,10 @@ import videosVal from "./videos.val";
  * - `captions`: one WebVTT file per language (`.srt` is converted on upload).
  *
  * `fromSet` picks from an `s.videoset()` instead (`videos.val.ts`): it names
- * the video by `path` and carries the authored fields; the type, size and
- * length are the set's, and a reader fills them in.
+ * the video by `path`. The type, size and length are the set's, and so is
+ * every choice the field does not make itself: this one overrides the
+ * description and the start, and takes the set's poster, end, focal point and
+ * captions. A reader fills them in (`fillFromGallery`).
  *
  * `ValVideo` renders all of it; see `_site.showcase.tsx`.
  */

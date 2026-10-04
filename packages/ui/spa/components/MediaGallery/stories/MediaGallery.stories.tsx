@@ -1,5 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import type { SerializedVideoSchema, SourcePath } from "@valbuild/core";
+import { VideoPlayer } from "../../fields/VideoPlayer";
+import { VideoChoices } from "../../fields/VideoChoices";
+import { MediaInspector } from "../MediaInspector";
 import { fn } from "storybook/test";
 import { MediaGallery } from "../MediaGallery";
 import type { MediaGalleryProps, MediaItem } from "../types";
@@ -285,6 +289,78 @@ export const VideosWithAnError: Story = {
     />
   ),
 };
+
+/**
+ * What the Studio's panel holds for a video: the player, and under it the
+ * entry's defaults — the description, poster, start and end, focal point and
+ * captions every field picked from the set starts from.
+ */
+export const VideosEditingDefaults: Story = {
+  render: () => <EditingDefaults />,
+};
+
+function EditingDefaults() {
+  const [selectedRef, setSelectedRef] = useState<string | null>(videos[1].ref);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const schema: SerializedVideoSchema = { type: "video", opt: false };
+  return (
+    <MediaGallery
+      kind="videos"
+      items={videos}
+      selectedRef={selectedRef}
+      onSelect={setSelectedRef}
+      onUploadClick={fn()}
+      renderInspector={(item, close) => (
+        <MediaInspector
+          kind="videos"
+          item={item}
+          onClose={close}
+          hideDescription
+          preview={
+            <VideoPlayer
+              ref={videoRef}
+              src={item.url}
+              isHls={!!item.isHls}
+              poster={item.thumbnailUrl}
+              className="aspect-video w-full rounded-md bg-black object-contain"
+            />
+          }
+          defaults={
+            <VideoChoices
+              idBase={
+                `/videos.val.ts?p=${JSON.stringify(item.ref)}` as SourcePath
+              }
+              own={{
+                alt: item.description ?? undefined,
+                posterTime: 1,
+                ...(item.thumbnailUrl
+                  ? { poster: { path: "/intro-poster_a627f.webp" } }
+                  : {}),
+              }}
+              patchPath={[item.ref]}
+              videoPath={item.ref}
+              dir="/public/val/videoset"
+              remote={null}
+              schema={schema}
+              videoRef={videoRef}
+              canCapture
+              urlOf={(media) => `${MEDIA}/${media.path.split("/").pop()}`}
+              disabled={false}
+              write={fn()}
+              upload={async () => {}}
+              onError={() => {}}
+            />
+          }
+          onRename={async () => null}
+          renameNote="Renaming updates the 1 place using it."
+          usage={handlers.renderUsage(item)}
+          onDelete={fn()}
+          deleteBlockedReason={handlers.deleteBlockedReason(item)}
+        />
+      )}
+    />
+  );
+}
 
 /** The list, for a long set or a narrow window. */
 export const VideosList: Story = {

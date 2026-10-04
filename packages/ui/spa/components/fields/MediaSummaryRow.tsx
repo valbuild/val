@@ -145,6 +145,7 @@ export function Section({
   hint,
   summary,
   collapsible,
+  aside,
   children,
 }: {
   label: string;
@@ -152,13 +153,21 @@ export function Section({
   /** Shown beside the label when folded, e.g. "50%, 50%" or "Not set". */
   summary?: string;
   collapsible?: boolean;
+  /**
+   * At the end of the heading, always shown: where the value comes from
+   * (`InheritedNote`), which matters whether or not the section is open.
+   */
+  aside?: ReactNode;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   if (!collapsible) {
     return (
       <section>
-        <h3 className="text-xs font-medium text-fg-primary">{label}</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-xs font-medium text-fg-primary">{label}</h3>
+          {aside && <div className="ml-auto">{aside}</div>}
+        </div>
         {hint && (
           <p className="mb-2 mt-0.5 text-[0.6875rem] text-fg-secondary-alt">
             {hint}
@@ -170,26 +179,29 @@ export function Section({
   }
   return (
     <section>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-        className="flex w-full items-center gap-1.5 text-left"
-      >
-        <ChevronRight
-          size={13}
-          className={cn(
-            "shrink-0 text-fg-secondary-alt transition-transform",
-            open && "rotate-90",
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+        >
+          <ChevronRight
+            size={13}
+            className={cn(
+              "shrink-0 text-fg-secondary-alt transition-transform",
+              open && "rotate-90",
+            )}
+          />
+          <h3 className="text-xs font-medium text-fg-primary">{label}</h3>
+          {summary && !open && (
+            <span className="ml-auto truncate text-[0.6875rem] text-fg-secondary-alt">
+              {summary}
+            </span>
           )}
-        />
-        <h3 className="text-xs font-medium text-fg-primary">{label}</h3>
-        {summary && !open && (
-          <span className="ml-auto truncate text-[0.6875rem] text-fg-secondary-alt">
-            {summary}
-          </span>
-        )}
-      </button>
+        </button>
+        {aside && <div className="shrink-0">{aside}</div>}
+      </div>
       {open && (
         <div className="mt-2">
           {hint && (

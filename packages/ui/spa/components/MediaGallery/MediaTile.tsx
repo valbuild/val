@@ -87,16 +87,23 @@ export function MediaTile({
         <p className="truncate text-xs font-medium text-fg-primary">
           {item.name}
         </p>
-        <p
-          className={cn(
-            "truncate text-[0.6875rem]",
-            item.description
-              ? "text-fg-secondary"
-              : "italic text-fg-secondary-alt",
-          )}
-        >
-          {item.description || "No description"}
-        </p>
+        {kind === "files" ? (
+          // A file has no description to show: where it is, instead.
+          <p className="truncate text-[0.6875rem] text-fg-secondary">
+            {item.folder}
+          </p>
+        ) : (
+          <p
+            className={cn(
+              "truncate text-[0.6875rem]",
+              item.description
+                ? "text-fg-secondary"
+                : "italic text-fg-secondary-alt",
+            )}
+          >
+            {item.description || "No description"}
+          </p>
+        )}
       </div>
     </button>
   );

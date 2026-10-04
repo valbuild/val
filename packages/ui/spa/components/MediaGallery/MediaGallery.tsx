@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Grid, List, Search, Upload, UploadCloud } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { Grid, List, Loader2, Search, Upload, UploadCloud } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { Input } from "../designSystem/input";
 import { MediaThumbnail } from "../MediaThumbnail";
@@ -35,6 +35,8 @@ export function MediaGallery({
   onDelete,
   deleteBlockedReason,
   renderUsage,
+  renderInspector,
+  uploading,
   defaultView = "grid",
   readonly,
 }: MediaGalleryProps) {
@@ -51,7 +53,24 @@ export function MediaGallery({
         )
       : items;
   }, [items, query]);
-  const selected = items.find((item) => item.ref === selectedRef) ?? null;
+  /**
+   * The open entry, held on to while its ref names nothing.
+   *
+   * A rename is a `move` of the record entry, and it lands BEFORE the rename
+   * resolves and the selection follows the file to its new key. Without this
+   * the panel unmounted in that gap, taking the busy name input and any
+   * message the rename came back with along with it.
+   */
+  const lastSelected = useRef<MediaItem | null>(null);
+  const found = items.find((item) => item.ref === selectedRef) ?? null;
+  if (found) {
+    lastSelected.current = found;
+  }
+  const selected =
+    found ??
+    (selectedRef !== null && lastSelected.current?.ref === selectedRef
+      ? lastSelected.current
+      : null);
 
   return (
     <div className="relative flex min-h-[28rem] flex-col overflow-hidden rounded-lg border border-border-secondary bg-bg-primary">
@@ -92,10 +111,17 @@ export function MediaGallery({
           <button
             type="button"
             onClick={onUploadClick}
-            disabled={uploadDisabled}
+            // `uploadDisabled` is a remote gallery waiting on its settings: an
+            // upload started now could only fail, so it is not offered yet.
+            disabled={uploadDisabled || uploading}
+            title="Upload file"
             className="inline-flex h-8 items-center gap-1.5 rounded-md bg-bg-brand-primary px-3 text-xs font-medium text-fg-brand-primary hover:opacity-90 disabled:opacity-50"
           >
-            <Upload size={14} />
+            {uploading ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Upload size={14} />
+            )}
             Upload
           </button>
         )}
@@ -146,17 +172,29 @@ export function MediaGallery({
         {selected && (
           // Beside the grid where there is room; over it where there is not.
           <div className="absolute inset-0 z-10 bg-bg-primary md:static md:z-auto md:w-80 md:shrink-0 md:border-l md:border-border-secondary">
-            <MediaInspector
-              kind={kind}
-              item={selected}
-              onClose={() => onSelect(null)}
-              onDescriptionChange={onDescriptionChange}
-              onRename={onRename}
-              onDelete={onDelete}
-              deleteBlockedReason={deleteBlockedReason}
-              renderUsage={renderUsage}
-              readonly={readonly}
-            />
+            {renderInspector ? (
+              renderInspector(selected, () => onSelect(null))
+            ) : (
+              <MediaInspector
+                kind={kind}
+                item={selected}
+                onClose={() => onSelect(null)}
+                onDescriptionChange={
+                  onDescriptionChange
+                    ? (text) => onDescriptionChange(selected.ref, text)
+                    : undefined
+                }
+                onRename={
+                  onRename
+                    ? (newBase) => onRename(selected.ref, newBase)
+                    : undefined
+                }
+                onDelete={onDelete ? () => onDelete(selected.ref) : undefined}
+                deleteBlockedReason={deleteBlockedReason?.(selected) ?? null}
+                usage={renderUsage?.(selected)}
+                readonly={readonly}
+              />
+            )}
           </div>
         )}
       </div>
@@ -260,12 +298,14 @@ function ListView({
                 <span
                   className={cn(
                     "block truncate text-xs",
-                    item.description
+                    item.description || kind === "files"
                       ? "text-fg-secondary"
                       : "italic text-fg-secondary-alt",
                   )}
                 >
-                  {item.description || "No description"}
+                  {kind === "files"
+                    ? item.folder
+                    : item.description || "No description"}
                 </span>
               </span>
               <span className="shrink-0 text-xs text-fg-secondary">

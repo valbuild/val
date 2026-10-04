@@ -695,6 +695,60 @@ describe("media is resolved from the schema, not from the value", () => {
     expect(res.hero.alt).toBe("This one only");
   });
 
+  test("outside draft mode, a gallery-backed value is filled from the published gallery", () => {
+    const videos = c.define(
+      "/published-videos.val.ts",
+      s.videoset({ dir: "/public/val/videos" }),
+      {
+        "/public/val/videos/intro.mp4": {
+          mimeType: "video/mp4",
+          width: 640,
+          height: 360,
+          duration: 4,
+          alt: "The set's description",
+          poster: { path: "/public/val/videos/intro-poster.webp" },
+          posterTime: 1,
+          endTime: 3,
+        },
+      },
+    );
+    const gallery = c.define(
+      "/published-gallery.val.ts",
+      s.imageset({ dir: "/public/img" }),
+      {
+        "/public/img/hero.png": {
+          width: 8,
+          height: 8,
+          mimeType: "image/png",
+          alt: "The gallery's alt",
+          hotspot: { x: 0.2, y: 0.8 },
+        },
+      },
+    );
+    const valModule = c.define(
+      "/published-page.val.ts",
+      s.object({ clip: s.video(videos), hero: s.image(gallery) }),
+      {
+        clip: { path: "/public/val/videos/intro.mp4", startTime: 1 },
+        hero: { path: "/public/img/hero.png" },
+      },
+    );
+    // No `getModule`: what every read outside draft mode gets.
+    const res = stegaEncode(valModule, { disabled: true });
+    expect(res.clip).toMatchObject({
+      mimeType: "video/mp4",
+      startTime: 1,
+      endTime: 3,
+      alt: "The set's description",
+      poster: { url: "/val/videos/intro-poster.webp" },
+    });
+    expect(res.hero).toMatchObject({
+      width: 8,
+      alt: "The gallery's alt",
+      hotspot: { x: 0.2, y: 0.8 },
+    });
+  });
+
   test("a plain object that happens to have a path is left alone", () => {
     const schema = s.object({
       link: s.object({ path: s.string(), title: s.string() }),

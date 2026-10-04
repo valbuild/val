@@ -134,14 +134,33 @@ export async function captureFrameFromElement(
 export async function captureFrame(
   src: string,
   time: number,
+  options: { isHls?: boolean } = {},
 ): Promise<CapturedFrame> {
   const video = createVideo(src);
+  // A stream where the browser cannot play one itself is played through
+  // hls.js, as the player does — loaded only when it is needed.
+  let destroy = () => {};
+  if (
+    options.isHls &&
+    video.canPlayType("application/vnd.apple.mpegurl") === ""
+  ) {
+    video.removeAttribute("src");
+    const { default: Hls } = await import("hls.js");
+    if (!Hls.isSupported()) {
+      throw new Error("This browser cannot play the stream.");
+    }
+    const hls = new Hls();
+    hls.loadSource(src);
+    hls.attachMedia(video);
+    destroy = () => hls.destroy();
+  }
   try {
     await waitFor(video, "loadeddata");
     video.currentTime = time;
     await waitFor(video, "seeked");
     return await captureFrameFromElement(video);
   } finally {
+    destroy();
     video.removeAttribute("src");
     video.load();
   }

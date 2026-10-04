@@ -77,10 +77,30 @@ A **gallery-backed** field (`s.image(galleryModule)`, and `s.file(collectionModu
 for the file pair) carries neither: the gallery has them, keyed by path, and
 repeating them is how two copies of one fact get to disagree. `s.image(galleryVal)` refuses them at author time, and
 validation refuses a path the gallery does not track. `fillFromGallery` supplies
-them at resolve time — including `alt`, but only when the field has none, so a
-per-image override wins. A gallery whose `alt` is a locale record holds an object
-rather than a string; the field's own override is still a string, and making that
-locale-shaped is a separate change.
+them at resolve time.
+
+**A gallery entry also holds DEFAULTS, and a field overrides them key by key.**
+What a page chooses about a file — an image's `alt` and `hotspot`; a video's
+`alt`, `hotspot`, `poster` + `posterTime`, `startTime`, `endTime` and
+`captions` — can be set once on the gallery entry, and every field picked from
+the gallery starts from it. A field that sets a key of its own wins for that
+key only (`GALLERY_DEFAULT_GROUPS`): a field with its own `startTime` still
+gets the gallery's `endTime`. Two groupings are deliberate: `poster` and
+`posterTime` are one pair (the poster IS the frame at that time, so half from
+each would describe a frame nobody chose), and `captions` is one list. A file
+entry has none: `s.file()` has nothing authored to default.
+
+`fillFromGallery` is the one merge, for the readers (`stegaEncode`) and the
+Studio (`effectiveChoices` in `VideoChoices.tsx` runs the same groups), so a
+page and the Studio cannot disagree about which poster a video has. Outside
+draft mode a reader has no module sources to look in, so it reads the
+gallery's PUBLISHED entries off the field's schema instance
+(`Internal.media.galleriesOf`) — before that, a published page got a
+gallery-backed value with nothing of the gallery's on it.
+
+A gallery whose `alt` is a locale record holds an object rather than a string;
+that is left in the gallery rather than copied into a field typed `string`,
+and making the override locale-shaped is a separate change.
 
 **An entry's `alt` type comes from the `alt` schema**, not from a fixed
 `string | null`: `s.string()` gives `string`, `s.record(s.string())` gives
@@ -517,13 +537,30 @@ const page = s.object({ intro: s.video(videosVal) });
 // page source: { intro: { path: "/public/val/videos/intro_51df2.mp4", startTime: 2 } }
 ```
 
-The split between the entry and the field is **what is true of the FILE versus
-what one page chose about it**. The entry has the type, size, length and a
-description; the field has its own description, poster, start and end, focal
-point and captions — so one clip can open one page at 0:02 and another at
-0:10, each with its own poster, without being uploaded twice. Core refuses a
-set-backed field that repeats `mimeType` / `width` / `height` / `duration`,
-the same rule as an image and its gallery.
+The entry holds **what is true of the FILE** — type, size, length, the set's
+alone — and, as defaults, **what a page chooses about it**: description,
+poster, start and end, focal point, captions. A field overrides any of those
+key by key (see "The shape" above), so one clip can open one page at 0:02 and
+every other page where the set says, without being uploaded twice. Core
+refuses a set-backed field that repeats `mimeType` / `width` / `height` /
+`duration`, the same rule as an image and its gallery; it checks an entry's
+defaults with the same checks as a field's own (`videoDefaults.ts`), and a
+field's own start against the set's end (or the reverse) as the pair the page
+will play.
+
+**The entry's poster is the gallery's thumbnail.** There is no second still:
+two pictures of one video would disagree. An upload into the set takes the
+poster from the picked file before it goes anywhere (the same frame a field
+upload takes), and an entry without one — uploaded before posters were stored
+— gets one the first time it is opened in the gallery, if the gallery can be
+written to. A stream needs it most: a tile can seek in a file to show a frame,
+and cannot in a stream.
+
+The Studio edits both sides with the same controls (`VideoChoices`): the
+gallery's panel edits the entry's defaults, and a set-backed field shows the
+set's value with "From gallery · Override" until it has its own, then
+"Overridden · Use gallery's". An image field picked from a gallery does the
+same for its description and focal point.
 
 - **A stream is ONE entry, keyed by its master playlist.** The playlists and
   segments beside it belong to it: the gallery names it by its directory (as
@@ -541,9 +578,16 @@ false })` is the one override, as `encode` is for an image.
   (`createSetBackedVideoPatch`). Uploading in the set itself files them at the
   entry (`createVideosetEntryPatch`). Both go through `prepareVideoUpload`, the
   one place a picked file is read and — when asked — converted.
-- **Poster and captions stay the field's files**, and live where the set's
-  videos do: for a remote set, a local poster is `video:upload-remote` on the
-  field, which moves the poster and captions and never the video.
+- **A field's poster and captions are the field's files**, and live where the
+  set's videos do: for a remote set, a local poster is `video:upload-remote`
+  on the field, which moves the poster and captions and never the video.
+- **An entry's poster and captions are the entry's files.** `check-all-files`
+  counts them as tracked, `list-unused-files` as used, a gallery delete
+  removes them, and `videos:upload-remote` moves them with the video — or
+  alone, for an entry whose key is already remote (the error then carries the
+  key, and the entry is rewritten under it). `--fix` does not MAKE a missing
+  poster: that needs a video decoder, and the CLI has none; the Studio makes
+  it in the browser.
 - **A deserialized set-backed schema** (what the Studio validates with) knows
   which set it points at but not its entries, so it does not claim an entry is
   missing — the set's own module is validated anyway.

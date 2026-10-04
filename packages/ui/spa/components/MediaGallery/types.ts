@@ -73,6 +73,15 @@ export type MediaGalleryProps = {
   deleteBlockedReason?: (item: MediaItem) => string | null;
   /** Where the entry is used: the Studio's references list. */
   renderUsage?: (item: MediaItem) => ReactNode;
+  /**
+   * The open entry's panel, built by the caller: the Studio's has the real
+   * player, the defaults editor and the references, which need its stores.
+   * Without it the panel is built from the callbacks above, which is what a
+   * story needs. `close` deselects.
+   */
+  renderInspector?: (item: MediaItem, close: () => void) => ReactNode;
+  /** An upload is in flight: the button says so and takes no second one. */
+  uploading?: boolean;
   defaultView?: "grid" | "list";
   /** Nothing can be changed: no upload, rename, description or delete. */
   readonly?: boolean;
