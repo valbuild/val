@@ -279,6 +279,11 @@ type ValContextValue = {
   aiConnectionError: string | null;
   /** Try the assistant's connection again, from the first attempt. */
   retryAiConnection: () => void;
+  /**
+   * Ask again which models the project's keys reach — after the AI setup
+   * (`<val-ai-setup>`) saves or removes a key — without reconnecting.
+   */
+  refreshAiModels: () => Promise<void>;
   aiGetSessions: (opts?: {
     limit?: number;
     cursor?: { updatedAt: string; id: string };
@@ -409,6 +414,7 @@ export function ValProvider({
     authError: aiAuthError,
     connectionError: aiConnectionError,
     retryConnection: retryAiConnection,
+    refreshModels: refreshAiModels,
     availableModel: availableAiModel,
     availableModels: availableAiModels,
     selectedModel: selectedAiModel,
@@ -1256,6 +1262,7 @@ export function ValProvider({
         aiAuthError,
         aiConnectionError,
         retryAiConnection,
+        refreshAiModels,
         aiGetSessions,
         aiGetSessionMessages,
         aiSetSessionName,
@@ -3504,6 +3511,11 @@ export function useAIConnectionError(): {
     }
     return null;
   }, [aiAuthError, aiConnectionError, retryAiConnection]);
+}
+
+/** See `refreshAiModels`. */
+export function useRefreshAIModels(): () => Promise<void> {
+  return useContext(ValContext).refreshAiModels;
 }
 
 export function useProfilesByAuthorId() {
