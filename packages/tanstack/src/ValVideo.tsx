@@ -64,6 +64,12 @@ export function ValVideo(props: ValVideoProps) {
     ...rest
   } = props;
   const ref = useRef<HTMLVideoElement>(null);
+  /** The latest loader, read when a stream is attached; see the effect below. */
+  const hlsRef = useRef(hls);
+  useEffect(() => {
+    hlsRef.current = hls;
+  }, [hls]);
+  const hasHls = hls !== undefined;
   const valPathsOfUrl = src?.url ? decodeValPathsOfString(src.url) : undefined;
   const url = src?.url
     ? valPathsOfUrl && valPathsOfUrl.length > 0
@@ -91,7 +97,8 @@ export function ValVideo(props: ValVideoProps) {
         video.load();
       };
     }
-    if (!hls) {
+    const loadHls = hlsRef.current;
+    if (!loadHls) {
       console.warn(
         'Val: this browser cannot play HLS streams on its own. Pass `hls={() => import("hls.js")}` to ValVideo.',
       );
@@ -99,7 +106,7 @@ export function ValVideo(props: ValVideoProps) {
     }
     let destroyed = false;
     let instance: HlsLike | null = null;
-    hls().then(({ default: Hls }) => {
+    loadHls().then(({ default: Hls }) => {
       if (destroyed || !Hls.isSupported()) {
         return;
       }
@@ -111,7 +118,11 @@ export function ValVideo(props: ValVideoProps) {
       destroyed = true;
       instance?.destroy();
     };
-  }, [url, isHls, hls, startTime, endTime]);
+    // `hasHls`, not `hls`: the loader is passed inline (`hls={() => import(…)}`),
+    // so its identity changes on every render of the parent, and depending on
+    // it tore playback down and started it again for a render that changed
+    // nothing about the video.
+  }, [url, isHls, hasHls, startTime, endTime]);
 
   useEffect(() => {
     const video = ref.current;
@@ -132,11 +143,24 @@ export function ValVideo(props: ValVideoProps) {
         }
       }
     };
+    // Play pressed at the end (or before the start): from the start again.
+    // Without this a video stopped at its end could not be played again —
+    // every play landed past the end and was paused on the next tick.
+    const onPlay = () => {
+      if (
+        (endTime !== undefined && video.currentTime >= endTime) ||
+        (startTime !== undefined && video.currentTime < startTime)
+      ) {
+        video.currentTime = startTime ?? 0;
+      }
+    };
     video.addEventListener("loadedmetadata", onLoaded);
     video.addEventListener("timeupdate", onTimeUpdate);
+    video.addEventListener("play", onPlay);
     return () => {
       video.removeEventListener("loadedmetadata", onLoaded);
       video.removeEventListener("timeupdate", onTimeUpdate);
+      video.removeEventListener("play", onPlay);
     };
   }, [startTime, endTime]);
 

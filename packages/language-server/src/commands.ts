@@ -401,10 +401,23 @@ export function createValCommands(deps: ValCommandDeps): {
     }
     // Applied through the client so it lands in the editor's undo history,
     // rather than written to disk under the user's cursor.
-    await connection.sendRequest(ApplyWorkspaceEditRequest.type, {
-      label: REMOTE_FIX_TITLES[args.fix] ?? `Val: ${args.fix}`,
-      edit: { changes },
-    });
+    const applied = await connection.sendRequest(
+      ApplyWorkspaceEditRequest.type,
+      {
+        label: REMOTE_FIX_TITLES[args.fix] ?? `Val: ${args.fix}`,
+        edit: { changes },
+      },
+    );
+    // The client may refuse the edit — a document changed under it, say. The
+    // files have moved by then, but nothing names them yet, so the fix did
+    // NOT happen and must not read as though it had. Running it again is
+    // safe: refs are content-addressed, so the same bytes go to the same refs.
+    if (!applied.applied) {
+      connection.window.showErrorMessage(
+        `Val: ${args.fix} moved the files, but the editor did not apply the change${applied.failureReason ? ` (${applied.failureReason})` : ""}. Nothing was rewritten: run the fix again.`,
+      );
+      return;
+    }
     if (unwritten.length > 0) {
       connection.window.showWarningMessage(
         `Val: ${args.fix} could not rewrite ${unwritten.join(", ")}. Run "val validate" to see what still points at the old path.`,
