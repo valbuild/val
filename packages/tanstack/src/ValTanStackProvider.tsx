@@ -660,7 +660,12 @@ export const ValTanStackProvider = (props: {
       SET_AUTO_TAG_JSX_ENABLED(false);
     } else {
       if (draftMode) {
-        SET_AUTO_TAG_JSX_ENABLED(true);
+        // Not before the first `/draft/stat` answer for a page rendered from
+        // a server draft: see `taggingReady`. `draftMode` starts true there,
+        // so without this the flag went on as soon as the overlay mounted.
+        if (initialDraft === null || taggingReady) {
+          SET_AUTO_TAG_JSX_ENABLED(true);
+        }
         const reactServerComponentRefreshListener = (event: Event) => {
           if (event instanceof CustomEvent) {
             if (event.detail?.type === "sources-synced") {
@@ -719,7 +724,13 @@ export const ValTanStackProvider = (props: {
         };
       }
     }
-  }, [mountOverlay, draftMode, props.disableRefresh]);
+  }, [
+    mountOverlay,
+    draftMode,
+    props.disableRefresh,
+    initialDraft,
+    taggingReady,
+  ]);
 
   React.useEffect(() => {
     if (!mountOverlay) {
