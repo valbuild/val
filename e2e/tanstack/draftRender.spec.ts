@@ -13,6 +13,11 @@ import { openStudio, patchThroughStore, test } from "../studio";
  * `fetchValDraft` reads the draft for the request and `<ValProvider draft>`
  * renders with it; the browser hydrates from the same sources. These tests
  * read the HTML the server sends, which is what the first paint is.
+ *
+ * The tagline on that page is rendered by a LAZY child handed it as a prop,
+ * which hydrates after the component that read it: the case where a draft
+ * page's server HTML and its hydration have to agree however late a part of
+ * the page hydrates.
  */
 
 const DRAFT = "Rendered as the draft, on the server";
@@ -35,9 +40,7 @@ async function writeDraft(page: Page) {
 }
 
 test.describe("a draft page, as the server renders it", () => {
-  test("in preview, the server sends the draft, tagged for editing", async ({
-    page,
-  }) => {
+  test("in preview, the server sends the draft", async ({ page }) => {
     await writeDraft(page);
     await page.goto("/api/val/enable?redirect_to=/");
 
@@ -45,9 +48,9 @@ test.describe("a draft page, as the server renders it", () => {
     await expect
       .poll(() => serverHtml(page), { timeout: 20_000 })
       .toContain(DRAFT);
-    const html = await serverHtml(page);
-    expect(html).not.toContain(PUBLISHED);
-    expect(html).toMatch(STEGA);
+    // The text only: its edit tags come with the render after hydration, so
+    // that what is hydrated is exactly what the server sent.
+    expect(await serverHtml(page)).not.toContain(PUBLISHED);
   });
 
   test("and the browser hydrates it without changing it", async ({ page }) => {

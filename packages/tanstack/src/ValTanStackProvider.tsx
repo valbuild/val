@@ -33,7 +33,6 @@ import { isValCanvasFrame } from "@valbuild/shared/client";
 import { ValCanvasBridge } from "./ValCanvasBridge";
 import { shouldSafetyRefresh } from "./safetyRefresh";
 import type { ValDraft } from "./ValDraft";
-import { useHydrated } from "./useHydrated";
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
@@ -199,25 +198,6 @@ export const ValTanStackProvider = (props: {
    * overlay has been updating since.
    */
   const initialDraft = React.useRef(props.draft ?? null).current;
-  /**
-   * JSX auto-tagging for a page rendered from a server-read draft: off for
-   * the server's render and for each component's hydration render, on after.
-   *
-   * Tagging moves a string's edit tag into a `data-val-path` attribute, so a
-   * tagged render and an untagged one of the same draft text are different
-   * markup, and the flag is process-wide. The server cannot be relied on to
-   * tag -- whether the patched JSX runtime is the one a server renders with
-   * depends on how it was bundled -- so nothing tags while it is hydrating.
-   * Hydration ends at different times for different parts of the page (a
-   * split-out route hydrates after this provider's effects have run, and no
-   * network answer is a barrier for it), so the signal is per component:
-   * `useHydrationSafeTagging` in the hooks, and this for whatever the
-   * provider itself renders.
-   */
-  const hydrated = useHydrated();
-  if (initialDraft !== null) {
-    SET_AUTO_TAG_JSX_ENABLED(hydrated);
-  }
   // TODO: move below into react package
   const valStore = React.useMemo(() => {
     const store = new ValExternalStore();
@@ -658,9 +638,9 @@ export const ValTanStackProvider = (props: {
       SET_AUTO_TAG_JSX_ENABLED(false);
     } else {
       if (draftMode) {
-        // For a page rendered from a server draft the hooks decide this per
-        // component render (`useHydrationSafeTagging`), so turning it on here
-        // cannot reach a component that is still hydrating.
+        // Safe for a page rendered from a server draft too: what a component
+        // renders while it hydrates has no edit tags to turn into attributes
+        // (`useEncodesEditTags`), so this cannot reach one still hydrating.
         SET_AUTO_TAG_JSX_ENABLED(true);
         const reactServerComponentRefreshListener = (event: Event) => {
           if (event instanceof CustomEvent) {
@@ -799,7 +779,7 @@ export const ValTanStackProvider = (props: {
       draftMode={draftMode}
       draftModeReady={draftModeReady.current?.promise}
       draftSourcesSynced={draftSourcesSynced}
-      tagging={initialDraft !== null ? true : undefined}
+      serverDraft={initialDraft !== null}
       suspend={suspendActive}
       store={valStore}
     >

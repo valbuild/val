@@ -233,11 +233,11 @@ export const ValOverlayContext = React.createContext<{
    */
   readonly draftSourcesSynced?: boolean;
   /**
-   * Whether content may be JSX auto-tagged, for a page rendered from a
-   * server-read draft; `undefined` otherwise, where tagging is left to the
-   * provider's effects as it always was. See `useHydrationSafeTagging`.
+   * Whether this page was rendered from a server-read draft (`<ValProvider
+   * draft>`). Then the hooks leave the edit tags out of what a component
+   * renders while it hydrates -- see `useEncodesEditTags`.
    */
-  readonly tagging?: boolean;
+  readonly serverDraft?: boolean;
 }>({
   store: undefined,
   draftMode: false,
@@ -252,7 +252,7 @@ export function ValOverlayProvider({
   suspend,
   draftModeReady,
   draftSourcesSynced,
-  tagging,
+  serverDraft,
   children,
 }: {
   store?: ValExternalStore;
@@ -260,7 +260,7 @@ export function ValOverlayProvider({
   suspend: boolean;
   draftModeReady?: Promise<void>;
   draftSourcesSynced?: boolean;
-  tagging?: boolean;
+  serverDraft?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -271,7 +271,7 @@ export function ValOverlayProvider({
         suspend,
         draftModeReady,
         draftSourcesSynced,
-        tagging,
+        serverDraft,
       }}
     >
       {children}

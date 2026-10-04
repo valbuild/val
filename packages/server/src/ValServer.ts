@@ -48,6 +48,7 @@ import {
   AuthorId,
   BaseSha,
   CommitSha,
+  draftOverlay,
   formatPatchSourceError,
   OrderedPatches,
   SchemaSha,
@@ -2071,6 +2072,20 @@ export const ValServer = (
             },
           };
         }
+        /*
+         * What this build's draft applies: the pending patches and the ones
+         * published AFTER this build, which it does not have -- see
+         * `draftOverlay`. `getSources` already applied both, but
+         * `analyzePatches` skips every patch with `appliedAt`, so a module
+         * changed only by a post-build publish was reported with no
+         * `patches`, and a reader that sends only changed modules (TanStack's
+         * `fetchValDraft`) left it out: the page was rendered with this
+         * build's older value. Chain order, which is what the Studio applies.
+         */
+        patchOps = {
+          ...patchOps,
+          patches: draftOverlay(patchOps.patches, patchOps.commits),
+        };
         const patchAnalysis = serverOps.analyzePatches(patchOps.patches);
         const schemasRes = await serverOps.getSchemas();
         let sourcesRes = await serverOps.getSources();

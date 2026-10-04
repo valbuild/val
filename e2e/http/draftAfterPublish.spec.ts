@@ -47,8 +47,11 @@ const LISTS = "/content/lists.val.ts";
 /** `lists.val.ts` as committed in the fixture. */
 const KEYWORDS = ["content", "editing", "preview", "publish", "validation"];
 
-/** One module's source, as a server-rendered draft reads it. */
-async function draftRead(page: Page, moduleFilePath: string): Promise<unknown> {
+/** One module's entry in a server-rendered draft read: source and patches. */
+async function draftEntry(
+  page: Page,
+  moduleFilePath: string,
+): Promise<{ source?: unknown; patches?: unknown }> {
   const res = await page.request.put("/api/val/sources/~");
   expect(res.status(), await res.text()).toBe(200);
   const body: unknown = await res.json();
@@ -62,9 +65,16 @@ async function draftRead(page: Page, moduleFilePath: string): Promise<unknown> {
     throw new Error(`not a sources response: ${JSON.stringify(body)}`);
   }
   const entry: unknown = Reflect.get(body.modules, moduleFilePath);
-  return typeof entry === "object" && entry !== null && "source" in entry
-    ? entry.source
-    : undefined;
+  if (typeof entry !== "object" || entry === null) return {};
+  return {
+    source: Reflect.get(entry, "source"),
+    patches: Reflect.get(entry, "patches"),
+  };
+}
+
+/** One module's source, as a server-rendered draft reads it. */
+async function draftRead(page: Page, moduleFilePath: string): Promise<unknown> {
+  return (await draftEntry(page, moduleFilePath)).source;
 }
 
 test("an edit that is published and not yet built is in a draft", async ({
@@ -79,6 +89,25 @@ test("an edit that is published and not yet built is in a draft", async ({
   expect(await draftRead(page, AUTHORS)).toMatchObject({
     teddy: { name: "Published, not built" },
   });
+});
+
+test("and the draft read says the module has changes", async ({ page }) => {
+  /*
+   * Not only the source: `patches` is how a reader tells a module the draft
+   * changes from one it does not, and `fetchValDraft` (TanStack) sends only
+   * the former to the page. A module changed only by a patch published after
+   * this build was left out of it -- so the page was server-rendered with the
+   * build's own, older value, which is the reload-during-a-publish revert.
+   */
+  await openHttpStudio(page);
+  await writePatch(page, AUTHORS, [
+    { op: "replace", path: ["teddy", "name"], value: "Published, listed" },
+  ]);
+  expect((await publishAll(page, "Publish one edit")).status).toBe("published");
+
+  const entry = await draftEntry(page, AUTHORS);
+  expect(entry.source).toMatchObject({ teddy: { name: "Published, listed" } });
+  expect(entry.patches).toMatchObject({ applied: [expect.any(String)] });
 });
 
 test("a published move is applied once, with a pending edit on top", async ({
