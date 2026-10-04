@@ -411,6 +411,32 @@ test("a press queued without a job holds what the job it joins takes", async () 
   expect([...publishingPatchIds(jobs.get())].sort()).toEqual(["p1", "p2"]);
 });
 
+test("a queued press that goes Live in the hand-off's refresh still holds what its job took", async () => {
+  const { client, statuses } = fakeClient({
+    next: async () => ({ ...job("J1"), patches: ["p1", "p2"] }),
+  });
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    // Sealed by the time the tab asks where its presses are.
+    build: async (j) => {
+      statuses.set("r1", { kind: "live", commit: "C1" });
+      return handedOff(j.id);
+    },
+    takesQueuedWork: () => true,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: null,
+    patchIds: ["p1"],
+  });
+  jobs.nudge();
+  await flush();
+  expect(jobs.get().requests[0]!.status.kind).toBe("live");
+  expect([...publishingPatchIds(jobs.get())].sort()).toEqual(["p1", "p2"]);
+});
+
 async function flush() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }

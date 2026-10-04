@@ -230,33 +230,51 @@ export function createPublishJobs(options: {
       if (result.status === "handed-off") {
         const at = now();
         const builtBy = result.built ? "studio" : "ci";
+        /*
+         * The presses this job may carry: those still open before the
+         * refresh below. Taken first, because the refresh can settle one --
+         * Live, or failed after the seal -- and that one is still this job's.
+         */
+        const open = new Set(
+          state.requests
+            .filter(
+              (request) =>
+                !isSettled(request.status) && request.handedOffAt === undefined,
+            )
+            .map((request) => request.requestId),
+        );
         // Where each press is now, so one still queued behind this job is
         // not taken for one of its own.
         await refresh();
         set({
           ...state,
-          requests: state.requests.map((request) =>
-            isSettled(request.status) ||
-            request.handedOffAt !== undefined ||
-            !carries(job.id, request)
-              ? request
+          requests: state.requests.map((request) => {
+            if (!open.has(request.requestId) || !carries(job.id, request)) {
+              return request;
+            }
+            // A press queued without a job holds what it sent; the job it
+            // joined took everything pending, edits saved since included.
+            // Only for a press that named what it sent.
+            const held =
+              request.patchIds !== undefined
+                ? {
+                    patchIds: [
+                      ...new Set([...request.patchIds, ...job.patches]),
+                    ],
+                  }
+                : {};
+            // The hand-off itself only for one still waiting on content: one
+            // that settled in the refresh already has its answer.
+            return isSettled(request.status)
+              ? { ...request, ...held }
               : {
                   ...request,
                   handedOffAt: at,
                   builtBy,
                   jobId: job.id,
-                  // A press queued without a job holds what it sent; the job
-                  // it joined took everything pending, edits saved since
-                  // included. Only for a press that named what it sent.
-                  ...(request.patchIds !== undefined
-                    ? {
-                        patchIds: [
-                          ...new Set([...request.patchIds, ...job.patches]),
-                        ],
-                      }
-                    : {}),
-                },
-          ),
+                  ...held,
+                };
+          }),
         });
       }
     } finally {
@@ -304,14 +322,23 @@ export function createPublishJobs(options: {
       refreshAgain = true;
       return refreshing;
     }
+    /*
+     * Cleared in the same step as the loop's last check. A `.finally` on the
+     * promise ran a microtask later, and a refresh asked for in that gap set
+     * `refreshAgain` after the loop had stopped looking and was handed a
+     * promise for a read made before it asked -- the hand-off's "where is
+     * each press now" got an answer from before the build.
+     */
     refreshing = (async () => {
-      do {
-        refreshAgain = false;
-        await refreshOnce();
-      } while (refreshAgain);
-    })().finally(() => {
-      refreshing = null;
-    });
+      try {
+        do {
+          refreshAgain = false;
+          await refreshOnce();
+        } while (refreshAgain);
+      } finally {
+        refreshing = null;
+      }
+    })();
     return refreshing;
   }
 
