@@ -19,6 +19,7 @@ import {
 import React from "react";
 import { ValConfig } from "@valbuild/core";
 import { useValOverlayContext } from "../ValOverlayContext";
+import { useHydrated } from "../useHydrated";
 import {
   getJsonEntryStegaRoot,
   getValRouteUrlFromVal,
@@ -26,10 +27,36 @@ import {
   isJsonValuesRecordSchema,
 } from "../routeFromVal";
 
+/**
+ * Whether the content this component renders carries its edit tags.
+ *
+ * Always in draft mode -- except, on a page rendered from a server-read draft,
+ * for the server's render and for this component's own hydration render: then
+ * the draft text goes out without them, and the render React does right after
+ * hydrating the component puts them in.
+ *
+ * Because JSX auto-tagging turns a tagged string into a `data-val-path`
+ * attribute as the element is created, and the switch for it is process-wide.
+ * The server cannot be relied on to tag (whether the patched JSX runtime is
+ * the one it renders with depends on how it was bundled), and no page-wide
+ * moment means "everything has hydrated": a split-out route, or a lazy child
+ * handed a string as a prop, hydrates after the rest of the page. A string
+ * with no tags in it has nothing to tag, wherever it is rendered and whatever
+ * the switch says -- so the server's HTML and every hydration render agree.
+ */
+function useEncodesEditTags(context: {
+  draftMode: boolean | null;
+  serverDraft?: boolean;
+}): boolean {
+  const hydrated = useHydrated();
+  return !!context.draftMode && (!context.serverDraft || hydrated);
+}
+
 /** What `useVal` gives back — see `ResolvedVal` in `@valbuild/react/stega`. */
 export type UseValType<T extends SelectorSource> = ResolvedVal<T>;
 function useValStega<T extends Resolvable>(selector: T): UseValType<T> {
   const valOverlayContext = useValOverlayContext();
+  const encodes = useEncodesEditTags(valOverlayContext);
   const moduleIds = React.useMemo(
     () => getModuleIds(selector) as ModuleFilePath[],
     [selector],
@@ -99,7 +126,7 @@ function useValStega<T extends Resolvable>(selector: T): UseValType<T> {
     React.use(store.waitForLoad(moduleIds));
   }
   return stegaEncode(selector, {
-    disabled: !valOverlayContext.draftMode,
+    disabled: !encodes,
     getModule: (moduleId) => {
       if (moduleMap && valOverlayContext.draftMode) {
         return moduleMap[moduleId as ModuleFilePath];
@@ -196,6 +223,7 @@ function useValKeyStega<T extends ResolvableModule>(
   key: string,
 ): JsonEntryContentOf<T> | undefined {
   const valOverlayContext = useValOverlayContext();
+  const encodes = useEncodesEditTags(valOverlayContext);
   // A view is a pointer: everything below reads a path, a schema and a source
   // off this, and a pointer has none of them. See `resolveViewedModule`.
   const valModule = Internal.resolveViewedModule<SourceObject>(selector);
@@ -213,7 +241,7 @@ function useValKeyStega<T extends ResolvableModule>(
     content = readCommittedJsonEntry(valModule, key);
   }
   return stegaEncode(content, {
-    disabled: !valOverlayContext.draftMode,
+    disabled: !encodes,
     root: getJsonEntryStegaRoot(valModule, key),
   });
 }
@@ -288,6 +316,7 @@ function useValRouteStega<T extends ResolvableModule>(
   // router `val` is unused (we resolve a single entry below instead); for any
   // other router `draftSource` is.
   const val = useValStega(valModule);
+  const encodes = useEncodesEditTags(valOverlayContext);
   const draftSource = useDraftModuleSource(
     (valModule &&
       (Internal.getValPath(valModule) as unknown as ModuleFilePath)) ||
@@ -328,7 +357,7 @@ function useValRouteStega<T extends ResolvableModule>(
       return null as RouteValueOf<T>;
     }
     return stegaEncode(content, {
-      disabled: !valOverlayContext.draftMode,
+      disabled: !encodes,
       root: getJsonEntryStegaRoot(valModule, url),
     });
   }
