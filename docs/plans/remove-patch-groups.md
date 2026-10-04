@@ -68,8 +68,7 @@ multi-author chain. **Do not remove them in a grep sweep.**
 
 ## Decisions
 
-Each of these is a behaviour change users will see. They are the defaults this
-plan assumes; flag any you want otherwise before phase V1.
+Agreed. The first three are behaviour changes users will see.
 
 1. **Publish ships the whole pending chain.** No "publish only my changes" until
    proposals exist. The selected-subset machinery (`stageClosure`,
@@ -83,10 +82,27 @@ plan assumes; flag any you want otherwise before phase V1.
 4. **Discard needs no closure.** A later patch that no longer applies after a
    discard is already dropped by the existing unapplicable-patch path in
    `createSystem`.
-5. **home answers a plain 404 on every `/patch-groups` route and silently
-   ignores leftover group fields.** No transitional stub (see "Compatibility").
+5. **home answers the removed `/patch-groups` routes by what an old client
+   needs from each, and silently ignores leftover group fields:**
+   - `GET /patch-groups` → **404**, from routing. This one is not a choice: an
+     old `@valbuild/server` reads 404 as "this deployment has no groups" and
+     renders unscoped, and reads anything else, a 400 included, as an error
+     and renders base (see "Compatibility").
+   - `POST` / `DELETE /patch-groups/:id/patches` (stage, unstage) → **400 Bad
+     Request**, `"Patch groups have been removed. Reload the Studio."`. The
+     request is one this API no longer accepts, rather than a resource that
+     never existed. Only a Studio left open across the deploy sends it (an old
+     server shows it as "Could not update patch group. HTTP error: 400"; the
+     body message is not surfaced). These two handlers are a few lines each
+     and can be deleted once old Studios are gone.
 6. **The table drop ships after the code removal** in home, never in the same
    deploy (see H2).
+7. **`x-val-profile-id` is no longer sent on commit.** home's `postCommit` read
+   the profile only to check the caller owned the group it closed; the
+   committer is already in the body. The header stays where
+   `getProfileAuthHeaders` sends it for other calls; only the commit-specific
+   one in `ValOpsHttp.commit` goes. An old server still sending it is harmless:
+   home's auth reads it as an identity claim and derives no scope from it.
 
 ## Compatibility
 
@@ -99,7 +115,7 @@ with it. Only home deploys on its own.
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | New Val → old home                 | Works. zod strips the extra annotations home still sends; home keeps putting writes into groups that never close, which nothing reads. So **V1 can ship before H1**.                                                                                                                                                                                                                                         |
 | Old Val → new home                 | Works **only if** home answers `GET /patch-groups` with a plain **404**. Old `ValOpsHttp.fetchPatchGroups` reads 404 as "unsupported" and goes unscoped; any other status (401, 403, 410, 500) reads as an error and `resolveOwnPatchScope` renders **base**, so every draft preview silently loses all pending content. The 404 has to come from routing, not from an auth check before it.                 |
-| Old Studio → new home, mid-session | An old Studio latches `patchGroupsSeen` only after a stat or save answer carries groups. The new home never sends them, so after a reload it runs unscoped. A tab left open across the deploy can get one 404 on a stage click; a reload fixes it. Accepted rather than stubbed.                                                                                                                             |
+| Old Studio → new home, mid-session | An old Studio latches `patchGroupsSeen` only after a stat or save answer carries groups. The new home never sends them, so after a reload it runs unscoped. A tab left open across the deploy can get one 400 on a stage click; a reload fixes it.                                                                                                                                                           |
 | Leftover fields from old servers   | home's body schemas are non-strict `z.object`, so dropping a field from the schema strips it silently. That is the accept-and-ignore. Fields: `patchGroupId`/`withPatchIds` (+ `alsoAddPatchIds`, `holdBackForGroupIds`, `closureVersion`) on `POST /patches`, `unstagePatchIds`/`alsoUnstagePatchIds` on `DELETE /patches` and on job discard, `patchGroupId` on `POST /commit`. Pin each with a test (H1). |
 
 **Verify in H1, not assumed yet:** an old Studio running unscoped in http mode
@@ -272,8 +288,7 @@ Test files deleted whole in V3: `patchGroupSaveRace`, `patchGroupDeferredChanges
   `SavePatchResponse.patchGroupId`, the whole groups region (`stagePatches`,
   `unstagePatches`, `patchGroupsCache`, `getPatchGroups`, `fetchPatchGroups`,
   `ownGroupBranch`, `mutatePatchGroup`), group fields on save, delete and
-  commit. **Open question:** the `x-val-profile-id` header on commit is only
-  justified by group ownership — keep or drop jointly with home.
+  commit, and the commit-specific `x-val-profile-id` header (decision 7).
 - **next / tanstack:** remove `own_patch_groups_only: true` and
   `patch_id: undefined` from `initValRsc.ts` and `initValContent.ts`
   (including #793's `fetchValDraft` and `withDraftJsonEntries`'
@@ -319,10 +334,12 @@ Test files deleted whole in V3: `patchGroupSaveRace`, `patchGroupDeferredChanges
 
 ### H1 — Remove groups from the content API (home)
 
-- **Routes → 404:** `GET /:org/:project/patch-groups`,
-  `POST` and `DELETE /:org/:project/patch-groups/:patchGroupId/patches`
-  (`content/src/routes.ts`). Verify the 404 comes from routing and not from an
-  auth check in front of it (see Compatibility).
+- **Routes** (`content/src/routes.ts`, decision 5):
+  `GET /:org/:project/patch-groups` is removed, so it **404s**; verify the 404
+  comes from routing and not from an auth check in front of it.
+  `POST` and `DELETE /:org/:project/patch-groups/:patchGroupId/patches` are
+  replaced by one tiny handler answering **400** "Patch groups have been
+  removed. Reload the Studio.", with no auth, DB or chain access.
 - **Delete files:** `content/src/handlers/postPatchGroupPatches.ts`,
   `deletePatchGroupPatches.ts`, `getPatchGroups.ts`,
   `content/src/utils/patchGroupAccess.ts`, `server-side/src/db/dal/patchGroups.ts`
@@ -359,7 +376,9 @@ Test files deleted whole in V3: `patchGroupSaveRace`, `patchGroupDeferredChanges
   **Add** accept-and-ignore cases: `POST /patches` with `patchGroupId` and
   `withPatchIds` (including an unknown id) → 200; `POST /commit` with a foreign
   or already-published `patchGroupId` → not refused; `DELETE /patches` with
-  `unstagePatchIds` → only `patchIds` deleted; `GET /patch-groups` → 404.
+  `unstagePatchIds` → only `patchIds` deleted; `GET /patch-groups` → 404;
+  stage and unstage → 400 and nothing written; `POST /commit` with no
+  `x-val-profile-id` → committed.
   And the open item from Compatibility: `POST /commit` handed an already-applied
   patch.
 - **Checks** (home has no CI on push; per `rules.md` the PR gets a "Checks on
@@ -399,9 +418,6 @@ and — since this is all publishing — `--project=chromium-http` for
 
 ## Open questions
 
-1. Whole-chain publish until proposals (decision 1) — OK?
-2. Previews showing everyone's pending work (decision 2) — OK, or does the
-   draft read need some interim scoping (e.g. "my patches + applied")?
-3. `x-val-profile-id` on commit: keep for attribution, or drop with groups?
-4. Do we want the transitional 200 no-op stub on home's stage/unstage routes
-   for Studios left open across the deploy, instead of a one-off 404 (decision 5)?
+None left from the first round (answered as decisions 1, 2, 5 and 7). Still to
+verify rather than decide: what home's `postCommit` does with an
+already-applied patch (Compatibility).
