@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import {
   DEFAULT_APP_HOST,
+  DEFAULT_CONTENT_HOST,
   DEFAULT_VAL_REMOTE_HOST,
   Internal,
   Json,
@@ -696,6 +697,8 @@ export function useValConfig() {
     | (ValConfig & {
         remoteHost: string;
         appHost: string;
+        /** Val's content server: the Studio API and its web components. */
+        contentHost: string;
         studioPrefix: string;
       })
     | undefined
@@ -704,6 +707,7 @@ export function useValConfig() {
       ...config,
       remoteHost: DEFAULT_VAL_REMOTE_HOST,
       appHost: DEFAULT_APP_HOST,
+      contentHost: DEFAULT_CONTENT_HOST,
       studioPrefix: "/val/~",
     },
   );
@@ -713,6 +717,7 @@ export function useValConfig() {
         ...config,
         remoteHost: DEFAULT_VAL_REMOTE_HOST,
         appHost: DEFAULT_APP_HOST,
+        contentHost: DEFAULT_CONTENT_HOST,
         studioPrefix: "/val/~",
       };
     }
