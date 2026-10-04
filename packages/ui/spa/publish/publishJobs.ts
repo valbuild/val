@@ -240,7 +240,22 @@ export function createPublishJobs(options: {
             request.handedOffAt !== undefined ||
             !carries(job.id, request)
               ? request
-              : { ...request, handedOffAt: at, builtBy, jobId: job.id },
+              : {
+                  ...request,
+                  handedOffAt: at,
+                  builtBy,
+                  jobId: job.id,
+                  // A press queued without a job holds what it sent; the job
+                  // it joined took everything pending, edits saved since
+                  // included. Only for a press that named what it sent.
+                  ...(request.patchIds !== undefined
+                    ? {
+                        patchIds: [
+                          ...new Set([...request.patchIds, ...job.patches]),
+                        ],
+                      }
+                    : {}),
+                },
           ),
         });
       }

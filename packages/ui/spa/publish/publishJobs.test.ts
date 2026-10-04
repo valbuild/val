@@ -388,6 +388,29 @@ test("a build that failed after the seal keeps its changes: they are published",
   expect([...publishingPatchIds(jobs.get())]).toEqual(["p1"]);
 });
 
+test("a press queued without a job holds what the job it joins takes", async () => {
+  const { client } = fakeClient({
+    // p2 was saved after the press queued; the job takes both.
+    next: async () => ({ ...job("J1"), patches: ["p1", "p2"] }),
+  });
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => handedOff(j.id),
+    takesQueuedWork: () => true,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: null,
+    patchIds: ["p1"],
+  });
+  jobs.nudge();
+  await flush();
+  expect(jobs.get().requests[0]!.jobId).toBe("J1");
+  expect([...publishingPatchIds(jobs.get())].sort()).toEqual(["p1", "p2"]);
+});
+
 async function flush() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }
