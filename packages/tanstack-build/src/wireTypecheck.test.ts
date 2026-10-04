@@ -104,6 +104,11 @@ function typecheck(
   options: WireOptions,
   /** The app's own files beside what is wired, by path from its root. */
   app: Record<string, string> = {},
+  /**
+   * A stand-in for `@valbuild/tanstack/server`, for a project that installed a
+   * different version than this repository's. The real one when absent.
+   */
+  server?: string,
 ): string {
   const dir = path.join(ROOT, name.replace(/[^a-z0-9]+/gi, "-"));
   fs.rmSync(dir, { recursive: true, force: true });
@@ -122,7 +127,13 @@ function typecheck(
     { "val.config.ts": VAL_CONFIG, "val.modules.ts": VAL_MODULES },
     options,
   );
-  for (const [file, content] of Object.entries({ ...app, ...files })) {
+  const SERVER_STUB = "stub/tanstack-server.ts";
+  const written = {
+    ...app,
+    ...files,
+    ...(server !== undefined ? { [SERVER_STUB]: server } : {}),
+  };
+  for (const [file, content] of Object.entries(written)) {
     fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
     fs.writeFileSync(path.join(dir, file), content);
   }
@@ -160,7 +171,11 @@ function typecheck(
         types: ["node"],
         paths: {
           "@valbuild/tanstack": [`${tanstack}/index.ts`],
-          "@valbuild/tanstack/server": [`${tanstack}/server/index.ts`],
+          "@valbuild/tanstack/server": [
+            server !== undefined
+              ? `./${SERVER_STUB}`
+              : `${tanstack}/server/index.ts`,
+          ],
         },
       },
       include: ["**/*.ts"],
@@ -247,6 +262,42 @@ export const readers = [draftMode, fetchVal, fetchValKey, fetchValRoute, fetchVa
 export const draft = async (): Promise<ValDraft | null> => fetchValDraft();
 `,
       },
+    );
+    expect(errors).toBe("");
+  });
+
+  test("and a page can call fetchValDraft with an @valbuild/tanstack from before it", () => {
+    /*
+     * This file is compiled against the PROJECT's @valbuild/tanstack, and one
+     * from before 0.140 has no `fetchValDraft` on what `initValContent`
+     * returns. The test above compiles against this repository's, which has
+     * it, so it cannot see this. The stand-in is the shape of an older
+     * `@valbuild/tanstack/server`: the same readers, no draft.
+     */
+    const label = "a commit (a build from a repository)";
+    const errors = typecheck(
+      `${label} -- before fetchValDraft`,
+      VARIANTS[label]!,
+      {
+        "src/routes/_site.ts": `
+import { fetchValDraft } from "../val/val.server";
+export const draft = async () => {
+  const read = await fetchValDraft();
+  return read === null ? null : read;
+};
+`,
+      },
+      `
+export declare function initValServer(
+  ...args: unknown[]
+): { valApiHandler: (request: Request) => Promise<Response>; draftMode: unknown };
+export declare function initValContent(...args: unknown[]): {
+  fetchValStega: unknown;
+  fetchValKeyStega: unknown;
+  fetchValRouteStega: unknown;
+  fetchValRouteUrl: unknown;
+};
+`,
     );
     expect(errors).toBe("");
   });

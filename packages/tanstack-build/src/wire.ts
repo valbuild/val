@@ -354,13 +354,16 @@ const {
  * site layout's loader. The starter imports it from this file, so a file
  * without it fails the build with a missing export.
  *
- * Read off the result rather than destructured, because this file is compiled
+ * Asked of the result rather than destructured, because this file is compiled
  * against whatever \`@valbuild/tanstack\` the PROJECT installed, and one from
  * before 0.140 has no such reader. There it is "no draft", which is the
- * render that version had anyway.
+ * render that version had anyway -- and it is still a function either way, so
+ * a page that calls it compiles against both.
  */
-const fetchValDraft =
-  "fetchValDraft" in content ? content.fetchValDraft : async () => null;
+const fetchValDraft = async () =>
+  "fetchValDraft" in content && typeof content.fetchValDraft === "function"
+    ? content.fetchValDraft()
+    : null;
 
 /**
  * A build that is MEANT to edit and cannot, refusing instead of pretending to.
