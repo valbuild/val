@@ -58,6 +58,7 @@ import {
   findNestedJsonValuesRecords,
   getNewJsonEntryPaths,
   isJsonValuesRootOp,
+  wholeEntryKey,
   rebaseContentOp,
   resolveExistingJsonPath,
   type CurrentJsonEntries,
@@ -667,62 +668,87 @@ export abstract class ValOps {
           inline?: true;
         }
       | { entryKey: string; message: string };
-    const resolved = await Promise.all(
-      requestedKeys.map(async (entryKey): Promise<ResolvedEntry> => {
-        const marker = record[entryKey];
-        if (marker !== undefined && !Internal.isJson(marker)) {
-          // Not a jsonValues entry — return the inlined value as-is (defensive).
-          // `inline` skips patch replay: entry patches are expressed against a
-          // jsonValues entry, and this value is part of the module source proper.
-          return { entryKey, baseContent: marker as JSONValue, inline: true };
+    /*
+     * The entries a whole-entry `move` or `copy` reads from. A renamed or
+     * duplicated entry's content is theirs, so they are loaded beside the
+     * ones asked for, and not reported.
+     */
+    const sourceKeys = new Set<string>();
+    for (const { patch } of modulePatches) {
+      for (const op of patch) {
+        if (op.op === "move" || op.op === "copy") {
+          const fromKey = wholeEntryKey(serializedSchema, op.from);
+          if (fromKey !== undefined && !requestedKeys.includes(fromKey)) {
+            sourceKeys.add(fromKey);
+          }
         }
-        if (marker === undefined) {
-          return { entryKey, baseContent: undefined };
-        }
-        /**
-         * What a save told us this entry holds, ahead of the thunk.
-         *
-         * The thunk resolves from the module registry, so after `/save` rewrites
-         * a `*.val.json` it keeps answering with the content from before — and
-         * there is nothing to re-extract, because the committed content was
-         * never in the memoised source to begin with. See
-         * {@link adoptedJsonEntries}.
-         *
-         * `null` means the commit deleted the entry, which is reported the same
-         * way an absent key is. (Nearly unreachable — a `remove` also drops the
-         * thunk from the `.val.ts`, so the key is gone from `record` once the
-         * source is adopted — but the map says it, so this says it too.)
-         *
-         * The BASELINE only. Pending patches replay over it below exactly as
-         * they do over the thunk's answer.
-         */
-        const adopted = this.adoptedJsonEntries.get(moduleFilePath);
-        if (adopted !== undefined && adopted.has(entryKey)) {
-          const content = adopted.get(entryKey);
-          return {
-            entryKey,
-            baseContent: content === null ? undefined : content,
-          };
-        }
-        const thunk = Internal.getJsonImport(marker);
-        if (!thunk) {
-          return { entryKey, baseContent: null };
-        }
-        try {
-          return {
-            entryKey,
-            baseContent: ((await thunk()).default ?? null) as JSONValue,
-          };
-        } catch (e) {
-          return {
-            entryKey,
-            message: `Failed to load JSON entry '${entryKey}': ${
-              e instanceof Error ? e.message : String(e)
-            }`,
-          };
-        }
-      }),
+      }
+    }
+    const loaded = await Promise.all(
+      [...requestedKeys, ...sourceKeys].map(
+        async (entryKey): Promise<ResolvedEntry> => {
+          const marker = record[entryKey];
+          if (marker !== undefined && !Internal.isJson(marker)) {
+            // Not a jsonValues entry — return the inlined value as-is (defensive).
+            // `inline` skips patch replay: entry patches are expressed against a
+            // jsonValues entry, and this value is part of the module source proper.
+            return { entryKey, baseContent: marker as JSONValue, inline: true };
+          }
+          if (marker === undefined) {
+            return { entryKey, baseContent: undefined };
+          }
+          /**
+           * What a save told us this entry holds, ahead of the thunk.
+           *
+           * The thunk resolves from the module registry, so after `/save` rewrites
+           * a `*.val.json` it keeps answering with the content from before — and
+           * there is nothing to re-extract, because the committed content was
+           * never in the memoised source to begin with. See
+           * {@link adoptedJsonEntries}.
+           *
+           * `null` means the commit deleted the entry, which is reported the same
+           * way an absent key is. (Nearly unreachable — a `remove` also drops the
+           * thunk from the `.val.ts`, so the key is gone from `record` once the
+           * source is adopted — but the map says it, so this says it too.)
+           *
+           * The BASELINE only. Pending patches replay over it below exactly as
+           * they do over the thunk's answer.
+           */
+          const adopted = this.adoptedJsonEntries.get(moduleFilePath);
+          if (adopted !== undefined && adopted.has(entryKey)) {
+            const content = adopted.get(entryKey);
+            return {
+              entryKey,
+              baseContent: content === null ? undefined : content,
+            };
+          }
+          const thunk = Internal.getJsonImport(marker);
+          if (!thunk) {
+            return { entryKey, baseContent: null };
+          }
+          try {
+            return {
+              entryKey,
+              baseContent: ((await thunk()).default ?? null) as JSONValue,
+            };
+          } catch (e) {
+            return {
+              entryKey,
+              message: `Failed to load JSON entry '${entryKey}': ${
+                e instanceof Error ? e.message : String(e)
+              }`,
+            };
+          }
+        },
+      ),
     );
+    const resolved = loaded.slice(0, requestedKeys.length);
+    const bases = new Map<string, { content: JSONValue | undefined }>();
+    for (const entry of loaded) {
+      if (!("message" in entry) && !("inline" in entry)) {
+        bases.set(entry.entryKey, { content: entry.baseContent });
+      }
+    }
     for (const result of resolved) {
       const { entryKey } = result;
       if ("message" in result) {
@@ -743,6 +769,7 @@ export abstract class ValOps {
         entryKey,
         baseContent,
         patches: modulePatches,
+        baseContentOf: (key) => bases.get(key),
       });
       if (res.kind === "error") {
         errors.push({ key: entryKey, message: res.message });

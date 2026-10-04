@@ -143,6 +143,32 @@ test.describe("a draft page, as the server renders it", () => {
     ).toEqual([]);
   });
 
+  test("a `.jsonValues()` entry the draft renames is in the server's HTML too", async ({
+    page,
+  }) => {
+    /*
+     * A rename is a whole-entry `move`: the new key's content is the old
+     * key's, which lives in another file. Read on its own, the new key had
+     * nothing to replay onto, so the module was left out of the draft.
+     */
+    await openStudio(page);
+    await patchThroughStore(page, "/src/content/kb.val.ts", [
+      { op: "move", from: ["what-is-val"], path: ["what-is-val-renamed"] },
+    ]);
+    await page.goto("/api/val/enable?redirect_to=/showcase");
+    await expect
+      .poll(
+        async () => {
+          const res = await page.request.get("/showcase");
+          return (await res.text())
+            .replace(/<script[\s\S]*?<\/script>/g, "")
+            .replace(new RegExp(STEGA.source, "g"), "");
+        },
+        { timeout: 20_000 },
+      )
+      .toContain("<strong>What is Val?</strong>");
+  });
+
   test("a visitor gets the published page, untagged", async ({
     page,
     browser,

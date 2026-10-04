@@ -36,3 +36,5 @@ function SiteLayout() {
 Visitors pay one cookie lookup and nothing else. Without `draft`, pages behave as before. Edited `.jsonValues()` entries are rendered as the draft too; the others render from the build, as they do for visitors.
 
 Also: a draft's `.jsonValues()` entries now include changes that were published after the build being served, instead of showing the old value until the next build is live.
+
+Also: a renamed or duplicated `.jsonValues()` entry now has its content in the draft, on the page and when the Studio reads the entry, instead of failing to load until it is published.
