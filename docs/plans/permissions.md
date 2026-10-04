@@ -255,24 +255,42 @@ s.object({
 }).hidden({ unless: "seo:edit" });
 ```
 
-A developer who wants part of a section visible splits it into groups, so that
-what the Studio shows is what the schema's shape says:
+A developer who wants part of a section visible restricts the fields, not the
+section:
 
 ```ts
+const seoOnly = { unless: "seo:edit" };
+
 s.object({
+  title: s.string(),
+  body: s.richtext({}),
   seo: s.object({
-    metaDescription: s.string(),
+    metaDescription: s.string().maxLength(160),
+    canonical: s.string().nullable().hidden(seoOnly),
+    noindex: s.boolean().hidden(seoOnly),
+    structuredData: s.string().hidden(seoOnly),
   }),
-  seoAdvanced: s
-    .object({
-      canonical: s.string(),
-      noindex: s.boolean(),
-    })
-    .hidden({ unless: "seo:edit" }),
 });
 ```
 
-Same for `readonly`: a locked section with one editable field is two sections.
+**Access must not change the shape of the content.** Splitting `seo` into `seo`
+and `seoAdvanced` would also work, but it moves `noindex` to a different path: every
+page reading `page.seo.noindex` changes with it, and so does every existing
+source, so adding a permission to an existing project would mean migrating
+content. Annotating the fields leaves the data model exactly as it was. Split a
+section only where the split is the natural shape anyway.
+
+The cost is the inverse of the container form: a field added to `seo` later is
+visible until someone annotates it, where a field added to a restricted container
+is hidden from the start. A shared value like `seoOnly` keeps the annotations
+from drifting apart, but it does not annotate the next field for you.
+
+An object whose fields are all hidden for you is not drawn — an empty section is
+noise, not information. That is presentation, not a rule about access: nothing
+is shown that the schema hides.
+
+Same for `readonly`: a locked section with one editable field is the locked
+fields annotated, and the editable one left alone.
 
 This is the simpler rule to hold in your head. Whether a field shows is decided by
 reading up its path until something says no, and a restricted container means
@@ -660,21 +678,19 @@ A built-in as the permission — only people who can ship may backdate:
 publishedAt: s.date().readonly({ unless: "publish" }),
 ```
 
-A section split so that one part is everyone's and the rest is not — the only
-way to show part of a section, since nothing surfaces from below:
+Part of a section restricted, the rest everyone's — the fields are annotated,
+not the section, so the content keeps its shape:
 
 ```ts
+const seoOnly = { unless: "seo:edit" };
+
 s.object({
   seo: s.object({
     metaDescription: s.string().maxLength(160),
+    canonical: s.string().nullable().hidden(seoOnly),
+    noindex: s.boolean().hidden(seoOnly),
+    structuredData: s.string().hidden(seoOnly),
   }),
-  seoAdvanced: s
-    .object({
-      canonical: s.string().nullable(),
-      noindex: s.boolean(),
-      structuredData: s.string(),
-    })
-    .hidden({ unless: "seo:edit" }),
 });
 ```
 
@@ -682,8 +698,11 @@ A locked section with one editable field is the same move:
 
 ```ts
 s.object({
-  generated: s.object({ buildSha: s.string(), builtAt: s.date() }).readonly(),
-  note: s.string(), // a human may annotate
+  generated: s.object({
+    buildSha: s.string().readonly(),
+    builtAt: s.date().readonly(),
+    note: s.string(), // a human may annotate
+  }),
 });
 ```
 
@@ -712,7 +731,8 @@ s.object({
   metaDescription: s.string().hidden(false),
 }).hidden({ unless: "seo:edit" });
 // `metaDescription` has .hidden(false), but its parent is hidden for anyone
-// without `seo:edit`, so it can never be shown. Move it out of the section.
+// without `seo:edit`, so it can never be shown. Restrict the other fields
+// instead of the section.
 ```
 
 Chaining on one field, where the last call wins:
