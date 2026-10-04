@@ -1,5 +1,53 @@
 # @valbuild/tanstack
 
+## 0.140.0
+
+### Patch Changes
+
+- [#793](https://github.com/valbuild/val/pull/793) [`092e6a7`](https://github.com/valbuild/val/commit/092e6a7f78bcfcf4c6cecaf34407fdfc580ebbc1) Thanks [@freekh](https://github.com/freekh)! - A draft page on TanStack Start is now rendered as the draft by the server, so it no longer shows the published text first and the draft a moment later — most noticeable when you reload right after publishing.
+
+  Read the request's draft in your site layout's loader and pass it to `ValProvider`:
+
+  ```tsx
+  // src/val/server.ts
+  export const { fetchValDraft /* , fetchVal, ... */ } = initValContent(
+    config,
+    valModules,
+    { draftMode },
+  );
+
+  // src/routes/_site.tsx
+  const getValDraft = createServerFn().handler(() => fetchValDraft());
+
+  export const Route = createFileRoute("/_site")({
+    loader: () => (typeof document === "undefined" ? getValDraft() : null),
+    component: SiteLayout,
+  });
+
+  function SiteLayout() {
+    const draft = Route.useLoaderData();
+    return (
+      <ValProvider config={config} suspend draft={draft}>
+        {/* ... */}
+      </ValProvider>
+    );
+  }
+  ```
+
+  Visitors pay one cookie lookup and nothing else. Without `draft`, pages behave as before. Edited `.jsonValues()` entries are rendered as the draft too; the others render from the build, as they do for visitors.
+
+  Also: a draft's `.jsonValues()` entries now include changes that were published after the build being served, instead of showing the old value until the next build is live.
+
+  Also: a renamed or duplicated `.jsonValues()` entry now has its content in the draft, on the page and when the Studio reads the entry, instead of failing to load until it is published.
+
+- Updated dependencies [[`cb93874`](https://github.com/valbuild/val/commit/cb938748aec15fd0ac3814c1696a2dd78ad63c27), [`092e6a7`](https://github.com/valbuild/val/commit/092e6a7f78bcfcf4c6cecaf34407fdfc580ebbc1)]:
+  - @valbuild/ui@0.140.0
+  - @valbuild/server@0.140.0
+  - @valbuild/shared@0.140.0
+  - @valbuild/react@0.140.0
+  - @valbuild/language-server@0.140.0
+  - @valbuild/mcp@0.140.0
+
 ## 0.139.2
 
 ### Patch Changes
