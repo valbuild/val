@@ -326,12 +326,7 @@ const { valApiHandler, draftMode } = initValServer(
   },
 );
 
-const {
-  fetchValStega: fetchVal,
-  fetchValKeyStega: fetchValKey,
-  fetchValRouteStega: fetchValRoute,
-  fetchValRouteUrl,
-} = initValContent(valConfig, valModules, {
+const content = initValContent(valConfig, valModules, {
   draftMode,
   /*
    * The SAME object the API got.
@@ -346,6 +341,26 @@ const {
    */
   ...(http ? { http } : {}),
 });
+
+const {
+  fetchValStega: fetchVal,
+  fetchValKeyStega: fetchValKey,
+  fetchValRouteStega: fetchValRoute,
+  fetchValRouteUrl,
+} = content;
+
+/**
+ * The draft a page renders with in preview: \`<ValProvider draft>\`, read in the
+ * site layout's loader. The starter imports it from this file, so a file
+ * without it fails the build with a missing export.
+ *
+ * Read off the result rather than destructured, because this file is compiled
+ * against whatever \`@valbuild/tanstack\` the PROJECT installed, and one from
+ * before 0.140 has no such reader. There it is "no draft", which is the
+ * render that version had anyway.
+ */
+const fetchValDraft =
+  "fetchValDraft" in content ? content.fetchValDraft : async () => null;
 
 /**
  * A build that is MEANT to edit and cannot, refusing instead of pretending to.
@@ -415,6 +430,7 @@ export {
   fetchValKey,
   fetchValRoute,
   fetchValRouteUrl,
+  fetchValDraft,
 };
 `;
 

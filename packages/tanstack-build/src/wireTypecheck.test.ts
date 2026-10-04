@@ -99,7 +99,12 @@ export default modules(config, []);
  */
 const ROOT = path.join(__dirname, "..", ".tmp");
 
-function typecheck(name: string, options: WireOptions): string {
+function typecheck(
+  name: string,
+  options: WireOptions,
+  /** The app's own files beside what is wired, by path from its root. */
+  app: Record<string, string> = {},
+): string {
   const dir = path.join(ROOT, name.replace(/[^a-z0-9]+/gi, "-"));
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(path.join(dir, "src", "val"), { recursive: true });
@@ -117,7 +122,7 @@ function typecheck(name: string, options: WireOptions): string {
     { "val.config.ts": VAL_CONFIG, "val.modules.ts": VAL_MODULES },
     options,
   );
-  for (const [file, content] of Object.entries(files)) {
+  for (const [file, content] of Object.entries({ ...app, ...files })) {
     fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
     fs.writeFileSync(path.join(dir, file), content);
   }
@@ -212,6 +217,38 @@ describe("the generated val.server.ts", () => {
       .split("\n")
       .filter((line) => line.trim() !== "" && !DEAD_BRANCH.test(line));
     expect(errors).toEqual([]);
+  });
+
+  test("it has every reader the starter imports from it", () => {
+    /*
+     * The platform REPLACES the project's own `val.server.ts` with this one,
+     * so an export the starter uses and this file lacks is not a type error in
+     * an editor: it is a build that fails on the platform with MISSING_EXPORT.
+     * `fetchValDraft` was that, for every project made from the starter once
+     * its layout read the draft.
+     */
+    const label = "a commit (a build from a repository)";
+    const errors = typecheck(
+      `${label} -- the starter's imports`,
+      VARIANTS[label]!,
+      {
+        "src/routes/_site.ts": `
+import type { ValDraft } from "@valbuild/tanstack/server";
+import {
+  draftMode,
+  fetchVal,
+  fetchValDraft,
+  fetchValKey,
+  fetchValRoute,
+  fetchValRouteUrl,
+  valApiHandler,
+} from "../val/val.server";
+export const readers = [draftMode, fetchVal, fetchValKey, fetchValRoute, fetchValRouteUrl, valApiHandler];
+export const draft = async (): Promise<ValDraft | null> => fetchValDraft();
+`,
+      },
+    );
+    expect(errors).toBe("");
   });
 
   test("the commit is sent under every name ValHttpMode has had", () => {
