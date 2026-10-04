@@ -338,16 +338,32 @@ test("Ada publishes three times in a row, and nothing she published leaves her o
         },
         { module: AUTHORS, author },
       );
+    const holds = (on: Page, patchId: string) =>
+      on.evaluate((id) => {
+        const stores = Reflect.get(window, "__VAL_STORES__") as {
+          system: {
+            patchStore: { allRecords(): { patchId: string }[] };
+          };
+        };
+        return stores.system.patchStore
+          .allRecords()
+          .some((record) => record.patchId === id);
+      }, patchId);
     const expected: Record<string, string> = {};
     for (const [round, name] of NAMES.entries()) {
       const field = FIELDS[round];
-      await writePatch(page, AUTHORS, [
+      const written = await writePatch(page, AUTHORS, [
         { op: "replace", path: [field, "name"], value: name },
       ]);
       expected[field] = name;
       for (const [author, value] of Object.entries(expected)) {
         await expect.poll(() => shown(author), { timeout: 30_000 }).toBe(value);
       }
+      // The publish is made from the other browser, which hears of the write
+      // over the websocket: wait until it holds it, or it publishes nothing.
+      await expect
+        .poll(() => holds(elsewhere, written), { timeout: 30_000 })
+        .toBe(true);
       expect(
         await publishAll(elsewhere, `Ada ships round ${round + 1}`),
       ).toMatchObject({ status: "published" });
