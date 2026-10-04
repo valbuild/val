@@ -188,25 +188,25 @@ follow, and both were wrong before:
   second in place of the first turned staging off after every publish and, worse,
   dropped the write resolver, so patches written before the next reload joined no
   group at all.
-- **A stage in that window is held, not dropped.** `persistPatchGroupChange`
-  queues it on the system and the shell flushes it when an id appears — on the
-  system rather than on the review screen, because the id normally appears
-  BECAUSE the user left that screen to type something.
-- **The replay is reconciled, not verbatim.** The write that creates the group
-  runs its own closure, which can re-stage the very patch a queued unstage names.
-  At flush time an unstage whose ids are back in the scope is dropped, and so is
-  a stage whose ids have left it: the scope is what this client intends the group
-  to be, so where the two disagree the write beats the earlier click.
+- **A stage in that window goes out at once.** With no group id it is sent to
+  `~`, which the content API reads as "the caller's open group on this branch"
+  and creates if there is none, as a write already does. It used to be queued
+  on the system until a write created a group, and a reload, another browser or
+  a closed tab lost it.
 
-Two things go stale in opposite directions and must not be confused. The chain
-**annotation** refreshes only inside a fetch for MISSING patch ids, so on a quiet
-branch it is arbitrarily old; `ownPatchGroupId` comes from the last save response
-and is cleared the moment a publish makes it wrong. So `ownPatchGroupId` wins
-where it is set, and `markPublished` also closes the annotation's copy of any
-group whose every patch it just shipped — nothing else ever will, because
-`forgetPublished` drops those ids and the next `/stat` files them as stale. Named
-the closed group instead and every stage is a silent 409 and the queue never
-engages.
+Two things go stale in opposite directions and must not be confused. The
+**groups** a current content service sends come with every `/stat` and every
+websocket `patches` message, at the chain version they were read at, and
+REPLACE what this tab holds — so they are never older than the last change the
+server announced (invariant 5). Only an older server's annotation on
+`GET /patches`, the unversioned fallback, refreshes just inside a fetch for
+MISSING patch ids and can be arbitrarily old on a quiet branch; for it,
+`markPublished` closes the local copy of any group whose every patch it just
+shipped, since `forgetPublished` drops those ids and nothing else would.
+`ownPatchGroupId` comes from the last save or stage answer and is cleared the
+moment a publish makes it wrong, so it wins where it is set. Named the closed
+group instead and every stage is a 409 (now resent to `~`, which lands it in
+the open group).
 
 ## Invariants worth attacking in review
 
@@ -229,17 +229,67 @@ engages.
    never closes at all. A patch WRITTEN in another tab is a missing id here, so
    the fetch that pulls it in carries the annotation and the check sees it. A
    patch that other tab merely STAGED is already in this chain, so nothing
-   fetches, and this tab can name a group that still holds it. Closed by the
-   same thing that closes the rest of this list: the annotation refreshing on
-   its own.
+   fetches, and this tab can name a group that still holds it. Closed by 5:
+   the stage is announced, and the groups arrive with the next stat, so the
+   window is the one round trip between the stage and its announcement.
 
-5. Scope is client-held local truth seeded from the server's annotation, and
-   nothing reconciles it. `PatchStore` re-reads the annotation only inside a
-   fetch it makes for MISSING patch ids, so on a quiet branch a failed stage is
-   kept on screen until the page is reloaded, and a stage in one tab never
-   reaches another. Closing both needs the annotation to refresh on its own. The
-   deferred queue above narrows this but does not close it: a change held while
-   there is no group is lost if the tab closes before one exists.
+5. **The scope follows the server's groups, every time they move.** The rule:
+   an in-sync Studio shows what a reload would, and a reload builds its scope
+   from the server's groups. So the groups come with every stat: `/stat` folds
+   them from the per-patch annotation on `applicable/patches`, read in the same
+   transaction as the list and its `headVersion`, and the websocket's `patches`
+   message carries them for the same reason, since a client takes that message
+   as its new chain without asking `/stat` again. A stage and an unstage move
+   the chain's version and are announced on `patch_change`, as a write is, so
+   every Studio on the branch re-reads.
+
+   `reconcileScope` (in `createSystem`) makes the scope the user's open group
+   (by the profile the stat names) with what this tab has done that the
+   server's groups may not show yet laid over it: its writes and their
+   closures, its stages and its unstages. Each is confirmed with the version
+   the server answered at, and drops away once groups at least that new
+   arrive. Until then it wins, so a stat read before a click landed cannot undo
+   it on screen. A refusal drops it at once, and the screen goes back to what
+   the server holds. Versioned groups replace the scope; an older server's
+   unversioned annotation on `GET /patches` only adds to it, as before.
+
+   What is left: the moment between a change elsewhere and the message that
+   announces it, which is one round trip; and a content service that predates
+   `valbuild/home#135`, which sends no groups with the chain and announces no
+   group change, so it behaves as before.
+
 6. Held patches count as _settled_ but not _applied_ (`chainSettled`), because
    the editor holds every field inert until the chain settles. A held patch that
    counted as neither would dim the Studio permanently.
+
+7. **A save and a stage or unstage are sent in one order.** Membership moves on
+   the server two ways — a stage or unstage, and a save, whose write and
+   closure the server unions into the group — and the server applies them in
+   the order they arrive. A save always went after the group changes made
+   before it. Until `holdGroupChangesFor` (in `createSystem`), a change made
+   while a save was on the wire was sent at once, and the two raced: an unstage
+   of the insert under an edit that landed before the edit's save was undone
+   by the save's union, silently, and one whose forward closure missed the
+   edit (the review screen's patch sets had not caught up with it) and landed
+   after left the edit in the group without the insert — a hole a reload
+   showed, which `holdBackOverHoles` only hides in the tab that made the
+   unstage.
+
+   Now a save takes a hold before it resolves its closure, and every change
+   made after that waits until the save is answered — saved, refused, a
+   conflict, an error, or the system disposed. No deadlock: a save waits only
+   for the changes queued before its hold, and only the ones queued after wait
+   for it. An unstage that waited re-closes over the save's ids against a
+   grouping that covers them, so the edit goes out with the insert. And a
+   write the tab has already taken out of its scope when its save goes — the
+   click went out while an earlier attempt at the save failed — is followed
+   by an unstage of its own, ordered behind it, since the server puts a write
+   in its author's group whatever the request says. The server's group after
+   both is this tab's latest intent, and prefix-closed
+   (`patchGroupSaveRace.test.ts`, and the e2e in `http/patchGroups.spec.ts`).
+
+   What is left: a stage or unstage now waits up to one save round trip before
+   it is sent (the screen moves at once, as before). And an unstage made with
+   NO save in flight is still sent with the forward closure the review screen
+   computed; if that screen's patch sets are behind the chain it can still
+   under-close, as it could before — only a save's own ids are re-closed.

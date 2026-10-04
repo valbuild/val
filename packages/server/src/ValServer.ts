@@ -1285,18 +1285,30 @@ export const ValServer = (
         if (serverOps.patchesAreLocal) {
           return {
             status: 200,
-            json: { patchGroupId, patchIds: [...patchIds, ...withPatchIds] },
+            json: {
+              patchGroupId: patchGroupId ?? null,
+              patchIds: [...patchIds, ...withPatchIds],
+            },
           };
         }
         if (!("id" in auth) || !auth.id) {
           return { status: 401, json: { message: "Unauthorized" } };
         }
-        const refusal = await refuseUnlessOwn(serverOps, patchGroupId, auth.id);
-        if (refusal !== null) {
-          return {
-            status: refusal.status,
-            json: { message: refusal.message },
-          };
+        // A named group is checked here as well as by the content API. No name
+        // is the caller's own open group, which the content API resolves from
+        // the profile it is sent — there is nothing here to check it against.
+        if (patchGroupId !== undefined) {
+          const refusal = await refuseUnlessOwn(
+            serverOps,
+            patchGroupId,
+            auth.id,
+          );
+          if (refusal !== null) {
+            return {
+              status: refusal.status,
+              json: { message: refusal.message },
+            };
+          }
         }
         const res = await serverOps.stagePatches(
           patchGroupId,
@@ -1311,7 +1323,16 @@ export const ValServer = (
         if (res.error) {
           return { status: res.status, json: { message: res.error.message } };
         }
-        return { status: 200, json: { patchGroupId, patchIds: res.patchIds } };
+        return {
+          status: 200,
+          json: {
+            patchGroupId: res.patchGroupId,
+            patchIds: res.patchIds,
+            ...(res.headVersion !== undefined
+              ? { headVersion: res.headVersion }
+              : {}),
+          },
+        };
       },
       DELETE: async (
         req,
@@ -1325,18 +1346,30 @@ export const ValServer = (
         if (serverOps.patchesAreLocal) {
           return {
             status: 200,
-            json: { patchGroupId, patchIds: [...patchIds, ...withPatchIds] },
+            json: {
+              patchGroupId: patchGroupId ?? null,
+              patchIds: [...patchIds, ...withPatchIds],
+            },
           };
         }
         if (!("id" in auth) || !auth.id) {
           return { status: 401, json: { message: "Unauthorized" } };
         }
-        const refusal = await refuseUnlessOwn(serverOps, patchGroupId, auth.id);
-        if (refusal !== null) {
-          return {
-            status: refusal.status,
-            json: { message: refusal.message },
-          };
+        // A named group is checked here as well as by the content API. No name
+        // is the caller's own open group, which the content API resolves from
+        // the profile it is sent — there is nothing here to check it against.
+        if (patchGroupId !== undefined) {
+          const refusal = await refuseUnlessOwn(
+            serverOps,
+            patchGroupId,
+            auth.id,
+          );
+          if (refusal !== null) {
+            return {
+              status: refusal.status,
+              json: { message: refusal.message },
+            };
+          }
         }
         const res = await serverOps.unstagePatches(
           patchGroupId,
@@ -1347,7 +1380,16 @@ export const ValServer = (
         if (res.error) {
           return { status: res.status, json: { message: res.error.message } };
         }
-        return { status: 200, json: { patchGroupId, patchIds: res.patchIds } };
+        return {
+          status: 200,
+          json: {
+            patchGroupId: res.patchGroupId,
+            patchIds: res.patchIds,
+            ...(res.headVersion !== undefined
+              ? { headVersion: res.headVersion }
+              : {}),
+          },
+        };
       },
     },
 

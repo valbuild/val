@@ -105,7 +105,7 @@ describe("item-level preview", () => {
     expect(s.string()["executeSerialize"]().preview).toBe(undefined);
   });
 
-  test("preview is kept when chaining, including through render", () => {
+  test("preview is kept when chaining", () => {
     const base = s
       .object({ name: s.string() })
       .preview(({ val }) => ({ title: val.name }));
@@ -116,7 +116,6 @@ describe("item-level preview", () => {
       base.hidden(),
       base.describe("desc"),
       base.validate(() => false),
-      base.render({ as: "inline" }),
     ]) {
       expect(item["executeSerialize"]().preview).toBe(true);
     }

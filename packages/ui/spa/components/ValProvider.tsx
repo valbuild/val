@@ -8,6 +8,11 @@ import {
   type TrackedPublish,
 } from "../publish/publishJobs";
 import { publishProgress } from "../publish/publishProgress";
+import {
+  EDGE_CACHE_MS,
+  otherEditorsJobs,
+  type ObservedJob,
+} from "../publish/publishIndicator";
 import { runStudioJob } from "../publish/runStudioJob";
 import { PUBLISH_TAB_ID } from "../publish/tabId";
 import { canBuildHere } from "../publish/handoff";
@@ -222,6 +227,12 @@ type ValContextValue = {
   publishJobs: PublishJobs;
   publishJobsState: PublishJobsState;
   /**
+   * Every publish job on the branch, as the websocket last reported it --
+   * other editors' as well as this tab's -- so the status bar can say that
+   * someone is publishing. See `publish/publishIndicator.ts`.
+   */
+  observedPublishJobs: readonly ObservedJob[];
+  /**
    * Whether a press of Publish is a publish job here: every managed project,
    * and a connected one hosted on the platform (the server says, on `/stat`).
    */
@@ -317,6 +328,9 @@ const NO_VAL_PROVIDER = new Proxy(
 ) as ValContextValue;
 
 const ValContext = React.createContext<ValContextValue>(NO_VAL_PROVIDER);
+
+/** How many publish jobs the status bar remembers. See `observedPublishJobs`. */
+const OBSERVED_JOBS_KEPT = 20;
 
 export function useClient() {
   return useContext(ValContext).client;
@@ -522,8 +536,8 @@ export function ValProvider({
    * Two fields only. The store system needs the ordered patch ids to learn about
    * another session's work, and `baseSha` so a write has an honest `parentRef` —
    * without it `PatchSync` reports every edit unsaveable. `sourcesSha` says
-   * which build answered; `schemaSha` / `jsonEntriesSha` are inputs to a
-   * refetch it does not do yet.
+   * which build answered and `schemaSha` which schema it runs;
+   * `jsonEntriesSha` is an input to a refetch it does not do yet.
    */
   const statPatches =
     "data" in stat && stat.data ? stat.data.patches : undefined;
@@ -573,6 +587,15 @@ export function ValProvider({
    */
   const statSourcesSha =
     "data" in stat && stat.data ? stat.data.sourcesSha : undefined;
+  /** Which schema that build runs. See `SchemaFreshnessWatch`. */
+  const statSchemaSha =
+    "data" in stat && stat.data ? stat.data.schemaSha : undefined;
+  /**
+   * Who holds what, read with the chain. The source of this client's view of
+   * the groups — see `PatchStore.receiveStatGroups`.
+   */
+  const statPatchGroups =
+    "data" in stat && stat.data ? stat.data.patchGroups : undefined;
   const storeStat = useMemo(
     () =>
       baseSha !== undefined && statPatches !== undefined
@@ -585,6 +608,9 @@ export function ValProvider({
             headPatchId: statPatchHead,
             headVersion: statHeadVersion,
             sourcesSha: statSourcesSha,
+            schemaSha: statSchemaSha,
+            patchGroups: statPatchGroups,
+            profileId: statProfileId,
           }
         : null,
     [
@@ -596,6 +622,9 @@ export function ValProvider({
       statPatchHead,
       statHeadVersion,
       statSourcesSha,
+      statSchemaSha,
+      statPatchGroups,
+      statProfileId,
     ],
   );
 
@@ -920,6 +949,15 @@ export function ValProvider({
   const handoffRef = useRef(handoff);
   handoffRef.current = handoff;
   const onPublishSettled = useRef<(request: TrackedPublish) => void>(() => {});
+  /** "Published" toasts waiting for the edge window to end. */
+  const liveToasts = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const timers = liveToasts.current;
+    return () => {
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
   const publishJobs = useMemo(() => {
     const client = createStudioJobClient({ api: "/api/val" });
     const jobs = createPublishJobs({
@@ -973,7 +1011,23 @@ export function ValProvider({
     handoffRef.current.settled(request.requestId, status);
     if (status.kind === "live") {
       markObserved(status.commit);
-      toast("Published", { id, description: "Your changes are live." });
+      /*
+       * Not at Live: at the end of the edge window, when every visitor gets
+       * the change. Until then the status bar spins "Reaching visitors", and
+       * this is the announcement that it stopped. See `EDGE_CACHE_MS`.
+       */
+      const settledAt = request.settledAt ?? Date.now();
+      const timer = setTimeout(
+        () => {
+          liveToasts.current.delete(timer);
+          toast("Published", {
+            id,
+            description: "Every visitor now sees your changes.",
+          });
+        },
+        Math.max(0, settledAt + EDGE_CACHE_MS - Date.now()),
+      );
+      liveToasts.current.add(timer);
       return;
     }
     if (status.kind !== "failed") return;
@@ -1083,6 +1137,34 @@ export function ValProvider({
       publishJobs.stop();
     };
   }, [publishesAsJobs, publishJobs, subscribePublishJobs]);
+  const [observedPublishJobs, setObservedPublishJobs] = useState<
+    readonly ObservedJob[]
+  >([]);
+  useEffect(
+    () =>
+      subscribePublishJobs((nudge) => {
+        if (nudge.status === null) return;
+        const status = nudge.status;
+        const at = Date.now();
+        setObservedPublishJobs((jobs) => {
+          const before = jobs.find((job) => job.id === nudge.id);
+          const sealedAt =
+            before?.sealedAt ?? (status === "sealed" ? at : undefined);
+          const next: ObservedJob = {
+            id: nudge.id,
+            status,
+            seenAt: at,
+            ...(sealedAt !== undefined ? { sealedAt } : {}),
+          };
+          // The newest few: an old job says nothing a newer one does not.
+          return [next, ...jobs.filter((job) => job.id !== nudge.id)].slice(
+            0,
+            OBSERVED_JOBS_KEPT,
+          );
+        });
+      }),
+    [subscribePublishJobs],
+  );
   /**
    * What every progress surface reads: the deploy, seen through the publish
    * jobs. See `publishProgress`. A clock is not a dependency -- a settled
@@ -1143,6 +1225,7 @@ export function ValProvider({
         handoff,
         publishJobs,
         publishJobsState,
+        observedPublishJobs,
         publishesAsJobs,
         profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
@@ -2464,6 +2547,20 @@ export function useStudioBuildsInTab(): boolean {
   const mode = useSourceMode();
   const { publishesAsJobs } = useContext(ValContext);
   return mode === "managed" || (mode === "connected" && publishesAsJobs);
+}
+
+/**
+ * Other editors' publish jobs, as the websocket last reported them: every job
+ * on the branch but this tab's own. This tab's own are told by its requests
+ * (`publishProgress`), which are authoritative -- a lost "sealed" nudge must
+ * not leave one of them looking like someone else's publish still running.
+ */
+export function useOtherPublishJobs(): readonly ObservedJob[] {
+  const { observedPublishJobs, publishJobsState } = useContext(ValContext);
+  return useMemo(
+    () => otherEditorsJobs(observedPublishJobs, publishJobsState),
+    [observedPublishJobs, publishJobsState],
+  );
 }
 
 /** See {@link ValContextValue.handoff}. */

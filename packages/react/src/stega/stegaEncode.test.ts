@@ -1095,7 +1095,6 @@ describe("reading a view is lazy", () => {
       "moduleFilePath",
       "opt",
       "readonly",
-      "render",
       "type",
     ]);
   });

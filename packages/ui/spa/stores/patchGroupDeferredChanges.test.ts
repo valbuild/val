@@ -20,9 +20,12 @@ import { createSystem, type PatchGroupChangeRequest } from "./createSystem";
  * direction: the patch silently comes back staged and the next publish ships
  * what the user meant to hold.
  *
- * The queue is on the SYSTEM rather than on the review screen because the id
- * normally appears BECAUSE the user left that screen and typed something. A
- * queue on the screen is unmounted before it can be flushed.
+ * Then it was held in a queue on the system until a write created a group. That
+ * kept it for the life of the tab and no longer: a reload, another browser of
+ * the same user, or a closed tab never saw it. Now it is sent at once with no
+ * group id, and the content API stages it into the caller's open group,
+ * creating one if there is none — so the change is on the server, and in every
+ * other Studio's next stat, the moment it is made.
  */
 
 const MODULE = "/a.val.ts" as ModuleFilePath;
@@ -34,7 +37,8 @@ const project = () => {
 };
 
 type Sent = {
-  patchGroupId: string;
+  /** `undefined` is the caller's open group, created by a stage if needed. */
+  patchGroupId: string | undefined;
   type: "stage" | "unstage";
   patchIds: PatchId[];
   withPatchIds: PatchId[];
@@ -164,23 +168,17 @@ test("an unstage carries the same split, and both halves go", async () => {
   });
 });
 
-test("a change with no group id is held, then sent when one appears", async () => {
+test("a change with no group id goes out at once, to the caller's own group", async () => {
   const { system, sent } = makeSystem();
 
   system.persistPatchGroupChange(undefined, unstage(["a" as PatchId]));
   await settle();
-  // Nothing to send it to yet. The screen has already moved — `setPatchGroup`
-  // is a separate call — so the user sees the unstage either way.
-  expect(sent).toEqual([]);
 
-  // The user goes and edits something; the write creates the group and the save
-  // response names it, and the shell flushes.
-  system.flushPatchGroupChanges("g1");
-  await settle();
-
+  // No id: the content API resolves the caller's open group. Nothing waits for
+  // a write to create one, so a reload or another browser sees it too.
   expect(sent).toEqual([
     {
-      patchGroupId: "g1",
+      patchGroupId: undefined,
       type: "unstage",
       patchIds: ["a"],
       withPatchIds: [],
@@ -188,55 +186,24 @@ test("a change with no group id is held, then sent when one appears", async () =
   ]);
 });
 
-test("held changes replay in the order they were made", async () => {
+test("changes with no group id go out in the order they were made", async () => {
   const { system, sent } = makeSystem();
 
-  // The same patch, toggled twice. Replaying out of order lands on the opposite
-  // membership from the one the user is looking at, which is the whole reason
-  // these are a queue rather than a set.
+  // The same patch, toggled. The server unions on stage and removes on
+  // unstage, so the order decides the membership it ends with.
   system.persistPatchGroupChange(undefined, stage(["a" as PatchId]));
   system.persistPatchGroupChange(undefined, unstage(["a" as PatchId]));
   system.persistPatchGroupChange(undefined, stage(["a" as PatchId]));
-
-  system.flushPatchGroupChanges("g1");
   await settle();
 
   expect(sent.map((call) => call.type)).toEqual(["stage", "unstage", "stage"]);
-  expect(sent.every((call) => call.patchGroupId === "g1")).toBe(true);
 });
 
-test("a flush empties the queue, so a second one sends nothing", async () => {
-  const { system, sent } = makeSystem();
-
-  system.persistPatchGroupChange(undefined, stage(["a" as PatchId]));
-  system.flushPatchGroupChanges("g1");
-  await settle();
-  expect(sent).toHaveLength(1);
-
-  // Every save re-announces the same id and the effect keying on it can run
-  // again. Replaying would re-stage something the user has since unstaged.
-  system.flushPatchGroupChanges("g1");
-  await settle();
-  expect(sent).toHaveLength(1);
-});
-
-test("a change made after the id is known does not queue behind the flush", async () => {
-  const { system, sent } = makeSystem();
-
-  system.persistPatchGroupChange(undefined, stage(["a" as PatchId]));
-  system.flushPatchGroupChanges("g1");
-  system.persistPatchGroupChange("g1", stage(["b" as PatchId]));
-  await settle();
-
-  expect(sent.map((call) => call.patchIds)).toEqual([["a"], ["b"]]);
-});
-
-test("an empty change is not sent and not queued", async () => {
+test("an empty change is not sent", async () => {
   const { system, sent } = makeSystem();
 
   system.persistPatchGroupChange("g1", stage([]));
   system.persistPatchGroupChange(undefined, stage([]));
-  system.flushPatchGroupChanges("g1");
   await settle();
 
   expect(sent).toEqual([]);
@@ -254,76 +221,7 @@ test("a refused change is logged, not thrown", async () => {
     "Val: could not update patch group",
     "nope",
   );
-  // KNOWN GAP, asserted so it is a decision rather than an oversight: the local
-  // scope is NOT put back. See `docs/independent-publish/DESIGN.md`.
   errors.mockRestore();
-});
-
-test("a queued unstage is dropped when the scope has taken the patch back", async () => {
-  const { system, sent } = makeSystem();
-  /*
-   * The case the queue was added for, and the one it got wrong.
-   *
-   * Alice unstages Bob's patch while she has no group. Then she edits a field
-   * in the same patch set, which creates her group AND runs the write closure
-   * — and that closure pulls Bob's patch back in, because her edit sits on top
-   * of it. Replaying the unstage verbatim afterwards took it out of the group
-   * on the server while the local scope, and therefore publish, still held it:
-   * a hole in front of her own patch, surfacing only as a publish refusal
-   * naming raw ids, and only after a reload.
-   *
-   * The scope is what this client intends the group to be, and every click has
-   * already been folded into it. So where the queue and the scope disagree, the
-   * scope wins — the write beating the earlier click, as it must.
-   */
-  system.persistPatchGroupChange(undefined, unstage(["theirs" as PatchId]));
-  system.setPatchGroup(["p1" as PatchId, "theirs" as PatchId]);
-
-  system.flushPatchGroupChanges("g-new");
-  await settle();
-
-  expect(sent).toEqual([]);
-});
-
-test("a queued stage is dropped when the scope no longer holds the patch", async () => {
-  const { system, sent } = makeSystem();
-  // The mirror image: staged while there was no group, then unstaged again
-  // before one existed. Sending the stage would put back what she just removed.
-  system.persistPatchGroupChange(undefined, stage(["theirs" as PatchId]));
-  system.setPatchGroup(["p1" as PatchId]);
-
-  system.flushPatchGroupChanges("g-new");
-  await settle();
-
-  expect(sent).toEqual([]);
-});
-
-test("a queued change that still agrees with the scope is sent", async () => {
-  const { system, sent } = makeSystem();
-  system.persistPatchGroupChange(undefined, unstage(["theirs" as PatchId]));
-  system.persistPatchGroupChange(undefined, stage(["mine" as PatchId]));
-  // `theirs` stayed out and `mine` stayed in, so both clicks still stand.
-  system.setPatchGroup(["p1" as PatchId, "mine" as PatchId]);
-
-  system.flushPatchGroupChanges("g-new");
-  await settle();
-
-  expect(sent.map((call) => [call.type, call.patchIds])).toEqual([
-    ["unstage", ["theirs"]],
-    ["stage", ["mine"]],
-  ]);
-});
-
-test("an unscoped client replays verbatim, having no scope to reconcile against", async () => {
-  const { system, sent } = makeSystem();
-  // `null` is fs mode or a content API without groups. Filtering against a
-  // scope that does not exist would drop everything.
-  system.persistPatchGroupChange(undefined, unstage(["theirs" as PatchId]));
-
-  system.flushPatchGroupChanges("g-new");
-  await settle();
-
-  expect(sent.map((call) => call.patchIds)).toEqual([["theirs"]]);
 });
 
 test("the studio still reads normally around all of this", async () => {
@@ -348,9 +246,8 @@ test("a 409 on stage makes this tab stop naming the group it just lost", async (
    * quiet branch there are none to fetch, so nothing would ever correct it.
    *
    * Forgetting hands the question back to `useCurrentPatchGroup`, which falls
-   * through to the annotation and then to the deferred queue — so the next
-   * write creates the next group and the click is replayed into it, which is
-   * exactly the window the queue exists for.
+   * through to the annotation; the change itself is resent with no id (see the
+   * next test).
    */
   const { system } = makeSystem({ stageSaysPublished: true });
   system.patchStore.recordOwnPatchGroup("g1");
@@ -377,4 +274,79 @@ test("an ordinary failure keeps the group, because the id is still good", async 
   await settle();
 
   expect(system.patchStore.ownGroupId()).toBe("g1");
+});
+
+test("a change refused because the group shipped is resent to the open group", async () => {
+  /*
+   * The user's click is not lost to a publish they made in another tab: with
+   * no id the content API stages into whichever group is open now, creating
+   * it if the publish left none.
+   */
+  const { system, sent } = makeSystem({ stageSaysPublished: true });
+  system.patchStore.recordOwnPatchGroup("g1");
+
+  system.persistPatchGroupChange("g1", stage(["a" as PatchId]));
+  await settle();
+
+  expect(sent.map((call) => call.patchGroupId)).toEqual(["g1", undefined]);
+});
+
+test("changes go out one at a time, so the server applies them in order", async () => {
+  /*
+   * The server unions on stage and removes on unstage. Two requests in flight
+   * at once can land in either order, and a stage then an unstage arriving
+   * reversed leaves the patch staged on the server while this tab shows it
+   * unstaged.
+   */
+  const started: string[] = [];
+  let releaseFirst = () => {};
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => "p" as PatchId,
+    stagePatches: () => {
+      started.push("stage");
+      return new Promise((resolve) => {
+        releaseFirst = () => resolve({ status: "ok" });
+      });
+    },
+    unstagePatches: async () => {
+      started.push("unstage");
+      return { status: "ok" };
+    },
+  });
+  system.host.receive(project());
+
+  system.persistPatchGroupChange(undefined, stage(["a" as PatchId]));
+  system.persistPatchGroupChange(undefined, unstage(["a" as PatchId]));
+  await settle();
+  expect(started).toEqual(["stage"]);
+
+  releaseFirst();
+  await settle();
+  await settle();
+  expect(started).toEqual(["stage", "unstage"]);
+});
+
+test("a change that throws does not stop the ones after it", async () => {
+  const errors = jest.spyOn(console, "error").mockImplementation(() => {});
+  const sent: string[] = [];
+  const system = createSystem({
+    fetchPatches: async () => ({ patches: [] }),
+    createPatchId: () => "p" as PatchId,
+    stagePatches: async () => {
+      throw new Error("network down");
+    },
+    unstagePatches: async () => {
+      sent.push("unstage");
+      return { status: "ok" };
+    },
+  });
+  system.host.receive(project());
+
+  system.persistPatchGroupChange(undefined, stage(["a" as PatchId]));
+  system.persistPatchGroupChange(undefined, unstage(["b" as PatchId]));
+  for (let i = 0; i < 3; i++) await settle();
+
+  expect(sent).toEqual(["unstage"]);
+  errors.mockRestore();
 });

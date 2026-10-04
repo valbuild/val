@@ -6,6 +6,7 @@ import type {
   ValModules,
 } from "@valbuild/core";
 import type { System } from "../createSystem";
+import type { PatchGroupT } from "@valbuild/shared/internal";
 import { ValSystemProvider } from "./SystemContext";
 
 /**
@@ -65,6 +66,12 @@ export function ValStoreProvider({
     headVersion?: number;
     /** See {@link StatSnapshot.sourcesSha}. Which build answered. */
     sourcesSha?: string;
+    /** See {@link StatSnapshot.schemaSha}. Which schema that build runs. */
+    schemaSha?: string;
+    /** See {@link StatSnapshot.patchGroups}. Who holds what. */
+    patchGroups?: PatchGroupT[];
+    /** See {@link StatSnapshot.profileId}. Who is asking. */
+    profileId?: string | null;
   } | null;
   children: ReactNode;
 }) {
@@ -123,8 +130,9 @@ export function ValStoreProvider({
    *
    * `baseSha` is the part that unblocks writing, and `sourcesSha` says which
    * build answered, so its chain goes on that build's base (`BaseAlignment`).
-   * `schemaSha` / `jsonEntriesSha` are inputs to a refetch this system does not
-   * do yet.
+   * `schemaSha` says which schema that build runs, so a page running another
+   * is told to reload (`SchemaFreshnessWatch`). `jsonEntriesSha` is an input to
+   * a refetch this system does not do yet.
    */
   useEffect(() => {
     if (stat === null || !received) {
@@ -145,6 +153,12 @@ export function ValStoreProvider({
       // Which build answered, so a chain from a build other than the bundle's
       // is put on that build's base. See `BaseAlignment`.
       sourcesSha: stat.sourcesSha,
+      // Which schema that build runs. See `SchemaFreshnessWatch`.
+      schemaSha: stat.schemaSha,
+      // Who holds what, and who is asking, so the scope follows the server's
+      // groups. See `PatchStore.receiveStatGroups`.
+      patchGroups: stat.patchGroups,
+      profileId: stat.profileId,
     });
   }, [system, stat, received]);
 

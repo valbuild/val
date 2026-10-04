@@ -1,6 +1,7 @@
 import type { Json, ModuleFilePath, PatchId } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
 import type { ValClient, PatchGroupT } from "@valbuild/shared/internal";
+import { statSnapshotOf } from "./statSnapshotOf";
 import { createSystem, type System } from "../createSystem";
 import type { SchemaValidationBridge } from "../bridges";
 import { createSchemaValidationBridge } from "../../validation/schemaValidationBridge";
@@ -79,6 +80,20 @@ export function createValSystem(
    */
   let built: System | null = null;
   const system = createSystem({
+    /**
+     * A `POST /stat` with no body: what the server runs right now, rather than
+     * a long poll. Only its `schemaSha` is read — see `SchemaFreshnessWatch`.
+     */
+    readServedSchemaSha: async () => {
+      const res = await client("/stat", "POST", { body: null });
+      if (res.status !== 200) return null;
+      // Not only the hash: in `fs` mode this answer has drained the server's
+      // removed-patch notices, and they are delivered nowhere else.
+      if ("removed" in res.json && res.json.removed !== undefined) {
+        built?.stat.noteRemovedByServer(res.json.removed);
+      }
+      return res.json.schemaSha;
+    },
     /**
      * The base of the build a `/stat` came from, when it is not the bundle's.
      *
@@ -593,7 +608,13 @@ export function createValSystem(
                   : {}),
               };
             }
-            return { status: "ok" };
+            return {
+              status: "ok",
+              ...(res.json.headVersion !== undefined
+                ? { headVersion: res.json.headVersion }
+                : {}),
+              patchGroupId: res.json.patchGroupId,
+            };
           },
           unstagePatches: async (request) => {
             const res = await client("/patch-groups/~/patches", "DELETE", {
@@ -617,7 +638,13 @@ export function createValSystem(
                   : {}),
               };
             }
-            return { status: "ok" };
+            return {
+              status: "ok",
+              ...(res.json.headVersion !== undefined
+                ? { headVersion: res.json.headVersion }
+                : {}),
+              patchGroupId: res.json.patchGroupId,
+            };
           },
           savePatches: async ({
             patches,
@@ -747,19 +774,7 @@ export function createValSystem(
               // is the right answer for a `/stat` that is also failing.
               return;
             }
-            built?.stat.receiveStat({
-              baseSha: res.json.baseSha,
-              sourcesSha: res.json.sourcesSha,
-              patches: res.json.patches,
-              appliedPatches: res.json.appliedPatches,
-              headCommitSha: res.json.headCommitSha,
-              // The new head is the whole point of this call: a conflict means
-              // the parent we named was not it. `fs` answers without one.
-              headPatchId:
-                "headPatchId" in res.json ? res.json.headPatchId : undefined,
-              headVersion:
-                "headVersion" in res.json ? res.json.headVersion : undefined,
-            });
+            built?.stat.receiveStat(statSnapshotOf(res.json));
           },
         }
       : {}),

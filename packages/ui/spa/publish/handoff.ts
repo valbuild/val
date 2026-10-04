@@ -66,7 +66,11 @@ export type ToSite =
    * phone, rather than waiting for it, and holding the job, for ever.
    */
   | { type: "alive" }
-  | { type: "phase"; label: string; elapsedMs: number }
+  /**
+   * The step the tab is on, and -- from a tab that sends it -- how far the
+   * build has got, so the page that opened it draws the same bar.
+   */
+  | { type: "phase"; label: string; elapsedMs: number; percent?: number }
   /**
    * The tab's part of the job is over: handed to content, lost, or failed.
    * What the site's own job runner waits for; `done` follows, once the
@@ -413,6 +417,9 @@ function asToSite(message: unknown): ToSite | null {
       type: "phase",
       label: message.label,
       elapsedMs: message.elapsedMs,
+      ...("percent" in message && typeof message.percent === "number"
+        ? { percent: message.percent }
+        : {}),
     };
   }
   if (message.type === "job-result" && "result" in message) {

@@ -4,6 +4,7 @@ export {
   extractValModules,
   computeValModuleShas,
   computeSourcesSha,
+  computeSchemaSha,
   type ExtractedValModules,
   type ValModuleShaEntry,
   type ValModuleShas,

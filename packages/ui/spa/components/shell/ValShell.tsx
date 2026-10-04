@@ -47,7 +47,8 @@ import { pendingPatchSets } from "../../utils/computeChangedSourcePaths";
 import type { Profile } from "../ValProvider";
 import { cn } from "../designSystem/cn";
 import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
-import { PublishHandoffCard, handoffCardIsNews } from "./PublishHandoff";
+import { PublishHandoffCard, handoffCardInStudio } from "./PublishHandoff";
+import { usePublishIndicator } from "../../publish/usePublishIndicator";
 import { LoginDialog } from "../LoginDialog";
 import { PatchErrorsDialog } from "../PatchErrorsDialog";
 import { GlobalErrors } from "../GlobalErrors";
@@ -90,6 +91,7 @@ import {
   usePublishSummary,
   useStudioDeployState,
   useSiteHandoffState,
+  useOtherPublishJobs,
   useStudioIsDeployer,
   useHasNetChanges,
   useOwnPendingChangeCount,
@@ -255,7 +257,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const ownPendingChanges = useOwnPendingChangeCount();
   usePatchGroupWrites();
   usePatchGroupScope();
-  usePatchGroupFlush();
+  usePatchGroupIdentity();
   const portalContainer = useValPortal();
   const discardAll = useDiscardAll();
   /*
@@ -337,6 +339,20 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
 
   const data: ShellData =
     state.status === "success" ? state.data : EMPTY_SHELL_DATA;
+  const otherPublishJobs = useOtherPublishJobs();
+  const publishIndicatorState = usePublishIndicator({
+    own: deployState,
+    builder:
+      handoff.state?.kind === "running"
+        ? {
+            step: handoff.state.step,
+            percent: handoff.state.percent ?? null,
+          }
+        : null,
+    jobs: otherPublishJobs,
+    deployments: data.deployments,
+    studioIsDeployer,
+  });
 
   /**
    * The route, as a selection id.
@@ -1134,7 +1150,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         editorOverride={overrideEditor}
         publishSlot={<PublishButton />}
         publishState={publishState}
-        deployState={deployState}
+        publishIndicator={publishIndicatorState}
         saveState={saveState}
         autoSave={autoPublish}
         onAutoSaveChange={setAutoPublish}
@@ -1251,13 +1267,13 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         pendingChangesProgress={pendingChangesProgress}
         pendingChangesError={pendingChangesError}
       />
-      {handoff.state !== null && handoffCardIsNews(handoff.state) && (
+      {handoff.state !== null && handoffCardInStudio(handoff.state) && (
         /*
          * A publish this Studio handed to a builder tab, because it cannot
-         * build here. Above the status bar, where the deploy item is, or
-         * above the phone's bottom bar. Only while the tab has it: once it is
-         * content's, this Studio's own toast and deploy list follow it, and a
-         * card saying "Live" beside them said it twice.
+         * build here -- only when something needs doing about it: the tab was
+         * blocked, or it failed. While it builds, the status bar's indicator
+         * says so, with the tab's step; once it is content's, this Studio's
+         * own indicator and toast follow it. See `handoffCardInStudio`.
          */
         <div className={cn("fixed right-4 z-window", CLEAR_OF_BOTTOM_BARS)}>
           <PublishHandoffCard
@@ -1392,10 +1408,13 @@ function CompareView() {
  * scoped whether or not that screen was ever opened — otherwise the first
  * publish of a session ships the whole pending chain.
  *
- * This is the only place the scope is set from the annotation, and it runs
- * once: after it, the scope is local truth that only the user moves. Nothing
- * repairs the group when patch sets coalesce — see `PatchStagingProvider` for
- * why that is the policy — so this hook has no other job.
+ * The SEED runs once. After it, the scope moves on the user's own stages and
+ * unstages, on this tab's writes, and on members the server has put in this
+ * user's open group that this tab never decided about — a write from another
+ * tab or device, adopted by the system itself whenever the annotation or the
+ * group id moves (`adoptOwnGroupMembers` in `createSystem`). Nothing repairs
+ * the group when patch sets coalesce — see `PatchStagingProvider` for why that
+ * is the policy — so this hook has no other job.
  */
 function usePatchGroupScope(): void {
   const val = useValSystem();
@@ -1470,10 +1489,9 @@ function usePatchGroupChange(
        * perfectly usable in: before this author's first write on a branch, and
        * after every publish, since a publish closes the group and the next one
        * is created by the next write. This used to return here, so a stage made
-       * in either window moved the screen and persisted nothing. The system
-       * holds it and sends it when a group exists — the queue cannot live here,
-       * because this screen unmounts as soon as the user navigates off to make
-       * the write that creates the group.
+       * in either window moved the screen and persisted nothing. It is sent
+       * with no id instead, and the content API stages it into the caller's
+       * open group, creating one if there is none.
        */
       val.system.persistPatchGroupChange(patchGroupId, {
         type: change.type,
@@ -1536,29 +1554,17 @@ function usePatchGroupWrites(): void {
 }
 
 /**
- * Send the group changes that were made before there was a group.
+ * Tell the system which group is this user's.
  *
- * At SHELL level for the same reason the queue is on the system: the id
- * normally appears because the user left the review screen and typed
- * something, so the component that took the clicks is unmounted by the time
- * there is anywhere to send them. This one is mounted throughout.
- *
- * Runs on every id change, not only the first. A publish closes the group, so a
- * session goes through this repeatedly — and the id it flushes into is always
- * the current open group, never the closed one the clicks were made against.
+ * `publish` has to tell the content API which group its commit empties, and
+ * the scope needs to know whose group it follows before a stat has named the
+ * user.
  */
-function usePatchGroupFlush(): void {
+function usePatchGroupIdentity(): void {
   const val = useValSystem();
   const group = useCurrentPatchGroup();
 
-  useEffect(() => {
-    if (val === null || group.patchGroupId === undefined) return;
-    val.system.flushPatchGroupChanges(group.patchGroupId);
-  }, [val, group.patchGroupId]);
-
   /*
-   * And the same id reaches `publish`, which has to tell the content API which
-   * group its commit empties.
    *
    * Set from here because resolving "which group is mine" needs the author id
    * and the chain annotation, and `useCurrentPatchGroup` is the one place that

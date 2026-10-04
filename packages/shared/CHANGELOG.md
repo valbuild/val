@@ -1,5 +1,56 @@
 # @valbuild/shared
 
+## 0.139.1
+
+### Patch Changes
+
+- [#781](https://github.com/valbuild/val/pull/781) [`5ea70ce`](https://github.com/valbuild/val/commit/5ea70cefde3c74961cfa76b4a5f4c333b850b60a) Thanks [@freekh](https://github.com/freekh)! - Every open Studio now shows the same changes, staged the same way, as a reload would.
+
+  - Staging or unstaging a change in one browser or tab now shows up in your other open Studios right away, without a reload, and publishing from any of them ships the same set.
+  - A change you stage before you have made any edit of your own is saved straight away, instead of being kept in the tab until your first edit and lost if you reloaded first.
+  - If staging a change fails, the Studio now goes back to showing what is actually saved, instead of keeping the failed change on screen until a reload.
+
+  This needs the Val Build content service released alongside this version.
+
+- Updated dependencies [[`db13bed`](https://github.com/valbuild/val/commit/db13bed902f9f9147feb5be07ce47fe8b5b143f9)]:
+  - @valbuild/core@0.139.1
+
+## 0.139.0
+
+### Minor Changes
+
+- [#776](https://github.com/valbuild/val/pull/776) [`3eb5031`](https://github.com/valbuild/val/commit/3eb503167ae466ee586303c95efcc14665129481) Thanks [@freekh](https://github.com/freekh)! - **Breaking:** `.render({ as: "inline" })` now goes on the list, not on its items.
+
+  You now write `s.array(item).render({ as: "inline" })` and `s.record(item).render({ as: "inline" })`. Each item is then edited in its own row instead of in a preview row you click into. The list decides. The item schema stays reusable, and a page builder made of tagged blocks needs nothing on each block:
+
+  ```ts
+  // before
+  s.array(
+    s.discriminatedUnion(
+      "type",
+      hero.render({ as: "inline" }),
+      text.render({ as: "inline" }),
+    ),
+  );
+
+  // after
+  s.array(s.discriminatedUnion("type", hero, text)).render({ as: "inline" });
+  ```
+
+  What changed:
+
+  - Only `s.array()`, `s.record()` and `s.keyOf()` have `.render(...)` now. On every other schema the method is gone, so the old placement shows up as a type error. Move the render out one level.
+  - The render only affects the list's own items. A list nested inside one of those items keeps its default unless it has its own `.render`.
+  - `s.router()`, `s.imageset()` and `s.fileset()` throw if you give them a render, because pages and media have their own editors.
+  - `s.keyOf(...).render({ as: "inline" })` means the same as before: the selected entry's content is shown below the dropdown.
+
+  **Watch for one case that still compiles:** an array or record that is itself the item of another list. `s.record(s.array(s.string()).render({ as: "inline" }))` used to show the record's arrays inline. Now it shows each array's strings inline. To keep the old layout, write `s.record(s.array(s.string())).render({ as: "inline" })`.
+
+### Patch Changes
+
+- Updated dependencies [[`3eb5031`](https://github.com/valbuild/val/commit/3eb503167ae466ee586303c95efcc14665129481)]:
+  - @valbuild/core@0.139.0
+
 ## 0.138.4
 
 ### Patch Changes

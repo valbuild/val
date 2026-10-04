@@ -1,5 +1,76 @@
 # @valbuild/ui
 
+## 0.139.2
+
+### Patch Changes
+
+- [#789](https://github.com/valbuild/val/pull/789) [`4d9e12c`](https://github.com/valbuild/val/commit/4d9e12c5286f981c7a8a7820db1bf580e327d2ea) Thanks [@freekh](https://github.com/freekh)! - A change you publish no longer disappears from your open Studio while the site is building.
+
+  Before, when a publish was made for you on the server (or from another of your tabs or browsers), an open Studio could go back to showing the value from before the publish, and offer to publish again, until the page was reloaded. It now keeps showing the published value until the new build is live, the same as a reload does.
+
+- [#787](https://github.com/valbuild/val/pull/787) [`1c3eb3a`](https://github.com/valbuild/val/commit/1c3eb3af91f6dfeff94a95d80d5291a1acf1baf2) Thanks [@freekh](https://github.com/freekh)! - Staging or unstaging a change while the Studio is still saving an edit no longer gets undone by that save.
+
+  Saving an edit also adds it — and whatever it was written on top of — to your staged changes, and the server applies a save and a stage/unstage in whatever order they arrive. Unstage something while an edit on top of it was still being saved, and the save could land second and quietly stage it again; or the edit could end up staged without the change beneath it, which a reload then showed. Now a stage or unstage made during a save is sent once the save has been answered, an unstage takes with it any just-saved edit that depends on what it removes, and what is staged after a reload is what you last chose.
+
+## 0.139.1
+
+### Patch Changes
+
+- [#785](https://github.com/valbuild/val/pull/785) [`238057d`](https://github.com/valbuild/val/commit/238057d2f17a6bdd22d0bd4316dd8e3a8843a85d) Thanks [@freekh](https://github.com/freekh)! - Publishing has one indicator in the Studio's status bar, and it spins until every visitor sees the change.
+
+  - **Publishing 42% → Reaching visitors 94% → Live**, with a progress bar. Live is not the end: each edge may serve the previous version for up to a minute after the site switches, so the indicator keeps spinning, and the bar keeps filling, until that has passed. When it stops, every visitor sees the change. The step ("Building", "Uploading 3 of 7") is on hover.
+  - **It spins for anyone's publish**, not only yours: another editor's publish shows here too.
+  - **One "Published" toast**, for the person who published, when every visitor sees the change, instead of at the moment the site switched.
+  - **The Deployments list no longer opens by itself.** Click the indicator to see it.
+  - **Safari:** the Studio no longer shows a second progress card while the builder tab works. The builder tab now reports its percentage, so the Studio's bar matches it, and the card only appears when the tab was blocked or failed.
+
+- [#777](https://github.com/valbuild/val/pull/777) [`8f08418`](https://github.com/valbuild/val/commit/8f0841882d13c991d31dfbb03dd4873c9ab636b4) Thanks [@freekh](https://github.com/freekh)! - Changes you make in one browser or tab now show up in your other open Studios without a reload, and are included when you publish from them.
+
+  Before, a Studio that was already open kept showing the old value for a change you had made somewhere else, and publishing from it left that change out, until the page was reloaded. A change you have unstaged in a Studio stays unstaged there.
+
+- [#785](https://github.com/valbuild/val/pull/785) [`238057d`](https://github.com/valbuild/val/commit/238057d2f17a6bdd22d0bd4316dd8e3a8843a85d) Thanks [@freekh](https://github.com/freekh)! - The publishing percentage no longer falls back after the upload. A publish built in the Studio tab used to climb to about 60%, drop to 8% while the tab handed the build over, and then jump to 64%. It now goes straight from the upload to the site check.
+
+- [#780](https://github.com/valbuild/val/pull/780) [`db13bed`](https://github.com/valbuild/val/commit/db13bed902f9f9147feb5be07ce47fe8b5b143f9) Thanks [@freekh](https://github.com/freekh)! - When a new version of your site with a changed schema is deployed while Val Studio is open, the Studio now asks you to reload before you keep editing, instead of carrying on with the old schema.
+
+- [#781](https://github.com/valbuild/val/pull/781) [`5ea70ce`](https://github.com/valbuild/val/commit/5ea70cefde3c74961cfa76b4a5f4c333b850b60a) Thanks [@freekh](https://github.com/freekh)! - Every open Studio now shows the same changes, staged the same way, as a reload would.
+
+  - Staging or unstaging a change in one browser or tab now shows up in your other open Studios right away, without a reload, and publishing from any of them ships the same set.
+  - A change you stage before you have made any edit of your own is saved straight away, instead of being kept in the tab until your first edit and lost if you reloaded first.
+  - If staging a change fails, the Studio now goes back to showing what is actually saved, instead of keeping the failed change on screen until a reload.
+
+  This needs the Val Build content service released alongside this version.
+
+## 0.139.0
+
+### Minor Changes
+
+- [#776](https://github.com/valbuild/val/pull/776) [`3eb5031`](https://github.com/valbuild/val/commit/3eb503167ae466ee586303c95efcc14665129481) Thanks [@freekh](https://github.com/freekh)! - **Breaking:** `.render({ as: "inline" })` now goes on the list, not on its items.
+
+  You now write `s.array(item).render({ as: "inline" })` and `s.record(item).render({ as: "inline" })`. Each item is then edited in its own row instead of in a preview row you click into. The list decides. The item schema stays reusable, and a page builder made of tagged blocks needs nothing on each block:
+
+  ```ts
+  // before
+  s.array(
+    s.discriminatedUnion(
+      "type",
+      hero.render({ as: "inline" }),
+      text.render({ as: "inline" }),
+    ),
+  );
+
+  // after
+  s.array(s.discriminatedUnion("type", hero, text)).render({ as: "inline" });
+  ```
+
+  What changed:
+
+  - Only `s.array()`, `s.record()` and `s.keyOf()` have `.render(...)` now. On every other schema the method is gone, so the old placement shows up as a type error. Move the render out one level.
+  - The render only affects the list's own items. A list nested inside one of those items keeps its default unless it has its own `.render`.
+  - `s.router()`, `s.imageset()` and `s.fileset()` throw if you give them a render, because pages and media have their own editors.
+  - `s.keyOf(...).render({ as: "inline" })` means the same as before: the selected entry's content is shown below the dropdown.
+
+  **Watch for one case that still compiles:** an array or record that is itself the item of another list. `s.record(s.array(s.string()).render({ as: "inline" }))` used to show the record's arrays inline. Now it shows each array's strings inline. To keep the old layout, write `s.record(s.array(s.string())).render({ as: "inline" })`.
+
 ## 0.138.6
 
 ### Patch Changes

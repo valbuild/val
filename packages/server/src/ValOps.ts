@@ -38,6 +38,7 @@ import {
 import { TSOps, insertValJsonEntry, removeValJsonEntry } from "./patch/ts/ops";
 import { analyzeValModule } from "./patch/ts/valModule";
 import type { HistoryError } from "./history/HistoryError";
+import type { PatchGroupT } from "@valbuild/shared/internal";
 import type {
   AffectedFile,
   StoredModuleVersion,
@@ -3166,6 +3167,14 @@ export type OrderedPatches = {
    * reasons.
    */
   headVersion?: number;
+  /**
+   * Every group on the branch and which of these patches each holds, read in
+   * the same transaction as the list and {@link headVersion}.
+   *
+   * Absent where the content service has no groups, or predates sending them
+   * here. Only `ValOpsHttp` fills it.
+   */
+  patchGroups?: PatchGroupT[];
   error?: GenericErrorMessage;
   errors?: PatchReadError[];
   unauthorized?: boolean;
@@ -3182,6 +3191,8 @@ export type OrderedPatchesMetadata = {
   headPatchId?: OrderedPatches["headPatchId"];
   /** See {@link OrderedPatches.headVersion}. */
   headVersion?: OrderedPatches["headVersion"];
+  /** See {@link OrderedPatches.patchGroups}. */
+  patchGroups?: OrderedPatches["patchGroups"];
   error?: GenericErrorMessage;
   errors?: OrderedPatches["errors"];
   unauthorized?: boolean;

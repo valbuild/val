@@ -91,8 +91,28 @@ const GetApplicablePatches = z.object({
           commitSha: z.string(),
         })
         .nullable(),
+      /**
+       * The groups this patch is a member of. Read in the SAME transaction as
+       * the list and its `headVersion`, which is the point: see
+       * `OrderedPatches.patchGroups`. Optional for an older content service.
+       */
+      patchGroupIds: z.array(z.string()).optional(),
     }),
   ),
+  /**
+   * The groups on the branch, without their members — those are on the
+   * patches above. Optional for a content service that predates groups.
+   */
+  patchGroups: z
+    .array(
+      z.object({
+        patchGroupId: z.string(),
+        authorId: z.string().nullable(),
+        createdAt: z.string(),
+        publishedAt: z.string().nullable(),
+      }),
+    )
+    .optional(),
   /**
    * The head of the chain. See `OrderedPatches.headPatchId`. Optional because
    * a content service that predates it sends nothing.
@@ -402,11 +422,20 @@ const PatchGroupsResponse = z.object({
 });
 
 const PatchGroupMutationResponse = z.object({
-  patchGroupId: z.string(),
+  /** `null` for an unstage of `~` when the caller has no open group. */
+  patchGroupId: z.string().nullable(),
   patchIds: z.array(PatchId),
+  /** The chain version the change committed at. Absent from an older `home`. */
+  headVersion: z.number().optional(),
 });
 export type PatchGroupMutationResult =
-  | { patchIds: PatchId[]; status?: undefined; error?: undefined }
+  | {
+      patchIds: PatchId[];
+      patchGroupId: string | null;
+      headVersion?: number;
+      status?: undefined;
+      error?: undefined;
+    }
   | {
       patchIds: PatchId[];
       status: 403 | 409 | 500;
@@ -424,6 +453,9 @@ const NonceResponse = z.object({
  * in one request share an answer, and the next request asks again.
  */
 const PATCH_GROUPS_CACHE_MS = 1000;
+
+/** The content API's id for "the caller's open group on the branch". */
+const OWN_OPEN_GROUP = "~";
 
 export class ValOpsHttp extends ValOps {
   private readonly authHeaders:
@@ -1077,6 +1109,8 @@ export class ValOpsHttp extends ValOps {
         headVersion?: number;
         /** The newest commit, which is the publish head. */
         headCommitSha?: string;
+        /** Who holds what, at `headVersion`. See {@link OrderedPatches.patchGroups}. */
+        patchGroups?: PatchGroupT[];
       }
     | {
         type: "error";
@@ -1174,6 +1208,15 @@ export class ValOpsHttp extends ValOps {
         : {}),
       ...(allPatchData.headVersion !== undefined
         ? { headVersion: allPatchData.headVersion }
+        : {}),
+      /*
+       * Who holds what, read with the list and its version. On every stat, so
+       * a Studio's view of the groups is never older than its view of the
+       * chain — which is what lets a stage made in another browser show here
+       * without a reload. See `OrderedPatches.patchGroups`.
+       */
+      ...(allPatchData.patchGroups !== undefined
+        ? { patchGroups: allPatchData.patchGroups }
         : {}),
       /*
        * The PUBLISH head, which is not `commitSha`.
@@ -1532,11 +1575,41 @@ export class ValOpsHttp extends ValOps {
               });
             }
           }
+          /*
+           * Membership, folded from the per-patch annotation onto the groups.
+           *
+           * From THIS response and not from `GET /patch-groups`, because only
+           * this one is consistent with the list and the version beside it:
+           * the content service reads all three in one transaction. A group
+           * list fetched separately can be older or newer than the chain it is
+           * shown with — and the Studio decides what an editor sees, and what
+           * a publish ships, from the pair.
+           *
+           * A group holding none of the listed patches is still listed, with
+           * no members: "groups exist and you hold nothing here" is a real
+           * answer, and different from "this content service has no groups".
+           */
+          let patchGroups: PatchGroupT[] | undefined;
+          if (data.patchGroups !== undefined) {
+            const members = new Map<string, PatchId[]>();
+            for (const patch of data.patches) {
+              for (const groupId of patch.patchGroupIds ?? []) {
+                const list = members.get(groupId) ?? [];
+                list.push(patch.patchId as PatchId);
+                members.set(groupId, list);
+              }
+            }
+            patchGroups = data.patchGroups.map((group) => ({
+              ...group,
+              patchIds: members.get(group.patchGroupId) ?? [],
+            }));
+          }
           return {
             commits,
             deployments,
             patches,
             errors,
+            ...(patchGroups !== undefined ? { patchGroups } : {}),
             ...(data.headPatchId !== undefined
               ? { headPatchId: data.headPatchId }
               : {}),
@@ -1617,7 +1690,11 @@ export class ValOpsHttp extends ValOps {
    * legible after the fact.
    */
   async stagePatches(
-    patchGroupId: string,
+    /**
+     * The group to stage into, or `undefined` for the caller's open group on
+     * this branch — `~` on the content API, which creates it if there is none.
+     */
+    patchGroupId: string | undefined,
     /** What the user asked to stage. */
     patchIds: PatchId[],
     /**
@@ -1652,11 +1729,12 @@ export class ValOpsHttp extends ValOps {
       // Encoded: patchGroupId arrives in a request body, so an unencoded value
       // like "../../commit" would reach a different endpoint carrying this
       // project's auth headers.
-      `patch-groups/${encodeURIComponent(patchGroupId)}/patches`,
+      `patch-groups/${encodeURIComponent(patchGroupId ?? OWN_OPEN_GROUP)}/patches`,
       {
         patchIds,
         withPatchIds,
         coreVersion: Internal.VERSION.core,
+        ...this.ownGroupBranch(),
       },
       authorId,
     );
@@ -1670,7 +1748,8 @@ export class ValOpsHttp extends ValOps {
    * what `withPatchIds` carries.
    */
   async unstagePatches(
-    patchGroupId: string,
+    /** See {@link stagePatches}. With no open group, there is nothing to remove. */
+    patchGroupId: string | undefined,
     /** What the user asked to unstage. */
     patchIds: PatchId[],
     /** What has to go with it: everything built on top of it. */
@@ -1680,8 +1759,8 @@ export class ValOpsHttp extends ValOps {
   ): Promise<PatchGroupMutationResult> {
     return this.mutatePatchGroup(
       "DELETE",
-      `patch-groups/${encodeURIComponent(patchGroupId)}/patches`,
-      { patchIds, withPatchIds },
+      `patch-groups/${encodeURIComponent(patchGroupId ?? OWN_OPEN_GROUP)}/patches`,
+      { patchIds, withPatchIds, ...this.ownGroupBranch() },
       authorId,
     );
   }
@@ -1837,6 +1916,15 @@ export class ValOpsHttp extends ValOps {
     }
   }
 
+  /**
+   * Which branch `~` means, where this build knows: the branch it reads
+   * `applicable/patches` on, so the group staged into is the group listed.
+   * Without one the content API uses the project's own, as it does for reads.
+   */
+  private ownGroupBranch(): { branch?: string } {
+    return this.git ? { branch: this.git.branch } : {};
+  }
+
   private async mutatePatchGroup(
     method: "POST" | "DELETE",
     path: string,
@@ -1874,7 +1962,13 @@ export class ValOpsHttp extends ValOps {
       if (res.ok) {
         const parsed = PatchGroupMutationResponse.safeParse(await res.json());
         if (parsed.success) {
-          return { patchIds: parsed.data.patchIds };
+          return {
+            patchIds: parsed.data.patchIds,
+            patchGroupId: parsed.data.patchGroupId,
+            ...(parsed.data.headVersion !== undefined
+              ? { headVersion: parsed.data.headVersion }
+              : {}),
+          };
         }
         return {
           status: 500,

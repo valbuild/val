@@ -734,6 +734,14 @@ export const Api = {
                * highest version. Optional, for the same reason `headPatchId` is.
                */
               headVersion: z.number().optional(),
+              /**
+               * Every group on the branch and which listed patches it holds,
+               * read with the list and `headVersion`. What a Studio's view of
+               * the groups is taken from, so a stage or an unstage made in
+               * another browser reaches it with the next stat. Absent where
+               * the content service has no groups.
+               */
+              patchGroups: z.array(PatchGroup).optional(),
               commits: z.array(ValCommit),
               /**
                * The publishes the content service knows about.
@@ -1162,7 +1170,12 @@ export const Api = {
       req: {
         body: z
           .object({
-            patchGroupId: z.string(),
+            /**
+             * The group to stage into. Absent means the caller's open group on
+             * the branch, created if there is none — which is what the Studio
+             * sends, so a stage never has to wait for a group to exist.
+             */
+            patchGroupId: z.string().optional(),
             /** What the user asked to stage. */
             patchIds: z.array(PatchId),
             /*
@@ -1206,8 +1219,15 @@ export const Api = {
         z.object({
           status: z.literal(200),
           json: z.object({
-            patchGroupId: z.string(),
+            /** `null` for an unstage when the caller has no open group. */
+            patchGroupId: z.string().nullable(),
             patchIds: z.array(PatchId),
+            /**
+             * The chain version the change committed at. The client keeps its
+             * own view of the change until a stat at least this new shows it.
+             * Absent from a content service that predates it.
+             */
+            headVersion: z.number().optional(),
           }),
         }),
       ]),
@@ -1216,7 +1236,8 @@ export const Api = {
       req: {
         body: z
           .object({
-            patchGroupId: z.string(),
+            /** See the PUT. Absent with no open group is a no-op. */
+            patchGroupId: z.string().optional(),
             /** What the user asked to unstage. */
             patchIds: z.array(PatchId),
             /** What has to go with it: everything built on top of it. */
@@ -1248,8 +1269,15 @@ export const Api = {
         z.object({
           status: z.literal(200),
           json: z.object({
-            patchGroupId: z.string(),
+            /** `null` for an unstage when the caller has no open group. */
+            patchGroupId: z.string().nullable(),
             patchIds: z.array(PatchId),
+            /**
+             * The chain version the change committed at. The client keeps its
+             * own view of the change until a stat at least this new shows it.
+             * Absent from a content service that predates it.
+             */
+            headVersion: z.number().optional(),
           }),
         }),
       ]),

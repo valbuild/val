@@ -157,16 +157,14 @@ describe("SerializedSchema keeps every field the schema wrote", () => {
     {},
   );
   const cases: [string, Schema<SelectorSource>][] = [
-    // `render` and `preview` are the two fields that moved into
-    // `commonSchemaFields`, so one case has to actually SERIALIZE them or
-    // deleting either line from that object leaves this whole suite green.
+    // `preview` lives in `commonSchemaFields`, so one case has to actually
+    // SERIALIZE it or deleting that line leaves this whole suite green.
     [
       "string",
       s
         .string()
         .validate(() => false)
         .describe("d")
-        .render({ as: "inline" })
         .preview(({ val }) => ({ title: val })),
     ],
     // The regexp MESSAGE is a separate branch of the parser from the pattern,
@@ -205,12 +203,15 @@ describe("SerializedSchema keeps every field the schema wrote", () => {
         .validate(() => false)
         .describe("d"),
     ],
+    // `render` is declared on array, record and keyOf alone, each in its own
+    // zod object — so each of the three cases serializes one.
     [
       "array",
       s
         .array(s.string())
         .validate(() => false)
-        .describe("d"),
+        .describe("d")
+        .render({ as: "inline" }),
     ],
     [
       "enum",
@@ -238,14 +239,16 @@ describe("SerializedSchema keeps every field the schema wrote", () => {
       s
         .record(s.string())
         .validate(() => false)
-        .describe("d"),
+        .describe("d")
+        .render({ as: "inline" }),
     ],
     [
       "keyOf",
       s
         .keyOf(gallery)
         .validate(() => false)
-        .describe("d"),
+        .describe("d")
+        .render({ as: "inline" }),
     ],
     [
       "image",

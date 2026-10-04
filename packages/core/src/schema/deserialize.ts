@@ -58,10 +58,6 @@ function deserializeSchemaImpl(
         serialized.opt,
         serialized.raw,
         [],
-        // A render is static data, so it survives serialization and must be
-        // carried back: it is the schema's own configuration now, not something
-        // recomputed from an instance.
-        serialized.render ?? null,
         false,
         false,
         serialized.description,
@@ -76,7 +72,6 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
-        serialized.render ?? null,
       );
     case "boolean":
       return new BooleanSchema(
@@ -85,7 +80,6 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
-        serialized.render ?? null,
       );
     case "number":
       return new NumberSchema(
@@ -95,7 +89,6 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
-        serialized.render ?? null,
       );
     case "object":
       return new ObjectSchema(
@@ -109,7 +102,6 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
-        serialized.render ?? null,
       );
     case "settings":
       return new SettingsSchema(
@@ -150,7 +142,6 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
-        serialized.render ?? null,
       );
     case "enum":
       return new EnumSchema(
@@ -160,7 +151,6 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
-        serialized.render ?? null,
       );
     case "richtext": {
       const deserializedOptions: RichTextOptions & {
@@ -188,7 +178,6 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
-        serialized.render ?? null,
       );
     }
     case "record":
@@ -243,7 +232,6 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
-        serialized.render ?? null,
       );
     }
     case "route": {
@@ -270,7 +258,6 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
-        serialized.render ?? null,
       );
     }
     case "file":
@@ -283,7 +270,6 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
-        serialized.render ?? null,
       );
     case "image":
       return new ImageSchema(
@@ -295,7 +281,6 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
-        serialized.render ?? null,
       );
     case "video":
       return new VideoSchema(
@@ -324,7 +309,6 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
-        serialized.render ?? null,
       );
     case "dateTime":
       return new DateTimeSchema(
@@ -334,7 +318,6 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
-        serialized.render ?? null,
       );
     case "color":
       return new ColorSchema(
@@ -344,7 +327,6 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
-        serialized.render ?? null,
       );
     case "code":
       return new CodeSchema(
@@ -354,7 +336,6 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
-        serialized.render ?? null,
       );
     case "view":
       return new ValViewSchema(
@@ -365,7 +346,6 @@ function deserializeSchemaImpl(
         serialized.readonly ?? false,
         serialized.hidden ?? false,
         serialized.description,
-        serialized.render ?? null,
       );
     default: {
       const exhaustiveCheck: never = serialized;

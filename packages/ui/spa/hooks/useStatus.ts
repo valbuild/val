@@ -2,6 +2,7 @@ import { Patch } from "@valbuild/core/patch";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import {
   newestCommitSha,
+  PatchGroup,
   ValClient,
   ValCommit,
   ValDeployment,
@@ -58,6 +59,16 @@ const WebSocketServerMessage = z.union([
     headPatchId: PatchId.nullable().optional(),
     /** The chain version of that head. See `headVersion` on {@link StatData}. */
     headVersion: z.number().optional(),
+    /**
+     * Who holds what, read with `patches` and `headVersion`. Absent from a
+     * content service that predates sending it.
+     */
+    patchGroups: z.array(PatchGroup).optional(),
+    /**
+     * Of `patches`, the ones already published, read with them. Absent from a
+     * content service that predates sending it. See {@link chainOfMessage}.
+     */
+    appliedPatches: z.array(PatchId).optional(),
   }),
   z.object({
     type: z.literal("deployment"),
@@ -70,17 +81,22 @@ const WebSocketServerMessage = z.union([
   /*
    * A publish job moved (valbuild/home, docs/app-mode.md, "Publishing is a
    * queued job"). A NUDGE, not the state: the Studio re-reads the requests it
-   * pressed, which is where Live is decided. Only the id is read, so the rest
-   * of what content sends may change without this parse failing.
+   * pressed, which is where Live is decided. Only the id and the status are
+   * read -- the status so a publish another editor pressed shows here too --
+   * and the status is optional, so the rest of what content sends may change
+   * without this parse failing.
    */
   z.object({
     type: z.literal("publish-job"),
-    job: z.object({ id: z.string() }),
+    job: z.object({ id: z.string(), status: z.string().optional() }),
   }),
   z.object({
     type: z.literal("subscribed"),
   }),
 ]);
+
+/** A publish job moved: which, and its status if content said. */
+export type PublishJobNudge = { id: string; status: string | null };
 
 export const StatData = z.object({
   type: z.union([
@@ -201,6 +217,11 @@ export const StatData = z.object({
    */
   headVersion: z.number().optional(),
   /**
+   * Every group on the branch and what each holds, read with `patches` and
+   * `headVersion`. `http` only, and absent where there are no groups.
+   */
+  patchGroups: z.array(PatchGroup).optional(),
+  /**
    * The newest commit, which is the PUBLISH head.
    *
    * Carried to `/save` so a publish decided against a world somebody else has
@@ -272,16 +293,16 @@ export function useStatus(client: ValClient) {
 
   const statIdRef = useRef(0);
   /** Who hears a `publish-job` nudge. See `subscribePublishJobs`. */
-  const publishJobListeners = useRef(new Set<(jobId: string) => void>());
-  const onPublishJob = useCallback((jobId: string) => {
-    for (const listener of publishJobListeners.current) listener(jobId);
+  const publishJobListeners = useRef(new Set<(job: PublishJobNudge) => void>());
+  const onPublishJob = useCallback((job: PublishJobNudge) => {
+    for (const listener of publishJobListeners.current) listener(job);
   }, []);
   /**
    * Hear every `publish-job` nudge the socket delivers. A stable function, so
    * a subscriber's effect runs once.
    */
   const subscribePublishJobs = useCallback(
-    (listener: (jobId: string) => void) => {
+    (listener: (job: PublishJobNudge) => void) => {
       publishJobListeners.current.add(listener);
       return () => {
         publishJobListeners.current.delete(listener);
@@ -385,6 +406,52 @@ export function useStatus(client: ValClient) {
   ] as const;
 }
 
+type PatchesMessage = Extract<
+  z.infer<typeof WebSocketServerMessage>,
+  { type: "patches" }
+>;
+
+/**
+ * What a `patches` message replaces in the stat: the chain, read at one moment.
+ *
+ * The client takes this message as its new chain without asking `/stat`
+ * again, so everything that describes the chain comes from the message, never
+ * from the stat before it:
+ *
+ * - the head and its version: a head older than the list it came with is a
+ *   parent the server will refuse;
+ * - the groups: read at that version. A message without them clears the old
+ *   ones rather than keeping them -- the old groups beside the new version
+ *   would say a stage or unstage the server has made is not there, and the
+ *   scope would follow that;
+ * - which of the patches are already published. This one was kept from the
+ *   previous stat, and a publish is exactly the change that moves both at
+ *   once: it takes the patches out of every group and marks them applied. With
+ *   the new groups and the old applied list, the publisher's patches looked
+ *   like pending ones that had left their group -- unstaged -- so the
+ *   published change vanished from the Studio until a reload, which reads both
+ *   from one `/stat`. The `/stat` poll is twenty minutes apart once a socket is
+ *   up, so nothing else corrected it.
+ *
+ * Applied is one-way, so a content service that does not send the list (one
+ * that predates it) keeps the previous one: incomplete, never wrong.
+ */
+export function chainOfMessage(
+  prev: Pick<StatData, "appliedPatches">,
+  message: PatchesMessage,
+): Pick<
+  StatData,
+  "patches" | "headPatchId" | "headVersion" | "patchGroups" | "appliedPatches"
+> {
+  return {
+    patches: message.patches,
+    headPatchId: message.headPatchId,
+    headVersion: message.headVersion,
+    patchGroups: message.patchGroups,
+    appliedPatches: message.appliedPatches ?? prev.appliedPatches,
+  };
+}
+
 /** How long the Studio leaves between `/stat` calls once a socket is up. */
 const WebSocketStatInterval = 2 * 60 * 10 * 1000;
 
@@ -459,7 +526,7 @@ async function execStat(
   setAuthenticationLoadingIfNotAuthenticated: () => void,
   setIsAuthenticated: Dispatch<SetStateAction<AuthenticationState>>,
   setServiceUnavailable: Dispatch<SetStateAction<boolean | undefined>>,
-  onPublishJob: (jobId: string) => void,
+  onPublishJob: (job: PublishJobNudge) => void,
 ) {
   const id = ++statIdRef.current;
   let body = null;
@@ -559,12 +626,7 @@ async function execStat(
                       status: "ws-message-received",
                       data: {
                         ...prev.data,
-                        patches: message.patches,
-                        // Replaced together with the list, never kept from
-                        // the previous stat: a head older than the list it
-                        // came with is a parent the server will refuse.
-                        headPatchId: message.headPatchId,
-                        headVersion: message.headVersion,
+                        ...chainOfMessage(prev.data, message),
                       },
                       waitStart:
                         "waitStart" in prev ? prev.waitStart : Date.now(),
@@ -582,7 +644,10 @@ async function execStat(
                   return prev;
                 });
               } else if (message.type === "publish-job") {
-                onPublishJob(message.job.id);
+                onPublishJob({
+                  id: message.job.id,
+                  status: message.job.status ?? null,
+                });
               } else if (message.type === "subscribed") {
                 console.debug("Subscribed!");
               } else if (message.type === "commit") {

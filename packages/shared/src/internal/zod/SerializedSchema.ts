@@ -30,7 +30,8 @@ import { ModuleFilePath } from "./ModuleFilePath";
 
 // A render is static config, so unlike a `preview` it travels WHOLE — this
 // is the field the editor reads the layout from. See `core/src/render.ts`.
-// Every field can carry `{ as: "inline" }`, and that is all a render says.
+// Only array, record and keyOf carry one, and `{ as: "inline" }` is all it
+// says. A stale `render` on any other schema is stripped here, harmlessly.
 // NB: these z.objects STRIP unknown keys, so a render variant that is not
 // declared here is silently dropped in transit — add it here when it is added
 // to `render.ts`.
@@ -50,7 +51,6 @@ const FieldRender = InlineRender.optional();
  * - those differ per schema, so there is nothing to share.
  */
 const commonSchemaFields = {
-  render: FieldRender,
   preview: z.literal(true).optional(),
   // Whether the schema declares a `.validate()`. The function cannot serialize,
   // so this flag is what tells the Studio to run the custom validators on the
@@ -133,6 +133,7 @@ export const SerializedArraySchema: z.ZodType<SerializedArraySchemaT> = z.lazy(
   () => {
     return z.object({
       ...commonSchemaFields,
+      render: FieldRender,
       type: z.literal("array"),
       item: SerializedSchema,
       opt: z.boolean(),
@@ -255,6 +256,7 @@ export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
       z
         .object({
           ...commonSchemaFields,
+          render: FieldRender,
           type: z.literal("record"),
           item: SerializedSchema,
           opt: z.boolean(),
@@ -287,6 +289,7 @@ export const SerializedKeyOfSchema: z.ZodType<SerializedKeyOfSchemaT> = z.lazy(
   () => {
     return z.object({
       ...commonSchemaFields,
+      render: FieldRender,
       type: z.literal("keyOf"),
       path: SourcePath,
       schema: z
@@ -394,7 +397,6 @@ export const SerializedCodeSchema: z.ZodType<SerializedCodeSchemaT> = z.object({
 export const SerializedLocaleSchema: z.ZodType<SerializedLocaleSchemaT> =
   z.object({
     type: z.literal("locale"),
-    render: FieldRender,
     preview: z.literal(true).optional(),
     opt: z.boolean(),
     customValidate: z.boolean().optional(),
@@ -429,7 +431,7 @@ export const SerializedRouteSchema: z.ZodType<SerializedRouteSchemaT> =
 
 // A settings module, and each section inside one, serialize as this - the
 // shape is recursive because `items` holds sections which are themselves
-// settings schemas. `s.settings()` never writes render/preview/customValidate
+// settings schemas. `s.settings()` never writes preview/customValidate
 // (see core/src/schema/settings.ts), but they are accepted here because they
 // are part of the declared type.
 export const SerializedSettingsSchema: z.ZodType<SerializedSettingsSchemaT> =
@@ -457,7 +459,6 @@ export const SerializedSettingsSchema: z.ZodType<SerializedSettingsSchemaT> =
  */
 export const SerializedValViewSchema = z.object({
   type: z.literal("view"),
-  render: FieldRender.optional(),
   moduleFilePath: ModuleFilePath,
   opt: z.literal(false),
   readonly: z.boolean().optional(),

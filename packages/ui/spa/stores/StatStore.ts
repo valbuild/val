@@ -1,14 +1,14 @@
 import type { PatchId } from "@valbuild/core";
+import type { PatchGroupT } from "@valbuild/shared/internal";
 import { StoreBus } from "./StoreBus";
 import type { SystemEvent } from "./types";
 
 /**
  * The subset of the `/stat` response this prototype reacts to.
  *
- * The real response also carries `schemaSha` / `sourcesSha`, which is how the
- * schema and source stores learn they need to refetch. Left out here because
- * nothing exercises it yet — the field it would add is an input to
- * `SchemaStore.receive`, not a new event.
+ * `sourcesSha` and `schemaSha` say which build answered: the first so its
+ * chain is put on that build's source (`BaseAlignment`), the second so a
+ * Studio running another schema is told to reload (`SchemaFreshnessWatch`).
  *
  * `baseSha` IS here, because the write path needs it and nothing else can supply
  * it: a `PUT /patches` against an empty chain names `{ type: "head", headBaseSha }`
@@ -102,6 +102,28 @@ export type StatSnapshot = {
    * base the Studio has, as it always was.
    */
   sourcesSha?: string;
+  /**
+   * The answering build's `schemaSha` — the same fold `HostStore` runs over the
+   * bundle's schemas, so the two can be compared. See `SchemaFreshnessWatch`.
+   *
+   * Optional: absent means "not reported", and nothing is concluded from it.
+   */
+  schemaSha?: string;
+  /**
+   * Every group on the branch and which of `patches` each holds, read in the
+   * same transaction as the list and {@link headVersion}.
+   *
+   * What this client's view of the groups is taken from: on every stat, so a
+   * stage or an unstage made in another browser reaches this one with the next
+   * stat rather than the next reload. See `PatchStore.receiveStatGroups`.
+   * Absent where the server has no groups or predates sending them.
+   */
+  patchGroups?: PatchGroupT[];
+  /**
+   * Who `/stat` says is asking, so the system can tell which group is theirs
+   * without waiting for the shell to. `null` where it does not know.
+   */
+  profileId?: string | null;
 };
 
 /**
@@ -140,6 +162,10 @@ export class StatStore {
   /** The version of the ADOPTED head, which is {@link headPatchId}'s. */
   private headVersion: number | undefined = undefined;
   private baseSha: string | null = null;
+  /** See {@link currentSchemaSha}. */
+  private schemaSha: string | null = null;
+  /** See {@link currentProfileId}. */
+  private profileId: string | null = null;
   /** The publish head. See {@link StatSnapshot.headCommitSha}. */
   private headCommitSha: string | null = null;
   /**
@@ -184,11 +210,33 @@ export class StatStore {
    * this stat is adopted after the fetch -- and only if no newer stat arrived
    * meanwhile, since a newer answer is the one to believe.
    */
-  receiveStat(snapshot: StatSnapshot): void {
+  receiveStat(received: StatSnapshot): void {
+    /*
+     * The removed-patch notices first, once, and whatever becomes of the rest.
+     * The server drains them as it answers, so they are news whether or not
+     * this snapshot's chain is ever adopted — dropped as older, overtaken
+     * while prepared — and re-adopting it (`readopt`) must not say it twice.
+     * Only one thing listens, and that thing is the toast.
+     */
+    const { removed, ...snapshot } = received;
+    if (removed !== undefined) this.noteRemovedByServer(removed);
     if (this.isOlderThanNewest(snapshot)) {
       // Older than an answer already in hand. Dropped before the ticket
       // moves, so it cannot cancel a newer stat still being prepared.
       return;
+    }
+    if (
+      snapshot.schemaSha !== undefined &&
+      snapshot.schemaSha !== this.schemaSha
+    ) {
+      /*
+       * After the ordering check — a late answer from before a deploy would
+       * otherwise name the old schema to a page that has just reloaded into
+       * the new one — but before the preparer: a stat held back while another
+       * build's base is fetched still says which schema that build runs.
+       */
+      this.schemaSha = snapshot.schemaSha;
+      this.events.emit({ type: "stat:schema", schemaSha: snapshot.schemaSha });
     }
     if (snapshot.headVersion !== undefined) {
       this.newestHeadVersion = snapshot.headVersion;
@@ -261,22 +309,61 @@ export class StatStore {
         this.supersededHead = null;
       }
     }
+    if (snapshot.profileId !== undefined) {
+      this.profileId = snapshot.profileId;
+    }
     this.events.emit({
       type: "stat:receive",
       patches: [...this.patches],
       ...(snapshot.appliedPatches !== undefined
         ? { appliedPatches: [...snapshot.appliedPatches] }
         : {}),
+      ...(snapshot.patchGroups !== undefined
+        ? { patchGroups: snapshot.patchGroups }
+        : {}),
+      ...(snapshot.headVersion !== undefined
+        ? { headVersion: snapshot.headVersion }
+        : {}),
     });
-    if (snapshot.removed !== undefined && snapshot.removed.length > 0) {
-      // A separate event, after the id list: what this says is not "the chain
-      // moved", it is "work you made no longer exists anywhere". Only one thing
-      // listens for it, and that thing is the toast.
-      this.events.emit({
-        type: "patch:removed-by-server",
-        removed: snapshot.removed,
-      });
-    }
+  }
+
+  /**
+   * The server says it removed these unpublished patches.
+   *
+   * Public for the `/stat` reads made outside the stat intake — the schema
+   * check's fresh read, the conflict re-sync. In `fs` mode every `/stat`
+   * DRAINS the server's notices, so a caller that read one and dropped them
+   * would take the only news that someone's work is gone with it.
+   */
+  noteRemovedByServer(removed: { patchId: PatchId; reason: string }[]): void {
+    if (removed.length === 0) return;
+    this.events.emit({ type: "patch:removed-by-server", removed });
+  }
+
+  /**
+   * A fresh read of which schema the server runs, taken as the latest answer.
+   * See `SchemaFreshnessWatch`, which asks it when a cached answer is in doubt.
+   */
+  noteServedSchemaSha(schemaSha: string): void {
+    if (schemaSha === this.schemaSha) return;
+    this.schemaSha = schemaSha;
+    this.events.emit({ type: "stat:schema", schemaSha });
+  }
+
+  /**
+   * The `schemaSha` the most recent `/stat` reported, or `null` before one has.
+   * See {@link StatSnapshot.schemaSha}.
+   */
+  currentSchemaSha(): string | null {
+    return this.schemaSha;
+  }
+
+  /**
+   * Who the last stat said is asking, or `null` before one has said. See
+   * {@link StatSnapshot.profileId}.
+   */
+  currentProfileId(): string | null {
+    return this.profileId;
   }
 
   currentPatchIds(): PatchId[] {

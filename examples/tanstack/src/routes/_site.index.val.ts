@@ -22,72 +22,71 @@ import galleryVal from "../content/gallery.val";
  * matching variant — which is what makes it a different kind of thing from
  * `s.enum()`, a leaf whose value is just one of a fixed set of strings.
  *
- * `.render({ as: "inline" })` on the ITEM of an array or record draws the field
- * itself inside each sortable row instead of a row you click into. That is the
- * whole of what a render may say: layout, only while the field is in front of
+ * `.render({ as: "inline" })` on an ARRAY or RECORD draws each of its items'
+ * own editor inside its row instead of a row you click into — see `blocks`
+ * below. The list decides; the item has no say. That is the whole of what a
+ * render may say: layout, only while the field is in front of
  * you. What a string looks like when it holds more than a line is the schema's
  * own business (`.multiline()`, `s.code()`), not a layout bolted on from
  * outside.
  */
-const blockSchema = s
-  .discriminatedUnion(
-    "type",
-    s
-      .object({
-        type: s.literal("prose"),
-        /** `s.richtext()`: every tag and style is off until the options ask. */
-        body: s.richtext({
-          bold: true,
-          italic: true,
-          lineThrough: true,
-          h2: true,
-          h3: true,
-          ul: true,
-          ol: true,
-          // `a` and `img` can be given a SCHEMA instead of `true`, which is how
-          // a link is constrained to routes this app actually serves.
-          a: s.route(),
-          img: s.image(galleryVal),
-        }),
-      })
-      .preview(({ val }) => ({ title: "Prose", subtitle: val.type })),
-    s
-      .object({
-        type: s.literal("callout"),
-        /** `s.enum()`: a LEAF — a string with a closed domain, never encoded. */
-        tone: s.enum("info", "warning", "success"),
-        title: s.string().maxLength(60),
-        text: s.string().multiline(),
-        dismissible: s.boolean(),
-      })
-      .preview(({ val }) => ({ title: val.title, subtitle: val.tone })),
-    s
-      .object({
-        type: s.literal("stat"),
-        label: s.string(),
-        /** `s.number()` with a range the editor enforces. */
-        value: s.number().min(0).max(1_000_000),
-        /** `s.datetime()`: an ISO 8601 instant, stored in UTC. */
-        measuredAt: s.datetime().describe("When this number was true"),
-      })
-      .preview(({ val }) => ({ title: val.label, subtitle: `${val.value}` })),
-    s
-      .object({
-        type: s.literal("snippet"),
-        /**
-         * `s.code()`: a string edited in a code editor.
-         *
-         * Its own type rather than a layout on `s.string()`, because the
-         * language is part of what the content IS — and because being a type is
-         * what keeps the value out of the stega encoding. Invisible characters
-         * woven into source code are not something a reader can run.
-         */
-        source: s.code({ language: "typescript" }),
-        caption: s.string().nullable(),
-      })
-      .preview(({ val }) => ({ title: "Snippet", subtitle: val.caption })),
-  )
-  .render({ as: "inline" });
+const blockSchema = s.discriminatedUnion(
+  "type",
+  s
+    .object({
+      type: s.literal("prose"),
+      /** `s.richtext()`: every tag and style is off until the options ask. */
+      body: s.richtext({
+        bold: true,
+        italic: true,
+        lineThrough: true,
+        h2: true,
+        h3: true,
+        ul: true,
+        ol: true,
+        // `a` and `img` can be given a SCHEMA instead of `true`, which is how
+        // a link is constrained to routes this app actually serves.
+        a: s.route(),
+        img: s.image(galleryVal),
+      }),
+    })
+    .preview(({ val }) => ({ title: "Prose", subtitle: val.type })),
+  s
+    .object({
+      type: s.literal("callout"),
+      /** `s.enum()`: a LEAF — a string with a closed domain, never encoded. */
+      tone: s.enum("info", "warning", "success"),
+      title: s.string().maxLength(60),
+      text: s.string().multiline(),
+      dismissible: s.boolean(),
+    })
+    .preview(({ val }) => ({ title: val.title, subtitle: val.tone })),
+  s
+    .object({
+      type: s.literal("stat"),
+      label: s.string(),
+      /** `s.number()` with a range the editor enforces. */
+      value: s.number().min(0).max(1_000_000),
+      /** `s.datetime()`: an ISO 8601 instant, stored in UTC. */
+      measuredAt: s.datetime().describe("When this number was true"),
+    })
+    .preview(({ val }) => ({ title: val.label, subtitle: `${val.value}` })),
+  s
+    .object({
+      type: s.literal("snippet"),
+      /**
+       * `s.code()`: a string edited in a code editor.
+       *
+       * Its own type rather than a layout on `s.string()`, because the
+       * language is part of what the content IS — and because being a type is
+       * what keeps the value out of the stega encoding. Invisible characters
+       * woven into source code are not something a reader can run.
+       */
+      source: s.code({ language: "typescript" }),
+      caption: s.string().nullable(),
+    })
+    .preview(({ val }) => ({ title: "Snippet", subtitle: val.caption })),
+);
 
 export const schema = s.object({
   hero: s.object({
@@ -127,7 +126,10 @@ export const schema = s.object({
   tags: s.array(s.string()),
   /** `s.date()`: a calendar date, no time and no timezone to get wrong. */
   published: s.date(),
-  blocks: s.array(blockSchema).describe("The page body, block by block"),
+  blocks: s
+    .array(blockSchema)
+    .render({ as: "inline" })
+    .describe("The page body, block by block"),
 });
 
 export type Content = t.inferSchema<typeof schema>;

@@ -425,8 +425,9 @@ parameter `any` too, and the conditionals resolve to whatever `any` distributes
 to. Annotate the encoded value (`const page: ResolvedVal<typeof pageVal> = …`)
 or the test proves nothing about the types.
 
-Not built yet, and deliberately: rendering the target inline
-(`render({ as: "inline" })`).
+Not built yet, and deliberately: rendering the target inline. A view takes no
+`.render(...)` — only array, record and keyOf do (see
+[`architecture/render-and-preview.md`](../architecture/render-and-preview.md)).
 
 ## Module System
 
@@ -535,7 +536,7 @@ Two things follow, and they are the ones that get forgotten:
   and `cd examples/tanstack && pnpm run build`.
 
 The showcase covers, as of writing: every `s.*` factory except `s.union`
-(deprecated); `describe` / `preview` / `render` /
+(deprecated); `describe` / `preview` / `render` (on an array) /
 `validate` / `nullable` / `readonly` / `hidden`; `minLength` / `maxLength` /
 `min` / `max` / `regexp` / `multiline` on strings and numbers, `from` / `to` on
 dates, `include` / `exclude` on routes; `s.record(key, item)` and the
