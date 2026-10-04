@@ -313,8 +313,6 @@ export const initFetchValDraft =
       if (!modules) {
         return null;
       }
-      // The render this feeds tags draft text, as `fetchVal`'s does.
-      SET_AUTO_TAG_JSX_ENABLED(true);
       const sources: ValDraft["sources"] = {};
       for (const [path, module] of Object.entries(modules)) {
         if (module.patches !== undefined) {

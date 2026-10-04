@@ -198,11 +198,26 @@ export const ValTanStackProvider = (props: {
    * overlay has been updating since.
    */
   const initialDraft = React.useRef(props.draft ?? null).current;
+  /**
+   * Whether JSX auto-tagging may run yet, for a page rendered from a draft.
+   *
+   * Tagging moves a string's edit tag into a `data-val-path` attribute, so a
+   * tagged render and an untagged one of the same draft text are different
+   * markup. The server cannot be relied on to tag -- the flag is process-wide,
+   * and whether the patched JSX runtime is the one the page renders with
+   * depends on how the server was bundled -- so the server's render does not,
+   * and nothing may tag until the page has hydrated. Not "after mount": a route
+   * component that is split out loads and hydrates AFTER this provider's
+   * effects have run, so it would hydrate tagged against untagged HTML.
+   *
+   * So: on the first `/draft/stat` answer, a network round trip after mount,
+   * which is also when tagging was turned on before the server rendered drafts
+   * at all. The context value is a new object every render, so that render
+   * reaches every component reading content and tags it.
+   */
+  const [taggingReady, setTaggingReady] = React.useState(false);
   if (initialDraft !== null) {
-    // The server's render tagged draft text (`fetchValDraft` turned this on
-    // there); the hydrating render has to tag it the same way, or the two
-    // disagree on attributes. The effect below keeps it on afterwards.
-    SET_AUTO_TAG_JSX_ENABLED(true);
+    SET_AUTO_TAG_JSX_ENABLED(taggingReady);
   }
   // TODO: move below into react package
   const valStore = React.useMemo(() => {
@@ -567,6 +582,7 @@ export const ValTanStackProvider = (props: {
             console.error("Val: could not get draft mode status", res);
             return;
           }
+          setTaggingReady(true);
           setDraftMode((prev) => {
             if (prev !== res.json.draftMode) {
               rerenderCounterRef.current++;

@@ -18,7 +18,7 @@ import { openStudio, patchThroughStore, test } from "../studio";
 const DRAFT = "Rendered as the draft, on the server";
 const PUBLISHED = "Content as code, in a TanStack Start app.";
 /** The zero-width characters Val's edit tags are written in. */
-const STEGA = /[​-‍﻿⁠-⁤]/;
+const STEGA = new RegExp("[\\u200B-\\u200D\\uFEFF\\u2060-\\u2064]");
 
 /** The text of the HTML the server sends for `/`, scripts left out. */
 async function serverHtml(page: Page): Promise<string> {
@@ -57,10 +57,13 @@ test.describe("a draft page, as the server renders it", () => {
       .poll(() => serverHtml(page), { timeout: 20_000 })
       .toContain(DRAFT);
 
+    /*
+     * React reports a hydration mismatch as an uncaught error, not always as a
+     * console line -- the dev server's client intercepts it -- so both.
+     */
     const logged: string[] = [];
-    page.on("console", (message) => {
-      if (message.type() === "error") logged.push(message.text());
-    });
+    page.on("console", (message) => logged.push(message.text()));
+    page.on("pageerror", (error) => logged.push(error.message));
     /*
      * What the page shows from first paint to settled, sampled: the published
      * text must never be on screen, at any point.
@@ -77,6 +80,18 @@ test.describe("a draft page, as the server renders it", () => {
       await page.waitForTimeout(50);
     }
     expect([...seen]).toEqual(["draft"]);
+    // And it ends up click-to-editable: tagged once the page has hydrated.
+    await expect
+      .poll(
+        () =>
+          page
+            .locator('[data-val-path*="/src/content/site.val.ts"]')
+            .first()
+            .textContent()
+            .catch(() => null),
+        { timeout: 15_000 },
+      )
+      .toContain(DRAFT);
     expect(
       logged.filter((line) => /hydrat|did not match|mismatch/i.test(line)),
     ).toEqual([]);
