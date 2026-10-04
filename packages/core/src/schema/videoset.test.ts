@@ -163,6 +163,67 @@ describe("s.videoset()", () => {
     );
   });
 
+  test("an entry's defaults are checked as a field's own would be", () => {
+    const schema = s.videoset({ dir: "/public/val/videos" });
+    const result = errorsOf(
+      schema["executeValidate"](path, {
+        "/public/val/videos/intro_51df2.mp4": {
+          ...MP4,
+          startTime: 5,
+          endTime: 2,
+          posterTime: 60,
+          hotspot: { x: 2, y: 0 },
+          poster: { path: "/public/val/videos/intro.mp4" },
+          captions: [{ path: "/public/val/videos/intro.srt", srclang: "en" }],
+        },
+      }),
+    );
+    const messages = Object.values(result)
+      .flat()
+      .map((e) => e.message);
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/'posterTime' \(60s\) is after the end/),
+        expect.stringMatching(/'startTime' \(5s\) must be before 'endTime'/),
+        expect.stringMatching(/'hotspot' must be/),
+        expect.stringMatching(/The poster must be an image/),
+        expect.stringMatching(/must be a WebVTT/),
+      ]),
+    );
+  });
+
+  test("an entry's description is checked against the set's alt schema", () => {
+    // Deserialized: the entry's `null` is what hand-written JSON can hold, and
+    // what the compiler rejects in a `.val.ts`.
+    const schema = deserializeSchema(
+      s
+        .videoset({ dir: "/public/val/videos", alt: s.string() })
+        ["executeSerialize"](),
+    );
+    const result = errorsOf(
+      schema["executeValidate"](path, {
+        "/public/val/videos/intro_51df2.mp4": MP4,
+      }),
+    );
+    expect(Object.keys(result)).toEqual([
+      '/videos.val.ts?p="/public/val/videos/intro_51df2.mp4"."alt"',
+    ]);
+  });
+
+  test("remote: an entry's local poster is to be uploaded with it", () => {
+    const schema = s.videoset({ dir: "/public/val/videos" }).remote();
+    expect(
+      fixesOf(
+        schema["executeValidate"](path, {
+          [REMOTE]: {
+            ...MP4,
+            poster: { path: "/public/val/videos/remote-poster.webp" },
+          },
+        }),
+      ),
+    ).toEqual(["videos:upload-remote"]);
+  });
+
   test("serializes what a backed field and the Studio need", () => {
     const serialized = s
       .videoset({ dir: "/public/val/videos", stream: { type: "hls" } })
@@ -241,6 +302,30 @@ describe("s.video(videoset)", () => {
     expect(errors && errors[fieldPath][0].message).toMatch(
       /after the end of the video \(12.5s\)/,
     );
+  });
+
+  test("a start of the field's own against the set's end is checked as a pair", () => {
+    const trimmedVal = c.define(
+      "/trimmed.val.ts",
+      s.videoset({ dir: "/public/val/videos" }),
+      {
+        "/public/val/videos/intro_51df2.mp4": { ...MP4, endTime: 4 },
+      },
+    );
+    const errors = s.video(trimmedVal)["executeValidate"](fieldPath, {
+      path: "/public/val/videos/intro_51df2.mp4",
+      startTime: 6,
+    });
+    expect(errors && errors[fieldPath][0].message).toMatch(
+      /'startTime' \(6s\) must be before 'endTime' \(4s\) — the end is the set's/,
+    );
+    expect(
+      s.video(trimmedVal)["executeValidate"](fieldPath, {
+        path: "/public/val/videos/intro_51df2.mp4",
+        startTime: 6,
+        endTime: 8,
+      }),
+    ).toBe(false);
   });
 
   test("serializes the set it picks from, and its remote flag", () => {

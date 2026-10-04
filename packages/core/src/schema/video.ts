@@ -23,6 +23,12 @@ import {
 import { ItemPreviewInput, PreviewItem } from "../preview";
 import { FieldRender } from "../render";
 import { filenameToMimeType, mimeTypeMatchesAccept } from "../mimeType";
+import {
+  validateCaptions,
+  validateHotspot,
+  validatePoster,
+  validateTimes,
+} from "./videoDefaults";
 
 /**
  * Turn an upload into an HLS stream, in the browser, before it is uploaded.
@@ -323,6 +329,7 @@ export class VideoSchema<
         : undefined;
     return [
       ...validateTimes(src, duration),
+      ...validateMixedTimes(src, entry),
       ...validateHotspot(src),
       ...validatePoster(src),
       ...validateCaptions(src),
@@ -670,6 +677,38 @@ function ownMetadataOf(
   };
 }
 
+/**
+ * A start the field set against an end the set holds, or the reverse: each is
+ * fine alone, and the field's own times and the set's are each checked where
+ * they are written, so what is left is the pair the page will actually play.
+ */
+function validateMixedTimes(
+  src: GalleryVideoSource,
+  entry: VideosetEntryMetadata<AltSource> | null,
+): ValidationError[] {
+  if (
+    entry === null ||
+    (src.startTime === undefined) === (src.endTime === undefined)
+  ) {
+    return [];
+  }
+  const start = src.startTime ?? entry.startTime;
+  const end = src.endTime ?? entry.endTime;
+  if (typeof start !== "number" || typeof end !== "number" || start < end) {
+    return [];
+  }
+  const whose =
+    src.startTime === undefined
+      ? "the start is the set's"
+      : "the end is the set's";
+  return [
+    {
+      message: `'startTime' (${start}s) must be before 'endTime' (${end}s) — ${whose}.`,
+      value: src,
+    },
+  ];
+}
+
 function stringOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
@@ -694,179 +733,8 @@ function misplacedError(
       };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function stripQuery(path: string): string {
   return path.split("?")[0];
-}
-
-function isNonNegativeNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
-}
-
-function validateTimes(
-  src: GalleryVideoSource,
-  duration: number | undefined,
-): ValidationError[] {
-  const errors: ValidationError[] = [];
-  for (const key of ["posterTime", "startTime", "endTime"] as const) {
-    const value = src[key];
-    if (value === undefined) {
-      continue;
-    }
-    if (!isNonNegativeNumber(value)) {
-      errors.push({
-        message: `'${key}' must be a number of seconds, 0 or more. Got: ${JSON.stringify(value)}`,
-        value: src,
-      });
-    } else if (duration !== undefined && value > duration) {
-      errors.push({
-        message: `'${key}' (${value}s) is after the end of the video (${duration}s).`,
-        value: src,
-      });
-    }
-  }
-  if (
-    isNonNegativeNumber(src.startTime) &&
-    isNonNegativeNumber(src.endTime) &&
-    src.startTime >= src.endTime
-  ) {
-    errors.push({
-      message: `'startTime' (${src.startTime}s) must be before 'endTime' (${src.endTime}s).`,
-      value: src,
-    });
-  }
-  return errors;
-}
-
-function validateHotspot(src: GalleryVideoSource): ValidationError[] {
-  if (src.hotspot === undefined) {
-    return [];
-  }
-  const { hotspot } = src;
-  if (
-    typeof hotspot !== "object" ||
-    hotspot === null ||
-    typeof hotspot.x !== "number" ||
-    typeof hotspot.y !== "number" ||
-    hotspot.x < 0 ||
-    hotspot.x > 1 ||
-    hotspot.y < 0 ||
-    hotspot.y > 1
-  ) {
-    return [
-      {
-        message: `'hotspot' must be { x, y } with both between 0 and 1.`,
-        value: src,
-      },
-    ];
-  }
-  return [];
-}
-
-function validatePoster(src: GalleryVideoSource): ValidationError[] {
-  if (src.poster === undefined) {
-    return [];
-  }
-  const { poster } = src;
-  if (
-    typeof poster !== "object" ||
-    poster === null ||
-    typeof poster.path !== "string"
-  ) {
-    return [
-      {
-        message: `'poster' must be an image object with a 'path'.`,
-        value: src,
-      },
-    ];
-  }
-  const mimeType = filenameToMimeType(stripQuery(poster.path));
-  if (!mimeType || !mimeType.startsWith("image/")) {
-    return [
-      {
-        message: `The poster must be an image. Got: ${poster.path}`,
-        value: src,
-      },
-    ];
-  }
-  return [];
-}
-
-const CAPTION_KINDS = ["subtitles", "captions"];
-
-function validateCaptions(src: GalleryVideoSource): ValidationError[] {
-  if (src.captions === undefined) {
-    return [];
-  }
-  if (!Array.isArray(src.captions)) {
-    return [{ message: `'captions' must be an array.`, value: src }];
-  }
-  const errors: ValidationError[] = [];
-  let defaults = 0;
-  const seen = new Set<string>();
-  src.captions.forEach((track: unknown, i) => {
-    const at = `Caption track ${i + 1}`;
-    if (!isRecord(track)) {
-      errors.push({ message: `${at} must be an object.`, value: src });
-      return;
-    }
-    const t = track;
-    if (typeof t.path !== "string") {
-      errors.push({ message: `${at} has no 'path'.`, value: src });
-    } else if (filenameToMimeType(stripQuery(t.path)) !== "text/vtt") {
-      errors.push({
-        message: `${at} must be a WebVTT (.vtt) file. Got: ${t.path}`,
-        value: src,
-      });
-    }
-    if (typeof t.srclang !== "string" || t.srclang.trim() === "") {
-      errors.push({
-        message: `${at} needs a language ('srclang'), e.g. "en".`,
-        value: src,
-      });
-    }
-    if (t.label !== undefined && typeof t.label !== "string") {
-      errors.push({ message: `${at}: 'label' must be a string.`, value: src });
-    }
-    if (
-      t.kind !== undefined &&
-      (typeof t.kind !== "string" || !CAPTION_KINDS.includes(t.kind))
-    ) {
-      errors.push({
-        message: `${at}: 'kind' must be "subtitles" or "captions".`,
-        value: src,
-      });
-    }
-    if (t.default !== undefined && typeof t.default !== "boolean") {
-      errors.push({
-        message: `${at}: 'default' must be true or false.`,
-        value: src,
-      });
-    }
-    if (t.default === true) {
-      defaults++;
-    }
-    if (typeof t.srclang === "string") {
-      const key = `${t.kind ?? "subtitles"}:${t.srclang}`;
-      if (seen.has(key)) {
-        errors.push({
-          message: `${at} repeats the language '${t.srclang}'.`,
-          value: src,
-        });
-      }
-      seen.add(key);
-    }
-  });
-  if (defaults > 1) {
-    errors.push({
-      message: `At most one caption track can be the default. ${defaults} are.`,
-      value: src,
-    });
-  }
-  return errors;
 }
 
 /**

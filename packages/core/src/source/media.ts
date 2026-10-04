@@ -124,6 +124,17 @@ export type GalleryVideoSource = {
 };
 
 /**
+ * What one page chooses about a video — as opposed to what is true of the
+ * file. A field (`s.video()`) carries these for itself; the entry of a set
+ * (`s.videoset()`) carries them as DEFAULTS, which every field picked from the
+ * set starts from and may override key by key. See {@link fillFromGallery}.
+ */
+export type VideoDefaults = Pick<
+  GalleryVideoSource,
+  "hotspot" | "posterTime" | "poster" | "startTime" | "endTime" | "captions"
+>;
+
+/**
  * A video: a progressive file (`video/mp4`, `video/webm`) or an HLS stream
  * (`application/vnd.apple.mpegurl`, whose `path` is the master playlist).
  *
@@ -310,71 +321,118 @@ function isMediaSchema(
 }
 
 /**
- * Fill in what a gallery-backed field does not carry itself.
+ * What a gallery entry holds as a DEFAULT for the fields picked from it, in
+ * the groups a field overrides together.
  *
- * `s.image(galleryModule)` stores only `{path, alt?, hotspot?}` — the
- * dimensions and mime type live in the gallery module, keyed by path. This is
- * the single implementation of that lookup; core, stega/RSC and the Studio all
- * call it rather than each rolling their own.
- *
- * `alt` is filled in too, because a gallery holds the alt text an editor typed
- * once for a file used in several places — but only when the field does not
- * have its own, so a per-image override wins. A gallery whose `alt` schema is a
- * locale record holds an object rather than a string; that is left alone rather
- * than copied into a field typed `string`, and making the override
- * locale-shaped is a separate change.
+ * Per key, not per value: a field that has set its own `startTime` still
+ * takes the gallery's `endTime`. The poster is the one pair — `poster` is the
+ * frame at `posterTime`, so a field with either has chosen its own still, and
+ * taking the other half from the gallery would describe a frame nobody chose.
+ */
+export const GALLERY_DEFAULT_GROUPS: readonly (readonly string[])[] = [
+  ["alt"],
+  ["hotspot"],
+  ["poster", "posterTime"],
+  ["startTime"],
+  ["endTime"],
+  ["captions"],
+];
+
+/** What is true of the file, and the gallery's alone. */
+const GALLERY_FILE_FACTS = ["width", "height", "mimeType", "duration"];
+
+/**
+ * The gallery entry a gallery-backed value names, or `null` when it is not
+ * gallery-backed or the gallery has no such entry.
  *
  * The double lookup is load-bearing: a remote gallery keys its entries by the
  * remote URL while the file itself stays on disk under its local path.
+ */
+export function galleryEntryOf(
+  src: { readonly path: string },
+  schema: unknown,
+  getModuleSource: (modulePath: string) => unknown,
+): Record<string, unknown> | null {
+  if (!isMediaSchema(schema) || !schema.referencedModule) {
+    return null;
+  }
+  const moduleSource = getModuleSource(schema.referencedModule);
+  if (!isPlainObject(moduleSource)) {
+    return null;
+  }
+  let key: string | null = src.path in moduleSource ? src.path : null;
+  if (key === null) {
+    const splitRemoteRefRes = splitRemoteRef(src.path);
+    if (
+      splitRemoteRefRes.status === "success" &&
+      splitRemoteRefRes.filePath in moduleSource
+    ) {
+      key = splitRemoteRefRes.filePath;
+    }
+  }
+  if (key === null) {
+    return null;
+  }
+  const entry = moduleSource[key];
+  return isPlainObject(entry) ? entry : null;
+}
+
+/**
+ * The value a gallery-backed field means: its own keys, and the gallery's
+ * where it has none.
+ *
+ * `s.image(galleryModule)` and `s.video(videosModule)` store only what one
+ * page chose — the rest lives in the gallery, keyed by path. Two things come
+ * from there:
+ *
+ * - **What is true of the file** — dimensions, mime type, length. The field
+ *   never has these, so they are always the gallery's.
+ * - **The defaults** — description, focal point, a video's poster, start, end
+ *   and captions ({@link GALLERY_DEFAULT_GROUPS}). An editor sets them once
+ *   on the gallery entry; a field that sets its own wins, KEY BY KEY.
+ *
+ * The single implementation of that merge: core, stega/RSC and the Studio all
+ * call it rather than each rolling their own, so a page and the Studio's
+ * preview of it cannot disagree about which poster a video has.
+ *
+ * A gallery whose `alt` schema is a locale record holds an object rather than
+ * a string; that is left alone rather than copied into a field typed
+ * `string`, and making the override locale-shaped is a separate change.
  */
 export function fillFromGallery<S extends { readonly path: string }>(
   src: S,
   schema: unknown,
   getModuleSource: (modulePath: string) => unknown,
 ): S {
-  if (!isMediaSchema(schema) || !schema.referencedModule) {
+  const entry = galleryEntryOf(src, schema, getModuleSource);
+  if (entry === null) {
     return src;
   }
-  const moduleSource = getModuleSource(schema.referencedModule);
-  if (
-    !moduleSource ||
-    typeof moduleSource !== "object" ||
-    Array.isArray(moduleSource)
-  ) {
-    return src;
-  }
-  const entries = moduleSource as Record<string, unknown>;
-  let key: string | null = src.path in entries ? src.path : null;
-  if (key === null) {
-    const splitRemoteRefRes = splitRemoteRef(src.path);
-    if (
-      splitRemoteRefRes.status === "success" &&
-      splitRemoteRefRes.filePath in entries
-    ) {
-      key = splitRemoteRefRes.filePath;
+  const own: Record<string, unknown> = { ...src };
+  const filled: Record<string, unknown> = {};
+  for (const key of GALLERY_FILE_FACTS) {
+    if (entry[key] !== undefined) {
+      filled[key] = entry[key];
     }
   }
-  if (key === null) {
-    return src;
+  for (const group of GALLERY_DEFAULT_GROUPS) {
+    if (group.some((key) => own[key] !== undefined)) {
+      continue;
+    }
+    for (const key of group) {
+      const value = entry[key];
+      if (value === undefined || value === null) {
+        continue;
+      }
+      if (key === "alt" && typeof value !== "string") {
+        continue;
+      }
+      filled[key] = value;
+    }
   }
-  const entry = entries[key];
-  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-    return src;
-  }
-  const { width, height, mimeType, duration, alt } = entry as {
-    width?: number;
-    height?: number;
-    mimeType?: string;
-    duration?: number;
-    alt?: unknown;
-  };
-  const hasOwnAlt = typeof (src as { alt?: unknown }).alt === "string";
-  return {
-    ...src,
-    ...(width !== undefined ? { width } : {}),
-    ...(height !== undefined ? { height } : {}),
-    ...(mimeType !== undefined ? { mimeType } : {}),
-    ...(duration !== undefined ? { duration } : {}),
-    ...(!hasOwnAlt && typeof alt === "string" ? { alt } : {}),
-  };
+  return { ...src, ...filled };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

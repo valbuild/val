@@ -128,11 +128,61 @@ export function filesOfVideosetEntry(
   metadata: unknown,
   options: { projectRoot: string; readFile?: ReadFile },
 ): string[] {
+  const fields = isRecord(metadata) ? metadata : {};
   const mimeType =
-    isRecord(metadata) && typeof metadata.mimeType === "string"
-      ? metadata.mimeType
-      : undefined;
-  return filesOfVideo({ path: entry.localPath, mimeType }, options);
+    typeof fields.mimeType === "string" ? fields.mimeType : undefined;
+  // The entry's poster and captions are its defaults' files: the set holds
+  // them as it holds the video, so they are tracked by the entry — a remote
+  // one by the local path it was uploaded from, as the key is.
+  return filesOfVideo(
+    {
+      path: entry.localPath,
+      mimeType,
+      poster: fields.poster,
+      captions: fields.captions,
+    },
+    options,
+  ).map((ref) => galleryEntryOf(ref).localPath);
+}
+
+/**
+ * An entry with every file it names that `moved` has a new ref for pointed
+ * at that ref: the poster and the captions, which a remote set keeps on the
+ * content host with the video.
+ */
+function withMovedFiles(
+  entry: Record<string, unknown>,
+  moved: Map<string, string>,
+): Record<string, unknown> {
+  const movedPath = (file: unknown) =>
+    isRecord(file) && typeof file.path === "string" && moved.has(file.path)
+      ? { ...file, path: moved.get(file.path) }
+      : file;
+  return {
+    ...entry,
+    ...(entry.poster !== undefined ? { poster: movedPath(entry.poster) } : {}),
+    ...(Array.isArray(entry.captions)
+      ? { captions: entry.captions.map(movedPath) }
+      : {}),
+  };
+}
+
+/** The entry's poster and caption files that are still local. */
+function localFilesOfEntry(
+  entry: Record<string, unknown>,
+): { path: string; role: "poster" | "caption" }[] {
+  const files: { path: string; role: "poster" | "caption" }[] = [];
+  if (isRecord(entry.poster) && typeof entry.poster.path === "string") {
+    files.push({ path: entry.poster.path, role: "poster" });
+  }
+  if (Array.isArray(entry.captions)) {
+    for (const track of entry.captions) {
+      if (isRecord(track) && typeof track.path === "string") {
+        files.push({ path: track.path, role: "caption" });
+      }
+    }
+  }
+  return files.filter((file) => !Internal.isRemoteMediaPath(file.path));
 }
 
 /**
@@ -411,6 +461,10 @@ export async function handleVideosetCheckRemote(
  * one — and `createFixPatch` renames the key to the ref, the same way
  * `images:upload-remote` does. The fields that name the entry by its old key
  * are rewritten too: without that they name a video the set no longer has.
+ *
+ * The entry's poster and captions — its defaults' files — go up with it, and
+ * are what is left to do for an entry whose key is already remote: the key
+ * stays, and the entry is written back with their refs.
  */
 export async function handleVideosetUploadRemote(
   ctx: FixHandlerContext,
@@ -450,13 +504,22 @@ export async function handleVideosetUploadRemote(
       errorMessage: `The video set has no entry '${key}' at ${ctx.sourcePath}`,
     };
   }
+  // The key is local (the entry goes up whole), or the key is already on the
+  // content host and only the entry's poster or captions are still here.
+  const keyIsLocal = !Internal.isRemoteMediaPath(key);
+  const entryFiles = localFilesOfEntry(entry);
   const missing = firstMissingVideoFile(ctx, [
-    {
-      path: key,
-      ...(typeof entry.mimeType === "string"
-        ? { mimeType: entry.mimeType }
-        : {}),
-    },
+    ...(keyIsLocal
+      ? [
+          {
+            path: key,
+            ...(typeof entry.mimeType === "string"
+              ? { mimeType: entry.mimeType }
+              : {}),
+          },
+        ]
+      : []),
+    ...entryFiles.map((file) => ({ path: file.path })),
   ]);
   if (missing !== undefined) {
     return { success: false, errorMessage: `File ${missing} does not exist` };
@@ -475,7 +538,10 @@ export async function handleVideosetUploadRemote(
   );
   let ref: string;
   try {
-    ref = await uploader.put(key, "video");
+    ref = keyIsLocal ? await uploader.put(key, "video") : key;
+    for (const file of entryFiles) {
+      await uploader.put(file.path, file.role);
+    }
   } catch (err) {
     return {
       success: false,
@@ -484,14 +550,15 @@ export async function handleVideosetUploadRemote(
   }
   ctx.remoteFiles[ctx.sourcePath] = {
     ref,
-    metadata: entry,
+    metadata: withMovedFiles(entry, uploader.moved),
     refs: Object.fromEntries(uploader.moved),
   };
-  const otherModulePatches = await videosetReferencePatches(
-    ctx.service,
-    ctx.moduleFilePath,
-    { [key]: ref },
-  );
+  const otherModulePatches =
+    ref === key
+      ? []
+      : await videosetReferencePatches(ctx.service, ctx.moduleFilePath, {
+          [key]: ref,
+        });
   return {
     success: true,
     shouldApplyPatch: true,

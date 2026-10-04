@@ -64,7 +64,8 @@ export async function listUnusedFiles({ root }: { root?: string }) {
     // A media collection (`s.imageset()`, `s.fileset()`, `s.videoset()`) is
     // keyed by its files, and an entry that is fine reports no error either —
     // so, as for a video, they are found by walking the source. A video set's
-    // stream holds every playlist and segment its master names.
+    // stream holds every playlist and segment its master names, and an entry
+    // its default poster and captions.
     if (valModule.source !== undefined && valModule.schema) {
       forEachMediaCollection(
         valModule.source,
@@ -73,14 +74,9 @@ export async function listUnusedFiles({ root }: { root?: string }) {
           for (const [key, entry] of Object.entries(entries)) {
             const refs =
               mediaType === "videos"
-                ? filesOfVideo(
-                    {
-                      path: key,
-                      mimeType:
-                        isObject(entry) && typeof entry.mimeType === "string"
-                          ? entry.mimeType
-                          : undefined,
-                    },
+                ? // The entry's poster and captions are its own files too.
+                  filesOfVideo(
+                    isObject(entry) ? { ...entry, path: key } : { path: key },
                     { projectRoot },
                   )
                 : [key];

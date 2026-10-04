@@ -61,6 +61,7 @@ export type {
   GalleryImageSource,
   GalleryFileSource,
   GalleryVideoSource,
+  VideoDefaults,
   IsVideoSource,
   VideoSource,
   VideoPosterSource,
@@ -165,6 +166,8 @@ import { getFileHash, hashToRemoteFileHash } from "./remote/fileHash";
 import { splitRemoteRef } from "./remote/splitRemoteRef";
 import {
   fillFromGallery,
+  GALLERY_DEFAULT_GROUPS,
+  galleryEntryOf,
   HLS_MIME_TYPE,
   isHlsVideo,
   isRemoteMediaPath,
@@ -410,6 +413,8 @@ const Internal = {
   isRemoteMediaPath,
   media: {
     fillFromGallery,
+    galleryEntryOf,
+    GALLERY_DEFAULT_GROUPS,
     isHlsVideo,
     HLS_MIME_TYPE,
   },

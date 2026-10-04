@@ -186,6 +186,30 @@ describe("which files a set's directory accounts for", () => {
     expect(checked).toEqual({ missingTrackedFiles: [], untrackedFiles: [] });
   });
 
+  test("an entry's default poster and captions are its own, not untracked", () => {
+    writeFiles(root, {
+      [`${DIR}/clip_abcde.mp4`]: fs.readFileSync(TINY_MP4),
+      [`${DIR}/clip-poster_11111.webp`]: "poster",
+      [`${DIR}/clip-en_22222.vtt`]: "WEBVTT\n",
+    });
+    const entries: Record<string, unknown> = {
+      [`${DIR}/clip_abcde.mp4`]: {
+        ...MP4_ENTRY,
+        poster: { path: `${DIR}/clip-poster_11111.webp` },
+        captions: [{ path: `${DIR}/clip-en_22222.vtt`, srclang: "en" }],
+      },
+    };
+    const checked = checkGalleryFiles({
+      entryKeys: Object.keys(entries),
+      dir: DIR,
+      projectRoot: root,
+      fs: createDefaultValFSHost(),
+      filesOfEntry: (entry, key) =>
+        filesOfVideosetEntry(entry, entries[key], { projectRoot: root }),
+    });
+    expect(checked).toEqual({ missingTrackedFiles: [], untrackedFiles: [] });
+  });
+
   test("an untracked stream is ONE video, keyed by its master", () => {
     writeFiles(root, {
       ...streamFiles("new_11111"),
@@ -612,6 +636,119 @@ describe("moving a set's video to Val Remote", () => {
       "hero/poster/path",
       "hero/captions/0/path",
     ]);
+  });
+
+  test("an entry's default poster and captions go up with it", async () => {
+    setup();
+    const poster = {
+      path: `${DIR}/intro-poster_33333.webp`,
+      width: 640,
+      height: 360,
+    };
+    const captions = [{ path: `${DIR}/intro-en_44444.vtt`, srclang: "en" }];
+    const videosVal = c.define(SET_PATH, s.videoset({ dir: DIR }).remote(), {
+      [STREAM_KEY]: { ...HLS_ENTRY, poster, posterTime: 1, captions },
+    });
+    const stored = new Map<string, Buffer>();
+    const entryPath = entryPathOf(STREAM_KEY);
+    const errors = Internal.getSchema(videosVal)?.["executeValidate"](
+      SET_PATH as string as SourcePath,
+      Internal.getSource(videosVal),
+    );
+    const uploadError = (errors || {})[entryPath]?.[0];
+    if (!uploadError) throw new Error("expected an upload error");
+    const ctx: FixHandlerContext & {
+      remoteFiles: Record<SourcePath, RemoteFileMove>;
+    } = {
+      ...baseContext(root, serviceOf({ [SET_PATH]: videosVal }), stored),
+      valModule: contentOf(SET_PATH, videosVal),
+      sourcePath: entryPath,
+      validationError: uploadError,
+    };
+    const handled = await handleVideosetUploadRemote(ctx);
+    expect(handled).toMatchObject({ success: true, shouldApplyPatch: true });
+    // The stream's five files, and the entry's poster and caption.
+    expect(stored.size).toBe(7);
+    const fixed = await createFixPatch(
+      { projectRoot: root, remoteHost: "https://remote.val.build" },
+      true,
+      entryPath,
+      uploadError,
+      ctx.remoteFiles,
+      ctx.valModule.source,
+      ctx.valModule.schema,
+    );
+    const after = apply(Internal.getSource(videosVal), fixed?.patch ?? []);
+    if (typeof after !== "object" || after === null || Array.isArray(after)) {
+      throw new Error("expected the set");
+    }
+    const [[key, entry]] = Object.entries(after);
+    expect(Internal.isRemoteMediaPath(key)).toBe(true);
+    expect(entry).toMatchObject({
+      posterTime: 1,
+      poster: {
+        path: expect.stringMatching(/^https:.*intro-poster_33333\.webp$/),
+        width: 640,
+      },
+      captions: [
+        {
+          path: expect.stringMatching(/^https:.*intro-en_44444\.vtt$/),
+          srclang: "en",
+        },
+      ],
+    });
+  });
+
+  test("a remote entry with a local poster: only the poster goes up, the key stays", async () => {
+    setup();
+    const REMOTE_KEY =
+      "https://remote.val.build/file/p/pub123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/videos/intro_05198/master.m3u8";
+    const poster = { path: `${DIR}/intro-poster_33333.webp` };
+    const videosVal = c.define(SET_PATH, s.videoset({ dir: DIR }).remote(), {
+      [REMOTE_KEY]: { ...HLS_ENTRY, poster, posterTime: 1 },
+    });
+    const entryPath = entryPathOf(REMOTE_KEY);
+    const errors = Internal.getSchema(videosVal)?.["executeValidate"](
+      SET_PATH as string as SourcePath,
+      Internal.getSource(videosVal),
+    );
+    const uploadError = (errors || {})[entryPath]?.find((e) =>
+      e.fixes?.includes("videos:upload-remote"),
+    );
+    if (!uploadError) throw new Error("expected an upload error");
+    expect(uploadError.value).toBe(REMOTE_KEY);
+    const stored = new Map<string, Buffer>();
+    const ctx: FixHandlerContext & {
+      remoteFiles: Record<SourcePath, RemoteFileMove>;
+    } = {
+      ...baseContext(root, serviceOf({ [SET_PATH]: videosVal }), stored),
+      valModule: contentOf(SET_PATH, videosVal),
+      sourcePath: entryPath,
+      validationError: uploadError,
+    };
+    const handled = await handleVideosetUploadRemote(ctx);
+    expect(handled).toMatchObject({ success: true, shouldApplyPatch: true });
+    expect(handled.otherModulePatches).toBeUndefined();
+    expect(stored.size).toBe(1);
+    const fixed = await createFixPatch(
+      { projectRoot: root, remoteHost: "https://remote.val.build" },
+      true,
+      entryPath,
+      uploadError,
+      ctx.remoteFiles,
+      ctx.valModule.source,
+      ctx.valModule.schema,
+    );
+    const after = apply(Internal.getSource(videosVal), fixed?.patch ?? []);
+    expect(after).toEqual({
+      [REMOTE_KEY]: {
+        ...HLS_ENTRY,
+        posterTime: 1,
+        poster: {
+          path: expect.stringMatching(/^https:.*intro-poster_33333\.webp$/),
+        },
+      },
+    });
   });
 
   test("without --fix nothing goes up", async () => {
