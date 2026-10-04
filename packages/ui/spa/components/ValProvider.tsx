@@ -1090,10 +1090,25 @@ export function ValProvider({
                 // In the click, where a page that cannot build may open the
                 // tab that will. A no-op where this page can build.
                 handoffRef.current.prepare(true);
-                void publishJobs.tryAgain(request.requestId).then((done) => {
-                  if (!done.ok) handoffRef.current.cancel(done.message);
-                  reportOutcome(done);
-                });
+                // What the new job will take: everything pending now, edits
+                // saved since the failure included.
+                const store = system.patchStore;
+                const published = store.publishedPatchIds();
+                const pending = store
+                  .allRecords()
+                  .filter(
+                    (record) =>
+                      !store.isPending(record.patchId) &&
+                      !record.appliedAt &&
+                      !published.has(record.patchId),
+                  )
+                  .map((record) => record.patchId);
+                void publishJobs
+                  .tryAgain(request.requestId, { patchIds: pending })
+                  .then((done) => {
+                    if (!done.ok) handoffRef.current.cancel(done.message);
+                    reportOutcome(done);
+                  });
               },
             },
           }

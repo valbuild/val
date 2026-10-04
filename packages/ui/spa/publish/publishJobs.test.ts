@@ -317,6 +317,77 @@ test("a press's changes are not offered again until it fails, and a retry's are 
   expect(publishingPatchIds(jobs.get()).size).toBe(0);
 });
 
+test("a retry holds what is pending at the press, edits since the failure included", async () => {
+  const { client, statuses } = fakeClient({
+    // The new job takes everything pending: p1, and p3, saved after the
+    // failure. p2 is a change content took that this tab did not name.
+    tryAgain: async () => ({
+      request: { kind: "publishing" },
+      job: { ...job("J2"), patches: ["p1", "p2", "p3"] },
+    }),
+  });
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => handedOff(j.id),
+    takesQueuedWork: () => false,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: job("J1"),
+    patchIds: ["p1"],
+  });
+  await flush();
+  statuses.set("r1", {
+    kind: "failed",
+    message: "build",
+    actions: ["try-again"],
+    job: "J1",
+  });
+  jobs.nudge();
+  await flush();
+  expect(publishingPatchIds(jobs.get()).size).toBe(0);
+
+  expect(await jobs.tryAgain("r1", { patchIds: ["p1", "p3"] })).toEqual({
+    ok: true,
+  });
+  await flush();
+  expect([...publishingPatchIds(jobs.get())].sort()).toEqual([
+    "p1",
+    "p2",
+    "p3",
+  ]);
+});
+
+test("a build that failed after the seal keeps its changes: they are published", async () => {
+  const { client, statuses } = fakeClient();
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => handedOff(j.id),
+    takesQueuedWork: () => false,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: job("J1"),
+    patchIds: ["p1"],
+  });
+  await flush();
+  // Connected: content sealed it, and CI's build of the commit failed.
+  statuses.set("r1", {
+    kind: "failed",
+    message: "CI failed",
+    actions: ["re-run-build"],
+    job: "J1",
+  });
+  jobs.nudge();
+  await flush();
+  expect(jobs.get().requests[0]!.status.kind).toBe("failed");
+  expect([...publishingPatchIds(jobs.get())]).toEqual(["p1"]);
+});
+
 async function flush() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }

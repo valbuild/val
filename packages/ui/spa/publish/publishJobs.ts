@@ -82,8 +82,15 @@ export type PublishJobs = {
   }): void;
   /** A job moved: re-read what is not settled, and look for queued work. */
   nudge(): void;
-  /** Try again on a failed request: a new press, replacing it. */
-  tryAgain(requestId: string): Promise<ActionResult>;
+  /**
+   * Try again on a failed request: a new press, replacing it. `patchIds` is
+   * what is pending at the press: a retry is a new job, and a job takes
+   * everything pending, edits made since the failure included.
+   */
+  tryAgain(
+    requestId: string,
+    options?: { patchIds?: readonly string[] },
+  ): Promise<ActionResult>;
   /** Discard a failed request's changes. */
   discard(requestId: string): Promise<ActionResult>;
   /** Stop showing a request that has settled. */
@@ -120,18 +127,26 @@ export const isSettled = (status: PublishRequestStatus): boolean =>
  * pending -- and a pending change is what lights Publish. Without this the
  * button went green at the hand-off, on the very change it was publishing.
  *
- * A Live request keeps its changes here too. They are committed, but this tab
- * hears that from `/stat` (`appliedPatches`), and the request's own status can
- * arrive first; dropping them at Live lit Publish for that gap. A request that
- * failed, was cancelled, or had nothing to publish gives its changes back:
- * they are pending again, and Publish is how to retry them.
+ * A request past its seal keeps its changes here too: Live, or failed with
+ * only `re-run-build` left (committed, and CI's build of it failed). Its
+ * changes are committed, but this tab hears that from `/stat`
+ * (`appliedPatches`), and the request's own status can arrive first; dropping
+ * them then lit Publish for the gap, over changes already published. A
+ * request that failed before its seal, was cancelled, or had nothing to
+ * publish gives its changes back: they are pending again, and Publish is how
+ * to retry them.
  */
+/** Committed: Live, or built by CI after the seal and failed there. */
+const isSealed = (status: PublishRequestStatus): boolean =>
+  status.kind === "live" ||
+  (status.kind === "failed" && status.actions.includes("re-run-build"));
+
 export function publishingPatchIds(
   state: PublishJobsState,
 ): ReadonlySet<string> {
   const ids = new Set<string>();
   for (const request of state.requests) {
-    if (isSettled(request.status) && request.status.kind !== "live") continue;
+    if (isSettled(request.status) && !isSealed(request.status)) continue;
     for (const id of request.patchIds ?? []) ids.add(id);
   }
   return ids;
@@ -306,13 +321,22 @@ export function createPublishJobs(options: {
     patchIds?: readonly string[];
   }) {
     const at = now();
+    /*
+     * And the job's own list: a job takes everything pending, which can be
+     * more than the gate checked -- a save that landed after it. Only for a
+     * press that named what it sent; one that did not is not held.
+     */
+    const carried =
+      patchIds === undefined
+        ? []
+        : [...new Set([...patchIds, ...(job?.patches ?? [])])];
     const tracked: TrackedPublish = {
       requestId,
       pressedAt: at,
       status: request,
       ...(isSettled(request) ? { settledAt: at } : {}),
       ...(job !== null ? { jobId: job.id } : {}),
-      ...(patchIds !== undefined && patchIds.length > 0 ? { patchIds } : {}),
+      ...(carried.length > 0 ? { patchIds: carried } : {}),
     };
     const known = state.requests.some((r) => r.requestId === requestId);
     set({
@@ -337,7 +361,7 @@ export function createPublishJobs(options: {
       void refresh();
       void takeQueuedWork();
     },
-    tryAgain: async (requestId) => {
+    tryAgain: async (requestId, retryOptions) => {
       const requestIdAgain = randomUUID();
       try {
         const pressed = await client.tryAgain(requestIdAgain, tab);
@@ -347,13 +371,19 @@ export function createPublishJobs(options: {
           requests: state.requests.filter((r) => r.requestId !== requestId),
         });
         // Through `track`, so a press that settled at once is announced.
-        // A retry sends the changes the failed press did.
+        // A retry sends the changes the failed press did, and whatever has
+        // been saved since: the new job takes everything pending.
+        const sent = [
+          ...(replaced?.patchIds ?? []),
+          ...(retryOptions?.patchIds ?? []),
+        ];
         track({
           requestId: requestIdAgain,
           request: pressed.request,
           job: pressed.job,
-          ...(replaced?.patchIds !== undefined
-            ? { patchIds: replaced.patchIds }
+          ...(replaced?.patchIds !== undefined ||
+          retryOptions?.patchIds !== undefined
+            ? { patchIds: sent }
             : {}),
         });
         return { ok: true };
