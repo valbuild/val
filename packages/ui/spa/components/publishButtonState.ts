@@ -78,6 +78,14 @@ export type PublishButtonInput = {
   /** Saving is automatic, so there is nothing to press. */
   autoPublish: boolean;
   pendingServerSidePatchCount: number;
+  /**
+   * Changes a press of this tab's is publishing, and so NOT in
+   * `pendingServerSidePatchCount`: content has the job, and they are
+   * uncommitted until it seals. The press no longer holds the button (a new
+   * change can be published past it), so this is only what the button says
+   * when there is nothing else to send. See `publishingPatchIds`.
+   */
+  publishingCount?: number;
   /** Writes that have not reached the server yet. */
   pendingClientSidePatchCount: number;
   /**
@@ -120,6 +128,7 @@ export function describePublishButton(
     publishDisabled,
     autoPublish,
     pendingServerSidePatchCount,
+    publishingCount = 0,
     pendingClientSidePatchCount,
     netChangesEmpty,
     unstagedChangeCount,
@@ -208,6 +217,19 @@ export function describePublishButton(
    * through.
    */
   const nothingToSend = pendingServerSidePatchCount === 0 && !stillWriting;
+  /*
+   * Nothing to send because it is all on its way: say so, rather than
+   * "Nothing to send" over a change the progress says is 64% published.
+   */
+  if (nothingToSend && publishingCount > 0) {
+    return {
+      kind: "in-flight",
+      label: "Publishing",
+      description: `Publishing ${publishingCount} ${plural(publishingCount, "change", "changes")}`,
+      reason: null,
+      action: "none",
+    };
+  }
   /*
    * Only once the writing has settled. Mid-keystroke the chain is a prefix of
    * what the editor has typed, so "the net effect is nothing" is a statement

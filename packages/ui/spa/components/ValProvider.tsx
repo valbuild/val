@@ -3,6 +3,7 @@ import { createStudioJobClient } from "../publish/jobClient";
 import {
   createPublishJobs,
   isSettled,
+  publishingPatchIds,
   type PublishJobs,
   type PublishJobsState,
   type TrackedPublish,
@@ -2559,6 +2560,18 @@ export function useOtherPublishJobs(): readonly ObservedJob[] {
   return useMemo(
     () => otherEditorsJobs(observedPublishJobs, publishJobsState),
     [observedPublishJobs, publishJobsState],
+  );
+}
+
+/**
+ * The changes this tab's presses are publishing: see `publishingPatchIds`.
+ * Not pending work while they go, so Publish does not offer them again.
+ */
+export function usePublishingPatchIds(): ReadonlySet<string> {
+  const { publishJobsState } = useContext(ValContext);
+  return useMemo(
+    () => publishingPatchIds(publishJobsState),
+    [publishJobsState],
   );
 }
 

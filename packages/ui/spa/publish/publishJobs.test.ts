@@ -3,7 +3,11 @@ import type {
   PublishTabJob,
 } from "@valbuild/shared/internal";
 import type { StudioJobClient } from "./jobClient";
-import { createPublishJobs, type TrackedPublish } from "./publishJobs";
+import {
+  createPublishJobs,
+  publishingPatchIds,
+  type TrackedPublish,
+} from "./publishJobs";
 import type { StudioJobResult } from "./runStudioJob";
 
 const job = (id: string): PublishTabJob => ({
@@ -263,6 +267,54 @@ test("the poll re-reads what has not settled, and only that", async () => {
   } finally {
     jest.useRealTimers();
   }
+});
+
+test("a press's changes are not offered again until it fails, and a retry's are the same", async () => {
+  const { client, statuses } = fakeClient();
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => handedOff(j.id),
+    takesQueuedWork: () => false,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: job("J1"),
+    patchIds: ["p1", "p2"],
+  });
+  await flush();
+  // Handed off: content has the job, and the changes are still on their way.
+  expect(jobs.get().requests[0]!.handedOffAt).toBeDefined();
+  expect([...publishingPatchIds(jobs.get())]).toEqual(["p1", "p2"]);
+
+  // Failed: pending again, and Publish is how to retry them.
+  statuses.set("r1", {
+    kind: "failed",
+    message: "build",
+    actions: ["try-again"],
+    job: "J1",
+  });
+  jobs.nudge();
+  await flush();
+  expect(publishingPatchIds(jobs.get()).size).toBe(0);
+
+  // Try again sends what the failed press did.
+  expect(await jobs.tryAgain("r1")).toEqual({ ok: true });
+  await flush();
+  expect([...publishingPatchIds(jobs.get())]).toEqual(["p1", "p2"]);
+
+  // Live: shipped, and still not something to press Publish for -- even
+  // before `/stat` has said they are applied.
+  const retried = jobs.get().requests[0]!.requestId;
+  statuses.set(retried, { kind: "live", commit: "C1" });
+  jobs.nudge();
+  await flush();
+  expect([...publishingPatchIds(jobs.get())]).toEqual(["p1", "p2"]);
+
+  // Dismissed: gone, by which time `/stat` has long said so.
+  jobs.dismiss(retried);
+  expect(publishingPatchIds(jobs.get()).size).toBe(0);
 });
 
 async function flush() {

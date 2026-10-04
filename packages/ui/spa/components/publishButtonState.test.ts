@@ -338,3 +338,48 @@ describe("a deployment that cannot publish", () => {
     expect(state.label).toBe("Save");
   });
 });
+
+describe("while this tab's press is publishing elsewhere", () => {
+  /*
+   * The bug: once the tab handed its job to content (64%), nothing held the
+   * button, and the change being published still counted as pending, so
+   * Publish went green over it until the seal.
+   */
+  test("its own changes do not light Publish", () => {
+    const state = describePublishButton(
+      input({
+        mode: "http",
+        pendingServerSidePatchCount: 0,
+        publishingCount: 1,
+      }),
+    );
+    expect(state).toMatchObject({
+      kind: "in-flight",
+      label: "Publishing",
+      action: "none",
+    });
+  });
+
+  test("a change made since does", () => {
+    const state = describePublishButton(
+      input({
+        mode: "http",
+        pendingServerSidePatchCount: 1,
+        publishingCount: 1,
+      }),
+    );
+    expect(state).toMatchObject({ kind: "ready", action: "publish" });
+  });
+
+  test("so does one still being written", () => {
+    const state = describePublishButton(
+      input({
+        mode: "http",
+        pendingServerSidePatchCount: 0,
+        pendingClientSidePatchCount: 1,
+        publishingCount: 1,
+      }),
+    );
+    expect(state).toMatchObject({ kind: "ready", action: "publish" });
+  });
+});

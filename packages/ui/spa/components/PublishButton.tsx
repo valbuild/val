@@ -15,6 +15,7 @@ import {
   usePendingClientSidePatchIds,
   useHasNetChanges,
   usePendingServerSidePatchIds,
+  usePublishingPatchIds,
   usePublishSummary,
   useValMode,
   usePublishRefusal,
@@ -165,10 +166,23 @@ export function PublishButton({
    * commit and cannot be discarded. Same subtraction `ValShell` does for the
    * discard count, so the button and the confirm are counting the same patches.
    */
-  const pendingServerSidePatchIds = useMemo(
+  const unpublishedPatchIds = useMemo(
     () => savedPatchIds.filter((patchId) => !committedPatchIds.has(patchId)),
     [savedPatchIds, committedPatchIds],
   );
+  /*
+   * And not on its way, either. A press this tab made stops holding the
+   * button once content has its job, and its changes stay uncommitted until
+   * the seal -- so without this, Publish lit up at the hand-off over the
+   * change it was in the middle of publishing. See `publishingPatchIds`.
+   */
+  const publishing = usePublishingPatchIds();
+  const pendingServerSidePatchIds = useMemo(
+    () => unpublishedPatchIds.filter((patchId) => !publishing.has(patchId)),
+    [unpublishedPatchIds, publishing],
+  );
+  const publishingCount =
+    unpublishedPatchIds.length - pendingServerSidePatchIds.length;
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
   const hasNetChanges = useHasNetChanges();
   // Only this user's own held patches: the message offers to stage them, and
@@ -190,6 +204,7 @@ export function PublishButton({
     publishDisabled,
     autoPublish,
     pendingServerSidePatchCount: pendingServerSidePatchIds.length,
+    publishingCount,
     pendingClientSidePatchCount: pendingClientSidePatchIds.length,
     netChangesEmpty: !hasNetChanges,
     unstagedChangeCount: heldChangeIds.size,

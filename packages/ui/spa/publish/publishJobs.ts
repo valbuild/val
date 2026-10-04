@@ -52,6 +52,14 @@ export type TrackedPublish = {
    * tell this tab's own job from another editor's on the websocket.
    */
   jobId?: string;
+  /**
+   * The changes this press sent: what the gate checked when it was pressed
+   * (`toPublish` in `createSystem`). Until the request fails they are on
+   * their way or shipped, not waiting for a press -- a button that counted
+   * them would offer to publish what is already publishing. See
+   * `publishingPatchIds`.
+   */
+  patchIds?: readonly string[];
 };
 
 export type PublishJobsState = {
@@ -69,6 +77,8 @@ export type PublishJobs = {
     requestId: string;
     request: PublishRequestStatus;
     job: PublishTabJob | null;
+    /** What the press sent; see `TrackedPublish.patchIds`. */
+    patchIds?: readonly string[];
   }): void;
   /** A job moved: re-read what is not settled, and look for queued work. */
   nudge(): void;
@@ -99,6 +109,33 @@ export const isSettled = (status: PublishRequestStatus): boolean =>
   status.kind === "failed" ||
   status.kind === "cancelled" ||
   status.kind === "nothing-to-publish";
+
+/**
+ * The changes this tab's presses sent, and that are not waiting for a press:
+ * publishing, or published.
+ *
+ * A press stops holding the button once its job is content's (see
+ * `waitingElsewhere` in `ValProvider`), but the changes it carries are not
+ * committed until content seals the job, so until then they still read as
+ * pending -- and a pending change is what lights Publish. Without this the
+ * button went green at the hand-off, on the very change it was publishing.
+ *
+ * A Live request keeps its changes here too. They are committed, but this tab
+ * hears that from `/stat` (`appliedPatches`), and the request's own status can
+ * arrive first; dropping them at Live lit Publish for that gap. A request that
+ * failed, was cancelled, or had nothing to publish gives its changes back:
+ * they are pending again, and Publish is how to retry them.
+ */
+export function publishingPatchIds(
+  state: PublishJobsState,
+): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const request of state.requests) {
+    if (isSettled(request.status) && request.status.kind !== "live") continue;
+    for (const id of request.patchIds ?? []) ids.add(id);
+  }
+  return ids;
+}
 
 export function createPublishJobs(options: {
   client: StudioJobClient;
@@ -261,10 +298,12 @@ export function createPublishJobs(options: {
     requestId,
     request,
     job,
+    patchIds,
   }: {
     requestId: string;
     request: PublishRequestStatus;
     job: PublishTabJob | null;
+    patchIds?: readonly string[];
   }) {
     const at = now();
     const tracked: TrackedPublish = {
@@ -273,6 +312,7 @@ export function createPublishJobs(options: {
       status: request,
       ...(isSettled(request) ? { settledAt: at } : {}),
       ...(job !== null ? { jobId: job.id } : {}),
+      ...(patchIds !== undefined && patchIds.length > 0 ? { patchIds } : {}),
     };
     const known = state.requests.some((r) => r.requestId === requestId);
     set({
@@ -301,15 +341,20 @@ export function createPublishJobs(options: {
       const requestIdAgain = randomUUID();
       try {
         const pressed = await client.tryAgain(requestIdAgain, tab);
+        const replaced = state.requests.find((r) => r.requestId === requestId);
         set({
           ...state,
           requests: state.requests.filter((r) => r.requestId !== requestId),
         });
         // Through `track`, so a press that settled at once is announced.
+        // A retry sends the changes the failed press did.
         track({
           requestId: requestIdAgain,
           request: pressed.request,
           job: pressed.job,
+          ...(replaced?.patchIds !== undefined
+            ? { patchIds: replaced.patchIds }
+            : {}),
         });
         return { ok: true };
       } catch (error) {
