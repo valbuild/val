@@ -215,6 +215,21 @@ s.object({
 
 `unless` takes one permission or several; several means **any one is enough**.
 
+**Val makes no inference between permission strings.** It does not know that
+`seo:edit` implies `seo:read` — the names are the project's, and the `:` in them
+is a convention, not a syntax Val reads. Where seeing and changing need different
+audiences, the schema says so in both places:
+
+```ts
+s.object({ canonical: s.string(), noindex: s.boolean() })
+  .hidden({ unless: ["seo:read", "seo:edit"] })
+  .readonly({ unless: "seo:edit" });
+```
+
+Listing `seo:edit` in `hidden` as well is what makes "write includes read" true
+for a permission the project invented. One permission for both is the common
+case; split it only when there is a "can see, cannot change" audience.
+
 The polarity is in the key rather than positional, because `hidden("editor")`
 reads equally well as "hidden from editors" and "hidden from everyone except
 editors", and picking wrong is silent.
@@ -227,33 +242,52 @@ reader's head.
 Today's forms are untouched: `hidden()`, `hidden(false)`, `readonly()` all keep
 their meaning.
 
-**The nearest explicit annotation wins — along the chain and down the tree.**
-These are the same rule seen from two directions, and the builder already
-commits to it: `hidden()` followed by `hidden(false)` is not a contradiction to
-reject, it is an override, because each call replaces the flag on the schema it
-returns. Last call wins on one field; deepest annotation wins along a path.
-
-So walking from the module root to a field, the effective value is the one from
-the deepest node that says anything. Nodes that say nothing inherit from above,
-and `hidden(false)` / `readonly(false)` say something: they are how a child
-re-widens what an ancestor restricted.
+**A restriction on an ancestor covers everything below it.** Walking from the
+module root to a field, the field is hidden for you if it or any ancestor is
+hidden for you, and read-only if it or any ancestor is read-only for you. A child
+can add a restriction; it can never remove one. There is no way to surface
+something from below.
 
 ```ts
 s.object({
-  band: s.string(),
-  jobTitle: s.string().hidden(false), // visible to everyone
-}).hidden({ unless: "hr:read" });
+  canonical: s.string(),
+  metaDescription: s.string().hidden(false), // still hidden: `seo` is
+}).hidden({ unless: "seo:edit" });
 ```
 
-For `readonly` this is plainly useful — a locked section with one editable
-field. For `hidden` it means rendering a container that is itself hidden, as a
-shell holding only the children that override it. That is the same mechanism the
-staged-content rule below already needs, so it is one piece of machinery with two
-callers rather than a new one.
+A developer who wants part of a section visible splits it into groups, so that
+what the Studio shows is what the schema's shape says:
 
-The cost is that a hole can be punched in a restricted container from a child,
-and nothing about the container says so. It is explicit in the code and it goes
-through review, which is enough for a conscience mechanism.
+```ts
+s.object({
+  seo: s.object({
+    metaDescription: s.string(),
+  }),
+  seoAdvanced: s
+    .object({
+      canonical: s.string(),
+      noindex: s.boolean(),
+    })
+    .hidden({ unless: "seo:edit" }),
+});
+```
+
+Same for `readonly`: a locked section with one editable field is two sections.
+
+This is the simpler rule to hold in your head. Whether a field shows is decided by
+reading up its path until something says no, and a restricted container means
+what it looks like it means — nothing inside it can quietly opt out, so a reviewer
+does not have to read every child to know what a `.hidden({ unless })` hides.
+
+Chaining on one field is a different axis and keeps its meaning: each call
+replaces the flag on the schema it returns, so `s.string().hidden().hidden(false)`
+is visible. Last call wins on one field; any restricted ancestor wins down the
+tree.
+
+A `.hidden(false)` or `.readonly(false)` on a field whose ancestor is restricted
+can never take effect. That is reported as a **warning** — it is dead, not
+dangerous, and it almost always means the author expected the override this
+rule does not have.
 
 ## Resolution
 
@@ -282,12 +316,20 @@ people's work, so an editor can ship and can destroy changes they cannot
 otherwise see. Being unable to look at what you are about to publish is exactly
 the mistake this feature exists to prevent.
 
-It follows that a field can appear, be published, and disappear again. That is
-correct, and worth a marker in the UI saying why it is showing.
+**What staging surfaces is read-only.** Showing a field so you can see what you
+are about to ship does not make it yours: `hidden({ unless })` meant "not your
+field", and it still does. You can look at it and you can discard it — which
+anyone who may write or publish can do — but not type into it. A hidden
+container is drawn only as far as it takes to reach the patched field inside it,
+and read-only too.
 
-`readonly` is not overridden — the field is shown and still not typeable.
-Discarding it is a different action, and one anyone who may write or publish
-can take.
+It is marked, discreetly: a quiet note on the field saying it is showing because
+of an unpublished change, not a banner. A field can appear, be published, and
+disappear again, and without the note that reads like a bug.
+
+This is the only place a hidden container is ever drawn. The schema has no way
+to surface something from inside one (see the schema API); the staged-content
+rule is not the schema's decision but the pending queue's.
 
 ### Permissions are read from the published source
 
@@ -618,52 +660,62 @@ A built-in as the permission — only people who can ship may backdate:
 publishedAt: s.date().readonly({ unless: "publish" }),
 ```
 
-A whole section, with a hole punched in it by a child:
+A section split so that one part is everyone's and the rest is not — the only
+way to show part of a section, since nothing surfaces from below:
 
 ```ts
 s.object({
-  public: s.object({ title: s.string(), body: s.richtext({}) }),
-  hr: s
+  seo: s.object({
+    metaDescription: s.string().maxLength(160),
+  }),
+  seoAdvanced: s
     .object({
-      salaryBand: s.string(),
-      reviewNotes: s.richtext({}),
-      jobTitle: s.string().hidden(false), // everyone sees this one
+      canonical: s.string().nullable(),
+      noindex: s.boolean(),
+      structuredData: s.string(),
     })
-    .hidden({ unless: "hr:read" }),
+    .hidden({ unless: "seo:edit" }),
 });
 ```
 
-A locked section with one editable field — the same rule, and the case it is
-most obviously for:
+A locked section with one editable field is the same move:
 
 ```ts
 s.object({
-  generated: s
-    .object({
-      buildSha: s.string(),
-      builtAt: s.date(),
-      note: s.string().readonly(false), // a human may annotate
-    })
-    .readonly(),
+  generated: s.object({ buildSha: s.string(), builtAt: s.date() }).readonly(),
+  note: s.string(), // a human may annotate
 });
 ```
 
-Three levels, nearest wins:
+Nested restrictions stack — a field has to clear every one on its path:
 
 ```ts
 s.object({
   a: s
     .object({
-      b: s.object({
-        c: s.string(), // hidden: inherits from `a`
-        d: s.string().hidden(false), // visible: `d` is nearest
-      }),
+      b: s
+        .object({
+          c: s.string(), // needs hr:read
+          d: s.string(), // needs hr:read AND hr:notes
+        })
+        .hidden({ unless: "hr:notes" }),
     })
     .hidden({ unless: "hr:read" }),
 });
 ```
 
-Chaining, which is the same rule along the other axis:
+A child that tries to opt out, and the warning it gets:
+
+```ts
+s.object({
+  canonical: s.string(),
+  metaDescription: s.string().hidden(false),
+}).hidden({ unless: "seo:edit" });
+// `metaDescription` has .hidden(false), but its parent is hidden for anyone
+// without `seo:edit`, so it can never be shown. Move it out of the section.
+```
+
+Chaining on one field, where the last call wins:
 
 ```ts
 s.string().hidden().hidden(false); // visible — last call wins
@@ -765,14 +817,14 @@ because `/profiles` gives it the email for `usr_boss`.
 
 Field: `notes: s.string().hidden({ unless: "hr:read" })`.
 
-| Situation                                 | A user without `hr:read` sees                              |
-| ----------------------------------------- | ---------------------------------------------------------- |
-| No pending patch                          | nothing                                                    |
-| HR has edited it, unpublished             | the field, marked as showing because of the pending change |
-| …and they publish                         | nothing again                                              |
-| The field is `readonly` for them too      | the field, not typeable, discardable                       |
-| A patched field inside a hidden container | the container as a shell, holding it                       |
-| A patch in a locale they cannot read      | the entry, same rule                                       |
+| Situation                                 | A user without `hr:read` sees                            |
+| ----------------------------------------- | -------------------------------------------------------- |
+| No pending patch                          | nothing                                                  |
+| HR has edited it, unpublished             | the field, read-only, with a quiet note saying why       |
+| …and they publish                         | nothing again                                            |
+| They try to change it                     | they cannot; they can discard it                         |
+| A patched field inside a hidden container | the container, drawn only as far as the field, read-only |
+| A patch in a locale they cannot read      | the entry, same rule                                     |
 
 The last three are why the rule is stated once over all the axes rather than
 per annotation.
