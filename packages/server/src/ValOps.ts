@@ -647,6 +647,7 @@ export abstract class ValOps {
         patchOps.patches,
         moduleFilePath,
         opts?.patchIds,
+        patchOps.commits,
       ).map((p) => ({ patchId: p.patchId, patch: p.patch }));
       try {
         serializedSchema = schemas[moduleFilePath]?.["executeSerialize"]();
@@ -3065,8 +3066,10 @@ export type PatchReadError =
  * 1. this module's, since the chain is branch-wide;
  * 2. this caller's, when they asked to be scoped. `undefined` is "everything",
  *    which is what every unscoped caller gets and must keep getting;
- * 3. not already applied — a fact about this path rather than about scoping,
- *    and true with or without a scope.
+ * 3. a patch published after this build is kept whatever the scope: it is
+ *    nobody's to hold back, and this build does not have it. One already in
+ *    the build is dropped. `draftOverlay` decides which is which, from
+ *    `commits`, and puts the published ones first.
  *
  * Filtered here rather than by asking `fetchPatches` for a list, and that is
  * load-bearing: both implementations read an empty `patchIds` as "no filter"
@@ -3086,14 +3089,66 @@ export function scopedModulePatches<
   patches: T[],
   moduleFilePath: ModuleFilePath,
   patchIds: PatchId[] | undefined,
+  /** The commits content says came after this build: see `draftOverlay`. */
+  commits?: Pick<ValCommit, "commitSha">[],
 ): T[] {
   const scope = patchIds && new Set(patchIds);
-  return patches.filter(
-    (patch) =>
-      patch.path === moduleFilePath &&
-      !patch.appliedAt &&
-      (scope === undefined || scope.has(patch.patchId)),
+  return draftOverlay(
+    patches.filter(
+      (patch) =>
+        patch.path === moduleFilePath &&
+        (patch.appliedAt !== null ||
+          scope === undefined ||
+          scope.has(patch.patchId)),
+    ),
+    commits,
   );
+}
+
+/**
+ * The patches a DRAFT applies on top of this build's own source, in the order
+ * it applies them: the ones published after this build first, then the
+ * pending ones, each in chain order -- with `appliedAt` cleared, because this
+ * build has none of them.
+ *
+ * Content places every caller at its own build (`getApplicablePatchesAndCommits`
+ * in valbuild/home: "the earliest the caller has not seen") and returns the
+ * commits after it as `commits`. A patch applied at one of those was
+ * published AFTER this build and is not in it. Skipping those -- which both
+ * draft paths did -- rendered the build's old base for the whole time between
+ * the publish and the next build going live: the draft went back to the old
+ * value, then forward again.
+ *
+ * A patch applied at a commit NOT in that list is already in this build --
+ * content returns one only because it was asked for by id -- and is dropped:
+ * applying it again would apply it twice. Without `commits` (a store that
+ * does not report them) every applied patch is dropped, as before. Only
+ * `ValOpsHttp` ever reports `appliedAt`; `fs` and memory stores report `null`.
+ *
+ * Published first because that is what the next build will be: its base is
+ * this one plus the published patches, and pending ones go on top of that. So
+ * the draft is the same answer from the old build and the new one, for the
+ * same chain -- which is what makes a reload during a publish show what the
+ * page already showed. `jobPrepare` builds a job's content the same way.
+ *
+ * For the reads that render a draft only. What to COMMIT still keys on
+ * `appliedAt`: a published patch must never be published again.
+ */
+export function draftOverlay<
+  T extends { appliedAt: { commitSha: CommitSha } | null },
+>(patches: T[], commits: Pick<ValCommit, "commitSha">[] | undefined): T[] {
+  const afterThisBuild = new Set<string>(
+    (commits ?? []).map((commit) => commit.commitSha),
+  );
+  const published = patches
+    .filter(
+      (patch) =>
+        patch.appliedAt !== null &&
+        afterThisBuild.has(patch.appliedAt.commitSha),
+    )
+    .map((patch) => ({ ...patch, appliedAt: null }));
+  const pending = patches.filter((patch) => patch.appliedAt === null);
+  return [...published, ...pending];
 }
 
 export type OrderedPatches = {
