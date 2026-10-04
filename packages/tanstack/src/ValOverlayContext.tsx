@@ -232,6 +232,12 @@ export const ValOverlayContext = React.createContext<{
    * find out was `waitForLoad`'s timeout, once per unedited module.
    */
   readonly draftSourcesSynced?: boolean;
+  /**
+   * Whether content may be JSX auto-tagged, for a page rendered from a
+   * server-read draft; `undefined` otherwise, where tagging is left to the
+   * provider's effects as it always was. See `useHydrationSafeTagging`.
+   */
+  readonly tagging?: boolean;
 }>({
   store: undefined,
   draftMode: false,
@@ -246,6 +252,7 @@ export function ValOverlayProvider({
   suspend,
   draftModeReady,
   draftSourcesSynced,
+  tagging,
   children,
 }: {
   store?: ValExternalStore;
@@ -253,6 +260,7 @@ export function ValOverlayProvider({
   suspend: boolean;
   draftModeReady?: Promise<void>;
   draftSourcesSynced?: boolean;
+  tagging?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -263,6 +271,7 @@ export function ValOverlayProvider({
         suspend,
         draftModeReady,
         draftSourcesSynced,
+        tagging,
       }}
     >
       {children}

@@ -33,6 +33,7 @@ import { isValCanvasFrame } from "@valbuild/shared/client";
 import { ValCanvasBridge } from "./ValCanvasBridge";
 import { shouldSafetyRefresh } from "./safetyRefresh";
 import type { ValDraft } from "./ValDraft";
+import { useHydrated } from "./useHydrated";
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
@@ -199,25 +200,23 @@ export const ValTanStackProvider = (props: {
    */
   const initialDraft = React.useRef(props.draft ?? null).current;
   /**
-   * Whether JSX auto-tagging may run yet, for a page rendered from a draft.
+   * JSX auto-tagging for a page rendered from a server-read draft: off for
+   * the server's render and for each component's hydration render, on after.
    *
    * Tagging moves a string's edit tag into a `data-val-path` attribute, so a
    * tagged render and an untagged one of the same draft text are different
-   * markup. The server cannot be relied on to tag -- the flag is process-wide,
-   * and whether the patched JSX runtime is the one the page renders with
-   * depends on how the server was bundled -- so the server's render does not,
-   * and nothing may tag until the page has hydrated. Not "after mount": a route
-   * component that is split out loads and hydrates AFTER this provider's
-   * effects have run, so it would hydrate tagged against untagged HTML.
-   *
-   * So: on the first `/draft/stat` answer, a network round trip after mount,
-   * which is also when tagging was turned on before the server rendered drafts
-   * at all. The context value is a new object every render, so that render
-   * reaches every component reading content and tags it.
+   * markup, and the flag is process-wide. The server cannot be relied on to
+   * tag -- whether the patched JSX runtime is the one a server renders with
+   * depends on how it was bundled -- so nothing tags while it is hydrating.
+   * Hydration ends at different times for different parts of the page (a
+   * split-out route hydrates after this provider's effects have run, and no
+   * network answer is a barrier for it), so the signal is per component:
+   * `useHydrationSafeTagging` in the hooks, and this for whatever the
+   * provider itself renders.
    */
-  const [taggingReady, setTaggingReady] = React.useState(false);
+  const hydrated = useHydrated();
   if (initialDraft !== null) {
-    SET_AUTO_TAG_JSX_ENABLED(taggingReady);
+    SET_AUTO_TAG_JSX_ENABLED(hydrated);
   }
   // TODO: move below into react package
   const valStore = React.useMemo(() => {
@@ -582,7 +581,6 @@ export const ValTanStackProvider = (props: {
             console.error("Val: could not get draft mode status", res);
             return;
           }
-          setTaggingReady(true);
           setDraftMode((prev) => {
             if (prev !== res.json.draftMode) {
               rerenderCounterRef.current++;
@@ -660,12 +658,10 @@ export const ValTanStackProvider = (props: {
       SET_AUTO_TAG_JSX_ENABLED(false);
     } else {
       if (draftMode) {
-        // Not before the first `/draft/stat` answer for a page rendered from
-        // a server draft: see `taggingReady`. `draftMode` starts true there,
-        // so without this the flag went on as soon as the overlay mounted.
-        if (initialDraft === null || taggingReady) {
-          SET_AUTO_TAG_JSX_ENABLED(true);
-        }
+        // For a page rendered from a server draft the hooks decide this per
+        // component render (`useHydrationSafeTagging`), so turning it on here
+        // cannot reach a component that is still hydrating.
+        SET_AUTO_TAG_JSX_ENABLED(true);
         const reactServerComponentRefreshListener = (event: Event) => {
           if (event instanceof CustomEvent) {
             if (event.detail?.type === "sources-synced") {
@@ -724,13 +720,7 @@ export const ValTanStackProvider = (props: {
         };
       }
     }
-  }, [
-    mountOverlay,
-    draftMode,
-    props.disableRefresh,
-    initialDraft,
-    taggingReady,
-  ]);
+  }, [mountOverlay, draftMode, props.disableRefresh]);
 
   React.useEffect(() => {
     if (!mountOverlay) {
@@ -809,6 +799,7 @@ export const ValTanStackProvider = (props: {
       draftMode={draftMode}
       draftModeReady={draftModeReady.current?.promise}
       draftSourcesSynced={draftSourcesSynced}
+      tagging={initialDraft !== null ? true : undefined}
       suspend={suspendActive}
       store={valStore}
     >

@@ -1094,10 +1094,12 @@ draft mode. The provider seeds its store with it and starts with `draftMode`
 true, so the server renders the draft -- the text, with its edit tags in it --
 and the browser's hydration render reads the same sources from the loader data
 and agrees with it. JSX auto-tagging (which moves a tag into a `data-val-path`
-attribute) stays OFF through the server render and hydration and turns on with
-the first `/draft/stat` answer (`taggingReady` in `ValTanStackProvider`): on
-earlier -- even "after mount" -- a split-out route component hydrates later,
-tagged, against untagged server HTML. It does not hang, because nothing waits on the browser: the
+attribute) is OFF for the server render and for each component's own hydration
+render, and on for the render React does right after it hydrates
+(`useHydrated`, a `useSyncExternalStore` whose server snapshot is `false`).
+Per component, because no page-wide moment works: "after mount" and "after the
+first `/draft/stat` answer" were both tried, and a split-out route component
+hydrates after either, tagged, against untagged server HTML. It does not hang, because nothing waits on the browser: the
 store is full before the first render, and `draftSourcesSynced` starts true
 (a module missing from a server-read draft has no changes, rather than "not
 sent yet"). TanStack can afford it because every request is rendered anyway —

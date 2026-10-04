@@ -13,12 +13,14 @@ import {
   type Resolvable,
   type ResolvedVal,
   type RouteValueOf,
+  SET_AUTO_TAG_JSX_ENABLED,
   getModuleIds,
   stegaEncode,
 } from "@valbuild/react/stega";
 import React from "react";
 import { ValConfig } from "@valbuild/core";
 import { useValOverlayContext } from "../ValOverlayContext";
+import { useHydrated } from "../useHydrated";
 import {
   getJsonEntryStegaRoot,
   getValRouteUrlFromVal,
@@ -26,10 +28,28 @@ import {
   isJsonValuesRecordSchema,
 } from "../routeFromVal";
 
+/**
+ * JSX auto-tagging for THIS component's render, on a page rendered from a
+ * server-read draft (`tagging` defined): off while it is hydrating, so its
+ * markup matches the server's untagged HTML; on for the render React does
+ * right after, which tags it.
+ *
+ * Set at the top of the hook because the flag is read as the component's JSX
+ * is created, later in this same render. See `useHydrated` and
+ * `ValTanStackProvider`.
+ */
+function useHydrationSafeTagging(tagging: boolean | undefined): void {
+  const hydrated = useHydrated();
+  if (tagging !== undefined) {
+    SET_AUTO_TAG_JSX_ENABLED(tagging && hydrated);
+  }
+}
+
 /** What `useVal` gives back — see `ResolvedVal` in `@valbuild/react/stega`. */
 export type UseValType<T extends SelectorSource> = ResolvedVal<T>;
 function useValStega<T extends Resolvable>(selector: T): UseValType<T> {
   const valOverlayContext = useValOverlayContext();
+  useHydrationSafeTagging(valOverlayContext.tagging);
   const moduleIds = React.useMemo(
     () => getModuleIds(selector) as ModuleFilePath[],
     [selector],
@@ -196,6 +216,7 @@ function useValKeyStega<T extends ResolvableModule>(
   key: string,
 ): JsonEntryContentOf<T> | undefined {
   const valOverlayContext = useValOverlayContext();
+  useHydrationSafeTagging(valOverlayContext.tagging);
   // A view is a pointer: everything below reads a path, a schema and a source
   // off this, and a pointer has none of them. See `resolveViewedModule`.
   const valModule = Internal.resolveViewedModule<SourceObject>(selector);

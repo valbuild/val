@@ -370,8 +370,9 @@ function SiteLayout() {
 `fetchValDraft` returns `null` — after one cookie lookup, with no read — unless
 the request is in draft mode, so visitors pay nothing. In draft mode it returns
 the modules the draft changes, which the server renders with and the browser
-hydrates from: both produce the same page, tagged for editing from the first
-paint, and the overlay takes over from there.
+hydrates from: both produce the same page, showing the draft from the first
+paint. It becomes click-to-editable as each component finishes hydrating, and
+the overlay takes over from there.
 
 `suspend` on `ValProvider` makes `useValStega` / `useValRouteStega` wait for
 draft data before rendering, so a page that exists **only** in an unpublished
