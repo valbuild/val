@@ -1,9 +1,10 @@
 import {
   awaitingDeploymentInterval,
   chainOfMessage,
-  withNewerPublishing,
+  withNewerChain,
   StatData,
 } from "./useStatus";
+import { heldByContent } from "../publish/publishJobs";
 
 /**
  * How hard the Studio leans on `/stat` while a publish is on its way out.
@@ -195,19 +196,21 @@ describe("chainOfMessage", () => {
   });
 });
 
-describe("withNewerPublishing", () => {
+describe("withNewerChain", () => {
+  const ids = (...patchIds: string[]) => patchIds as StatData["patches"];
   const answer = {
-    patches: ["p1"] as StatData["patches"],
-    publishingPatches: [] as StatData["patches"],
+    patches: ids("p1"),
+    appliedPatches: ids(),
+    publishingPatches: ids(),
   };
 
   // Requested before another tab pressed Publish, answered after the socket
   // said what that publish holds: the socket is newer.
   test("keeps the socket's set when the socket spoke after the request", () => {
     expect(
-      withNewerPublishing(
+      withNewerChain(
         answer,
-        { publishingPatches: ["p1"] as StatData["patches"] },
+        { patches: ids("p1"), publishingPatches: ids("p1") },
         true,
       ).publishingPatches,
     ).toEqual(["p1"]);
@@ -215,15 +218,55 @@ describe("withNewerPublishing", () => {
 
   test("takes the answer's set when nothing newer arrived", () => {
     expect(
-      withNewerPublishing(
+      withNewerChain(
         answer,
-        { publishingPatches: ["p1"] as StatData["patches"] },
+        { patches: ids("p1"), publishingPatches: ids("p1") },
         false,
       ).publishingPatches,
     ).toEqual([]);
   });
 
-  test("takes the answer whole when there is no set to keep", () => {
-    expect(withNewerPublishing(answer, undefined, true)).toBe(answer);
+  test("takes the answer whole when there is no chain to keep", () => {
+    expect(withNewerChain(answer, undefined, true)).toBe(answer);
+  });
+
+  /*
+   * The socket reports p1's publish sealed -- applied, held by nobody -- and
+   * then a `/stat` answer requested before the seal lands, with p1 still
+   * unapplied and held. Keeping the socket's publishing set beside the
+   * answer's applied list read p1 as pending and held by nobody: given back,
+   * and offered for Publish again, while the store was still taking in the
+   * seal.
+   */
+  test("never pairs the socket's holds with an older answer's applied list", () => {
+    const sealedOnSocket = {
+      patches: ids("p1"),
+      appliedPatches: ids("p1"),
+      publishingPatches: ids(),
+    };
+    const olderAnswer = {
+      patches: ids("p1"),
+      appliedPatches: ids(),
+      publishingPatches: ids("p1"),
+    };
+    const merged = withNewerChain(olderAnswer, sealedOnSocket, true);
+    expect(merged.appliedPatches).toEqual(["p1"]);
+    expect([...heldByContent(new Set(["p1"]), merged)]).toEqual(["p1"]);
+  });
+
+  test("keeps the socket's head and groups with its holds", () => {
+    const merged = withNewerChain(
+      { ...answer, headPatchId: ids("p1")[0], headVersion: 3 },
+      {
+        patches: ids("p1", "p2"),
+        headPatchId: ids("p2")[0],
+        headVersion: 4,
+        patchGroups: [],
+      },
+      true,
+    );
+    expect(merged.patches).toEqual(["p1", "p2"]);
+    expect(merged.headPatchId).toBe("p2");
+    expect(merged.headVersion).toBe(4);
   });
 });

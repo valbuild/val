@@ -311,7 +311,7 @@ export function useStatus(client: ValClient) {
   /**
    * How many socket `patches` messages have been taken. A `/stat` answer
    * requested before the latest of them is older than it -- see
-   * {@link withNewerPublishing}.
+   * {@link withNewerChain}.
    */
   const socketPatchesRef = useRef(0);
   /** Who hears a `publish-job` nudge. See `subscribePublishJobs`. */
@@ -488,27 +488,42 @@ export function chainOfMessage(
   };
 }
 
+/** What a socket `patches` message replaces: one view of the chain. */
+type ChainView = ReturnType<typeof chainOfMessage>;
+
 /**
- * A `/stat` answer, with the publishing set kept from a socket message that
- * arrived after the request went out.
+ * A `/stat` answer, with the chain kept from a socket message that arrived
+ * after the request went out.
  *
  * Socket messages do not move `statIdRef`, so an answer requested before a
  * publish started elsewhere was taken whole after the socket had said which
  * changes that publish holds -- and Publish was offered over them until the
- * next update. Only the publishing set, which nothing else orders: the chain
- * has its own version.
+ * next update.
+ *
+ * The WHOLE chain view, never one field of it: the holds are read against the
+ * chain and the applied list (`heldByContent`), so a socket's publishing set
+ * beside an older answer's applied list read a change the socket had just
+ * reported sealed as pending again, and gave it back. The socket's view is
+ * never left stale by this: every later change to the chain or to a publish
+ * sends another message.
  */
-export function withNewerPublishing<
-  T extends Pick<StatData, "publishingPatches">,
->(
+export function withNewerChain<T extends ChainView>(
   answer: T,
-  current: Pick<StatData, "publishingPatches"> | undefined,
+  current: ChainView | undefined,
   socketSpokeSince: boolean,
 ): T {
-  if (!socketSpokeSince || current?.publishingPatches === undefined) {
+  if (!socketSpokeSince || current === undefined) {
     return answer;
   }
-  return { ...answer, publishingPatches: current.publishingPatches };
+  return {
+    ...answer,
+    patches: current.patches,
+    headPatchId: current.headPatchId,
+    headVersion: current.headVersion,
+    patchGroups: current.patchGroups,
+    appliedPatches: current.appliedPatches,
+    publishingPatches: current.publishingPatches,
+  };
 }
 
 /** How long the Studio leaves between `/stat` calls once a socket is up. */
@@ -654,7 +669,7 @@ async function execStat(
           setStat((prev) => ({
             ...prev,
             status: "updated-request-again",
-            data: withNewerPublishing(
+            data: withNewerChain(
               answer,
               "data" in prev ? prev.data : undefined,
               socketPatchesRef.current !== socketPatchesAtRequest,
