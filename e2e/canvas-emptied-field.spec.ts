@@ -55,6 +55,59 @@ async function openFieldsView(page: Page) {
   return studio;
 }
 
+const LABEL_PATH = `${BLOG}?p="/blogs/blog1"."link"."label"`;
+
+/**
+ * Listen to the page's element reports from here on, as the Studio hears them.
+ *
+ * The bridge posts to the Studio's window; this adds a second listener beside
+ * `CanvasFrame`'s, so a test can wait on the report itself rather than on a
+ * clock.
+ */
+async function recordElementReports(page: Page) {
+  await page.evaluate(() => {
+    const bag = window as unknown as { __valReports?: unknown[] };
+    bag.__valReports = [];
+    window.addEventListener("message", (event: MessageEvent) => {
+      const data: unknown = event.data;
+      if (
+        typeof data === "object" &&
+        data !== null &&
+        "type" in data &&
+        data.type === "elements"
+      ) {
+        bag.__valReports?.push(data);
+      }
+    });
+  });
+  return {
+    /** Until a report has `path` either missing or on an empty (0×0) box. */
+    waitForEmptied: (path: string) =>
+      page.waitForFunction(
+        (wanted) => {
+          type Report = {
+            elements: {
+              paths: string[];
+              rect: { width: number; height: number };
+            }[];
+          };
+          const bag = window as unknown as { __valReports?: Report[] };
+          return (bag.__valReports ?? []).some((report) => {
+            const element = report.elements.find((candidate) =>
+              candidate.paths.includes(wanted),
+            );
+            return (
+              element === undefined ||
+              (element.rect.width === 0 && element.rect.height === 0)
+            );
+          });
+        },
+        path,
+        { timeout: 15000 },
+      ),
+  };
+}
+
 /** Whether keyboard focus is somewhere inside `locator`. */
 async function hasFocusWithin(locator: Locator): Promise<boolean> {
   return locator.evaluate((element) => {
@@ -99,11 +152,17 @@ test("clearing a link's label keeps both of the link's rows", async ({
   await expect(label).toBeVisible();
   await expect(href).toBeVisible();
 
+  const reports = await recordElementReports(page);
   await label.locator("input").first().click();
   await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.press("Backspace");
-  // Long enough for the page to re-render and report: the bug was a report.
-  await page.waitForTimeout(3000);
+  /*
+   * Wait for the report the bug was in: the first one in which the label's
+   * element is no longer the filled-in link. With the fix it is there, 0×0;
+   * without it, it is missing — and either way the rows below are then
+   * checked against what the page actually said.
+   */
+  await reports.waitForEmptied(LABEL_PATH);
 
   await expect(label).toBeVisible();
   await expect(href).toBeVisible();

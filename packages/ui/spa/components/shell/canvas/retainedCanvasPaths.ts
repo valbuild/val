@@ -22,13 +22,16 @@ import type { SourcePath } from "@valbuild/core";
 export function mergeRetainedPaths(
   /** What the column listed last time. */
   previous: readonly SourcePath[],
-  /** What the page reports now, in page order. */
+  /**
+   * What the page reports now, in page order. Deduplicated here as well as
+   * upstream, because the column keys its rows by path.
+   */
   reported: readonly SourcePath[],
   /** Whether a path the page no longer reports should stay listed. */
   keep: (path: SourcePath) => boolean,
 ): readonly SourcePath[] {
   const listed = new Set(reported);
-  const merged = [...reported];
+  const merged = Array.from(listed);
   /** Where the next kept path goes: just after the last one placed. */
   let insertAt = 0;
   for (const path of previous) {

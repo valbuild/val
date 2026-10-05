@@ -58,6 +58,13 @@ describe("mergeRetainedPaths", () => {
     ]);
   });
 
+  test("a path the page reports twice is listed once", () => {
+    // One value used in two places is tagged twice.
+    expect(
+      mergeRetainedPaths([TITLE, BODY], [TITLE, LINK, TITLE], keepAll),
+    ).toEqual([TITLE, BODY, LINK]);
+  });
+
   test("an unchanged answer is the previous array, not a copy", () => {
     const previous = [TITLE, BODY, LINK];
     expect(mergeRetainedPaths(previous, [TITLE, LINK], keepAll)).toBe(previous);

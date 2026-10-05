@@ -86,9 +86,9 @@ export function useRetainedCanvasPaths(
   }, [val, chainVersion, reported, selected, resetKey]);
 
   const offPage = useMemo(() => {
-    if (paths.length === reported.length) return NONE;
     const shown = new Set(reported);
-    return new Set(paths.filter((path) => !shown.has(path)));
+    const kept = paths.filter((path) => !shown.has(path));
+    return kept.length === 0 ? NONE : new Set(kept);
   }, [paths, reported]);
 
   return { paths, offPage };

@@ -166,6 +166,18 @@ test("a selection the column never listed is not added to it", () => {
   expect(result.current.paths).toEqual([TITLE, LINK]);
 });
 
+test("a page that reports a path twice still marks what it is not showing", () => {
+  const { result, rerender } = renderColumn({
+    reported: [TITLE, BODY],
+    selected: BODY,
+    resetKey: "/a\n0",
+  });
+  // As many reported paths as listed ones, but BODY is not among them.
+  rerender({ reported: [TITLE, TITLE], selected: BODY, resetKey: "/a\n0" });
+  expect(result.current.paths).toEqual([TITLE, BODY]);
+  expect([...result.current.offPage]).toEqual([BODY]);
+});
+
 test("the same answer is the same array", () => {
   const { result, rerender } = renderColumn({
     reported: [TITLE, BODY, LINK],
