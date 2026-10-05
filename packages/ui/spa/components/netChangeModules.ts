@@ -17,7 +17,8 @@ export function netChangeModules(
   publishing: ReadonlySet<string>,
   /**
    * Changes outside this tab's patch group. Publish does not send them, so
-   * they are never what makes a module "changed" under a running publish --
+   * they are never what makes a module "changed" under a running publish, and
+   * a module only they and a running publish touch is not compared. Elsewhere
    * they are compared as they always were, which reads them as unstaged rather
    * than as work to publish.
    */
@@ -38,7 +39,11 @@ export function netChangeModules(
       staged.add(record.moduleFilePath);
     }
   }
-  const compare = new Set<ModuleFilePath>(unstagedModules);
+  // Not where a running publish is changing the module: compared, it would
+  // read that publish's change as one of these.
+  const compare = new Set<ModuleFilePath>(
+    [...unstagedModules].filter((module) => !inFlight.has(module)),
+  );
   let changesOnPublishing = false;
   for (const module of staged) {
     if (inFlight.has(module)) changesOnPublishing = true;

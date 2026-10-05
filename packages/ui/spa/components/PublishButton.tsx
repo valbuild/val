@@ -14,6 +14,7 @@ import {
   useCommittedPatches,
   usePendingClientSidePatchIds,
   useHasNetChanges,
+  useUnstagedPatchIds,
   usePendingServerSidePatchIds,
   usePublishingPatchIds,
   usePublishSummary,
@@ -177,12 +178,26 @@ export function PublishButton({
    * change it was in the middle of publishing. See `publishingPatchIds`.
    */
   const publishing = usePublishingPatchIds();
+  /*
+   * Nor outside this tab's patch group, anyone's: Publish does not send those.
+   * Counted as work, an unstaged change beside a publishing one in the same
+   * module lit Publish up over nothing staged -- the module compares as
+   * changed, because of the change being published.
+   */
+  const unstagedPatchIds = useUnstagedPatchIds();
   const pendingServerSidePatchIds = useMemo(
-    () => unpublishedPatchIds.filter((patchId) => !publishing.has(patchId)),
+    () =>
+      unpublishedPatchIds.filter(
+        (patchId) => !publishing.has(patchId) && !unstagedPatchIds.has(patchId),
+      ),
+    [unpublishedPatchIds, publishing, unstagedPatchIds],
+  );
+  // Counted on its own, so an unstaged change is never called "publishing".
+  const publishingCount = useMemo(
+    () =>
+      unpublishedPatchIds.filter((patchId) => publishing.has(patchId)).length,
     [unpublishedPatchIds, publishing],
   );
-  const publishingCount =
-    unpublishedPatchIds.length - pendingServerSidePatchIds.length;
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
   const hasNetChanges = useHasNetChanges();
   // Only this user's own held patches: the message offers to stage them, and

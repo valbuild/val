@@ -57,7 +57,7 @@ describe("netChangeModules", () => {
    * the same module. p2 is not Publish's to send, so it must not count as a
    * change: compared as before, it reads as unstaged, not as work.
    */
-  test("an unstaged change is compared, never counted as a change under a publish", () => {
+  test("an unstaged change is never counted as a change under a publish", () => {
     expect(
       netChangeModules(
         records(["p1", page], ["p2", page]),
@@ -65,6 +65,17 @@ describe("netChangeModules", () => {
         new Set(["p1"]),
         new Set(["p2"]),
       ),
-    ).toEqual({ compare: [page], changesOnPublishing: false });
+    ).toEqual({ compare: [], changesOnPublishing: false });
+  });
+
+  test("an unstaged change elsewhere is compared as it always was", () => {
+    const { compare, changesOnPublishing } = netChangeModules(
+      records(["p1", page], ["p2", footer]),
+      new Set(),
+      new Set(),
+      new Set(["p2"]),
+    );
+    expect([...compare].sort()).toEqual([footer, page].sort());
+    expect(changesOnPublishing).toBe(false);
   });
 });

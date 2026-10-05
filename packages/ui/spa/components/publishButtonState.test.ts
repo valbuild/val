@@ -270,6 +270,43 @@ describe("nothing to publish: reverted against unstaged", () => {
     expect(state.reason).not.toContain("Discard");
   });
 
+  /*
+   * The button no longer counts unstaged changes as work to send, so an
+   * unstaged change alone is "nothing to send" -- and still says why.
+   */
+  test("unstaged work alone is nothing to send, and says it is unstaged", () => {
+    const state = describePublishButton(
+      input({ pendingServerSidePatchCount: 0, unstagedChangeCount: 1 }),
+    );
+    expect(state.kind).toBe("idle");
+    expect(state.action).toBe("none");
+    expect(state.reason).toBe(
+      "1 change is unstaged, so there is nothing to publish. Stage it in Review to publish.",
+    );
+  });
+
+  /*
+   * p1 (A→B) publishes and the only other saved change, p2, is unstaged in
+   * the same module. Nothing staged is left to send: the button says what is
+   * publishing, and never offers Publish over it.
+   */
+  test("unstaged work beside a running publish does not light Publish", () => {
+    const state = describePublishButton(
+      input({
+        mode: "http",
+        pendingServerSidePatchCount: 0,
+        publishingCount: 1,
+        unstagedChangeCount: 1,
+        netChangesEmpty: false,
+      }),
+    );
+    expect(state).toMatchObject({
+      kind: "in-flight",
+      label: "Publishing",
+      action: "none",
+    });
+  });
+
   test("more than one unstaged change reads as plural", () => {
     expect(
       describePublishButton(

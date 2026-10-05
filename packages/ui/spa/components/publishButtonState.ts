@@ -251,13 +251,13 @@ export function describePublishButton(
       reason:
         saving && autoPublish
           ? "Auto save is on: changes are saved for you."
-          : nothingToSend
-            ? "Nothing to send."
-            : revertedToNothing
-              ? unstagedChangeCount > 0
-                ? `${unstagedChangeCount} ${plural(unstagedChangeCount, "change is", "changes are")} unstaged, so there is nothing to publish. Stage ${plural(unstagedChangeCount, "it", "them")} in Review to publish.`
-                : "Every change has been reverted, so there is nothing to publish. Discard them to clear."
-              : null,
+          : (nothingToSend || revertedToNothing) && unstagedChangeCount > 0
+            ? `${unstagedChangeCount} ${plural(unstagedChangeCount, "change is", "changes are")} unstaged, so there is nothing to publish. Stage ${plural(unstagedChangeCount, "it", "them")} in Review to publish.`
+            : nothingToSend
+              ? "Nothing to send."
+              : revertedToNothing
+                ? "Every change has been reverted, so there is nothing to publish. Discard them to clear."
+                : null,
       action: "none",
     };
   }
