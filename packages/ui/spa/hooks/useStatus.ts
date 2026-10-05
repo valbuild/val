@@ -150,7 +150,7 @@ export const StatData = z.object({
       .optional(),
     files: z
       .object({
-        directory: z.string(),
+        remote: z.boolean().optional(),
       })
       .optional(),
   }),

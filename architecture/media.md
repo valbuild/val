@@ -17,6 +17,31 @@ be `{ remote: true }` on the two collections and a `.remote()` on the two fields
 which meant the same fact was spelled two ways depending on which of the four you
 were looking at.
 
+### `files: { remote: true }`: every one of them remote, for a whole project
+
+`initVal({ files: { remote: true } })` makes `s.image()`, `s.file()`,
+`s.video()`, the three sets and `s.richtext({ img: true })` come back with
+`.remote()` already on them (`initSchema`). The FACTORIES change, not the
+schemas: what comes out serializes byte-identically to a hand-written
+`.remote()`, so the Studio, the MCP tools, validation and publishing need to know
+nothing about the setting. A local path in such a project is the ordinary
+`image:upload-remote` error, and `val validate --fix` is the ordinary fix.
+
+The Val app REQUIRES it: with `VAL_ENV=app` the server refuses to start without
+it (`APP_MODE_REQUIRES_REMOTE_FILES` in `valServerConfig.ts`), and `val publish`
+refuses before it builds. The app has no repository for an upload to land in.
+
+It lives in `val.config.ts` rather than being switched on by the environment,
+and that is the point of it. The schemas are built when `val.config.ts` and the
+modules are evaluated — by the app, but also by `val validate`, the language
+server and `pnpm dev`. A switch only the app could see would leave all of those
+reading the media as local: every remote image an error, and `--fix` downloading
+it back into the repository. Do not "simplify" it into an env check.
+
+There is no config-wide files directory any more. `files.directory` was removed
+because nobody set it and the schemas carry their own `dir`; a local file a
+publish commits with no `dir` of its own goes to `/public/val`.
+
 A collection's `directory` is **required**. It used to default to `/public/val`,
 which meant a gallery that had simply not said where it wanted its files shared a
 directory with every other one — and `images:check-unique-folder` (below) then

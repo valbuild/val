@@ -1,9 +1,4 @@
-import {
-  CustomValidateFunction,
-  Schema,
-  SchemaAssertResult,
-  SerializedSchema,
-} from ".";
+import { CustomValidateFunction, Schema, SchemaAssertResult } from ".";
 import {
   GalleryImageSource,
   ImageSource,
@@ -612,7 +607,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
     return this.previewInput !== null;
   }
 
-  protected executeSerialize(): SerializedSchema {
+  protected executeSerialize(): SerializedImageSchema {
     const modulePaths = this.moduleMetadata
       ? Object.keys(this.moduleMetadata)
       : [];
@@ -650,6 +645,35 @@ export function image(
     | ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryImageOptions,
 ): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
+  return imageOf(false, options, galleryOptions);
+}
+
+/**
+ * `s.image()` for a project whose media is all remote (`files.remote` in
+ * `val.config.ts`): the same schema, with `.remote()` already applied. See
+ * `initSchema`.
+ */
+export function remoteImage(
+  galleryModule: ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+  galleryOptions?: GalleryImageOptions,
+): ImageSchema<GalleryImageSource>;
+export function remoteImage(options?: ImageOptions): ImageSchema<ImageSource>;
+export function remoteImage(
+  options?:
+    | ImageOptions
+    | ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+  galleryOptions?: GalleryImageOptions,
+): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
+  return imageOf(true, options, galleryOptions);
+}
+
+function imageOf(
+  remote: boolean,
+  options?:
+    | ImageOptions
+    | ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+  galleryOptions?: GalleryImageOptions,
+): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
   const isModule =
     !!options &&
     !!Internal.getValPath(
@@ -679,10 +703,10 @@ export function image(
         ? { encode: galleryOptions.encode }
         : {},
       false,
-      false,
+      remote,
       [],
       allModules,
     );
   }
-  return new ImageSchema(options as ImageOptions);
+  return new ImageSchema(options as ImageOptions, false, remote);
 }

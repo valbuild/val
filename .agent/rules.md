@@ -441,6 +441,16 @@ c.define(
 )
 ```
 
+### `files: { remote: true }` — required in the Val app
+
+`initVal({ files: { remote: true } })` makes every media factory (`s.image`,
+`s.file`, `s.video`, the three sets, and `s.richtext`'s `img: true`) return the
+`.remote()` schema. The Val app (`VAL_ENV=app`) refuses to start without it, and
+`val publish` refuses before building. It is project config, not an environment
+switch, so `val validate` / the language server / `pnpm dev` read the same
+schemas the app does. See [architecture/media.md](../architecture/media.md).
+`files.directory` no longer exists: local files without a `dir` go to `/public/val`.
+
 ### Media is a plain object, not a constructor
 
 There is no `c.image` / `c.file` / `c.remote`. Media is written as an object with
@@ -547,9 +557,10 @@ description; `.jsonValues()` with `c.json()`; `tanstackRouter` and
 HLS stream (`stream: { type: "hls" }`), rendered with `ValVideo`, and
 `s.videoset()` with an `s.video(videosVal)` field that picks from it, the set's
 entries holding default posters, times, focal point and captions that the field
-partly overrides, and an image gallery entry with a default focal point. What it does NOT cover, and why: `.remote()` on media and
-`.external()` on a record, because both need credentials or an adapter a plain
-`pnpm dev` does not have — `examples/next` gates the remote one behind
+partly overrides, and an image gallery entry with a default focal point. What it does NOT cover, and why: `.remote()` on media (and
+`files: { remote: true }` in `val.config.ts`, which turns it on for every media
+schema) and `.external()` on a record, because both need credentials or an
+adapter a plain `pnpm dev` does not have — `examples/next` gates the remote one behind
 `NEXT_PUBLIC_VAL_EXAMPLE_REMOTE_MEDIA`. When you add to the list, add to that
 sentence too, so the gap stays a decision rather than an oversight.
 

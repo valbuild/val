@@ -1,4 +1,5 @@
-import { safeReadGit } from "@valbuild/server";
+import { APP_MODE_REQUIRES_REMOTE_FILES, safeReadGit } from "@valbuild/server";
+import type { ValConfig } from "@valbuild/core";
 import fs from "fs";
 import path from "path";
 import { findAndEvalValConfigFile } from "../utils/evalValConfigFile";
@@ -155,7 +156,31 @@ export async function runPublish(
     return git;
   }
 
-  const config = await findAndEvalValConfigFile(root).catch(() => null);
+  const read: ConfigRead = await findAndEvalValConfigFile(root).then(
+    (config) => ({ config, error: null }),
+    (error: unknown) => ({ config: null, error }),
+  );
+  const config = read.config;
+  /*
+   * The Val app stores all media remotely, and the deployed server refuses to
+   * start for a project that does not say so. Refused here too, so that a
+   * developer who removes `files: { remote: true }` finds out from this
+   * command -- not from the site, after the build has gone out.
+   *
+   * A config that cannot be read is refused as well when this builds the
+   * checkout, because the commonest way to lose the setting is to shorten
+   * `initVal({ files: { remote: true } })` to `initVal()`, which exports no
+   * config at all. Skipping the check then would be skipping it exactly when
+   * it was needed.
+   *
+   * A directory of artifacts built elsewhere is the exception: it may have no
+   * config beside it, or none this machine can evaluate, and the server's own
+   * check still stands there.
+   */
+  const refusal = remoteFilesRefusal(read, { building: !prebuilt });
+  if (refusal !== null) {
+    return { status: "error", message: refusal };
+  }
   const project = config?.project ?? env.VAL_PROJECT ?? null;
   const credential = await resolvePublishCredential({
     root,
@@ -740,4 +765,30 @@ export function formatBytes(bytes: number): string {
     unit++;
   }
   return `${value.toFixed(1)} ${units[unit]}`;
+}
+
+type ConfigRead =
+  | { config: ValConfig | null; error: null }
+  | { config: null; error: unknown };
+
+/**
+ * Why this project cannot be published to the Val app as its media is
+ * configured, or null when it can. See the call site.
+ */
+function remoteFilesRefusal(
+  read: ConfigRead,
+  { building }: { building: boolean },
+): string | null {
+  if (read.config !== null) {
+    return read.config.files?.remote === true
+      ? null
+      : APP_MODE_REQUIRES_REMOTE_FILES;
+  }
+  if (!building) return null;
+  if (read.error !== null) {
+    const reason =
+      read.error instanceof Error ? read.error.message : String(read.error);
+    return `${APP_MODE_REQUIRES_REMOTE_FILES}\n\nval.config.ts could not be read, so this could not be checked: ${reason}`;
+  }
+  return `${APP_MODE_REQUIRES_REMOTE_FILES}\n\nThere is no val.config.ts (or val.config.js) in this project to say it.`;
 }

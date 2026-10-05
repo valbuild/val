@@ -50,6 +50,13 @@ export class RichTextSchema<
     private readonly isHidden: boolean = false,
     private readonly description?: string,
     private readonly previewInput: ItemPreviewInput<Src> | null = null,
+    /**
+     * Whether `img: true` means a REMOTE image. Set by `remoteRichtext`, for a
+     * project whose media is all remote (`files.remote` in `val.config.ts`):
+     * `img: s.image()` is already remote there, because `s.image()` is, but
+     * `img: true` builds its image schema here and has to be told.
+     */
+    private readonly imgRemote: boolean = false,
   ) {
     super();
   }
@@ -82,6 +89,7 @@ export class RichTextSchema<
       this.isHidden,
       description ?? undefined,
       this.previewInput,
+      this.imgRemote,
     );
   }
 
@@ -109,6 +117,7 @@ export class RichTextSchema<
       this.isHidden,
       this.description,
       this.previewInput,
+      this.imgRemote,
     );
   }
 
@@ -136,6 +145,7 @@ export class RichTextSchema<
       this.isHidden,
       this.description,
       this.previewInput,
+      this.imgRemote,
     );
   }
 
@@ -172,6 +182,7 @@ export class RichTextSchema<
       this.isHidden,
       this.description,
       this.previewInput,
+      this.imgRemote,
     );
   }
 
@@ -425,7 +436,7 @@ export class RichTextSchema<
                     srcPath,
                     node.src as ImageSource,
                   )
-                : new ImageSchema({}, false, false)["executeValidate"](
+                : new ImageSchema({}, false, this.imgRemote)["executeValidate"](
                     srcPath,
                     node.src as ImageSource,
                   );
@@ -722,6 +733,7 @@ export class RichTextSchema<
       this.isHidden,
       this.description,
       this.previewInput,
+      this.imgRemote,
     );
   }
 
@@ -734,6 +746,7 @@ export class RichTextSchema<
       this.isHidden,
       this.description,
       this.previewInput,
+      this.imgRemote,
     );
   }
 
@@ -746,6 +759,7 @@ export class RichTextSchema<
       isHidden,
       this.description,
       this.previewInput,
+      this.imgRemote,
     );
   }
 
@@ -784,6 +798,7 @@ export class RichTextSchema<
       this.isHidden,
       this.description,
       select,
+      this.imgRemote,
     );
   }
 
@@ -832,7 +847,11 @@ export class RichTextSchema<
       img:
         this.options.img && typeof this.options.img === "object"
           ? (this.options.img["executeSerialize"]() as SerializedImageSchema)
-          : this.options.img,
+          : // The Studio decides local or remote by the serialized image
+            // schema, and `true` carries no such answer.
+            this.options.img && this.imgRemote
+            ? new ImageSchema({}, false, true)["executeSerialize"]()
+            : this.options.img,
     };
     return {
       type: "richtext",
@@ -853,4 +872,23 @@ export const richtext = <O extends RichTextOptions>(
   options?: O,
 ): RichTextSchema<O, RichTextSource<O>> => {
   return new RichTextSchema<O, RichTextSource<O>>(options ?? ({} as O));
+};
+
+/**
+ * `s.richtext()` for a project whose media is all remote (`files.remote` in
+ * `val.config.ts`): `img: true` is a remote image. See `initSchema`.
+ */
+export const remoteRichtext = <O extends RichTextOptions>(
+  options?: O,
+): RichTextSchema<O, RichTextSource<O>> => {
+  return new RichTextSchema<O, RichTextSource<O>>(
+    options ?? ({} as O),
+    false,
+    [],
+    false,
+    false,
+    undefined,
+    null,
+    true,
+  );
 };
