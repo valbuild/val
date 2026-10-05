@@ -6,4 +6,4 @@ Pressing Save or Publish while your last edit is still on its way to the server 
 
 This happened most often in local development, when you saved twice in a row: saving rewrites your `.val.ts` files, the dev server recompiles, and the next save waits for that rebuild.
 
-The Studio now waits for a save that is still in progress. It stops waiting, and tells you, only when the save has actually failed.
+The Studio now waits for a save that is still in progress. It stops waiting, and tells you, when the save keeps failing, or when the server has not answered at all after 60 seconds.
