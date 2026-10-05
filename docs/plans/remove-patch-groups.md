@@ -82,19 +82,16 @@ Agreed. The first three are behaviour changes users will see.
 4. **Discard needs no closure.** A later patch that no longer applies after a
    discard is already dropped by the existing unapplicable-patch path in
    `createSystem`.
-5. **home answers the removed `/patch-groups` routes by what an old client
-   needs from each, and silently ignores leftover group fields:**
-   - `GET /patch-groups` → **404**, from routing. This one is not a choice: an
-     old `@valbuild/server` reads 404 as "this deployment has no groups" and
-     renders unscoped, and reads anything else, a 400 included, as an error
-     and renders base (see "Compatibility").
-   - `POST` / `DELETE /patch-groups/:id/patches` (stage, unstage) → **400 Bad
-     Request**, `"Patch groups have been removed. Reload the Studio."`. The
-     request is one this API no longer accepts, rather than a resource that
-     never existed. Only a Studio left open across the deploy sends it (an old
-     server shows it as "Could not update patch group. HTTP error: 400"; the
-     body message is not surfaced). These two handlers are a few lines each
-     and can be deleted once old Studios are gone.
+5. **Every `/patch-groups` route is removed from home, stage and unstage
+   included, so all of them answer 404 from routing. Leftover group fields on
+   surviving routes are silently ignored.** No stub handlers.
+   - For `GET /patch-groups` the 404 is required, not just tidy: an old
+     `@valbuild/server` reads 404 as "this deployment has no groups" and
+     renders unscoped, and reads anything else as an error and renders base
+     (see "Compatibility").
+   - For stage and unstage (`POST` / `DELETE /patch-groups/:id/patches`), only
+     a Studio left open across the deploy sends them. An old server shows the
+     404 as "Could not update patch group. HTTP error: 404"; a reload fixes it.
 6. **The table drop ships after the code removal** in home, never in the same
    deploy (see H2).
 7. **`x-val-profile-id` is no longer sent on commit.** home's `postCommit` read
@@ -115,7 +112,7 @@ with it. Only home deploys on its own.
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | New Val → old home                 | Works. zod strips the extra annotations home still sends; home keeps putting writes into groups that never close, which nothing reads. So **V1 can ship before H1**.                                                                                                                                                                                                                                         |
 | Old Val → new home                 | Works **only if** home answers `GET /patch-groups` with a plain **404**. Old `ValOpsHttp.fetchPatchGroups` reads 404 as "unsupported" and goes unscoped; any other status (401, 403, 410, 500) reads as an error and `resolveOwnPatchScope` renders **base**, so every draft preview silently loses all pending content. The 404 has to come from routing, not from an auth check before it.                 |
-| Old Studio → new home, mid-session | An old Studio latches `patchGroupsSeen` only after a stat or save answer carries groups. The new home never sends them, so after a reload it runs unscoped. A tab left open across the deploy can get one 400 on a stage click; a reload fixes it.                                                                                                                                                           |
+| Old Studio → new home, mid-session | An old Studio latches `patchGroupsSeen` only after a stat or save answer carries groups. The new home never sends them, so after a reload it runs unscoped. A tab left open across the deploy can get one 404 on a stage click; a reload fixes it.                                                                                                                                                           |
 | Leftover fields from old servers   | home's body schemas are non-strict `z.object`, so dropping a field from the schema strips it silently. That is the accept-and-ignore. Fields: `patchGroupId`/`withPatchIds` (+ `alsoAddPatchIds`, `holdBackForGroupIds`, `closureVersion`) on `POST /patches`, `unstagePatchIds`/`alsoUnstagePatchIds` on `DELETE /patches` and on job discard, `patchGroupId` on `POST /commit`. Pin each with a test (H1). |
 
 **Verify in H1, not assumed yet:** an old Studio running unscoped in http mode
@@ -334,12 +331,11 @@ Test files deleted whole in V3: `patchGroupSaveRace`, `patchGroupDeferredChanges
 
 ### H1 — Remove groups from the content API (home)
 
-- **Routes** (`content/src/routes.ts`, decision 5):
-  `GET /:org/:project/patch-groups` is removed, so it **404s**; verify the 404
-  comes from routing and not from an auth check in front of it.
-  `POST` and `DELETE /:org/:project/patch-groups/:patchGroupId/patches` are
-  replaced by one tiny handler answering **400** "Patch groups have been
-  removed. Reload the Studio.", with no auth, DB or chain access.
+- **Routes** (`content/src/routes.ts`, decision 5): remove
+  `GET /:org/:project/patch-groups` and `POST` / `DELETE
+/:org/:project/patch-groups/:patchGroupId/patches` outright, so all three
+  **404**. Verify the 404 comes from routing and not from an auth check in
+  front of it.
 - **Delete files:** `content/src/handlers/postPatchGroupPatches.ts`,
   `deletePatchGroupPatches.ts`, `getPatchGroups.ts`,
   `content/src/utils/patchGroupAccess.ts`, `server-side/src/db/dal/patchGroups.ts`
@@ -377,7 +373,7 @@ Test files deleted whole in V3: `patchGroupSaveRace`, `patchGroupDeferredChanges
   `withPatchIds` (including an unknown id) → 200; `POST /commit` with a foreign
   or already-published `patchGroupId` → not refused; `DELETE /patches` with
   `unstagePatchIds` → only `patchIds` deleted; `GET /patch-groups` → 404;
-  stage and unstage → 400 and nothing written; `POST /commit` with no
+  stage and unstage → 404 and nothing written; `POST /commit` with no
   `x-val-profile-id` → committed.
   And the open item from Compatibility: `POST /commit` handed an already-applied
   patch.
