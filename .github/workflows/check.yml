@@ -174,6 +174,9 @@ jobs:
           - { project: chromium-http, shard: 1, shards: 3 }
           - { project: chromium-http, shard: 2, shards: 3 }
           - { project: chromium-http, shard: 3, shards: 3 }
+          # Safari's engine, on the specs that publish. Its own browser, so
+          # the install below reads `browser` (chromium when unset).
+          - { project: webkit-http, shard: 1, shards: 1, browser: webkit }
     steps:
       - uses: actions/checkout@v3
         with:
@@ -185,7 +188,7 @@ jobs:
         with:
           version: 10
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright install --with-deps ${{ matrix.browser || 'chromium' }}
       # The `warmup` project is a dependency of `chromium`, and Playwright runs
       # project dependencies in EVERY shard rather than distributing them, so
       # each shard starts against an app that has already compiled its routes.
