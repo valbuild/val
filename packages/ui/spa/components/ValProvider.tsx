@@ -584,16 +584,6 @@ export function ValProvider({
    */
   const statApplied =
     "data" in stat && stat.data ? stat.data.appliedPatches : undefined;
-  /** See {@link ValContextValue.serverPublishingPatchIds}. */
-  const heldByContentRef = useRef<ReadonlySet<string>>(new Set());
-  // From `contentHolds`, not the stat: see `ContentHolds`.
-  const serverPublishingPatchIds = useMemo(() => {
-    heldByContentRef.current = heldByContent(
-      heldByContentRef.current,
-      contentHolds,
-    );
-    return heldByContentRef.current;
-  }, [contentHolds]);
   /** The publish head, carried to `/save`. See `newestCommitSha`. */
   const statHead =
     "data" in stat && stat.data ? stat.data.headCommitSha : undefined;
@@ -723,6 +713,40 @@ export function ValProvider({
       }),
     [client, getDirectFileUploadSettings],
   );
+
+  /** See {@link ValContextValue.serverPublishingPatchIds}. */
+  const heldByContentRef = useRef<ReadonlySet<string>>(new Set());
+  /*
+   * The chain's version, so a hold is let go once the store has taken in what
+   * content said: committed, or forgotten. See `heldByContent`.
+   */
+  const heldChainVersion = useSyncExternalStore(
+    useCallback(
+      (onChange: () => void) =>
+        system.patchStore.events.on("patch:chain", onChange),
+      [system],
+    ),
+    useCallback(() => system.patchStore.chainVersion(), [system]),
+    useCallback(() => system.patchStore.chainVersion(), [system]),
+  );
+  // From `contentHolds`, not the stat: see `ContentHolds`.
+  const serverPublishingPatchIds = useMemo(() => {
+    void heldChainVersion;
+    const store = system.patchStore;
+    const published = store.publishedPatchIds();
+    const unpublished = new Set<string>(
+      store
+        .allRecords()
+        .filter((record) => !record.appliedAt && !published.has(record.patchId))
+        .map((record) => record.patchId),
+    );
+    heldByContentRef.current = heldByContent(
+      heldByContentRef.current,
+      contentHolds,
+      (patchId) => unpublished.has(patchId),
+    );
+    return heldByContentRef.current;
+  }, [contentHolds, system, heldChainVersion]);
 
   /**
    * Whether this project has an assistant, from its settings module.

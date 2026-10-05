@@ -438,6 +438,38 @@ test("a queued press that goes Live in the hand-off's refresh still holds what i
   expect([...publishingPatchIds(jobs.get())].sort()).toEqual(["p1", "p2"]);
 });
 
+/*
+ * r1 sent p1 and was answered without a job. Another tab's job published p1,
+ * and before this tab's refresh saw r1 go Live, it ran J2 -- which took p2
+ * alone. r1 is not J2's: it must not take J2's changes, or J2 failing could
+ * never give p2 back from under r1's sealed hold.
+ */
+test("a press another tab's job published does not take this job's changes", async () => {
+  const { client, statuses } = fakeClient({
+    next: async () => ({ ...job("J2"), patches: ["p2"] }),
+  });
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => {
+      statuses.set("r1", { kind: "live", commit: "C1" });
+      return handedOff(j.id);
+    },
+    takesQueuedWork: () => true,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: null,
+    patchIds: ["p1"],
+  });
+  jobs.nudge();
+  await flush();
+  expect(jobs.get().requests[0]!.status.kind).toBe("live");
+  expect(jobs.get().requests[0]!.patchIds).toEqual(["p1"]);
+  expect([...publishingPatchIds(jobs.get())]).toEqual(["p1"]);
+});
+
 async function flush() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }
@@ -618,6 +650,40 @@ describe("Try again holds its changes from the click", () => {
 
 describe("heldByContent", () => {
   const none: ReadonlySet<string> = new Set();
+
+  /*
+   * A hold outlives content's report only until this Studio's store has
+   * taken the seal in. Kept past that, every publish added its changes to the
+   * set for the life of the Studio, and every update scanned them again.
+   */
+  test("lets a change go once the store has it committed or forgotten", () => {
+    const sealed = {
+      publishingPatches: [],
+      patches: ["p1"],
+      appliedPatches: ["p1"],
+    };
+    const adopting = heldByContent(new Set(["p1"]), sealed, () => true);
+    expect([...adopting]).toEqual(["p1"]);
+    expect(heldByContent(adopting, sealed, () => false).size).toBe(0);
+    // And once content stops listing it too.
+    expect(
+      heldByContent(
+        adopting,
+        { publishingPatches: [], patches: [], appliedPatches: [] },
+        () => false,
+      ).size,
+    ).toBe(0);
+  });
+
+  test("never lets go of what content says is publishing now", () => {
+    expect([
+      ...heldByContent(
+        none,
+        { publishingPatches: ["p1"], patches: ["p1"], appliedPatches: [] },
+        () => false,
+      ),
+    ]).toEqual(["p1"]);
+  });
 
   test("holds what content says a running publish holds", () => {
     expect([

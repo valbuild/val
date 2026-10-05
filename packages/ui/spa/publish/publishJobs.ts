@@ -198,15 +198,25 @@ export function heldByContent(
         appliedPatches?: readonly string[];
       }
     | undefined,
+  /**
+   * Whether this Studio's patch store still counts a change as unpublished.
+   * Once it does not -- committed, or forgotten -- the store answers for it,
+   * and a hold kept past that only grows: every publish would add its changes
+   * for the life of the Studio.
+   */
+  unpublishedHere: (patchId: string) => boolean = () => true,
 ): ReadonlySet<string> {
-  if (report?.publishingPatches === undefined) return previous;
-  const applied = new Set(report.appliedPatches ?? []);
+  const applied = new Set(report?.appliedPatches ?? []);
   const pending = new Set(
-    (report.patches ?? []).filter((patchId) => !applied.has(patchId)),
+    (report?.patches ?? []).filter((patchId) => !applied.has(patchId)),
   );
-  const next = new Set(report.publishingPatches);
+  const next = new Set(report?.publishingPatches ?? []);
   for (const patchId of previous) {
-    if (!pending.has(patchId)) next.add(patchId);
+    if (next.has(patchId)) continue;
+    // No news keeps what was held, as far as content is concerned.
+    const releasedByContent =
+      report?.publishingPatches !== undefined && pending.has(patchId);
+    if (!releasedByContent && unpublishedHere(patchId)) next.add(patchId);
   }
   // The same set keeps its identity, so what reads it does not re-render.
   if (
@@ -316,7 +326,7 @@ export function createPublishJobs(options: {
         set({
           ...state,
           requests: state.requests.map((request) => {
-            if (!open.has(request.requestId) || !carries(job.id, request)) {
+            if (!open.has(request.requestId) || !carries(job, request)) {
               return request;
             }
             // A press queued without a job holds what it sent; the job it
@@ -356,11 +366,19 @@ export function createPublishJobs(options: {
    * Whether a press is one this job carries. A press answered with a job is
    * that job's; one answered without is whichever job content gives its
    * changes to, which a status still `queued` is not.
+   *
+   * Content's status does not name that job, so what the press sent does: a
+   * job that took every change it sent. Moving on from `queued` alone is not
+   * enough -- a press another tab's job published goes Live too, and this job,
+   * which took none of its changes, would widen it with its own: held under a
+   * sealed press, so a failure here could never give them back.
    */
-  function carries(jobId: string, request: TrackedPublish): boolean {
+  function carries(job: PublishTabJob, request: TrackedPublish): boolean {
     const known = jobOfRequest.get(request.requestId);
-    if (known !== undefined) return known === jobId;
-    return request.status.kind !== "queued";
+    if (known !== undefined) return known === job.id;
+    if (request.status.kind === "queued") return false;
+    const taken = new Set(job.patches);
+    return (request.patchIds ?? []).every((patchId) => taken.has(patchId));
   }
 
   async function takeQueuedWork() {
