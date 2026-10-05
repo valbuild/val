@@ -1,8 +1,11 @@
 import {
   awaitingDeploymentInterval,
   chainOfMessage,
+  holdsOfAnswer,
+  holdsOfMessage,
   StatData,
 } from "./useStatus";
+import { heldByContent } from "../publish/publishJobs";
 
 /**
  * How hard the Studio leans on `/stat` while a publish is on its way out.
@@ -162,6 +165,28 @@ describe("chainOfMessage", () => {
     });
   });
 
+  // Publishing is NOT one-way: a job that fails gives its changes back, so the
+  // message's set replaces the last one rather than adding to it. Accumulated,
+  // a failed publish would have held Publish off for good.
+  test("replaces which patches are publishing with the message's set", () => {
+    expect(
+      chainOfMessage(
+        { publishingPatches: ["p1", "p2"] as StatData["patches"] },
+        { ...message, publishingPatches: [] as StatData["patches"] },
+      ).publishingPatches,
+    ).toEqual([]);
+  });
+
+  // An older content service does not send it, which is "not reported".
+  test("keeps the previous publishing set when the message has none", () => {
+    expect(
+      chainOfMessage(
+        { publishingPatches: ["p1"] as StatData["patches"] },
+        message,
+      ).publishingPatches,
+    ).toEqual(["p1"]);
+  });
+
   // Applied is one-way: a content service that does not send the list leaves
   // the last one standing, which is incomplete but never wrong.
   test("keeps the previous applied list when the message has none", () => {
@@ -169,5 +194,92 @@ describe("chainOfMessage", () => {
       chainOfMessage({ appliedPatches: ["p1"] as StatData["patches"] }, message)
         .appliedPatches,
     ).toEqual(["p1"]);
+  });
+});
+
+describe("content's holds", () => {
+  const ids = (...patchIds: string[]) => patchIds as StatData["patches"];
+  const answer = {
+    patches: ids("p1"),
+    appliedPatches: ids(),
+    publishingPatches: ids(),
+  };
+
+  // Requested before another tab pressed Publish, answered after the socket
+  // said what that publish holds: the socket is newer.
+  test("keep the socket's when the socket spoke after the request", () => {
+    const fromSocket = { patches: ids("p1"), publishingPatches: ids("p1") };
+    expect(holdsOfAnswer(fromSocket, answer, true)).toBe(fromSocket);
+  });
+
+  test("take the answer's when nothing newer arrived", () => {
+    expect(
+      holdsOfAnswer(
+        { patches: ids("p1"), publishingPatches: ids("p1") },
+        answer,
+        false,
+      ),
+    ).toEqual(answer);
+  });
+
+  test("take the answer's when there are none yet", () => {
+    expect(holdsOfAnswer(undefined, answer, true)).toEqual(answer);
+  });
+
+  /*
+   * The socket reports p1's publish sealed -- applied, held by nobody -- and
+   * then a `/stat` answer requested before the seal lands, with p1 still
+   * unapplied and held. Pairing the socket's publishing set with the answer's
+   * applied list read p1 as pending and held by nobody: given back, and
+   * offered for Publish again while the store was still taking in the seal.
+   */
+  test("never pair the socket's publishing set with an older answer's applied list", () => {
+    const sealedOnSocket = holdsOfMessage(
+      {
+        patches: ids("p1"),
+        appliedPatches: ids(),
+        publishingPatches: ids("p1"),
+      },
+      {
+        type: "patches",
+        patches: ids("p1"),
+        headPatchId: ids("p1")[0],
+        headVersion: 2,
+        patchGroups: [],
+        appliedPatches: ids("p1"),
+        publishingPatches: ids(),
+      },
+    );
+    const olderAnswer = {
+      patches: ids("p1"),
+      appliedPatches: ids(),
+      publishingPatches: ids("p1"),
+    };
+    const holds = holdsOfAnswer(sealedOnSocket, olderAnswer, true);
+    expect(holds.appliedPatches).toEqual(["p1"]);
+    expect([...heldByContent(new Set(["p1"]), holds)]).toEqual(["p1"]);
+  });
+
+  test("a message without the lists keeps the ones before it", () => {
+    expect(
+      holdsOfMessage(
+        {
+          patches: ids("p1"),
+          appliedPatches: ids("p0"),
+          publishingPatches: ids("p1"),
+        },
+        {
+          type: "patches",
+          patches: ids("p1", "p2"),
+          headPatchId: ids("p2")[0],
+          headVersion: 3,
+          patchGroups: [],
+        },
+      ),
+    ).toEqual({
+      patches: ["p1", "p2"],
+      appliedPatches: ["p0"],
+      publishingPatches: ["p1"],
+    });
   });
 });

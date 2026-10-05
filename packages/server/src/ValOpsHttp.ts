@@ -123,6 +123,8 @@ const GetApplicablePatches = z.object({
    * Optional for the same reason.
    */
   headVersion: z.number().optional(),
+  /** Of `patches`, the ones a running publish holds. See `OrderedPatches.publishingPatches`. */
+  publishingPatches: z.array(PatchIdSchema).optional(),
   commits: z
     .array(
       z.object({
@@ -1103,6 +1105,8 @@ export class ValOpsHttp extends ValOps {
         patches: PatchId[];
         /** Of `patches`, the ones that have shipped. See the implementation. */
         appliedPatches: PatchId[];
+        /** Of `patches`, the ones a running publish holds. See {@link OrderedPatches.publishingPatches}. */
+        publishingPatches?: PatchId[];
         /** The head of the chain. See {@link OrderedPatchesMetadata.headPatchId}. */
         headPatchId?: PatchId | null;
         /** The chain version of that head. See {@link OrderedPatchesMetadata.headVersion}. */
@@ -1199,6 +1203,13 @@ export class ValOpsHttp extends ValOps {
       deployments: allPatchData.deployments || [],
       patches,
       appliedPatches,
+      /*
+       * Absent, not empty, from a content service that does not say: an empty
+       * list would claim no publish is running when it cannot know.
+       */
+      ...(allPatchData.publishingPatches !== undefined
+        ? { publishingPatches: allPatchData.publishingPatches }
+        : {}),
       /*
        * The CHAIN head, not the publish head below. Spread: absent is a content
        * service that does not report it, which is not the same as `null`.
@@ -1615,6 +1626,9 @@ export class ValOpsHttp extends ValOps {
               : {}),
             ...(data.headVersion !== undefined
               ? { headVersion: data.headVersion }
+              : {}),
+            ...(data.publishingPatches !== undefined
+              ? { publishingPatches: data.publishingPatches }
               : {}),
           } as ExcludePatchOps extends true
             ? OrderedPatchesMetadata

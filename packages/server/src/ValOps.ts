@@ -3218,6 +3218,14 @@ export type OrderedPatches = {
    * here. Only `ValOpsHttp` fills it.
    */
   patchGroups?: PatchGroupT[];
+  /**
+   * Of these patches, the ones a publish job that is still running holds. A
+   * Studio does not offer Publish over them, on any tab or device. Reported
+   * whole on every answer, so a job that ends without sealing gives them back.
+   * Absent where publishing is not done in jobs, and from an older content
+   * service. Only `ValOpsHttp` fills it.
+   */
+  publishingPatches?: PatchId[];
   error?: GenericErrorMessage;
   errors?: PatchReadError[];
   unauthorized?: boolean;
@@ -3236,6 +3244,8 @@ export type OrderedPatchesMetadata = {
   headVersion?: OrderedPatches["headVersion"];
   /** See {@link OrderedPatches.patchGroups}. */
   patchGroups?: OrderedPatches["patchGroups"];
+  /** See {@link OrderedPatches.publishingPatches}. */
+  publishingPatches?: OrderedPatches["publishingPatches"];
   error?: GenericErrorMessage;
   errors?: OrderedPatches["errors"];
   unauthorized?: boolean;

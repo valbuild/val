@@ -194,6 +194,12 @@ export type PublishResult =
       requestId: string;
       request: PublishRequestStatus;
       job: PublishTabJob | null;
+      /**
+       * The changes the gate checked for this press: what this client sent
+       * to be published, and so what it must stop offering to publish until
+       * the request settles. See `TrackedPublish.patchIds`.
+       */
+      patchIds: PatchId[];
     }
   | {
       status: "published";
