@@ -7,8 +7,9 @@ import { TANSTACK_PROJECT } from "./config";
 /**
  * Does the Studio come up on TanStack Start, and can it write?
  *
- * The whole of the TanStack suite, deliberately: this is a catastrophe
- * detector, not a second copy of `studio.spec.ts`. Everything about the STORES
+ * A catastrophe detector, not a second copy of `studio.spec.ts`. (Features
+ * whose fixtures live in the TanStack showcase are tested beside it — see
+ * `video.spec.ts` — because TanStack is the primary target.) Everything about the STORES
  * is framework-independent and already covered against the Next app; what is
  * not covered anywhere else is the part that differs — `@valbuild/tanstack`'s
  * provider, its `/api/val/$` route, and the `/val` layout route serving a SPA

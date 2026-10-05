@@ -18,7 +18,8 @@ export type InclusionReason =
  * Starts from the modules the pending patches touch and closes over the
  * cross-module references a schema can hold:
  *  - `keyOf` points at another module through its `path` (a SourcePath)
- *  - `image`/`file` point at a gallery module through `referencedModule`
+ *  - `image`/`file`/`video` point at a gallery (or video set) module through
+ *    `referencedModule`
  *  - route validation cross-references *every* router module, so if any
  *    included module has a route or router we need all of them
  */
@@ -123,6 +124,7 @@ function collectSchemaReferences(schema: SerializedSchema): SchemaReferences {
         break;
       case "file":
       case "image":
+      case "video":
         if (node.referencedModule) {
           refs.referencedModules.push(node.referencedModule);
         }

@@ -81,7 +81,9 @@ export function InlineField({
                 onCheckedChange={() => {
                   if (effectiveReadonly) return;
                   if (
-                    (schema.type === "image" || schema.type === "file") &&
+                    (schema.type === "image" ||
+                      schema.type === "file" ||
+                      schema.type === "video") &&
                     source === null
                   ) {
                     setShowEmptyFileOrImage(true);

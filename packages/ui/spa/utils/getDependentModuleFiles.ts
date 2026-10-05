@@ -58,6 +58,7 @@ export function getDependentModuleFiles(
       schemaNode.type === "code" ||
       schemaNode.type === "file" ||
       schemaNode.type === "image" ||
+      schemaNode.type === "video" ||
       schemaNode.type === "number" ||
       schemaNode.type === "route" ||
       schemaNode.type === "locale"

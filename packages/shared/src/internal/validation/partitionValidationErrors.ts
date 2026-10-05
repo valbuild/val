@@ -71,6 +71,14 @@ function isSkippableFixCode(fix: ValidationFix): boolean {
     case "file:check-remote":
     case "files:check-remote":
     case "files:upload-remote":
+    case "video:add-metadata": // the Studio writes it on upload; --fix for the rest
+    case "video:upload-remote":
+    case "video:download-remote":
+    case "videos:add-metadata": // as `video:add-metadata`, for a set's entry
+    case "videos:check-remote":
+    case "videos:upload-remote":
+    case "videos:check-unique-folder":
+    case "videos:check-all-files":
     case "images:check-unique-folder":
     case "files:check-unique-folder":
     case "images:check-all-files":

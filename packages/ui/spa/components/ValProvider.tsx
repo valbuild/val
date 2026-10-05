@@ -45,6 +45,7 @@ import {
   SourcePath,
   ValConfig,
   ValModules,
+  VideoSource,
 } from "@valbuild/core";
 import { deepEqual, Patch, ReadonlyJSONValue } from "@valbuild/core/patch";
 import {
@@ -3124,6 +3125,7 @@ export type ShallowSource = EnsureAllTypes<{
     alt?: string;
     hotspot?: { x: number; y: number };
   };
+  video: VideoSource;
   literal: string;
   richtext: unknown[];
 }>;
@@ -3883,7 +3885,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       status: "success",
       data: source as ShallowSource[SchemaType],
     };
-  } else if (type === "file" || type === "image") {
+  } else if (type === "file" || type === "image" || type === "video") {
     if (
       typeof source !== "object" ||
       !("path" in source) ||

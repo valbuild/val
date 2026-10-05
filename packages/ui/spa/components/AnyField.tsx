@@ -19,6 +19,7 @@ import { CodeField } from "./fields/CodeField";
 import { ColorField } from "./fields/ColorField";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FileField } from "./fields/FileField";
+import { VideoField } from "./fields/VideoField";
 import { ViewField } from "./fields/ViewField";
 import { LiteralField } from "./fields/LiteralField";
 import { FieldValidationErrorCompact } from "./FieldValidationError";
@@ -179,6 +180,8 @@ export function AnyField({
     leaf = <CodeField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "file") {
     leaf = <FileField key={path} path={path} {...leafProps} />;
+  } else if (schema.type === "video") {
+    leaf = <VideoField key={path} path={path} {...leafProps} />;
   } else if (schema.type === "literal") {
     // Always read-only: a literal's value IS its schema. See `LiteralField`.
     leaf = <LiteralField key={path} path={path} compact={compact} />;

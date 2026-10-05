@@ -266,6 +266,7 @@ function hiddenKinds(schema: SerializedSchema | undefined): Set<ReferenceKind> {
         return;
       case "image":
       case "file":
+      case "video":
         kinds.add("file");
         return;
       case "richtext":
@@ -332,7 +333,8 @@ function collectReferences(
       });
       return;
     case "image":
-    case "file": {
+    case "file":
+    case "video": {
       if (schema.referencedModule === undefined) return;
       into.set(path, {
         kind: "file",

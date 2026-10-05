@@ -14,6 +14,7 @@ import { keyOf } from "./schema/keyOf";
 import { view } from "./schema/view";
 import { record } from "./schema/record";
 import { file } from "./schema/file";
+import { video } from "./schema/video";
 import { fileset } from "./schema/fileset";
 import { date } from "./schema/date";
 import { datetime } from "./schema/datetime";
@@ -23,6 +24,7 @@ import { locale } from "./schema/locale";
 import { route } from "./schema/route";
 import { router } from "./schema/router";
 import { imageset } from "./schema/imageset";
+import { videoset } from "./schema/videoset";
 import { settings } from "./schema/settings";
 // import { i18n, I18n } from "./schema/future/i18n";
 // import { oneOf } from "./schema/future/oneOf";
@@ -222,6 +224,41 @@ export type InitSchema = {
    */
   readonly file: typeof file;
   /**
+   * Define a video.
+   *
+   * A video is an object with a `path` and a `mimeType`: an `.mp4` / `.webm`
+   * file, or — with `stream: { type: "hls" }` — an HLS stream the Studio
+   * transcodes an upload into, in the browser. `width`, `height` and
+   * `duration` are read from the file (`npx val validate --fix` adds them);
+   * `posterTime`, `startTime`, `endTime`, `hotspot`, `alt` and `captions` are
+   * authored in the Studio.
+   *
+   * @example
+   * const schema = s.video({ stream: { type: "hls" } });
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/intro_3b9d7/master.m3u8",
+   *   mimeType: "application/vnd.apple.mpegurl",
+   *   width: 1920,
+   *   height: 1080,
+   *   duration: 42.5,
+   *   startTime: 2,
+   *   alt: "The team walking into the office",
+   *   captions: [
+   *     { path: "/public/val/intro_en_8f2a1.vtt", srclang: "en", label: "English" },
+   *   ],
+   * });
+   *
+   * @example
+   * // Picked from a set: mimeType, width, height and duration live there.
+   * import videosVal from "./videos.val"; // an s.videoset() module
+   * const schema = s.video(videosVal);
+   * export default c.define("/example.val.ts", schema, {
+   *   path: "/public/val/videos/intro_51df2.mp4",
+   *   startTime: 2,
+   * });
+   */
+  readonly video: typeof video;
+  /**
    * Define a date.
    *
    * @example
@@ -367,6 +404,28 @@ export type InitSchema = {
    */
   readonly fileset: typeof fileset;
   /**
+   * Define a collection of videos. A field picks from it with
+   * `s.video(videosVal)`.
+   *
+   * @example
+   * ```typescript
+   * const schema = s.videoset({
+   *   dir: "/public/val/videos",
+   *   stream: { type: "hls" },
+   * });
+   * export default c.define("/content/videos.val.ts", schema, {
+   *   "/public/val/videos/intro_51df2.mp4": {
+   *     mimeType: "video/mp4",
+   *     width: 1280,
+   *     height: 720,
+   *     duration: 12.5,
+   *     alt: "The team, introducing itself",
+   *   },
+   * });
+   * ```
+   */
+  readonly videoset: typeof videoset;
+  /**
    * Define the project's settings.
    *
    * One per project, at the root of the content tree — a module file path with
@@ -414,6 +473,7 @@ export function initSchema() {
     view,
     record,
     file,
+    video,
     fileset,
     date,
     datetime,
@@ -423,6 +483,7 @@ export function initSchema() {
     route,
     router,
     imageset,
+    videoset,
     settings,
     // i18n: i18n(locales),
   };

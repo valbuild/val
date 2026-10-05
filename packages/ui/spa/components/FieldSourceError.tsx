@@ -30,7 +30,11 @@ export function FieldSourceError({
       <div className="flex gap-2 items-center">
         {schema &&
           schema.status === "success" &&
-          !(schema.data.type === "file" || schema.data.type === "image") && (
+          !(
+            schema.data.type === "file" ||
+            schema.data.type === "image" ||
+            schema.data.type === "video"
+          ) && (
             <Button
               variant="outline"
               className="hover:bg-bg-error-secondary-hover"

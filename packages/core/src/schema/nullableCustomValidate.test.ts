@@ -80,6 +80,10 @@ const nullableAfterValidate: Record<
     .record(s.string())
     .validate(() => MESSAGE)
     .nullable(),
+  video: s
+    .video()
+    .validate(() => MESSAGE)
+    .nullable(),
   file: s
     .file()
     .validate(() => MESSAGE)
@@ -118,6 +122,10 @@ const nullableAfterValidate: Record<
     .nullable(),
   imageset: s
     .imageset({ dir: "/public/val/images" })
+    .validate(() => MESSAGE)
+    .nullable(),
+  videoset: s
+    .videoset({ dir: "/public/val/videos" })
     .validate(() => MESSAGE)
     .nullable(),
 };

@@ -1077,12 +1077,23 @@ export abstract class ValOps {
                 // when constructing the url we use the patch id (and the file path)
                 // to fetch the right file
                 // NOTE: overwrite and use last patch_id if multiple patches modify the same file
-                fileFixOps[op.path.join("/")] = [
+                //
+                // Keyed by where the patch_id LANDS — the field's path plus
+                // `nestedFilePath` — not by the field's path alone. A video's
+                // poster and caption files are file ops on the video's own path
+                // with `nestedFilePath` ["poster"] / ["captions", "0"]; keyed by
+                // `op.path` they overwrote the video's entry (and each other),
+                // so only one of the files got a patch_id and the rest were
+                // looked for at a published URL that holds nothing. JSON rather
+                // than a "/" join because a segment can contain "/" (a gallery
+                // key is a file path).
+                const patchIdPath = op.path
+                  .concat(...(op.nestedFilePath || []))
+                  .concat("patch_id");
+                fileFixOps[JSON.stringify(patchIdPath)] = [
                   {
                     op: "add",
-                    path: op.path
-                      .concat(...(op.nestedFilePath || []))
-                      .concat("patch_id"),
+                    path: patchIdPath,
                     value: patchId,
                   },
                 ];
@@ -1342,7 +1353,8 @@ export abstract class ValOps {
               // resolved.status === "resolved" → drop silently
             } else if (
               validationError.fixes?.includes("images:check-unique-folder") ||
-              validationError.fixes?.includes("files:check-unique-folder")
+              validationError.fixes?.includes("files:check-unique-folder") ||
+              validationError.fixes?.includes("videos:check-unique-folder")
             ) {
               const TYPE_ERROR_MESSAGE = `This is most likely a Val version mismatch or Val bug.`;
               if (
@@ -1377,7 +1389,8 @@ export abstract class ValOps {
               }
             } else if (
               validationError.fixes?.includes("images:check-all-files") ||
-              validationError.fixes?.includes("files:check-all-files")
+              validationError.fixes?.includes("files:check-all-files") ||
+              validationError.fixes?.includes("videos:check-all-files")
             ) {
               // Requires filesystem access to enumerate the gallery directory.
               // validateSources() does not have filesystem access, so this is suppressed.
@@ -2746,6 +2759,29 @@ export abstract class ValOps {
     remote: boolean,
   ): Promise<OpsMetadata<T>>;
   abstract getBinaryFile(filePathOrRef: string): Promise<Buffer | null>;
+
+  /**
+   * A file's bytes as something a `Range` request can be answered from
+   * without reading the rest: a video is seeked in by many small ranges, and
+   * each used to load the whole file.
+   *
+   * This default holds the whole file, which is all a mode that only gets
+   * whole files can do (`ValOpsHttp`: the content service answers with the
+   * file in a JSON body). `ValOpsFS` reads only the asked-for range off disk.
+   */
+  async openBinaryFile(
+    filePath: string,
+    fromPatch: { patchId: PatchId; remote: boolean } | null,
+  ): Promise<BinaryFileReader | null> {
+    const buffer = fromPatch
+      ? await this.getBase64EncodedBinaryFileFromPatch(
+          filePath,
+          fromPatch.patchId,
+          fromPatch.remote,
+        )
+      : await this.getBinaryFile(filePath);
+    return buffer === null ? null : bufferReader(buffer);
+  }
   protected abstract getBinaryFileMetadata<T extends "file" | "image">(
     filePath: string,
     type: T,
@@ -3414,4 +3450,18 @@ export function bufferFromDataUrl(dataUrl: string): Buffer | undefined {
       "base64", // TODO: why does it not work with base64url?
     );
   }
+}
+
+/** A file of known size whose bytes are read a range at a time. */
+export type BinaryFileReader = {
+  readonly size: number;
+  /** Bytes `start` to `end`, both inclusive, as an HTTP range is. */
+  read(start: number, end: number): Promise<Buffer>;
+};
+
+export function bufferReader(buffer: Buffer): BinaryFileReader {
+  return {
+    size: buffer.length,
+    read: async (start, end) => buffer.subarray(start, end + 1),
+  };
 }

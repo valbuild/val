@@ -70,10 +70,20 @@ const LOCAL_FIXES: readonly ValidationFix[] = [
   "image:check-metadata",
   "file:add-metadata",
   "file:check-metadata",
+  // A local video's mimeType, width, height and duration, read from the file
+  // (or, for an HLS stream, from its playlists) on disk.
+  "video:add-metadata",
   // Gallery metadata: createFixPatch reads each entry's file and corrects the
   // stored metadata, dropping entries whose file has gone. Filesystem only.
   "images:check-all-files",
   "files:check-all-files",
+  // A video set's entries against its directory: entries whose file has gone
+  // are dropped, and videos in the directory the set does not list are added
+  // with what is read from their bytes. Filesystem only.
+  "videos:check-all-files",
+  // A video set entry's mimeType, width, height and duration, read from the
+  // file at its KEY. The set's twin of `video:add-metadata`.
+  "videos:add-metadata",
   // A view pointing at the wrong module: the schema names the right one, so the
   // fix is a value the patch already knows. Nothing read, nothing fetched.
   "view:check-module",
@@ -99,8 +109,11 @@ const FIX_TITLES: Partial<Record<ValidationFix, string>> = {
   "image:check-metadata": "Val: update image metadata",
   "file:add-metadata": "Val: add file metadata",
   "file:check-metadata": "Val: update file metadata",
+  "video:add-metadata": "Val: add video metadata",
   "images:check-all-files": "Val: update gallery image metadata",
   "files:check-all-files": "Val: update gallery file metadata",
+  "videos:check-all-files": "Val: sync the video set with its directory",
+  "videos:add-metadata": "Val: add video metadata",
   "jsonValues:extract-entry": "Val: move entry into its own .val.json",
   "view:check-module": "Val: point this view at the module its schema names",
 };

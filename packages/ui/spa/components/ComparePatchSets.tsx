@@ -1,5 +1,6 @@
 import {
   Internal,
+  MediaCollectionType,
   ModuleFilePath,
   ModulePath,
   PatchId,
@@ -1137,7 +1138,7 @@ type RowProps = {
    * stops, and the card says why.
    */
   isCommitted: boolean;
-  parentMediaType?: "images" | "files";
+  parentMediaType?: MediaCollectionType;
 };
 
 function collectModulePatchIds(node: ChangeTreeNode): PatchId[] {
@@ -1725,7 +1726,7 @@ function ChangeRow({
   mode: "fs" | "http" | "unknown";
   canDiscard: boolean;
   isCommitted: boolean;
-  parentMediaType?: "images" | "files";
+  parentMediaType?: MediaCollectionType;
 }) {
   const { deletePatches } = useDeletePatches();
   const staging = usePatchStaging();
@@ -1866,7 +1867,7 @@ function ChangeRowHeader({
   canDiscard: boolean;
   /** No body to collapse — a committed row has no diff. See `RowProps.isCommitted`. */
   hideExpand?: boolean;
-  parentMediaType?: "images" | "files";
+  parentMediaType?: MediaCollectionType;
 }) {
   return (
     <div className="flex items-center gap-2 min-w-0">
@@ -1937,7 +1938,7 @@ function ChangeTargetLabel({
   modulePath: ModulePath;
   moduleFilePath: ModuleFilePath;
   isRouterPageKey: boolean;
-  parentMediaType?: "images" | "files";
+  parentMediaType?: MediaCollectionType;
 }) {
   const schemas = useSchemas();
   const isSettingsModule =
@@ -2080,7 +2081,7 @@ function ChangeRowBody({
   changeType: ChangeType;
   isExpanded: boolean;
   isEqual: boolean;
-  parentMediaType?: "images" | "files";
+  parentMediaType?: MediaCollectionType;
 }) {
   if (parentMediaType) {
     return (
@@ -2269,7 +2270,7 @@ function MediaEntryDiff({
 }: {
   sourcePath: SourcePath;
   changeType: ChangeType;
-  mediaType: "images" | "files";
+  mediaType: MediaCollectionType;
   isExpanded: boolean;
   isEqual: boolean;
 }) {

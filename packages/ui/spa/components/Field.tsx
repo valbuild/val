@@ -157,7 +157,9 @@ export function Field({
                      * not be cleared at all once it had been added.
                      */
                     const isMedia =
-                      schema.type === "image" || schema.type === "file";
+                      schema.type === "image" ||
+                      schema.type === "file" ||
+                      schema.type === "video";
                     const isChecked = source !== null || showEmptyFileOrImage;
                     if (!isChecked) {
                       if (isMedia) {

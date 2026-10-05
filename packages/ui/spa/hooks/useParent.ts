@@ -73,8 +73,9 @@ export const isParentArray = (
   maybeParentPath: SourcePath,
   parentSchemaAtPath: SerializedSchema | undefined,
 ) => maybeParentPath !== path && parentSchemaAtPath?.type === "array";
+// Any media collection — images, files or videos — is a gallery, not a
+// record: listing them by name was how a new kind of collection got missed.
 export const isRecord = (schema: SerializedSchema | undefined) =>
-  schema?.type === "record" &&
-  !(schema.mediaType === "files" || schema.mediaType === "images");
+  schema?.type === "record" && schema.mediaType === undefined;
 export const isArray = (schema: SerializedSchema | undefined) =>
   schema?.type === "array";

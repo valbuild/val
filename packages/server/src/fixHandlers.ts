@@ -41,16 +41,28 @@ import {
   ValidationFix,
 } from "@valbuild/core";
 import { extractJsonValuesEntry } from "./extractJsonValuesEntry";
-import { galleryEntryOf } from "./galleryEntryKey";
-import { getFileExt } from "./getFileExt";
 import {
-  getPersonalAccessTokenPath,
-  parsePersonalAccessTokenFile,
-} from "./personalAccessTokens";
+  canReadVideoMetadata,
+  unreadableVideoMetadataMessage,
+} from "./extractMetadata";
+import { checkGalleryFiles } from "./galleryFiles";
 import type { Service } from "./Service";
 import type { IValFSHost } from "./ValFSHost";
+import { openRemoteUploadSession, uploadBytesToRemote } from "./remoteUpload";
+import {
+  handleVideoDownloadRemote,
+  handleVideoUploadRemote,
+} from "./videoRemote";
+import {
+  handleVideosetCheckAllFiles,
+  handleVideosetCheckRemote,
+  handleVideosetMetadata,
+  handleVideosetUploadRemote,
+} from "./videosetFixes";
+import type { Patch } from "@valbuild/core/patch";
 
 export type { IValFSHost };
+export { checkGalleryFiles };
 
 export type IValRemote = {
   remoteHost: string;
@@ -77,8 +89,6 @@ export type IValRemote = {
   ): Promise<{ success: true } | { success: false; error: string }>;
 };
 
-const textEncoder = new TextEncoder();
-
 // Types for handler system
 export type ValModule = Awaited<ReturnType<Service["get"]>>;
 
@@ -102,15 +112,23 @@ export type FixHandlerContext = {
   file: string;
   fs: IValFSHost;
   // Shared state
-  remoteFiles: Record<
-    SourcePath,
-    { ref: string; metadata?: Record<string, unknown> }
-  >;
+  remoteFiles: Record<SourcePath, RemoteFileMove>;
   publicProjectId?: string;
   remoteFileBuckets?: string[];
   remoteFilesCounter: number;
   remote: IValRemote;
   project: string | undefined;
+};
+
+/**
+ * Where a fix moved a media value's file. `refs` is for a value that names
+ * SEVERAL files — a video's poster, captions and stream — keyed by the path
+ * the value held, so the patch can rewrite each one where it is.
+ */
+export type RemoteFileMove = {
+  ref: string;
+  metadata?: Record<string, unknown>;
+  refs?: Record<string, string>;
 };
 
 export type FixHandlerResult = {
@@ -123,6 +141,16 @@ export type FixHandlerResult = {
   // The handler did nothing because `--fix` was off, but the error IS fixable:
   // report it as such instead of as a plain validation error.
   fixableErrorMessage?: string;
+  /**
+   * Patches to OTHER modules than the one the fix is about, for the caller to
+   * apply alongside the fix's own patch (and only when it applies that one).
+   *
+   * A fix normally rewrites one value. Renaming a key that other modules name
+   * cannot be one: `videos:upload-remote` renames a set entry's key to its
+   * remote ref, and every `s.video(set)` field holding the old key would name
+   * a video the set no longer has.
+   */
+  otherModulePatches?: ModulePatch[];
   // Updated shared state
   publicProjectId?: string;
   remoteFileBuckets?: string[];
@@ -130,6 +158,9 @@ export type FixHandlerResult = {
   // Events to emit
   events?: ValidationEvent[];
 };
+
+/** A patch, and the module it is for. */
+export type ModulePatch = { moduleFilePath: ModuleFilePath; patch: Patch };
 
 export type FixHandler = (ctx: FixHandlerContext) => Promise<FixHandlerResult>;
 
@@ -217,6 +248,73 @@ export async function handleFileMetadata(
   return { success: true, shouldApplyPatch: true };
 }
 
+/**
+ * `video:add-metadata`: the bytes must be on disk, or on Val Remote (read
+ * over HTTP, headers only — see `remoteVideoMetadata.ts`), and they must be a
+ * kind of file Val can read the size and length of here: mp4/mov boxes,
+ * WebM/Matroska headers and HLS playlists. Anything else is refused with what
+ * to do instead, unless all that is missing is the mime type, which the
+ * extension answers.
+ */
+export async function handleVideoMetadata(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  const exists: FixHandlerResult = isRemoteVideoAt(ctx)
+    ? { success: true, shouldApplyPatch: true }
+    : await handleFileMetadata(ctx);
+  if (!exists.success) {
+    return exists;
+  }
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+  if (!ctx.valModule.source || !ctx.valModule.schema) {
+    return exists;
+  }
+  const video: unknown = Internal.resolvePath(
+    modulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  ).source;
+  if (!isRecord(video) || typeof video.path !== "string") {
+    return exists;
+  }
+  const missing = ["width", "height", "duration"].filter(
+    (field) => video[field] === undefined,
+  );
+  if (missing.length > 0 && !canReadVideoMetadata(video.path)) {
+    return {
+      success: false,
+      errorMessage: unreadableVideoMetadataMessage(video.path, missing),
+    };
+  }
+  return exists;
+}
+
+/** Whether the video at the error's path is on Val Remote. */
+function isRemoteVideoAt(ctx: FixHandlerContext): boolean {
+  if (!ctx.valModule.source || !ctx.valModule.schema) {
+    return false;
+  }
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+    ctx.sourcePath,
+  );
+  const video: unknown = Internal.resolvePath(
+    modulePath,
+    ctx.valModule.source,
+    ctx.valModule.schema,
+  ).source;
+  return (
+    isRecord(video) &&
+    typeof video.path === "string" &&
+    Internal.isRemoteMediaPath(video.path)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 // Shared upload core used by both the single-field (handleRemoteFileUpload)
 // and gallery (handleRemoteGalleryFileUpload) handlers. The two differ only in
 // how they derive the local file ref, metadata and serialized image/file
@@ -235,31 +333,6 @@ async function uploadRemoteFileCore(
     };
   }
 
-  const patFile = getPersonalAccessTokenPath(ctx.projectRoot);
-  if (!ctx.fs.fileExists(patFile)) {
-    return {
-      success: false,
-      errorMessage: `File: ${path.join(ctx.projectRoot, ctx.file)} has remote images that are not uploaded and you are not logged in.\n\nFix this error by logging in:\n\t"npx val login"\n`,
-    };
-  }
-
-  const patFileContent = ctx.fs.readFile(patFile);
-  if (patFileContent === undefined) {
-    return {
-      success: false,
-      errorMessage: `Could not read personal access token file at ${patFile}`,
-    };
-  }
-
-  const parsedPatFile = parsePersonalAccessTokenFile(patFileContent);
-  if (!parsedPatFile.success) {
-    return {
-      success: false,
-      errorMessage: `Error parsing personal access token file: ${parsedPatFile.error}. You need to login again.`,
-    };
-  }
-  const { pat } = parsedPatFile.data;
-
   if (ctx.remoteFiles[ctx.sourcePath]) {
     return {
       success: true,
@@ -267,54 +340,11 @@ async function uploadRemoteFileCore(
     };
   }
 
-  const projectName = ctx.project;
-  let publicProjectId = ctx.publicProjectId;
-  let remoteFileBuckets = ctx.remoteFileBuckets;
-  let remoteFilesCounter = ctx.remoteFilesCounter;
-
-  if (!publicProjectId || !remoteFileBuckets) {
-    if (!projectName) {
-      return {
-        success: false,
-        errorMessage:
-          "Project name not found. Add project name to val.config or set the VAL_PROJECT environment variable",
-      };
-    }
-    const settingsRes = await ctx.remote.getSettings(projectName, { pat });
-    if (!settingsRes.success) {
-      return {
-        success: false,
-        errorMessage: `Could not get public project id: ${settingsRes.message}.`,
-      };
-    }
-    publicProjectId = settingsRes.data.publicProjectId;
-    remoteFileBuckets = settingsRes.data.remoteFileBuckets.map((b) => b.bucket);
+  const opened = await openRemoteUploadSession(ctx);
+  if (!opened.success) {
+    return opened.result;
   }
-
-  if (!publicProjectId) {
-    return {
-      success: false,
-      errorMessage: "Could not get public project id",
-    };
-  }
-
-  if (!projectName) {
-    return {
-      success: false,
-      errorMessage: `Could not get project. Check that your val.config has the 'project' field set, or set it using the VAL_PROJECT environment variable`,
-    };
-  }
-
-  remoteFilesCounter += 1;
-  const bucket =
-    remoteFileBuckets[remoteFilesCounter % remoteFileBuckets.length];
-
-  if (!bucket) {
-    return {
-      success: false,
-      errorMessage: `Internal error: could not allocate a bucket for the remote file located at ${ctx.sourcePath}`,
-    };
-  }
+  const { session } = opened;
 
   const fileBuffer = ctx.fs.readBuffer(filePath);
   if (fileBuffer === undefined) {
@@ -327,49 +357,20 @@ async function uploadRemoteFileCore(
   const relativeFilePath = path
     .relative(ctx.projectRoot, filePath)
     .split(path.sep)
-    .join("/") as `public/${string}`;
+    .join("/");
 
-  if (!relativeFilePath.startsWith("public/")) {
-    return {
-      success: false,
-      errorMessage: `File path must be within the public/ directory (e.g. public/path/to/file.txt). Got: ${relativeFilePath}`,
-    };
-  }
-
-  const fileHash = Internal.remote.getFileHash(fileBuffer);
-  const coreVersion = Internal.VERSION.core || "unknown";
-  const fileExt = getFileExt(filePath);
-  const ref = Internal.remote.createRemoteRef(ctx.remote.remoteHost, {
-    publicProjectId,
-    coreVersion,
-    bucket,
-    validationHash: Internal.remote.getValidationHash(
-      coreVersion,
-      schema,
-      fileExt,
-      metadata,
-      fileHash,
-      textEncoder,
-    ),
-    fileHash,
-    filePath: relativeFilePath,
-  });
-
-  const remoteFileUpload = await ctx.remote.uploadFile(
-    projectName,
-    bucket,
-    fileHash,
-    fileExt,
+  const uploaded = await uploadBytesToRemote(
+    ctx,
+    session,
+    relativeFilePath,
     fileBuffer,
-    { pat },
+    metadata,
+    schema,
   );
-
-  if (!remoteFileUpload.success) {
-    return {
-      success: false,
-      errorMessage: `Could not upload remote file: '${ref}'. Error: ${remoteFileUpload.error}`,
-    };
+  if (!uploaded.success) {
+    return { success: false, errorMessage: uploaded.error };
   }
+  const { ref } = uploaded;
 
   ctx.remoteFiles[ctx.sourcePath] = {
     ref,
@@ -379,9 +380,9 @@ async function uploadRemoteFileCore(
   return {
     success: true,
     shouldApplyPatch: true,
-    publicProjectId,
-    remoteFileBuckets,
-    remoteFilesCounter,
+    publicProjectId: session.publicProjectId,
+    remoteFileBuckets: session.remoteFileBuckets,
+    remoteFilesCounter: session.remoteFilesCounter,
     events: [
       { type: "remote-uploading", ref },
       { type: "remote-uploaded", ref },
@@ -626,67 +627,6 @@ export async function handleUniqueFolderCheck(
   return { success: true };
 }
 
-/**
- * What is out of step between a gallery's entries and its directory.
- *
- * Two questions, and they treat a remote entry differently — which is the whole
- * reason this is separate from the handler around it:
- *
- * - **Missing**: an entry with no bytes at its local path. Asked of LOCAL
- *   entries only. A remote entry's bytes live on the content host, and nothing
- *   puts a copy in the working tree: `saveOrUploadFiles` uploads the remote
- *   descriptors and copies only the local ones into the tree, so a remote entry
- *   added through the Studio (or over MCP) has no local file by design, and
- *   demanding one would mean committing remote bytes to git — which is what
- *   remote storage exists to avoid. Whether those bytes really are on the host
- *   is a different check, `image:check-remote`, which already runs for exactly
- *   these entries.
- * - **Untracked**: a file in the directory that no entry claims. Asked of every
- *   entry, remote included, and that is why they are normalised to their local
- *   path: `val validate --fix` promotes a local file to a remote ref and leaves
- *   the file where it was, so a remote entry can perfectly well have one.
- */
-export function checkGalleryFiles(input: {
-  entryKeys: string[];
-  dir: string;
-  projectRoot: string;
-  fs: Pick<IValFSHost, "fileExists" | "readDirectory">;
-}): { missingTrackedFiles: string[]; untrackedFiles: string[] } {
-  const { dir, projectRoot, fs } = input;
-  const entries = input.entryKeys.map(galleryEntryOf);
-  const trackedFiles = new Set(entries.map((entry) => entry.localPath));
-
-  const missingTrackedFiles = entries
-    .filter(
-      (entry) =>
-        !entry.remote &&
-        !fs.fileExists(path.join(projectRoot, entry.localPath)),
-    )
-    .map((entry) => entry.localPath);
-
-  const filesInDir: string[] = [];
-  try {
-    const found = fs.readDirectory(
-      path.join(projectRoot, dir),
-      undefined,
-      undefined,
-      ["**/*"],
-    );
-    for (const entry of found) {
-      filesInDir.push(
-        "/" + path.relative(projectRoot, entry).split(path.sep).join("/"),
-      );
-    }
-  } catch {
-    // directory doesn't exist — no untracked files possible
-  }
-
-  return {
-    missingTrackedFiles,
-    untrackedFiles: filesInDir.filter((f) => !trackedFiles.has(f)),
-  };
-}
-
 export async function handleCheckAllFiles(
   ctx: FixHandlerContext,
 ): Promise<FixHandlerResult> {
@@ -851,12 +791,20 @@ export const currentFixHandlers: Record<
   "image:add-metadata": handleFileMetadata,
   "file:check-metadata": handleFileMetadata,
   "file:add-metadata": handleFileMetadata,
+  "video:add-metadata": handleVideoMetadata,
   "image:upload-remote": handleRemoteFileUpload,
   "file:upload-remote": handleRemoteFileUpload,
   "images:upload-remote": handleRemoteGalleryFileUpload,
   "files:upload-remote": handleRemoteGalleryFileUpload,
   "image:download-remote": handleRemoteFileDownload,
   "file:download-remote": handleRemoteFileDownload,
+  "video:upload-remote": handleVideoUploadRemote,
+  "video:download-remote": handleVideoDownloadRemote,
+  "videos:add-metadata": handleVideosetMetadata,
+  "videos:upload-remote": handleVideosetUploadRemote,
+  "videos:check-remote": handleVideosetCheckRemote,
+  "videos:check-unique-folder": handleUniqueFolderCheck,
+  "videos:check-all-files": handleVideosetCheckAllFiles,
   "image:check-remote": handleRemoteFileCheck,
   "images:check-remote": handleRemoteFileCheck,
   "file:check-remote": handleRemoteFileCheck,

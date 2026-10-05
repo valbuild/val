@@ -41,6 +41,11 @@ import {
 import { clientConfig } from "./clientConfig";
 import { z } from "zod";
 import { probeUrl } from "./linkCheck/probeUrl";
+import { parseRangeHeader } from "./httpRange";
+import {
+  isHlsPlaylistPath,
+  rewriteDraftPlaylist,
+} from "./rewriteDraftPlaylist";
 import { ValOpsFS } from "./ValOpsFS";
 import { readCommittedBinaryFiles } from "./readCommittedBinaryFiles";
 import { splitJobPrepare } from "./jobPrepare";
@@ -57,6 +62,7 @@ import {
   ValOps,
   type GenericErrorMessage,
   type PreparedCommit,
+  bufferReader,
 } from "./ValOps";
 import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
@@ -4104,41 +4110,20 @@ export const ValServer = (
         // nothing fetches it backend-to-backend. Neither half of the argument
         // above transfers. See architecture/media.md, "Why /files has no auth,
         // and /history/files does".
-        let fileBuffer;
-        let mimeType: string | undefined;
         const remote = query.remote === "true";
-        if (query.patch_id) {
-          fileBuffer = await serverOps.getBase64EncodedBinaryFileFromPatch(
-            filePath,
-            query.patch_id as PatchId,
-            remote,
+        const patchId = query.patch_id;
+        if (!patchId && serverOps instanceof ValOpsHttp && remote) {
+          console.error(
+            `Remote file: ${filePath} requested without patch id. This is most likely a bug in Val.`,
           );
-          mimeType = Internal.filenameToMimeType(filePath);
-        } else {
-          if (serverOps instanceof ValOpsHttp && remote) {
-            console.error(
-              `Remote file: ${filePath} requested without patch id. This is most likely a bug in Val.`,
-            );
-          }
-          fileBuffer = await serverOps.getBinaryFile(filePath);
         }
-
-        if (fileBuffer) {
-          return {
-            status: 200,
-            headers: {
-              // TODO: we could use ETag and return 304 instead
-              "Content-Type": mimeType || "application/octet-stream",
-              // TODO: a file requested with a patch_id is immutable for that
-              // patch, so it could be served "public, max-age=20000, immutable"
-              // instead. There used to be a `cacheControl` variable here for
-              // that, but its only assignment was commented out, so every
-              // response has always taken the revalidate branch.
-              "Cache-Control": "public, max-age=0, must-revalidate",
-            },
-            body: bufferToReadableStream(fileBuffer),
-          };
-        } else {
+        // Opened, not read: a video is seeked in by many small ranges, and
+        // only the asked-for bytes are read where the mode can (fs).
+        const opened = await serverOps.openBinaryFile(
+          filePath,
+          patchId ? { patchId: patchId as PatchId, remote } : null,
+        );
+        if (!opened) {
           return {
             status: 404,
             json: {
@@ -4146,6 +4131,65 @@ export const ValServer = (
             },
           };
         }
+        // A DRAFT playlist names files that are drafts too, at URLs that only
+        // resolve once published. See `rewriteDraftPlaylist`. Playlists are
+        // small, so one is read whole to be rewritten.
+        const file =
+          patchId && isHlsPlaylistPath(filePath)
+            ? bufferReader(
+                Buffer.from(
+                  rewriteDraftPlaylist(
+                    (await opened.read(0, opened.size - 1)).toString("utf-8"),
+                    { playlistPath: filePath, patchId, remote },
+                  ),
+                  "utf-8",
+                ),
+              )
+            : opened;
+        const headers = {
+          // TODO: we could use ETag and return 304 instead
+          // From the extension, published or draft: a `<video>` and an HLS
+          // player both decide what they are holding by it, and it used to be
+          // set for drafts only.
+          "Content-Type":
+            Internal.filenameToMimeType(filePath) || "application/octet-stream",
+          // TODO: a file requested with a patch_id is immutable for that
+          // patch, so it could be served "public, max-age=20000, immutable"
+          // instead. There used to be a `cacheControl` variable here for
+          // that, but its only assignment was commented out, so every
+          // response has always taken the revalidate branch.
+          "Cache-Control": "public, max-age=0, must-revalidate",
+          "Accept-Ranges": "bytes",
+        };
+        const range = parseRangeHeader(req.headers.range, file.size);
+        if (range.kind === "unsatisfiable") {
+          return {
+            status: 416,
+            headers: { ...headers, "Content-Range": `bytes */${file.size}` },
+            json: {
+              message: `Range not satisfiable: ${req.headers.range}`,
+            },
+          };
+        }
+        if (range.kind === "range") {
+          const slice = await file.read(range.start, range.end);
+          return {
+            status: 206,
+            headers: {
+              ...headers,
+              "Content-Range": `bytes ${range.start}-${range.end}/${file.size}`,
+              "Content-Length": String(slice.length),
+            },
+            body: bufferToReadableStream(slice),
+          };
+        }
+        const body =
+          file.size === 0 ? Buffer.alloc(0) : await file.read(0, file.size - 1);
+        return {
+          status: 200,
+          headers: { ...headers, "Content-Length": String(body.length) },
+          body: bufferToReadableStream(body),
+        };
       },
     },
   };

@@ -42,6 +42,12 @@ type RenameFileButtonProps = {
   referencedModule: ModuleFilePath | undefined;
   disabled?: boolean;
   portalContainer?: HTMLElement | null;
+  /**
+   * Rename some other way than as one file. An HLS stream is a directory, and
+   * renaming it moves every file in it (`renameVideo.ts`). Resolves to the
+   * message to show, or `null` once it is renamed.
+   */
+  rename?: (newBase: string) => Promise<string | null>;
 };
 
 export function RenameFileButton(props: RenameFileButtonProps) {
@@ -81,6 +87,7 @@ function RenameFilePanel({
   metadata,
   fileType,
   referencedModule,
+  rename,
   close,
 }: RenameFileButtonProps & { close: () => void }) {
   const renameMediaFile = useRenameMediaFile(path);
@@ -133,6 +140,13 @@ function RenameFilePanel({
         defaultEditing
         onCancel={close}
         onSave={async (_newFilename, newBase) => {
+          if (rename) {
+            const message = await rename(newBase);
+            if (message === null) {
+              close();
+            }
+            return message;
+          }
           const res = await renameMediaFile({
             kind: "field",
             path: filePath,

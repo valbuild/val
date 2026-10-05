@@ -22,6 +22,7 @@ import {
   unsafeCreateSourcePath,
 } from "../selector/SelectorProxy";
 import { JsonOf, JsonSource, isJson } from "../source/json";
+import { HLS_MIME_TYPE } from "../source/media";
 import { ExternalRecordSrc, isExternal } from "../source/external";
 import { ModuleFilePath, SourcePath } from "../val";
 import {
@@ -31,16 +32,56 @@ import {
 import { splitRemoteRef } from "../remote/splitRemoteRef";
 import { mimeTypeMatchesAccept } from "../mimeType";
 import type { ImageEncodeOption } from "./image";
+import type { VideoStreamOption } from "./video";
 import { declaredKeySetOf, type DeclaredKeySet } from "./declaredKeys";
+import {
+  validateCaptions,
+  validateHotspot,
+  validatePoster,
+  validateTimes,
+} from "./videoDefaults";
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 type MediaOptions = {
-  type: "files" | "images";
+  type: MediaCollectionType;
   accept: string;
   dir: string;
   remote: boolean;
   altSchema?: Schema<SelectorSource>;
   /** Images only: how uploads are re-encoded in the browser. See `image.ts`. */
   encode?: ImageEncodeOption;
+  /** Videos only: whether uploads become HLS streams. See `video.ts`. */
+  stream?: VideoStreamOption;
+};
+
+/** What a media collection (`s.imageset`, `s.fileset`, `s.videoset`) holds. */
+export type MediaCollectionType = "files" | "images" | "videos";
+
+/**
+ * The fix code a media collection of `type` reports for `check`.
+ *
+ * One function rather than a ternary at each site: there were two kinds of
+ * collection when every site was written as `type === "images" ? … : …`, and
+ * a third kind silently took the files branch.
+ */
+function mediaCollectionFix<
+  C extends
+    | "check-unique-folder"
+    | "check-all-files"
+    | "check-remote"
+    | "upload-remote",
+>(type: MediaCollectionType, check: C): `${MediaCollectionType}:${C}` {
+  return `${type}:${check}`;
+}
+
+/** The singular a message uses for one entry of a collection of `type`. */
+const MEDIA_ENTRY_LABEL: Record<MediaCollectionType, string> = {
+  files: "file",
+  images: "image",
+  videos: "video",
 };
 
 /**
@@ -110,11 +151,13 @@ export type SerializedRecordSchema = {
   routerSchemes?: string[];
   customValidate?: boolean;
   // Optional media collection marker for files/images that are backed by a record
-  mediaType?: "files" | "images";
+  mediaType?: MediaCollectionType;
   accept?: string;
   dir?: string;
   remote?: boolean;
   encode?: ImageEncodeOption;
+  /** Videos only: whether uploads become HLS streams. See `video.ts`. */
+  stream?: VideoStreamOption;
   alt?: SerializedSchema;
   // When true, entry values are stored in separate lazily-loaded `*.val.json`
   // files (see `.jsonValues()`).
@@ -327,10 +370,10 @@ export class RecordSchema<
       );
     }
     if (this.mediaOptions) {
-      const checkFix =
-        this.mediaOptions.type === "images"
-          ? ("images:check-unique-folder" as const)
-          : ("files:check-unique-folder" as const);
+      const checkFix = mediaCollectionFix(
+        this.mediaOptions.type,
+        "check-unique-folder",
+      );
       const uniqueCheckError: ValidationError = {
         message: `Gallery directory '${this.mediaOptions.dir}' must be unique across all galleries`,
         value: {
@@ -348,10 +391,10 @@ export class RecordSchema<
       } else {
         error = { [path]: [uniqueCheckError] };
       }
-      const allFilesCheckFix =
-        this.mediaOptions.type === "images"
-          ? ("images:check-all-files" as const)
-          : ("files:check-all-files" as const);
+      const allFilesCheckFix = mediaCollectionFix(
+        this.mediaOptions.type,
+        "check-all-files",
+      );
       const allFilesCheckError: ValidationError = {
         message: `Directory '${this.mediaOptions.dir}' may have files not tracked by this gallery`,
         value: {
@@ -410,7 +453,7 @@ export class RecordSchema<
           this.markKeyErrorsAtPath(keyErr, subPath);
         }
         error = this.mergeValidationErrors(error, keyErr);
-        const entryErr = this.validateMediaEntry(subPath, elem);
+        const entryErr = this.validateMediaEntry(subPath, key, elem);
         if (entryErr) {
           this.markKeyErrorsAtPath(entryErr, subPath);
         }
@@ -538,9 +581,8 @@ export class RecordSchema<
       return false;
     }
     const { dir, remote: isRemote, type } = this.mediaOptions;
-    const mediaLabel = type === "images" ? "images" : "files";
-    const checkRemoteFix =
-      type === "images" ? "images:check-remote" : "files:check-remote";
+    const mediaLabel = type;
+    const checkRemoteFix = mediaCollectionFix(type, "check-remote");
 
     const isRemoteUrl = this.isRemoteUrl(key);
     const isLocalPath = key === dir || key.startsWith(dir + "/");
@@ -587,16 +629,11 @@ export class RecordSchema<
         };
       }
       // Local path in a remote gallery: needs to be uploaded to remote.
-      const uploadRemoteFix =
-        type === "images"
-          ? ("images:upload-remote" as const)
-          : ("files:upload-remote" as const);
+      const uploadRemoteFix = mediaCollectionFix(type, "upload-remote");
       return {
         [path]: [
           {
-            message: `Expected a remote ${
-              type === "images" ? "image" : "file"
-            }, but got a local path. Use Val tooling (CLI --fix, VS Code extension, or Val Studio) to upload it. Got: ${key}`,
+            message: `Expected a remote ${MEDIA_ENTRY_LABEL[type]}, but got a local path. Use Val tooling (CLI --fix, VS Code extension, or Val Studio) to upload it. Got: ${key}`,
             value: key,
             fixes: [uploadRemoteFix],
           },
@@ -632,6 +669,7 @@ export class RecordSchema<
 
   private validateMediaEntry(
     path: SourcePath,
+    key: string,
     entry: unknown,
   ): ValidationErrors {
     if (!this.mediaOptions) {
@@ -649,6 +687,40 @@ export class RecordSchema<
 
     const entryObj = entry as Record<string, unknown>;
     const errors: ValidationError[] = [];
+
+    if (type === "videos") {
+      // What is read from the bytes. Missing is a fix (the CLI reads them,
+      // from disk or — for a remote entry — over HTTP with Range requests);
+      // present and wrong is an error, because a fix that overwrote an
+      // authored number would be guessing which of the two was right.
+      const missing = (
+        ["mimeType", "width", "height", "duration"] as const
+      ).filter((k) => entryObj[k] === undefined);
+      if (missing.length > 0) {
+        return {
+          [path]: [
+            {
+              message: `Video metadata is missing: ${missing.join(", ")}.`,
+              value: entry,
+              fixes: ["videos:add-metadata"],
+            },
+          ],
+        };
+      }
+      for (const k of ["width", "height", "duration"] as const) {
+        const value = entryObj[k];
+        if (
+          typeof value !== "number" ||
+          !Number.isFinite(value) ||
+          value <= 0
+        ) {
+          errors.push({
+            message: `Expected '${k}' to be a positive number, got '${JSON.stringify(value)}'`,
+            value: entry,
+          });
+        }
+      }
+    }
 
     if (type === "images") {
       // Validate width
@@ -674,6 +746,15 @@ export class RecordSchema<
         message: `Expected 'mimeType' to be a string, got '${typeof entryObj.mimeType}'`,
         value: entry,
       });
+    } else if (type === "videos" && entryObj.mimeType === HLS_MIME_TYPE) {
+      // A stream is what the Studio made of an upload that WAS accepted, so
+      // `accept` (which is about what may be picked) is not asked about it.
+      if (!key.split("?")[0].toLowerCase().endsWith(".m3u8")) {
+        errors.push({
+          message: `An HLS video must be keyed by its master playlist (.m3u8). Got: ${key}`,
+          value: entry,
+        });
+      }
     } else {
       const mimeTypeError = this.validateMediaMimeType(
         entryObj.mimeType,
@@ -681,6 +762,42 @@ export class RecordSchema<
       );
       if (mimeTypeError) {
         errors.push({ message: mimeTypeError, value: entry });
+      }
+    }
+
+    if (type === "videos") {
+      // The defaults every field picked from the set starts from, checked as
+      // a field's own would be: they are the same choices, made once.
+      const duration =
+        typeof entryObj.duration === "number" && entryObj.duration > 0
+          ? entryObj.duration
+          : undefined;
+      errors.push(
+        ...validateTimes(entryObj, duration),
+        ...validateHotspot(entryObj),
+        ...validatePoster(entryObj),
+        ...validateCaptions(entryObj),
+      );
+      const misplaced = this.misplacedEntryFiles(key, entryObj);
+      if (misplaced.length > 0) {
+        const these =
+          misplaced.length === 1
+            ? "this file is"
+            : `${misplaced.length} files are`;
+        errors.push(
+          this.mediaOptions.remote
+            ? {
+                message: `Expected the entry's files on Val Remote, but ${these} stored locally: ${misplaced.join(", ")}`,
+                // The key, as a local key's upload error carries: the fix
+                // rewrites the entry under it.
+                value: key,
+                fixes: ["videos:upload-remote"],
+              }
+            : {
+                message: `Expected the entry's files under ${this.mediaOptions.dir}, but ${these} remote: ${misplaced.join(", ")}`,
+                value: entry,
+              },
+        );
       }
     }
 
@@ -699,7 +816,9 @@ export class RecordSchema<
           });
         }
       }
+    }
 
+    if (type === "images" || type === "videos") {
       // Validate alt using the alt schema
       const altPath = createValPathOfItem(path, "alt");
       if (altPath && altSchema) {
@@ -718,6 +837,38 @@ export class RecordSchema<
     }
 
     return false;
+  }
+
+  /**
+   * The poster and caption files of a set's entry that are not where the set
+   * keeps its files. Asked only once the key itself is in place: a local key
+   * in a remote set is reported (and uploaded) as the entry, files and all,
+   * and a second error for its poster would be the same one twice.
+   */
+  private misplacedEntryFiles(
+    key: string,
+    entry: Record<string, unknown>,
+  ): string[] {
+    if (!this.mediaOptions) {
+      return [];
+    }
+    const remote = this.mediaOptions.remote;
+    if (this.isRemoteUrl(key) !== remote) {
+      return [];
+    }
+    const files: string[] = [];
+    const poster = entry.poster;
+    if (isObject(poster) && typeof poster.path === "string") {
+      files.push(poster.path);
+    }
+    if (Array.isArray(entry.captions)) {
+      for (const track of entry.captions) {
+        if (isObject(track) && typeof track.path === "string") {
+          files.push(track.path);
+        }
+      }
+    }
+    return files.filter((file) => this.isRemoteUrl(file) !== remote);
   }
 
   private validateMediaMimeType(
@@ -1221,6 +1372,9 @@ export class RecordSchema<
       result.remote = this.mediaOptions.remote;
       if (this.mediaOptions.encode !== undefined) {
         result.encode = this.mediaOptions.encode;
+      }
+      if (this.mediaOptions.stream !== undefined) {
+        result.stream = this.mediaOptions.stream;
       }
       if (this.mediaOptions.altSchema) {
         result.alt = this.mediaOptions.altSchema["executeSerialize"]();

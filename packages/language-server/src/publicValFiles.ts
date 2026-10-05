@@ -38,6 +38,13 @@ export type PublicValFiles = {
   list(directory?: string): PublicValFile[];
   /** As {@link list}, but only files whose mime type starts with `image/`. */
   images(directory?: string): PublicValFile[];
+  /**
+   * As {@link list}, but only what an `s.video()` path can name: a `video/*`
+   * file, or the master playlist of an HLS stream the Studio wrote. A
+   * rendition's own playlist (`720p.m3u8`) is not a video on its own, so only
+   * a `master.m3u8` is offered.
+   */
+  videos(directory?: string): PublicValFile[];
   invalidate(): void;
 };
 
@@ -108,6 +115,12 @@ export function createPublicValFiles({
   return {
     list,
     images: (dir) => list(dir).filter((f) => f.mimeType?.startsWith("image/")),
+    videos: (dir) =>
+      list(dir).filter(
+        (f) =>
+          f.mimeType?.startsWith("video/") ||
+          path.posix.basename(f.ref) === "master.m3u8",
+      ),
     invalidate: () => {
       cache.clear();
     },

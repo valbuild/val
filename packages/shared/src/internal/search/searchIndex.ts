@@ -144,8 +144,12 @@ export function indexModule(
       // Use first 50 chars as label
       label = searchText.substring(0, 50) || "richtext";
     }
-    // Handle file/image
-    else if (schema.type === "file" || schema.type === "image") {
+    // Handle file/image/video
+    else if (
+      schema.type === "file" ||
+      schema.type === "image" ||
+      schema.type === "video"
+    ) {
       if (
         source !== null &&
         typeof source === "object" &&

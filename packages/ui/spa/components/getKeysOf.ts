@@ -62,6 +62,7 @@ export function getKeysOf(
       schema.type === "code" ||
       schema.type === "image" ||
       schema.type === "file" ||
+      schema.type === "video" ||
       schema.type === "richtext" ||
       schema.type === "route" ||
       schema.type === "locale" ||
