@@ -14,7 +14,9 @@ import {
   useCommittedPatches,
   usePendingClientSidePatchIds,
   useHasNetChanges,
+  useUnstagedPatchIds,
   usePendingServerSidePatchIds,
+  usePublishingPatchIds,
   usePublishSummary,
   useValMode,
   usePublishRefusal,
@@ -165,9 +167,36 @@ export function PublishButton({
    * commit and cannot be discarded. Same subtraction `ValShell` does for the
    * discard count, so the button and the confirm are counting the same patches.
    */
-  const pendingServerSidePatchIds = useMemo(
+  const unpublishedPatchIds = useMemo(
     () => savedPatchIds.filter((patchId) => !committedPatchIds.has(patchId)),
     [savedPatchIds, committedPatchIds],
+  );
+  /*
+   * And not on its way, either. A press this tab made stops holding the
+   * button once content has its job, and its changes stay uncommitted until
+   * the seal -- so without this, Publish lit up at the hand-off over the
+   * change it was in the middle of publishing. See `publishingPatchIds`.
+   */
+  const publishing = usePublishingPatchIds();
+  /*
+   * Nor outside this tab's patch group, anyone's: Publish does not send those.
+   * Counted as work, an unstaged change beside a publishing one in the same
+   * module lit Publish up over nothing staged -- the module compares as
+   * changed, because of the change being published.
+   */
+  const unstagedPatchIds = useUnstagedPatchIds();
+  const pendingServerSidePatchIds = useMemo(
+    () =>
+      unpublishedPatchIds.filter(
+        (patchId) => !publishing.has(patchId) && !unstagedPatchIds.has(patchId),
+      ),
+    [unpublishedPatchIds, publishing, unstagedPatchIds],
+  );
+  // Counted on its own, so an unstaged change is never called "publishing".
+  const publishingCount = useMemo(
+    () =>
+      unpublishedPatchIds.filter((patchId) => publishing.has(patchId)).length,
+    [unpublishedPatchIds, publishing],
   );
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
   const hasNetChanges = useHasNetChanges();
@@ -190,6 +219,7 @@ export function PublishButton({
     publishDisabled,
     autoPublish,
     pendingServerSidePatchCount: pendingServerSidePatchIds.length,
+    publishingCount,
     pendingClientSidePatchCount: pendingClientSidePatchIds.length,
     netChangesEmpty: !hasNetChanges,
     unstagedChangeCount: heldChangeIds.size,

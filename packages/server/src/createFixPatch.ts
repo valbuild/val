@@ -2,11 +2,16 @@ import {
   FileMetadata,
   ImageMetadata,
   Internal,
+  VideoMetadata,
   SerializedSchema,
   Source,
   SourcePath,
   ValidationError,
 } from "@valbuild/core";
+import {
+  extractVideoMetadataFromUrl,
+  nameForTypeOf,
+} from "./remoteVideoMetadata";
 import {
   isNotRoot,
   JSONValue,
@@ -14,11 +19,21 @@ import {
   sourceToPatchPath,
 } from "@valbuild/core/patch";
 import fs from "fs";
-import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
+import {
+  extractFileMetadata,
+  extractImageMetadata,
+  extractVideoMetadataFromFile,
+  unreadableVideoMetadataMessage,
+} from "./extractMetadata";
 import { galleryEntryOf } from "./galleryEntryKey";
 import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
 import path from "path";
 import { checkRemoteRef, downloadFileFromRemote } from "./checkRemoteRef";
+import { rewriteVideoPathsPatch } from "./videoRemote";
+import {
+  videosetAddMetadataPatch,
+  videosetCheckAllFilesPatch,
+} from "./videosetFixes";
 
 // A remaining error may optionally carry a more specific `sourcePath` than the
 // one the fix was created from. This is used by gallery checks, where a single
@@ -91,6 +106,7 @@ export async function createFixPatch(
     [sourcePath: SourcePath]: {
       ref: string;
       metadata?: Record<string, unknown>;
+      refs?: Record<string, string>;
     };
   },
   moduleSource?: Source,
@@ -228,6 +244,93 @@ export async function createFixPatch(
           value: fileMetadata.mimeType ?? null,
         });
       }
+    } else if (fix === "video:add-metadata") {
+      // Only the fields that are MISSING, one op each: a video's `alt`,
+      // `poster`, `captions` and times are authored and sit in the same
+      // object, and a field already there is not re-read (see the comment on
+      // the fix code in core — reading a video is not cheap).
+      const current = currentVideoValue(
+        sourcePath,
+        validationError,
+        moduleSource,
+        moduleSchema,
+      );
+      if (current.status === "error") {
+        remainingErrors.push({
+          ...validationError,
+          message: current.message,
+          fixes: undefined,
+        });
+        continue;
+      }
+      const fileRef = current.value.path;
+      if (typeof fileRef !== "string") {
+        remainingErrors.push({
+          ...validationError,
+          message: `Cannot read video metadata: the video has no path`,
+          fixes: undefined,
+        });
+        continue;
+      }
+      let metadata: VideoMetadata;
+      try {
+        metadata = await getVideoMetadata(config.projectRoot, fileRef);
+      } catch (err) {
+        remainingErrors.push({
+          ...validationError,
+          message: `Failed to read video metadata from ${fileRef}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+          fixes: undefined,
+        });
+        continue;
+      }
+      const missing = VIDEO_METADATA_FIELDS.filter(
+        (field) => current.value[field] === undefined,
+      );
+      const unreadable = missing.filter(
+        (field) => metadata[field] === undefined,
+      );
+      if (unreadable.length > 0) {
+        // All or nothing: a video with a mime type but no size is no closer
+        // to valid, and a half-written value reads as one someone finished.
+        remainingErrors.push({
+          ...validationError,
+          message: unreadableVideoMetadataMessage(fileRef, unreadable),
+          fixes: undefined,
+        });
+        continue;
+      }
+      const patchPath = sourceToPatchPath(sourcePath);
+      for (const field of missing) {
+        const value = metadata[field];
+        if (value !== undefined) {
+          patch.push({ op: "add", path: patchPath.concat(field), value });
+        }
+      }
+    } else if (fix === "videos:add-metadata") {
+      // A set entry's twin of `video:add-metadata`: the file is the entry's
+      // KEY, and only what is missing is written.
+      const fixed = await videosetAddMetadataPatch({
+        projectRoot: config.projectRoot,
+        sourcePath,
+        validationError,
+        moduleSource,
+        moduleSchema,
+      });
+      patch.push(...fixed.patch);
+      remainingErrors.push(...fixed.remainingErrors);
+    } else if (fix === "videos:check-all-files") {
+      const fixed = await videosetCheckAllFilesPatch({
+        projectRoot: config.projectRoot,
+        apply,
+        sourcePath,
+        validationError,
+        moduleSource,
+        moduleSchema,
+      });
+      patch.push(...fixed.patch);
+      remainingErrors.push(...fixed.remainingErrors);
     } else if (fix === "image:upload-remote" || fix === "file:upload-remote") {
       const remoteFile = remoteFiles[sourcePath];
       let metadata = remoteFile.metadata as JSONValue | undefined;
@@ -262,12 +365,45 @@ export async function createFixPatch(
         });
       }
     } else if (
+      fix === "video:upload-remote" ||
+      fix === "video:download-remote"
+    ) {
+      // The handler moved the files (`videoRemote.ts`); what is left is to
+      // point each path the value holds at where its file now is. Read from
+      // the module rather than the error, which carries the value as it was
+      // validated.
+      const moved = remoteFiles[sourcePath]?.refs;
+      if (!moved) {
+        remainingErrors.push({
+          ...validationError,
+          message:
+            fix === "video:upload-remote"
+              ? "Cannot point the video at Val Remote: its files were not uploaded"
+              : "Cannot point the video at its local files: they were not downloaded",
+          fixes: undefined,
+        });
+        continue;
+      }
+      const current =
+        moduleSource !== undefined && moduleSchema !== undefined
+          ? Internal.resolvePath(
+              Internal.splitModuleFilePathAndModulePath(sourcePath)[1],
+              moduleSource,
+              moduleSchema,
+            ).source
+          : validationError.value;
+      patch.push(...rewriteVideoPathsPatch(sourcePath, current, moved));
+    } else if (
       fix === "images:upload-remote" ||
-      fix === "files:upload-remote"
+      fix === "files:upload-remote" ||
+      fix === "videos:upload-remote"
     ) {
       // Gallery entry: the record is keyed by the file path, so uploading to
       // remote means renaming the key from the local path to the remote URL
-      // (remove the old key, add the new one with the same metadata).
+      // (remove the old key, add the new one with the same metadata). A video
+      // set's entry is renamed to its MASTER playlist's ref for a stream: the
+      // playlists and segments it names went up with it, and are named by the
+      // uploaded master, not by the set.
       const remoteFile = remoteFiles[sourcePath];
       if (!remoteFile) {
         remainingErrors.push({
@@ -662,6 +798,65 @@ function getRemoteValueFromValidationError(v: ValidationError):
     path,
     metadata,
   };
+}
+
+/** The fields of a video that are read from its bytes, in the order written. */
+const VIDEO_METADATA_FIELDS: readonly (keyof VideoMetadata)[] = [
+  "mimeType",
+  "width",
+  "height",
+  "duration",
+];
+
+/**
+ * The video a `video:add-metadata` error is about, read from the module at its
+ * path when the module is at hand — the schema there decides that it IS a
+ * video — and from the error's own value otherwise.
+ */
+function currentVideoValue(
+  sourcePath: SourcePath,
+  validationError: ValidationError,
+  moduleSource: Source | undefined,
+  moduleSchema: SerializedSchema | undefined,
+):
+  | { status: "ok"; value: Record<string, unknown> }
+  | { status: "error"; message: string } {
+  if (moduleSource !== undefined && moduleSchema !== undefined) {
+    const [, modulePath] =
+      Internal.splitModuleFilePathAndModulePath(sourcePath);
+    const resolved = Internal.resolvePath(
+      modulePath,
+      moduleSource,
+      moduleSchema,
+    );
+    if (resolved.schema.type !== "video") {
+      return {
+        status: "error",
+        message: `Could not add video metadata: schema at ${sourcePath} is '${resolved.schema.type}', not a video`,
+      };
+    }
+    const value = mediaValueOf(resolved.source);
+    return value
+      ? { status: "ok", value }
+      : { status: "error", message: "Video is not an object!" };
+  }
+  const value = mediaValueOf(validationError.value);
+  return value
+    ? { status: "ok", value }
+    : { status: "error", message: "Video is not an object!" };
+}
+
+export async function getVideoMetadata(
+  projectRoot: string,
+  fileRef: string,
+): Promise<VideoMetadata> {
+  // Not read into memory: only the headers are, and a video is mostly not
+  // headers. A remote video's headers are read over HTTP, with Range
+  // requests, so it is not downloaded either.
+  if (Internal.isRemoteMediaPath(fileRef)) {
+    return extractVideoMetadataFromUrl(fileRef, nameForTypeOf(fileRef));
+  }
+  return extractVideoMetadataFromFile(path.join(projectRoot, fileRef));
 }
 
 export async function getImageMetadata(

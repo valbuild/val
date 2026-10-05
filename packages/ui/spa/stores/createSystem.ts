@@ -2982,7 +2982,7 @@ export function createSystem(options: SystemOptions): System {
               retryable: true,
             };
           }
-          return requested;
+          return { ...requested, patchIds: toPublish };
         }
 
         const headCommitSha = stat.currentHeadCommitSha();

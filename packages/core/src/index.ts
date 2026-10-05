@@ -27,6 +27,19 @@ export type {
   ImageEncodeOptions,
 } from "./schema/image";
 export type { FileMetadata } from "./schema/file";
+export type {
+  GalleryVideoOptions,
+  VideoMetadata,
+  VideoOptions,
+  VideoStreamOption,
+  VideoStreamOptions,
+} from "./schema/video";
+import { videosetEntryVideoSchema } from "./schema/videoset";
+export type {
+  VideosetEntryMetadata,
+  VideosetOptions,
+  SerializedVideosetSchema,
+} from "./schema/videoset";
 export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/media";
@@ -47,6 +60,13 @@ export type {
   MediaSource,
   GalleryImageSource,
   GalleryFileSource,
+  GalleryVideoSource,
+  VideoDefaults,
+  IsVideoSource,
+  VideoSource,
+  VideoPosterSource,
+  VideoCaptionSource,
+  ResolvedVideo,
 } from "./source/media";
 export type {
   AllRichTextOptions,
@@ -111,7 +131,7 @@ export { ModuleFilePathSep };
 import { SelectorSource, getSchema } from "./selector";
 import { ModulePath, SourcePath, getValPath, isVal } from "./val";
 import { createValPathOfItem } from "./selector/SelectorProxy";
-import { getSHA256Hash } from "./getSha256";
+import { createHash, getSHA256Hash } from "./getSha256";
 import { Operation } from "./patch";
 import { initSchema } from "./initSchema";
 import {
@@ -144,11 +164,17 @@ import {
 } from "./remote/validationBasis";
 import { getFileHash, hashToRemoteFileHash } from "./remote/fileHash";
 import { splitRemoteRef } from "./remote/splitRemoteRef";
+import { galleriesOf } from "./source/galleries";
 import {
   fillFromGallery,
+  GALLERY_DEFAULT_GROUPS,
+  galleryEntryOf,
+  HLS_MIME_TYPE,
+  isHlsVideo,
   isRemoteMediaPath,
   mediaUrl,
   resolveMedia,
+  resolveVideo,
 } from "./source/media";
 import {
   colorToHex,
@@ -159,12 +185,23 @@ import {
 } from "./schema/colorFormat";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
-export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
+export {
+  type SerializedRecordSchema,
+  type MediaCollectionType,
+  RecordSchema,
+} from "./schema/record";
 export { type SerializedStringSchema, StringSchema } from "./schema/string";
 export { type SerializedNumberSchema, NumberSchema } from "./schema/number";
 export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";
 export { type SerializedImageSchema, ImageSchema } from "./schema/image";
 export { type SerializedFileSchema, FileSchema } from "./schema/file";
+export {
+  type SerializedVideoSchema,
+  VideoSchema,
+  DEFAULT_VIDEO_ACCEPT,
+  DEFAULT_VIDEO_RENDITIONS,
+  DEFAULT_VIDEO_SEGMENT_DURATION,
+} from "./schema/video";
 export { type SerializedDateSchema, DateSchema } from "./schema/date";
 export {
   type SerializedSettingsSchema,
@@ -362,6 +399,7 @@ const Internal = {
   VERSION: {
     core: corePackageJson.version,
   },
+  videosetEntryVideoSchema,
   // A view's read-path plumbing: `Internal` rather than the public surface,
   // because an app never builds or unwraps a handle — it passes one to
   // `useVal`.
@@ -372,9 +410,15 @@ const Internal = {
   viewModulesOf,
   mediaUrl,
   resolveMedia,
+  resolveVideo,
   isRemoteMediaPath,
   media: {
     fillFromGallery,
+    galleriesOf,
+    galleryEntryOf,
+    GALLERY_DEFAULT_GROUPS,
+    isHlsVideo,
+    HLS_MIME_TYPE,
   },
   getSchema,
   getValPath,
@@ -427,6 +471,11 @@ const Internal = {
   isExternalFileRef,
   createValPathOfItem,
   getSHA256Hash,
+  /**
+   * The same hash as `getSHA256Hash`, fed a chunk at a time: what a caller
+   * hashing hundreds of megabytes uses to give the thread back between chunks.
+   */
+  createSHA256Hash: () => createHash("sha256"),
   initSchema,
   getMimeType,
   mimeTypeToFileExt,

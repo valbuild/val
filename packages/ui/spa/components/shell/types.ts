@@ -1,4 +1,8 @@
-import { ModuleFilePath, SourcePath } from "@valbuild/core";
+import {
+  MediaCollectionType,
+  ModuleFilePath,
+  SourcePath,
+} from "@valbuild/core";
 import { AvailableRoute } from "../NavMenu/NewPageForm";
 
 /**
@@ -169,7 +173,7 @@ export type ShellMediaGallery = {
    */
   moduleFilePath: string;
   itemCount: number;
-  mediaType: "images" | "files";
+  mediaType: MediaCollectionType;
   /**
    * The files in the gallery.
    *
@@ -381,6 +385,20 @@ export type ShellData = {
    * go — see `toAdminLinks`.
    */
   admin?: ShellAdminLinks;
+  /**
+   * Where Val Build's web components are served from — see
+   * `toWebComponentsUrl`. Absent when the project is not connected, which
+   * leaves the top bar's plain project name in place.
+   */
+  webComponentsUrl?: string;
+  /**
+   * How an editor signs in to Val Build here: `fs` with `val login`, on a
+   * developer's own checkout; `http` through the Studio's sign-in. Handed to
+   * Val Build's web components as their `mode`. Not the stat `mode`, which a
+   * deployed memory-mode host reports as `fs` — see `useValBuildAccess`.
+   * Absent while it is not known.
+   */
+  studioMode?: "fs" | "http";
   /** From `config.gitBranch`. Absent outside a git checkout. */
   branch?: string;
   /**
@@ -495,6 +513,11 @@ export type ShellAdminLinks = {
   project: string;
   /** The organisation's member list. */
   members: string;
+  /**
+   * The project's AI keys: `/manage-ai/<org>/<project>`, which the admin app
+   * keeps for this and redirects to the project's AI tab.
+   */
+  ai: string;
 };
 
 /**

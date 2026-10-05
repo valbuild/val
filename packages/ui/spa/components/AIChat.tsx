@@ -6,6 +6,7 @@ import React, {
   useImperativeHandle,
   forwardRef,
   type RefObject,
+  type ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
 import { ScrollArea } from "./designSystem/scroll-area";
@@ -226,6 +227,11 @@ export type AIChatProps = {
   onNewSession?: () => void;
   /** Prompt suggestion chips shown on the empty state */
   suggestions?: string[];
+  /**
+   * Shown instead of the empty state, when there is something to do before
+   * a conversation can start — no AI key, and the AI setup to add one.
+   */
+  emptyStateOverride?: ReactNode;
   /** Extra class names on the root container */
   className?: string;
   /** Whether the underlying WebSocket connection is ready */
@@ -577,6 +583,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     onUploadFile,
     onNewSession,
     suggestions = DEFAULT_SUGGESTIONS,
+    emptyStateOverride,
     className,
     isConnected,
     authError,
@@ -1353,6 +1360,8 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               <Loader2 className="h-5 w-5 animate-spin" />
               <span className="text-sm">Loading conversation…</span>
             </div>
+          ) : isEmpty && emptyStateOverride !== undefined ? (
+            emptyStateOverride
           ) : isEmpty ? (
             <EmptyState
               suggestions={suggestions}

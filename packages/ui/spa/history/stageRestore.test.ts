@@ -1,6 +1,11 @@
 import { initVal, type SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
-import { buildRestorePatch, collectMedia } from "./stageRestore";
+import {
+  buildRestorePatch,
+  collectMedia,
+  filesNamedByPlaylist,
+  isPlaylistFile,
+} from "./stageRestore";
 import { planRevertAll } from "./revertAll";
 import type { HistoricalPatchSet } from "@valbuild/shared/internal";
 
@@ -142,5 +147,52 @@ describe("reverting everything", () => {
     const plan = planRevertAll(patchSet({ [MODULE]: { ...ok, source: null } }));
     expect(plan.modules).toEqual([]);
     expect(plan.blocked).toHaveLength(1);
+  });
+});
+
+describe("restoring an HLS stream", () => {
+  test("a local playlist names its siblings by the paths they are stored at", () => {
+    const master = "/public/val/intro_05198/master.m3u8";
+    expect(isPlaylistFile(master)).toBe(true);
+    expect(
+      filesNamedByPlaylist(
+        master,
+        `#EXTM3U
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="a",URI="playlist-2.m3u8"
+#EXT-X-STREAM-INF:BANDWIDTH=1,AUDIO="a"
+playlist-1.m3u8
+`,
+      ),
+    ).toEqual([
+      "/public/val/intro_05198/playlist-2.m3u8",
+      "/public/val/intro_05198/playlist-1.m3u8",
+    ]);
+    expect(
+      filesNamedByPlaylist(
+        "/public/val/intro_05198/playlist-1.m3u8",
+        `#EXTM3U
+#EXT-X-MAP:URI="segments-1.mp4",BYTERANGE="10@0"
+#EXTINF:2,
+#EXT-X-BYTERANGE:20@10
+segments-1.mp4
+#EXT-X-ENDLIST
+`,
+      ),
+    ).toEqual(["/public/val/intro_05198/segments-1.mp4"]);
+  });
+
+  test("a remote playlist names the others by ref, which is what is restored", () => {
+    const ref =
+      "https://remote.val.build/file/p/proj/b/01/v/1.0.0/h/abcd/f/0123456789ab/p/public/val/s_12345/playlist-1.m3u8";
+    expect(
+      filesNamedByPlaylist(
+        "https://remote.val.build/file/p/proj/b/01/v/1.0.0/h/abcd/f/0123456789ab/p/public/val/s_12345/master.m3u8",
+        `#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=1
+${ref}
+`,
+      ),
+    ).toEqual([ref]);
+    expect(isPlaylistFile("/public/val/clip.mp4")).toBe(false);
   });
 });

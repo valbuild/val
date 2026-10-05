@@ -10,6 +10,8 @@ import {
   buildRestorePatch,
   collectMedia,
   fetchFileAtCommit,
+  filesNamedByPlaylist,
+  isPlaylistFile,
   moduleFilePathOf,
 } from "./stageRestore";
 
@@ -78,7 +80,12 @@ export function useStageRestore(
       const basePath = Internal.createPatchPath(
         Internal.splitModuleFilePathAndModulePath(to)[1],
       );
-      for (const { filePath, fieldPath, metadata } of media) {
+      // A queue rather than the list: a stream's playlists name more files,
+      // found only once each playlist is fetched as it was at the commit.
+      const queue = [...media];
+      const seen = new Set(media.map(({ filePath }) => filePath));
+      for (let next = queue.shift(); next; next = queue.shift()) {
+        const { filePath, fieldPath, metadata } = next;
         const remote = !filePath.startsWith("/public");
         const fetched = await fetchFileAtCommit(
           apiBasePath,
@@ -89,6 +96,18 @@ export function useStageRestore(
         if (fetched.status === "error") {
           setState({ status: "error", message: fetched.message });
           return;
+        }
+        if (isPlaylistFile(filePath)) {
+          for (const named of filesNamedByPlaylist(
+            filePath,
+            textOfDataUrl(fetched.dataUrl),
+          )) {
+            if (!seen.has(named)) {
+              seen.add(named);
+              // Filed at the same video field: one stream, one patch id.
+              queue.push({ filePath: named, fieldPath, metadata: undefined });
+            }
+          }
         }
         fileOps.push({
           op: "file",
@@ -141,4 +160,12 @@ export function useStageRestore(
   );
   const reset = useCallback(() => setState({ status: "idle" }), []);
   return { state, stage, fail, reset };
+}
+
+/** A playlist's text, from the data URL it was fetched as. */
+function textOfDataUrl(dataUrl: string): string {
+  const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  return new TextDecoder().decode(
+    Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)),
+  );
 }

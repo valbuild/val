@@ -1,14 +1,15 @@
-# Media: `s.imageset()`, `s.fileset()`, `s.image()`, `s.file()`
+# Media: `s.imageset()`, `s.fileset()`, `s.videoset()`, `s.image()`, `s.file()`, `s.video()`
 
 ## The four names are two pairs on different axes
 
 `s.imageset()` / `s.fileset()` are **whole-module collections**. `s.image()` /
 `s.file()` are **fields**. They are not variants of each other.
 
-|       | collection (is the module)           | field (lives at a path)                                |
-| ----- | ------------------------------------ | ------------------------------------------------------ |
-| image | `s.imageset({ dir, accept?, alt? })` | `s.image({ dir, accept })` or `s.image(galleryModule)` |
-| file  | `s.fileset({ dir, accept })`         | `s.file({ accept })` or `s.file(collectionModule)`     |
+|       | collection (is the module)                    | field (lives at a path)                                         |
+| ----- | --------------------------------------------- | --------------------------------------------------------------- |
+| image | `s.imageset({ dir, accept?, alt? })`          | `s.image({ dir, accept })` or `s.image(galleryModule)`          |
+| file  | `s.fileset({ dir, accept })`                  | `s.file({ accept })` or `s.file(collectionModule)`              |
+| video | `s.videoset({ dir, accept?, alt?, stream? })` | `s.video({ dir, accept, stream })` or `s.video(videosetModule)` |
 
 Remote is a **method, not an option**, everywhere: `s.imageset({...}).remote()`,
 `s.fileset({...}).remote()`, `s.image().remote()`, `s.file().remote()`. It used to
@@ -76,10 +77,30 @@ A **gallery-backed** field (`s.image(galleryModule)`, and `s.file(collectionModu
 for the file pair) carries neither: the gallery has them, keyed by path, and
 repeating them is how two copies of one fact get to disagree. `s.image(galleryVal)` refuses them at author time, and
 validation refuses a path the gallery does not track. `fillFromGallery` supplies
-them at resolve time — including `alt`, but only when the field has none, so a
-per-image override wins. A gallery whose `alt` is a locale record holds an object
-rather than a string; the field's own override is still a string, and making that
-locale-shaped is a separate change.
+them at resolve time.
+
+**A gallery entry also holds DEFAULTS, and a field overrides them key by key.**
+What a page chooses about a file — an image's `alt` and `hotspot`; a video's
+`alt`, `hotspot`, `poster` + `posterTime`, `startTime`, `endTime` and
+`captions` — can be set once on the gallery entry, and every field picked from
+the gallery starts from it. A field that sets a key of its own wins for that
+key only (`GALLERY_DEFAULT_GROUPS`): a field with its own `startTime` still
+gets the gallery's `endTime`. Two groupings are deliberate: `poster` and
+`posterTime` are one pair (the poster IS the frame at that time, so half from
+each would describe a frame nobody chose), and `captions` is one list. A file
+entry has none: `s.file()` has nothing authored to default.
+
+`fillFromGallery` is the one merge, for the readers (`stegaEncode`) and the
+Studio (`effectiveChoices` in `VideoChoices.tsx` runs the same groups), so a
+page and the Studio cannot disagree about which poster a video has. Outside
+draft mode a reader has no module sources to look in, so it reads the
+gallery's PUBLISHED entries off the field's schema instance
+(`Internal.media.galleriesOf`) — before that, a published page got a
+gallery-backed value with nothing of the gallery's on it.
+
+A gallery whose `alt` is a locale record holds an object rather than a string;
+that is left in the gallery rather than copied into a field typed `string`,
+and making the override locale-shaped is a separate change.
 
 **An entry's `alt` type comes from the `alt` schema**, not from a fixed
 `string | null`: `s.string()` gives `string`, `s.record(s.string())` gives
@@ -262,7 +283,7 @@ those two properties you are relying on.
 
 The Studio renames from two places: a gallery's file properties (the pencil
 next to the name) and the **Rename** button of a standalone `s.image()` /
-`s.file()` field. A gallery-backed field does not rename its file — the file is
+`s.file()` / `s.video()` field (a video stream: see "Renaming a video"). A gallery-backed field does not rename its file — the file is
 shared with every other field that picked it — and its Rename sends you to the
 gallery instead. The rules live in `packages/ui/spa/utils/renameMediaFile.ts`;
 `useRenameMediaFile` is the part that talks to the stores.
@@ -348,6 +369,238 @@ publish gate. A **required alt** (`s.imageset({ alt: s.string().minLength(4) })`
 blocking, and upload sets `alt: null` — so such a gallery is unpublishable until
 someone types alt text. Correct, but it means uploading alone never reaches a
 publishable state there.
+
+## Video: `s.video()` and `s.videoset()`
+
+A video is a third kind of media, and the one media value that names several
+files. It comes in both shapes the others do: a field of its own
+(`s.video()`), or a field that picks from a collection (`s.video(videosVal)`
+over an `s.videoset()`) — see "A set of videos" below.
+
+```ts
+{ path: "/public/val/intro_3b9d7.mp4", mimeType: "video/mp4",   // or an HLS master playlist
+  width: 1920, height: 1080, duration: 42.5,                    // read from the bytes
+  alt, hotspot, posterTime, startTime, endTime,                 // authored
+  poster: { path: "/public/val/intro-poster_1a2b3.webp", width, height, mimeType },
+  captions: [{ path: "/public/val/intro-en_8f2a1.vtt", srclang: "en", label, kind, default }] }
+```
+
+**`mimeType` is required** on a video of its own: a page has to know whether
+it holds an `.mp4` or an `.m3u8` before it can play it. (A set-backed field has
+none — the set's entry has it, and the reader fills it in.)
+
+**What tells a video from an image is its declared keys, not a required one.**
+Every media source is "a `path` plus optional fields", so structurally an image
+and a video are the same type. `IsVideoSource<T>` asks whether `posterTime` is
+a key of `T` — every video source type declares it, no image type does — and
+`StegaOfSource` / `JsonOfSource` ask it BEFORE the image arm. It used to be the
+required `mimeType`; a set-backed field has no `mimeType` of its own, so that
+sent it down the image arm and `useVal` handed a page an `Image`.
+
+**Every file is its own media object with its own `patch_id`.** The video, the
+poster and each caption track are uploaded by `file` ops whose `path` is the
+FIELD and whose `nestedFilePath` (`["poster"]`, `["captions", "2"]`) says where
+the `patch_id` goes. `ValOps` keys its patch-id injection by path AND nested
+path — keyed by path alone, the poster's op overwrote the video's and one of
+the two drafts would not resolve. `resolveVideo` is the one implementation of
+"a URL for each of them"; stega tags only the video's own `url`.
+
+**Editing is per property** (`add` on `posterTime`, `captions/1/label`, ...),
+never a whole-value replace, so `schemaTypesOfPath` lets a patch path continue
+below a video. Only a new upload replaces the whole value, and it keeps `alt`,
+`hotspot` and `captions` (a replaced video is usually the same video re-cut)
+but drops the times and the poster, which are positions in the old file.
+
+### Streaming
+
+`s.video({ stream: { type: "hls" } })` makes the Studio convert an upload to
+HLS **in the browser**, in `utils/video/transcode.worker.ts`: mediabunny over
+WebCodecs, one H.264 rendition per height in `renditions` that fits the upload
+(never an upscale), AAC audio, CMAF with `singleFilePerPlaylist` so a rendition
+is two files (playlist + byte-ranged media) rather than hundreds of segments.
+The converter is a lazy chunk of the Studio bundle — an app installs nothing,
+and an editor downloads it only when they upload to a streaming field. AAC
+encoding is missing from several browsers' WebCodecs, so mediabunny's WASM AAC
+encoder is loaded in exactly that case.
+
+Where the browser cannot (no WebCodecs — which includes every insecure context
+— or no H.264 encoder), the ORIGINAL file is uploaded and the field says so.
+`stream` is a request, not a guarantee, which is why validation accepts an mp4
+in a streaming field and does not hold an HLS playlist to `accept` (`accept` is
+what an editor may pick; the playlist is what the Studio made of it).
+
+The stream is a directory named like a file would be — `${dir}/${name}_${hash5}/`
+holding `master.m3u8`, `playlist-N.m3u8` and `segments-N.mp4` — and the field's
+`path` is the master playlist.
+
+- **Local**: the playlists name their siblings RELATIVELY, so a published
+  stream is just static files. A DRAFT is served by `/api/val/files?patch_id=…`,
+  and a relative name resolved against that URL loses the query; so `/files`
+  rewrites a draft playlist as it serves it, pointing every URI at the draft
+  endpoint with the same `patch_id`.
+- **Remote**: the content host serves a file by its hash, so a relative name
+  resolves to nothing there. `createVideoPatch` places the files bottom-up —
+  segments, then media playlists rewritten to name the segments' refs, then
+  the master — and each playlist's ref is the hash of its REWRITTEN bytes.
+
+Seeking, Safari playback at all, and byte-ranged HLS need **Range requests**:
+`/api/val/files` answers them, and so does the content host's `/file/...`
+route (valbuild/home).
+
+### Reading one in an app
+
+`ValVideo` (Next and TanStack) renders the poster, the caption tracks, the
+start/end (seek on load, pause at the end, plus a `#t=` fragment for a
+progressive file) and the hotspot as `object-position`. hls.js is the APP's
+dependency, passed in as `hls={() => import("hls.js")}` and called only for a
+stream in a browser that cannot play one natively.
+
+### The CLI: metadata and moving between local and remote
+
+`video:add-metadata` reads the size and length of a local file with small
+parsers in `@valbuild/server` — mp4/mov boxes (`isoBmff.ts`), WebM/Matroska
+headers (`ebml.ts`) and HLS playlists (`hls.ts`) — so an app's server gets no
+media library. They read headers only, never the frames. A file that does not
+declare its length (a browser recording, a fragmented mp4 without `mehd`) gets
+its size and a message to add the duration by hand.
+
+A REMOTE video is read the same way, over HTTP, without being downloaded
+(`remoteVideoMetadata.ts`). The parsers are synchronous and ask a `ByteSource`
+for bytes; for a remote file that source is a cache of `Range` responses, and
+a read it cannot answer throws, the missing range is fetched (with 64 KB of
+read-ahead), and the parser runs again from the start. Re-parsing headers is
+microseconds next to a request, and it keeps one parser for disk and remote.
+An mp4 with `moov` first is one request; one with `moov` behind its frames is
+about three, however large; an HLS stream is the master and one media
+playlist. It relies on the content host answering `Range` — `/file/...` in
+valbuild/home does — and a host that ignores it still works, by sending the
+whole file once. So core asks for a remote video's metadata like a local
+one's (`video:add-metadata`, `videos:add-metadata` for a set entry).
+
+`video:upload-remote` / `video:download-remote` move EVERY file the video
+names, in one fix (`videoRemote.ts`). Validation reports it as one error for
+the whole video whichever file is on the wrong side — a remote video with a
+local poster is half a migration, not a choice. Upward, the stream is placed
+bottom-up exactly as the Studio places an upload (playlists rewritten to name
+refs); downward, playlists are rewritten back to relative names. The patch
+rewrites each `path` in place with an `add`, so nothing authored is touched.
+The upload session (token, project settings, bucket) is opened once per fix
+(`remoteUpload.ts`), so a video's files share a bucket.
+
+For a set (`videosetFixes.ts`): `videos:add-metadata` reads an entry's
+file by its KEY; `videos:check-all-files` adds untracked videos and untracked
+streams (one entry per master playlist) and drops entries whose file is gone
+— a file named by any video field (a poster, a caption track) counts as
+tracked, so they can share the set's directory; and `videos:upload-remote`
+moves an entry's files and renames its key, rewriting every `s.video(set)`
+field that names it in the same run (`otherModulePatches`). Both the CLI and
+the Studio hash a set's upload against `Internal.videosetEntryVideoSchema`,
+the one definition, so the two cannot name the same file by different refs.
+
+### Renaming a video
+
+A progressive video renames like any field's file (above). A stream's NAME is
+its directory, so renaming one moves every file in it (`renameVideo.ts`): the
+files are read back from where the player gets them — a served playlist names
+the others relatively, through the draft endpoint, or by remote ref, and all
+three are read back to the same `/public` path — the playlists are normalised
+to relative names, and the stream is placed under the new directory with the
+same `placeHls` an upload uses. Remote streams are re-placed too rather than
+relabelled: a draft is found by the ref it was uploaded under, so inner refs
+with old labels would send the draft endpoint to the wrong patch. Old local
+files are deleted, as for any rename. Poster and captions keep their names.
+
+### A set of videos: `s.videoset()`
+
+```ts
+const videosVal = c.define(
+  "/content/videos.val.ts",
+  s.videoset({ dir: "/public/val/videos", stream: { type: "hls" } }),
+  {
+    "/public/val/videos/intro_51df2.mp4": {
+      mimeType: "video/mp4",
+      width: 1280,
+      height: 720,
+      duration: 12.5,
+      alt: null,
+    },
+    "/public/val/videos/intro_05198/master.m3u8": {
+      mimeType: "application/vnd.apple.mpegurl",
+      width: 1920,
+      height: 1080,
+      duration: 30,
+      alt: null,
+    },
+  },
+);
+const page = s.object({ intro: s.video(videosVal) });
+// page source: { intro: { path: "/public/val/videos/intro_51df2.mp4", startTime: 2 } }
+```
+
+The entry holds **what is true of the FILE** — type, size, length, the set's
+alone — and, as defaults, **what a page chooses about it**: description,
+poster, start and end, focal point, captions. A field overrides any of those
+key by key (see "The shape" above), so one clip can open one page at 0:02 and
+every other page where the set says, without being uploaded twice. Core
+refuses a set-backed field that repeats `mimeType` / `width` / `height` /
+`duration`, the same rule as an image and its gallery; it checks an entry's
+defaults with the same checks as a field's own (`videoDefaults.ts`), and a
+field's own start against the set's end (or the reverse) as the pair the page
+will play.
+
+**The entry's poster is the gallery's thumbnail.** There is no second still:
+two pictures of one video would disagree. An upload into the set takes the
+poster from the picked file before it goes anywhere (the same frame a field
+upload takes), and an entry without one — uploaded before posters were stored
+— gets one the first time it is opened in the gallery, if the gallery can be
+written to. A stream needs it most: a tile can seek in a file to show a frame,
+and cannot in a stream.
+
+The Studio edits both sides with the same controls (`VideoChoices`): the
+gallery's panel edits the entry's defaults, and a set-backed field shows the
+set's value with "From gallery · Override" until it has its own, then
+"Overridden · Use gallery's". An image field picked from a gallery does the
+same for its description and focal point.
+
+- **A stream is ONE entry, keyed by its master playlist.** The playlists and
+  segments beside it belong to it: the gallery names it by its directory (as
+  the picker does), a delete removes every file of it, and a rename moves the
+  directory and rewrites every field naming it (`buildStreamEntryRenamePatches`).
+- **Keys are exact.** An entry is keyed by exactly the `path` a field holds —
+  the remote ref for a remote set — so there is one key to look up, not the
+  two an image gallery has to try (`fillFromGallery` still tries both).
+- **`stream`, `dir` and `accept` are the set's.** `s.video(set)` serializes
+  none of them; the Studio reads them off the set, and `s.video(set, { stream:
+false })` is the one override, as `encode` is for an image.
+- **Uploading in a set-backed field adds to the set.** The bytes are filed at
+  the FIELD (so the field carries the `patch_id` a page reads a draft's URL
+  off), and the set's entry is written once they are up
+  (`createSetBackedVideoPatch`). Uploading in the set itself files them at the
+  entry (`createVideosetEntryPatch`). Both go through `prepareVideoUpload`, the
+  one place a picked file is read and — when asked — converted.
+- **A field's poster and captions are the field's files**, and live where the
+  set's videos do: for a remote set, a local poster is `video:upload-remote`
+  on the field, which moves the poster and captions and never the video.
+- **An entry's poster and captions are the entry's files.** `check-all-files`
+  counts them as tracked, `list-unused-files` as used, a gallery delete
+  removes them, and `videos:upload-remote` moves them with the video — or
+  alone, for an entry whose key is already remote (the error then carries the
+  key, and the entry is rewritten under it). `--fix` does not MAKE a missing
+  poster: that needs a video decoder, and the CLI has none; the Studio makes
+  it in the browser.
+- **A deserialized set-backed schema** (what the Studio validates with) knows
+  which set it points at but not its entries, so it does not claim an entry is
+  missing — the set's own module is validated anyway.
+
+### What is not there yet
+
+- Uploads still travel as base64 JSON like every other file, so a large video
+  costs a third more on the wire. (Hashing does not block: `crypto.subtle`, or
+  in an insecure context the JS hash fed a megabyte at a time.)
+- **Ranges in http mode.** `/api/val/files` reads only the asked-for range in
+  fs mode (`openBinaryFile`), but `ValOpsHttp` gets a draft from the content
+  service whole, in a JSON body, so each range there still fetches the file.
+  It needs a ranged file endpoint on the content service.
 
 ## Fixtures
 

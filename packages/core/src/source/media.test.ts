@@ -159,6 +159,93 @@ describe("fillFromGallery", () => {
     ).toEqual(src);
   });
 
+  describe("a video set's defaults", () => {
+    const videoSchema = {
+      type: "video" as const,
+      opt: false,
+      referencedModule: "/content/videos.val.ts",
+    };
+    const poster = { path: "/public/val/videos/intro-poster_a627f.webp" };
+    const entry = {
+      mimeType: "video/mp4",
+      width: 640,
+      height: 360,
+      duration: 4,
+      alt: "The set's description",
+      hotspot: { x: 0.2, y: 0.8 },
+      poster,
+      posterTime: 1,
+      startTime: 0.5,
+      endTime: 3.5,
+      captions: [{ path: "/public/val/videos/intro.vtt", srclang: "en" }],
+    };
+    const fill = (src: { path: string } & Record<string, unknown>) =>
+      fillFromGallery(src, videoSchema, () => ({
+        "/public/val/videos/intro_51df2.mp4": entry,
+      }));
+
+    test("a field with nothing of its own takes every default", () => {
+      expect(fill({ path: "/public/val/videos/intro_51df2.mp4" })).toEqual({
+        path: "/public/val/videos/intro_51df2.mp4",
+        ...entry,
+      });
+    });
+
+    test("a field overrides key by key", () => {
+      const filled = fill({
+        path: "/public/val/videos/intro_51df2.mp4",
+        startTime: 2,
+        hotspot: { x: 0.5, y: 0.5 },
+      });
+      expect(filled).toMatchObject({
+        startTime: 2,
+        hotspot: { x: 0.5, y: 0.5 },
+        endTime: 3.5,
+        alt: "The set's description",
+      });
+    });
+
+    test("the poster and its time are overridden together", () => {
+      const filled = fill({
+        path: "/public/val/videos/intro_51df2.mp4",
+        posterTime: 2,
+      });
+      expect(filled).toMatchObject({ posterTime: 2 });
+      expect(filled).not.toHaveProperty("poster");
+    });
+
+    test("captions are overridden as a whole list, an empty one included", () => {
+      const filled = fill({
+        path: "/public/val/videos/intro_51df2.mp4",
+        captions: [],
+      });
+      expect(filled).toMatchObject({ captions: [] });
+    });
+  });
+
+  test("an image takes the gallery's focal point when it has none of its own", () => {
+    const entries = {
+      "/public/img/hero_a1b2c.png": {
+        ...galleryEntry,
+        hotspot: { x: 0.1, y: 0.9 },
+      },
+    };
+    expect(
+      fillFromGallery(
+        { path: "/public/img/hero_a1b2c.png" },
+        schema,
+        () => entries,
+      ),
+    ).toMatchObject({ hotspot: { x: 0.1, y: 0.9 } });
+    expect(
+      fillFromGallery(
+        { path: "/public/img/hero_a1b2c.png", hotspot: { x: 0.5, y: 0.5 } },
+        schema,
+        () => entries,
+      ),
+    ).toMatchObject({ hotspot: { x: 0.5, y: 0.5 } });
+  });
+
   test("a field with no referenced module is returned untouched", () => {
     const src = { path: "/public/val/hero_a1b2c.png" };
     expect(

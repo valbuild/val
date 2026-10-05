@@ -24,6 +24,7 @@ import {
   VAL_ENABLE_COOKIE_NAME,
   VAL_SESSION_COOKIE,
   VAL_STATE_COOKIE,
+  VAL_STUDIO_HEADER,
   ValCookies,
   ValServerError,
   ValServerErrorStatus,
@@ -40,6 +41,11 @@ import {
 import { clientConfig } from "./clientConfig";
 import { z } from "zod";
 import { probeUrl } from "./linkCheck/probeUrl";
+import { parseRangeHeader } from "./httpRange";
+import {
+  isHlsPlaylistPath,
+  rewriteDraftPlaylist,
+} from "./rewriteDraftPlaylist";
 import { ValOpsFS } from "./ValOpsFS";
 import { readCommittedBinaryFiles } from "./readCommittedBinaryFiles";
 import { splitJobPrepare } from "./jobPrepare";
@@ -48,6 +54,7 @@ import {
   AuthorId,
   BaseSha,
   CommitSha,
+  draftOverlay,
   formatPatchSourceError,
   OrderedPatches,
   SchemaSha,
@@ -55,6 +62,7 @@ import {
   ValOps,
   type GenericErrorMessage,
   type PreparedCommit,
+  bufferReader,
 } from "./ValOps";
 import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
@@ -67,8 +75,14 @@ import { getModuleAtCommit } from "./history/getModuleAtCommit";
 import { getJsonEntryAtCommit } from "./history/getJsonEntryAtCommit";
 import { getSettings } from "./getSettings";
 import {
+  forwardToStudioApi,
+  type AdminProxyResult,
+  type ValBuildCredential,
+} from "./adminProxy";
+import {
   createValOps,
   resolveRemoteFileAuth,
+  readValLoginToken,
   type RemoteFileAuth,
 } from "./valServerConfig";
 import path from "path";
@@ -367,6 +381,135 @@ export const ValServer = (
         console.debug("Failed to get user from code: ", err);
         return null;
       });
+  };
+
+  /**
+   * `/admin/proxy/*`, for Val Build's web components in the Studio: forwarded
+   * to the Studio API on the content server. See `adminProxy.ts` for what is
+   * forwarded and why.
+   *
+   * Three refusals before anything leaves this server, and the `code`s are
+   * the ones the components act on:
+   * - no `x-val-studio` header: 403, since a cross-site request cannot set it;
+   * - no Val Build behind this Studio (no `valBuildUrl`, or fs mode without
+   *   a `val login`): 404 `not-connected`, which the component shows as such
+   *   rather than as an outage — though `/admin/status` keeps the Studio from
+   *   mounting it at all in that case;
+   * - a deployed Studio without a valid session: 401 `unauthenticated`, which
+   *   the component answers by asking the Studio to sign in.
+   */
+  const adminProxy = async (
+    method: "GET" | "POST" | "PUT" | "DELETE",
+    req: {
+      path: string;
+      rawQuery: string;
+      body: unknown;
+      headers: Partial<Record<typeof VAL_STUDIO_HEADER, string>>;
+      cookies: Partial<Record<typeof VAL_SESSION_COOKIE, string>>;
+    },
+  ): Promise<AdminProxyResult> => {
+    if (req.headers[VAL_STUDIO_HEADER] !== "1") {
+      return {
+        status: 403,
+        json: {
+          code: "forbidden",
+          message: `Requests to the Val Build proxy need the ${VAL_STUDIO_HEADER} header.`,
+        },
+      };
+    }
+    const credential = await getValBuildCredential(req.cookies);
+    if (credential.status !== "ok" || !options.valBuildUrl) {
+      if (!serverOps.requiresAuth || !options.valBuildUrl) {
+        return {
+          status: 404,
+          json: {
+            code: "not-connected",
+            message: "This Studio is not connected to Val Build.",
+          },
+        };
+      }
+      return {
+        status: 401,
+        json: {
+          code: "unauthenticated",
+          message:
+            credential.status === "invalid"
+              ? credential.message
+              : "Sign in to Val Build.",
+        },
+      };
+    }
+    // To the content server, which serves the Studio API: Val Build's sign-in
+    // (`valBuildUrl`) is what makes the credential, the content server is
+    // what the components' data comes from.
+    return forwardToStudioApi({
+      method,
+      path: req.path,
+      rawQuery: req.rawQuery,
+      body: req.body,
+      credential: credential.credential,
+      contentUrl: options.valContentUrl,
+    });
+  };
+
+  /**
+   * What this Studio can act on Val Build with, for the editor in front of it:
+   *
+   * - the session's token, in a deployed Studio (and in a local one where
+   *   someone signed in through the Studio anyway);
+   * - otherwise, in fs mode, the developer's own `val login` token from
+   *   `.val/pat.json` — the same file `val validate --fix` reads.
+   *
+   * An api key is never one of them: it is the project, not a person, and
+   * these requests are answered with a person's projects.
+   */
+  const getValBuildCredential = async (
+    cookies: Partial<Record<typeof VAL_SESSION_COOKIE, string>>,
+  ): Promise<
+    | { status: "ok"; credential: ValBuildCredential }
+    | { status: "none" }
+    | { status: "invalid"; message: string }
+  > => {
+    const session = getSessionToken(cookies);
+    if (session.status === "ok") {
+      return { status: "ok", credential: { bearer: session.token } };
+    }
+    if (options.mode === "fs") {
+      const pat = await readValLoginToken(options);
+      if (pat !== null) {
+        return { status: "ok", credential: { pat } };
+      }
+      return { status: "none" };
+    }
+    return session;
+  };
+
+  /** The editor's Val Build token, from inside their session cookie. */
+  const getSessionToken = (
+    cookies: Partial<Record<typeof VAL_SESSION_COOKIE, string>>,
+  ):
+    | { status: "ok"; token: string }
+    | { status: "none" }
+    | { status: "invalid"; message: string } => {
+    const cookie = cookies[VAL_SESSION_COOKIE];
+    if (typeof cookie !== "string" || !options.valSecret) {
+      return { status: "none" };
+    }
+    const verified = verifyJwt(cookie, options.valSecret);
+    if (!verified.success) {
+      return {
+        status: "invalid",
+        message: sessionErrorMessage(verified.reason),
+      };
+    }
+    const payload = IntegratedServerJwtPayload.safeParse(verified.data);
+    if (!payload.success) {
+      return {
+        status: "invalid",
+        message: "Session invalid. You will need to login again.",
+      };
+    }
+    return { status: "ok", token: payload.data.token };
   };
 
   const getAuth = (
@@ -2071,6 +2214,20 @@ export const ValServer = (
             },
           };
         }
+        /*
+         * What this build's draft applies: the pending patches and the ones
+         * published AFTER this build, which it does not have -- see
+         * `draftOverlay`. `getSources` already applied both, but
+         * `analyzePatches` skips every patch with `appliedAt`, so a module
+         * changed only by a post-build publish was reported with no
+         * `patches`, and a reader that sends only changed modules (TanStack's
+         * `fetchValDraft`) left it out: the page was rendered with this
+         * build's older value. Chain order, which is what the Studio applies.
+         */
+        patchOps = {
+          ...patchOps,
+          patches: draftOverlay(patchOps.patches, patchOps.commits),
+        };
         const patchAnalysis = serverOps.analyzePatches(patchOps.patches);
         const schemasRes = await serverOps.getSchemas();
         let sourcesRes = await serverOps.getSources();
@@ -2362,6 +2519,32 @@ export const ValServer = (
           buildable: true,
         });
       },
+    },
+    "/admin/status": {
+      GET: async (req) => {
+        const credential = await getValBuildCredential(req.cookies);
+        return {
+          status: 200,
+          json: {
+            connected:
+              Boolean(options.valBuildUrl) && credential.status === "ok",
+            /*
+             * How an editor signs in to Val Build here, which only the server
+             * knows. NOT the stat `mode`: that says whether patches are local,
+             * and a deployed memory-mode host reports `fs` while having no
+             * working directory to run `val login` in. Only a developer's own
+             * checkout (fs mode) signs in with `val login`.
+             */
+            signIn: options.mode === "fs" ? "val-login" : "studio",
+          },
+        };
+      },
+    },
+    "/admin/proxy": {
+      GET: (req) => adminProxy("GET", req),
+      POST: (req) => adminProxy("POST", req),
+      PUT: (req) => adminProxy("PUT", req),
+      DELETE: (req) => adminProxy("DELETE", req),
     },
     "/profiles": {
       GET: async (req) => {
@@ -3927,41 +4110,20 @@ export const ValServer = (
         // nothing fetches it backend-to-backend. Neither half of the argument
         // above transfers. See architecture/media.md, "Why /files has no auth,
         // and /history/files does".
-        let fileBuffer;
-        let mimeType: string | undefined;
         const remote = query.remote === "true";
-        if (query.patch_id) {
-          fileBuffer = await serverOps.getBase64EncodedBinaryFileFromPatch(
-            filePath,
-            query.patch_id as PatchId,
-            remote,
+        const patchId = query.patch_id;
+        if (!patchId && serverOps instanceof ValOpsHttp && remote) {
+          console.error(
+            `Remote file: ${filePath} requested without patch id. This is most likely a bug in Val.`,
           );
-          mimeType = Internal.filenameToMimeType(filePath);
-        } else {
-          if (serverOps instanceof ValOpsHttp && remote) {
-            console.error(
-              `Remote file: ${filePath} requested without patch id. This is most likely a bug in Val.`,
-            );
-          }
-          fileBuffer = await serverOps.getBinaryFile(filePath);
         }
-
-        if (fileBuffer) {
-          return {
-            status: 200,
-            headers: {
-              // TODO: we could use ETag and return 304 instead
-              "Content-Type": mimeType || "application/octet-stream",
-              // TODO: a file requested with a patch_id is immutable for that
-              // patch, so it could be served "public, max-age=20000, immutable"
-              // instead. There used to be a `cacheControl` variable here for
-              // that, but its only assignment was commented out, so every
-              // response has always taken the revalidate branch.
-              "Cache-Control": "public, max-age=0, must-revalidate",
-            },
-            body: bufferToReadableStream(fileBuffer),
-          };
-        } else {
+        // Opened, not read: a video is seeked in by many small ranges, and
+        // only the asked-for bytes are read where the mode can (fs).
+        const opened = await serverOps.openBinaryFile(
+          filePath,
+          patchId ? { patchId: patchId as PatchId, remote } : null,
+        );
+        if (!opened) {
           return {
             status: 404,
             json: {
@@ -3969,6 +4131,65 @@ export const ValServer = (
             },
           };
         }
+        // A DRAFT playlist names files that are drafts too, at URLs that only
+        // resolve once published. See `rewriteDraftPlaylist`. Playlists are
+        // small, so one is read whole to be rewritten.
+        const file =
+          patchId && isHlsPlaylistPath(filePath)
+            ? bufferReader(
+                Buffer.from(
+                  rewriteDraftPlaylist(
+                    (await opened.read(0, opened.size - 1)).toString("utf-8"),
+                    { playlistPath: filePath, patchId, remote },
+                  ),
+                  "utf-8",
+                ),
+              )
+            : opened;
+        const headers = {
+          // TODO: we could use ETag and return 304 instead
+          // From the extension, published or draft: a `<video>` and an HLS
+          // player both decide what they are holding by it, and it used to be
+          // set for drafts only.
+          "Content-Type":
+            Internal.filenameToMimeType(filePath) || "application/octet-stream",
+          // TODO: a file requested with a patch_id is immutable for that
+          // patch, so it could be served "public, max-age=20000, immutable"
+          // instead. There used to be a `cacheControl` variable here for
+          // that, but its only assignment was commented out, so every
+          // response has always taken the revalidate branch.
+          "Cache-Control": "public, max-age=0, must-revalidate",
+          "Accept-Ranges": "bytes",
+        };
+        const range = parseRangeHeader(req.headers.range, file.size);
+        if (range.kind === "unsatisfiable") {
+          return {
+            status: 416,
+            headers: { ...headers, "Content-Range": `bytes */${file.size}` },
+            json: {
+              message: `Range not satisfiable: ${req.headers.range}`,
+            },
+          };
+        }
+        if (range.kind === "range") {
+          const slice = await file.read(range.start, range.end);
+          return {
+            status: 206,
+            headers: {
+              ...headers,
+              "Content-Range": `bytes ${range.start}-${range.end}/${file.size}`,
+              "Content-Length": String(slice.length),
+            },
+            body: bufferToReadableStream(slice),
+          };
+        }
+        const body =
+          file.size === 0 ? Buffer.alloc(0) : await file.read(0, file.size - 1);
+        return {
+          status: 200,
+          headers: { ...headers, "Content-Length": String(body.length) },
+          body: bufferToReadableStream(body),
+        };
       },
     },
   };

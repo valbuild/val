@@ -208,7 +208,7 @@ function trailOf(patchSet: PatchSetMetadata, skip: number): string[] {
 function summaryOf(patchSet: PatchSetMetadata): string {
   const ops = new Set(patchSet.opTypes);
   const isFile = patchSet.schemaTypes.some(
-    (type) => type === "image" || type === "file",
+    (type) => type === "image" || type === "file" || type === "video",
   );
   if (ops.size > 1) {
     return "Edited";

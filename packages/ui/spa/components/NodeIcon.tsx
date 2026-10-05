@@ -9,6 +9,7 @@ import {
   FileCode,
   FileIcon,
   FileText,
+  Film,
   Hash,
   ImageIcon,
   Key,
@@ -68,6 +69,8 @@ export function NodeIcon({
       return <FileCode size={size} className={className} />;
     case "image":
       return <ImageIcon size={size} className={className} />;
+    case "video":
+      return <Film size={size} className={className} />;
     default:
       return <HelpCircle size={size} className={className} />;
   }

@@ -218,7 +218,8 @@ export function resolvePatchPath(
       addPart(JSON.stringify(part));
     } else if (
       currentSchema.type === "image" ||
-      currentSchema.type === "file"
+      currentSchema.type === "file" ||
+      currentSchema.type === "video"
     ) {
       const currentObjectSourceRes = getObjectSourceOrError(
         patchPath,

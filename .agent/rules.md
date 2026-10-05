@@ -12,7 +12,8 @@ expensive to re-derive from the code:
   reference stability is load-bearing.
 - [`architecture/media.md`](../architecture/media.md) — `s.imageset()` / `s.fileset()`
   vs `s.image()` / `s.file()`, where uploaded bytes land, and how a file's URL is
-  chosen (the rule that has been got wrong repeatedly).
+  chosen (the rule that has been got wrong repeatedly). Also `s.video()`: the one
+  media value that names several files, and HLS made in the browser.
 - [`architecture/patch-store.md`](../architecture/patch-store.md) — where
   unpublished edits live in local dev: the ordering log, the lock, and the
   incident that decided the layout. **Read this before touching `ValOpsFS` or
@@ -542,7 +543,11 @@ dates, `include` / `exclude` on routes; `s.record(key, item)` and the
 three-argument `s.router(router, key, item)` so a KEY can carry its own
 description; `.jsonValues()` with `c.json()`; `tanstackRouter` and
 `externalPageRouter`; and the settings sections `locales`, `theme`, `studio`
-(`commitMessage`) and `assistant`. What it does NOT cover, and why: `.remote()` on media and
+(`commitMessage`) and `assistant`; and `s.video()` both as an mp4 and as an
+HLS stream (`stream: { type: "hls" }`), rendered with `ValVideo`, and
+`s.videoset()` with an `s.video(videosVal)` field that picks from it, the set's
+entries holding default posters, times, focal point and captions that the field
+partly overrides, and an image gallery entry with a default focal point. What it does NOT cover, and why: `.remote()` on media and
 `.external()` on a record, because both need credentials or an adapter a plain
 `pnpm dev` does not have — `examples/next` gates the remote one behind
 `NEXT_PUBLIC_VAL_EXAMPLE_REMOTE_MEDIA`. When you add to the list, add to that
@@ -732,6 +737,14 @@ pnpm exec playwright test --project=tanstack                         # ~1 min
 pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
   e2e/insecure-context.spec.ts                                       # ~4 min
 ```
+
+`webkit-http` runs the publishing specs (`http/reloadEquivalence`, `http/publish`)
+in WebKit — Safari's engine, and every iOS browser's. It is declared only when
+asked for by name (`--project=webkit-http`), because a bare `playwright test`
+runs every project and WebKit is not installed in most places this runs: it
+needs `pnpm exec playwright install --with-deps webkit`. CI runs it as one
+entry of the `e2e` matrix in `.github/workflows/check.yml`, which installs the
+entry's `browser` (chromium when unset).
 
 Notes:
 

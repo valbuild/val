@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import {
   DEFAULT_APP_HOST,
+  DEFAULT_CONTENT_HOST,
   DEFAULT_VAL_REMOTE_HOST,
   Internal,
   Json,
@@ -19,6 +20,7 @@ import {
   SerializedSchema,
   SourcePath,
   ValConfig,
+  VideoSource,
 } from "@valbuild/core";
 import { useValSystem, type ValSystem } from "../stores/react/SystemContext";
 import type { UploadProgress } from "../stores/PatchStore";
@@ -695,6 +697,8 @@ export function useValConfig() {
     | (ValConfig & {
         remoteHost: string;
         appHost: string;
+        /** Val's content server: the Studio API and its web components. */
+        contentHost: string;
         studioPrefix: string;
       })
     | undefined
@@ -703,6 +707,7 @@ export function useValConfig() {
       ...config,
       remoteHost: DEFAULT_VAL_REMOTE_HOST,
       appHost: DEFAULT_APP_HOST,
+      contentHost: DEFAULT_CONTENT_HOST,
       studioPrefix: "/val/~",
     },
   );
@@ -712,6 +717,7 @@ export function useValConfig() {
         ...config,
         remoteHost: DEFAULT_VAL_REMOTE_HOST,
         appHost: DEFAULT_APP_HOST,
+        contentHost: DEFAULT_CONTENT_HOST,
         studioPrefix: "/val/~",
       };
     }
@@ -1431,6 +1437,7 @@ type ShallowSource = {
     alt?: string;
     hotspot?: { x: number; y: number };
   };
+  video: VideoSource;
   literal: string;
   richtext: unknown[];
 };
@@ -1542,7 +1549,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       status: "success",
       data: source as ShallowSource[SchemaType],
     };
-  } else if (type === "file" || type === "image") {
+  } else if (type === "file" || type === "image" || type === "video") {
     if (
       typeof source !== "object" ||
       !("path" in source) ||

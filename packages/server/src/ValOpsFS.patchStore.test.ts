@@ -780,6 +780,37 @@ describe("ValOpsFS patch store", () => {
       }
     };
 
+    it("is read a range at a time, without the rest of the file", async () => {
+      const patchId = "upload-in-flight" as PatchId;
+      await upload(patchId);
+      const bytes = Buffer.from(PNG.split(",")[1], "base64");
+
+      const draft = await ops.openBinaryFile(FILE_PATH, {
+        patchId,
+        remote: false,
+      });
+      expect(draft?.size).toBe(bytes.length);
+      expect(await draft?.read(8, 15)).toEqual(bytes.subarray(8, 16));
+
+      // A published file, straight off disk; past the end reads what there is.
+      fs.mkdirSync(path.join(rootDir, "public", "val"), { recursive: true });
+      fs.writeFileSync(
+        path.join(rootDir, "public", "val", "on-disk.bin"),
+        bytes,
+      );
+      const published = await ops.openBinaryFile(
+        "/public/val/on-disk.bin",
+        null,
+      );
+      expect(published?.size).toBe(bytes.length);
+      expect(
+        await published?.read(bytes.length - 4, bytes.length + 10),
+      ).toEqual(bytes.subarray(bytes.length - 4));
+      expect(await ops.openBinaryFile("/public/val/missing.bin", null)).toBe(
+        null,
+      );
+    });
+
     it("survives a stat taken before the record lands", async () => {
       const patchId = "upload-in-flight" as PatchId;
       await upload(patchId);

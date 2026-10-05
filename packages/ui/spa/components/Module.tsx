@@ -201,6 +201,8 @@ export function Module({
       </span>
     ) : undefined;
 
+  const isMediaCollection =
+    schema.type === "record" && schema.mediaType !== undefined;
   return (
     /*
      * The gap above and below the heading follows the heading's own size.
@@ -213,7 +215,11 @@ export function Module({
      */
     <div
       className={cn(
-        "flex flex-col pb-40",
+        "flex flex-col",
+        // A gallery fills the height that is left and scrolls inside itself
+        // (`MediaGallery`'s `fillContainer`), so the room left under the last
+        // field for the page to scroll into would only make the page scroll.
+        isMediaCollection ? "pb-0" : "pb-40",
         isCompact ? "gap-4 pt-0" : "gap-6 pt-4",
       )}
     >

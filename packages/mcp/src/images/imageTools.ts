@@ -381,11 +381,17 @@ function resolveTarget(
 ): ImageTarget {
   if (fieldPath.length === 0) {
     if (moduleSchema.type !== "record" || moduleSchema.mediaType !== "images") {
+      // A video set is a record keyed by file paths too; naming it is what
+      // stops a caller from retrying with the same module and a field path.
+      const what =
+        moduleSchema.type === "record" && moduleSchema.mediaType === "videos"
+          ? "a video set (s.videoset())"
+          : `a ${moduleSchema.type}`;
       return {
         status: "error",
         result: err(
           "invalid-args",
-          `The module is not an image gallery (it is a ${moduleSchema.type}), so an image cannot be added to it directly. Give a path to the image field within it.`,
+          `The module is not an image gallery (it is ${what}), so an image cannot be added to it directly. Give a path to the image field within it.`,
         ),
       };
     }

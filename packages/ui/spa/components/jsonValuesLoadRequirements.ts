@@ -134,6 +134,7 @@ function containsReferrer(
       return query.kind === "keyOf" && sameString(schema.path, query.module);
     case "image":
     case "file":
+    case "video":
       return query.kind === "file" && schema.referencedModule === query.module;
     case "route":
       return query.kind === "route";

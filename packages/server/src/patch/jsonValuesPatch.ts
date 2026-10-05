@@ -458,14 +458,45 @@ export function applyJsonValuesEntryPatches(args: {
   baseContent: JSONValue | undefined;
   /** Ordered, already filtered to the entry's module. */
   patches: { patchId: PatchId; patch: Patch }[];
+  /**
+   * The committed content of the OTHER entries of the record, for a
+   * whole-entry `move` or `copy` into this key: its content is the source
+   * entry's at that point in the chain, which is a different `*.val.json`.
+   *
+   * `undefined` for an entry the caller did not load, and then such an op is
+   * an error, as it is when this is not given at all. `{ content: undefined }`
+   * is an entry the committed source does not have.
+   */
+  baseContentOf?: (
+    entryKey: string,
+  ) => { content: JSONValue | undefined } | undefined;
+  /**
+   * Replay only the ops before this one: patch index, then op index in it.
+   * How a move's source is read as it stood when the move was made.
+   */
+  stopBefore?: { patch: number; op: number };
 }): JsonEntryResolution {
-  const { serializedSchema, entryKey, baseContent, patches } = args;
+  const {
+    serializedSchema,
+    entryKey,
+    baseContent,
+    patches,
+    baseContentOf,
+    stopBefore,
+  } = args;
   let content: JSONValue | undefined = baseContent;
   let deleted = false;
   const appliedPatchIds: PatchId[] = [];
-  for (const { patchId, patch } of patches) {
+  replay: for (const [patchIndex, { patchId, patch }] of patches.entries()) {
     let touched = false;
-    for (const rawOp of patch) {
+    for (const [opIndex, rawOp] of patch.entries()) {
+      if (
+        stopBefore &&
+        (patchIndex > stopBefore.patch ||
+          (patchIndex === stopBefore.patch && opIndex >= stopBefore.op))
+      ) {
+        break replay;
+      }
       /**
        * A write of the WHOLE record becomes what it says about THIS entry.
        *
@@ -490,6 +521,17 @@ export function applyJsonValuesEntryPatches(args: {
         const cls = serializedSchema
           ? classifyJsonValuesOp(serializedSchema, op.path)
           : ({ kind: "normal" } as const);
+        if (
+          op.op === "move" &&
+          wholeEntryKey(serializedSchema, op.from) === entryKey &&
+          wholeEntryKey(serializedSchema, op.path) !== entryKey
+        ) {
+          // Moved AWAY: under its old key, the entry is gone.
+          touched = true;
+          content = undefined;
+          deleted = true;
+          continue;
+        }
         if (
           cls.kind !== "entry" ||
           cls.recordPath.length > 0 ||
@@ -539,7 +581,28 @@ export function applyJsonValuesEntryPatches(args: {
             continue;
           } else {
             // move/copy INTO this key: the content comes from the source entry,
-            // which the caller must resolve (it is a different `*.val.json`).
+            // as it stood at this op (it is a different `*.val.json`).
+            const fromKey = wholeEntryKey(serializedSchema, op.from);
+            const fromBase =
+              fromKey === undefined ? undefined : baseContentOf?.(fromKey);
+            if (fromKey !== undefined && fromBase !== undefined) {
+              const source = applyJsonValuesEntryPatches({
+                serializedSchema,
+                entryKey: fromKey,
+                baseContent: fromBase.content,
+                patches,
+                baseContentOf,
+                stopBefore: { patch: patchIndex, op: opIndex },
+              });
+              if (source.kind === "error") {
+                return source;
+              }
+              if (source.kind === "content") {
+                content = deepClone(source.content);
+                deleted = false;
+                continue;
+              }
+            }
             return {
               kind: "error",
               message: `Cannot resolve '${op.op}' of jsonValues entry '${entryKey}' from its own content`,
@@ -576,6 +639,25 @@ export function applyJsonValuesEntryPatches(args: {
     return { kind: "deleted", appliedPatchIds };
   }
   return { kind: "content", content, appliedPatchIds };
+}
+
+/**
+ * The entry a path names when it names a WHOLE entry of the root
+ * `.jsonValues()` record, and `undefined` for anything else.
+ */
+export function wholeEntryKey(
+  serializedSchema: SerializedSchema | undefined,
+  path: string[],
+): string | undefined {
+  if (!serializedSchema) {
+    return undefined;
+  }
+  const cls = classifyJsonValuesOp(serializedSchema, path);
+  return cls.kind === "entry" &&
+    cls.recordPath.length === 0 &&
+    cls.subPath.length === 0
+    ? cls.entryKey
+    : undefined;
 }
 
 /**

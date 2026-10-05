@@ -5,7 +5,11 @@ import {
   getRoutesWithModulePaths,
   type SchemaSourceSnapshot,
 } from "@valbuild/shared/internal";
-import { extractFileMetadata, extractImageMetadata } from "@valbuild/server";
+import {
+  extractFileMetadata,
+  extractImageMetadata,
+  extractVideoMetadataFromFile,
+} from "@valbuild/server";
 import {
   CompletionItem,
   CompletionItemKind,
@@ -39,7 +43,7 @@ export type ValCompletionItemData = {
   ref: string;
   /** Absolute path of the chosen file. */
   filePath: string;
-  mediaType: "image" | "file";
+  mediaType: "image" | "file" | "video";
   /**
    * True when the field is backed by a gallery, in which case the dimensions
    * and mime type live there and must not be written here too.
@@ -195,6 +199,24 @@ async function readMetadata(
   data: ValCompletionItemData,
 ): Promise<Partial<Record<MediaMetadataKey, string>> | undefined> {
   try {
+    if (data.mediaType === "video") {
+      // Only what could be read: a video whose duration cannot be read still
+      // gets its mime type, and `video:add-metadata` reports the rest. From
+      // the file rather than a buffer: only its headers are read.
+      const metadata = await extractVideoMetadataFromFile(data.filePath);
+      const rendered: Partial<Record<MediaMetadataKey, string>> = {};
+      if (metadata.width !== undefined && metadata.height !== undefined) {
+        rendered.width = String(metadata.width);
+        rendered.height = String(metadata.height);
+      }
+      if (metadata.mimeType) {
+        rendered.mimeType = JSON.stringify(metadata.mimeType);
+      }
+      if (metadata.duration !== undefined) {
+        rendered.duration = String(metadata.duration);
+      }
+      return Object.keys(rendered).length > 0 ? rendered : undefined;
+    }
     const buffer = fs.readFileSync(data.filePath);
     if (data.mediaType === "image") {
       const metadata = await extractImageMetadata(data.filePath, buffer);
@@ -304,7 +326,11 @@ function createSchemaDrivenCompletions({
     const galleryFiles =
       container.mediaType === "images"
         ? files.images(directory)
-        : files.list(directory);
+        : container.mediaType === "videos"
+          ? // A stream is keyed by its master playlist; its media playlists
+            // and segments are part of it, never keys of their own.
+            files.videos(directory)
+          : files.list(directory);
     return items(
       galleryFiles.map((file) => file.ref),
       CompletionItemKind.File,
@@ -328,7 +354,9 @@ function createSchemaDrivenCompletions({
       container &&
       typeof container === "object" &&
       "type" in container &&
-      (container.type === "image" || container.type === "file")
+      (container.type === "image" ||
+        container.type === "file" ||
+        container.type === "video")
     ) {
       return mediaPathItems({
         document,
@@ -394,7 +422,7 @@ function mediaPathItems({
   contentStart,
 }: {
   document: TextDocument;
-  container: { type: "image" | "file" } & Record<string, unknown>;
+  container: { type: "image" | "file" | "video" } & Record<string, unknown>;
   snapshot: SchemaSourceSnapshot;
   files: PublicValFiles;
   range: Range;
@@ -417,7 +445,9 @@ function mediaPathItems({
   const candidates =
     container.type === "image"
       ? files.images(directory)
-      : files.list(directory);
+      : container.type === "video"
+        ? files.videos(directory)
+        : files.list(directory);
 
   return candidates.map((file, index) => {
     const data: ValCompletionItemData = {

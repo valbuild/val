@@ -110,3 +110,22 @@ test("a system that cannot request says so rather than committing", async () => 
   expect(commits).toEqual([]);
   system.dispose();
 });
+
+test("a request names the changes the gate checked, so the button can stop offering them", async () => {
+  const { system } = makeSystem(async () => ({
+    status: "requested",
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: null,
+  }));
+  const first = await edit(system, "first value");
+  const second = await edit(system, "second value");
+  const res = await system.publish([first, second], "summary", {
+    request: true,
+  });
+  expect(res).toMatchObject({
+    status: "requested",
+    patchIds: [first, second],
+  });
+  system.dispose();
+});
