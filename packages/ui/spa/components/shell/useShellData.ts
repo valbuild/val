@@ -11,16 +11,19 @@ import {
   useProfilesByAuthorId,
   useShallowModulesAtPaths,
   useStudioIsDeployer,
+  useValMode,
 } from "../ValProvider";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { useFilePatchIds, useValConfig } from "../ValFieldProvider";
 import { useCreatableRouters } from "../useCreateRouteEntry";
 import { ShellData, ShellMediaGallery } from "./types";
+import { useValBuildAccess } from "./useValBuildAccess";
 import { useThemeSettings } from "../../hooks/useThemeSettings";
 import { useDeploymentStaleTick } from "../../hooks/useDeploymentStaleTick";
 import {
   toActivity,
   toAdminLinks,
+  toWebComponentsUrl,
   toDataModules,
   toDeployments,
   withStudioPublish,
@@ -65,6 +68,13 @@ export function useShellData(): ShellDataState {
    * and must not disagree about them.
    */
   const studioIsDeployer = useStudioIsDeployer();
+  /*
+   * Val Build's web components only where there is a Val Build credential for
+   * them to use, and the way they ask an editor to sign in. See
+   * `useValBuildAccess`.
+   */
+  const mode = useValMode();
+  const valBuild = useValBuildAccess(mode);
   const profilesByAuthorId = useProfilesByAuthorId();
   /*
    * The external router's own scheme policy.
@@ -153,6 +163,10 @@ export function useShellData(): ShellDataState {
         projectName: config?.project ?? "Val",
         logo: toShellLogo(themeSettings.logo, filePatchIds, config?.project),
         admin: toAdminLinks(config),
+        webComponentsUrl: valBuild.connected
+          ? toWebComponentsUrl(config)
+          : undefined,
+        studioMode: valBuild.studioMode,
         branch: config?.gitBranch,
         hasRouters: navData?.hasRouters ?? false,
         pages: navData?.sitemap
@@ -237,5 +251,8 @@ export function useShellData(): ShellDataState {
     committedPatchIds,
     shellDeployments,
     studioIsDeployer,
+    valBuild.connected,
+    valBuild.studioMode,
+    mode,
   ]);
 }

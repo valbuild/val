@@ -460,6 +460,12 @@ export function useAIWebSocket(
   /** Try to connect again, from the first attempt. */
   retryConnection: () => void;
   /**
+   * Ask again which models the project's keys reach, without touching the
+   * socket: after a key is added or removed in the Studio's AI setup, the
+   * assistant should come on (or go off) without a reload.
+   */
+  refreshModels: () => Promise<void>;
+  /**
    * The model to use, picked from what the server said is available.
    *
    * Null once the server has answered and nothing it offers is a model this
@@ -514,6 +520,49 @@ export function useAIWebSocket(
     scheduleReconnectRef.current();
   }, []);
 
+  /** What `/ai/initialize` says the keys reach, as the picker's state. */
+  const applyModels = useCallback(
+    (json: {
+      providers?: string[];
+      models?: { provider: string; model: string; label: string }[];
+    }) => {
+      const fallback = pickAvailableModel(json.providers);
+      setAvailableModel(fallback);
+      // What the providers actually offer, when the server could ask them. The
+      // built-in catalog is the fallback, filtered to reachable providers, so
+      // an older content server or a provider that would not answer still
+      // leaves a usable picker rather than an empty one.
+      const reported = toModelInfos(json.models);
+      const offered =
+        reported.length > 0
+          ? reported
+          : fallbackModels(json.providers, fallback);
+      setAvailableModels(offered);
+      setSelectedModel(
+        resolvePreferredModel(
+          offered.map((info) => info.ref),
+          fallback,
+        ),
+      );
+    },
+    [],
+  );
+  const applyModelsRef = useRef(applyModels);
+  applyModelsRef.current = applyModels;
+
+  const refreshModels = useCallback(async () => {
+    if (!enabledRef.current) return;
+    try {
+      const res = await clientRef.current("/ai/initialize", "POST", {});
+      if (res.status === 200) {
+        applyModelsRef.current(res.json);
+      }
+    } catch {
+      // The socket's own retries report a connection that is gone; a refresh
+      // that could not be made leaves the models as they were.
+    }
+  }, []);
+
   const connect = useCallback(async () => {
     if (!enabledRef.current) return;
     attemptsRef.current += 1;
@@ -537,24 +586,7 @@ export function useAIWebSocket(
         return;
       }
       setAuthError(false);
-      const fallback = pickAvailableModel(res.json.providers);
-      setAvailableModel(fallback);
-      // What the providers actually offer, when the server could ask them. The
-      // built-in catalog is the fallback, filtered to reachable providers, so
-      // an older content server or a provider that would not answer still
-      // leaves a usable picker rather than an empty one.
-      const reported = toModelInfos(res.json.models);
-      const offered =
-        reported.length > 0
-          ? reported
-          : fallbackModels(res.json.providers, fallback);
-      setAvailableModels(offered);
-      setSelectedModel(
-        resolvePreferredModel(
-          offered.map((info) => info.ref),
-          fallback,
-        ),
-      );
+      applyModelsRef.current(res.json);
 
       const ws = new WebSocket(
         res.json.wsUrl + "?nonce=" + encodeURIComponent(res.json.nonce),
@@ -676,6 +708,7 @@ export function useAIWebSocket(
     authError,
     connectionError,
     retryConnection,
+    refreshModels,
     availableModel,
     availableModels,
     selectedModel,

@@ -99,7 +99,17 @@ export default modules(config, []);
  */
 const ROOT = path.join(__dirname, "..", ".tmp");
 
-function typecheck(name: string, options: WireOptions): string {
+function typecheck(
+  name: string,
+  options: WireOptions,
+  /** The app's own files beside what is wired, by path from its root. */
+  app: Record<string, string> = {},
+  /**
+   * A stand-in for `@valbuild/tanstack/server`, for a project that installed a
+   * different version than this repository's. The real one when absent.
+   */
+  server?: string,
+): string {
   const dir = path.join(ROOT, name.replace(/[^a-z0-9]+/gi, "-"));
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(path.join(dir, "src", "val"), { recursive: true });
@@ -117,7 +127,13 @@ function typecheck(name: string, options: WireOptions): string {
     { "val.config.ts": VAL_CONFIG, "val.modules.ts": VAL_MODULES },
     options,
   );
-  for (const [file, content] of Object.entries(files)) {
+  const SERVER_STUB = "stub/tanstack-server.ts";
+  const written = {
+    ...app,
+    ...files,
+    ...(server !== undefined ? { [SERVER_STUB]: server } : {}),
+  };
+  for (const [file, content] of Object.entries(written)) {
     fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
     fs.writeFileSync(path.join(dir, file), content);
   }
@@ -155,7 +171,11 @@ function typecheck(name: string, options: WireOptions): string {
         types: ["node"],
         paths: {
           "@valbuild/tanstack": [`${tanstack}/index.ts`],
-          "@valbuild/tanstack/server": [`${tanstack}/server/index.ts`],
+          "@valbuild/tanstack/server": [
+            server !== undefined
+              ? `./${SERVER_STUB}`
+              : `${tanstack}/server/index.ts`,
+          ],
         },
       },
       include: ["**/*.ts"],
@@ -212,6 +232,74 @@ describe("the generated val.server.ts", () => {
       .split("\n")
       .filter((line) => line.trim() !== "" && !DEAD_BRANCH.test(line));
     expect(errors).toEqual([]);
+  });
+
+  test("it has every reader the starter imports from it", () => {
+    /*
+     * The platform REPLACES the project's own `val.server.ts` with this one,
+     * so an export the starter uses and this file lacks is not a type error in
+     * an editor: it is a build that fails on the platform with MISSING_EXPORT.
+     * `fetchValDraft` was that, for every project made from the starter once
+     * its layout read the draft.
+     */
+    const label = "a commit (a build from a repository)";
+    const errors = typecheck(
+      `${label} -- the starter's imports`,
+      VARIANTS[label]!,
+      {
+        "src/routes/_site.ts": `
+import type { ValDraft } from "@valbuild/tanstack/server";
+import {
+  draftMode,
+  fetchVal,
+  fetchValDraft,
+  fetchValKey,
+  fetchValRoute,
+  fetchValRouteUrl,
+  valApiHandler,
+} from "../val/val.server";
+export const readers = [draftMode, fetchVal, fetchValKey, fetchValRoute, fetchValRouteUrl, valApiHandler];
+export const draft = async (): Promise<ValDraft | null> => fetchValDraft();
+`,
+      },
+    );
+    expect(errors).toBe("");
+  });
+
+  test("and a page can call fetchValDraft with an @valbuild/tanstack from before it", () => {
+    /*
+     * This file is compiled against the PROJECT's @valbuild/tanstack, and one
+     * from before 0.140 has no `fetchValDraft` on what `initValContent`
+     * returns. The test above compiles against this repository's, which has
+     * it, so it cannot see this. The stand-in is the shape of an older
+     * `@valbuild/tanstack/server`: the same readers, no draft.
+     */
+    const label = "a commit (a build from a repository)";
+    const errors = typecheck(
+      `${label} -- before fetchValDraft`,
+      VARIANTS[label]!,
+      {
+        "src/routes/_site.ts": `
+import { fetchValDraft } from "../val/val.server";
+export const draft = async () => {
+  const read = await fetchValDraft();
+  return read === null ? null : read;
+};
+`,
+      },
+      `
+export declare function initValServer(
+  ...args: unknown[]
+): { valApiHandler: (request: Request) => Promise<Response>; draftMode: unknown };
+export declare function initValContent(...args: unknown[]): {
+  fetchValStega: unknown;
+  fetchValKeyStega: unknown;
+  fetchValRouteStega: unknown;
+  fetchValRouteUrl: unknown;
+};
+`,
+    );
+    expect(errors).toBe("");
   });
 
   test("the commit is sent under every name ValHttpMode has had", () => {

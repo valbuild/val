@@ -1114,3 +1114,29 @@ test("a content API that sends no groups leaves them absent, not empty", async (
     restore();
   }
 });
+
+test("the changes a running publish holds come through, as home sends them", async () => {
+  const { ops, restore } = opsAnswering({
+    ...HOME_APPLICABLE_WITH_GROUPS,
+    publishingPatches: ["33333333-3333-4333-8333-333333333333"],
+  });
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: true });
+    expect(res.publishingPatches).toEqual([
+      "33333333-3333-4333-8333-333333333333",
+    ]);
+  } finally {
+    restore();
+  }
+});
+
+test("a content API that does not say which changes are publishing leaves it absent, not empty", async () => {
+  // Empty would claim no publish is running, which it cannot know.
+  const { ops, restore } = opsAnswering(HOME_APPLICABLE_WITH_GROUPS);
+  try {
+    const res = await ops.fetchPatches({ excludePatchOps: true });
+    expect(res).not.toHaveProperty("publishingPatches");
+  } finally {
+    restore();
+  }
+});

@@ -78,6 +78,32 @@ export type PatchGroupResolver = (
   patchIds: PatchId[],
 ) => Promise<PatchGroupMembership | undefined>;
 
+/**
+ * What `PatchSync` itself asks before each save: the membership the write
+ * carries, and who to tell once the save is over.
+ *
+ * Separate from {@link PatchGroupResolver}, which is the system's seam to the
+ * shell, because the second half is not the shell's business. A save moves
+ * group membership on the server — the write, and its closure, join the
+ * author's group — and so does a stage or unstage. The system orders the two:
+ * a group change made while a save is on the wire is sent after that save is
+ * answered, or it could land first and have the save's union put back what it
+ * took out. `release` is how it learns the save is over.
+ */
+export type WriteMembership = {
+  patchGroup: PatchGroupMembership | undefined;
+  /**
+   * Called exactly once, when the save is over whatever happened to it:
+   * answered (saved, rejected, conflict, an error), thrown, or never sent
+   * because the sync was stopped after the resolver answered.
+   */
+  release(): void;
+};
+
+export type WriteMembershipResolver = (
+  patchIds: PatchId[],
+) => Promise<WriteMembership>;
+
 export type SaveResult =
   | {
       status: "saved";
@@ -503,9 +529,9 @@ export class PatchSync {
    * same reason: the thing that knows the answer is built later than the sync
    * that needs it.
    */
-  private patchGroupResolver: PatchGroupResolver | undefined;
+  private patchGroupResolver: WriteMembershipResolver | undefined;
 
-  setPatchGroupResolver(resolver: PatchGroupResolver | undefined): void {
+  setPatchGroupResolver(resolver: WriteMembershipResolver | undefined): void {
     this.patchGroupResolver = resolver;
   }
 
@@ -624,32 +650,44 @@ export class PatchSync {
        * resolver that answered from already-rendered state would always be one
        * grouping behind and send an empty closure.
        */
-      const patchGroup = await this.patchGroupResolver?.(patchIds);
-      /*
-       * The await above opened a window that did not exist before it.
-       *
-       * `setState({ status: "saving" })` and `save(...)` used to run in the same
-       * tick, so the only `stopped` check that mattered was the one after `save`
-       * returned. Now a sync disposed during the resolver's worker round trip
-       * would still issue the PUT — and the post-save check would then skip
-       * `markSaved` and `recordOwnPatchGroup`, leaving the server holding a
-       * patch this client never recorded as saved.
-       */
-      if (this.stopped) {
-        return;
+      const membership = await this.patchGroupResolver?.(patchIds);
+      const patchGroup = membership?.patchGroup;
+      let result: SaveResult;
+      try {
+        /*
+         * The await above opened a window that did not exist before it.
+         *
+         * `setState({ status: "saving" })` and `save(...)` used to run in the
+         * same tick, so the only `stopped` check that mattered was the one after
+         * `save` returned. Now a sync disposed during the resolver's worker round
+         * trip would still issue the PUT — and the post-save check would then
+         * skip `markSaved` and `recordOwnPatchGroup`, leaving the server holding
+         * a patch this client never recorded as saved.
+         */
+        if (this.stopped) {
+          return;
+        }
+        result = await save({
+          patches: batch.map((record) => ({
+            path: record.moduleFilePath,
+            patchId: record.patchId,
+            patch: record.patch,
+          })),
+          parentRef,
+          // The batch's session, not the system's: a session belongs to the
+          // patches that were made in it.
+          sessionId: session ?? this.sessionId,
+          ...(patchGroup ? { patchGroup } : {}),
+        });
+      } finally {
+        /*
+         * As soon as the answer is in, and before it is handled: a conflict's
+         * re-sync and backoff can take seconds, and the group changes waiting
+         * on this save have nothing to wait for once the server has answered.
+         * A `finally`, so a throw or a stop cannot leave them waiting for ever.
+         */
+        membership?.release();
       }
-      const result = await save({
-        patches: batch.map((record) => ({
-          path: record.moduleFilePath,
-          patchId: record.patchId,
-          patch: record.patch,
-        })),
-        parentRef,
-        // The batch's session, not the system's: a session belongs to the patches
-        // that were made in it.
-        sessionId: session ?? this.sessionId,
-        ...(patchGroup ? { patchGroup } : {}),
-      });
       if (this.stopped) {
         return;
       }

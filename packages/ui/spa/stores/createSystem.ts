@@ -995,6 +995,19 @@ export function createSystem(options: SystemOptions): System {
     patchStore.notifyGroupsChanged();
   }
   /**
+   * The other direction: take these out of the scope, for a change this tab
+   * makes without a click — see `unstageOverWrite`. A no-op when unscoped.
+   */
+  function narrowPatchGroup(patchIds: readonly PatchId[]): void {
+    if (patchGroupIds === null) return;
+    const out = new Set(patchIds);
+    const next = patchGroupIds.filter((patchId) => !out.has(patchId));
+    if (next.length === patchGroupIds.length) return;
+    patchGroupIds = next;
+    sourceStore.setVisiblePatchIds(patchGroupIds);
+    patchStore.notifyGroupsChanged();
+  }
+  /**
    * Make the scope what the server says this user's open group holds, with
    * {@link unconfirmed} laid over it.
    *
@@ -1058,6 +1071,198 @@ export function createSystem(options: SystemOptions): System {
 
   /** The tail of the group changes being sent. See `persistPatchGroupChange`. */
   let groupChanges: Promise<void> = Promise.resolve();
+
+  /**
+   * The save whose membership is being decided or is on the wire, until it is
+   * answered. See {@link holdGroupChangesFor}.
+   */
+  type WriteInFlight = {
+    /** Settles when the save is over, whatever its answer. */
+    settled: Promise<void>;
+    release(): void;
+    /** The batch being written. */
+    patchIds: readonly PatchId[];
+    /** The closure it carries, once the resolver has answered. */
+    withPatchIds: PatchId[];
+    /**
+     * The resolver has answered, so `PatchSync` may have sent the save. From
+     * here on only `PatchSync` releases the hold, when the save settles: see
+     * `dispose`.
+     */
+    handedOver: boolean;
+  };
+  let writeInFlight: WriteInFlight | null = null;
+
+  /**
+   * Order the group changes made from now on behind this save.
+   *
+   * Membership moves on the server two ways — a stage or unstage, and a save,
+   * whose write and closure the server unions into the group — and the server
+   * applies them in the order they ARRIVE. A save already goes after the
+   * changes made before it (the resolver waits for `groupChanges`). This is
+   * the other half: a change made after this point waits until the save is
+   * answered. Without it an unstage of the closure, clicked while the save was
+   * on the wire, could land first — and the save's union put back what the
+   * user had just taken out, on the server, with nothing on screen to say so
+   * until a stat flipped it back.
+   *
+   * Taken at the START of the resolver, together with the tail the save waits
+   * for, and that is what keeps it from deadlocking: a change waits on this
+   * save only if it was queued after the tail the save waits on. Everything
+   * before is in the tail; everything after waits for the answer. There is no
+   * change the save waits for that also waits for the save.
+   *
+   * Released by `PatchSync` once the save is answered, however it was answered
+   * (see `WriteMembership.release`) -- and by `dispose`, but only while the
+   * resolver is still working, when no save can be on the wire yet.
+   */
+  function holdGroupChangesFor(patchIds: readonly PatchId[]): WriteInFlight {
+    let release = () => {};
+    const settled = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const write: WriteInFlight = {
+      settled,
+      release: () => {
+        release();
+        if (writeInFlight === write) writeInFlight = null;
+      },
+      patchIds: [...patchIds],
+      withPatchIds: [],
+      handedOver: false,
+    };
+    writeInFlight = write;
+    return write;
+  }
+
+  /**
+   * Queue a group change behind the ones already queued — and behind the save
+   * in flight, if there is one. See {@link holdGroupChangesFor}.
+   *
+   * The write is read NOW, at queue time, and nowhere else. A change queued
+   * before a save took its hold is one that save is waiting for; reading the
+   * hold at send time would have it wait for the save in turn, and neither
+   * would ever go.
+   */
+  function queueGroupChange(
+    patchGroupId: string | undefined,
+    change: PatchGroupChangeRequest,
+    /** The entries this change made, taken when it was made. */
+    entries: ChangeEntries,
+  ): void {
+    const write = writeInFlight;
+    /** Every entry made later than this is a later click's. */
+    const madeAt = unconfirmedGeneration;
+    let answering = entries;
+    groupChanges = groupChanges
+      .then(async () => {
+        let sending = change;
+        if (write !== null) {
+          await write.settled;
+          if (change.type === "unstage") {
+            const widened = await unstageOverWrite(change, write, madeAt);
+            sending = widened.change;
+            answering = mergeEntries(entries, widened.entries);
+          }
+        }
+        await sendPatchGroupChange(patchGroupId, sending, answering);
+      })
+      .catch((error: unknown) => {
+        // A throw must not stop every later change from going out. What it
+        // put on screen goes back, as for a refusal.
+        dropUnconfirmed(answering);
+        console.error("Val: could not update patch group", error);
+      });
+  }
+
+  /**
+   * An unstage that waited for a save, made whole against what that save put
+   * in the group.
+   *
+   * The forward closure an unstage carries is computed by the review screen
+   * against the patch sets it has rendered, which can predate the write — so
+   * unstaging the insert under an edit could send the insert alone. Sent
+   * before the save it would be undone by it; sent after, as it now is, it
+   * would leave the edit in the group without the insert it was written on: a
+   * hole, which a reload shows and `holdBackOverHoles` cannot hide from a page
+   * that never saw the unstage. So the save's ids that sit on what is being
+   * unstaged go with it, from a grouping that covers them.
+   *
+   * Only the save's ids. Anything else the unstage missed was in the group
+   * before this save and is not this race's to repair.
+   */
+  async function unstageOverWrite(
+    change: PatchGroupChangeRequest,
+    write: WriteInFlight,
+    madeAt: number,
+  ): Promise<{ change: PatchGroupChangeRequest; entries: ChangeEntries }> {
+    const named = new Set([...change.patchIds, ...change.withPatchIds]);
+    const candidates = [...write.patchIds, ...write.withPatchIds].filter(
+      (patchId) => !named.has(patchId),
+    );
+    if (candidates.length === 0 || patchGroupIds === null) {
+      return { change, entries: new Map() };
+    }
+    let doomed: PatchId[];
+    try {
+      let build = await computePatchSetsBuild();
+      const covers = () => {
+        const planned = new Set(build.chain);
+        return candidates.every((patchId) => planned.has(patchId));
+      };
+      if (!covers()) build = await computePatchSetsBuild();
+      const index = indexPatchSets(build.sets, build.chain);
+      const surviving = unstageClosure(index, new Set(candidates), named);
+      doomed = candidates.filter((patchId) => !surviving.has(patchId));
+    } catch {
+      /*
+       * No grouping, so err towards taking too much: unstaging an edit the
+       * user can stage again is recoverable, and a hole is not.
+       *
+       * The closure the write carried is the record of what it was written
+       * on, so if the unstage names any of that, the whole batch goes. And a
+       * batch is in chain order, so if it names one of the batch's own writes,
+       * every later write in the batch may sit on it and goes too -- left
+       * behind, it would stay staged over the write the user took out.
+       */
+      if (write.withPatchIds.some((patchId) => named.has(patchId))) {
+        doomed = write.patchIds.filter((patchId) => !named.has(patchId));
+      } else {
+        const first = write.patchIds.findIndex((patchId) => named.has(patchId));
+        doomed =
+          first === -1
+            ? []
+            : write.patchIds
+                .slice(first + 1)
+                .filter((patchId) => !named.has(patchId));
+      }
+    }
+    if (doomed.length === 0) {
+      return { change, entries: new Map() };
+    }
+    /*
+     * On screen as well, unless a later click has already decided about them —
+     * that click's own change is queued behind this one, so it is what the
+     * server ends with either way.
+     */
+    const decidedLater = (patchId: PatchId) =>
+      (unconfirmed.get(patchId)?.generation ?? 0) > madeAt;
+    const shown = doomed.filter((patchId) => !decidedLater(patchId));
+    markUnconfirmed(shown, "unstage");
+    narrowPatchGroup(shown);
+    return {
+      change: {
+        ...change,
+        withPatchIds: [...change.withPatchIds, ...doomed],
+      },
+      entries: entriesOf(shown, "unstage"),
+    };
+  }
+
+  function mergeEntries(a: ChangeEntries, b: ChangeEntries): ChangeEntries {
+    if (b.size === 0) return a;
+    return new Map([...a, ...b]);
+  }
 
   /**
    * The closure each write carried, by the write's id, until its save is
@@ -2237,57 +2442,149 @@ export function createSystem(options: SystemOptions): System {
        */
       patchSync.setPatchGroupResolver(async (patchIds) => {
         /*
-         * Behind the group changes already made. A write's closure moves
-         * membership too, so a save racing an earlier unstage could land first
-         * and have the unstage take its prerequisite out after it — a write in
-         * the group without the patch it was written on. Waiting here orders
-         * the save after them, and computes the closure against what they left.
+         * Behind the group changes already made, and ahead of every one made
+         * from here on.
+         *
+         * Behind: a write's closure moves membership too, so a save racing an
+         * earlier unstage could land first and have the unstage take its
+         * prerequisite out after it — a write in the group without the patch
+         * it was written on. Waiting here orders the save after them, and
+         * computes the closure against what they left.
+         *
+         * Ahead: a click made from this point on is sent once this save is
+         * answered (see `holdGroupChangesFor`), so whatever the closure says,
+         * the click lands after it and is what the server ends with.
          */
+        const write = holdGroupChangesFor(patchIds);
+        const behind = groupChanges;
+        /** Every entry made later than this is a click this save goes ahead of. */
+        const since = unconfirmedGeneration;
         let membership: Awaited<ReturnType<typeof resolver>>;
-        for (let attempt = 1; ; attempt += 1) {
-          const behind = groupChanges;
+        try {
           await behind;
-          membership = await resolver(patchIds);
-          // A click made while this was computed is a change this closure
-          // has not seen: asked again behind it, so the click is not undone
-          // by a closure from before it. Bounded, so a user clicking without
-          // pause cannot hold a save back for ever.
-          if (groupChanges === behind || attempt === 3) break;
-        }
-        if (membership !== undefined) {
-          // Joins with the write, so it is confirmed with the write's save.
-          markUnconfirmed(membership.withPatchIds, "stage");
-          const entries = entriesOf(membership.withPatchIds, "stage");
-          for (const patchId of patchIds) {
-            closureOfWrite.set(patchId, {
-              patchIds: [...membership.withPatchIds],
-              entries,
-            });
+          for (let attempt = 1; ; attempt += 1) {
+            const asked = groupChanges;
+            membership = await resolver(patchIds);
+            /*
+             * A click made while this was computed is one this closure has
+             * not seen, and the closure is read off the scope the click has
+             * already moved: asked again, so the save does not carry what the
+             * user just took out. NOT behind the click, as this used to be —
+             * the click now waits for this save, so waiting for it in turn
+             * would wait for ever. Bounded, so a user clicking without pause
+             * cannot hold a save back; past the bound the hold above still
+             * puts the click after the save, so the server ends with it
+             * either way and this only spares it a moment of the old answer.
+             */
+            if (groupChanges === asked || attempt === 3) break;
           }
-          extendPatchGroup([...patchIds, ...membership.withPatchIds]);
-          /*
-           * And SAY SO, when the closure brought somebody else's work along.
-           *
-           * This is the one place other people's patches enter a user's view
-           * without them asking, and until now it happened in silence — the
-           * scope widened, the modules rebuilt, and the only trace was a number
-           * changing on the Review button.
-           *
-           * Announced only when the closure moved something. `patchIds` is the
-           * user's own write and is not news; an empty `withPatchIds`, which
-           * is the common case, says nothing at all.
-           */
-          const widenedBy = membership.withPatchIds.filter(
-            (patchId) => !patchIds.includes(patchId),
+        } catch (error) {
+          write.release();
+          throw error;
+        }
+        if (membership === undefined || patchGroupIds === null) {
+          write.handedOver = true;
+          return { patchGroup: membership, release: write.release };
+        }
+        write.withPatchIds = [...membership.withPatchIds];
+        /*
+         * A click made since the hold was taken has its own change queued
+         * behind this save, so the server ends with what it says — and the
+         * screen must too. The closure does not mark over it.
+         */
+        const decided = new Set(
+          [...patchIds, ...membership.withPatchIds].filter(
+            (patchId) => (unconfirmed.get(patchId)?.generation ?? 0) > since,
+          ),
+        );
+        const decidedSince = (patchId: PatchId) => decided.has(patchId);
+        const scope = new Set(patchGroupIds);
+        /*
+         * The write is out of the scope already: the user unstaged it, or
+         * the patch under it, before this save went — a click that went out
+         * while an earlier attempt at this same save failed, typically. The
+         * server puts a write in its author's group whatever the request
+         * says, so saving it stages it again, and the click would be lost.
+         * So the save is followed by an unstage of its own, ordered behind it
+         * as a click would be. When the whole batch is out, so is the closure
+         * it brings: it was only ever coming for the write.
+         */
+        /*
+         * And every later write of the batch with it. A batch is in chain
+         * order, so a later write can sit on one the user took out -- and the
+         * click that took it out may have been under-closed (sent while no
+         * save was in flight, during a retry's backoff, so nothing repaired
+         * it). Saving the batch stages all of it; unstaging only the write
+         * that was out would leave the later ones staged over a hole. The
+         * same conservative rule as `unstageOverWrite`'s fallback: an edit
+         * the user can stage again is recoverable, and a hole is not.
+         */
+        const firstOut = patchIds.findIndex(
+          (patchId) => !scope.has(patchId) && !decidedSince(patchId),
+        );
+        const heldOut =
+          firstOut === -1
+            ? []
+            : patchIds
+                .slice(firstOut)
+                .filter((patchId) => !decidedSince(patchId));
+        // Those still on screen leave it, so it shows what the server will hold.
+        narrowPatchGroup(heldOut.filter((patchId) => scope.has(patchId)));
+        const allHeldOut = heldOut.length === patchIds.length;
+        const joining = allHeldOut
+          ? []
+          : membership.withPatchIds.filter((patchId) => !decidedSince(patchId));
+        // Joins with the write, so it is confirmed with the write's save.
+        markUnconfirmed(joining, "stage");
+        const entries = entriesOf(joining, "stage");
+        for (const patchId of patchIds) {
+          closureOfWrite.set(patchId, { patchIds: [...joining], entries });
+        }
+        extendPatchGroup([
+          ...patchIds.filter(
+            (patchId) => !heldOut.includes(patchId) && !decidedSince(patchId),
+          ),
+          ...joining,
+        ]);
+        if (heldOut.length > 0) {
+          const alsoOut = allHeldOut
+            ? membership.withPatchIds.filter(
+                (patchId) =>
+                  !scope.has(patchId) &&
+                  !decidedSince(patchId) &&
+                  !heldOut.includes(patchId),
+              )
+            : [];
+          markUnconfirmed([...heldOut, ...alsoOut], "unstage");
+          queueGroupChange(
+            undefined,
+            { type: "unstage", patchIds: heldOut, withPatchIds: alsoOut },
+            entriesOf([...heldOut, ...alsoOut], "unstage"),
           );
-          if (widenedBy.length > 0) {
-            patchSync.events.emit({
-              type: "patch:group-widened",
-              patches: widenedBy,
-            });
-          }
         }
-        return membership;
+        /*
+         * And SAY SO, when the closure brought somebody else's work along.
+         *
+         * This is the one place other people's patches enter a user's view
+         * without them asking, and until now it happened in silence — the
+         * scope widened, the modules rebuilt, and the only trace was a number
+         * changing on the Review button.
+         *
+         * Announced only when the closure moved something. `patchIds` is the
+         * user's own write and is not news; an empty `withPatchIds`, which
+         * is the common case, says nothing at all.
+         */
+        const widenedBy = joining.filter(
+          (patchId) => !patchIds.includes(patchId),
+        );
+        if (widenedBy.length > 0) {
+          patchSync.events.emit({
+            type: "patch:group-widened",
+            patches: widenedBy,
+          });
+        }
+        write.handedOver = true;
+        return { patchGroup: membership, release: write.release };
       });
     },
     async stagePatches(request) {
@@ -2325,14 +2622,8 @@ export function createSystem(options: SystemOptions): System {
         [...change.patchIds, ...change.withPatchIds],
         change.type,
       );
-      groupChanges = groupChanges
-        .then(() => sendPatchGroupChange(patchGroupId, change, entries))
-        .catch((error: unknown) => {
-          // A throw must not stop every later change from going out. What it
-          // put on screen goes back, as for a refusal.
-          dropUnconfirmed(entries);
-          console.error("Val: could not update patch group", error);
-        });
+      // And behind a save in flight: see `holdGroupChangesFor`.
+      queueGroupChange(patchGroupId, change, entries);
     },
     seedPatchGroup(ids) {
       /*
@@ -2691,7 +2982,7 @@ export function createSystem(options: SystemOptions): System {
               retryable: true,
             };
           }
-          return requested;
+          return { ...requested, patchIds: toPublish };
         }
 
         const headCommitSha = stat.currentHeadCommitSha();
@@ -2932,6 +3223,23 @@ export function createSystem(options: SystemOptions): System {
       // mid-backoff has to be told to stop, or it wakes up and writes to a
       // torn-down system — in a test, after the test that made it has finished.
       patchSync.dispose();
+      /*
+       * The group changes made during a save must still go out -- the user
+       * made them, and a stage or an unstage that never reaches the server is
+       * lost on the next load -- but never AHEAD of that save.
+       *
+       * Once the resolver has answered, the save may be on the wire, and
+       * `dispose` does not cancel the request: released here, an unstage could
+       * land first and the save's union put back what it took out, which is
+       * the race the hold exists to close. `PatchSync` releases the hold in a
+       * `finally` when the save settles, stopped or not, so those changes go
+       * out then. Before the resolver has answered no save can be sent --
+       * `PatchSync` checks `stopped` before sending -- and the resolver may
+       * never answer once the system is torn down, so the hold goes now.
+       */
+      if (writeInFlight !== null && !writeInFlight.handedOver) {
+        writeInFlight.release();
+      }
     },
   };
 }

@@ -3,11 +3,14 @@ import { createStudioJobClient } from "../publish/jobClient";
 import {
   createPublishJobs,
   isSettled,
+  publishingPatchIds,
   type PublishJobs,
   type PublishJobsState,
   type TrackedPublish,
+  heldByContent,
 } from "../publish/publishJobs";
 import { publishProgress } from "../publish/publishProgress";
+import { netChangeModules } from "./netChangeModules";
 import {
   EDGE_CACHE_MS,
   otherEditorsJobs,
@@ -232,6 +235,12 @@ type ValContextValue = {
    */
   observedPublishJobs: readonly ObservedJob[];
   /**
+   * The changes a publish that is still running holds, as content said:
+   * pressed on this tab, another tab or another device -- and kept until
+   * content lists them as pending again. See `heldByContent`.
+   */
+  serverPublishingPatchIds: ReadonlySet<string>;
+  /**
    * Whether a press of Publish is a publish job here: every managed project,
    * and a connected one hosted on the platform (the server says, on `/stat`).
    */
@@ -279,6 +288,11 @@ type ValContextValue = {
   aiConnectionError: string | null;
   /** Try the assistant's connection again, from the first attempt. */
   retryAiConnection: () => void;
+  /**
+   * Ask again which models the project's keys reach — after the AI setup
+   * (`<val-ai-setup>`) saves or removes a key — without reconnecting.
+   */
+  refreshAiModels: () => Promise<void>;
   aiGetSessions: (opts?: {
     limit?: number;
     cursor?: { updatedAt: string; id: string };
@@ -381,6 +395,7 @@ export function ValProvider({
     setIsAuthenticated,
     serviceUnavailable,
     subscribePublishJobs,
+    contentHolds,
   ] = useStatus(client);
 
   const isStatConnected = "data" in stat && !!stat.data;
@@ -409,6 +424,7 @@ export function ValProvider({
     authError: aiAuthError,
     connectionError: aiConnectionError,
     retryConnection: retryAiConnection,
+    refreshModels: refreshAiModels,
     availableModel: availableAiModel,
     availableModels: availableAiModels,
     selectedModel: selectedAiModel,
@@ -697,6 +713,40 @@ export function ValProvider({
       }),
     [client, getDirectFileUploadSettings],
   );
+
+  /** See {@link ValContextValue.serverPublishingPatchIds}. */
+  const heldByContentRef = useRef<ReadonlySet<string>>(new Set());
+  /*
+   * The chain's version, so a hold is let go once the store has taken in what
+   * content said: committed, or forgotten. See `heldByContent`.
+   */
+  const heldChainVersion = useSyncExternalStore(
+    useCallback(
+      (onChange: () => void) =>
+        system.patchStore.events.on("patch:chain", onChange),
+      [system],
+    ),
+    useCallback(() => system.patchStore.chainVersion(), [system]),
+    useCallback(() => system.patchStore.chainVersion(), [system]),
+  );
+  // From `contentHolds`, not the stat: see `ContentHolds`.
+  const serverPublishingPatchIds = useMemo(() => {
+    void heldChainVersion;
+    const store = system.patchStore;
+    const published = store.publishedPatchIds();
+    const unpublished = new Set<string>(
+      store
+        .allRecords()
+        .filter((record) => !record.appliedAt && !published.has(record.patchId))
+        .map((record) => record.patchId),
+    );
+    heldByContentRef.current = heldByContent(
+      heldByContentRef.current,
+      contentHolds,
+      (patchId) => unpublished.has(patchId),
+    );
+    return heldByContentRef.current;
+  }, [contentHolds, system, heldChainVersion]);
 
   /**
    * Whether this project has an assistant, from its settings module.
@@ -1089,10 +1139,25 @@ export function ValProvider({
                 // In the click, where a page that cannot build may open the
                 // tab that will. A no-op where this page can build.
                 handoffRef.current.prepare(true);
-                void publishJobs.tryAgain(request.requestId).then((done) => {
-                  if (!done.ok) handoffRef.current.cancel(done.message);
-                  reportOutcome(done);
-                });
+                // What the new job will take: everything pending now, edits
+                // saved since the failure included.
+                const store = system.patchStore;
+                const published = store.publishedPatchIds();
+                const pending = store
+                  .allRecords()
+                  .filter(
+                    (record) =>
+                      !store.isPending(record.patchId) &&
+                      !record.appliedAt &&
+                      !published.has(record.patchId),
+                  )
+                  .map((record) => record.patchId);
+                void publishJobs
+                  .tryAgain(request.requestId, { patchIds: pending })
+                  .then((done) => {
+                    if (!done.ok) handoffRef.current.cancel(done.message);
+                    reportOutcome(done);
+                  });
               },
             },
           }
@@ -1225,6 +1290,7 @@ export function ValProvider({
         publishJobs,
         publishJobsState,
         observedPublishJobs,
+        serverPublishingPatchIds,
         publishesAsJobs,
         profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
@@ -1256,6 +1322,7 @@ export function ValProvider({
         aiAuthError,
         aiConnectionError,
         retryAiConnection,
+        refreshAiModels,
         aiGetSessions,
         aiGetSessionMessages,
         aiSetSessionName,
@@ -2120,6 +2187,8 @@ export function useHasNetChanges(): boolean {
   const sourcesVersion = useSourcesVersion();
   const chainVersion = useChainVersion();
   const committed = useCommittedPatches();
+  const publishing = usePublishingPatchIds();
+  const unstaged = useUnstagedPatchIds();
 
   /*
    * Read off the CHAIN, not off the patch sets.
@@ -2131,18 +2200,18 @@ export function useHasNetChanges(): boolean {
    * where nothing has. `patchStore.allRecords()` already names each record's
    * module and is synchronous, so there is no window.
    */
-  const modules = useMemo((): ModuleFilePath[] => {
-    if (val === null) return [];
+  const { compare: modules, changesOnPublishing } = useMemo<
+    ReturnType<typeof netChangeModules>
+  >(() => {
+    if (val === null) return { compare: [], changesOnPublishing: false };
     void chainVersion;
-    const seen = new Set<ModuleFilePath>();
-    for (const record of val.system.patchStore.allRecords()) {
-      // A patch that has shipped is history, not pending work: its two sides
-      // are equal BECAUSE it shipped, which is the opposite of a no-op.
-      if (committed.has(record.patchId)) continue;
-      seen.add(record.moduleFilePath);
-    }
-    return [...seen];
-  }, [val, chainVersion, committed]);
+    return netChangeModules(
+      val.system.patchStore.allRecords(),
+      committed,
+      publishing,
+      unstaged,
+    );
+  }, [val, chainVersion, committed, publishing, unstaged]);
 
   return useMemo(() => {
     // As in the loop below: what is not known yet counts as a change. `false`
@@ -2157,6 +2226,8 @@ export function useHasNetChanges(): boolean {
      * records that cannot be discarded.
      */
     if (modules.length === 0) return true;
+    // See `netChangeModules`: compared with a base that is about to move.
+    if (changesOnPublishing) return true;
     void sourcesVersion;
     void chainVersion;
     const store = val.system.sourceStore;
@@ -2180,7 +2251,7 @@ export function useHasNetChanges(): boolean {
       }
     }
     return false;
-  }, [val, sourcesVersion, chainVersion, modules]);
+  }, [val, sourcesVersion, chainVersion, modules, changesOnPublishing]);
 }
 
 /**
@@ -2559,6 +2630,18 @@ export function useOtherPublishJobs(): readonly ObservedJob[] {
   return useMemo(
     () => otherEditorsJobs(observedPublishJobs, publishJobsState),
     [observedPublishJobs, publishJobsState],
+  );
+}
+
+/**
+ * The changes this tab's presses are publishing: see `publishingPatchIds`.
+ * Not pending work while they go, so Publish does not offer them again.
+ */
+export function usePublishingPatchIds(): ReadonlySet<string> {
+  const { publishJobsState, serverPublishingPatchIds } = useContext(ValContext);
+  return useMemo(
+    () => publishingPatchIds(publishJobsState, serverPublishingPatchIds),
+    [publishJobsState, serverPublishingPatchIds],
   );
 }
 
@@ -3504,6 +3587,11 @@ export function useAIConnectionError(): {
     }
     return null;
   }, [aiAuthError, aiConnectionError, retryAiConnection]);
+}
+
+/** See `refreshAiModels`. */
+export function useRefreshAIModels(): () => Promise<void> {
+  return useContext(ValContext).refreshAiModels;
 }
 
 export function useProfilesByAuthorId() {
