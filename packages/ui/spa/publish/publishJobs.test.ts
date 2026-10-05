@@ -507,3 +507,33 @@ test("a press queued behind the job being built is not handed off with it", asyn
   expect(first).toMatchObject({ requestId: "r1", handedOffAt: 1_000 });
   expect(second!.handedOffAt).toBeUndefined();
 });
+
+describe("publishingPatchIds with what content reports", () => {
+  const nothingPressedHere = { requests: [], running: null };
+
+  test("a publish pressed on another tab or device holds its changes here too", () => {
+    expect([...publishingPatchIds(nothingPressedHere, ["p1"])]).toEqual(["p1"]);
+  });
+
+  test("this tab's own press counts before content has said so", () => {
+    const pressed = {
+      requests: [
+        {
+          requestId: "r1",
+          pressedAt: 0,
+          status: { kind: "publishing" as const },
+          patchIds: ["p2"],
+        },
+      ],
+      running: null,
+    };
+    expect([...publishingPatchIds(pressed, ["p1"])].sort()).toEqual([
+      "p1",
+      "p2",
+    ]);
+  });
+
+  test("content not saying is the same as before it could", () => {
+    expect(publishingPatchIds(nothingPressedHere, undefined).size).toBe(0);
+  });
+});

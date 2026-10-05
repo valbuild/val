@@ -162,6 +162,28 @@ describe("chainOfMessage", () => {
     });
   });
 
+  // Publishing is NOT one-way: a job that fails gives its changes back, so the
+  // message's set replaces the last one rather than adding to it. Accumulated,
+  // a failed publish would have held Publish off for good.
+  test("replaces which patches are publishing with the message's set", () => {
+    expect(
+      chainOfMessage(
+        { publishingPatches: ["p1", "p2"] as StatData["patches"] },
+        { ...message, publishingPatches: [] as StatData["patches"] },
+      ).publishingPatches,
+    ).toEqual([]);
+  });
+
+  // An older content service does not send it, which is "not reported".
+  test("keeps the previous publishing set when the message has none", () => {
+    expect(
+      chainOfMessage(
+        { publishingPatches: ["p1"] as StatData["patches"] },
+        message,
+      ).publishingPatches,
+    ).toEqual(["p1"]);
+  });
+
   // Applied is one-way: a content service that does not send the list leaves
   // the last one standing, which is incomplete but never wrong.
   test("keeps the previous applied list when the message has none", () => {

@@ -69,6 +69,12 @@ const WebSocketServerMessage = z.union([
      * content service that predates sending it. See {@link chainOfMessage}.
      */
     appliedPatches: z.array(PatchId).optional(),
+    /**
+     * Of `patches`, the ones a running publish holds, read with them. Absent
+     * from a content service that predates sending it. See `publishingPatches`
+     * on {@link StatData}.
+     */
+    publishingPatches: z.array(PatchId).optional(),
   }),
   z.object({
     type: z.literal("deployment"),
@@ -205,6 +211,16 @@ export const StatData = z.object({
    * Absent is NOT "none of them": see `PatchStore.receiveApplied`.
    */
   appliedPatches: z.array(PatchId).optional(),
+  /**
+   * Of `patches`, the ones a publish that is still running holds -- on this
+   * tab, another tab or another device. Publish is not offered over them.
+   *
+   * Unlike `appliedPatches` this is not one-way: a job that fails, is
+   * cancelled or is interrupted gives its changes back, so every answer
+   * replaces it whole. Absent where publishing is not done in jobs, and from a
+   * content service that predates it -- which is "not reported", not "none".
+   */
+  publishingPatches: z.array(PatchId).optional(),
   /**
    * The head of the PATCH CHAIN, which a new patch names as its parent — see
    * `chainHeadOf`. `http` only; absent is "not reported", not `null`.
@@ -437,11 +453,16 @@ type PatchesMessage = Extract<
  * that predates it) keeps the previous one: incomplete, never wrong.
  */
 export function chainOfMessage(
-  prev: Pick<StatData, "appliedPatches">,
+  prev: Pick<StatData, "appliedPatches" | "publishingPatches">,
   message: PatchesMessage,
 ): Pick<
   StatData,
-  "patches" | "headPatchId" | "headVersion" | "patchGroups" | "appliedPatches"
+  | "patches"
+  | "headPatchId"
+  | "headVersion"
+  | "patchGroups"
+  | "appliedPatches"
+  | "publishingPatches"
 > {
   return {
     patches: message.patches,
@@ -449,6 +470,12 @@ export function chainOfMessage(
     headVersion: message.headVersion,
     patchGroups: message.patchGroups,
     appliedPatches: message.appliedPatches ?? prev.appliedPatches,
+    /*
+     * Replaced, never accumulated: a job that ends without sealing gives its
+     * changes back, and the message is the whole set at that moment. Kept
+     * from before only when the message does not carry it at all.
+     */
+    publishingPatches: message.publishingPatches ?? prev.publishingPatches,
   };
 }
 

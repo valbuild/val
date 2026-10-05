@@ -143,8 +143,19 @@ const isSealed = (status: PublishRequestStatus): boolean =>
 
 export function publishingPatchIds(
   state: PublishJobsState,
+  /**
+   * What content says a running publish holds, on any tab or device --
+   * `publishingPatches` on `/stat` and the socket's `patches` message.
+   * `undefined` where it does not say.
+   *
+   * Content is the authority: it is the only one that knows about a press on
+   * another tab or device, or about this tab's own press once it has been
+   * reloaded. This tab's own requests cover the moment between its press and
+   * content's next answer, when Publish would otherwise light up again.
+   */
+  reported?: readonly string[],
 ): ReadonlySet<string> {
-  const ids = new Set<string>();
+  const ids = new Set<string>(reported ?? []);
   for (const request of state.requests) {
     if (isSettled(request.status) && !isSealed(request.status)) continue;
     for (const id of request.patchIds ?? []) ids.add(id);

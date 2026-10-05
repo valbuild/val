@@ -648,6 +648,12 @@ export const Api = {
                * client that ignores this behaves exactly as it did before.
                */
               appliedPatches: z.array(PatchId).optional(),
+              /*
+               * Of `patches`, the ones a publish that is still running holds.
+               * The Studio does not offer Publish over these. Whole on every
+               * answer: a job that ends without sealing gives them back.
+               */
+              publishingPatches: z.array(PatchId).optional(),
               /**
                * The newest commit, which is the PUBLISH head.
                *
@@ -740,6 +746,12 @@ export const Api = {
                * client that ignores this behaves exactly as it did before.
                */
               appliedPatches: z.array(PatchId).optional(),
+              /*
+               * Of `patches`, the ones a publish that is still running holds.
+               * The Studio does not offer Publish over these. Whole on every
+               * answer: a job that ends without sealing gives them back.
+               */
+              publishingPatches: z.array(PatchId).optional(),
               /**
                * The newest commit, which is the PUBLISH head.
                *

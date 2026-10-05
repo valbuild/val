@@ -233,6 +233,12 @@ type ValContextValue = {
    */
   observedPublishJobs: readonly ObservedJob[];
   /**
+   * The changes a publish that is still running holds, as content last said:
+   * pressed on this tab, another tab or another device. `undefined` where it
+   * does not say. See `publishingPatches` on `StatData`.
+   */
+  serverPublishingPatchIds: readonly string[] | undefined;
+  /**
    * Whether a press of Publish is a publish job here: every managed project,
    * and a connected one hosted on the platform (the server says, on `/stat`).
    */
@@ -1247,6 +1253,8 @@ export function ValProvider({
         publishJobs,
         publishJobsState,
         observedPublishJobs,
+        serverPublishingPatchIds:
+          "data" in stat && stat.data ? stat.data.publishingPatches : undefined,
         publishesAsJobs,
         profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
@@ -2590,10 +2598,10 @@ export function useOtherPublishJobs(): readonly ObservedJob[] {
  * Not pending work while they go, so Publish does not offer them again.
  */
 export function usePublishingPatchIds(): ReadonlySet<string> {
-  const { publishJobsState } = useContext(ValContext);
+  const { publishJobsState, serverPublishingPatchIds } = useContext(ValContext);
   return useMemo(
-    () => publishingPatchIds(publishJobsState),
-    [publishJobsState],
+    () => publishingPatchIds(publishJobsState, serverPublishingPatchIds),
+    [publishJobsState, serverPublishingPatchIds],
   );
 }
 
