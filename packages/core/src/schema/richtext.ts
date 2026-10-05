@@ -850,7 +850,7 @@ export class RichTextSchema<
           : // The Studio decides local or remote by the serialized image
             // schema, and `true` carries no such answer.
             this.options.img && this.imgRemote
-            ? new ImageSchema({}, false, true)["executeSerialize"]()
+            ? new ImageSchema(undefined, false, true)["executeSerialize"]()
             : this.options.img,
     };
     return {

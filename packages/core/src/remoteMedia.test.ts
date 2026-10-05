@@ -125,6 +125,17 @@ describe("files.remote", () => {
       );
     });
 
+    test("img: true is the same image as s.image().remote(), on the wire", () => {
+      const { s } = initVal({ files: { remote: true } });
+      const { s: local } = initVal();
+      const serialized = s.richtext({ img: true })["executeSerialize"]();
+      expect(
+        JSON.stringify(
+          serialized.type === "richtext" && serialized.options?.img,
+        ),
+      ).toBe(JSON.stringify(local.image().remote()["executeSerialize"]()));
+    });
+
     test("img: true stays `true` without the setting", () => {
       const { s } = initVal();
       const serialized = s.richtext({ img: true })["executeSerialize"]();
