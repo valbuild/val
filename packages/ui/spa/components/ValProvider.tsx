@@ -394,6 +394,7 @@ export function ValProvider({
     setIsAuthenticated,
     serviceUnavailable,
     subscribePublishJobs,
+    contentHolds,
   ] = useStatus(client);
 
   const isStatConnected = "data" in stat && !!stat.data;
@@ -584,16 +585,14 @@ export function ValProvider({
     "data" in stat && stat.data ? stat.data.appliedPatches : undefined;
   /** See {@link ValContextValue.serverPublishingPatchIds}. */
   const heldByContentRef = useRef<ReadonlySet<string>>(new Set());
-  const statData = "data" in stat ? stat.data : undefined;
-  const statPublishing = statData?.publishingPatches;
+  // From `contentHolds`, not the stat: see `ContentHolds`.
   const serverPublishingPatchIds = useMemo(() => {
-    heldByContentRef.current = heldByContent(heldByContentRef.current, {
-      publishingPatches: statPublishing,
-      patches: statPatches,
-      appliedPatches: statApplied,
-    });
+    heldByContentRef.current = heldByContent(
+      heldByContentRef.current,
+      contentHolds,
+    );
     return heldByContentRef.current;
-  }, [statPublishing, statPatches, statApplied]);
+  }, [contentHolds]);
   /** The publish head, carried to `/save`. See `newestCommitSha`. */
   const statHead =
     "data" in stat && stat.data ? stat.data.headCommitSha : undefined;

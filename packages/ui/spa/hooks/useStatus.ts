@@ -311,9 +311,11 @@ export function useStatus(client: ValClient) {
   /**
    * How many socket `patches` messages have been taken. A `/stat` answer
    * requested before the latest of them is older than it -- see
-   * {@link withNewerChain}.
+   * {@link holdsOfAnswer}.
    */
   const socketPatchesRef = useRef(0);
+  /** See {@link ContentHolds}. */
+  const [holds, setHolds] = useState<ContentHolds | undefined>();
   /** Who hears a `publish-job` nudge. See `subscribePublishJobs`. */
   const publishJobListeners = useRef(new Set<(job: PublishJobNudge) => void>());
   const onPublishJob = useCallback((job: PublishJobNudge) => {
@@ -362,6 +364,7 @@ export function useStatus(client: ValClient) {
           connectionIdRef,
           statIdRef,
           socketPatchesRef,
+          setHolds,
           stat,
           setStat,
           setAuthenticationLoadingIfNotAuthenticated,
@@ -385,6 +388,7 @@ export function useStatus(client: ValClient) {
             connectionIdRef,
             statIdRef,
             socketPatchesRef,
+            setHolds,
             stat,
             setStat,
             setAuthenticationLoadingIfNotAuthenticated,
@@ -410,6 +414,7 @@ export function useStatus(client: ValClient) {
         connectionIdRef,
         statIdRef,
         socketPatchesRef,
+        setHolds,
         stat,
         setStat,
         setAuthenticationLoadingIfNotAuthenticated,
@@ -428,6 +433,7 @@ export function useStatus(client: ValClient) {
     setIsAuthenticated,
     serviceUnavailable,
     subscribePublishJobs,
+    holds,
   ] as const;
 }
 
@@ -488,41 +494,54 @@ export function chainOfMessage(
   };
 }
 
-/** What a socket `patches` message replaces: one view of the chain. */
-type ChainView = ReturnType<typeof chainOfMessage>;
+/**
+ * What content says a running publish holds, with the chain it said it
+ * against: `heldByContent` reads the three together, so they are always taken
+ * from one answer or one socket message, never mixed.
+ *
+ * Kept APART from the stat the stores adopt. A `/stat` answer requested before
+ * a socket message is older than it for the holds -- but it can also come from
+ * a newer BUILD than the socket describes, so the stat itself is taken whole:
+ * the chain pairs with the build metadata it was read with, or `BaseAlignment`
+ * replays published patches onto the new base. Only these holds prefer the
+ * socket.
+ */
+export type ContentHolds = Pick<
+  StatData,
+  "patches" | "appliedPatches" | "publishingPatches"
+>;
+
+/** The holds after a socket `patches` message. See {@link chainOfMessage}. */
+export function holdsOfMessage(
+  prev: ContentHolds | undefined,
+  message: PatchesMessage,
+): ContentHolds {
+  return {
+    patches: message.patches,
+    appliedPatches: message.appliedPatches ?? prev?.appliedPatches,
+    publishingPatches: message.publishingPatches ?? prev?.publishingPatches,
+  };
+}
 
 /**
- * A `/stat` answer, with the chain kept from a socket message that arrived
- * after the request went out.
- *
- * Socket messages do not move `statIdRef`, so an answer requested before a
- * publish started elsewhere was taken whole after the socket had said which
- * changes that publish holds -- and Publish was offered over them until the
- * next update.
- *
- * The WHOLE chain view, never one field of it: the holds are read against the
- * chain and the applied list (`heldByContent`), so a socket's publishing set
- * beside an older answer's applied list read a change the socket had just
- * reported sealed as pending again, and gave it back. The socket's view is
- * never left stale by this: every later change to the chain or to a publish
- * sends another message.
+ * The holds after a `/stat` answer: the answer's, unless a socket message
+ * arrived after the request went out. Socket messages do not move
+ * `statIdRef`, so an answer requested before a publish started elsewhere was
+ * taken after the socket had said which changes that publish holds -- and
+ * Publish was offered over them until the next update. The socket's view is
+ * never left stale by keeping it: every later change to the chain or to a
+ * publish sends another message.
  */
-export function withNewerChain<T extends ChainView>(
-  answer: T,
-  current: ChainView | undefined,
+export function holdsOfAnswer(
+  prev: ContentHolds | undefined,
+  answer: ContentHolds,
   socketSpokeSince: boolean,
-): T {
-  if (!socketSpokeSince || current === undefined) {
-    return answer;
-  }
+): ContentHolds {
+  if (socketSpokeSince && prev !== undefined) return prev;
   return {
-    ...answer,
-    patches: current.patches,
-    headPatchId: current.headPatchId,
-    headVersion: current.headVersion,
-    patchGroups: current.patchGroups,
-    appliedPatches: current.appliedPatches,
-    publishingPatches: current.publishingPatches,
+    patches: answer.patches,
+    appliedPatches: answer.appliedPatches,
+    publishingPatches: answer.publishingPatches,
   };
 }
 
@@ -596,6 +615,7 @@ async function execStat(
   connectionIdRef: React.MutableRefObject<string>,
   statIdRef: React.MutableRefObject<number>,
   socketPatchesRef: React.MutableRefObject<number>,
+  setHolds: Dispatch<SetStateAction<ContentHolds | undefined>>,
   stat: StatState,
   setStat: Dispatch<SetStateAction<StatState>>,
   setAuthenticationLoadingIfNotAuthenticated: () => void,
@@ -664,19 +684,31 @@ async function execStat(
             waitStart: Date.now(),
             wait: webSocketRef.current ? WebSocketStatInterval : 0, // why 0 wait unless websocket? If websocket is not used, we are long polling so no point in waiting
           });
+          const answer = res.json;
+          setHolds((prev) =>
+            holdsOfAnswer(
+              prev,
+              answer,
+              socketPatchesRef.current !== socketPatchesAtRequest,
+            ),
+          );
         } else if (res.json.type === "use-websocket") {
           const answer = res.json;
+          // Whole: see `ContentHolds` for why only the holds prefer the socket.
           setStat((prev) => ({
             ...prev,
             status: "updated-request-again",
-            data: withNewerChain(
-              answer,
-              "data" in prev ? prev.data : undefined,
-              socketPatchesRef.current !== socketPatchesAtRequest,
-            ),
+            data: answer,
             waitStart: Date.now(),
             wait: WebSocketStatInterval,
           }));
+          setHolds((prev) =>
+            holdsOfAnswer(
+              prev,
+              answer,
+              socketPatchesRef.current !== socketPatchesAtRequest,
+            ),
+          );
           if (webSocketRef.current) {
             console.debug("Closing existing WebSocket");
             webSocketRef.current.close();
@@ -709,6 +741,7 @@ async function execStat(
               const message = messageRes.data;
               if (message.type === "patches") {
                 socketPatchesRef.current++;
+                setHolds((prev) => holdsOfMessage(prev, message));
                 setStat((prev) => {
                   if ("data" in prev && prev.data) {
                     return {

@@ -1,7 +1,8 @@
 import {
   awaitingDeploymentInterval,
   chainOfMessage,
-  withNewerChain,
+  holdsOfAnswer,
+  holdsOfMessage,
   StatData,
 } from "./useStatus";
 import { heldByContent } from "../publish/publishJobs";
@@ -196,7 +197,7 @@ describe("chainOfMessage", () => {
   });
 });
 
-describe("withNewerChain", () => {
+describe("content's holds", () => {
   const ids = (...patchIds: string[]) => patchIds as StatData["patches"];
   const answer = {
     patches: ids("p1"),
@@ -206,67 +207,79 @@ describe("withNewerChain", () => {
 
   // Requested before another tab pressed Publish, answered after the socket
   // said what that publish holds: the socket is newer.
-  test("keeps the socket's set when the socket spoke after the request", () => {
-    expect(
-      withNewerChain(
-        answer,
-        { patches: ids("p1"), publishingPatches: ids("p1") },
-        true,
-      ).publishingPatches,
-    ).toEqual(["p1"]);
+  test("keep the socket's when the socket spoke after the request", () => {
+    const fromSocket = { patches: ids("p1"), publishingPatches: ids("p1") };
+    expect(holdsOfAnswer(fromSocket, answer, true)).toBe(fromSocket);
   });
 
-  test("takes the answer's set when nothing newer arrived", () => {
+  test("take the answer's when nothing newer arrived", () => {
     expect(
-      withNewerChain(
-        answer,
+      holdsOfAnswer(
         { patches: ids("p1"), publishingPatches: ids("p1") },
+        answer,
         false,
-      ).publishingPatches,
-    ).toEqual([]);
+      ),
+    ).toEqual(answer);
   });
 
-  test("takes the answer whole when there is no chain to keep", () => {
-    expect(withNewerChain(answer, undefined, true)).toBe(answer);
+  test("take the answer's when there are none yet", () => {
+    expect(holdsOfAnswer(undefined, answer, true)).toEqual(answer);
   });
 
   /*
    * The socket reports p1's publish sealed -- applied, held by nobody -- and
    * then a `/stat` answer requested before the seal lands, with p1 still
-   * unapplied and held. Keeping the socket's publishing set beside the
-   * answer's applied list read p1 as pending and held by nobody: given back,
-   * and offered for Publish again, while the store was still taking in the
-   * seal.
+   * unapplied and held. Pairing the socket's publishing set with the answer's
+   * applied list read p1 as pending and held by nobody: given back, and
+   * offered for Publish again while the store was still taking in the seal.
    */
-  test("never pairs the socket's holds with an older answer's applied list", () => {
-    const sealedOnSocket = {
-      patches: ids("p1"),
-      appliedPatches: ids("p1"),
-      publishingPatches: ids(),
-    };
+  test("never pair the socket's publishing set with an older answer's applied list", () => {
+    const sealedOnSocket = holdsOfMessage(
+      {
+        patches: ids("p1"),
+        appliedPatches: ids(),
+        publishingPatches: ids("p1"),
+      },
+      {
+        type: "patches",
+        patches: ids("p1"),
+        headPatchId: ids("p1")[0],
+        headVersion: 2,
+        patchGroups: [],
+        appliedPatches: ids("p1"),
+        publishingPatches: ids(),
+      },
+    );
     const olderAnswer = {
       patches: ids("p1"),
       appliedPatches: ids(),
       publishingPatches: ids("p1"),
     };
-    const merged = withNewerChain(olderAnswer, sealedOnSocket, true);
-    expect(merged.appliedPatches).toEqual(["p1"]);
-    expect([...heldByContent(new Set(["p1"]), merged)]).toEqual(["p1"]);
+    const holds = holdsOfAnswer(sealedOnSocket, olderAnswer, true);
+    expect(holds.appliedPatches).toEqual(["p1"]);
+    expect([...heldByContent(new Set(["p1"]), holds)]).toEqual(["p1"]);
   });
 
-  test("keeps the socket's head and groups with its holds", () => {
-    const merged = withNewerChain(
-      { ...answer, headPatchId: ids("p1")[0], headVersion: 3 },
-      {
-        patches: ids("p1", "p2"),
-        headPatchId: ids("p2")[0],
-        headVersion: 4,
-        patchGroups: [],
-      },
-      true,
-    );
-    expect(merged.patches).toEqual(["p1", "p2"]);
-    expect(merged.headPatchId).toBe("p2");
-    expect(merged.headVersion).toBe(4);
+  test("a message without the lists keeps the ones before it", () => {
+    expect(
+      holdsOfMessage(
+        {
+          patches: ids("p1"),
+          appliedPatches: ids("p0"),
+          publishingPatches: ids("p1"),
+        },
+        {
+          type: "patches",
+          patches: ids("p1", "p2"),
+          headPatchId: ids("p2")[0],
+          headVersion: 3,
+          patchGroups: [],
+        },
+      ),
+    ).toEqual({
+      patches: ["p1", "p2"],
+      appliedPatches: ["p0"],
+      publishingPatches: ["p1"],
+    });
   });
 });
