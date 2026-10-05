@@ -20,6 +20,7 @@ export { InMemoryPatchStore, type ValPatchStore } from "@valbuild/server";
 // but not from here, so the option could be passed and never annotated.
 export type { ValHttpMode } from "./initValServer";
 export { initValContent } from "./initValContent";
+export type { ValDraft } from "../ValDraft";
 export {
   valDraftMode,
   hasValEnableCookieOnServer,

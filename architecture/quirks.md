@@ -1055,8 +1055,11 @@ independently wrong:
    when it has handed over everything it holds.
 3. **The gate must be ON for the render that decides.** It is not. `ValProvider`
    sets `suspendActive` in an effect, so the SSR and hydration renders never
-   consult it — and hydration is where `notFound()` is called. **This one is not
-   fixed.**
+   consult it — and hydration is where `notFound()` is called. **Not fixed on
+   its own terms, and on TanStack no longer needed:** with `<ValProvider
+draft>` the server renders from the draft it read, so the deciding render
+   already has the route. Without `draft` (and on Next) it is still open. See
+   below.
 
 ### Why (3) is not just a bug
 
@@ -1078,13 +1081,40 @@ effect, which is cheap, static — and always too late for a route.
 Restoring it is not enough on its own, though — this was tried. With the gate on
 during SSR the server suspends on `waitForLoad`, and the store it waits for is
 only ever filled from the browser (the studio pushes sources by `postMessage`;
-`ValExternalStore` has no server-side writer). So the request does not 404, it
+`ValExternalStore` had no server-side writer — it has one now, see below). So the request does not 404, it
 **hangs**: the example app's `/api/val/enable` redirect never finished loading.
 
 That is the actual shape of the remaining work: the server has to be able to
 supply draft sources during its own render — which `fetchVal` already does for
 server components, via `/sources/~` with patches applied. A client component's
 SSR pass has no equivalent, and giving it one is a good deal more than a prop.
+
+**On TanStack Start it has one now: `<ValProvider draft>`.** The site layout's
+loader calls `fetchValDraft()` through a server function, on the server only.
+That is the same per-request `/sources/~` read `fetchVal` makes, cut down to the
+modules the draft changes, and `null` after one cookie lookup for anyone not in
+draft mode. The provider seeds its store with it and starts with `draftMode`
+true, so the server renders the draft and the browser's hydration render reads
+the same sources from the loader data and agrees with it. The edit tags (the
+invisible characters that JSX auto-tagging turns into a `data-val-path`
+attribute) are left OUT of what a component renders on the server and while it
+hydrates, and put in by the render React does right after
+(`useEncodesEditTags`, via `useHydrated`, a `useSyncExternalStore` whose server
+snapshot is `false`). Not a switch timed to a page-wide moment: "after mount" and
+"after the first `/draft/stat` answer" were both tried, and the switch is
+process-wide, so a split-out route -- or a lazy child handed a string as a prop
+-- hydrated after either, tagged, against untagged server HTML. A string with
+no tags has nothing to tag, whenever it is rendered. It does not hang, because nothing waits on the browser: the
+store is full before the first render, and `draftSourcesSynced` starts true
+(a module missing from a server-read draft has no changes, rather than "not
+sent yet"). TanStack can afford it because every request is rendered anyway —
+there is no static route for a cookie read to opt out of.
+
+It also fixed the more common symptom, which was not a 404 at all: every draft
+page load showed the published text and then, once the overlay had loaded, the
+draft. People notice it most right after publishing, when they reload to look.
+`e2e/tanstack/draftRender.spec.ts` pins it. Next still has the gap for client
+components; the cost argument below is why it has not followed.
 
 ### What a visitor pays
 

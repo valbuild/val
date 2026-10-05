@@ -32,6 +32,7 @@ import { floatDarkBg, floatLightBg } from "./fallbackColors";
 import { isValCanvasFrame } from "@valbuild/shared/client";
 import { ValCanvasBridge } from "./ValCanvasBridge";
 import { shouldSafetyRefresh } from "./safetyRefresh";
+import type { ValDraft } from "./ValDraft";
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
@@ -124,9 +125,11 @@ export const ValTanStackProvider = (props: {
    *
    * When set, hooks suspend until draft data has loaded — but only when the
    * Val Enable cookie is present, which is detected client-side after
-   * hydration. SSR and hydration always render the static committed source
-   * (draft data is browser-only), the gate then activates inside a transition
-   * so the static content stays visible while draft data loads. Production
+   * hydration. Without `draft`, SSR and hydration render the static committed
+   * source (draft data arrives in the browser), and the gate then activates
+   * inside a transition so that content stays visible while the draft loads.
+   * With `draft`, SSR and hydration already render the draft the server read,
+   * so there is nothing to wait for on the first render. Production
    * visitors without the cookie pay no cost, and layouts stay synchronous and
    * routes static.
    *
@@ -144,6 +147,22 @@ export const ValTanStackProvider = (props: {
    * "Previewing unpublished pages" for what to tell users.
    */
   suspend?: boolean;
+  /**
+   * The draft this page starts from, read on the server for this request:
+   * `fetchValDraft()` from `initValContent`, called from a server function
+   * in the site layout's loader.
+   *
+   * Without it the hooks have no draft until the overlay has loaded in the
+   * browser, so the server renders the PUBLISHED site and the browser swaps
+   * the draft in afterwards: every draft page load shows the old text first.
+   * With it, the server renders the draft and the browser's first render
+   * starts from the same sources, so both produce the same page and the
+   * overlay takes over from there.
+   *
+   * Read once, when the provider mounts -- what the overlay sends after that
+   * is newer. `null` (a visitor, or draft mode off) renders as before.
+   */
+  draft?: ValDraft | null;
 }) => {
   // TODO: use config:
   const route = "/api/val";
@@ -172,13 +191,32 @@ export const ValTanStackProvider = (props: {
     return clientRef.current;
   }, [route]);
 
+  /**
+   * The draft the page was rendered with, as it was at mount.
+   *
+   * A ref, not the prop: the server and the browser's first render must start
+   * from the same thing, and a later prop -- the loader running again on a
+   * client navigation, where it reads nothing -- must not reset a store the
+   * overlay has been updating since.
+   */
+  const initialDraft = React.useRef(props.draft ?? null).current;
   // TODO: move below into react package
-  const valStore = React.useMemo(() => new ValExternalStore(), []);
+  const valStore = React.useMemo(() => {
+    const store = new ValExternalStore();
+    if (initialDraft !== null) {
+      for (const [path, source] of Object.entries(initialDraft.sources)) {
+        store.update(path as ModuleFilePath, source);
+      }
+    }
+    return store;
+  }, [initialDraft]);
   // Whether useValStega should actually suspend. False during SSR and the
-  // hydration render — the server store is never populated (draft data
-  // arrives via browser CustomEvents only), so suspending there would just
-  // stall into the waitForLoad timeout, and hydration must render the static
-  // source so it matches the server HTML exactly. Activated post-hydration
+  // hydration render. Two paths: without `draft` the server store is empty
+  // (draft data arrives via browser CustomEvents only), so suspending there
+  // would just stall into the waitForLoad timeout, and hydration must render
+  // the static source so it matches the server HTML exactly; with `draft` the
+  // store is seeded above on BOTH sides, so SSR and hydration already render
+  // the draft and there is nothing to wait for. Keep the seed if this changes. Activated post-hydration
   // (in an effect, only when the Val Enable cookie is present) inside a
   // transition: React keeps the static content visible while hooks suspend
   // and then swaps to draft data as a normal update — no Suspense fallback
@@ -192,7 +230,11 @@ export const ValTanStackProvider = (props: {
    * protocol. Without this the page could only wait out `waitForLoad`'s timeout,
    * ten seconds per module nobody had edited.
    */
-  const [draftSourcesSynced, setDraftSourcesSynced] = React.useState(false);
+  // A server-read draft is everything there is: a module missing from it has
+  // no changes, so there is nothing more to wait for.
+  const [draftSourcesSynced, setDraftSourcesSynced] = React.useState(
+    initialDraft !== null,
+  );
   const [mountOverlay, setMountOverlay] = React.useState<boolean>();
   /**
    * Whether this document is the studio's canvas frame.
@@ -208,7 +250,11 @@ export const ValTanStackProvider = (props: {
    * the document was loaded, and it cannot change without a navigation.
    */
   const [isCanvas, setIsCanvas] = React.useState(false);
-  const [draftMode, setDraftMode] = React.useState<boolean | null>(null);
+  // Known on the server when it read a draft: `fetchValDraft` only reads one
+  // in draft mode. Otherwise unknown until `/draft/stat` answers.
+  const [draftMode, setDraftMode] = React.useState<boolean | null>(
+    initialDraft !== null ? true : null,
+  );
   /**
    * Resolves when `draftMode` stops being unknown.
    *
@@ -596,6 +642,9 @@ export const ValTanStackProvider = (props: {
       SET_AUTO_TAG_JSX_ENABLED(false);
     } else {
       if (draftMode) {
+        // Safe for a page rendered from a server draft too: what a component
+        // renders while it hydrates has no edit tags to turn into attributes
+        // (`useEncodesEditTags`), so this cannot reach one still hydrating.
         SET_AUTO_TAG_JSX_ENABLED(true);
         const reactServerComponentRefreshListener = (event: Event) => {
           if (event instanceof CustomEvent) {
@@ -734,6 +783,7 @@ export const ValTanStackProvider = (props: {
       draftMode={draftMode}
       draftModeReady={draftModeReady.current?.promise}
       draftSourcesSynced={draftSourcesSynced}
+      serverDraft={initialDraft !== null}
       suspend={suspendActive}
       store={valStore}
     >

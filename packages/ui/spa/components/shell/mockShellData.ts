@@ -792,6 +792,7 @@ export const mockShellData: ShellData = {
   admin: {
     project: "https://admin.val.build/~/val-demo/val-demo-project",
     members: "https://admin.val.build/manage-members/val-demo",
+    ai: "https://admin.val.build/manage-ai/val-demo/val-demo-project",
   },
   branch: "main",
   hasRouters: true,

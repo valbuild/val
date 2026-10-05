@@ -1092,6 +1092,9 @@ export function Shell({
           breakpoint={breakpoint}
           projectName={data.projectName}
           projectHref={data.admin?.project}
+          webComponentsUrl={data.webComponentsUrl}
+          membersHref={data.admin?.members}
+          studioMode={data.studioMode}
           logo={data.logo}
           openPanel={openPanel}
           onTogglePanel={togglePanel}
