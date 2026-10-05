@@ -177,6 +177,24 @@ _fields_ are involved is the schema's business.
 commit ships content and settings together, so a `settings:publish` cannot
 exist.
 
+### Implications
+
+**Val defines implications among its own built-ins, and never among project
+permissions.**
+
+- `settings:write` implies `settings:read`. A role with only `settings:write`
+  would have editable fields in a panel that is not in its nav.
+- `content:write` or `publish` gives the discard controls (below).
+
+There is no `content:read`. Reading content is not gated by any permission —
+only narrowed, by `hidden` and by locale scope — so it would gate nothing the
+session does not, and `publish` would have to imply it as well, which leaves it
+distinguishing a viewer from `[]` and nothing else.
+
+`seo:edit` implying `seo:read` is the developer's to say, in the schema (see the
+schema API). Val knows what its own permissions mean; it does not know what a
+project's mean.
+
 ### Discarding is not a permission
 
 `DELETE /patches` has no permission of its own. **The discard controls appear if
