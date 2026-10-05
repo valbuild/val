@@ -28,6 +28,7 @@ import {
 import { StatusStore } from "./StatusStore";
 import {
   PatchSync,
+  isSaveStuck,
   type ResyncChain,
   type SavePatches,
   type PatchGroupResolver,
@@ -126,12 +127,15 @@ export function takeNamedPrefix(
 }
 
 /**
- * How long a publish waits for local edits to reach the server.
+ * How long a publish waits for a save that never answers.
  *
- * One save round trip, with room to spare. Past it the publish refuses rather
- * than waiting on: see `publish`, which has to answer the Save button.
+ * A BACKSTOP, not the bound. A save that fails ends the wait as soon as it
+ * fails (see `publish`), so this only decides how long Save spins on a request
+ * that neither succeeds nor errors. It used to be 5 seconds and the only bound,
+ * and a slow save — `next dev` recompiling after the previous publish took
+ * 5.4s — was refused as one that could not be saved.
  */
-const SAVE_FLUSH_TIMEOUT_MS = 5000;
+const SAVE_FLUSH_TIMEOUT_MS = 60_000;
 
 /**
  * Stores in the HOST realm: they either hold user closures, or need to read
@@ -509,11 +513,12 @@ export type SystemOptions = {
    */
   fetchBaseSources?: FetchBaseSources;
   /**
-   * How long `publish` waits for local edits to reach the server.
+   * How long `publish` waits for a save that never answers.
    *
    * Defaults to {@link SAVE_FLUSH_TIMEOUT_MS}. Past it the publish refuses with
    * `unsaved-changes` rather than waiting on, because it has to answer the Save
-   * button — see `publish`.
+   * button — see `publish`. A save that FAILS ends the wait sooner, whatever
+   * this is.
    */
   saveFlushTimeoutMs?: number;
   /** `POST /save`. Omitting it means this system cannot publish. */
@@ -2723,15 +2728,29 @@ export function createSystem(options: SystemOptions): System {
           patchStore.unsavedRecords().length > 0
         ) {
           /**
-           * Bounded, because `flush` is not.
+           * Bounded by FAILURE, because `flush` is not bounded at all.
            *
            * `PatchSync.drain` retries a failed save for as long as the network is
            * down — which is right for the sync and fatal here: awaiting it would
-           * leave Save spinning forever with no way to say why. And if the sync
-           * is ALREADY retrying, the answer is known: the server cannot be
-           * reached, so there is nothing to wait for.
+           * leave Save spinning forever with no way to say why. So the wait ends
+           * the moment the sync calls the save stuck (`isSaveStuck`), and if it
+           * already is, the answer is known before waiting at all. Stuck, not
+           * merely `retrying`: one 409 or one blip while a dev server restarts
+           * is retried and absorbed, and refusing on it would refuse a publish
+           * the retry was about to make possible.
+           *
+           * NOT by a clock. This used to race the flush against 5 seconds, and a
+           * save that was merely slow lost: refused as "could not be saved.
+           * Check the connection" about a change the server accepted a moment
+           * later. In `fs` mode the slow save is the ordinary one straight after
+           * a publish — the publish rewrites `.val.ts` files, `next dev`
+           * recompiles, and the next `PUT /patches` waits on the rebuild.
+           *
+           * The timer is left only as a backstop for a request that never
+           * answers at all, which no state change would ever report.
            */
-          if (patchSync.currentState().status !== "retrying") {
+          if (!isSaveStuck(patchSync.currentState())) {
+            let stopWaiting = () => {};
             await Promise.race([
               patchSync.flush().catch(() => undefined),
               new Promise<void>((resolve) => {
@@ -2744,8 +2763,16 @@ export function createSystem(options: SystemOptions): System {
                 if (typeof timer === "object" && "unref" in timer) {
                   timer.unref();
                 }
+                const off = patchSync.events.on("patch:sync-state", (event) => {
+                  if (isSaveStuck(event.state)) resolve();
+                });
+                stopWaiting = () => {
+                  clearTimeout(timer);
+                  off();
+                };
               }),
             ]);
+            stopWaiting();
           }
         }
         // Only where a save is possible at all. A system with no save seam holds
