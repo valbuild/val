@@ -72,7 +72,7 @@ export default c.define("/settings.val.ts", s.settings(), {
       usr_7f3a91: ["publisher", "admin"],
       "ola@company.com": {
         roles: ["translator"],
-        locales: { read: ["en-US", "nb-NO"], write: ["nb-NO"] },
+        locales: { "en-US": "read", "nb-NO": "write", "fr-FR": null },
       },
     },
     default: ["editor"],
@@ -429,23 +429,46 @@ member's granted locales. No new resolver, and the three implementations cannot
 drift.
 
 ```ts
-"ola@company.com": {
-  roles: ["translator"],
-  locales: { read: ["en-US", "nb-NO"], write: ["nb-NO"] },
+usr_ola: {
+  locales: { "en-US": "read", "nb-NO": "write", "fr-FR": null },
 }
 ```
 
-Read is wider than write, not separate from it: a translator who cannot see the
-source language cannot translate, so Ola reads English in order to write
-Norwegian. `read` is there to say what he may see BEYOND what he may change.
+`locales` is a record keyed by locale, one **level** per language: `"write"`,
+`"read"`, or `null` for neither. It is the same shape as `assistant.translation`
+in the same settings module, and it reads the way the Access panel will show it —
+each language, and what this person does in it.
+
+A translator who cannot see the source language cannot translate, so Ola reads
+English in order to write Norwegian. **Write includes read** by construction: a
+language has one level, and `"write"` is the higher one, so there is nothing for a
+write to contradict.
+
+The level is a limit, not a grant. `"write"` means "where your `content:write`
+applies" — it gives nothing to someone who holds no `content:write` from their
+roles or `default`. That is why the values are levels rather than permission
+lists: `"nb-NO": ["content:write"]` would read as a grant, would bring back a
+`content:read` that exists nowhere else, and would make `"nb-NO": ["publish"]`
+valid syntax for scoping something that is never scoped.
+
+**The record is complete**, under #608's rule for any record with a declared key
+set: every language in `locales.available` is present, and `null` means no
+access. Adding a language to the project is therefore safe by default — #608's
+`record:fill-keys` fix writes `"de-DE": null` into every scoped member, so nobody
+quietly gains or loses anything, and the new language appears on each row as a
+decision to make. The cost is that every scoped member lists every language; the
+fix writes them, so nobody types them.
+
+`roles` is optional in the object form. A member who is a translator by virtue of
+`default` alone is just their `locales`.
 
 **Locale scope narrows exactly one thing: where you can type.** `content:write`
 is checked against it; `publish`, `settings:read`,
 `settings:write` and `assistant:use` are not, and none of them ever will be by
 this mechanism. That is worth stating as a rule rather than leaving as an
 accident of which cases came up, because it is what keeps the model small: a
-member has a permission set and, separately, a pair of locale sets, and only one
-permission consults them.
+member has a permission set and, separately, a level per language, and only
+one permission consults them.
 
 It also closes a question that looked open. Scope hangs off the member's entry
 and so covers every role in it at once, which cannot say "Norwegian editor, and
@@ -480,30 +503,18 @@ than in settings: the confirm already names whose work would go
 (`discardAuthorNames`, `ValShell.tsx:222`). That is the conscience mechanism
 working at the right layer.
 
-**Write includes read.** What a member may read is `read ∪ write`, always — a
-locale you may type into is a locale you may look at, and there is no
-configuration in which that is not so. So `write` is not checked against `read`
-and cannot contradict it; `{ read: ["nb-NO"], write: ["fr-FR"] }` is a member who
-reads both and writes French, not an error to report. Read is derived from write,
-never denied against it.
-
-That is the general shape rather than a locale rule: every narrowing of reading
-in this plan is a narrowing of reading ALONE. Nothing anywhere grants a write
-without the matching read.
+**Nothing anywhere grants a write without the matching read.** For locales that
+holds by construction, since `"write"` is a level above `"read"`; for project
+permissions the schema says it, by listing the write permission in `hidden`.
 
 Defaults:
 
-- `locales` absent — every locale, read and write.
-- `locales.read` absent — every locale readable.
-- `locales.write` absent — defaults to `read`.
+- `locales` absent — every locale, read and write. The member is unscoped.
+- A language at `null` — not listed for this member at all.
 - Content outside any locale scope — shared images, non-localized fields — is
   **readable and not writable** by a locale-scoped member. This is the
   translator semantic and the safe default; it may prove too strict for someone
   who works in two of three languages.
-
-No shorthand. `locales: ["nb-NO"]` would read equally well as "reads and writes
-Norwegian" and as "reads everything, writes Norwegian", which is the same
-ambiguity the `unless` key exists to avoid.
 
 **Publish is not locale-gated.** One commit ships the whole pending set, and
 splitting that is a bigger change than this is worth. The consequence is that a
@@ -513,7 +524,7 @@ confirm already names whose work it would throw away.
 
 Viewing within the readable set stays a user preference: #608's locale filter is
 a filter, not a permission, and a deep link to a readable locale still opens it.
-A link to a locale outside `read` explains itself rather than 404ing.
+A link to a locale the member cannot read explains itself rather than 404ing.
 
 ## Validation
 
@@ -542,7 +553,9 @@ clear the block**, not about how wrong the configuration is.
 Errors — self-contained, fixable in the file being edited:
 
 - A member references a role that `roles` does not define.
-- `locales.read` / `locales.write` name a language not in `locales.available`.
+- A member's `locales` names a language not in `locales.available`, or a level
+  other than `"read"`, `"write"` or `null`. (A language missing from it is the
+  completeness error #608 already reports, with `record:fill-keys` as the fix.)
 
 Warnings — one half of the statement lives in code:
 
@@ -623,8 +636,14 @@ access: {
     lead: ["content:write", "publish"],
   },
   members: {
-    usr_ola: { roles: ["translator"], locales: { read: ["en-US", "nb-NO"], write: ["nb-NO"] } },
-    usr_marie: { roles: ["translator"], locales: { read: ["en-US", "fr-FR"], write: ["fr-FR"] } },
+    usr_ola: {
+      roles: ["translator"],
+      locales: { "en-US": "read", "nb-NO": "write", "fr-FR": null },
+    },
+    usr_marie: {
+      roles: ["translator"],
+      locales: { "en-US": "read", "nb-NO": null, "fr-FR": "write" },
+    },
     usr_sam: ["lead"],
   },
   default: [],
@@ -802,7 +821,7 @@ s.object({
 });
 ```
 
-For `usr_ola`, `{ read: ["en-US", "nb-NO"], write: ["nb-NO"] }`:
+For `usr_ola`, `{ "en-US": "read", "nb-NO": "write", "fr-FR": null }`:
 
 | Path                    | `localeAt` | Ola sees   |
 | ----------------------- | ---------- | ---------- |
@@ -817,20 +836,23 @@ An object with a `locale` field, where each array item is its own scope:
 announcements: s.array(s.object({ locale: s.locale(), headline: s.string() }));
 ```
 
-Grants and what they mean:
+Scopes and what they mean, in a project with `en-US`, `nb-NO` and `fr-FR`:
 
 ```ts
 { roles: ["translator"] }
-// every locale, read and write
+// unscoped: every locale, read and write
 
-{ roles: ["translator"], locales: { read: ["en-US", "nb-NO"] } }
-// write defaults to read: reads and writes both, nothing else
+{ locales: { "en-US": "read", "nb-NO": "write", "fr-FR": null } }
+// default's roles, writing Norwegian, reading English, not seeing French
 
-{ roles: ["translator"], locales: { write: ["nb-NO"] } }
+{ locales: { "en-US": "read", "nb-NO": "write", "fr-FR": "read" } }
 // reads everything, writes Norwegian
 
-{ roles: ["translator"], locales: { read: ["nb-NO"], write: ["nb-NO", "fr-FR"] } }
-// reads and writes both: write is added to read, never checked against it
+{ locales: { "en-US": "write", "nb-NO": "write", "fr-FR": null } }
+// two languages, both written
+
+{ locales: { "en-US": "read", "nb-NO": "write" } }
+// ERROR: `fr-FR` is missing — the record is complete; fix: record:fill-keys
 ```
 
 ### Resolution
@@ -877,10 +899,11 @@ members: {
 }
 // `shipper` is not a role. Defined roles: editor, publisher, admin.
 
-locales: {
-  read: ["nb-NOO"];
-}
+locales: { "nb-NOO": "write", /* … */ }
 // `nb-NOO` is not one of the project's languages.
+
+locales: { "nb-NO": "edit", /* … */ }
+// `edit` is not a level. Use "read", "write" or null.
 ```
 
 Warnings — the other half lives in code:
