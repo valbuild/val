@@ -10,6 +10,7 @@ import {
   heldByContent,
 } from "../publish/publishJobs";
 import { publishProgress } from "../publish/publishProgress";
+import { netChangeModules } from "./netChangeModules";
 import {
   EDGE_CACHE_MS,
   otherEditorsJobs,
@@ -2162,6 +2163,7 @@ export function useHasNetChanges(): boolean {
   const sourcesVersion = useSourcesVersion();
   const chainVersion = useChainVersion();
   const committed = useCommittedPatches();
+  const publishing = usePublishingPatchIds();
 
   /*
    * Read off the CHAIN, not off the patch sets.
@@ -2173,18 +2175,17 @@ export function useHasNetChanges(): boolean {
    * where nothing has. `patchStore.allRecords()` already names each record's
    * module and is synchronous, so there is no window.
    */
-  const modules = useMemo((): ModuleFilePath[] => {
-    if (val === null) return [];
+  const { compare: modules, changesOnPublishing } = useMemo<
+    ReturnType<typeof netChangeModules>
+  >(() => {
+    if (val === null) return { compare: [], changesOnPublishing: false };
     void chainVersion;
-    const seen = new Set<ModuleFilePath>();
-    for (const record of val.system.patchStore.allRecords()) {
-      // A patch that has shipped is history, not pending work: its two sides
-      // are equal BECAUSE it shipped, which is the opposite of a no-op.
-      if (committed.has(record.patchId)) continue;
-      seen.add(record.moduleFilePath);
-    }
-    return [...seen];
-  }, [val, chainVersion, committed]);
+    return netChangeModules(
+      val.system.patchStore.allRecords(),
+      committed,
+      publishing,
+    );
+  }, [val, chainVersion, committed, publishing]);
 
   return useMemo(() => {
     // As in the loop below: what is not known yet counts as a change. `false`
@@ -2199,6 +2200,8 @@ export function useHasNetChanges(): boolean {
      * records that cannot be discarded.
      */
     if (modules.length === 0) return true;
+    // See `netChangeModules`: compared with a base that is about to move.
+    if (changesOnPublishing) return true;
     void sourcesVersion;
     void chainVersion;
     const store = val.system.sourceStore;
@@ -2222,7 +2225,7 @@ export function useHasNetChanges(): boolean {
       }
     }
     return false;
-  }, [val, sourcesVersion, chainVersion, modules]);
+  }, [val, sourcesVersion, chainVersion, modules, changesOnPublishing]);
 }
 
 /**
