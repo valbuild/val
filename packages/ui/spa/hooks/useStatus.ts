@@ -308,6 +308,12 @@ export function useStatus(client: ValClient) {
   >();
 
   const statIdRef = useRef(0);
+  /**
+   * How many socket `patches` messages have been taken. A `/stat` answer
+   * requested before the latest of them is older than it -- see
+   * {@link withNewerPublishing}.
+   */
+  const socketPatchesRef = useRef(0);
   /** Who hears a `publish-job` nudge. See `subscribePublishJobs`. */
   const publishJobListeners = useRef(new Set<(job: PublishJobNudge) => void>());
   const onPublishJob = useCallback((job: PublishJobNudge) => {
@@ -355,6 +361,7 @@ export function useStatus(client: ValClient) {
           webSocketRef,
           connectionIdRef,
           statIdRef,
+          socketPatchesRef,
           stat,
           setStat,
           setAuthenticationLoadingIfNotAuthenticated,
@@ -377,6 +384,7 @@ export function useStatus(client: ValClient) {
             webSocketRef,
             connectionIdRef,
             statIdRef,
+            socketPatchesRef,
             stat,
             setStat,
             setAuthenticationLoadingIfNotAuthenticated,
@@ -401,6 +409,7 @@ export function useStatus(client: ValClient) {
         webSocketRef,
         connectionIdRef,
         statIdRef,
+        socketPatchesRef,
         stat,
         setStat,
         setAuthenticationLoadingIfNotAuthenticated,
@@ -479,6 +488,29 @@ export function chainOfMessage(
   };
 }
 
+/**
+ * A `/stat` answer, with the publishing set kept from a socket message that
+ * arrived after the request went out.
+ *
+ * Socket messages do not move `statIdRef`, so an answer requested before a
+ * publish started elsewhere was taken whole after the socket had said which
+ * changes that publish holds -- and Publish was offered over them until the
+ * next update. Only the publishing set, which nothing else orders: the chain
+ * has its own version.
+ */
+export function withNewerPublishing<
+  T extends Pick<StatData, "publishingPatches">,
+>(
+  answer: T,
+  current: Pick<StatData, "publishingPatches"> | undefined,
+  socketSpokeSince: boolean,
+): T {
+  if (!socketSpokeSince || current?.publishingPatches === undefined) {
+    return answer;
+  }
+  return { ...answer, publishingPatches: current.publishingPatches };
+}
+
 /** How long the Studio leaves between `/stat` calls once a socket is up. */
 const WebSocketStatInterval = 2 * 60 * 10 * 1000;
 
@@ -548,6 +580,7 @@ async function execStat(
   webSocketRef: React.MutableRefObject<WebSocket | null>,
   connectionIdRef: React.MutableRefObject<string>,
   statIdRef: React.MutableRefObject<number>,
+  socketPatchesRef: React.MutableRefObject<number>,
   stat: StatState,
   setStat: Dispatch<SetStateAction<StatState>>,
   setAuthenticationLoadingIfNotAuthenticated: () => void,
@@ -556,6 +589,7 @@ async function execStat(
   onPublishJob: (job: PublishJobNudge) => void,
 ) {
   const id = ++statIdRef.current;
+  const socketPatchesAtRequest = socketPatchesRef.current;
   let body = null;
   if ("data" in stat && stat.data) {
     body = {
@@ -585,6 +619,13 @@ async function execStat(
         setStat((prev) => ({
           status: "error",
           error: "Service unavailable",
+          /*
+           * The last answer stands, as it does for every other error
+           * (`createError`): an outage is not news that a publish ended, and
+           * dropping the data released every change content had said a
+           * running publish holds.
+           */
+          data: "data" in prev ? prev.data : undefined,
           retries: ("retries" in prev ? prev.retries : 0) + 1,
           waitStart: Date.now(),
           wait: 5000,
@@ -609,10 +650,15 @@ async function execStat(
             wait: webSocketRef.current ? WebSocketStatInterval : 0, // why 0 wait unless websocket? If websocket is not used, we are long polling so no point in waiting
           });
         } else if (res.json.type === "use-websocket") {
+          const answer = res.json;
           setStat((prev) => ({
             ...prev,
             status: "updated-request-again",
-            data: res.json,
+            data: withNewerPublishing(
+              answer,
+              "data" in prev ? prev.data : undefined,
+              socketPatchesRef.current !== socketPatchesAtRequest,
+            ),
             waitStart: Date.now(),
             wait: WebSocketStatInterval,
           }));
@@ -647,6 +693,7 @@ async function execStat(
               }
               const message = messageRes.data;
               if (message.type === "patches") {
+                socketPatchesRef.current++;
                 setStat((prev) => {
                   if ("data" in prev && prev.data) {
                     return {

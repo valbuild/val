@@ -6,6 +6,7 @@ import type { StudioJobClient } from "./jobClient";
 import {
   createPublishJobs,
   publishingPatchIds,
+  heldByContent,
   type TrackedPublish,
 } from "./publishJobs";
 import type { StudioJobResult } from "./runStudioJob";
@@ -535,5 +536,145 @@ describe("publishingPatchIds with what content reports", () => {
 
   test("content not saying is the same as before it could", () => {
     expect(publishingPatchIds(nothingPressedHere, undefined).size).toBe(0);
+  });
+});
+
+test("a press that goes Live while its job is still building holds what its job took", async () => {
+  // The refresh that settles it runs DURING the build, so deciding which
+  // presses the job carries after the build missed it, and p2 lit Publish.
+  const { client, statuses } = fakeClient({
+    next: async () => ({ ...job("J1"), patches: ["p1", "p2"] }),
+  });
+  let finish!: () => void;
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: (j) =>
+      new Promise((resolve) => {
+        finish = () => resolve(handedOff(j.id));
+      }),
+    takesQueuedWork: () => true,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: null,
+    patchIds: ["p1"],
+  });
+  jobs.nudge();
+  await flush();
+  statuses.set("r1", { kind: "live", commit: "C1" });
+  jobs.nudge();
+  await flush();
+  expect(jobs.get().requests[0]!.status.kind).toBe("live");
+  finish();
+  await flush();
+  expect([...publishingPatchIds(jobs.get())].sort()).toEqual(["p1", "p2"]);
+});
+
+describe("Try again holds its changes from the click", () => {
+  const failed = {
+    kind: "failed" as const,
+    message: "build",
+    actions: ["try-again" as const],
+    job: "J1",
+  };
+
+  function retrying(
+    answer: Promise<Awaited<ReturnType<StudioJobClient["tryAgain"]>>>,
+  ) {
+    const { client } = fakeClient({ tryAgain: () => answer });
+    const jobs = createPublishJobs({
+      client,
+      tab: "ada",
+      build: async (j) => handedOff(j.id),
+      takesQueuedWork: () => false,
+    });
+    jobs.track({
+      requestId: "r1",
+      request: failed,
+      job: null,
+      patchIds: ["p1"],
+    });
+    return jobs;
+  }
+
+  test("before content has answered", async () => {
+    // Until it answers, the failed press is settled and holds nothing.
+    const jobs = retrying(new Promise(() => {}));
+    expect(publishingPatchIds(jobs.get()).size).toBe(0);
+    void jobs.tryAgain("r1", { patchIds: ["p2"] });
+    await flush();
+    expect([...publishingPatchIds(jobs.get())].sort()).toEqual(["p1", "p2"]);
+  });
+
+  test("and gives them back if the retry could not be sent", async () => {
+    const jobs = retrying(Promise.reject(new Error("offline")));
+    const result = await jobs.tryAgain("r1", { patchIds: ["p2"] });
+    expect(result.ok).toBe(false);
+    expect(publishingPatchIds(jobs.get()).size).toBe(0);
+  });
+});
+
+describe("heldByContent", () => {
+  const none: ReadonlySet<string> = new Set();
+
+  test("holds what content says a running publish holds", () => {
+    expect([
+      ...heldByContent(none, {
+        publishingPatches: ["p1"],
+        patches: ["p1", "p2"],
+        appliedPatches: [],
+      }),
+    ]).toEqual(["p1"]);
+  });
+
+  test("gives a change back when content lists it as pending again", () => {
+    // The publish failed, was cancelled or was interrupted.
+    expect(
+      heldByContent(new Set(["p1"]), {
+        publishingPatches: [],
+        patches: ["p1"],
+        appliedPatches: [],
+      }).size,
+    ).toBe(0);
+  });
+
+  test("keeps holding a change content reports applied", () => {
+    // Sealed: the patch store takes the applied list and the new base on its
+    // own schedule, and the change reads as unpublished until it has.
+    expect([
+      ...heldByContent(new Set(["p1"]), {
+        publishingPatches: [],
+        patches: ["p1"],
+        appliedPatches: ["p1"],
+      }),
+    ]).toEqual(["p1"]);
+  });
+
+  test("keeps holding a change content no longer lists: it is in the base", () => {
+    expect([
+      ...heldByContent(new Set(["p1"]), {
+        publishingPatches: [],
+        patches: [],
+        appliedPatches: [],
+      }),
+    ]).toEqual(["p1"]);
+  });
+
+  test("a content service that does not say is no news", () => {
+    const held = new Set(["p1"]);
+    expect(heldByContent(held, { patches: ["p1"] })).toBe(held);
+  });
+
+  test("the same answer keeps the same set", () => {
+    const held = new Set(["p1"]);
+    expect(
+      heldByContent(held, {
+        publishingPatches: ["p1"],
+        patches: ["p1"],
+        appliedPatches: [],
+      }),
+    ).toBe(held);
   });
 });

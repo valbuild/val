@@ -7,6 +7,7 @@ import {
   type PublishJobs,
   type PublishJobsState,
   type TrackedPublish,
+  heldByContent,
 } from "../publish/publishJobs";
 import { publishProgress } from "../publish/publishProgress";
 import {
@@ -233,11 +234,11 @@ type ValContextValue = {
    */
   observedPublishJobs: readonly ObservedJob[];
   /**
-   * The changes a publish that is still running holds, as content last said:
-   * pressed on this tab, another tab or another device. `undefined` where it
-   * does not say. See `publishingPatches` on `StatData`.
+   * The changes a publish that is still running holds, as content said:
+   * pressed on this tab, another tab or another device -- and kept until
+   * content lists them as pending again. See `heldByContent`.
    */
-  serverPublishingPatchIds: readonly string[] | undefined;
+  serverPublishingPatchIds: ReadonlySet<string>;
   /**
    * Whether a press of Publish is a publish job here: every managed project,
    * and a connected one hosted on the platform (the server says, on `/stat`).
@@ -581,6 +582,18 @@ export function ValProvider({
    */
   const statApplied =
     "data" in stat && stat.data ? stat.data.appliedPatches : undefined;
+  /** See {@link ValContextValue.serverPublishingPatchIds}. */
+  const heldByContentRef = useRef<ReadonlySet<string>>(new Set());
+  const statData = "data" in stat ? stat.data : undefined;
+  const statPublishing = statData?.publishingPatches;
+  const serverPublishingPatchIds = useMemo(() => {
+    heldByContentRef.current = heldByContent(heldByContentRef.current, {
+      publishingPatches: statPublishing,
+      patches: statPatches,
+      appliedPatches: statApplied,
+    });
+    return heldByContentRef.current;
+  }, [statPublishing, statPatches, statApplied]);
   /** The publish head, carried to `/save`. See `newestCommitSha`. */
   const statHead =
     "data" in stat && stat.data ? stat.data.headCommitSha : undefined;
@@ -1253,8 +1266,7 @@ export function ValProvider({
         publishJobs,
         publishJobsState,
         observedPublishJobs,
-        serverPublishingPatchIds:
-          "data" in stat && stat.data ? stat.data.publishingPatches : undefined,
+        serverPublishingPatchIds,
         publishesAsJobs,
         profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",

@@ -1,6 +1,7 @@
 import {
   awaitingDeploymentInterval,
   chainOfMessage,
+  withNewerPublishing,
   StatData,
 } from "./useStatus";
 
@@ -191,5 +192,38 @@ describe("chainOfMessage", () => {
       chainOfMessage({ appliedPatches: ["p1"] as StatData["patches"] }, message)
         .appliedPatches,
     ).toEqual(["p1"]);
+  });
+});
+
+describe("withNewerPublishing", () => {
+  const answer = {
+    patches: ["p1"] as StatData["patches"],
+    publishingPatches: [] as StatData["patches"],
+  };
+
+  // Requested before another tab pressed Publish, answered after the socket
+  // said what that publish holds: the socket is newer.
+  test("keeps the socket's set when the socket spoke after the request", () => {
+    expect(
+      withNewerPublishing(
+        answer,
+        { publishingPatches: ["p1"] as StatData["patches"] },
+        true,
+      ).publishingPatches,
+    ).toEqual(["p1"]);
+  });
+
+  test("takes the answer's set when nothing newer arrived", () => {
+    expect(
+      withNewerPublishing(
+        answer,
+        { publishingPatches: ["p1"] as StatData["patches"] },
+        false,
+      ).publishingPatches,
+    ).toEqual([]);
+  });
+
+  test("takes the answer whole when there is no set to keep", () => {
+    expect(withNewerPublishing(answer, undefined, true)).toBe(answer);
   });
 });

@@ -67,6 +67,11 @@ export type PublishJobsState = {
   requests: readonly TrackedPublish[];
   /** The job this tab is building, and how far it has got. */
   running: { jobId: string; phase: JobPhase | null } | null;
+  /**
+   * Retries whose press has not been answered yet, by the new request id, and
+   * the changes each sends: held from the click. See `tryAgain`.
+   */
+  retrying?: Readonly<Record<string, readonly string[]>>;
 };
 
 export type PublishJobs = {
@@ -153,14 +158,64 @@ export function publishingPatchIds(
    * reloaded. This tab's own requests cover the moment between its press and
    * content's next answer, when Publish would otherwise light up again.
    */
-  reported?: readonly string[],
+  reported?: Iterable<string>,
 ): ReadonlySet<string> {
   const ids = new Set<string>(reported ?? []);
+  for (const held of Object.values(state.retrying ?? {})) {
+    for (const id of held) ids.add(id);
+  }
   for (const request of state.requests) {
     if (isSettled(request.status) && !isSealed(request.status)) continue;
     for (const id of request.patchIds ?? []) ids.add(id);
   }
   return ids;
+}
+
+/**
+ * The changes content says a running publish holds, kept until content says
+ * they are pending again.
+ *
+ * Content stops listing a change the moment its publish ends. If it ended in
+ * a seal, this Studio has yet to take that in: the patch store adopts the
+ * applied list and the new base on its own schedule (`BaseAlignment` fetches
+ * it), and until then the change still reads as unpublished. Releasing it with
+ * content's list lit Publish for that fetch, over a change already published.
+ *
+ * So a change leaves this set only when content lists it as PENDING -- in the
+ * chain and not applied -- which is a publish that failed, was cancelled or
+ * was interrupted giving it back. One content reports applied, or no longer
+ * lists at all (built into the base), stays held, and the store's own
+ * committed / forgotten state takes over from there.
+ *
+ * `undefined` publishing is a content service that does not say: no news.
+ */
+export function heldByContent(
+  previous: ReadonlySet<string>,
+  report:
+    | {
+        publishingPatches?: readonly string[];
+        patches?: readonly string[];
+        appliedPatches?: readonly string[];
+      }
+    | undefined,
+): ReadonlySet<string> {
+  if (report?.publishingPatches === undefined) return previous;
+  const applied = new Set(report.appliedPatches ?? []);
+  const pending = new Set(
+    (report.patches ?? []).filter((patchId) => !applied.has(patchId)),
+  );
+  const next = new Set(report.publishingPatches);
+  for (const patchId of previous) {
+    if (!pending.has(patchId)) next.add(patchId);
+  }
+  // The same set keeps its identity, so what reads it does not re-render.
+  if (
+    next.size === previous.size &&
+    [...next].every((id) => previous.has(id))
+  ) {
+    return previous;
+  }
+  return next;
 }
 
 export function createPublishJobs(options: {
@@ -226,6 +281,20 @@ export function createPublishJobs(options: {
   async function run(job: PublishTabJob) {
     if (state.running !== null || stopped) return;
     set({ ...state, running: { jobId: job.id, phase: null } });
+    /*
+     * The presses this job may carry: those open when it STARTS. Taken before
+     * anything is awaited, because a status refresh during the build -- or the
+     * one after it -- can settle one, Live or failed after the seal, and that
+     * one is still this job's and still holds what the job took.
+     */
+    const open = new Set(
+      state.requests
+        .filter(
+          (request) =>
+            !isSettled(request.status) && request.handedOffAt === undefined,
+        )
+        .map((request) => request.requestId),
+    );
     try {
       const result = await runJobToEnd({
         client,
@@ -241,19 +310,6 @@ export function createPublishJobs(options: {
       if (result.status === "handed-off") {
         const at = now();
         const builtBy = result.built ? "studio" : "ci";
-        /*
-         * The presses this job may carry: those still open before the
-         * refresh below. Taken first, because the refresh can settle one --
-         * Live, or failed after the seal -- and that one is still this job's.
-         */
-        const open = new Set(
-          state.requests
-            .filter(
-              (request) =>
-                !isSettled(request.status) && request.handedOffAt === undefined,
-            )
-            .map((request) => request.requestId),
-        );
         // Where each press is now, so one still queued behind this job is
         // not taken for one of its own.
         await refresh();
@@ -416,20 +472,34 @@ export function createPublishJobs(options: {
     },
     tryAgain: async (requestId, retryOptions) => {
       const requestIdAgain = randomUUID();
+      const replaced = state.requests.find((r) => r.requestId === requestId);
+      // A retry sends the changes the failed press did, and whatever has
+      // been saved since: the new job takes everything pending.
+      const sent = [
+        ...(replaced?.patchIds ?? []),
+        ...(retryOptions?.patchIds ?? []),
+      ];
+      /*
+       * Held from the click, not from content's answer: until it comes, the
+       * failed press is settled and holds nothing, and Publish was offered
+       * over the very changes being retried for that round trip.
+       */
+      set({
+        ...state,
+        retrying: { ...state.retrying, [requestIdAgain]: sent },
+      });
+      const releaseRetryHold = () => {
+        const { [requestIdAgain]: _released, ...rest } = state.retrying ?? {};
+        void _released;
+        set({ ...state, retrying: rest });
+      };
       try {
         const pressed = await client.tryAgain(requestIdAgain, tab);
-        const replaced = state.requests.find((r) => r.requestId === requestId);
         set({
           ...state,
           requests: state.requests.filter((r) => r.requestId !== requestId),
         });
         // Through `track`, so a press that settled at once is announced.
-        // A retry sends the changes the failed press did, and whatever has
-        // been saved since: the new job takes everything pending.
-        const sent = [
-          ...(replaced?.patchIds ?? []),
-          ...(retryOptions?.patchIds ?? []),
-        ];
         track({
           requestId: requestIdAgain,
           request: pressed.request,
@@ -439,8 +509,11 @@ export function createPublishJobs(options: {
             ? { patchIds: sent }
             : {}),
         });
+        // `track` holds them now, as the new press's own.
+        releaseRetryHold();
         return { ok: true };
       } catch (error) {
+        releaseRetryHold();
         return { ok: false, message: messageOf(error) };
       }
     },
