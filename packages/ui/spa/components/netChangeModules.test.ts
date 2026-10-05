@@ -51,4 +51,20 @@ describe("netChangeModules", () => {
       ),
     ).toEqual({ compare: [footer], changesOnPublishing: false });
   });
+
+  /*
+   * With nothing staged, p1 publishes from another tab and p2 is unstaged in
+   * the same module. p2 is not Publish's to send, so it must not count as a
+   * change: compared as before, it reads as unstaged, not as work.
+   */
+  test("an unstaged change is compared, never counted as a change under a publish", () => {
+    expect(
+      netChangeModules(
+        records(["p1", page], ["p2", page]),
+        new Set(),
+        new Set(["p1"]),
+        new Set(["p2"]),
+      ),
+    ).toEqual({ compare: [page], changesOnPublishing: false });
+  });
 });

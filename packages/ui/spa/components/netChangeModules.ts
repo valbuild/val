@@ -15,8 +15,16 @@ export function netChangeModules(
   records: readonly { patchId: string; moduleFilePath: ModuleFilePath }[],
   committed: ReadonlySet<string>,
   publishing: ReadonlySet<string>,
+  /**
+   * Changes outside this tab's patch group. Publish does not send them, so
+   * they are never what makes a module "changed" under a running publish --
+   * they are compared as they always were, which reads them as unstaged rather
+   * than as work to publish.
+   */
+  unstaged: ReadonlySet<string> = new Set(),
 ): { compare: ModuleFilePath[]; changesOnPublishing: boolean } {
-  const pending = new Set<ModuleFilePath>();
+  const staged = new Set<ModuleFilePath>();
+  const unstagedModules = new Set<ModuleFilePath>();
   const inFlight = new Set<ModuleFilePath>();
   for (const record of records) {
     // A patch that has shipped is history, not pending work: its two sides
@@ -24,13 +32,17 @@ export function netChangeModules(
     if (committed.has(record.patchId)) continue;
     if (publishing.has(record.patchId)) {
       inFlight.add(record.moduleFilePath);
+    } else if (unstaged.has(record.patchId)) {
+      unstagedModules.add(record.moduleFilePath);
     } else {
-      pending.add(record.moduleFilePath);
+      staged.add(record.moduleFilePath);
     }
   }
-  const compare = [...pending].filter((module) => !inFlight.has(module));
-  return {
-    compare,
-    changesOnPublishing: compare.length < pending.size,
-  };
+  const compare = new Set<ModuleFilePath>(unstagedModules);
+  let changesOnPublishing = false;
+  for (const module of staged) {
+    if (inFlight.has(module)) changesOnPublishing = true;
+    else compare.add(module);
+  }
+  return { compare: [...compare], changesOnPublishing };
 }

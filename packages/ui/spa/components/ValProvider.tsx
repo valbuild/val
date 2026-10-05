@@ -2188,6 +2188,7 @@ export function useHasNetChanges(): boolean {
   const chainVersion = useChainVersion();
   const committed = useCommittedPatches();
   const publishing = usePublishingPatchIds();
+  const unstaged = useUnstagedPatchIds();
 
   /*
    * Read off the CHAIN, not off the patch sets.
@@ -2208,8 +2209,9 @@ export function useHasNetChanges(): boolean {
       val.system.patchStore.allRecords(),
       committed,
       publishing,
+      unstaged,
     );
-  }, [val, chainVersion, committed, publishing]);
+  }, [val, chainVersion, committed, publishing, unstaged]);
 
   return useMemo(() => {
     // As in the loop below: what is not known yet counts as a change. `false`

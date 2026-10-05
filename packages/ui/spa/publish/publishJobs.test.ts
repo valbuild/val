@@ -470,6 +470,36 @@ test("a press another tab's job published does not take this job's changes", asy
   expect([...publishingPatchIds(jobs.get())]).toEqual(["p1"]);
 });
 
+/*
+ * r2 sent [p1, p2], captured before the publish ahead of it (J1, which took
+ * p1) was marked applied. J2 then took p2, and p3 saved since. r2 is J2's, so
+ * it holds p3 too -- or Publish was offered over p3 while J2 published it.
+ */
+test("a press naming a change the publish before it took is still its job's", async () => {
+  const { client } = fakeClient({
+    next: async () => ({ ...job("J2"), patches: ["p2", "p3"] }),
+  });
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => handedOff(j.id),
+    takesQueuedWork: () => true,
+  });
+  jobs.track({
+    requestId: "r2",
+    request: { kind: "publishing" },
+    job: null,
+    patchIds: ["p1", "p2"],
+  });
+  jobs.nudge();
+  await flush();
+  expect([...publishingPatchIds(jobs.get())].sort()).toEqual([
+    "p1",
+    "p2",
+    "p3",
+  ]);
+});
+
 async function flush() {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }

@@ -368,17 +368,22 @@ export function createPublishJobs(options: {
    * changes to, which a status still `queued` is not.
    *
    * Content's status does not name that job, so what the press sent does: a
-   * job that took every change it sent. Moving on from `queued` alone is not
-   * enough -- a press another tab's job published goes Live too, and this job,
-   * which took none of its changes, would widen it with its own: held under a
-   * sealed press, so a failure here could never give them back.
+   * job that took at least one change it sent. Moving on from `queued` alone
+   * is not enough -- a press another tab's job published goes Live too, and
+   * this job, which took none of its changes, would widen it with its own:
+   * held under a sealed press, so a failure here could never give them back.
+   *
+   * At least one, not all: what a press sends is captured before the publish
+   * ahead of it is marked applied, so it can name a change that publish
+   * already took, and the job it joined then takes the rest.
    */
   function carries(job: PublishTabJob, request: TrackedPublish): boolean {
     const known = jobOfRequest.get(request.requestId);
     if (known !== undefined) return known === job.id;
     if (request.status.kind === "queued") return false;
+    if (request.patchIds === undefined) return true;
     const taken = new Set(job.patches);
-    return (request.patchIds ?? []).every((patchId) => taken.has(patchId));
+    return request.patchIds.some((patchId) => taken.has(patchId));
   }
 
   async function takeQueuedWork() {
