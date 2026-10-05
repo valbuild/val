@@ -737,9 +737,9 @@ pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
 in WebKit — Safari's engine, and every iOS browser's. It is declared only when
 asked for by name (`--project=webkit-http`), because a bare `playwright test`
 runs every project and WebKit is not installed in most places this runs: it
-needs `pnpm exec playwright install --with-deps webkit`. CI does not run it
-yet: adding it to the `e2e` matrix means changing `.github/workflows/check.yml`,
-one entry plus installing the matrix's browser rather than always chromium.
+needs `pnpm exec playwright install --with-deps webkit`. CI runs it as one
+entry of the `e2e` matrix in `.github/workflows/check.yml`, which installs the
+entry's `browser` (chromium when unset).
 
 Notes:
 
