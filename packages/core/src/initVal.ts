@@ -81,7 +81,30 @@ export type ValConfig = {
   project?: string;
   root?: string;
   files?: {
-    directory: ConfigDirectory;
+    /**
+     * Store every image, file and video on Val's remote content host instead
+     * of in the repository.
+     *
+     * `s.image()`, `s.file()`, `s.video()`, `s.imageset()`, `s.fileset()`,
+     * `s.videoset()` and `s.richtext({ img: true })` all behave as though
+     * `.remote()` had been written on them. Required for a project in the Val
+     * app, which has no repository for the bytes to go into: there the Val
+     * server refuses to start without it.
+     *
+     * It is set here, in the project, rather than by the environment, so that
+     * every tool reads the project the same way. `val validate`, the VS Code
+     * extension and `pnpm dev` evaluate this file too, and a switch only the
+     * app could see would have them calling every remote image a mistake --
+     * and `val validate --fix` downloading it back into the repository.
+     *
+     * @example
+     * import { initVal } from "@valbuild/core";
+     * const { s, c, val, config } = initVal({
+     *   project: "myorg/myproject",
+     *   files: { remote: true },
+     * });
+     */
+    remote?: boolean;
   };
   gitCommit?: string;
   gitBranch?: string;
@@ -151,7 +174,7 @@ export type InitVal = {
    * import { initVal } from "@valbuild/core";
    * const { s, c, val, config } = initVal({
    *   project: "myorg/myproject",
-   *   files: { directory: "/public/val" },
+   *   files: { remote: true },
    * });
    * export { s, c, val, config };
    */
@@ -178,7 +201,7 @@ export const initVal = (
 // }
 InitVal => {
   // const locales = options?.locales;
-  const s = initSchema();
+  const s = initSchema({ remote: config?.files?.remote === true });
   // if (locales?.required) {
   //   console.error("Locales / i18n currently not implemented");
   //   return {

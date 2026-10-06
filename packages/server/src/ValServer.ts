@@ -258,6 +258,14 @@ export type ValServerConfig = ValServerOptions &
   );
 
 export type ValServer = ServerOf<Api>;
+
+/**
+ * Where a local file a publish commits is written. Fixed: it was configurable
+ * (`files.directory` in val.config.ts), nobody configured it, and the schemas
+ * have their own `dir` for any collection that wants somewhere else.
+ */
+const FILES_DIRECTORY = "/public/val";
+
 export const ValServer = (
   valModules: ValModules,
   options: ValServerConfig,
@@ -2505,7 +2513,7 @@ export const ValServer = (
               : null;
           const sent = await serverOps.prepareJob(jobId, {
             tab,
-            filesDirectory: options.config.files?.directory || "/public/val",
+            filesDirectory: FILES_DIRECTORY,
             ...split.archive,
             ...(commit !== undefined ? { gitCommit: commit } : {}),
             ...(deploymentFiles !== null ? { deploymentFiles } : {}),
@@ -2526,7 +2534,7 @@ export const ValServer = (
         const { split } = built;
         const sent = await serverOps.prepareJob(jobId, {
           tab,
-          filesDirectory: options.config.files?.directory || "/public/val",
+          filesDirectory: FILES_DIRECTORY,
           ...split.archive,
         });
         return jobPrepareAnswer(sent, {
@@ -3098,7 +3106,7 @@ export const ValServer = (
                 preparedCommit,
                 message,
                 auth.id as AuthorId,
-                options.config.files?.directory || "/public/val",
+                FILES_DIRECTORY,
                 undefined,
                 /*
                  * Forwarded verbatim, and only the client can decide it: the

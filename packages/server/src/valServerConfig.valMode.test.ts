@@ -1,5 +1,8 @@
 import { initVal } from "@valbuild/core";
-import { initHandlerOptions } from "./valServerConfig";
+import {
+  APP_MODE_REQUIRES_REMOTE_FILES,
+  initHandlerOptions,
+} from "./valServerConfig";
 
 const { config } = initVal();
 
@@ -187,6 +190,8 @@ describe("VAL_ENV", () => {
     VAL_GIT_BRANCH: "main",
   };
   const versions = { core: "0.0.0", next: "0.0.0" };
+  /** The Val app's media is all remote, and the project has to say so. */
+  const { config } = initVal({ files: { remote: true } });
 
   test("VAL_ENV=app means http", async () => {
     await withEnv(httpEnv, async () => {
@@ -284,6 +289,7 @@ describe("VAL_ENV", () => {
     const { config: configWithGit } = initVal({
       gitCommit: "1111111111111111111111111111111111111111",
       gitBranch: "feature/x",
+      files: { remote: true },
     });
     await withEnv(
       { ...httpEnv, VAL_GIT_COMMIT: undefined, VAL_GIT_BRANCH: undefined },
@@ -310,6 +316,7 @@ describe("VAL_ENV", () => {
     const { config: configWithGit } = initVal({
       gitCommit: "1111111111111111111111111111111111111111",
       gitBranch: "feature/x",
+      files: { remote: true },
     });
     await withEnv(httpEnv, async () => {
       const resolved = await initHandlerOptions(
@@ -463,6 +470,70 @@ describe("VAL_ENV", () => {
         config,
       );
       expect(resolved.mode).toBe("memory");
+    });
+  });
+});
+
+/**
+ * A project in the Val app stores its media remotely, and has to SAY so in
+ * `val.config.ts` -- the server does not decide it for the project, because
+ * `val validate`, the VS Code extension and `pnpm dev` read the same file and
+ * would never see a decision made here.
+ */
+describe("VAL_ENV=app and files.remote", () => {
+  const httpEnv = {
+    VAL_ENV: "app",
+    VAL_MODE: undefined,
+    VAL_API_KEY: "key",
+    VAL_SECRET: "secret",
+    VAL_PROJECT: "org/project",
+    VAL_GIT_COMMIT: undefined,
+    VAL_GIT_BRANCH: undefined,
+  };
+  const versions = { core: "0.0.0", next: "0.0.0" };
+
+  test("without it, the app refuses to start, and says what to write", async () => {
+    await withEnv(httpEnv, async () => {
+      await expect(
+        initHandlerOptions("/api/val", { versions }, initVal().config),
+      ).rejects.toThrow(APP_MODE_REQUIRES_REMOTE_FILES);
+    });
+    expect(APP_MODE_REQUIRES_REMOTE_FILES).toContain("files: { remote: true }");
+  });
+
+  test("files.remote: false is the same as leaving it out", async () => {
+    await withEnv(httpEnv, async () => {
+      await expect(
+        initHandlerOptions(
+          "/api/val",
+          { versions },
+          initVal({ files: { remote: false } }).config,
+        ),
+      ).rejects.toThrow(APP_MODE_REQUIRES_REMOTE_FILES);
+    });
+  });
+
+  test("with it, the app starts", async () => {
+    await withEnv(httpEnv, async () => {
+      const resolved = await initHandlerOptions(
+        "/api/val",
+        { versions },
+        initVal({ files: { remote: true } }).config,
+      );
+      expect(resolved.mode).toBe("http");
+    });
+  });
+
+  test("an http app that is not the Val app is not asked for it", async () => {
+    // Remote media is the Val app's requirement, not http mode's: a deployed
+    // Next app with a repository commits its uploads there.
+    await withEnv({ ...httpEnv, VAL_ENV: undefined }, async () => {
+      const resolved = await initHandlerOptions(
+        "/api/val",
+        { versions },
+        initVal().config,
+      );
+      expect(resolved.mode).toBe("http");
     });
   });
 });

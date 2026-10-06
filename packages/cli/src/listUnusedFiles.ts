@@ -9,17 +9,12 @@ import { createService, filesOfVideo } from "@valbuild/server";
 import { traverseSchemaSource } from "@valbuild/shared/internal";
 import { glob } from "fast-glob";
 import path from "path";
-import { findAndEvalValConfigFile } from "./utils/evalValConfigFile";
 
 export async function listUnusedFiles({ root }: { root?: string }) {
   const projectRoot = root ? path.resolve(root) : process.cwd();
 
-  const valConfigFile = await findAndEvalValConfigFile(projectRoot);
-  // Strip the leading "/" so it is relative to the project root (e.g. "public/val").
-  const managedDir = (valConfigFile?.files?.directory ?? "/public/val").replace(
-    /^\//,
-    "",
-  );
+  // Relative to the project root.
+  const managedDir = "public/val";
 
   const service = await createService(projectRoot);
   const registered = new Set<ModuleFilePath>(service.getModuleFilePaths());

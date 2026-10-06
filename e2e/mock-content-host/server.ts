@@ -285,6 +285,41 @@ type MockCommit = {
   createdAt: string;
 };
 
+/** Where a press of Publish is: `PublishRequestStatus` in `@valbuild/shared`. */
+type MockPublishRequestStatus =
+  | { kind: "queued" }
+  | { kind: "publishing" }
+  | { kind: "live"; commit: string }
+  | {
+      kind: "failed";
+      message: string;
+      actions: ("try-again" | "discard" | "re-run-build")[];
+      job: string;
+    }
+  | { kind: "cancelled" }
+  | { kind: "nothing-to-publish" };
+
+type MockPublishRequest = {
+  requestId: string;
+  status: MockPublishRequestStatus;
+  /** The job carrying it, once one does. */
+  jobId: string | null;
+};
+
+type MockPublishJob = {
+  id: string;
+  /** The tab holding it, which is the only one whose reports count. */
+  tab: string;
+  /** The step the tab runs next; null once it is the mock's (sealed, or failed). */
+  step: "prepare" | "build" | "upload" | null;
+  base: string;
+  patches: string[];
+  requestIds: string[];
+  /** What the prepare was sent: what the seal records. */
+  prepared: CommitBody | null;
+  done: "sealed" | "failed" | "cancelled" | null;
+};
+
 type MockDeployment = {
   deploymentId: string;
   commitSha: string;
@@ -463,6 +498,19 @@ type State = {
    * that makes `/ai/initialize` fail.
    */
   aiOffline: boolean;
+  /**
+   * Whether this project publishes as JOBS (`project.publishJobs` on the
+   * overlay). OFF by default, like patch groups and for the same reason: a
+   * connected project that commits is what every other spec here was written
+   * against. See the publish jobs region.
+   */
+  publishJobsEnabled: boolean;
+  /** Publish tokens minted by `/publish-token`: the publish API's credential. */
+  publishTokens: Set<string>;
+  /** Presses of Publish, by the request id the Studio minted. */
+  publishRequests: Map<string, MockPublishRequest>;
+  /** Publish jobs, by id. */
+  publishJobs: Map<string, MockPublishJob>;
 };
 
 function emptyState(): State {
@@ -485,6 +533,10 @@ function emptyState(): State {
     aiPrompts: [],
     aiToolCalls: [],
     aiOffline: false,
+    publishJobsEnabled: false,
+    publishTokens: new Set(),
+    publishRequests: new Map(),
+    publishJobs: new Map(),
   };
 }
 
@@ -914,7 +966,13 @@ const getApplicablePatches: Handler = (req, res, url) => {
      * unconditionally while the default run said otherwise, which went
      * unnoticed while the only reader asked about the pair.
      */
-    project: { sourceMode: SOURCE_MODE, branch: PROJECT_BRANCH },
+    project: {
+      sourceMode: SOURCE_MODE,
+      branch: PROJECT_BRANCH,
+      // Said only when on: absent is what a content service that predates
+      // jobs sends, and what every spec but the job ones runs against.
+      ...(state.publishJobsEnabled ? { publishJobs: true } : {}),
+    },
   });
 };
 
@@ -1542,49 +1600,47 @@ const getFiles: Handler = async (req, res) => {
   json(res, 200, errors.length > 0 ? { files, errors } : { files });
 };
 
+/** What `POST /commit` is sent, and what a publish job's seal records from its prepare. */
+type CommitBody = {
+  patchedSourceFiles: Record<string, string | null>;
+  patchedBinaryFilesDescriptors: Record<
+    string,
+    { patchId: string; remote?: boolean }
+  >;
+  appliedPatches: Record<string, string[]>;
+  root: string;
+  message: string;
+  committer: string;
+  /**
+   * NOT SENT any more, and the reason is worth keeping here.
+   *
+   * The branch a project publishes to is a column on the project in `home`,
+   * so the publisher no longer asserts one -- a build with no repository
+   * bakes no branch, and a build that did could only ever disagree with the
+   * project it is publishing to. `newBranch` survives because creating a
+   * branch is the one case where the publisher names a line of work that
+   * does not exist yet.
+   */
+  newBranch?: string;
+  baseSha?: string;
+  /** The group this commit empties, if the client says it empties one. */
+  patchGroupId?: string;
+  /**
+   * Each changed `.val.ts` module's Source after this commit and the schema it
+   * was written against — the DATA, not the file's text. Optional because an
+   * older `@valbuild/server` does not send it, and such a commit is then one
+   * the history reader reports per module as `source-unavailable` rather than
+   * treating as an empty module.
+   */
+  modules?: Record<string, { source: unknown; schema: unknown }>;
+};
+
 /**
- * `POST /v1/{project}/commit` — publish.
- *
- * Four things happen, and the tests depend on all of them: the source text lands
- * in the overlay, uploaded binaries move from their patch into the repo (or into
- * remote storage), the patches involved are marked applied rather than deleted,
- * and a commit record appears — which is what turns into a row in the Studio's
- * deployment list on the next `/stat`.
+ * `POST /v1/{project}/commit` — publish. What it records is `recordCommit`'s;
+ * what is here is the group check that has to come before it.
  */
 const commit: Handler = async (req, res) => {
-  const body = await readJsonBody<{
-    patchedSourceFiles: Record<string, string | null>;
-    patchedBinaryFilesDescriptors: Record<
-      string,
-      { patchId: string; remote: boolean }
-    >;
-    appliedPatches: Record<string, string[]>;
-    root: string;
-    message: string;
-    committer: string;
-    /**
-     * NOT SENT any more, and the reason is worth keeping here.
-     *
-     * The branch a project publishes to is a column on the project in `home`,
-     * so the publisher no longer asserts one -- a build with no repository
-     * bakes no branch, and a build that did could only ever disagree with the
-     * project it is publishing to. `newBranch` survives because creating a
-     * branch is the one case where the publisher names a line of work that
-     * does not exist yet.
-     */
-    newBranch?: string;
-    baseSha?: string;
-    /** The group this commit empties, if the client says it empties one. */
-    patchGroupId?: string;
-    /**
-     * Each changed `.val.ts` module's Source after this commit and the schema it
-     * was written against — the DATA, not the file's text. Optional because an
-     * older `@valbuild/server` does not send it, and such a commit is then one
-     * the history reader reports per module as `source-unavailable` rather than
-     * treating as an empty module.
-     */
-    modules?: Record<string, { source: unknown; schema: unknown }>;
-  }>(req);
+  const body = await readJsonBody<CommitBody>(req);
   if (!body) {
     json(res, 400, { message: "Invalid commit body" });
     return;
@@ -1615,6 +1671,84 @@ const commit: Handler = async (req, res) => {
       return;
     }
   }
+  const recorded = recordCommit(body);
+  if ("error" in recorded) {
+    json(res, 400, { message: recorded.error });
+    return;
+  }
+  json(res, 200, {
+    updatedFiles: Object.keys(body.patchedSourceFiles ?? {}),
+    commit: recorded.commitSha,
+    branch: recorded.branch,
+    ...(recorded.headVersion !== undefined
+      ? { headVersion: recorded.headVersion }
+      : {}),
+  });
+};
+
+/**
+ * The bytes a commit's binary descriptors name, or why one cannot be found.
+ *
+ * Read BEFORE anything is written, so a commit that names a missing file
+ * records nothing -- this used to write the source overlay and then refuse,
+ * leaving half a commit behind.
+ *
+ * A remote descriptor has to find bytes that were uploaded FLAGGED remote, and
+ * a local one bytes that were not: `home` keys a patch file by its `remote`
+ * flag (`dal.files.getContent(..., remote)`), so the other kind is simply not
+ * found there. The mock took either, which is how a client that forgot the
+ * flag would have published happily here and been refused in production.
+ */
+function binaryFilesOf(body: {
+  patchedBinaryFilesDescriptors?: Record<
+    string,
+    { patchId: string; remote?: boolean }
+  >;
+}):
+  | { files: { filePath: string; remote: boolean; base64: string }[] }
+  | { error: string } {
+  const files: { filePath: string; remote: boolean; base64: string }[] = [];
+  for (const [filePath, descriptor] of Object.entries(
+    body.patchedBinaryFilesDescriptors ?? {},
+  )) {
+    const remote = descriptor.remote === true;
+    // A remote descriptor names the ref; the bytes were uploaded under the path
+    // inside it. See `pathInRemoteRef`.
+    const storedAs = pathInRemoteRef(filePath) ?? filePath;
+    const file = state.patchFiles.get(descriptor.patchId)?.get(storedAs);
+    if (!file || file.remote !== remote) {
+      // Logged as well as returned: `ValOpsHttp.commit` runs its error body
+      // through `getErrorMessageFromUnknownJson` after zod has already wrapped
+      // it, so the caller only ever sees "Unknown error" and the reason has to
+      // be found here.
+      const message = `Commit references a file that was never uploaded${remote ? " as remote" : ""}: ${filePath} (looked for ${storedAs} in patch ${descriptor.patchId}). Uploaded for that patch: ${JSON.stringify([...(state.patchFiles.get(descriptor.patchId)?.entries() ?? [])].map(([uploaded, { remote }]) => (remote ? `${uploaded} (remote)` : uploaded)))}`;
+      console.error(`[mock-content-host] ${message}`);
+      return { error: message };
+    }
+    files.push({ filePath, remote, base64: file.bytes.toString("base64") });
+  }
+  return { files };
+}
+
+/**
+ * Record a commit: what `POST /commit` does, and what a publish job's seal
+ * does with what its prepare was sent.
+ *
+ * Four things happen, and the tests depend on all of them: the source text lands
+ * in the overlay, uploaded binaries move from their patch into the repo (or into
+ * remote storage), the patches involved are marked applied rather than deleted,
+ * and a commit record appears — which is what turns into a row in the Studio's
+ * deployment list on the next `/stat`.
+ */
+function recordCommit(
+  body: CommitBody,
+):
+  | { commitSha: string; branch: string; headVersion?: number }
+  | { error: string } {
+  const binaries = binaryFilesOf(body);
+  if ("error" in binaries) {
+    return binaries;
+  }
   const parentCommitSha = state.headCommitSha;
   const commitSha = sha(
     `${parentCommitSha}:${JSON.stringify(body.patchedSourceFiles)}:${state.commits.length}`,
@@ -1628,25 +1762,8 @@ const commit: Handler = async (req, res) => {
       content === null ? null : { encoding: "utf8", value: content },
     );
   }
-  for (const [filePath, descriptor] of Object.entries(
-    body.patchedBinaryFilesDescriptors ?? {},
-  )) {
-    // A remote descriptor names the ref; the bytes were uploaded under the path
-    // inside it. See `pathInRemoteRef`.
-    const storedAs = pathInRemoteRef(filePath) ?? filePath;
-    const file = state.patchFiles.get(descriptor.patchId)?.get(storedAs);
-    if (!file) {
-      // Logged as well as returned: `ValOpsHttp.commit` runs its error body
-      // through `getErrorMessageFromUnknownJson` after zod has already wrapped
-      // it, so the caller only ever sees "Unknown error" and the reason has to
-      // be found here.
-      const message = `Commit references a file that was never uploaded: ${filePath} (looked for ${storedAs} in patch ${descriptor.patchId}). Uploaded for that patch: ${JSON.stringify([...(state.patchFiles.get(descriptor.patchId)?.keys() ?? [])])}`;
-      console.error(`[mock-content-host] ${message}`);
-      json(res, 400, { message });
-      return;
-    }
-    const base64 = file.bytes.toString("base64");
-    if (descriptor.remote) {
+  for (const { filePath, remote, base64 } of binaries.files) {
+    if (remote) {
       state.remoteFiles.set(filePath, base64);
     } else {
       state.repoOverlay.set(path.posix.join(body.root || "/", filePath), {
@@ -1792,13 +1909,12 @@ const commit: Handler = async (req, res) => {
   // The patches are still in the chain, now applied. Announced so a second
   // editor's Studio learns they were published rather than still pending.
   broadcastChain();
-  json(res, 200, {
-    updatedFiles: Object.keys(body.patchedSourceFiles ?? {}),
-    commit: commitSha,
+  return {
+    commitSha,
     branch: record.branch,
     ...(appliedPatchIds.size > 0 ? { headVersion: chainVersion } : {}),
-  });
-};
+  };
+}
 
 /** `POST /v1/{project}/commit-summary` — the AI-written publish message. */
 const commitSummary: Handler = (req, res) => {
@@ -2566,6 +2682,375 @@ async function playAiTurn(
 
 // #endregion
 
+// #region publish jobs
+
+/**
+ * Publishing as a queued job (valbuild/home, docs/app-mode.md, "Publishing is
+ * a queued job"), as a CONNECTED project whose build is CI's.
+ *
+ * ```
+ * POST /v1/{project}/publish-token   the api key, traded for a publish token
+ * POST /v1/publish-requests          a press: the request, and its job
+ * GET  /v1/publish-requests/{id}     where it is
+ * POST /v1/publish-jobs/next         a free tab asks for queued work
+ * POST /v1/publish-jobs/{id}/prepare the job's sources, from the Val server
+ * POST /v1/publish-jobs/{id}/steps   the tab's reports
+ * ```
+ *
+ * The publish API is not under `/v1/{project}`: a publish token names the
+ * project, so the routes do not. Only the exchange is, with the api key.
+ *
+ * Why only connected, and with no build: a managed job needs a deployment that
+ * embeds its source (`/publish-job-prepare` refuses one that does not), and
+ * `examples/next` is not that. The managed path, tab build and all, is driven
+ * by valbuild/home's `pnpm loop`. What this exercises is the Val server's half
+ * -- what `/publish-job-prepare` computes and sends -- and the Studio's press,
+ * track and Live.
+ *
+ * So the prepare is where this differs from `/commit`, as content's does: it
+ * puts the job's REMOTE files in remote storage before anything is recorded
+ * (`uploadPatchRemoteFiles` in home), and a file it cannot find fails the job
+ * there. Without `tabBuilds` content then seals at once, and so does this.
+ *
+ * Simplified where nothing here could tell: a failed step fails the job at
+ * once rather than after content's three attempts, and a job takes every
+ * pending patch rather than content's forward closure.
+ */
+
+function publishTokenOf(req: IncomingMessage): string | null {
+  const auth = req.headers["authorization"];
+  if (typeof auth !== "string" || !auth.startsWith("Bearer ")) return null;
+  const token = auth.slice("Bearer ".length);
+  return state.publishTokens.has(token) ? token : null;
+}
+
+/** `POST /v1/{project}/publish-token`, with the api key. */
+const publishToken: Handler = (req, res) => {
+  const token = `mock-publish-${randomUUID()}`;
+  state.publishTokens.add(token);
+  json(res, 200, {
+    token,
+    expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    publicProjectId: PUBLIC_PROJECT_ID,
+    productionUrl: null,
+  });
+};
+
+function tabJobOf(job: MockPublishJob) {
+  return { id: job.id, step: job.step, base: job.base, patches: job.patches };
+}
+
+/** Tell every Studio a job moved. A nudge: they re-read their requests. */
+function nudgeJob(job: MockPublishJob): void {
+  broadcast({
+    type: "publish-job",
+    job: { id: job.id, status: job.done ?? "running" },
+  });
+}
+
+/** Every patch not yet applied, and not held by a job in flight. */
+function pendingForJob(): string[] {
+  const held = new Set<string>();
+  for (const job of state.publishJobs.values()) {
+    if (job.done === null) job.patches.forEach((id) => held.add(id));
+  }
+  return [...state.patches.values()]
+    .filter((patch) => !patch.applied && !held.has(patch.patchId))
+    .map((patch) => patch.patchId);
+}
+
+function jobInFlight(): MockPublishJob | null {
+  for (const job of state.publishJobs.values()) {
+    if (job.done === null) return job;
+  }
+  return null;
+}
+
+/**
+ * Start a job for every queued request, if none is in flight, held by `tab`.
+ * Answers the job, or null when there is none to start.
+ */
+function startJob(tab: string): MockPublishJob | null {
+  if (jobInFlight() !== null) return null;
+  const queued = [...state.publishRequests.values()].filter(
+    (request) => request.status.kind === "queued",
+  );
+  if (queued.length === 0) return null;
+  const patches = pendingForJob();
+  if (patches.length === 0) {
+    for (const request of queued) {
+      request.status = { kind: "nothing-to-publish" };
+    }
+    return null;
+  }
+  const job: MockPublishJob = {
+    id: `job-${randomUUID()}`,
+    tab,
+    step: "prepare",
+    base: state.headCommitSha,
+    patches,
+    requestIds: queued.map((request) => request.requestId),
+    prepared: null,
+    done: null,
+  };
+  state.publishJobs.set(job.id, job);
+  for (const request of queued) {
+    request.status = { kind: "publishing" };
+    request.jobId = job.id;
+  }
+  nudgeJob(job);
+  return job;
+}
+
+function failJob(job: MockPublishJob, message: string): void {
+  job.step = null;
+  job.done = "failed";
+  for (const requestId of job.requestIds) {
+    const request = state.publishRequests.get(requestId);
+    if (request) {
+      request.status = {
+        kind: "failed",
+        message,
+        actions: ["try-again", "discard"],
+        job: job.id,
+      };
+    }
+  }
+  nudgeJob(job);
+}
+
+/** The seal: the prepared sources recorded as a commit, and every press Live. */
+function sealJob(job: MockPublishJob): { error: string } | null {
+  if (job.prepared === null) return { error: "The job was never prepared." };
+  const recorded = recordCommit({
+    ...job.prepared,
+    message: `Publish job ${job.id}`,
+    committer: "publish-job",
+    appliedPatches: { [job.id]: job.patches },
+  });
+  if ("error" in recorded) return recorded;
+  job.step = null;
+  job.done = "sealed";
+  for (const requestId of job.requestIds) {
+    const request = state.publishRequests.get(requestId);
+    if (request) {
+      request.status = { kind: "live", commit: recorded.commitSha };
+    }
+  }
+  nudgeJob(job);
+  return null;
+}
+
+/** The job a tab reports on, or the answer that it is not this tab's. */
+function heldJob(
+  res: ServerResponse,
+  jobId: string,
+  tab: string | undefined,
+): MockPublishJob | null {
+  const job = state.publishJobs.get(jobId);
+  if (!job || job.done !== null || job.tab !== tab) {
+    json(res, 200, { job: null });
+    return null;
+  }
+  return job;
+}
+
+async function publishApi(
+  req: IncomingMessage,
+  res: ServerResponse,
+  rest: string,
+): Promise<void> {
+  if (publishTokenOf(req) === null) {
+    json(res, 401, { message: "Not a publish token" });
+    return;
+  }
+  const route = `${req.method} ${rest}`;
+  if (
+    route === "POST /publish-requests" ||
+    route === "POST /publish-requests/try-again"
+  ) {
+    const body = await readJsonBody<{ requestId?: string; tab?: string }>(req);
+    if (!body?.requestId || !body.tab) {
+      json(res, 400, { message: "requestId and tab are required" });
+      return;
+    }
+    // Idempotent on the request id, as content's press is.
+    const existing = state.publishRequests.get(body.requestId);
+    if (existing) {
+      const job = existing.jobId ? state.publishJobs.get(existing.jobId) : null;
+      json(res, 200, {
+        request: existing.status,
+        job:
+          job && job.done === null && job.tab === body.tab
+            ? tabJobOf(job)
+            : null,
+      });
+      return;
+    }
+    const request: MockPublishRequest = {
+      requestId: body.requestId,
+      status: { kind: "queued" },
+      jobId: null,
+    };
+    state.publishRequests.set(request.requestId, request);
+    const job = startJob(body.tab);
+    json(res, 200, {
+      request: request.status,
+      job:
+        job && job.requestIds.includes(request.requestId)
+          ? tabJobOf(job)
+          : null,
+    });
+    return;
+  }
+  const requestMatch = rest.match(/^\/publish-requests\/([A-Za-z0-9_-]+)$/);
+  if (req.method === "GET" && requestMatch) {
+    const request = state.publishRequests.get(requestMatch[1]);
+    if (!request) {
+      json(res, 404, { message: "No such request" });
+      return;
+    }
+    json(res, 200, { request: request.status });
+    return;
+  }
+  if (route === "POST /publish-jobs/next") {
+    const body = await readJsonBody<{ tab?: string }>(req);
+    const job = body?.tab ? startJob(body.tab) : null;
+    json(res, 200, { job: job ? tabJobOf(job) : null });
+    return;
+  }
+  if (route === "GET /ci-runs/newest") {
+    json(res, 200, { run: null });
+    return;
+  }
+  const jobMatch = rest.match(
+    /^\/publish-jobs\/([A-Za-z0-9_-]+)\/(prepare|steps|renew|cancel|discard)$/,
+  );
+  if (req.method !== "POST" || !jobMatch) {
+    json(res, 404, { message: `Unhandled publish API route: ${route}` });
+    return;
+  }
+  const [, jobId, action] = jobMatch;
+  if (action === "prepare") {
+    const body = await readJsonBody<
+      Pick<
+        CommitBody,
+        | "patchedSourceFiles"
+        | "patchedBinaryFilesDescriptors"
+        | "root"
+        | "modules"
+      > & { tab?: string; tabBuilds?: true }
+    >(req);
+    const job = heldJob(res, jobId, body?.tab);
+    if (!job || !body) return;
+    if (job.step !== "prepare") {
+      json(res, 200, { job: tabJobOf(job) });
+      return;
+    }
+    /*
+     * The remote files first, before anything is recorded, as content's
+     * prepare does: a ref whose bytes were never uploaded remote fails the
+     * job HERE, with the 502 the tab reads as "content has counted it".
+     */
+    const binaries = binaryFilesOf(body);
+    if ("error" in binaries) {
+      failJob(job, binaries.error);
+      json(res, 502, { message: binaries.error });
+      return;
+    }
+    for (const file of binaries.files) {
+      if (file.remote) state.remoteFiles.set(file.filePath, file.base64);
+    }
+    job.prepared = {
+      patchedSourceFiles: body.patchedSourceFiles,
+      patchedBinaryFilesDescriptors: body.patchedBinaryFilesDescriptors,
+      root: body.root,
+      modules: body.modules,
+      appliedPatches: {},
+      message: "",
+      committer: "",
+    };
+    if (body.tabBuilds === true) {
+      job.step = "build";
+      json(res, 200, { job: tabJobOf(job) });
+      return;
+    }
+    // CI builds the push: content's from here, and sealed now.
+    const sealed = sealJob(job);
+    if (sealed !== null) {
+      failJob(job, sealed.error);
+      json(res, 502, { message: sealed.error });
+      return;
+    }
+    json(res, 200, { job: tabJobOf(job) });
+    return;
+  }
+  if (action === "steps") {
+    const body = await readJsonBody<{
+      tab?: string;
+      step?: "prepare" | "build" | "upload";
+      ok?: boolean;
+      noBuild?: true;
+      message?: string;
+    }>(req);
+    const job = heldJob(res, jobId, body?.tab);
+    if (!job || !body) return;
+    if (body.ok !== true) {
+      failJob(job, body.message ?? `The ${body.step} step failed.`);
+      json(res, 200, { job: null });
+      return;
+    }
+    if (
+      body.step === "build" &&
+      job.step === "build" &&
+      body.noBuild !== true
+    ) {
+      job.step = "upload";
+    } else if (
+      (body.step === "build" && body.noBuild === true) ||
+      (body.step === "upload" && job.step === "upload")
+    ) {
+      const sealed = sealJob(job);
+      if (sealed !== null) failJob(job, sealed.error);
+    }
+    json(res, 200, { job: tabJobOf(job) });
+    return;
+  }
+  if (action === "renew") {
+    const body = await readJsonBody<{ tab?: string }>(req);
+    const job = state.publishJobs.get(jobId);
+    json(res, 200, {
+      renewed: !!job && job.done === null && job.tab === body?.tab,
+    });
+    return;
+  }
+  if (action === "cancel") {
+    const job = state.publishJobs.get(jobId);
+    const cancelled = !!job && job.done === null;
+    if (job && cancelled) {
+      job.step = null;
+      job.done = "cancelled";
+      for (const requestId of job.requestIds) {
+        const request = state.publishRequests.get(requestId);
+        if (request) request.status = { kind: "cancelled" };
+      }
+      nudgeJob(job);
+    }
+    json(res, 200, { cancelled });
+    return;
+  }
+  // discard: the failed job's changes, gone from the chain.
+  const job = state.publishJobs.get(jobId);
+  if (job && job.done === "failed") {
+    for (const patchId of job.patches) state.patches.delete(patchId);
+    chainVersion += 1;
+    broadcastChain();
+  }
+  json(res, 200, { stillHeld: [] });
+}
+
+// #endregion
+
 // #region control plane
 
 /**
@@ -2581,6 +3066,16 @@ const controlPlane: Handler = async (req, res, url) => {
   if (action === "reset" && req.method === "POST") {
     state = emptyState();
     json(res, 200, { ok: true });
+    return;
+  }
+  if (action === "publish-jobs" && req.method === "POST") {
+    /*
+     * Make this project publish as jobs. A switch, like patch groups: a
+     * connected project that commits is what every other spec runs against.
+     */
+    const body = await readJsonBody<{ enabled?: boolean }>(req);
+    state.publishJobsEnabled = body?.enabled !== false;
+    json(res, 200, { ok: true, enabled: state.publishJobsEnabled });
     return;
   }
   if (action === "patch-groups" && req.method === "POST") {
@@ -2645,6 +3140,16 @@ const controlPlane: Handler = async (req, res, url) => {
       deployments: state.deployments,
       repoOverlay: [...state.repoOverlay.keys()],
       remoteFiles: [...state.remoteFiles.keys()],
+      /** Publish jobs, without what their prepare was sent. */
+      publishJobs: [...state.publishJobs.values()].map((job) => ({
+        id: job.id,
+        step: job.step,
+        done: job.done,
+        patches: job.patches,
+        requestIds: job.requestIds,
+        binaryFiles: job.prepared?.patchedBinaryFilesDescriptors ?? null,
+      })),
+      publishRequests: [...state.publishRequests.values()],
       /** Which commits history can read in full. See `State.archives`. */
       archives: [...state.archives.keys()],
       headCommitSha: state.headCommitSha,
@@ -2854,6 +3359,13 @@ async function handle(
     await controlPlane(req, res, url);
     return;
   }
+  // The publish API: a publish token names the project, so its routes do not.
+  if (
+    /^\/v1\/(publish-requests|publish-jobs|ci-runs)(\/|$)/.test(url.pathname)
+  ) {
+    await publishApi(req, res, url.pathname.slice("/v1".length));
+    return;
+  }
   const prefix = `/v1/${PROJECT}`;
   if (!url.pathname.startsWith(prefix)) {
     json(res, 404, { message: `Not a route on this mock: ${url.pathname}` });
@@ -2930,6 +3442,9 @@ async function handle(
       return;
     case "PUT /files":
       await getFiles(req, res, url);
+      return;
+    case "POST /publish-token":
+      publishToken(req, res, url);
       return;
     case "POST /commit":
       await commit(req, res, url);

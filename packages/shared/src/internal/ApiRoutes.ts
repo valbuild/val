@@ -33,7 +33,7 @@ const ValConfig = z.object({
   root: z.string().optional(),
   files: z
     .object({
-      directory: z.string(), // TODO: validate that it is prefixed by /public/
+      remote: z.boolean().optional(),
     })
     .optional(),
   gitCommit: z.string().optional(),

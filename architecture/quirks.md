@@ -709,6 +709,26 @@ cleanup cancels, which is the only pass that writes to the editor that survives.
 
 ## Dev environment
 
+**In `fs` mode, the save straight after a publish is slow.** A publish rewrites
+the app's `.val.ts` files, `next dev` sees them change and recompiles, and the
+next `PUT /patches` waits on the rebuild: 5.4s in the CI run that found this,
+during a 4.4s Fast Refresh. A slow save is still not a failed one, but
+`system.publish` treated it as one: it raced its pre-publish flush against a
+fixed 5 seconds, so pressing Save a second time while that PUT was out was
+refused with "your latest changes could not be saved. Check the connection",
+and the status bar said "All changes saved" a moment later. The wait now ends
+when the sync calls the save stuck (`isSaveStuck`), with the clock left only as a
+backstop for a request that never answers. `e2e/studio-ui.spec.ts`'s
+save-then-restore is the test that hit it, intermittently, and only on CI
+runners slow enough to push the rebuild past 5 seconds.
+
+**A toast is gone before Playwright's failure screenshot.** A refusal is
+reported once, through `StatusStore`, and the toast expires long before a 30s
+`expect.poll` gives up — so the screenshot and `error-context.md` show a quiet
+Studio with an enabled Save button, which reads as "the click did nothing". The
+toast IS in the trace: unzip `trace.zip` and grep `0-trace.trace` for the
+message text; the frame snapshot it is in carries the timestamp.
+
 **After `pnpm run build`, run `pnpm preconstruct dev`** or downstream packages keep
 resolving `dist/`. Also delete `examples/next/.next` — a production build left
 there makes the dev server 500 with `MODULE_NOT_FOUND` on Studio routes.

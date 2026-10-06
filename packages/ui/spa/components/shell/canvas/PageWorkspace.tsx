@@ -27,6 +27,7 @@ import {
 } from "./CanvasWindow";
 import { FieldsPanel } from "./FieldsPanel";
 import { CanvasFields } from "./CanvasFields";
+import { useRetainedCanvasPaths } from "./useRetainedCanvasPaths";
 import { CanvasRouteBar } from "./CanvasRouteBar";
 import {
   CanvasPreviewNotice,
@@ -203,6 +204,8 @@ export type PageWorkspaceProps = {
   skipTransition?: boolean;
 };
 
+/** Stable, so a page that has reported nothing does not re-merge every render. */
+const NO_PATHS: readonly SourcePath[] = [];
 /** Width the module column settles at once the canvas is beside it. */
 const COLUMN_WIDTH = "clamp(340px, 34%, 520px)";
 /**
@@ -694,7 +697,12 @@ export function PageWorkspace({
    * The count is held back until there is one, so the tab does not read "On
    * page 0" at a page that simply has not answered yet.
    */
-  const reportedPaths = canvasPaths ?? [];
+  const { paths: reportedPaths, offPage: offPagePaths } =
+    useRetainedCanvasPaths(canvasPaths ?? NO_PATHS, {
+      selected: selectedCanvasPath ?? null,
+      // The reload BUTTON's counter, which nothing else bumps — see the hook.
+      resetKey: `${canvasRoute ?? ""}\n${reloadKey}`,
+    });
   const fieldCount = page
     ? Object.keys(page.fields).length
     : reportedPaths.length;
@@ -871,6 +879,7 @@ export function PageWorkspace({
       ) : reportedPaths.length > 0 ? (
         <CanvasFields
           paths={reportedPaths}
+          offPagePaths={offPagePaths}
           changedOnly={changedFieldsOnly}
           onChangedOnlyChange={setChangedFieldsOnly}
           pickToReveal={pickToReveal}

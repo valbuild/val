@@ -757,6 +757,34 @@ export function video(
     | ValModule<Record<string, VideosetEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryVideoOptions,
 ): VideoSchema<VideoSource> | VideoSchema<GalleryVideoSource> {
+  return videoOf(options, galleryOptions);
+}
+
+/**
+ * `s.video()` for a project whose media is all remote (`files.remote` in
+ * `val.config.ts`): the same schema, with `.remote()` already applied. See
+ * `initSchema`.
+ */
+export function remoteVideo(
+  videosetModule: ValModule<Record<string, VideosetEntryMetadata<AltSource>>>,
+  galleryOptions?: GalleryVideoOptions,
+): VideoSchema<GalleryVideoSource>;
+export function remoteVideo(options?: VideoOptions): VideoSchema<VideoSource>;
+export function remoteVideo(
+  options?:
+    | VideoOptions
+    | ValModule<Record<string, VideosetEntryMetadata<AltSource>>>,
+  galleryOptions?: GalleryVideoOptions,
+): VideoSchema<VideoSource> | VideoSchema<GalleryVideoSource> {
+  return videoOf(options, galleryOptions).remote();
+}
+
+function videoOf(
+  options?:
+    | VideoOptions
+    | ValModule<Record<string, VideosetEntryMetadata<AltSource>>>,
+  galleryOptions?: GalleryVideoOptions,
+): VideoSchema<VideoSource> | VideoSchema<GalleryVideoSource> {
   if (options === undefined || !isVideosetModule(options)) {
     return new VideoSchema<VideoSource>(options);
   }

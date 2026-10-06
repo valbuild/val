@@ -65,5 +65,11 @@ export default modules(config, [
   // `remoteMedia` above, and content/remoteImages.val.ts for why this is a
   // gallery rather than a single remote image field.
   // Last, because a conditional spread reads as the tail of the list.
-  ...(remoteMedia ? [{ def: () => import("./content/remoteImages.val") }] : []),
+  ...(remoteMedia
+    ? [
+        { def: () => import("./content/remoteImages.val") },
+        // Remote image, file and video FIELDS. See content/remoteFields.val.ts.
+        { def: () => import("./content/remoteFields.val") },
+      ]
+    : []),
 ]);
