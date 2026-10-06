@@ -2918,9 +2918,19 @@ export const ValServer = (
             }
           }
           if (serverOps instanceof ValOpsFS) {
-            const isRemoteRequired = getIsRemoteRequired(
-              await serverOps.getSchemas(),
-            );
+            /*
+             * Credentials when THIS save carries a remote file, not whenever
+             * the project has a remote schema.
+             *
+             * With `files: { remote: true }` every media schema is remote, so
+             * asking the schemas made every local save -- a corrected typo
+             * included -- demand a `val login` token and a project id, and a
+             * developer without them could not save anything at all. Only an
+             * upload needs them, and only a remote file is uploaded.
+             */
+            const isRemoteRequired = Object.values(
+              preparedCommit.patchedBinaryFilesDescriptors,
+            ).some((descriptor) => descriptor.remote);
             let mode: "skip-remote" | "upload-remote";
             let remoteFileAuthRes:
               | undefined

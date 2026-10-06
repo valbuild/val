@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { X } from "lucide-react";
 import { useGlobalError } from "./ValProvider";
 import { useValPortal } from "./ValPortalProvider";
 import ExhaustiveCheck from "./ExhaustiveCheck";
@@ -71,13 +73,43 @@ export function GlobalErrors() {
     ) {
       return <RemoteFilesErrorDialog error={globalError} />;
     }
-    return (
-      <GlobalErrorBanner>
-        {getRemoteFilesError(globalError.reason)}
-      </GlobalErrorBanner>
-    );
+    return <RemoteFilesErrorBanner reason={globalError.reason} />;
   }
   return <ExhaustiveCheck value={globalError} />;
+}
+
+/**
+ * Remote files are unavailable: said once, and then out of the way.
+ *
+ * Dismissible, unlike the other banners, because it is not about the studio
+ * failing. Only an UPLOAD needs remote files -- a text edit saves and
+ * publishes without them -- yet the banner sat across the top bar, Publish
+ * included, for as long as the studio was open. A project with
+ * `files: { remote: true }` and no project id, which is every fresh checkout
+ * of a template, could not publish a typo fix.
+ */
+function RemoteFilesErrorBanner({
+  reason,
+}: {
+  reason: Parameters<typeof getRemoteFilesError>[0];
+}) {
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed) {
+    return null;
+  }
+  return (
+    <GlobalErrorBanner>
+      {getRemoteFilesError(reason)}
+      <button
+        type="button"
+        aria-label="Dismiss"
+        className="absolute right-2 top-2 rounded p-1 hover:bg-bg-error-primary-hover"
+        onClick={() => setDismissed(true)}
+      >
+        <X size={16} />
+      </button>
+    </GlobalErrorBanner>
+  );
 }
 
 /**
@@ -91,7 +123,7 @@ function GlobalErrorBanner({ children }: { children: React.ReactNode }) {
   return (
     <div
       role="status"
-      className="fixed inset-x-0 top-0 z-full p-4 text-center text-fg-error-primary bg-bg-error-primary"
+      className="fixed inset-x-0 top-0 z-full px-10 py-4 text-center text-fg-error-primary bg-bg-error-primary"
     >
       {children}
     </div>
