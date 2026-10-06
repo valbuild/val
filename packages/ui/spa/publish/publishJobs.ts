@@ -159,8 +159,33 @@ export function publishingPatchIds(
    * content's next answer, when Publish would otherwise light up again.
    */
   reported?: Iterable<string>,
+  /**
+   * When content said `reported`. A press of this tab's that failed before
+   * its seal AFTER that gives its changes back over it: the job that held
+   * them has ended, and `reported` is from while it ran. Without this,
+   * Publish read "Publishing" beside the "Could not publish" toast until
+   * content spoke again -- a `patches` message, which can be lost, or the
+   * next `/stat`, which with a socket up is twenty minutes away. What content
+   * says after the failure stands: another publish may have taken them since.
+   */
+  reportedAt?: number,
 ): ReadonlySet<string> {
-  const ids = new Set<string>(reported ?? []);
+  const givenBack = new Set<string>();
+  if (reportedAt !== undefined) {
+    for (const request of state.requests) {
+      if (
+        isSettled(request.status) &&
+        !isSealed(request.status) &&
+        (request.settledAt ?? -Infinity) > reportedAt
+      ) {
+        for (const id of request.patchIds ?? []) givenBack.add(id);
+      }
+    }
+  }
+  const ids = new Set<string>();
+  for (const id of reported ?? []) {
+    if (!givenBack.has(id)) ids.add(id);
+  }
   for (const held of Object.values(state.retrying ?? {})) {
     for (const id of held) ids.add(id);
   }
