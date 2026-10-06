@@ -156,6 +156,20 @@ follow — if a person matches both an id entry and an email entry the grants
 and an id that resolves to no profile is a warning, never an error, because
 resolving it needs a network call the CLI may not be able to make.
 
+**The Studio offers to convert an email entry, it never does it by itself.** When
+the person behind `"erik@company.com"` has a profile, the Access panel shows the
+row with their name and avatar, a note that it is stored by email, and a one-click
+"store as profile id". Rewriting it automatically on first login would be a write
+to the settings module that nobody asked for and that has no author — and it
+could only be made as someone holding `settings:write` anyway. The cost is that
+emails stay in the file until someone clicks.
+
+**The people picker lists project members only.** Its list comes from
+`/profiles`, which knows the people who have joined the project on val.build.
+Everyone else is added by email. So email entries are not only a bootstrapping
+step: they are how anyone who has not yet joined gets access, and a real project
+will always have a few.
+
 ### Built-in permissions
 
 ```ts
@@ -376,6 +390,17 @@ unpublished draft. `/sources` already takes `exclude_patches`.
 One consequence to keep in mind for the guards below: an edit to the access
 section does not take effect until it is published. An admin who removes their
 own access keeps working until someone publishes, and finds out afterwards.
+
+That is the intended behaviour, not a side effect: **access changes take effect
+on publish**, like any other content. Someone granted a role sees no difference
+until it ships, and every message about an access edit says "when published".
+
+It follows that access changes go live when _someone_ publishes, not when the
+admin who made them does. Publishing is not gated by `settings:write`, and
+settings ship in the same commit as content, so a publisher without access to the
+panel ships an admin's changes — seeing them read-only in the review, under the
+staged-content rule. That is how it has to be while publish is one commit for
+everything.
 
 ### Editing the access section: one refusal and one warning
 
