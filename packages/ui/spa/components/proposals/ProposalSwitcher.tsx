@@ -54,7 +54,7 @@ export function ProposalSwitcher({
     action();
   };
   return (
-    <div ref={containerRef} className="relative h-8 min-w-0">
+    <div ref={containerRef} className="relative h-8 min-w-0 shrink">
       <button
         type="button"
         aria-haspopup="menu"
@@ -66,7 +66,7 @@ export function ProposalSwitcher({
         }
         onClick={() => setIsOpen((open) => !open)}
         className={cn(
-          "inline-flex h-full max-w-[16rem] items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium",
+          "inline-flex h-full w-full max-w-full md:max-w-[16rem] items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium",
           location.kind === "proposal"
             ? "border-border-proposal bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover"
             : "border-border-float text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",

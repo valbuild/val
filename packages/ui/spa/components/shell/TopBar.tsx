@@ -28,7 +28,13 @@ import { LocaleFilter } from "./LocaleFilter";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { MembersShare, orgOfProject } from "./MembersShare";
 import { ProposalSwitcher } from "../proposals/ProposalSwitcher";
-import { ProposalBar } from "../proposals/ProposalBar";
+import {
+  ProposalBar,
+  ProposalMenu,
+  ProposalPublishButton,
+  ProposalSaveButton,
+  ProposalStatus,
+} from "../proposals/ProposalBar";
 import type { ProposalSummary, StudioLocation } from "../proposals/types";
 
 /**
@@ -44,12 +50,25 @@ export type TopBarProposals = {
   onNewProposal: () => void;
   onShowAllProposals: () => void;
   onSave: () => void;
-  onMerge: () => void;
+  /** Publish the proposal: merge it into the site. */
+  onPublish: () => void;
   onCompare: () => void;
   onRename: () => void;
   onCopyLink: () => void;
   onClose: () => void;
   onRetrySetup: () => void;
+  /**
+   * Where the proposal controls sit above the phone breakpoint, while the
+   * layout is being chosen:
+   *
+   * - `centered`: the switcher in the middle of the bar with Save beside it;
+   *   Publish where it is on the site.
+   * - `publish-left`: Publish beside the switcher on the left; Save where
+   *   Publish is on the site.
+   * - `together`: the switcher on the left; Save and Publish together where
+   *   Publish is on the site.
+   */
+  layout?: "centered" | "publish-left" | "together";
   /** For stories. */
   defaultSwitcherOpen?: boolean;
   defaultMenuOpen?: boolean;
@@ -232,6 +251,69 @@ export function TopBar({
 }: TopBarProps) {
   const proposalLocation =
     proposals?.location.kind === "proposal" ? proposals.location : null;
+  const layout = isMobileBreakpoint(breakpoint)
+    ? "phone"
+    : (proposals?.layout ?? "centered");
+  const switcher = proposals !== undefined && (
+    <ProposalSwitcher
+      location={proposals.location}
+      proposals={proposals.open}
+      onOpenSite={proposals.onOpenSite}
+      onOpenProposal={proposals.onOpenProposal}
+      onNewProposal={proposals.onNewProposal}
+      onShowAllProposals={proposals.onShowAllProposals}
+      defaultOpen={proposals.defaultSwitcherOpen}
+    />
+  );
+  const inProposal =
+    proposals !== undefined && proposalLocation !== null
+      ? {
+          menu: (
+            <ProposalMenu
+              onCompare={proposals.onCompare}
+              onRename={proposals.onRename}
+              onCopyLink={proposals.onCopyLink}
+              onClose={proposals.onClose}
+              defaultOpen={proposals.defaultMenuOpen}
+              // On a phone the bottom bar has room for Save alone, so
+              // Publish is the first thing in the menu.
+              {...(layout === "phone"
+                ? {
+                    onPublish: proposals.onPublish,
+                    publishBlockedBy: proposalLocation.publishBlockedBy,
+                  }
+                : {})}
+            />
+          ),
+          status: (
+            <ProposalStatus
+              location={proposalLocation}
+              onRetrySetup={proposals.onRetrySetup}
+            />
+          ),
+          save: (
+            <ProposalSaveButton
+              location={proposalLocation}
+              onSave={proposals.onSave}
+            />
+          ),
+          publish: (
+            <ProposalPublishButton
+              location={proposalLocation}
+              onPublish={proposals.onPublish}
+            />
+          ),
+          bar: (menu: React.ReactNode) => (
+            <ProposalBar
+              location={proposalLocation}
+              onSave={proposals.onSave}
+              onPublish={proposals.onPublish}
+              onRetrySetup={proposals.onRetrySetup}
+              menu={menu}
+            />
+          ),
+        }
+      : null;
   const isMobile = breakpoint === "mobile";
   const isDesktop = breakpoint === "desktop";
   const org = orgOfProject(projectName);
@@ -278,30 +360,57 @@ export function TopBar({
           <StudioMark logo={logo} className="h-5" blinking={isLoading} />
         </div>
       )}
-      {projectHref !== undefined && webComponentsUrl !== undefined ? (
-        <ProjectSwitcher
-          projectName={projectName}
-          projectHref={projectHref}
-          webComponentsUrl={webComponentsUrl}
-          studioMode={studioMode}
-          breakpoint={breakpoint}
-        />
-      ) : (
-        <ProjectName projectName={projectName} projectHref={projectHref} />
+      {/*
+       * On a phone in a proposal, the proposal's name rather than the
+       * project's: where you are matters more than which project it is, and
+       * there is room for one name.
+       */}
+      {!(layout === "phone" && proposalLocation !== null) && (
+        <>
+          {projectHref !== undefined && webComponentsUrl !== undefined ? (
+            <ProjectSwitcher
+              projectName={projectName}
+              projectHref={projectHref}
+              webComponentsUrl={webComponentsUrl}
+              studioMode={studioMode}
+              breakpoint={breakpoint}
+            />
+          ) : (
+            <ProjectName projectName={projectName} projectHref={projectHref} />
+          )}
+        </>
       )}
-      {proposals !== undefined && (
-        <ProposalSwitcher
-          location={proposals.location}
-          proposals={proposals.open}
-          onOpenSite={proposals.onOpenSite}
-          onOpenProposal={proposals.onOpenProposal}
-          onNewProposal={proposals.onNewProposal}
-          onShowAllProposals={proposals.onShowAllProposals}
-          defaultOpen={proposals.defaultSwitcherOpen}
-        />
+      {layout !== "centered" && switcher}
+      {/* Publish beside where you are, the menu beside that. */}
+      {layout === "publish-left" && inProposal !== null && (
+        <>
+          {inProposal.publish}
+          {inProposal.menu}
+        </>
       )}
+      {layout === "phone" && inProposal?.menu}
       <SearchTrigger breakpoint={breakpoint} onClick={onOpenSearch} />
-      <div className="ml-auto flex items-center gap-1.5 shrink-0">
+      {/*
+       * Where you are, in the middle of the bar: the switcher, and in a
+       * proposal Save beside it and what the proposal is doing.
+       */}
+      {layout === "centered" && (
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
+          {switcher}
+          {inProposal !== null && (
+            <>
+              {inProposal.save}
+              {inProposal.status}
+            </>
+          )}
+        </div>
+      )}
+      <div
+        className={cn(
+          "flex items-center gap-1.5 shrink-0",
+          layout !== "centered" && "ml-auto",
+        )}
+      >
         {/*
          * Who else is here, and a way to bring more people in. Above mobile it
          * leads the cluster, to the left of the locale: it is about the
@@ -346,23 +455,25 @@ export function TopBar({
               />
             </span>
             <span data-val-tour="publish" className="inline-flex">
-              {proposals !== undefined && proposalLocation !== null ? (
+              {inProposal !== null ? (
                 /*
-                 * In a proposal, Save, Merge and its menu take Publish's
-                 * place: a proposal reaches the site by merging, never by a
-                 * publish.
+                 * In a proposal, what sits where Publish is depends on the
+                 * layout: Publish (the proposal's, which merges it), Save, or
+                 * both. See `TopBarProposals.layout`.
                  */
-                <ProposalBar
-                  location={proposalLocation}
-                  onSave={proposals.onSave}
-                  onMerge={proposals.onMerge}
-                  onCompare={proposals.onCompare}
-                  onRename={proposals.onRename}
-                  onCopyLink={proposals.onCopyLink}
-                  onClose={proposals.onClose}
-                  onRetrySetup={proposals.onRetrySetup}
-                  defaultMenuOpen={proposals.defaultMenuOpen}
-                />
+                layout === "centered" ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    {inProposal.publish}
+                    {inProposal.menu}
+                  </span>
+                ) : layout === "publish-left" ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    {inProposal.status}
+                    {inProposal.save}
+                  </span>
+                ) : (
+                  inProposal.bar(inProposal.menu)
+                )
               ) : (
                 (publishSlot ?? (
                   <PublishButton
@@ -966,4 +1077,8 @@ function SearchTrigger({
       </kbd>
     </button>
   );
+}
+
+function isMobileBreakpoint(breakpoint: ShellBreakpoint): boolean {
+  return breakpoint === "mobile";
 }

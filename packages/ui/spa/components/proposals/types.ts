@@ -57,8 +57,9 @@ export type StudioLocation =
       /** Whether the address rendered after the last save; `null` before one. */
       renderCheck: ProposalJobState | null;
       /**
-       * Why Merge is not offered yet. Merging arrives in a later session
-       * (`docs/proposals.md`, Flow F), so for now this always says so.
+       * Why Publish (merging the proposal into the site) is not offered yet.
+       * Merging arrives in a later session (`docs/proposals.md`, Flow F), so
+       * for now this always says so.
        */
-      mergeBlockedBy: string | null;
+      publishBlockedBy: string | null;
     };

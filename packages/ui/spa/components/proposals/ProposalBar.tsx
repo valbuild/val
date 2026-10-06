@@ -1,13 +1,13 @@
 import {
   AlertTriangle,
   Check,
-  ChevronRight,
   GitCompare,
   Link2,
   Loader2,
   MoreHorizontal,
   Pencil,
   Save,
+  Upload,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -18,88 +18,117 @@ import type { StudioLocation } from "./types";
 type InProposal = Extract<StudioLocation, { kind: "proposal" }>;
 
 /**
- * What the top bar does in a proposal: where Publish is on the site.
+ * What the top bar does in a proposal, in pieces the bar lays out.
  * `docs/proposals.md`, Flow B, "Inside a proposal".
  *
- * Save, Merge and a menu, and nothing else. Save commits the proposal's
- * changes and its address serves them on the next request; it is never a
- * merge and never a push. Merge is shown and disabled with its reason until
- * merging exists -- with unsaved changes it reads "Save and merge", because a
- * merge only ever ships what was saved.
+ * Save, Publish and a menu. Save commits the proposal's changes and its
+ * address serves them on the next request; it is never a publish and never a
+ * push. Publish is the proposal's way to the site -- merging it -- and saves
+ * first when there is something unsaved, because only what was saved is ever
+ * published. It is shown and disabled with its reason until merging exists.
  *
- * The status beside them says what the proposal is doing, most urgent first:
- * a save that failed, a save running, the address being made or brought up to
- * date, and then whether it rendered after the last save. A render that
- * failed is a report, never a gate: it blocks nothing.
+ * The status beside Save says what the proposal is doing, most urgent first:
+ * a save that failed, the address being made or brought up to date, and then
+ * whether it rendered after the last save. A render that failed is a report,
+ * never a gate: it blocks nothing.
  */
-export function ProposalBar({
+export function ProposalSaveButton({
   location,
   onSave,
-  onMerge,
-  onCompare,
-  onRename,
-  onCopyLink,
-  onClose,
-  onRetrySetup,
-  defaultMenuOpen = false,
+  className,
 }: {
   location: InProposal;
   onSave: () => void;
-  onMerge: () => void;
-  onCompare: () => void;
-  onRename: () => void;
-  onCopyLink: () => void;
-  onClose: () => void;
-  onRetrySetup: () => void;
-  /** For stories: show the menu open. */
-  defaultMenuOpen?: boolean;
+  className?: string;
 }) {
   const saving = location.save.state === "saving";
   const canSave = location.unsaved > 0 && !saving;
   return (
+    <button
+      type="button"
+      onClick={onSave}
+      disabled={!canSave}
+      className={cn(
+        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium",
+        "bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover",
+        "disabled:bg-bg-disabled disabled:text-fg-disabled",
+        className,
+      )}
+    >
+      {saving ? (
+        <Loader2 size={14} className="shrink-0 animate-spin" />
+      ) : (
+        <Save size={14} className="shrink-0" />
+      )}
+      <span className="truncate">{saving ? "Saving…" : "Save"}</span>
+      {!saving && location.unsaved > 0 && (
+        <span className="tabular-nums opacity-80">{location.unsaved}</span>
+      )}
+    </button>
+  );
+}
+
+/**
+ * Publish, in a proposal: merging it into the site. Looks like the site's
+ * Publish because it is the same act from the editor's side -- what is here
+ * goes live -- and is told apart by where it sits and what it is next to.
+ */
+export function ProposalPublishButton({
+  location,
+  onPublish,
+  className,
+}: {
+  location: InProposal;
+  onPublish: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onPublish}
+      disabled={location.publishBlockedBy !== null}
+      title={
+        location.publishBlockedBy ??
+        (location.unsaved > 0
+          ? "Saves the proposal, then publishes it to the site"
+          : "Publishes the proposal to the site")
+      }
+      className={cn(
+        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium",
+        "bg-bg-brand-primary text-fg-brand-primary border border-border-brand-primary hover:bg-bg-brand-primary-hover",
+        "disabled:border-border-float disabled:bg-bg-disabled disabled:text-fg-disabled",
+        className,
+      )}
+    >
+      <Upload size={14} className="shrink-0" />
+      <span className="truncate">Publish</span>
+    </button>
+  );
+}
+
+/**
+ * The three pieces in a row: the status, Save, Publish and the menu. The
+ * layout the bar used first, kept for comparing the others against.
+ */
+export function ProposalBar({
+  location,
+  onSave,
+  onPublish,
+  onRetrySetup,
+  menu,
+}: {
+  location: InProposal;
+  onSave: () => void;
+  onPublish: () => void;
+  onRetrySetup: () => void;
+  menu: React.ReactNode;
+}) {
+  return (
     <div className="flex min-w-0 items-center gap-1.5">
       <ProposalStatus location={location} onRetrySetup={onRetrySetup} />
-      <button
-        type="button"
-        onClick={onSave}
-        disabled={!canSave}
-        className={cn(
-          "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium",
-          "bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover",
-          "disabled:bg-bg-disabled disabled:text-fg-disabled",
-        )}
-      >
-        {saving ? (
-          <Loader2 size={14} className="shrink-0 animate-spin" />
-        ) : (
-          <Save size={14} className="shrink-0" />
-        )}
-        <span>{saving ? "Saving…" : "Save"}</span>
-        {!saving && location.unsaved > 0 && (
-          <span className="tabular-nums opacity-80">{location.unsaved}</span>
-        )}
-      </button>
-      <button
-        type="button"
-        onClick={onMerge}
-        disabled={location.mergeBlockedBy !== null}
-        title={location.mergeBlockedBy ?? undefined}
-        className={cn(
-          "inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-border-float px-2.5 text-xs font-medium text-fg-primary",
-          "hover:bg-bg-float-raised",
-          "disabled:text-fg-disabled disabled:hover:bg-transparent",
-        )}
-      >
-        {location.unsaved > 0 ? "Save and merge" : "Merge"}
-        <ChevronRight size={13} />
-      </button>
-      <ProposalMenu
-        onCompare={onCompare}
-        onRename={onRename}
-        onCopyLink={onCopyLink}
-        onClose={onClose}
-        defaultOpen={defaultMenuOpen}
-      />
+      <ProposalSaveButton location={location} onSave={onSave} />
+      <ProposalPublishButton location={location} onPublish={onPublish} />
+      {menu}
     </div>
   );
 }
@@ -185,18 +214,29 @@ export function ProposalStatus({
   );
 }
 
-function ProposalMenu({
+/**
+ * The proposal's own menu: compare, rename, copy its link, close. On a phone,
+ * where the bottom bar has room for one action, it also carries Publish.
+ */
+export function ProposalMenu({
   onCompare,
   onRename,
   onCopyLink,
   onClose,
-  defaultOpen,
+  onPublish,
+  publishBlockedBy = null,
+  defaultOpen = false,
+  menuPlacement = "below",
 }: {
   onCompare: () => void;
   onRename: () => void;
   onCopyLink: () => void;
   onClose: () => void;
-  defaultOpen: boolean;
+  /** Offer Publish here too: the phone layout. */
+  onPublish?: () => void;
+  publishBlockedBy?: string | null;
+  defaultOpen?: boolean;
+  menuPlacement?: "below" | "above";
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -229,8 +269,24 @@ function ProposalMenu({
       {isOpen && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-full mt-1 w-56 rounded-md border border-border-float bg-bg-float py-1 shadow-lg"
+          className={cn(
+            "absolute right-0 z-full w-56 rounded-md border border-border-float bg-bg-float py-1 shadow-lg",
+            menuPlacement === "above" ? "bottom-full mb-1" : "top-full mt-1",
+          )}
         >
+          {onPublish !== undefined && (
+            <>
+              <MenuItem
+                icon={<Upload size={14} />}
+                onClick={choose(onPublish)}
+                disabled={publishBlockedBy !== null}
+                detail={publishBlockedBy ?? undefined}
+              >
+                Publish to the site
+              </MenuItem>
+              <div className="my-1 border-t border-border-float" />
+            </>
+          )}
           <MenuItem icon={<GitCompare size={14} />} onClick={choose(onCompare)}>
             Compare with the site
           </MenuItem>
@@ -258,11 +314,15 @@ function MenuItem({
   icon,
   onClick,
   destructive = false,
+  disabled = false,
+  detail,
   children,
 }: {
   icon: React.ReactNode;
   onClick: () => void;
   destructive?: boolean;
+  disabled?: boolean;
+  detail?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -270,13 +330,27 @@ function MenuItem({
       type="button"
       role="menuitem"
       onClick={onClick}
+      disabled={disabled}
       className={cn(
-        "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-bg-float-raised",
-        destructive ? "text-fg-error-on-surface" : "text-fg-primary",
+        "flex w-full items-start gap-2 px-3 py-1.5 text-left text-xs hover:bg-bg-float-raised disabled:hover:bg-transparent",
+        destructive
+          ? "text-fg-error-on-surface"
+          : disabled
+            ? "text-fg-disabled"
+            : "text-fg-primary",
       )}
     >
-      <span className="grid w-4 shrink-0 place-items-center">{icon}</span>
-      {children}
+      <span className="grid w-4 shrink-0 place-items-center pt-0.5">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block">{children}</span>
+        {detail !== undefined && (
+          <span className="block text-[0.6875rem] text-fg-secondary-alt">
+            {detail}
+          </span>
+        )}
+      </span>
     </button>
   );
 }

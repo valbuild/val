@@ -78,8 +78,8 @@ const proposals: ProposalSummary[] = [
 ];
 const open = proposals.filter((p) => p.status === "open");
 
-const MERGE_LATER =
-  "Merging arrives with the next part of proposals: for now a proposal is saved and shared, not merged.";
+const PUBLISH_LATER =
+  "Publishing a proposal arrives with the next part of proposals: for now a proposal is saved and shared.";
 
 type InProposal = Extract<StudioLocation, { kind: "proposal" }>;
 const inProposal = (over: Partial<InProposal> = {}): InProposal => ({
@@ -89,7 +89,7 @@ const inProposal = (over: Partial<InProposal> = {}): InProposal => ({
   save: { state: "idle" },
   overlay: { status: "succeeded" },
   renderCheck: { status: "succeeded" },
-  mergeBlockedBy: MERGE_LATER,
+  publishBlockedBy: PUBLISH_LATER,
   ...over,
 });
 
@@ -101,6 +101,7 @@ type HarnessProps = {
   menuOpen?: boolean;
   dialog?: "new" | "close" | "all" | null;
   newProblem?: NewProposalProblem | null;
+  layout?: TopBarProposals["layout"];
 };
 
 /**
@@ -115,6 +116,7 @@ function ProposalsShell({
   menuOpen = false,
   dialog: initialDialog = null,
   newProblem = null,
+  layout = "centered",
 }: HarnessProps) {
   const [theme, setTheme] = useState(initialTheme);
   const [location, setLocation] = useState<StudioLocation>(initialLocation);
@@ -184,7 +186,7 @@ function ProposalsShell({
       );
       setSaveStep(1);
     },
-    onMerge: () => undefined,
+    onPublish: () => undefined,
     onCompare: () => console.log("compare with the site"),
     onRename: () => console.log("rename"),
     onCopyLink: () => console.log("copy link"),
@@ -198,6 +200,7 @@ function ProposalsShell({
             }
           : current,
       ),
+    layout,
     defaultSwitcherOpen: switcherOpen,
     defaultMenuOpen: menuOpen,
   };
@@ -312,6 +315,33 @@ function ProposalsShell({
 type ShellStory = StoryObj<typeof ProposalsShell>;
 const shell = (args: HarnessProps): ShellStory => ({
   render: () => <ProposalsShell {...args} />,
+});
+
+/*
+ * THE LAYOUT, still being chosen: where the switcher, Save and Publish sit.
+ * Each in a proposal and on the site. Resize below 768px for the phone, which
+ * is the same in all three: Save in the bottom bar, Publish first in the
+ * proposal's menu in the top bar.
+ */
+
+/** A: the switcher in the middle, Save beside it; Publish where it always is. */
+export const LayoutACentered = shell({ location: inProposal() });
+export const LayoutACenteredOnTheSite = shell({ location: { kind: "site" } });
+
+/** B: Publish beside the switcher; Save where Publish is on the site. */
+export const LayoutBPublishBesideTheSwitcher = shell({
+  location: inProposal(),
+  layout: "publish-left",
+});
+export const LayoutBOnTheSite = shell({
+  location: { kind: "site" },
+  layout: "publish-left",
+});
+
+/** C: the first layout: the switcher left, Save and Publish together right. */
+export const LayoutCTogether = shell({
+  location: inProposal(),
+  layout: "together",
 });
 
 /** On the site, as every project with proposals starts: the switcher says so. */
@@ -504,3 +534,18 @@ function ListFrame({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+/*
+ * ON A PHONE. The shell reads the viewport, so these are the same stories at
+ * 390px: open them with Storybook's mobile viewport, or the screenshots.
+ */
+export const PhoneOnTheSite = shell({ location: { kind: "site" } });
+export const PhoneInAProposal = shell({ location: inProposal() });
+export const PhoneProposalMenu = shell({
+  location: inProposal(),
+  menuOpen: true,
+});
+export const PhoneSwitcherOpen = shell({
+  location: inProposal(),
+  switcherOpen: true,
+});

@@ -47,6 +47,7 @@ import { NoSettingsModule, SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
 import { PublishState, TopBar, type TopBarProposals } from "./TopBar";
+import { ProposalSaveButton } from "../proposals/ProposalBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
 import { StudioTour } from "./StudioTour";
@@ -1171,7 +1172,22 @@ export function Shell({
               // out has to be somewhere the menu can offer it too.
               onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
               onPublish={onPublish ?? (() => undefined)}
-              publishSlot={publishSlot}
+              /*
+               * In a proposal the phone's one action is Save: Publish (the
+               * proposal's, which merges it) is the first thing in its menu
+               * in the top bar. See `TopBar`.
+               */
+              publishSlot={
+                proposals?.location.kind === "proposal" ? (
+                  <ProposalSaveButton
+                    location={proposals.location}
+                    onSave={proposals.onSave}
+                    className="h-9 min-w-[5.5rem]"
+                  />
+                ) : (
+                  publishSlot
+                )
+              }
               onOpenStatus={() => setOpenPanel("account")}
               onOpenQuickActions={() => setOpenPanel("utility")}
               /*
