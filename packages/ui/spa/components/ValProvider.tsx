@@ -242,6 +242,11 @@ type ValContextValue = {
    */
   serverPublishingPatchIds: ReadonlySet<string>;
   /**
+   * When content said the holds `serverPublishingPatchIds` was last moved by,
+   * or `undefined` before it has. See `reportedAt` on `publishingPatchIds`.
+   */
+  serverPublishingReportedAt: number | undefined;
+  /**
    * Whether a press of Publish is a publish job here: every managed project,
    * and a connected one hosted on the platform (the server says, on `/stat`).
    */
@@ -397,6 +402,7 @@ export function ValProvider({
     serviceUnavailable,
     subscribePublishJobs,
     contentHolds,
+    contentHoldsAt,
   ] = useStatus(client);
 
   const isStatConnected = "data" in stat && !!stat.data;
@@ -1292,6 +1298,7 @@ export function ValProvider({
         publishJobsState,
         observedPublishJobs,
         serverPublishingPatchIds,
+        serverPublishingReportedAt: contentHoldsAt,
         publishesAsJobs,
         profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
@@ -2639,10 +2646,19 @@ export function useOtherPublishJobs(): readonly ObservedJob[] {
  * Not pending work while they go, so Publish does not offer them again.
  */
 export function usePublishingPatchIds(): ReadonlySet<string> {
-  const { publishJobsState, serverPublishingPatchIds } = useContext(ValContext);
+  const {
+    publishJobsState,
+    serverPublishingPatchIds,
+    serverPublishingReportedAt,
+  } = useContext(ValContext);
   return useMemo(
-    () => publishingPatchIds(publishJobsState, serverPublishingPatchIds),
-    [publishJobsState, serverPublishingPatchIds],
+    () =>
+      publishingPatchIds(
+        publishJobsState,
+        serverPublishingPatchIds,
+        serverPublishingReportedAt,
+      ),
+    [publishJobsState, serverPublishingPatchIds, serverPublishingReportedAt],
   );
 }
 

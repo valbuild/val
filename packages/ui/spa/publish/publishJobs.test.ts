@@ -7,6 +7,7 @@ import {
   createPublishJobs,
   publishingPatchIds,
   heldByContent,
+  type PublishJobsState,
   type TrackedPublish,
 } from "./publishJobs";
 import type { StudioJobResult } from "./runStudioJob";
@@ -598,6 +599,61 @@ describe("publishingPatchIds with what content reports", () => {
 
   test("content not saying is the same as before it could", () => {
     expect(publishingPatchIds(nothingPressedHere, undefined).size).toBe(0);
+  });
+
+  /*
+   * valbuild/home's `pnpm loop`, step 5b: the publish of edit A fails at
+   * verify. The toast says so at once -- this tab reads its request -- but
+   * the last word content sent about what is publishing was from while the
+   * job ran, and still named A. Publish read "Publishing" over A until
+   * content spoke again, which with a socket up is a `patches` message that
+   * can be lost, and otherwise the next `/stat`.
+   */
+  describe("a press of ours that failed gives its changes back", () => {
+    const failedAt = (
+      settledAt: number,
+      actions: Extract<PublishRequestStatus, { kind: "failed" }>["actions"] = [
+        "try-again",
+        "discard",
+      ],
+    ): PublishJobsState => ({
+      requests: [
+        {
+          requestId: "r1",
+          pressedAt: 0,
+          settledAt,
+          status: {
+            kind: "failed",
+            message: "verify failed 3 times",
+            actions,
+            job: "J1",
+          },
+          patchIds: ["p1"],
+        },
+      ],
+      running: null,
+    });
+
+    test("over what content said before it failed", () => {
+      expect(publishingPatchIds(failedAt(10_000), ["p1"], 5_000).size).toBe(0);
+    });
+
+    test("but not over what content said after: another publish took them", () => {
+      expect([...publishingPatchIds(failedAt(10_000), ["p1"], 15_000)]).toEqual(
+        ["p1"],
+      );
+    });
+
+    test("and only its own: another publish's changes stay held", () => {
+      expect([
+        ...publishingPatchIds(failedAt(10_000), ["p1", "p2"], 5_000),
+      ]).toEqual(["p2"]);
+    });
+
+    test("not after the seal: a build CI failed has published them", () => {
+      const sealed = failedAt(10_000, ["re-run-build"]);
+      expect([...publishingPatchIds(sealed, ["p1"], 5_000)]).toEqual(["p1"]);
+    });
   });
 });
 
