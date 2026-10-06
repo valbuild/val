@@ -56,6 +56,11 @@ declare module "react" {
       "val-members": CustomElementProps<{
         /** The organization whose members these are. */
         org: string;
+        /**
+         * `org/name` of the project it is opened from: an invite made there
+         * also lets them open that project.
+         */
+        project?: string;
         /** The Studio's proxy to Val Build. */
         "api-base"?: string;
         layout?: "popover" | "sheet";

@@ -210,6 +210,7 @@ export function TopBar({
     webComponentsUrl !== undefined ? (
       <MembersShare
         org={org}
+        project={projectName}
         membersHref={membersHref}
         webComponentsUrl={webComponentsUrl}
         studioMode={studioMode}

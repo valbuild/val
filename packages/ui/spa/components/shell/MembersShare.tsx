@@ -23,6 +23,7 @@ import { ShellBreakpoint } from "./types";
  */
 export function MembersShare({
   org,
+  project,
   membersHref,
   webComponentsUrl,
   studioMode,
@@ -30,6 +31,11 @@ export function MembersShare({
   loadScript = loadWebComponentScript,
 }: {
   org: string;
+  /**
+   * `org/name` of this Studio's project: an invite made here also lets them
+   * open it, which joining the organization alone does not.
+   */
+  project?: string;
   /** `toAdminLinks(...).members`. */
   membersHref: string;
   /** `toWebComponentsUrl`: `{contentHost}/wc/v1`. */
@@ -52,6 +58,7 @@ export function MembersShare({
       ref={lazy.ref}
       className="inline-flex shrink-0"
       org={org}
+      project={project}
       api-base={ADMIN_PROXY}
       layout={isMobile ? "sheet" : "popover"}
       trigger="slot"
