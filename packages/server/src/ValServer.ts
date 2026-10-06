@@ -2164,9 +2164,27 @@ export const ValServer = (
               patchIds: undefined,
               excludePatchOps: false,
             });
+            /*
+             * Membership from THIS response when it carries one, not from the
+             * group list `resolveOwnPatchScope` read.
+             *
+             * That list is a separate request, remembered for a second
+             * (`ValOpsHttp.getPatchGroups`), so it can be older than the chain
+             * fetched here: an editor who saved and reloaded at once was
+             * rendered without the patch they had just written, because the
+             * list still had their group without it. The content service reads
+             * the chain and each patch's groups in one transaction, and
+             * `fetchPatches` folds that onto `patchGroups` -- so the patches
+             * and who owns them come from the same moment.
+             */
+            const own = ownPatchScopeFor(
+              all,
+              ("id" in auth && auth.id) || undefined,
+              ownPatchIds,
+            );
             patchOps = {
               ...all,
-              patches: scopedPatches(all.patches, ownPatchIds),
+              patches: scopedPatches(all.patches, own),
             };
           } else if (
             requestedPatchIds !== undefined &&
@@ -4320,6 +4338,36 @@ export function boundUnstageClosure(
  * `undefined` means "apply everything", which is what every caller that does
  * not ask for scoping gets and must keep getting.
  */
+/** The patches in this author's OPEN groups: what a scoped draft shows. */
+export function ownPatchIdsIn(
+  patchGroups: PatchGroupT[],
+  authorId: string,
+): PatchId[] {
+  return patchGroups
+    .filter(
+      (group) => group.publishedAt === null && group.authorId === authorId,
+    )
+    .flatMap((group) => group.patchIds);
+}
+
+/**
+ * Whose pending patches a scoped draft shows, taken from the SAME response as
+ * the patches when it says, and from the list read beforehand only when not.
+ *
+ * See the call in `/sources/~`: the list read beforehand can be older than the
+ * chain, and the response's membership cannot be.
+ */
+export function ownPatchScopeFor(
+  fetched: { patchGroups?: PatchGroupT[] },
+  authorId: string | undefined,
+  remembered: PatchId[] | undefined,
+): PatchId[] | undefined {
+  if (fetched.patchGroups === undefined || authorId === undefined) {
+    return remembered;
+  }
+  return ownPatchIdsIn(fetched.patchGroups, authorId);
+}
+
 export async function resolveOwnPatchScope(
   /*
    * `ValOps`, not the two concrete stores: the one thing this needs is whether
@@ -4385,12 +4433,7 @@ export async function resolveOwnPatchScope(
          * nothing, and base is the honest answer. Distinct from the
          * case above, which is why the two are not one expression.
          */
-        ownPatchIds = groupsRes.patchGroups
-          .filter(
-            (group) =>
-              group.publishedAt === null && group.authorId === opts.authorId,
-          )
-          .flatMap((group) => group.patchIds);
+        ownPatchIds = ownPatchIdsIn(groupsRes.patchGroups, opts.authorId);
         /*
          * Scoping applies to PENDING work only. Anything already
          * committed is part of everyone's view.

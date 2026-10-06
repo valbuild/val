@@ -1813,6 +1813,23 @@ export class ValOpsHttp extends ValOps {
       | { status: "unsupported" };
   } | null = null;
 
+  /**
+   * Forget the remembered group list, after a write through this server.
+   *
+   * A write changes membership -- a save joins its author's group, a delete or
+   * an unstage leaves it -- and the window above is long enough for the next
+   * render to be served the list from before it: an editor who saved and
+   * reloaded inside a second was shown their draft without the change they had
+   * just made. Called once the write has answered, so a read that started
+   * while it was in flight cannot leave the old list behind it.
+   *
+   * Only this instance's writes. Another instance's write is still seen at
+   * most one window late, which is what the window is for.
+   */
+  private forgetPatchGroups(): void {
+    this.patchGroupsCache = null;
+  }
+
   async getPatchGroups(options?: {
     /**
      * Ask the content API even if a recent answer is remembered.
@@ -1961,6 +1978,19 @@ export class ValOpsHttp extends ValOps {
      * A PAT already identifies a person, so `authHeaders` carries the identity
      * on its own there and this adds nothing.
      */
+    authorId: AuthorId | null,
+  ): Promise<PatchGroupMutationResult> {
+    try {
+      return await this.mutatePatchGroupRequest(method, path, body, authorId);
+    } finally {
+      this.forgetPatchGroups();
+    }
+  }
+
+  private async mutatePatchGroupRequest(
+    method: "POST" | "DELETE",
+    path: string,
+    body: Record<string, unknown>,
     authorId: AuthorId | null,
   ): Promise<PatchGroupMutationResult> {
     try {
@@ -2156,7 +2186,8 @@ export class ValOpsHttp extends ValOps {
             e instanceof Error ? e.message : e.toString()
           }`,
         });
-      });
+      })
+      .finally(() => this.forgetPatchGroups());
   }
 
   /**
@@ -2649,7 +2680,8 @@ export class ValOpsHttp extends ValOps {
             }`,
           },
         };
-      });
+      })
+      .finally(() => this.forgetPatchGroups());
   }
 
   async commit(
