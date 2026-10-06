@@ -120,6 +120,55 @@ const LEGACY_CONTROL_HOST = "platform.internal";
  * these are fetched. Credentials stop being what EDITING needs and become what
  * running needs.
  */
+/**
+ * What reads the proposal a platform says this isolate serves, in the
+ * generated file. A constant rather than inline in the template so
+ * {@link rebakeProposal} can add the same text to a file wired before it
+ * existed -- which is every project already published, since a build in a tab
+ * rewrites single lines of its `val.server.ts` and never regenerates it.
+ */
+const PROPOSAL_BLOCK = `/*
+ * THE PROPOSAL this isolate serves the address of, when it does: its name and
+ * content branch, and the content it has saved (\`VAL_OVERLAY\`: the save's
+ * commit, its Source by module and its \`.val.ts\` text by path). Val reads
+ * that Source instead of the bundle's, commits a save to the proposal, and
+ * names the save as its position. valbuild/home \`docs/proposals.md\`,
+ * "Saving".
+ *
+ * Parsed here rather than with \`proposalFromEnv\` from @valbuild/server,
+ * because this file is compiled against whatever @valbuild/tanstack the
+ * PROJECT installed, and one from before proposals has no such export -- it
+ * also ignores the \`proposal\` key below, and serves the base build, which
+ * is the best an old app can do. A snapshot that does not parse is thrown,
+ * not served as the base: a reviewer must not be shown the wrong content as
+ * though it were the proposal.
+ */
+const proposal = (() => {
+  const name = secret("VAL_PROPOSAL");
+  const branch = secret("VAL_BRANCH");
+  if (!name || !branch) return undefined;
+  const overlay: {
+    commit?: string | null;
+    modules?: Record<string, unknown>;
+    files?: Record<string, string>;
+  } = JSON.parse(secret("VAL_OVERLAY") ?? "{}");
+  return {
+    name,
+    branch,
+    commit: overlay.commit ?? null,
+    modules: overlay.modules ?? {},
+    files: overlay.files ?? {},
+  };
+})();
+`;
+/** Where {@link PROPOSAL_BLOCK} goes: right after this line. */
+const SERVED_BUILD_LINE = 'const servedBuild = secret("VAL_BUILD");\n';
+/** And the option that hands it to Val, after the build's. */
+const PROPOSAL_OPTION =
+  "        ...(proposal !== undefined ? { proposal } : {}),\n";
+const PUBLISH_BUILD_OPTION =
+  "        ...(servedBuild !== undefined ? { publishBuild: servedBuild } : {}),\n";
+
 const valServerSource = ({ git }: WireOptions) => `${WIRED_MARKER}
 import {
   initValContent,
@@ -248,40 +297,7 @@ const valProject = secret("VAL_PROJECT");
  * Ignored by a @valbuild/tanstack that predates it.
  */
 const servedBuild = secret("VAL_BUILD");
-/*
- * THE PROPOSAL this isolate serves the address of, when it does: its name and
- * content branch, and the content it has saved (\`VAL_OVERLAY\`: the save's
- * commit, its Source by module and its \`.val.ts\` text by path). Val reads
- * that Source instead of the bundle's, commits a save to the proposal, and
- * names the save as its position. valbuild/home \`docs/proposals.md\`,
- * "Saving".
- *
- * Parsed here rather than with \`proposalFromEnv\` from @valbuild/server,
- * because this file is compiled against whatever @valbuild/tanstack the
- * PROJECT installed, and one from before proposals has no such export -- it
- * also ignores the \`proposal\` key below, and serves the base build, which
- * is the best an old app can do. A snapshot that does not parse is thrown,
- * not served as the base: a reviewer must not be shown the wrong content as
- * though it were the proposal.
- */
-const proposal = (() => {
-  const name = secret("VAL_PROPOSAL");
-  const branch = secret("VAL_BRANCH");
-  if (!name || !branch) return undefined;
-  const overlay: {
-    commit?: string | null;
-    modules?: Record<string, unknown>;
-    files?: Record<string, string>;
-  } = JSON.parse(secret("VAL_OVERLAY") ?? "{}");
-  return {
-    name,
-    branch,
-    commit: overlay.commit ?? null,
-    modules: overlay.modules ?? {},
-    files: overlay.files ?? {},
-  };
-})();
-const valConfig = {
+${PROPOSAL_BLOCK}const valConfig = {
   ...config,
   ...(valProject !== undefined ? { project: valProject } : {}),
 };
@@ -348,8 +364,7 @@ const http =
         projectSource: FILES,
         ...(BUILT_FOR_JOB !== null ? { publishJob: BUILT_FOR_JOB } : {}),
         ...(servedBuild !== undefined ? { publishBuild: servedBuild } : {}),
-        ...(proposal !== undefined ? { proposal } : {}),
-      }
+${PROPOSAL_OPTION}      }
     : undefined;
 
 const { valApiHandler, draftMode } = initValServer(
@@ -573,6 +588,27 @@ export function bakedJob(files: Record<string, string>): string | undefined {
   }
 }
 
+/**
+ * `source` able to serve a proposal's address: {@link PROPOSAL_BLOCK} and its
+ * option added to a file wired before they existed. Idempotent, and only
+ * where both places are exactly as generated -- a file somebody edited is left
+ * as it is, and serves a proposal's address as its base build.
+ */
+function rebakeProposal(source: string): string {
+  if (source.includes("const proposal = (() => {")) return source;
+  const once = (needle: string) => {
+    const at = source.indexOf(needle);
+    return at !== -1 && source.indexOf(needle, at + 1) === -1;
+  };
+  if (!once(SERVED_BUILD_LINE) || !once(PUBLISH_BUILD_OPTION)) return source;
+  return source
+    .replace(SERVED_BUILD_LINE, () => SERVED_BUILD_LINE + PROPOSAL_BLOCK)
+    .replace(
+      PUBLISH_BUILD_OPTION,
+      () => PUBLISH_BUILD_OPTION + PROPOSAL_OPTION,
+    );
+}
+
 /** `source` with its job set, or `source` itself when it cannot carry one. */
 function rebakeJob(source: string, job: string | null): string {
   const line = `const BUILT_FOR_JOB = ${job === null ? "null" : JSON.stringify(job)};`;
@@ -663,9 +699,10 @@ export function rebakeGit(
     BUILT_FROM_LINE,
     `const BUILT_FROM = ${git === null ? "null" : JSON.stringify(git)};`,
   );
+  const withJob = job === undefined ? withGit : rebakeJob(withGit, job);
   return {
     ...files,
-    [VAL_SERVER]: job === undefined ? withGit : rebakeJob(withGit, job),
+    [VAL_SERVER]: rebakeProposal(withJob),
   };
 }
 
