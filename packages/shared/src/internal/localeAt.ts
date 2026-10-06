@@ -1,8 +1,11 @@
 import {
   Internal,
   localeOfValue,
+  matchRoutePattern,
+  routePatternOf,
   type Json,
   type JsonObject,
+  type ModuleFilePath,
   type SerializedSchema,
   type SourcePath,
   discriminatedUnionBranchOf,
@@ -17,7 +20,8 @@ import {
  *
  * THE question the whole feature turns on. A locale scope is a subtree in one
  * language, and three things open one: a `locale` field on an object, a record
- * keyed by `s.locale()`, and a locale segment in a segmented key. Once this can
+ * keyed by `s.locale()`, and a locale parameter in a router's key
+ * (`s.router(router, { locale: … }, item)`, where the URL names the language). Once this can
  * be answered from the schema and the source alone, everything downstream falls
  * out of it — the Studio's locale filter, deep links, `<html lang>`, and knowing
  * what to translate from and into.
@@ -47,7 +51,80 @@ export function localeAt(
     return null;
   }
   const segments = modulePath ? Internal.splitModulePath(modulePath) : [];
-  return walk(schema, source, segments, available);
+  return walk(
+    schema,
+    source,
+    segments,
+    available,
+    moduleFilePath as ModuleFilePath,
+  );
+}
+
+/**
+ * The language a locale schema's value MEANS, or `null` if it means none of
+ * the project's.
+ *
+ * `s.locale()` stores the tag itself. An enum with `.locales(...)` stores a
+ * value that stands for one — `nb` for `nb-NO` — and, on a router parameter,
+ * `null` for a URL that left the segment out, which `{ null: tag }` names.
+ * Anything else is not a locale and means nothing here.
+ *
+ * Callers reading a FIELD pass only strings: a field that holds `null` has no
+ * language, whatever its schema says about URLs.
+ */
+export function localeMeantBy(
+  schema: SerializedSchema,
+  value: string | null,
+  available: readonly string[],
+): string | null {
+  if (schema.type === "locale") {
+    return value === null ? null : localeOfValue(value, available);
+  }
+  if (schema.type === "enum" && schema.locales !== undefined) {
+    const tag = value === null ? schema.nullLocale : schema.locales[value];
+    return tag === undefined ? null : localeOfValue(tag, available);
+  }
+  return null;
+}
+
+/**
+ * Whether a schema is a locale: `s.locale()`, or an enum `.locales(...)` made
+ * one.
+ */
+export function isLocaleSchema(schema: SerializedSchema): boolean {
+  return (
+    schema.type === "locale" ||
+    (schema.type === "enum" && schema.locales !== undefined)
+  );
+}
+
+/**
+ * The language a router's key is in, where one of its route parameters is a
+ * locale — `/nb/blog/hei` is `nb-NO` when `locale` maps `nb` to it.
+ */
+function localeOfRouteKey(
+  schema: SerializedSchema & { type: "record" },
+  moduleFilePath: ModuleFilePath,
+  key: string,
+  available: string[],
+): string | null {
+  if (schema.params === undefined || schema.router === undefined) {
+    return null;
+  }
+  const pattern = routePatternOf(schema.router, moduleFilePath);
+  if (pattern === null) {
+    return null;
+  }
+  const values = matchRoutePattern(key, pattern);
+  if (values === null) {
+    return null;
+  }
+  for (const [name, param] of Object.entries(schema.params)) {
+    if (isLocaleSchema(param) && name in values) {
+      return localeMeantBy(param, values[name], available);
+    }
+  }
+  return null;
 }
 
 /**
@@ -67,6 +144,7 @@ function walk(
   source: Json,
   segments: string[],
   available: string[],
+  moduleFilePath: ModuleFilePath,
 ): string | null {
   let entered = enter(schema, source, available);
   let locale = entered.locale;
@@ -81,6 +159,18 @@ function walk(
         // In a locale-keyed record the KEY is the language, so the segment we
         // are about to take is the answer.
         const resolved = localeOfValue(segment, available);
+        if (resolved !== null) {
+          locale = resolved;
+        }
+      } else if (currentSchema.params !== undefined) {
+        // A router whose URL names the language: the key is a URL, and one of
+        // its parameters is the answer.
+        const resolved = localeOfRouteKey(
+          currentSchema,
+          moduleFilePath,
+          segment,
+          available,
+        );
         if (resolved !== null) {
           locale = resolved;
         }
@@ -152,14 +242,14 @@ function localeOfObjectField(
     return null;
   }
   for (const [key, item] of Object.entries(schema.items)) {
-    if (item.type !== "locale") {
+    if (!isLocaleSchema(item)) {
       continue;
     }
     const value = source[key];
     if (typeof value !== "string") {
       return null;
     }
-    return localeOfValue(value, available);
+    return localeMeantBy(item, value, available);
   }
   return null;
 }

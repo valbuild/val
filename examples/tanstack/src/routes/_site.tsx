@@ -64,6 +64,12 @@ function SiteLayout() {
           Docs
         </Link>
         <Link to="/showcase">Showcase</Link>
+        <Link
+          to="/{-$locale}/news/$slug"
+          params={{ locale: "nb", slug: "val-pa-norsk" }}
+        >
+          Nyheter
+        </Link>
         <a href="/val">Val Studio</a>
       </nav>
       {/*

@@ -5,6 +5,7 @@ import {
   type SourcePath,
 } from "@valbuild/core";
 import { createContext, ReactNode, useContext, useMemo } from "react";
+import { isLocaleSchema, localeMeantBy } from "@valbuild/shared/internal";
 import { useProjectLocales } from "../hooks/useProjectLocales";
 import { useSchemaAtPath, useShallowSourceAtPath } from "./ValFieldProvider";
 import { sourcePathOfItem } from "../utils/sourcePathOfItem";
@@ -120,7 +121,10 @@ export function LocaleFiltered({
     // vanishes as its content arrives is the other one.
     return <>{children}</>;
   }
-  const locale = localeOfValue(value, projectLocales);
+  const locale =
+    schema?.type === "object"
+      ? localeMeantBy(schema.items[localeField], value, projectLocales)
+      : null;
   if (locale !== null && locale !== filter) {
     return null;
   }
@@ -136,13 +140,16 @@ export function LocaleFiltered({
  */
 const NO_PATH = "" as SourcePath;
 
-/** The name of an object schema's `s.locale()` field, if it has one. */
+/**
+ * The name of an object schema's locale field — `s.locale()`, or an enum
+ * `.locales(...)` made one — if it has one.
+ */
 function localeFieldNameOf(schema: SerializedSchema): string | null {
   if (schema.type !== "object") {
     return null;
   }
   for (const [field, item] of Object.entries(schema.items)) {
-    if (item.type === "locale") {
+    if (isLocaleSchema(item)) {
       return field;
     }
   }
@@ -200,8 +207,10 @@ export function useLocaleFilterPredicate(): (
  *
  * Two of the three ways a scope opens are answerable from what a list already
  * has to hand: an entry of a locale-keyed record (the KEY is the language) and
- * an object with a `locale` field (the value is). The third, a locale segment in
- * a segmented key, arrives with segmented keys.
+ * an object with a `locale` field (the value is). The third, a locale route
+ * parameter (`s.router(router, { locale: … }, item)`), needs the module's route
+ * pattern to read the key, which a list row does not carry yet — so a router's
+ * pages are not filtered. `localeAt` answers it for everything else.
  */
 function localeScopeOf(
   node: LocaleFilterNode,
@@ -225,7 +234,7 @@ function localeScopeOf(
     return null;
   }
   for (const [field, item] of Object.entries(schema.items)) {
-    if (item.type !== "locale") {
+    if (!isLocaleSchema(item)) {
       continue;
     }
     const value = source[field];
@@ -234,7 +243,7 @@ function localeScopeOf(
       // listed — hiding it would hide the field someone has to fill in.
       return null;
     }
-    return localeOfValue(value, projectLocales);
+    return localeMeantBy(item, value, projectLocales);
   }
   return null;
 }

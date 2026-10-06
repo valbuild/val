@@ -551,7 +551,9 @@ The showcase covers, as of writing: every `s.*` factory except `s.union`
 `min` / `max` / `regexp` / `multiline` on strings and numbers, `from` / `to` on
 dates, `include` / `exclude` on routes; `s.record(key, item)` and the
 three-argument `s.router(router, key, item)` so a KEY can carry its own
-description; `.jsonValues()` with `c.json()`; `tanstackRouter` and
+description; `s.router(router, params, item)` with a schema per route
+parameter, an optional `{-$locale}` segment and `s.enum().locales()` naming the
+language a URL is in; `.jsonValues()` with `c.json()`; `tanstackRouter` and
 `externalPageRouter`; and the settings sections `locales`, `theme`, `studio`
 (`commitMessage`) and `assistant`; and `s.video()` both as an mp4 and as an
 HLS stream (`stream: { type: "hls" }`), rendered with `ValVideo`, and

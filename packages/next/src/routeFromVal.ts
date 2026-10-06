@@ -150,7 +150,15 @@ export function getValRouteUrlFromVal(
         | string
         | string[]
         | undefined;
-      if (typeof value !== "string" && !Array.isArray(value)) {
+      if (
+        part.type === "string-param" &&
+        part.optional &&
+        (value === undefined || value === null)
+      ) {
+        // An optional segment the URL left out (`{-$locale}`): it contributes
+        // nothing to the key, so `/about` is the key for `{ locale: undefined }`.
+        delete missingParamKeys[key as keyof typeof missingParamKeys];
+      } else if (typeof value !== "string" && !Array.isArray(value)) {
         missingPatterns.push(part);
       } else if (Array.isArray(value)) {
         if (missingParamKeys?.[key as keyof typeof missingParamKeys]) {

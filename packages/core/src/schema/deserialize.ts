@@ -25,6 +25,8 @@ import { SettingsSchema } from "./settings";
 import { StringSchema } from "./string";
 import { DiscriminatedUnionSchema } from "./discriminatedUnion";
 import { EnumSchema } from "./enum";
+import { ValRouter } from "../router";
+import { routePatternOf } from "../getSourcePathFromRoute";
 
 export function deserializeSchema(
   serialized: SerializedSchema,
@@ -151,6 +153,9 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        null,
+        serialized.locales ?? null,
+        serialized.nullLocale ?? null,
       );
     case "richtext": {
       const deserializedOptions: RichTextOptions & {
@@ -185,7 +190,7 @@ function deserializeSchemaImpl(
         deserializeSchema(serialized.item),
         serialized.opt,
         [],
-        null,
+        serialized.params ? routerForParams(serialized.router) : null,
         serialized.key
           ? (deserializeSchema(serialized.key) as Schema<string>)
           : null,
@@ -213,6 +218,14 @@ function deserializeSchemaImpl(
         // must be carried back: a deserialized schema that forgot it would walk
         // an external record as if its entries were local.
         serialized.external ?? null,
+        serialized.params
+          ? Object.fromEntries(
+              Object.entries(serialized.params).map(([name, param]) => [
+                name,
+                deserializeSchema(param) as Schema<string | null>,
+              ]),
+            )
+          : null,
       );
     case "keyOf":
       return new KeyOfSchema(
@@ -363,4 +376,26 @@ function deserializeSchemaImpl(
       }
     }
   }
+}
+
+/**
+ * The router a deserialized record with route parameters is given: enough to
+ * find its route pattern, and nothing more.
+ *
+ * A deserialized record has no router otherwise — the serialized form carries
+ * an id, not the code — and so does not validate its keys against the route.
+ * That stays true: `validate` reports nothing here. What the parameters need is
+ * the PATTERN, to find each key's values by name, and that is a pure function
+ * of the router id and the module path, so it can be put back.
+ */
+function routerForParams(routerId: string | undefined): ValRouter | null {
+  if (routerId === undefined) {
+    return null;
+  }
+  return {
+    getRouterId: () => routerId,
+    getRoutePattern: (moduleFilePath) =>
+      routePatternOf(routerId, moduleFilePath) ?? [],
+    validate: () => [],
+  };
 }

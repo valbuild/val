@@ -6,6 +6,7 @@ import {
 } from ".";
 import { ItemPreviewInput, PreviewItem } from "../preview";
 import { SourcePath } from "../val";
+import { localeTagError } from "../locale";
 import {
   ValidationError,
   ValidationErrors,
@@ -20,6 +21,16 @@ export type SerializedEnumSchema = {
    * the editor's dropdown offers them in.
    */
   values: string[];
+  /**
+   * Set by `.locales(...)`: the project language each value MEANS, by value.
+   * Its presence is what makes this enum a locale — see `EnumSchema.locales`.
+   */
+  locales?: Record<string, string>;
+  /**
+   * Set by `.locales(..., { null: tag })`: the language of a URL that leaves
+   * this route parameter out. Only meaningful on a router parameter.
+   */
+  nullLocale?: string;
   opt: boolean;
   customValidate?: boolean;
   readonly?: boolean;
@@ -55,6 +66,10 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
     private readonly isHidden: boolean = false,
     private readonly description?: string,
     private readonly previewInput: ItemPreviewInput<Src> | null = null,
+    /** Set by `.locales(...)`: the language each value means. */
+    private readonly localeMap: Readonly<Record<string, string>> | null = null,
+    /** Set by `.locales(..., { null })`: the language of a missing segment. */
+    private readonly nullLocale: string | null = null,
   ) {
     super();
   }
@@ -87,6 +102,8 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       description ?? undefined,
       this.previewInput,
+      this.localeMap,
+      this.nullLocale,
     );
   }
 
@@ -118,18 +135,60 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       this.previewInput,
+      this.localeMap,
+      this.nullLocale,
     );
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
+    return this.validateAs(path, src, "field");
+  }
+
+  /**
+   * Validate the value a URL gives a route parameter — see
+   * `s.router(router, params, item)`.
+   *
+   * Not `executeValidate`, because one thing is right here that is wrong on a
+   * field: `{ null: tag }`. A URL that leaves out an optional segment has a
+   * language someone chose; a field that holds `null` has none, and Val does
+   * not guess one for it.
+   */
+  protected validateRouteParam(path: SourcePath, src: Src): ValidationErrors {
+    return this.validateAs(path, src, "route-param");
+  }
+
+  private validateAs(
+    path: SourcePath,
+    src: Src,
+    as: "field" | "route-param",
+  ): ValidationErrors {
     const customValidationErrors: ValidationError[] =
       this.executeCustomValidateFunctions(src, this.customValidateFunctions, {
         path,
       });
     // The custom validators always report, whatever the structural answer is.
-    const errors: ValidationError[] = customValidationErrors;
+    const errors: ValidationError[] = [
+      ...customValidationErrors,
+      ...this.localeMappingErrors(),
+    ];
+    if (as === "field" && this.nullLocale !== null) {
+      errors.push({
+        message: `'{ null: "${this.nullLocale}" }' gives a URL without this segment a language, so it belongs on a router parameter: s.router(router, { locale: … }, item). On a field, null means nobody has chosen a language — use s.locale().nullable() there.`,
+        schemaError: true,
+      });
+    }
     const unknownSrc = src as unknown;
     if (this.opt && (unknownSrc === null || unknownSrc === undefined)) {
+      if (as === "route-param" && this.localeMap !== null) {
+        if (this.nullLocale === null) {
+          errors.push({
+            message: `This URL leaves the language out, and nothing says which language that is. Add it to .locales(): .locales({ … }, { null: "en-US" })`,
+            value: src,
+          });
+        } else {
+          errors.push(this.checkLocale(path, this.nullLocale));
+        }
+      }
       return errors.length > 0 ? { [path]: errors } : false;
     }
     if (!Array.isArray(this.values) || this.values.length === 0) {
@@ -152,8 +211,94 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
           .join(", ")}`,
         value: src,
       });
+    } else if (this.localeMap !== null) {
+      const tag = this.localeMap[unknownSrc];
+      if (typeof tag === "string") {
+        errors.push(this.checkLocale(path, tag));
+      }
     }
     return errors.length > 0 ? { [path]: errors } : false;
+  }
+
+  /**
+   * The cross-module half of the check: is `tag` one of the project's
+   * languages? The same deferred error `s.locale()` reports, resolved by
+   * `resolveSchemaSourceFixes` against `locales.available` — so a mapped
+   * value and a written-out tag are checked by one implementation.
+   */
+  private checkLocale(path: SourcePath, tag: string): ValidationError {
+    return {
+      fixes: ["locale:check-locale"],
+      message: `Did not validate locale. This error (locale:check-locale) should typically be processed by Val internally. Seeing this error most likely means you have a Val version mismatch.`,
+      value: {
+        locale: tag,
+        sourcePath: path,
+      },
+    };
+  }
+
+  /**
+   * What is wrong with the mapping itself, whatever the value is.
+   *
+   * The compiler checks all of this for a schema written in TypeScript except
+   * the spelling and the uniqueness of the tags; the rest is here for a schema
+   * that came back from JSON.
+   */
+  protected localeMappingErrors(): ValidationError[] {
+    if (this.localeMappingErrorsMemo === undefined) {
+      this.localeMappingErrorsMemo = this.computeLocaleMappingErrors();
+    }
+    return this.localeMappingErrorsMemo;
+  }
+
+  private localeMappingErrorsMemo?: ValidationError[];
+
+  private computeLocaleMappingErrors(): ValidationError[] {
+    if (this.localeMap === null) {
+      return [];
+    }
+    const errors: ValidationError[] = [];
+    const mapped = Object.entries(this.localeMap);
+    for (const value of this.values) {
+      if (!(value in this.localeMap)) {
+        errors.push({
+          message: `.locales() does not say which language "${value}" is`,
+          schemaError: true,
+        });
+      }
+    }
+    for (const [value] of mapped) {
+      if (!this.values.includes(value)) {
+        errors.push({
+          message: `.locales() names "${value}", which is not one of this enum's values`,
+          schemaError: true,
+        });
+      }
+    }
+    const tags =
+      this.nullLocale === null
+        ? mapped.map(([, tag]) => tag)
+        : [...mapped.map(([, tag]) => tag), this.nullLocale];
+    for (const tag of tags) {
+      const error = localeTagError(tag);
+      if (error) {
+        errors.push({ message: error, schemaError: true });
+      }
+    }
+    const seen = new Set<string>();
+    for (const tag of tags) {
+      if (seen.has(tag)) {
+        // Two spellings of one language would give one page two URLs in that
+        // language, and nothing could say which of them the translations of
+        // the page are translations of.
+        errors.push({
+          message: `'${tag}' is in .locales() twice. Each language has one spelling, so a page has one URL per language.`,
+          schemaError: true,
+        });
+      }
+      seen.add(tag);
+    }
+    return errors;
   }
 
   protected executeAssert(
@@ -212,6 +357,8 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       this.previewInput,
+      this.localeMap,
+      this.nullLocale,
     );
   }
 
@@ -224,6 +371,8 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       this.previewInput,
+      this.localeMap,
+      this.nullLocale,
     );
   }
 
@@ -236,7 +385,90 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
       isHidden,
       this.description,
       this.previewInput,
+      this.localeMap,
+      this.nullLocale,
     );
+  }
+
+  /**
+   * Say which of the project's languages each value MEANS — which makes this
+   * enum a locale, the way `s.locale()` is one.
+   *
+   * For a value that is not a language tag itself: most often a route
+   * parameter, where a site writes `/nb/…` and means `nb-NO`. The values are
+   * what is stored (and what is in the URL); the tags on the right are what
+   * they mean, and those are checked against `locales.available` in the
+   * settings module exactly as an `s.locale()` value is.
+   *
+   * On a nullable enum it takes an optional second argument, `{ null: tag }`:
+   * the language of a URL that leaves the segment out, which is how a site
+   * serves its default language without a prefix. That is ONLY for a router
+   * parameter, where leaving it out of a nullable one is reported on every URL
+   * without the segment. On a field `null` means nobody chose a language, and
+   * saying which one it "really" is would file content under a language
+   * nobody picked, so there it is a schema error.
+   *
+   * One spelling per language: two values (or a value and `null`) that mean
+   * the same tag would give one page two URLs in that language.
+   *
+   * @example // a route parameter: `/about` is English, `/nb/about` Norwegian
+   * import { tanstackRouter } from "../val.config";
+   * const urlLocale = s
+   *   .enum("nb")
+   *   .nullable()
+   *   .locales({ nb: "nb-NO" }, { null: "en-US" });
+   * const schema = s.router(
+   *   tanstackRouter,
+   *   { locale: urlLocale },
+   *   s.object({ title: s.string() }),
+   * );
+   * export default c.define("/src/routes/{-$locale}.about.val.ts", schema, {
+   *   "/about": { title: "About us" },
+   *   "/nb/about": { title: "Om oss" },
+   * });
+   *
+   * @example // a field that stores a short code
+   * const schema = s.object({
+   *   language: s.enum("en", "nb").locales({ en: "en-US", nb: "nb-NO" }),
+   *   title: s.string(),
+   * });
+   * export default c.define("/example.val.ts", schema, {
+   *   language: "nb",
+   *   title: "Vinterjakke",
+   * });
+   */
+  locales(
+    locales: { readonly [Value in NonNullable<Src>]: string },
+    ...whenNull: null extends Src ? [whenNull?: { null: string }] : []
+  ): EnumSchema<Src> {
+    const nullOption: { null: string } | undefined = whenNull[0];
+    return new EnumSchema<Src>(
+      this.values,
+      this.opt,
+      this.customValidateFunctions,
+      this.isReadonly,
+      this.isHidden,
+      this.description,
+      this.previewInput,
+      { ...locales },
+      nullOption?.null ?? null,
+    );
+  }
+
+  /**
+   * The language of a URL that leaves this parameter out, where one was given.
+   * For `RecordSchema`, which checks that the route can leave it out at all.
+   */
+  protected routeParamNullLocale(): string | null {
+    return this.nullLocale;
+  }
+
+  /**
+   * Whether `.locales(...)` made this enum a language. If so, an object with
+   * it as a field is in that language, the same as one with `s.locale()`.
+   */
+  protected override isLocaleField(): boolean {
+    return this.localeMap !== null;
   }
 
   protected override executeCustomValidateAt(
@@ -270,6 +502,8 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
       this.isHidden,
       this.description,
       select,
+      this.localeMap,
+      this.nullLocale,
     );
   }
 
@@ -291,6 +525,8 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
       type: "enum",
       preview: this.previewInput ? true : undefined,
       values: [...this.values],
+      ...(this.localeMap !== null ? { locales: { ...this.localeMap } } : {}),
+      ...(this.nullLocale !== null ? { nullLocale: this.nullLocale } : {}),
       opt: this.opt,
       customValidate:
         this.customValidateFunctions &&

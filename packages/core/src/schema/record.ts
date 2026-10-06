@@ -15,7 +15,8 @@ import {
 } from "../preview";
 import { splitModuleFilePathAndModulePath } from "../module";
 import { FieldRender } from "../render";
-import { ValRouter } from "../router";
+import { ValRouter, matchRoutePattern, routeParamsOfPattern } from "../router";
+import { EnumSchema } from "./enum";
 import { SelectorSource } from "../selector";
 import {
   createValPathOfItem,
@@ -149,6 +150,11 @@ export type SerializedRecordSchema = {
    * wide default, which the Studio knows on its own.
    */
   routerSchemes?: string[];
+  /**
+   * A router's parameter schemas, by the name the route file gives each one.
+   * See `s.router(router, params, item)`.
+   */
+  params?: Record<string, SerializedSchema>;
   customValidate?: boolean;
   // Optional media collection marker for files/images that are backed by a record
   mediaType?: MediaCollectionType;
@@ -226,14 +232,20 @@ export class RecordSchema<
     /**
      * Set by `.external(label)`; the entries live behind that adapter.
      *
-     * LAST on purpose: every other `new RecordSchema(...,
-      this.externalLabel,
-    )` in the codebase
-     * passes its arguments positionally, so a new parameter anywhere else
-     * silently shifts `previewInput` and `renderInput` at each of those call
-     * sites.
+     * Appended rather than inserted, and so is everything after it: every
+     * `new RecordSchema(...)` in the codebase passes its arguments
+     * positionally, so a new parameter anywhere else silently shifts
+     * `previewInput` and `renderInput` at each of those call sites.
      */
     private readonly externalLabel: string | null = null,
+    /**
+     * Set by `s.router(router, { name: schema }, item)`: a schema for each
+     * route parameter, by the name the route file gives it. See
+     * `getRouteParamValidations`.
+     */
+    private readonly routeParams: Readonly<
+      Record<string, Schema<string | null>>
+    > | null = null,
   ) {
     super();
   }
@@ -272,6 +284,7 @@ export class RecordSchema<
       this.previewInput,
       this.renderInput,
       this.externalLabel,
+      this.routeParams,
     );
   }
 
@@ -317,6 +330,7 @@ export class RecordSchema<
       this.previewInput,
       this.renderInput,
       this.externalLabel,
+      this.routeParams,
     );
   }
 
@@ -360,6 +374,10 @@ export class RecordSchema<
     }
     const routerValidations = this.getRouterValidations(path, src);
     error = this.mergeValidationErrors(error, routerValidations);
+    error = this.mergeValidationErrors(
+      error,
+      this.getRouteParamValidations(path, src),
+    );
     for (const customValidationError of customValidationErrors) {
       error = this.appendValidationError(
         error,
@@ -551,9 +569,21 @@ export class RecordSchema<
   }
 
   protected override opensLocaleScope(): "field" | "key" | null {
-    return this.keySchema !== null && this.keySchema["isLocaleField"]()
-      ? "key"
-      : null;
+    if (this.keySchema !== null && this.keySchema["isLocaleField"]()) {
+      return "key";
+    }
+    // A router with a locale parameter: every page is in the language its
+    // URL names, which is a locale in the key exactly as above, only part of
+    // the key rather than all of it.
+    if (
+      this.routeParams !== null &&
+      Object.values(this.routeParams).some((schema) =>
+        schema["isLocaleField"](),
+      )
+    ) {
+      return "key";
+    }
+    return null;
   }
 
   protected override localeScopeChildren(): {
@@ -950,6 +980,7 @@ export class RecordSchema<
       this.previewInput,
       this.renderInput,
       this.externalLabel,
+      this.routeParams,
     ) as RecordSchema<T, K, Src | null>;
   }
 
@@ -984,6 +1015,7 @@ export class RecordSchema<
       this.previewInput,
       this.renderInput,
       this.externalLabel,
+      this.routeParams,
     );
   }
 
@@ -1002,6 +1034,7 @@ export class RecordSchema<
       this.previewInput,
       this.renderInput,
       this.externalLabel,
+      this.routeParams,
     );
   }
 
@@ -1038,6 +1071,7 @@ export class RecordSchema<
       this.previewInput,
       this.renderInput,
       this.externalLabel,
+      this.routeParams,
     );
   }
 
@@ -1080,6 +1114,7 @@ export class RecordSchema<
       this.previewInput,
       this.renderInput,
       this.externalLabel,
+      this.routeParams,
     );
   }
 
@@ -1152,6 +1187,7 @@ export class RecordSchema<
       null,
       this.renderInput,
       this.externalLabel,
+      this.routeParams,
     );
   }
 
@@ -1219,6 +1255,7 @@ export class RecordSchema<
       null,
       this.renderInput,
       label,
+      this.routeParams,
     );
   }
 
@@ -1335,6 +1372,124 @@ export class RecordSchema<
     return false;
   }
 
+  /**
+   * Validate what each key gives its route parameters, against the schema
+   * `s.router(router, { name: schema }, item)` gave that parameter.
+   *
+   * The parameters are bound by NAME — the name the route file gives them
+   * (`$slug`, `[slug]`, `{-$locale}`) — rather than by position, so renaming
+   * or adding a segment in the route file cannot silently hand one
+   * parameter's schema to another. A name the route does not have is
+   * therefore a schema error rather than a parameter that is never checked.
+   *
+   * Keys that do not match the route at all are left to the router's own
+   * validation, which says what the route expects; there is nothing here to
+   * give a parameter.
+   */
+  private getRouteParamValidations(
+    path: SourcePath,
+    src: Record<string, unknown>,
+  ): ValidationErrors {
+    const params = this.routeParams;
+    if (params === null) {
+      return false;
+    }
+    const [moduleFilePath, modulePath] = splitModuleFilePathAndModulePath(path);
+    if (modulePath) {
+      // Not a module root: `getRouterValidations` already says so.
+      return false;
+    }
+    const pattern =
+      this.currentRouter?.getRoutePattern?.(moduleFilePath) ?? null;
+    if (pattern === null) {
+      return {
+        [path]: [
+          {
+            message: this.currentRouter
+              ? `Route parameters need a router whose keys are routes of this site, and '${this.currentRouter.getRouterId()}' is not one`
+              : `Route parameters need a router: s.router(router, { … }, item)`,
+            schemaError: true,
+          },
+        ],
+      };
+    }
+    let error: ValidationErrors = false;
+    const declared = routeParamsOfPattern(pattern);
+    const route = `/${pattern.join("/")}`;
+    for (const [name, schema] of Object.entries(params)) {
+      const segment = declared.find((each) => each.name === name);
+      if (segment === undefined) {
+        error = this.appendValidationError(
+          error,
+          path,
+          `There is no '${name}' in this route (${route}). ${
+            declared.length === 0
+              ? "It has no parameters."
+              : `Its parameters are ${declared
+                  .map((each) => `'${each.name}'`)
+                  .join(", ")}.`
+          }`,
+          src,
+          true,
+        );
+        continue;
+      }
+      if (
+        !segment.optional &&
+        schema instanceof EnumSchema &&
+        schema["routeParamNullLocale"]() !== null
+      ) {
+        error = this.appendValidationError(
+          error,
+          path,
+          `'${name}' says which language a URL without it is in, but this route always has it (${route}). Make the segment optional in the route file ({-$${name}}), or remove { null } from .locales().`,
+          src,
+          true,
+        );
+      }
+    }
+    const localeParams = Object.keys(params).filter((name) =>
+      params[name]["isLocaleField"](),
+    );
+    if (localeParams.length > 1) {
+      error = this.appendValidationError(
+        error,
+        path,
+        `A page is in one language, so one route parameter can be a locale. Found ${localeParams
+          .map((each) => `'${each}'`)
+          .join(", ")}.`,
+        src,
+        true,
+      );
+    }
+    for (const key of Object.keys(src)) {
+      const values = matchRoutePattern(key, pattern);
+      if (values === null) {
+        continue;
+      }
+      const keyPath = createValPathOfItem(path, key);
+      if (!keyPath) {
+        continue;
+      }
+      for (const [name, schema] of Object.entries(params)) {
+        if (!(name in values)) {
+          continue;
+        }
+        const paramErrors = validateRouteParam(
+          schema,
+          keyPath,
+          name,
+          values[name],
+        );
+        if (paramErrors) {
+          this.markKeyErrorsAtPath(paramErrors, keyPath);
+          error = this.mergeValidationErrors(error, paramErrors);
+        }
+      }
+    }
+    return error;
+  }
+
   protected override executeCustomValidateAt(
     path: SourcePath,
     src: Src,
@@ -1356,6 +1511,16 @@ export class RecordSchema<
       preview: this.previewInput ? true : undefined,
       router: this.currentRouter?.getRouterId(),
       ...routerSchemes(this.currentRouter),
+      ...(this.routeParams !== null
+        ? {
+            params: Object.fromEntries(
+              Object.entries(this.routeParams).map(([name, schema]) => [
+                name,
+                schema["executeSerialize"](),
+              ]),
+            ),
+          }
+        : {}),
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
@@ -1543,6 +1708,7 @@ export class RecordSchema<
       select,
       this.renderInput,
       this.externalLabel,
+      this.routeParams,
     );
   }
 
@@ -1576,8 +1742,39 @@ export class RecordSchema<
       this.previewInput,
       input,
       this.externalLabel,
+      this.routeParams,
     );
   }
+}
+
+/**
+ * What is wrong with the value a URL gives one route parameter.
+ *
+ * `null` is a parameter the URL left out, which only an optional segment can
+ * do. A schema that does not allow it gets a message about the URL rather
+ * than "expected string, got null", which is true and names nothing anyone
+ * wrote.
+ */
+function validateRouteParam(
+  schema: Schema<string | null>,
+  keyPath: SourcePath,
+  name: string,
+  value: string | null,
+): ValidationErrors {
+  if (value === null && !schema["executeAssert"](keyPath, null).success) {
+    return {
+      [keyPath]: [
+        {
+          message: `This URL leaves out '${name}', which its schema does not allow. Make the schema .nullable(), or make the segment required in the route file.`,
+          value: null,
+        },
+      ],
+    };
+  }
+  if (schema instanceof EnumSchema) {
+    return schema["validateRouteParam"](keyPath, value);
+  }
+  return schema["executeValidate"](keyPath, value);
 }
 
 /**

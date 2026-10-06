@@ -71,127 +71,135 @@ export type RouteValidationError = {
   };
 };
 
-// Helper function to validate a URL path against a route pattern
+/**
+ * The value of each parameter a URL gives a route pattern, or `null` when the
+ * URL is not one of that pattern's.
+ *
+ * A parameter that an OPTIONAL segment left out is `null` rather than absent,
+ * so a caller can tell "this route has no such parameter" from "this URL did
+ * not use it". A catch-all's segments are joined with `/`, which is how they
+ * appear in the key; an optional catch-all with nothing to catch is `null`.
+ *
+ * The pattern vocabulary is the one both parsers produce: `[name]` is a
+ * segment, `[[name]]` an optional one, `[...name]` a catch-all and
+ * `[[...name]]` an optional catch-all; anything else is literal.
+ *
+ * Optional segments are what make this a search rather than a walk: in
+ * `/[[locale]]/blog/[slug]` the URL `/blog/hello` only matches once `blog`
+ * has been tried as the locale and given back. A present segment is tried
+ * first, so `/nb/blog/hello` reads as the locale `nb` — the reading the router
+ * itself makes.
+ */
+export function matchRoutePattern(
+  urlPath: string,
+  routePattern: string[],
+): Record<string, string | null> | null {
+  const trimmed = urlPath.startsWith("/") ? urlPath.slice(1) : urlPath;
+  const urlSegments = trimmed === "" ? [] : trimmed.split("/");
+  return matchFrom(routePattern, 0, urlSegments, 0, {});
+}
+
+type PatternSegment =
+  | { type: "literal"; value: string }
+  | { type: "param"; name: string; optional: boolean; catchAll: boolean };
+
+function readPatternSegment(segment: string): PatternSegment {
+  const optional = segment.startsWith("[[") && segment.endsWith("]]");
+  const required =
+    !optional && segment.startsWith("[") && segment.endsWith("]");
+  if (!optional && !required) {
+    return { type: "literal", value: segment };
+  }
+  const inner = optional ? segment.slice(2, -2) : segment.slice(1, -1);
+  const catchAll = inner.startsWith("...");
+  return {
+    type: "param",
+    name: catchAll ? inner.slice(3) : inner,
+    optional,
+    catchAll,
+  };
+}
+
+/**
+ * The parameters a route pattern has, by name, and whether a URL may leave
+ * each one out.
+ */
+export function routeParamsOfPattern(
+  routePattern: string[],
+): { name: string; optional: boolean }[] {
+  return routePattern.flatMap((each) => {
+    const segment = readPatternSegment(each);
+    return segment.type === "param"
+      ? [{ name: segment.name, optional: segment.optional }]
+      : [];
+  });
+}
+
+function matchFrom(
+  routePattern: string[],
+  patternIndex: number,
+  urlSegments: string[],
+  urlIndex: number,
+  params: Record<string, string | null>,
+): Record<string, string | null> | null {
+  if (patternIndex === routePattern.length) {
+    return urlIndex === urlSegments.length ? params : null;
+  }
+  const segment = readPatternSegment(routePattern[patternIndex]);
+  const next = (consumed: number, value: string | null) =>
+    matchFrom(
+      routePattern,
+      patternIndex + 1,
+      urlSegments,
+      urlIndex + consumed,
+      segment.type === "param" ? { ...params, [segment.name]: value } : params,
+    );
+  if (segment.type === "literal") {
+    return urlSegments[urlIndex] === segment.value ? next(1, null) : null;
+  }
+  const remaining = urlSegments.length - urlIndex;
+  if (segment.catchAll) {
+    // Longest first: a catch-all is almost always last, where the only
+    // length that can match is "all of it".
+    for (let count = remaining; count >= 1; count--) {
+      const taken = urlSegments.slice(urlIndex, urlIndex + count);
+      if (taken.some((each) => each === "")) {
+        continue;
+      }
+      const matched = next(count, taken.join("/"));
+      if (matched) {
+        return matched;
+      }
+    }
+    return segment.optional ? next(0, null) : null;
+  }
+  const value = urlSegments[urlIndex];
+  if (value !== undefined && value !== "") {
+    const matched = next(1, value);
+    if (matched) {
+      return matched;
+    }
+  }
+  return segment.optional ? next(0, null) : null;
+}
+
+/**
+ * Whether a URL is one of a route pattern's, and the pattern to show when not.
+ */
 export function validateUrlAgainstPattern(
   urlPath: string,
   routePattern: string[],
 ): { isValid: boolean; expectedPath?: string } {
-  // Remove leading slash and split URL path
-  const urlSegments = urlPath.startsWith("/")
-    ? urlPath.slice(1).split("/")
-    : urlPath.split("/");
-
-  // Handle empty patterns (root route)
-  if (routePattern.length === 0) {
-    return {
-      isValid:
-        urlSegments.length === 0 ||
-        (urlSegments.length === 1 && urlSegments[0] === ""),
-      expectedPath: "/",
-    };
+  if (matchRoutePattern(urlPath, routePattern) !== null) {
+    return { isValid: true };
   }
-
-  // Check if segment counts match (accounting for optional segments and catch-all)
-  let minSegments = 0;
-  let maxSegments = 0;
-  let hasCatchAll = false;
-  let catchAllIndex = -1;
-
-  for (let i = 0; i < routePattern.length; i++) {
-    const segment = routePattern[i];
-    if (segment.startsWith("[[") && segment.endsWith("]]")) {
-      // Optional catch-all segment
-      hasCatchAll = true;
-      catchAllIndex = i;
-      maxSegments = Infinity;
-    } else if (segment.startsWith("[...") && segment.endsWith("]")) {
-      // Required catch-all segment
-      hasCatchAll = true;
-      catchAllIndex = i;
-      minSegments++;
-      maxSegments = Infinity;
-    } else if (segment.startsWith("[[") && segment.endsWith("]")) {
-      // Optional segment
-      maxSegments++;
-    } else if (segment.startsWith("[") && segment.endsWith("]")) {
-      // Required segment
-      minSegments++;
-      maxSegments++;
-    } else {
-      // Static segment
-      minSegments++;
-      maxSegments++;
-    }
-  }
-
-  // Check segment count
-  if (
-    urlSegments.length < minSegments ||
-    (!hasCatchAll && urlSegments.length > maxSegments)
-  ) {
-    const expectedSegments = routePattern
-      .map((seg) => {
-        if (seg.startsWith("[[") && seg.endsWith("]]")) {
-          return `[optional:${seg.slice(2, -2)}]`;
-        } else if (seg.startsWith("[...") && seg.endsWith("]")) {
-          return `[...${seg.slice(4, -1)}]`;
-        } else if (seg.startsWith("[[") && seg.endsWith("]")) {
-          return `[optional:${seg.slice(2, -1)}]`;
-        } else if (seg.startsWith("[") && seg.endsWith("]")) {
-          return `[${seg.slice(1, -1)}]`;
-        }
-        return seg;
-      })
-      .join("/");
-    return {
-      isValid: false,
-      expectedPath: `/${expectedSegments}`,
-    };
-  }
-
-  // Validate each segment up to the catch-all or the end of the pattern
-  const segmentsToValidate = hasCatchAll ? catchAllIndex : routePattern.length;
-  for (let i = 0; i < segmentsToValidate; i++) {
-    const patternSegment = routePattern[i];
-    const urlSegment = urlSegments[i];
-
-    // Handle optional segments
-    if (patternSegment.startsWith("[[") && patternSegment.endsWith("]]")) {
-      // Optional segment - can be empty or match
-      if (urlSegment !== "" && urlSegment !== undefined) {
-        // If provided, validate it's not empty
-        if (urlSegment === "") {
-          return {
-            isValid: false,
-            expectedPath: `/${routePattern.join("/")}`,
-          };
-        }
-      }
-    } else if (patternSegment.startsWith("[") && patternSegment.endsWith("]")) {
-      // Required dynamic segment - just check it's not empty
-      if (urlSegment === "" || urlSegment === undefined) {
-        return {
-          isValid: false,
-          expectedPath: `/${routePattern.join("/")}`,
-        };
-      }
-    } else {
-      // Static segment - must match exactly
-      if (patternSegment !== urlSegment) {
-        return {
-          isValid: false,
-          expectedPath: `/${routePattern.join("/")}`,
-        };
-      }
-    }
-  }
-
-  return { isValid: true };
+  return { isValid: false, expectedPath: `/${routePattern.join("/")}` };
 }
 
 // This router should not be in core package
 export const nextAppRouter: ValRouter = {
   getRouterId: () => "next-app-router",
+  getRoutePattern: (moduleFilePath) => parseNextJsRoutePattern(moduleFilePath),
   validate: (moduleFilePath, urlPaths) => {
     const routePattern = parseNextJsRoutePattern(moduleFilePath);
     const errors: RouteValidationError[] = [];
@@ -278,6 +286,7 @@ export function parseNextJsRoutePattern(moduleFilePath: string): string[] {
  * - `.` and `/` both separate segments (`posts.$postId.val.ts` and
  *   `posts/$postId.val.ts` are the same route)
  * - `$param` is a dynamic segment, `$` on its own is a splat
+ * - `{-$param}` is an optional segment, written `[[param]]`
  * - `index` is the directory's own route and contributes no segment
  * - `route` is a layout for the directory, likewise
  * - `(group)` folders and `_pathless` layout segments are not in the URL
@@ -292,6 +301,7 @@ export function parseNextJsRoutePattern(moduleFilePath: string): string[] {
  * - /routes/posts/$postId.val.ts     -> ["posts", "[postId]"]
  * - /src/routes/index.val.ts         -> []
  * - /src/routes/files.$.val.ts       -> ["files", "[..._splat]"]
+ * - /src/routes/{-$locale}.about.val.ts -> ["[[locale]]", "about"]
  * - /src/routes/(app)/_layout.about.val.ts -> ["about"]
  */
 export function parseTanStackRoutePattern(moduleFilePath: string): string[] {
@@ -364,6 +374,13 @@ export function tanStackSegmentsOfRoutePath(routePath: string): string[] {
       segments.push(`[${segment.slice(1)}]`);
       continue;
     }
+    // An optional parameter: the URL may leave the segment out. `{-$locale}`
+    // is how a site serves its default language without a prefix.
+    const optional = segment.match(/^\{-\$([^{}]+)\}$/);
+    if (optional) {
+      segments.push(`[[${optional[1]}]]`);
+      continue;
+    }
     segments.push(segment);
   }
   return segments;
@@ -379,6 +396,8 @@ export function tanStackSegmentsOfRoutePath(routePath: string): string[] {
  */
 export const tanstackRouter: ValRouter = {
   getRouterId: () => "tanstack-router",
+  getRoutePattern: (moduleFilePath) =>
+    parseTanStackRoutePattern(moduleFilePath),
   validate: (moduleFilePath, urlPaths) => {
     const routePattern = parseTanStackRoutePattern(moduleFilePath);
     const errors: RouteValidationError[] = [];
@@ -412,6 +431,15 @@ export interface ValRouter {
    * than URLs, which is every other one.
    */
   getUrlSchemePolicy?(): ExternalUrlSchemePolicy;
+  /**
+   * The route pattern a module of this router serves, in the `[param]`
+   * vocabulary — see {@link matchRoutePattern}.
+   *
+   * What lets `s.router(router, { locale: …, slug: … }, item)` find a key's
+   * parameters by NAME. Absent on a router whose keys are not paths of this
+   * site, which therefore has no parameters to give a schema to.
+   */
+  getRoutePattern?(moduleFilePath: ModuleFilePath): string[];
   validate(
     moduleFilePath: ModuleFilePath,
     urlPaths: string[],

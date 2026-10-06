@@ -51,20 +51,21 @@ http://localhost:3458/api/val/enable?redirect_to=/
 
 ### The schema showcase
 
-| Module                          | What it shows                                                                                                                                                                       |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `settings.val.ts`               | `s.settings()`: `locales`, `theme`, `studio`, `assistant`. At the root, one per project                                                                                             |
-| `src/content/site.val.ts`       | `s.object`, `s.array` of inline-rendered objects, `s.route()`                                                                                                                       |
-| `src/content/authors.val.ts`    | `s.record(key, item)` with a described KEY, `.preview()`, `.validate()`, `s.enum`, `s.date`                                                                                         |
-| `src/content/theme.val.ts`      | `s.color()` in hsl / hex / rgb / oklch, with alpha and nullable                                                                                                                     |
-| `src/content/gallery.val.ts`    | `s.imageset()`: a collection that owns the metadata                                                                                                                                 |
-| `src/content/downloads.val.ts`  | `s.fileset()`: the same, for files that are not images                                                                                                                              |
-| `src/content/media.val.ts`      | `s.image()` / `s.file()` fields, plain and gallery-backed, with `dir`, `accept` and `encode`                                                                                        |
-| `src/content/links.val.ts`      | `externalPageRouter`: pages that are not in this app                                                                                                                                |
-| `src/content/kb.val.ts`         | `.jsonValues()` + `c.json()`: one file per entry, `s.keyOf`, `s.route().include()`, `.multiline()`                                                                                  |
-| `src/content/translated.val.ts` | `s.locale()`, both ways: a locale-keyed record and a locale field                                                                                                                   |
-| `src/content/access.val.ts`     | `.readonly()` and `.hidden()`, which only the Studio enforces                                                                                                                       |
-| `src/routes/_site.index.val.ts` | the page-builder shapes: `s.discriminatedUnion` in an array, `.render({ as: "inline" })`, `s.code`, `s.datetime`, `s.number().min().max()`, `s.richtext` with `a` and `img` schemas |
+| Module                                          | What it shows                                                                                                                                                                       |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `settings.val.ts`                               | `s.settings()`: `locales`, `theme`, `studio`, `assistant`. At the root, one per project                                                                                             |
+| `src/content/site.val.ts`                       | `s.object`, `s.array` of inline-rendered objects, `s.route()`                                                                                                                       |
+| `src/content/authors.val.ts`                    | `s.record(key, item)` with a described KEY, `.preview()`, `.validate()`, `s.enum`, `s.date`                                                                                         |
+| `src/content/theme.val.ts`                      | `s.color()` in hsl / hex / rgb / oklch, with alpha and nullable                                                                                                                     |
+| `src/content/gallery.val.ts`                    | `s.imageset()`: a collection that owns the metadata                                                                                                                                 |
+| `src/content/downloads.val.ts`                  | `s.fileset()`: the same, for files that are not images                                                                                                                              |
+| `src/content/media.val.ts`                      | `s.image()` / `s.file()` fields, plain and gallery-backed, with `dir`, `accept` and `encode`                                                                                        |
+| `src/content/links.val.ts`                      | `externalPageRouter`: pages that are not in this app                                                                                                                                |
+| `src/content/kb.val.ts`                         | `.jsonValues()` + `c.json()`: one file per entry, `s.keyOf`, `s.route().include()`, `.multiline()`                                                                                  |
+| `src/content/translated.val.ts`                 | `s.locale()`, both ways: a locale-keyed record and a locale field                                                                                                                   |
+| `src/routes/_site.{-$locale}.news.$slug.val.ts` | `s.router(router, params, item)`: a schema per route parameter, an optional `{-$locale}` segment, and `s.enum().locales()` from `val.config.ts`                                     |
+| `src/content/access.val.ts`                     | `.readonly()` and `.hidden()`, which only the Studio enforces                                                                                                                       |
+| `src/routes/_site.index.val.ts`                 | the page-builder shapes: `s.discriminatedUnion` in an array, `.render({ as: "inline" })`, `s.code`, `s.datetime`, `s.number().min().max()`, `s.richtext` with `a` and `img` schemas |
 
 Not shown, and deliberately: `.remote()` on media and `.external()` on a record.
 Both need credentials or an adapter a plain `pnpm dev` does not have, and a

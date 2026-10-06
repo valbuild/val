@@ -2,6 +2,7 @@ import {
   parseTanStackRoutePattern,
   tanstackRouter,
   validateUrlAgainstPattern,
+  matchRoutePattern,
 } from "./router";
 import { ModuleFilePath } from "./val";
 import { getSourcePathFromRoute } from "./getSourcePathFromRoute";
@@ -135,5 +136,53 @@ describe("validateUrlAgainstPattern is shared with the Next router", () => {
         parseTanStackRoutePattern("/src/routes/posts/$postId.val.ts"),
       ).isValid,
     ).toBe(true);
+  });
+});
+
+describe("optional segments", () => {
+  test("{-$param} is an optional segment", () => {
+    expect(
+      parseTanStackRoutePattern(
+        "/src/routes/_site.{-$locale}.blog.$slug.val.ts",
+      ),
+    ).toEqual(["[[locale]]", "blog", "[slug]"]);
+  });
+
+  test("a URL may leave an optional segment out, even when it is not last", () => {
+    const pattern = ["[[locale]]", "blog", "[slug]"];
+    expect(matchRoutePattern("/blog/hello", pattern)).toEqual({
+      locale: null,
+      slug: "hello",
+    });
+    expect(matchRoutePattern("/nb/blog/hei", pattern)).toEqual({
+      locale: "nb",
+      slug: "hei",
+    });
+    expect(matchRoutePattern("/nb/hei", pattern)).toBeNull();
+    expect(matchRoutePattern("/nb/no/blog/hei", pattern)).toBeNull();
+  });
+
+  test("an optional segment is not an optional catch-all", () => {
+    expect(validateUrlAgainstPattern("/a/b", ["[[x]]"]).isValid).toBe(false);
+    expect(validateUrlAgainstPattern("/a/b", ["[[...x]]"]).isValid).toBe(true);
+    expect(validateUrlAgainstPattern("/", ["[[x]]"]).isValid).toBe(true);
+  });
+
+  test("the router validates keys with and without the segment", () => {
+    expect(
+      tanstackRouter.validate(
+        "/src/routes/_site.{-$locale}.blog.$slug.val.ts" as ModuleFilePath,
+        ["/blog/hello", "/nb/blog/hei"],
+      ),
+    ).toEqual([]);
+  });
+
+  test("a catch-all is joined the way the key writes it", () => {
+    expect(matchRoutePattern("/docs/a/b", ["docs", "[...slug]"])).toEqual({
+      slug: "a/b",
+    });
+    expect(matchRoutePattern("/docs", ["docs", "[[...slug]]"])).toEqual({
+      slug: null,
+    });
   });
 });

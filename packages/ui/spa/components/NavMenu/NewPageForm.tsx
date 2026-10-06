@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { ModuleFilePath } from "@valbuild/core";
-import { RoutePattern } from "@valbuild/shared/internal";
+import { ModuleFilePath, matchRoutePattern } from "@valbuild/core";
+import { RoutePattern, formatRoutePattern } from "@valbuild/shared/internal";
 import { cn } from "../designSystem/cn";
 import { Button } from "../designSystem/button";
 
@@ -263,30 +263,16 @@ export function patternMatchesPath(
   pattern: RoutePattern[],
   urlPath: string,
 ): boolean {
-  const segments = urlPath.split("/").filter((segment) => segment !== "");
-  let at = 0;
-  for (const part of pattern) {
-    if (part.type === "array-param") {
-      // Catch-all takes everything left. Nothing left is only a match when the
-      // segment is allowed to be absent.
-      const remaining = segments.length - at;
-      if (remaining === 0) return part.optional;
-      return true;
-    }
-    if (part.type === "string-param") {
-      if (at >= segments.length) {
-        // An omitted optional segment is the base route; a missing required one
-        // means this is a different pattern.
-        if (!part.optional) return false;
-        continue;
-      }
-      at++;
-      continue;
-    }
-    if (segments[at] !== part.name) return false;
-    at++;
-  }
-  return at === segments.length;
+  // Core's matcher rather than a walk of our own: an optional segment that is
+  // not LAST (`/[[locale]]/blog/[slug]`) has to give back the segment it took
+  // when the rest does not match, and a single forward walk cannot.
+  const normalized =
+    "/" +
+    urlPath
+      .split("/")
+      .filter((segment) => segment !== "")
+      .join("/");
+  return matchRoutePattern(normalized, formatRoutePattern(pattern)) !== null;
 }
 
 /**
