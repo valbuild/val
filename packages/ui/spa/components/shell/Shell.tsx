@@ -46,7 +46,7 @@ import { AccountPanel } from "./AccountPanel";
 import { NoSettingsModule, SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
-import { PublishState, TopBar } from "./TopBar";
+import { PublishState, TopBar, type TopBarProposals } from "./TopBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
 import { StudioTour } from "./StudioTour";
@@ -379,6 +379,11 @@ export type ShellProps = {
    */
   aiEnabled?: boolean;
   /**
+   * Proposals, for a project that has them: the switcher in the top bar, and
+   * in a proposal the controls in Publish's place. See `TopBarProposals`.
+   */
+  proposals?: TopBarProposals;
+  /**
    * The assistant, rendered inside the assistant panel.
    *
    * A slot, like `publishSlot`, and for the same reason: the shell is
@@ -534,6 +539,7 @@ export function Shell({
   onSignOut,
   accountError,
   aiEnabled = false,
+  proposals,
   aiSlot,
   historyEnabled = false,
   historyActive = false,
@@ -1118,6 +1124,7 @@ export function Shell({
           accountError={breakpoint === "desktop" ? undefined : accountError}
           isLoading={isLoading}
           aiEnabled={aiEnabled}
+          proposals={proposals}
           historyEnabled={historyEnabled}
           historyActive={historyActive}
           onOpenHistory={onOpenHistory}

@@ -27,6 +27,33 @@ import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 import { LocaleFilter } from "./LocaleFilter";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { MembersShare, orgOfProject } from "./MembersShare";
+import { ProposalSwitcher } from "../proposals/ProposalSwitcher";
+import { ProposalBar } from "../proposals/ProposalBar";
+import type { ProposalSummary, StudioLocation } from "../proposals/types";
+
+/**
+ * Proposals, when this project has them: the switcher, and in a proposal the
+ * controls that take Publish's place. See `docs/proposals.md`, Flow B.
+ */
+export type TopBarProposals = {
+  location: StudioLocation;
+  /** Open proposals, for the switcher. */
+  open: ProposalSummary[];
+  onOpenSite: () => void;
+  onOpenProposal: (name: string) => void;
+  onNewProposal: () => void;
+  onShowAllProposals: () => void;
+  onSave: () => void;
+  onMerge: () => void;
+  onCompare: () => void;
+  onRename: () => void;
+  onCopyLink: () => void;
+  onClose: () => void;
+  onRetrySetup: () => void;
+  /** For stories. */
+  defaultSwitcherOpen?: boolean;
+  defaultMenuOpen?: boolean;
+};
 
 export type TopBarProps = {
   breakpoint: ShellBreakpoint;
@@ -152,6 +179,8 @@ export type TopBarProps = {
    * not here at all — the bottom bar carries it.
    */
   aiEnabled?: boolean;
+  /** Absent for a project without proposals: nothing here changes. */
+  proposals?: TopBarProposals;
 };
 
 /** `blocked` means validation errors are stopping the publish. */
@@ -199,7 +228,10 @@ export function TopBar({
   isLoading,
   aiEnabled = false,
   previewHref,
+  proposals,
 }: TopBarProps) {
+  const proposalLocation =
+    proposals?.location.kind === "proposal" ? proposals.location : null;
   const isMobile = breakpoint === "mobile";
   const isDesktop = breakpoint === "desktop";
   const org = orgOfProject(projectName);
@@ -219,7 +251,14 @@ export function TopBar({
     <header
       className={cn(
         "absolute z-full top-3 h-11 flex items-center gap-1.5 px-2 rounded-lg",
-        "bg-bg-float border border-border-float shadow-sm",
+        "bg-bg-float border shadow-sm",
+        /*
+         * In a proposal the bar wears the proposal colour: where you are must
+         * never be in doubt, and a screenshot should say where it was taken.
+         */
+        proposalLocation !== null
+          ? "border-border-proposal ring-1 ring-border-proposal bg-bg-proposal-soft"
+          : "border-border-float",
         // Leaves room for the rail on desktop; full-bleed below that.
         isDesktop ? "left-[4.75rem] right-3" : "left-3 right-3",
       )}
@@ -249,6 +288,17 @@ export function TopBar({
         />
       ) : (
         <ProjectName projectName={projectName} projectHref={projectHref} />
+      )}
+      {proposals !== undefined && (
+        <ProposalSwitcher
+          location={proposals.location}
+          proposals={proposals.open}
+          onOpenSite={proposals.onOpenSite}
+          onOpenProposal={proposals.onOpenProposal}
+          onNewProposal={proposals.onNewProposal}
+          onShowAllProposals={proposals.onShowAllProposals}
+          defaultOpen={proposals.defaultSwitcherOpen}
+        />
       )}
       <SearchTrigger breakpoint={breakpoint} onClick={onOpenSearch} />
       <div className="ml-auto flex items-center gap-1.5 shrink-0">
@@ -296,12 +346,31 @@ export function TopBar({
               />
             </span>
             <span data-val-tour="publish" className="inline-flex">
-              {publishSlot ?? (
-                <PublishButton
-                  pendingChanges={pendingChanges}
-                  onPublish={onPublish}
-                  publishState={publishState}
+              {proposals !== undefined && proposalLocation !== null ? (
+                /*
+                 * In a proposal, Save, Merge and its menu take Publish's
+                 * place: a proposal reaches the site by merging, never by a
+                 * publish.
+                 */
+                <ProposalBar
+                  location={proposalLocation}
+                  onSave={proposals.onSave}
+                  onMerge={proposals.onMerge}
+                  onCompare={proposals.onCompare}
+                  onRename={proposals.onRename}
+                  onCopyLink={proposals.onCopyLink}
+                  onClose={proposals.onClose}
+                  onRetrySetup={proposals.onRetrySetup}
+                  defaultMenuOpen={proposals.defaultMenuOpen}
                 />
+              ) : (
+                (publishSlot ?? (
+                  <PublishButton
+                    pendingChanges={pendingChanges}
+                    onPublish={onPublish}
+                    publishState={publishState}
+                  />
+                ))
               )}
             </span>
             <BarDivider />
