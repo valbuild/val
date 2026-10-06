@@ -49,6 +49,12 @@ export type StatusBarProps = {
   publishIndicator?: PublishIndicator;
   deploymentsOpen?: boolean;
   onDeploymentsOpenChange?: (open: boolean) => void;
+  /**
+   * Something wrong with the setup that the editor has dismissed but not
+   * fixed, e.g. `UploadsOffChip`. First on the right, before the build and the
+   * environment: it is the one item here that asks for something.
+   */
+  notice?: ReactNode;
 };
 
 /**
@@ -76,6 +82,7 @@ export function StatusBar({
   publishIndicator,
   deploymentsOpen = false,
   onDeploymentsOpenChange,
+  notice,
 }: StatusBarProps) {
   return (
     <footer
@@ -121,6 +128,12 @@ export function StatusBar({
         </>
       )}
       <div className="ml-auto flex items-center gap-3">
+        {notice && (
+          <>
+            {notice}
+            <Divider />
+          </>
+        )}
         {/*
           With no deploy feed there is no list and no resting state to show,
           but a publish under way, or one that failed, is still news: the

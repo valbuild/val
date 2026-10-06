@@ -1,31 +1,13 @@
-import { useState } from "react";
-import { X } from "lucide-react";
 import { useGlobalError } from "./ValProvider";
-import { useValPortal } from "./ValPortalProvider";
 import ExhaustiveCheck from "./ExhaustiveCheck";
-import { getRemoteFilesError } from "./fields/ImageField";
-import {
-  Dialog,
-  DialogContent,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-} from "./designSystem/dialog";
-import { CopyableCodeBlock } from "./designSystem/CopyableCodeBlock";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "./designSystem/accordion";
 
 /**
  * The things that are wrong with the studio itself, rather than with content.
  *
- * Four states, and they are not variations on one another: three are a banner
- * saying something transient is failing, and the fourth is a dialog because it
- * is not transient — remote files need a personal access token, and until the
- * editor runs a command in their terminal nothing they do will work.
+ * Three of them are a banner saying something transient is failing. Remote
+ * files being unavailable used to be the fourth -- a banner, or a dialog when
+ * a personal access token was missing -- and is a card above the editor now:
+ * it stops uploads and nothing else. See `RemoteFilesNotice`.
  *
  * Rendered beside the shell rather than inside it, next to the other two
  * studio-wide surfaces (`PatchErrorsDialog`, `TransientErrorToasts`). It used
@@ -58,58 +40,13 @@ export function GlobalErrors() {
   }
   if (globalError.type === "remote-files-error") {
     /*
-     * Only offer the PAT flow where a PAT can actually be used.
-     *
-     * A personal access token is read from a file in the SERVER's working
-     * directory, which only local `fs` mode has. This dialog was unconditional,
-     * so a server with no working directory told its user to "run the command
-     * in the root directory of your project" -- a directory that does not
-     * exist for it, to produce a file it cannot read. The reason was already
-     * carried here and simply not looked at.
+     * Not here: remote files being unavailable stops uploads and nothing
+     * else, so it is a card above the editor rather than a banner over the
+     * studio. See `RemoteFilesNotice`.
      */
-    if (
-      globalError.reason === "pat-error" ||
-      globalError.reason === "unauthorized-personal-access-token-error"
-    ) {
-      return <RemoteFilesErrorDialog error={globalError} />;
-    }
-    return <RemoteFilesErrorBanner reason={globalError.reason} />;
-  }
-  return <ExhaustiveCheck value={globalError} />;
-}
-
-/**
- * Remote files are unavailable: said once, and then out of the way.
- *
- * Dismissible, unlike the other banners, because it is not about the studio
- * failing. Only an UPLOAD needs remote files -- a text edit saves and
- * publishes without them -- yet the banner sat across the top bar, Publish
- * included, for as long as the studio was open. A project with
- * `files: { remote: true }` and no project id, which is every fresh checkout
- * of a template, could not publish a typo fix.
- */
-function RemoteFilesErrorBanner({
-  reason,
-}: {
-  reason: Parameters<typeof getRemoteFilesError>[0];
-}) {
-  const [dismissed, setDismissed] = useState(false);
-  if (dismissed) {
     return null;
   }
-  return (
-    <GlobalErrorBanner>
-      {getRemoteFilesError(reason)}
-      <button
-        type="button"
-        aria-label="Dismiss"
-        className="absolute right-2 top-2 rounded p-1 hover:bg-bg-error-primary-hover"
-        onClick={() => setDismissed(true)}
-      >
-        <X size={16} />
-      </button>
-    </GlobalErrorBanner>
-  );
+  return <ExhaustiveCheck value={globalError} />;
 }
 
 /**
@@ -123,77 +60,9 @@ function GlobalErrorBanner({ children }: { children: React.ReactNode }) {
   return (
     <div
       role="status"
-      className="fixed inset-x-0 top-0 z-full px-10 py-4 text-center text-fg-error-primary bg-bg-error-primary"
+      className="fixed inset-x-0 top-0 z-full p-4 text-center text-fg-error-primary bg-bg-error-primary"
     >
       {children}
     </div>
-  );
-}
-
-function RemoteFilesErrorDialog({
-  error,
-}: {
-  error: { type: "remote-files-error"; error: string };
-}) {
-  const portalContainer = useValPortal();
-  return (
-    <Dialog defaultOpen={true}>
-      <DialogPortal>
-        <DialogOverlay />
-        <DialogContent
-          container={portalContainer}
-          className="max-w-lg p-6 rounded-lg bg-bg-primary text-fg-primary"
-        >
-          <DialogTitle className="text-lg font-medium mb-4">
-            Personal access token file required
-          </DialogTitle>
-          <div>
-            <p>
-              This project uses remote files, which means you need to be
-              authenticated to update them.
-            </p>
-            <p>
-              To do this locally in this dev environment, you need a Personal
-              Access Token (PAT) stored in a file.
-            </p>
-            <p>
-              Run the command in the root directory of your project to create
-              the token file.
-            </p>
-          </div>
-          <CopyableCodeBlock code="npx -p @valbuild/cli val login" />
-          <div>
-            <Accordion type="multiple">
-              <AccordionItem value="why-pat">
-                <AccordionTrigger>Why a personal token file?</AccordionTrigger>
-                <AccordionContent>
-                  <p>
-                    You are using remote files, which require authentication. In
-                    local development, Val uses a personal access token (PAT) to
-                    authenticate and allow you to update remote files.
-                  </p>
-                  <p>
-                    You can create it by running the command shown above, which
-                    will create a PAT file.
-                  </p>
-                  <p>
-                    If you have the PAT already, check that you have internet
-                    access and that the project is setup correctly in
-                    https://admin.val.build, as issues with either of those
-                    could also cause this error.
-                  </p>
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="details">
-                <AccordionTrigger>More details</AccordionTrigger>
-                <AccordionContent>
-                  <p>The underlying error message was: "{error.error}".</p>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </div>
-        </DialogContent>
-      </DialogPortal>
-    </Dialog>
   );
 }
