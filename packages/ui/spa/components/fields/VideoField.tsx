@@ -27,7 +27,7 @@ import {
   useRemoteFiles,
 } from "../ValRemoteProvider";
 import { Button } from "../designSystem/button";
-import { getRemoteFilesError } from "./ImageField";
+import { getRemoteFilesError } from "./remoteFilesError";
 import { ImageCard } from "./ImageCard";
 import { VideoPlayer } from "./VideoPlayer";
 import {
