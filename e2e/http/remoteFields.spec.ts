@@ -111,11 +111,40 @@ async function uploadAll(page: Page): Promise<void> {
   }
 }
 
+/**
+ * The files the three uploads make: the image, the file, the video -- and the
+ * video's POSTER, which the video field captures from the clip and uploads in
+ * the same patch. Named, so a poster that went missing (or went up some other
+ * way) fails here rather than leaving the count one short of a lower bound.
+ */
+const EXPECTED_FILES: { name: string; pattern: RegExp }[] = [
+  { name: "image", pattern: /\/blue-8x8_[0-9a-f]{5}\.png$/ },
+  { name: "file", pattern: /\/note_[0-9a-f]{5}\.txt$/ },
+  { name: "video", pattern: /\/clip-320x180_[0-9a-f]{5}\.webm$/ },
+  {
+    name: "video poster",
+    pattern: /\/clip-320x180-poster_[0-9a-f]{5}\.(webp|jpg)$/,
+  },
+];
+
+/** Which of {@link EXPECTED_FILES} no `file` op in the chain has made yet. */
+async function missingFiles(page: Page): Promise<string[]> {
+  const ops = await fileOps(page);
+  return EXPECTED_FILES.filter(
+    ({ pattern }) => !ops.some((op) => pattern.test(op.filePath)),
+  ).map(({ name }) => name);
+}
+
 /** What every one of these must be: a remote ref, uploaded flagged remote. */
 async function expectAllRemote(page: Page): Promise<string[]> {
+  await expect
+    .poll(() => missingFiles(page), {
+      timeout: 60_000,
+      message: "not every upload reached the chain",
+    })
+    .toEqual([]);
   const ops = await fileOps(page);
-  // An image, a file, a video and the video's poster.
-  expect(ops.length, JSON.stringify(ops)).toBeGreaterThanOrEqual(3);
+  expect(ops.length, JSON.stringify(ops)).toBe(EXPECTED_FILES.length);
   for (const op of ops) {
     expect(op.filePath, "a remote field built a local ref").toMatch(REMOTE_REF);
     expect(op.remote, `${op.filePath} was not marked remote`).toBe(true);
