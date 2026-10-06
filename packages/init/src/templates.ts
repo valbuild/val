@@ -55,14 +55,11 @@ export { valNextAppRouter };
 `;
 
 // TODO: use from @valbuild/core
-type ConfigDirectory = `/public/${string}`;
-
-// TODO: use from @valbuild/core
 type ValConfig = {
   project?: string;
   root?: string;
   files?: {
-    directory: ConfigDirectory;
+    remote?: boolean;
   };
   gitCommit?: string;
   gitBranch?: string;

@@ -39,6 +39,9 @@ export { initHandlerOptions, createValOps } from "./valServerConfig";
 // routes get — two copies of this would let the MCP endpoint decide it cannot
 // upload remotely while the Studio in the same process can.
 export { resolveRemoteFileAuth } from "./valServerConfig";
+// The Val app's refusal of a project whose media is not remote, for `val
+// publish` to give before a build goes out rather than after.
+export { APP_MODE_REQUIRES_REMOTE_FILES } from "./valServerConfig";
 export type {
   RemoteFileAuth,
   ResolveRemoteFileAuthResult,
