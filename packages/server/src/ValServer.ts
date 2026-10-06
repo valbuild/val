@@ -1,5 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
+  commitCarriesFiles,
+  commitCarriesRemoteFiles,
+} from "./commitCarriesRemoteFiles";
+import {
   ValModules,
   PatchId,
   ModuleFilePath,
@@ -2886,9 +2890,16 @@ export const ValServer = (
            * tree; a store with no working tree does only the push.
            */
           if (serverOps instanceof ValOpsMemory) {
-            const isRemoteRequired = getIsRemoteRequired(
-              await serverOps.getSchemas(),
-            );
+            /*
+             * A commit with no files uploads nothing and needs no credentials;
+             * see `commitCarriesRemoteFiles`. One with a LOCAL file still goes
+             * through `uploadRemoteFiles` where the project is remote, because
+             * that is where a local file is refused rather than dropped.
+             */
+            const isRemoteRequired =
+              commitCarriesRemoteFiles(preparedCommit) ||
+              (commitCarriesFiles(preparedCommit) &&
+                getIsRemoteRequired(await serverOps.getSchemas()));
             if (isRemoteRequired) {
               const authRes = await getRemoteFileAuth();
               if (authRes.status !== 200) {
@@ -2918,19 +2929,9 @@ export const ValServer = (
             }
           }
           if (serverOps instanceof ValOpsFS) {
-            /*
-             * Credentials when THIS save carries a remote file, not whenever
-             * the project has a remote schema.
-             *
-             * With `files: { remote: true }` every media schema is remote, so
-             * asking the schemas made every local save -- a corrected typo
-             * included -- demand a `val login` token and a project id, and a
-             * developer without them could not save anything at all. Only an
-             * upload needs them, and only a remote file is uploaded.
-             */
-            const isRemoteRequired = Object.values(
-              preparedCommit.patchedBinaryFilesDescriptors,
-            ).some((descriptor) => descriptor.remote);
+            // Credentials when THIS save uploads a remote file, not whenever
+            // the project has a remote schema. See `commitCarriesRemoteFiles`.
+            const isRemoteRequired = commitCarriesRemoteFiles(preparedCommit);
             let mode: "skip-remote" | "upload-remote";
             let remoteFileAuthRes:
               | undefined

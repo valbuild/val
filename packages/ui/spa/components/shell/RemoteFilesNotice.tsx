@@ -34,6 +34,12 @@ type NoticeCopy = {
 };
 
 const LOGIN_COMMAND = "npx -p @valbuild/cli val login";
+/**
+ * Said only for the causes that are about remote files ALONE: no project id,
+ * no `val login`, no api key. A save that uploads no remote file needs none of
+ * those (`commitCarriesRemoteFiles` on the server), so text edits really do
+ * work -- and saying so is what keeps the card from reading as a crash.
+ */
 const STILL_WORKS = "Text edits save and publish as normal.";
 
 export function remoteFilesNoticeCopy(
@@ -74,13 +80,17 @@ export function remoteFilesNoticeCopy(
           STILL_WORKS,
         action: null,
       };
+    /*
+     * No STILL_WORKS here: these can be the network or the session, which
+     * stop saves too, so the card does not promise that anything works.
+     */
     case "unknown-error":
     case "error-could-not-get-settings":
     case "no-internet-connection":
     case "unauthorized":
       return {
         title: "Uploads are unavailable right now",
-        body: `${getRemoteFilesError(reason)} ${STILL_WORKS}`,
+        body: getRemoteFilesError(reason),
         action: null,
       };
   }

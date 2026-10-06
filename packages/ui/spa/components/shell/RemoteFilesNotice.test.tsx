@@ -10,27 +10,41 @@ import {
 
 /**
  * Remote files being unavailable is SETUP, not a failure: the card says what
- * is wrong, that text edits still work, and how to fix it. The last two are
- * what kept the old banner from reading as anything but the studio breaking,
- * so every reason has to carry them.
+ * is wrong and how to fix it, and -- for the causes that are about remote
+ * files alone -- that text edits still work. Those are the causes a save that
+ * uploads no remote file does not depend on (`commitCarriesRemoteFiles` on
+ * the server). The rest can be the network or the session, which stop saves
+ * too, so the card must not promise it there.
  */
-const REASONS: RemoteFilesUnavailableReason[] = [
-  "unknown-error",
+const SETUP_ONLY: RemoteFilesUnavailableReason[] = [
   "project-not-configured",
-  "api-key-missing",
   "pat-error",
+  "unauthorized-personal-access-token-error",
+  "api-key-missing",
+];
+const MAYBE_EVERYTHING: RemoteFilesUnavailableReason[] = [
+  "unknown-error",
   "error-could-not-get-settings",
   "no-internet-connection",
-  "unauthorized-personal-access-token-error",
   "unauthorized",
 ];
+const STILL_WORKS = "Text edits save and publish as normal.";
 
 describe("RemoteFilesCard", () => {
-  test.each(REASONS)("%s says text edits still work", (reason) => {
+  test.each(SETUP_ONLY)("%s says text edits still work", (reason) => {
     const copy = remoteFilesNoticeCopy(reason);
     expect(copy.title).not.toBe("");
-    expect(copy.body).toContain("Text edits save and publish as normal.");
+    expect(copy.body).toContain(STILL_WORKS);
   });
+
+  test.each(MAYBE_EVERYTHING)(
+    "%s does not promise that anything works",
+    (reason) => {
+      const copy = remoteFilesNoticeCopy(reason);
+      expect(copy.title).not.toBe("");
+      expect(copy.body).not.toContain(STILL_WORKS);
+    },
+  );
 
   test("no project id links to where one comes from", () => {
     render(

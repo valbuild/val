@@ -1312,6 +1312,14 @@ export function Shell({
         {openPanel === "account" && (
           <AccountPanel
             breakpoint={breakpoint}
+            // The status bar is not shown on a phone; this sheet is. Acting
+            // on the notice closes the sheet, so what it brings back (the card
+            // above the editor) is in view rather than underneath.
+            notice={
+              breakpoint === "mobile" && statusNotice ? (
+                <div onClick={closePanel}>{statusNotice}</div>
+              ) : undefined
+            }
             mode={mode}
             user={data.user}
             accountError={accountError}

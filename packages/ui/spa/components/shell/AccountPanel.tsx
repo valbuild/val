@@ -27,6 +27,11 @@ export type AccountPanelProps = {
    * something an editor may have just fixed elsewhere.
    */
   accountError?: ShellAccountError;
+  /**
+   * The status bar's folded notice (`UploadsOffChip`), on a phone, where there
+   * is no status bar: this sheet is what its info button opens instead.
+   */
+  notice?: ReactNode;
   theme: "dark" | "light";
   onThemeChange: (theme: "dark" | "light") => void;
   /**
@@ -76,6 +81,7 @@ export function AccountPanel({
   breakpoint,
   user,
   accountError,
+  notice,
   theme,
   onThemeChange,
   admin,
@@ -101,6 +107,7 @@ export function AccountPanel({
     >
       <div className="pb-4">
         {accountError && <AccountErrorNotice error={accountError} />}
+        {notice && <div className="px-4 py-3 text-xs">{notice}</div>}
         {user && (
           <div className="flex items-center gap-2.5 px-4 py-3">
             <Avatar name={user.name} imageUrl={user.avatarUrl} />
