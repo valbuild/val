@@ -75,10 +75,9 @@ export function ProposalSaveButton({
 }
 
 /**
- * Publish, in a proposal: merging it into the site. Looks like the site's
- * Publish because it is the same act from the editor's side -- what is here
- * goes live -- and sits beside the switcher, because it is about the
- * proposal named there.
+ * Publish, in a proposal: merging it into the site. It sits beside the
+ * switcher, because it is about the proposal named there, and wears the
+ * proposal's colour rather than the site's green.
  */
 export function ProposalPublishButton({
   location,
@@ -102,8 +101,11 @@ export function ProposalPublishButton({
       }
       className={cn(
         "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium",
-        "bg-bg-brand-primary text-fg-brand-primary border border-border-brand-primary hover:bg-bg-brand-primary-hover",
-        "disabled:border-border-float disabled:bg-bg-disabled disabled:text-fg-disabled",
+        // Not the site's green: that is the site's Publish. The proposal's
+        // colour, outlined, so it belongs to the switcher it sits beside and
+        // stays quieter than Save, which is pressed far more often.
+        "border border-border-proposal text-fg-proposal hover:bg-bg-proposal-soft",
+        "disabled:border-border-float disabled:bg-transparent disabled:text-fg-disabled",
         className,
       )}
     >
