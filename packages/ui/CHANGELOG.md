@@ -1,5 +1,20 @@
 # @valbuild/ui
 
+## 0.141.1
+
+### Patch Changes
+
+- [#809](https://github.com/valbuild/val/pull/809) [`6faacda`](https://github.com/valbuild/val/commit/6faacda398fc92bec187b7afe07a53228a6f2a3b) Thanks [@freekh](https://github.com/freekh)! - After a publish fails, the Studio no longer looks as though it is still publishing.
+
+  - The status bar shows "Not published" as soon as your publish fails. It used to show "Reaching visitors" for up to a minute when the publish before it had gone live less than a minute earlier.
+  - The Publish button is offered again for the changes that did not go out. It used to read "Publishing" beside the "Could not publish" message until the Studio next heard from the content service, which could take up to twenty minutes.
+
+- [#808](https://github.com/valbuild/val/pull/808) [`14b18d7`](https://github.com/valbuild/val/commit/14b18d7cb145cec1bc1cd832b9ca857ff4b45adc) Thanks [@freekh](https://github.com/freekh)! - A project with `files: { remote: true }` can save text edits without remote-file credentials: in local development without `val login` or a project id, and on a server without `VAL_API_KEY`.
+
+  Before, a save asked for remote credentials whenever any schema in the project was remote. With `files: { remote: true }` that is every media schema, so every save was refused, even a typo fix. Now it asks only when the change being saved contains a remote file.
+
+  When uploads are unavailable, the Studio now shows a card above the editor. It says what is wrong and gives the fix: a link to admin.val.build or the `val login` command to copy. When the cause is missing setup (no project id, not logged in, no API key) it also says that text edits still save and publish. Dismissing it leaves an "Uploads off" item in the status bar, or in the account sheet on a phone, that brings it back. This replaces the red bar that covered the top of the Studio, the Publish button included, and the login dialog that opened on every load.
+
 ## 0.141.0
 
 ### Minor Changes
