@@ -99,11 +99,11 @@ export function RemoteFilesCard({
       role="status"
       aria-label={copy.title}
       className={cn(
-        // The field cards' own surface, so it reads as part of the studio
-        // rather than as something breaking it; the red is the accent bar,
-        // the icon and the title, which is what says "critical".
-        "relative mb-8 rounded-lg border bg-bg-tertiary py-4 pl-4 pr-10",
-        "border-l-4 border-l-border-error-primary",
+        // The field cards' own surface and border, so it reads as part of the
+        // studio rather than as something breaking it; the red is the icon
+        // and the title, which is what says "critical". No coloured left
+        // border: on a rounded card it curves into a pink edge.
+        "relative rounded-lg border bg-bg-tertiary py-4 pl-4 pr-10",
       )}
     >
       <button
