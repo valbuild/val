@@ -180,20 +180,18 @@ export function publishIndicator(input: {
       moved(newestAt);
     }
   }
-  if (liveAt !== null && now < liveAt + EDGE_CACHE_MS) {
-    return {
-      kind: "reaching",
-      mine: liveAt === ownLiveAt,
-      everywhereAt: liveAt + EDGE_CACHE_MS,
-    };
-  }
-
   /*
    * Ours failed, and nothing has happened since: Try again is in its toast.
    * Anything newer -- a publish that went live, or a connected project's
    * newer row in the feed, building or built -- is the story now, so the
    * failure gives way to it rather than holding "Not published" until this
    * tab publishes again.
+   *
+   * Before the edge window, and for the same reason the other way round: a
+   * publish that went live BEFORE ours failed is older news. Asked after it,
+   * the minute that publish's edges take hid this failure -- "Reaching
+   * visitors" beside the "Could not publish" toast, for a publish that will
+   * never reach anyone.
    */
   const failedAt = own.status === "done" ? (own.finishedAt ?? 0) : 0;
   if (
@@ -203,6 +201,14 @@ export function publishIndicator(input: {
     (newestAt === null || failedAt > newestAt)
   ) {
     return { kind: "failed", cause: "publish" };
+  }
+
+  if (liveAt !== null && now < liveAt + EDGE_CACHE_MS) {
+    return {
+      kind: "reaching",
+      mine: liveAt === ownLiveAt,
+      everywhereAt: liveAt + EDGE_CACHE_MS,
+    };
   }
 
   return indicatorOfSummary(

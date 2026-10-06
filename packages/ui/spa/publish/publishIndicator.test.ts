@@ -11,6 +11,7 @@ import {
   publishIndicator,
   type ObservedJob,
 } from "./publishIndicator";
+import { publishProgress } from "./publishProgress";
 import type { StudioDeployState } from "./useStudioDeploy";
 
 const idle: StudioDeployState = { status: "idle" };
@@ -126,6 +127,80 @@ describe("this editor's publish", () => {
         own: failedAt(5_000),
         deployments: [row()],
         now: 6_000,
+      }),
+    ).toEqual({ kind: "failed", cause: "publish" });
+  });
+
+  /*
+   * valbuild/home's `pnpm loop`, step 5b: a publish goes live, and inside the
+   * minute its edges take, the next one fails at verify. The older publish's
+   * edge window is still running, and it hid the newer failure: "Reaching
+   * visitors 90%" beside the "Could not publish" toast.
+   */
+  test("managed: a newer failure of ours is not hidden by an older publish still reaching visitors", () => {
+    const previousLiveAt = 50_000;
+    const indicator = publishIndicator({
+      own: failedAt(previousLiveAt + 8_000),
+      deployments: [
+        row({
+          state: "created",
+          updatedAt: new Date(previousLiveAt).toISOString(),
+        }),
+      ],
+      studioIsDeployer: true,
+      now: previousLiveAt + 10_000,
+    });
+    expect(indicator).toEqual({ kind: "failed", cause: "publish" });
+    expect(isInFlight(indicator)).toBe(false);
+    expect(describeIndicator(indicator, previousLiveAt + 10_000)).toBe(
+      "Not published",
+    );
+  });
+
+  test("as it reaches the indicator: a request that failed after this tab handed its build off", () => {
+    const previousLiveAt = 50_000;
+    const pressedAt = previousLiveAt + 2_000;
+    const uploaded: StudioDeployState = {
+      status: "done",
+      result: { status: "uploaded", publishId: "pub1" },
+      ms: 3_000,
+      steps: [{ kind: "building", ms: 3_000 }],
+      commit: null,
+      finishedAt: pressedAt + 3_000,
+    };
+    const own = publishProgress(
+      uploaded,
+      {
+        requests: [
+          {
+            requestId: "r1",
+            pressedAt,
+            handedOffAt: pressedAt + 3_000,
+            settledAt: pressedAt + 6_000,
+            jobId: "J1",
+            status: {
+              kind: "failed",
+              message: "verify failed 3 times",
+              actions: ["try-again", "discard"],
+              job: "J1",
+            },
+          },
+        ],
+        running: null,
+      },
+      pressedAt + 8_000,
+    );
+    expect(
+      publishIndicator({
+        own,
+        deployments: [
+          row({
+            state: "created",
+            updatedAt: new Date(previousLiveAt).toISOString(),
+          }),
+        ],
+        studioIsDeployer: true,
+        now: pressedAt + 8_000,
       }),
     ).toEqual({ kind: "failed", cause: "publish" });
   });
