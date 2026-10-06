@@ -249,6 +249,21 @@ export type MockState = {
   deployments: MockDeployment[];
   repoOverlay: string[];
   remoteFiles: string[];
+  /** Publish jobs, when {@link mock.enablePublishJobs} is on. */
+  publishJobs: {
+    id: string;
+    step: "prepare" | "build" | "upload" | null;
+    done: "sealed" | "failed" | "cancelled" | null;
+    patches: string[];
+    requestIds: string[];
+    /** What the job's prepare named, by path or ref. Null before it ran. */
+    binaryFiles: Record<string, { patchId: string; remote?: boolean }> | null;
+  }[];
+  publishRequests: {
+    requestId: string;
+    status: { kind: string; commit?: string; message?: string };
+    jobId: string | null;
+  }[];
   /**
    * The shas of commits the mock recorded an archive for — what history can
    * read in full. A commit made through `mock.pushCommit` is never in here.
@@ -405,6 +420,17 @@ export const mock = {
    */
   async enablePatchGroups(enabled = true): Promise<void> {
     await control("patch-groups", { method: "POST", body: { enabled } });
+  },
+
+  /**
+   * Make this project publish as jobs: a press of Publish is a request, the
+   * Val server prepares the job, and the content service seals it.
+   *
+   * Off by default -- see the mock's `State.publishJobsEnabled`. Say it before
+   * the Studio opens: the Studio reads it from `/stat`.
+   */
+  async enablePublishJobs(enabled = true): Promise<void> {
+    await control("publish-jobs", { method: "POST", body: { enabled } });
   },
 
   /** The text a commit wrote for one module, or null if no commit touched it. */

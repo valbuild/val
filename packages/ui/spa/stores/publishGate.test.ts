@@ -101,6 +101,161 @@ describe("the publish gate", () => {
   });
 
   /**
+   * A save that is SLOW is not a save that FAILED.
+   *
+   * The flush is bounded because a failing save retries for as long as the
+   * network is down. A save still in flight has not failed: it is the edit the
+   * user just made, on its way. Timing it out refused the publish with "your
+   * latest changes could not be saved. Check the connection" — about a change
+   * the server accepted a moment later, with the status bar saying "All changes
+   * saved" beside it.
+   *
+   * What made it slow in the case that found it was the first publish itself:
+   * in `fs` mode a publish rewrites `.val.ts` files, `next dev` recompiles, and
+   * the next `PUT /patches` waits on the rebuild — 5.4s against a 5s bound, in
+   * `e2e/studio-ui.spec.ts`'s save-then-restore. An editor saving twice in a row
+   * hits the same thing.
+   */
+  it("waits for a save still in flight that has not failed", async () => {
+    const publishes: { patchIds: PatchId[] }[] = [];
+    let answer: (() => void) | undefined;
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+      createPatchId: (() => {
+        let next = 0;
+        return () => `slow-${++next}` as PatchId;
+      })(),
+      // The DEFAULT wait, deliberately: the bug was the default.
+      savePatches: async ({ patches, parentRef }) => {
+        // Answered well past the bound, and successfully.
+        await new Promise<void>((resolve) => {
+          answer = resolve;
+        });
+        return {
+          status: "saved",
+          newPatchIds: patches.map((patch) => patch.patchId),
+          parentRef,
+        };
+      },
+      publishPatches: async (request) => {
+        publishes.push({ patchIds: request.patchIds });
+        return { status: "published" };
+      },
+    });
+    system.host.receive(project());
+    system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+    const created = await edit(system, "a slow value");
+    const patchId =
+      created.status === "created" ? created.record.patchId : null;
+    jest.useFakeTimers();
+    try {
+      let settled = false;
+      const running = system.publish([]).finally(() => {
+        settled = true;
+      });
+      // The 5.4s the restore save took in CI, past the 5s the wait used to be.
+      await jest.advanceTimersByTimeAsync(5_400);
+      expect(settled).toBe(false);
+      answer?.();
+      for (let i = 0; i < 100 && !settled; i++) {
+        await jest.advanceTimersByTimeAsync(10);
+      }
+
+      expect(await running).toMatchObject({ status: "published" });
+      expect(publishes).toEqual([{ patchIds: [patchId] }]);
+    } finally {
+      jest.useRealTimers();
+      system.dispose();
+    }
+  });
+
+  /**
+   * And the other half of the bound: once the save is STUCK, there is nothing
+   * to wait for. The sync says so at `SAVE_STUCK_AFTER_ATTEMPTS`, the same
+   * moment it tells the editor, and the publish refuses then rather than at the
+   * end of a timer.
+   */
+  it("refuses as soon as the save in flight is stuck", async () => {
+    const publishes: { patchIds: PatchId[] }[] = [];
+    let attempts = 0;
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+      createPatchId: (() => {
+        let next = 0;
+        return () => `fails-${++next}` as PatchId;
+      })(),
+      // Long, so a refusal inside the test's own timeout can only have come
+      // from the failure and not from the backstop.
+      saveFlushTimeoutMs: 60_000,
+      savePatches: async () => {
+        attempts += 1;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return { status: "network-error", message: "offline" };
+      },
+      publishPatches: async (request) => {
+        publishes.push({ patchIds: request.patchIds });
+        return { status: "published" };
+      },
+    });
+    system.host.receive(project());
+    system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+    await edit(system, "an unsaveable value");
+    const res = await system.publish([]);
+
+    expect(res).toMatchObject({ status: "refused", reason: "unsaved-changes" });
+    expect(attempts).toBeGreaterThan(0);
+    expect(publishes).toEqual([]);
+    system.dispose();
+  });
+
+  /**
+   * But one failure is not stuck. A first attempt failing is usually nothing —
+   * the API route recompiling, a proxy reconnecting — and the retry absorbs it.
+   * Refusing on it would refuse a publish the retry was about to make possible.
+   */
+  it("still publishes when a save fails once and the retry lands", async () => {
+    const publishes: { patchIds: PatchId[] }[] = [];
+    let attempts = 0;
+    const system = createSystem({
+      fetchPatches: async () => ({ patches: [] }),
+      createPatchId: (() => {
+        let next = 0;
+        return () => `blip-${++next}` as PatchId;
+      })(),
+      saveFlushTimeoutMs: 60_000,
+      savePatches: async ({ patches, parentRef }) => {
+        attempts += 1;
+        if (attempts === 1) {
+          return { status: "network-error", message: "recompiling" };
+        }
+        return {
+          status: "saved",
+          newPatchIds: patches.map((patch) => patch.patchId),
+          parentRef,
+        };
+      },
+      publishPatches: async (request) => {
+        publishes.push({ patchIds: request.patchIds });
+        return { status: "published" };
+      },
+    });
+    system.host.receive(project());
+    system.stat.receiveStat({ patches: [], baseSha: "sha" });
+
+    const created = await edit(system, "a value saved second time");
+    const patchId =
+      created.status === "created" ? created.record.patchId : null;
+    const res = await system.publish([]);
+
+    expect(res).toMatchObject({ status: "published" });
+    expect(attempts).toBe(2);
+    expect(publishes).toEqual([{ patchIds: [patchId] }]);
+    system.dispose();
+  });
+
+  /**
    * The dangerous direction, and the reason the gate publishes the chain rather
    * than the caller's list.
    *

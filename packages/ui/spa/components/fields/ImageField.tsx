@@ -283,10 +283,15 @@ export function ImageField({
   if (source === undefined) {
     return <FieldNotFound path={path} type={type} />;
   }
+  /*
+   * Not until a bucket is picked, either: that is an effect after
+   * `/remote/settings` answers, and `remoteData` is null until it has run --
+   * so an upload in between built a LOCAL ref for a remote field.
+   */
   const remoteFileUploadDisabled =
     schemaAtPath.data.type === "image" &&
     schemaAtPath.data.remote &&
-    remoteFiles.status !== "ready";
+    (remoteFiles.status !== "ready" || !currentRemoteFileBucket);
   const missingModules =
     referencedModule && referencedModuleSchema === undefined
       ? [referencedModule]

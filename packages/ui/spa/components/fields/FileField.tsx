@@ -290,10 +290,11 @@ export function FileField({
   if (source === undefined) {
     return <FieldNotFound path={path} type={type} />;
   }
+  // Not before a bucket is picked either: see `ImageField`.
   const remoteFileUploadDisabled =
     schemaAtPath.data.type === "file" &&
     schemaAtPath.data.remote &&
-    remoteFiles.status !== "ready";
+    (remoteFiles.status !== "ready" || !currentRemoteFileBucket);
   const missingModules =
     referencedModule && referencedModuleSchema === undefined
       ? [referencedModule]

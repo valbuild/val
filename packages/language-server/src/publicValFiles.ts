@@ -5,12 +5,12 @@ import { Internal } from "@valbuild/core";
 /**
  * Lists the files a Val module may reference.
  *
- * Val stores referenced files under `/public/val` by convention (configurable
- * via `files.directory` in val.config), and a reference is written as the path
- * *including* the `/public` prefix — so this returns Val-style refs directly.
+ * Val stores referenced files under `/public/val` by convention, and a
+ * reference is written as the path *including* the `/public` prefix — so this
+ * returns Val-style refs directly.
  */
 
-/** Default directory, matching `files.directory` in val.config. */
+/** Where Val stores the files a module references. */
 export const DEFAULT_FILES_DIRECTORY = "/public/val";
 
 /**

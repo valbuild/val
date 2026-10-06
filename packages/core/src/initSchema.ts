@@ -7,14 +7,14 @@ import { boolean } from "./schema/boolean";
 import { union } from "./schema/union";
 import { discriminatedUnion } from "./schema/discriminatedUnion";
 import { enumSchema } from "./schema/enum";
-import { richtext } from "./schema/richtext";
-import { image } from "./schema/image";
+import { richtext, remoteRichtext } from "./schema/richtext";
+import { image, remoteImage } from "./schema/image";
 import { literal } from "./schema/literal";
 import { keyOf } from "./schema/keyOf";
 import { view } from "./schema/view";
 import { record } from "./schema/record";
-import { file } from "./schema/file";
-import { video } from "./schema/video";
+import { file, remoteFile } from "./schema/file";
+import { video, remoteVideo } from "./schema/video";
 import { fileset } from "./schema/fileset";
 import { date } from "./schema/date";
 import { datetime } from "./schema/datetime";
@@ -454,7 +454,39 @@ export type InitSchema = {
 // export type InitSchemaLocalized<Locales extends readonly string[]> = {
 //   readonly i18n: I18n<Locales>;
 // };
-export function initSchema() {
+export type InitSchemaOptions = {
+  /**
+   * Every media schema is remote: `files.remote` in `val.config.ts`.
+   *
+   * `s.image()`, `s.file()`, `s.video()`, `s.imageset()`, `s.fileset()` and
+   * `s.videoset()` come back with `.remote()` already applied, and so does the
+   * image `s.richtext({ img: true })` builds for itself. Nothing downstream
+   * needs to know: the Studio, the MCP tools, validation and publishing all
+   * read `remote` off the schema, exactly as they do for a `.remote()` written
+   * by hand.
+   *
+   * It is the factories that change, not the schemas, so a schema built here
+   * is indistinguishable from one written with `.remote()`.
+   */
+  remote?: boolean;
+};
+
+export function initSchema(options?: InitSchemaOptions): InitSchema {
+  const media =
+    options?.remote === true
+      ? {
+          image: remoteImage,
+          file: remoteFile,
+          video: remoteVideo,
+          richtext: remoteRichtext,
+          imageset: ((options) =>
+            imageset(options).remote()) satisfies typeof imageset,
+          fileset: ((options) =>
+            fileset(options).remote()) satisfies typeof fileset,
+          videoset: ((options) =>
+            videoset(options).remote()) satisfies typeof videoset,
+        }
+      : { image, file, video, richtext, imageset, fileset, videoset };
   // locales: F.Narrow<Locales>
   return {
     string,
@@ -466,15 +498,15 @@ export function initSchema() {
     enum: enumSchema,
     union,
     // oneOf,
-    richtext,
-    image,
+    richtext: media.richtext,
+    image: media.image,
     literal,
     keyOf,
     view,
     record,
-    file,
-    video,
-    fileset,
+    file: media.file,
+    video: media.video,
+    fileset: media.fileset,
     date,
     datetime,
     color,
@@ -482,8 +514,8 @@ export function initSchema() {
     locale,
     route,
     router,
-    imageset,
-    videoset,
+    imageset: media.imageset,
+    videoset: media.videoset,
     settings,
     // i18n: i18n(locales),
   };

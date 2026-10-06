@@ -171,6 +171,19 @@ export type ResyncChain = () => Promise<void>;
 export const SAVE_STUCK_AFTER_ATTEMPTS = 2;
 
 /**
+ * Has the write queue failed for long enough to stop waiting on it?
+ *
+ * The same threshold the sync reports a stuck save at, so a caller waiting for
+ * the queue — `publish`, flushing before it decides — gives up at the moment
+ * the editor is told, rather than at a blip the retry is about to absorb.
+ */
+export function isSaveStuck(state: SyncState): boolean {
+  return (
+    state.status === "retrying" && state.attempt >= SAVE_STUCK_AFTER_ATTEMPTS
+  );
+}
+
+/**
  * What the write queue is doing. The queue only — see {@link SaveRejection}.
  */
 export type SyncState =

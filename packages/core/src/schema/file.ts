@@ -546,6 +546,28 @@ export function file(options?: FileOptions): FileSchema<FileSource>;
 export function file(
   options?: FileOptions | ValModule<Record<string, FilesetEntryMetadata>>,
 ): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
+  return fileOf(false, options);
+}
+
+/**
+ * `s.file()` for a project whose media is all remote (`files.remote` in
+ * `val.config.ts`): the same schema, with `.remote()` already applied. See
+ * `initSchema`.
+ */
+export function remoteFile(
+  galleryModule: ValModule<Record<string, FilesetEntryMetadata>>,
+): FileSchema<GalleryFileSource>;
+export function remoteFile(options?: FileOptions): FileSchema<FileSource>;
+export function remoteFile(
+  options?: FileOptions | ValModule<Record<string, FilesetEntryMetadata>>,
+): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
+  return fileOf(true, options);
+}
+
+function fileOf(
+  remote: boolean,
+  options?: FileOptions | ValModule<Record<string, FilesetEntryMetadata>>,
+): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
   const isModule =
     !!options &&
     !!Internal.getValPath(
@@ -567,7 +589,7 @@ export function file(
         FilesetEntryMetadata
       >;
     }
-    return new FileSchema<GalleryFileSource>({}, false, false, [], allModules);
+    return new FileSchema<GalleryFileSource>({}, false, remote, [], allModules);
   }
-  return new FileSchema(options as FileOptions);
+  return new FileSchema(options as FileOptions, false, remote);
 }

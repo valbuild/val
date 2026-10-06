@@ -176,8 +176,10 @@ export function VideoField({
     duration: setEntry?.duration ?? source?.duration,
   };
   const busy = phase.kind !== "idle";
+  // Not before a bucket is picked either: see `ImageField`.
   const remoteUploadDisabled =
-    !!schema.remote && remoteFiles.status !== "ready";
+    !!schema.remote &&
+    (remoteFiles.status !== "ready" || !currentRemoteFileBucket);
   // A set-backed field whose set is not in `val.modules` cannot add to it.
   const setMissing = !!referencedModule && setSchema === null;
   const disabled = !!readonly || remoteUploadDisabled || setMissing;
