@@ -29,11 +29,9 @@ import { ProjectSwitcher } from "./ProjectSwitcher";
 import { MembersShare, orgOfProject } from "./MembersShare";
 import { ProposalSwitcher } from "../proposals/ProposalSwitcher";
 import {
-  ProposalBar,
   ProposalMenu,
   ProposalPublishButton,
   ProposalSaveButton,
-  ProposalStatus,
 } from "../proposals/ProposalBar";
 import type { ProposalSummary, StudioLocation } from "../proposals/types";
 
@@ -56,19 +54,6 @@ export type TopBarProposals = {
   onRename: () => void;
   onCopyLink: () => void;
   onClose: () => void;
-  onRetrySetup: () => void;
-  /**
-   * Where the proposal controls sit above the phone breakpoint, while the
-   * layout is being chosen:
-   *
-   * - `centered`: the switcher in the middle of the bar with Save beside it;
-   *   Publish where it is on the site.
-   * - `publish-left`: Publish beside the switcher on the left; Save where
-   *   Publish is on the site.
-   * - `together`: the switcher on the left; Save and Publish together where
-   *   Publish is on the site.
-   */
-  layout?: "centered" | "publish-left" | "together";
   /** For stories. */
   defaultSwitcherOpen?: boolean;
   defaultMenuOpen?: boolean;
@@ -251,9 +236,16 @@ export function TopBar({
 }: TopBarProps) {
   const proposalLocation =
     proposals?.location.kind === "proposal" ? proposals.location : null;
-  const layout = isMobileBreakpoint(breakpoint)
+  /*
+   * Above a phone, where you are is the middle of the bar: the switcher, and
+   * in a proposal Publish beside it -- publishing a proposal is merging it,
+   * an act about the proposal -- while Save takes Publish's place on the
+   * right. On a phone the bottom bar has room for one action, which is Save,
+   * and Publish is first in the proposal's menu.
+   */
+  const layout: "phone" | "centered" = isMobileBreakpoint(breakpoint)
     ? "phone"
-    : (proposals?.layout ?? "centered");
+    : "centered";
   const switcher = proposals !== undefined && (
     <ProposalSwitcher
       location={proposals.location}
@@ -285,12 +277,6 @@ export function TopBar({
                 : {})}
             />
           ),
-          status: (
-            <ProposalStatus
-              location={proposalLocation}
-              onRetrySetup={proposals.onRetrySetup}
-            />
-          ),
           save: (
             <ProposalSaveButton
               location={proposalLocation}
@@ -301,15 +287,6 @@ export function TopBar({
             <ProposalPublishButton
               location={proposalLocation}
               onPublish={proposals.onPublish}
-            />
-          ),
-          bar: (menu: React.ReactNode) => (
-            <ProposalBar
-              location={proposalLocation}
-              onSave={proposals.onSave}
-              onPublish={proposals.onPublish}
-              onRetrySetup={proposals.onRetrySetup}
-              menu={menu}
             />
           ),
         }
@@ -380,27 +357,21 @@ export function TopBar({
           )}
         </>
       )}
-      {layout !== "centered" && switcher}
-      {/* Publish beside where you are, the menu beside that. */}
-      {layout === "publish-left" && inProposal !== null && (
+      {layout === "phone" && (
         <>
-          {inProposal.publish}
-          {inProposal.menu}
+          {switcher}
+          {inProposal?.menu}
         </>
       )}
-      {layout === "phone" && inProposal?.menu}
       <SearchTrigger breakpoint={breakpoint} onClick={onOpenSearch} />
-      {/*
-       * Where you are, in the middle of the bar: the switcher, and in a
-       * proposal Save beside it and what the proposal is doing.
-       */}
+      {/* Where you are, in the middle of the bar. */}
       {layout === "centered" && (
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
           {switcher}
           {inProposal !== null && (
             <>
-              {inProposal.save}
-              {inProposal.status}
+              {inProposal.publish}
+              {inProposal.menu}
             </>
           )}
         </div>
@@ -408,7 +379,7 @@ export function TopBar({
       <div
         className={cn(
           "flex items-center gap-1.5 shrink-0",
-          layout !== "centered" && "ml-auto",
+          layout === "phone" && "ml-auto",
         )}
       >
         {/*
@@ -455,34 +426,16 @@ export function TopBar({
               />
             </span>
             <span data-val-tour="publish" className="inline-flex">
-              {inProposal !== null ? (
-                /*
-                 * In a proposal, what sits where Publish is depends on the
-                 * layout: Publish (the proposal's, which merges it), Save, or
-                 * both. See `TopBarProposals.layout`.
-                 */
-                layout === "centered" ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    {inProposal.publish}
-                    {inProposal.menu}
-                  </span>
-                ) : layout === "publish-left" ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    {inProposal.status}
-                    {inProposal.save}
-                  </span>
-                ) : (
-                  inProposal.bar(inProposal.menu)
-                )
-              ) : (
-                (publishSlot ?? (
-                  <PublishButton
-                    pendingChanges={pendingChanges}
-                    onPublish={onPublish}
-                    publishState={publishState}
-                  />
-                ))
-              )}
+              {inProposal !== null
+                ? // In a proposal, Save is where Publish is on the site.
+                  inProposal.save
+                : (publishSlot ?? (
+                    <PublishButton
+                      pendingChanges={pendingChanges}
+                      onPublish={onPublish}
+                      publishState={publishState}
+                    />
+                  ))}
             </span>
             <BarDivider />
           </>

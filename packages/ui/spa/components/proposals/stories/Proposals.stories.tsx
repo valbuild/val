@@ -101,7 +101,6 @@ type HarnessProps = {
   menuOpen?: boolean;
   dialog?: "new" | "close" | "all" | null;
   newProblem?: NewProposalProblem | null;
-  layout?: TopBarProposals["layout"];
 };
 
 /**
@@ -116,7 +115,6 @@ function ProposalsShell({
   menuOpen = false,
   dialog: initialDialog = null,
   newProblem = null,
-  layout = "centered",
 }: HarnessProps) {
   const [theme, setTheme] = useState(initialTheme);
   const [location, setLocation] = useState<StudioLocation>(initialLocation);
@@ -191,16 +189,6 @@ function ProposalsShell({
     onRename: () => console.log("rename"),
     onCopyLink: () => console.log("copy link"),
     onClose: () => setDialog("close"),
-    onRetrySetup: () =>
-      setLocation((current) =>
-        current.kind === "proposal"
-          ? {
-              ...current,
-              proposal: { ...current.proposal, setup: { status: "running" } },
-            }
-          : current,
-      ),
-    layout,
     defaultSwitcherOpen: switcherOpen,
     defaultMenuOpen: menuOpen,
   };
@@ -211,7 +199,15 @@ function ProposalsShell({
         data={mockShellData}
         theme={theme}
         onThemeChange={setTheme}
-        pendingChanges={location.kind === "proposal" ? location.unsaved : 12}
+        /*
+         * In a proposal, Review shows what Publish would publish: the
+         * proposal against the site, saved and unsaved alike.
+         */
+        pendingChanges={
+          location.kind === "proposal"
+            ? location.proposal.changes + location.unsaved
+            : 12
+        }
         onCompare={() => console.log("open the review view")}
         mode="http"
         proposals={handlers}
@@ -317,33 +313,6 @@ const shell = (args: HarnessProps): ShellStory => ({
   render: () => <ProposalsShell {...args} />,
 });
 
-/*
- * THE LAYOUT, still being chosen: where the switcher, Save and Publish sit.
- * Each in a proposal and on the site. Resize below 768px for the phone, which
- * is the same in all three: Save in the bottom bar, Publish first in the
- * proposal's menu in the top bar.
- */
-
-/** A: the switcher in the middle, Save beside it; Publish where it always is. */
-export const LayoutACentered = shell({ location: inProposal() });
-export const LayoutACenteredOnTheSite = shell({ location: { kind: "site" } });
-
-/** B: Publish beside the switcher; Save where Publish is on the site. */
-export const LayoutBPublishBesideTheSwitcher = shell({
-  location: inProposal(),
-  layout: "publish-left",
-});
-export const LayoutBOnTheSite = shell({
-  location: { kind: "site" },
-  layout: "publish-left",
-});
-
-/** C: the first layout: the switcher left, Save and Publish together right. */
-export const LayoutCTogether = shell({
-  location: inProposal(),
-  layout: "together",
-});
-
 /** On the site, as every project with proposals starts: the switcher says so. */
 export const OnTheSite = shell({ location: { kind: "site" } });
 
@@ -383,13 +352,13 @@ export const InAProposalSwitcherOpen = shell({
   switcherOpen: true,
 });
 
-export const Saving = shell({
-  location: inProposal({ save: { state: "saving" } }),
+/** Publish enabled, as it will be once merging exists: the site's own green. */
+export const InAProposalReadyToPublish = shell({
+  location: inProposal({ publishBlockedBy: null }),
 });
 
-/** Saved; the address is being brought up to the save. */
-export const UpdatingThePreview = shell({
-  location: inProposal({ unsaved: 0, overlay: { status: "running" } }),
+export const Saving = shell({
+  location: inProposal({ save: { state: "saving" } }),
 });
 
 /** A save that failed says why, before anything else. */
@@ -399,40 +368,6 @@ export const SaveFailed = shell({
       state: "failed",
       error: "Some of these changes were changed while they were being saved",
     },
-  }),
-});
-
-/** The front page did not render after the save: reported, never blocking. */
-export const RenderCheckFailed = shell({
-  location: inProposal({
-    unsaved: 0,
-    renderCheck: {
-      status: "failed",
-      error: "/ failed to render: 500 TypeError: x is undefined",
-    },
-  }),
-});
-
-/** Just created: its address is being made. */
-export const SettingUp = shell({
-  location: inProposal({
-    proposal: { ...open[0], setup: { status: "running" } },
-    unsaved: 0,
-    overlay: null,
-    renderCheck: null,
-  }),
-});
-
-/** Its address could not be made: Retry. */
-export const SetupFailed = shell({
-  location: inProposal({
-    proposal: {
-      ...open[0],
-      setup: { status: "failed", error: "The platform answered 503" },
-    },
-    unsaved: 0,
-    overlay: null,
-    renderCheck: null,
   }),
 });
 

@@ -1,6 +1,5 @@
 import {
   AlertTriangle,
-  Check,
   GitCompare,
   Link2,
   Loader2,
@@ -18,19 +17,16 @@ import type { StudioLocation } from "./types";
 type InProposal = Extract<StudioLocation, { kind: "proposal" }>;
 
 /**
- * What the top bar does in a proposal, in pieces the bar lays out.
- * `docs/proposals.md`, Flow B, "Inside a proposal".
+ * What the top bar does in a proposal. `docs/proposals.md`, Flow B.
  *
- * Save, Publish and a menu. Save commits the proposal's changes and its
- * address serves them on the next request; it is never a publish and never a
- * push. Publish is the proposal's way to the site -- merging it -- and saves
- * first when there is something unsaved, because only what was saved is ever
- * published. It is shown and disabled with its reason until merging exists.
+ * Save commits the proposal's changes, and its address serves them on the
+ * next request; it is never a publish and never a push. Publish is the
+ * proposal's way to the site -- merging it -- and saves first when there is
+ * something unsaved, because only what was saved is ever published. What it
+ * will publish is what Review shows: the proposal against the site.
  *
- * The status beside Save says what the proposal is doing, most urgent first:
- * a save that failed, the address being made or brought up to date, and then
- * whether it rendered after the last save. A render that failed is a report,
- * never a gate: it blocks nothing.
+ * A save that failed says so on the button, as a failed publish does on the
+ * site's.
  */
 export function ProposalSaveButton({
   location,
@@ -42,26 +38,36 @@ export function ProposalSaveButton({
   className?: string;
 }) {
   const saving = location.save.state === "saving";
+  const failed = location.save.state === "failed" ? location.save : null;
   const canSave = location.unsaved > 0 && !saving;
   return (
     <button
       type="button"
       onClick={onSave}
       disabled={!canSave}
+      title={
+        failed !== null ? `${failed.error}. Press to try again.` : undefined
+      }
       className={cn(
         "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium",
-        "bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover",
+        failed !== null
+          ? "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover"
+          : "bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover",
         "disabled:bg-bg-disabled disabled:text-fg-disabled",
         className,
       )}
     >
       {saving ? (
         <Loader2 size={14} className="shrink-0 animate-spin" />
+      ) : failed !== null ? (
+        <AlertTriangle size={14} className="shrink-0" />
       ) : (
         <Save size={14} className="shrink-0" />
       )}
-      <span className="truncate">{saving ? "Saving…" : "Save"}</span>
-      {!saving && location.unsaved > 0 && (
+      <span className="truncate">
+        {saving ? "Saving…" : failed !== null ? "Save failed" : "Save"}
+      </span>
+      {!saving && failed === null && location.unsaved > 0 && (
         <span className="tabular-nums opacity-80">{location.unsaved}</span>
       )}
     </button>
@@ -71,7 +77,8 @@ export function ProposalSaveButton({
 /**
  * Publish, in a proposal: merging it into the site. Looks like the site's
  * Publish because it is the same act from the editor's side -- what is here
- * goes live -- and is told apart by where it sits and what it is next to.
+ * goes live -- and sits beside the switcher, because it is about the
+ * proposal named there.
  */
 export function ProposalPublishButton({
   location,
@@ -103,114 +110,6 @@ export function ProposalPublishButton({
       <Upload size={14} className="shrink-0" />
       <span className="truncate">Publish</span>
     </button>
-  );
-}
-
-/**
- * The three pieces in a row: the status, Save, Publish and the menu. The
- * layout the bar used first, kept for comparing the others against.
- */
-export function ProposalBar({
-  location,
-  onSave,
-  onPublish,
-  onRetrySetup,
-  menu,
-}: {
-  location: InProposal;
-  onSave: () => void;
-  onPublish: () => void;
-  onRetrySetup: () => void;
-  menu: React.ReactNode;
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-1.5">
-      <ProposalStatus location={location} onRetrySetup={onRetrySetup} />
-      <ProposalSaveButton location={location} onSave={onSave} />
-      <ProposalPublishButton location={location} onPublish={onPublish} />
-      {menu}
-    </div>
-  );
-}
-
-/** The one line that says what the proposal is doing. */
-export function ProposalStatus({
-  location,
-  onRetrySetup,
-}: {
-  location: InProposal;
-  onRetrySetup: () => void;
-}) {
-  const { save, proposal, overlay, renderCheck, unsaved } = location;
-  const tone = (kind: "quiet" | "busy" | "good" | "bad", text: string) => ({
-    kind,
-    text,
-  });
-  const status =
-    save.state === "failed"
-      ? tone("bad", `Save failed: ${save.error}`)
-      : save.state === "saving"
-        ? null
-        : proposal.setup?.status === "failed"
-          ? tone("bad", "Its address could not be set up")
-          : proposal.setup?.status === "pending" ||
-              proposal.setup?.status === "running"
-            ? tone("busy", "Setting up its address…")
-            : overlay?.status === "pending" || overlay?.status === "running"
-              ? tone("busy", "Updating the preview…")
-              : overlay?.status === "failed"
-                ? tone("bad", "The preview did not update; trying again")
-                : renderCheck?.status === "failed"
-                  ? tone("bad", "The front page failed to render")
-                  : renderCheck?.status === "pending" ||
-                      renderCheck?.status === "running"
-                    ? tone("busy", "Checking it renders…")
-                    : renderCheck?.status === "succeeded"
-                      ? tone("good", "Renders")
-                      : null;
-  return (
-    <div className="hidden min-w-0 items-center gap-2 px-1 text-xs lg:flex">
-      {unsaved > 0 && (
-        <span className="shrink-0 tabular-nums text-fg-secondary">
-          {unsaved} unsaved
-        </span>
-      )}
-      {status !== null && (
-        <span
-          title={
-            status.kind === "bad" && renderCheck?.status === "failed"
-              ? (renderCheck.error ?? undefined)
-              : undefined
-          }
-          className={cn(
-            "flex min-w-0 items-center gap-1",
-            status.kind === "bad"
-              ? "text-fg-error-on-surface"
-              : status.kind === "good"
-                ? "text-fg-secondary"
-                : "text-fg-secondary-alt",
-          )}
-        >
-          {status.kind === "busy" && (
-            <Loader2 size={12} className="shrink-0 animate-spin" />
-          )}
-          {status.kind === "bad" && (
-            <AlertTriangle size={12} className="shrink-0" />
-          )}
-          {status.kind === "good" && <Check size={12} className="shrink-0" />}
-          <span className="truncate">{status.text}</span>
-          {proposal.setup?.status === "failed" && save.state !== "failed" && (
-            <button
-              type="button"
-              onClick={onRetrySetup}
-              className="shrink-0 font-medium text-fg-primary underline underline-offset-2"
-            >
-              Retry
-            </button>
-          )}
-        </span>
-      )}
-    </div>
   );
 }
 
