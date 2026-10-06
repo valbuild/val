@@ -275,3 +275,59 @@ describe("a module of `.jsonValues()` entries", () => {
     expect(jsonKeys).toEqual([]);
   });
 });
+
+describe("at a proposal's address", () => {
+  // The proposal's saved Source: the third source provider. See `ValDraft`.
+  const snapshot = { [UNTOUCHED]: { text: "saved in the proposal" } };
+
+  test("a reviewer who is not editing still gets the proposal, and no draft", async () => {
+    const { server, calls } = fakeValServer(draftAnswer);
+    const fetchValDraft = initFetchValDraft(
+      server,
+      async () => false,
+      cookies(undefined),
+      oneRequestScope(),
+      snapshot,
+    );
+    expect(await fetchValDraft()).toEqual({
+      sources: {},
+      snapshot,
+      draftMode: false,
+    });
+    expect(calls).toEqual([]);
+  });
+
+  test("an editor gets the draft over it, and the snapshot beside it", async () => {
+    const { server } = fakeValServer(draftAnswer);
+    const fetchValDraft = initFetchValDraft(
+      server,
+      async () => true,
+      cookies("session"),
+      oneRequestScope(),
+      snapshot,
+    );
+    expect(await fetchValDraft()).toEqual({
+      sources: { [EDITED]: { text: "DRAFT" } },
+      snapshot,
+    });
+  });
+
+  test("a draft that cannot be read still leaves the proposal on the page", async () => {
+    const { server } = fakeValServer({
+      status: 401,
+      json: { message: "Unauthorized" },
+    });
+    const fetchValDraft = initFetchValDraft(
+      server,
+      async () => true,
+      cookies("expired"),
+      oneRequestScope(),
+      snapshot,
+    );
+    expect(await fetchValDraft()).toEqual({
+      sources: {},
+      snapshot,
+      draftMode: false,
+    });
+  });
+});

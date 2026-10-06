@@ -239,6 +239,11 @@ export const ValOverlayContext = React.createContext<{
    * renders while it hydrates -- see `useEncodesEditTags`.
    */
   readonly serverDraft?: boolean;
+  /**
+   * A proposal's saved Source, which stands in for the bundle's wherever a
+   * hook would read the bundle -- see `ValDraft.snapshot`. Absent on the site.
+   */
+  readonly snapshot?: Record<ModuleFilePath, Json>;
 }>({
   store: undefined,
   draftMode: false,
@@ -254,6 +259,7 @@ export function ValOverlayProvider({
   draftModeReady,
   draftSourcesSynced,
   serverDraft,
+  snapshot,
   children,
 }: {
   store?: ValExternalStore;
@@ -262,6 +268,7 @@ export function ValOverlayProvider({
   draftModeReady?: Promise<void>;
   draftSourcesSynced?: boolean;
   serverDraft?: boolean;
+  snapshot?: Record<ModuleFilePath, Json>;
   children: React.ReactNode;
 }) {
   return (
@@ -273,6 +280,7 @@ export function ValOverlayProvider({
         draftModeReady,
         draftSourcesSynced,
         serverDraft,
+        snapshot,
       }}
     >
       {children}

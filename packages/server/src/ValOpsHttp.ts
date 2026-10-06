@@ -1,3 +1,4 @@
+import { proposalSnapshot, type ValProposal } from "./proposal";
 import {
   type PatchId,
   type ModuleFilePath,
@@ -491,6 +492,8 @@ export class ValOpsHttp extends ValOps {
   private readonly publishJob: string | null;
   /** See `publishBuild` on {@link ValApiOptions}; sent with every position. */
   private readonly publishBuild: string | null;
+  /** See `proposal` on {@link ValApiOptions}; `null` on the site. */
+  private readonly proposal: ValProposal | null;
 
   /** Did the host hand over the running build's source? See `projectSource`. */
   embedsSource(): boolean {
@@ -591,15 +594,30 @@ export class ValOpsHttp extends ValOps {
       publishJob?: string;
       /** See `publishBuild` on {@link ValApiOptions}. */
       publishBuild?: string;
+      /** See `proposal` on {@link ValApiOptions}. */
+      proposal?: ValProposal;
     },
   ) {
-    super(valModules, options);
+    super(
+      valModules,
+      options?.proposal
+        ? { ...options, snapshotSources: proposalSnapshot(options.proposal) }
+        : options,
+    );
     this.authHeaders =
       "pat" in auth
         ? { "x-val-pat": auth.pat }
         : { Authorization: `Bearer ${auth.apiKey}` };
     this.root = options?.root ?? "";
-    this.projectSource = options?.projectSource ?? null;
+    this.proposal = options?.proposal ?? null;
+    /*
+     * In a proposal, the text its saves wrote over the text the build was made
+     * from: the next save patches the last one's `.val.ts`, not the base's.
+     */
+    this.projectSource =
+      this.proposal !== null
+        ? { ...(options?.projectSource ?? {}), ...this.proposal.files }
+        : (options?.projectSource ?? null);
     this.publishJob = options?.publishJob ?? null;
     this.publishBuild = options?.publishBuild ?? null;
     this.mirrorsSourceFiles = git !== null || this.projectSource !== null;
@@ -627,7 +645,8 @@ export class ValOpsHttp extends ValOps {
    * checking.
    */
   override publishRefusal(): PublishRefusal | null {
-    if (this.git !== null) {
+    // A save in a proposal mirrors nothing: it reaches git by merging.
+    if (this.git !== null || this.proposal !== null) {
       return null;
     }
     /*
@@ -703,6 +722,8 @@ export class ValOpsHttp extends ValOps {
   }
 
   override publishesAsJobs(): boolean {
+    // A proposal's Save is a commit on its branch; its merge is the publish.
+    if (this.proposal !== null) return false;
     const expected = this.projectExpectation;
     if (expected === null) return false;
     return expected.publishJobs ?? expected.sourceMode === "managed";
@@ -1247,6 +1268,36 @@ export class ValOpsHttp extends ValOps {
     };
   }
 
+  /**
+   * Where this server sits in the content service's chain, as every request
+   * that asks about a position says it.
+   *
+   * In a proposal: its branch, and the save its snapshot is (none before the
+   * first). The content service then answers with what came after that save
+   * and nothing else -- never the site's position, which would replay the
+   * proposal's own saves over a snapshot that already holds them. Otherwise
+   * the commit this build was made from, or, for a build a tab made, its job.
+   */
+  private position(): { branch?: string; commit?: string; job?: string } {
+    if (this.proposal !== null) {
+      return {
+        branch: this.proposal.branch,
+        ...(this.proposal.commit !== null
+          ? { commit: this.proposal.commit }
+          : {}),
+      };
+    }
+    if (this.git) {
+      return { branch: this.git.branch, commit: this.git.commit };
+    }
+    return this.publishJob !== null ? { job: this.publishJob } : {};
+  }
+
+  /** The branch this server's patches are on, where it knows it. */
+  private ownBranch(): string | undefined {
+    return this.proposal?.branch ?? this.git?.branch;
+  }
+
   async getWebSocketNonce(profileId: string): Promise<
     | {
         status: "success";
@@ -1264,11 +1315,14 @@ export class ValOpsHttp extends ValOps {
          * the project -- and a nonce is scoped to the project and the person,
          * not to a position in a chain.
          */
-        ...(this.git
-          ? { branch: this.git.branch, commitSha: this.git.commit }
-          : this.publishJob !== null
-            ? { job: this.publishJob }
-            : {}),
+        ...(() => {
+          const { branch, commit, job } = this.position();
+          return {
+            ...(branch !== undefined ? { branch } : {}),
+            ...(commit !== undefined ? { commitSha: commit } : {}),
+            ...(job !== undefined ? { job } : {}),
+          };
+        })(),
         // Which build is asking, beside what it says about itself.
         ...(this.publishBuild !== null ? { build: this.publishBuild } : {}),
       }),
@@ -1479,12 +1533,10 @@ export class ValOpsHttp extends ValOps {
      * holds the chain, and for a project it is the only publisher of, the
      * position IS the head.
      */
-    if (this.git) {
-      params.push(["branch", this.git.branch]);
-      params.push(["commit", this.git.commit]);
-    } else if (this.publishJob !== null) {
-      // A build a tab made has no commit, and says which job it was made for.
-      params.push(["job", this.publishJob]);
+    // A build a tab made has no commit, and says which job it was made for;
+    // a proposal says its branch and its save. See `position`.
+    for (const [key, value] of Object.entries(this.position())) {
+      if (value !== undefined) params.push([key, value]);
     }
     /*
      * And WHICH build this is, when the platform running it says: the only
@@ -1889,6 +1941,15 @@ export class ValOpsHttp extends ValOps {
     | { status: "unsupported" }
     | { status: "error"; message: string }
   > {
+    /*
+     * A proposal has no patch groups: its changes are one unit, saved
+     * together, and the content service answers 404 for groups on its branch.
+     * "Unsupported" is exactly that answer, and it is what makes a draft in a
+     * proposal show all of the proposal's changes rather than one person's.
+     */
+    if (this.proposal !== null) {
+      return { status: "unsupported" };
+    }
     try {
       /*
        * `branch` is REQUIRED by the endpoint, which answers 400 without it.
@@ -1897,8 +1958,9 @@ export class ValOpsHttp extends ValOps {
        * `saveSourceFilePatch`): groups are per branch, so a request without one
        * is not merely under-specified, it is rejected.
        */
+      const branch = this.ownBranch();
       const params = new URLSearchParams(
-        this.git ? [["branch", this.git.branch]] : [],
+        branch !== undefined ? [["branch", branch]] : [],
       );
       const res = await fetch(
         `${this.contentUrl}/v1/${this.project}/patch-groups?${params}`,
@@ -1953,7 +2015,8 @@ export class ValOpsHttp extends ValOps {
    * Without one the content API uses the project's own, as it does for reads.
    */
   private ownGroupBranch(): { branch?: string } {
-    return this.git ? { branch: this.git.branch } : {};
+    const branch = this.ownBranch();
+    return branch !== undefined ? { branch } : {};
   }
 
   private async mutatePatchGroup(
@@ -1980,6 +2043,16 @@ export class ValOpsHttp extends ValOps {
      */
     authorId: AuthorId | null,
   ): Promise<PatchGroupMutationResult> {
+    if (this.proposal !== null) {
+      return {
+        status: 409,
+        patchIds: [],
+        error: {
+          message:
+            "A proposal's changes are saved together, so there is nothing to stage or unstage in one.",
+        },
+      };
+    }
     try {
       return await this.mutatePatchGroupRequest(method, path, body, authorId);
     } finally {
@@ -2099,9 +2172,15 @@ export class ValOpsHttp extends ValOps {
         patchId,
         parentPatchId: parentRef.type === "patch" ? parentRef.patchId : null,
         baseSha,
-        ...(this.git
-          ? { commit: this.git.commit, branch: this.git.branch }
-          : {}),
+        /*
+         * In a proposal, its branch alone: the content service files the
+         * patch there, and only for an open proposal.
+         */
+        ...(this.proposal !== null
+          ? { branch: this.proposal.branch }
+          : this.git
+            ? { commit: this.git.commit, branch: this.git.branch }
+            : {}),
         coreVersion: Internal.VERSION.core,
         /*
          * Group membership in the SAME request as the patch.
@@ -2638,7 +2717,7 @@ export class ValOpsHttp extends ValOps {
             }
             const headVersion = ownBranchVersion(
               parsed.data.headVersions,
-              this.git?.branch,
+              this.ownBranch(),
             );
             const version = headVersion !== undefined ? { headVersion } : {};
 
@@ -2725,7 +2804,16 @@ export class ValOpsHttp extends ValOps {
       }
   > {
     try {
-      const res = await fetch(`${this.contentUrl}/v1/${this.project}/commit`, {
+      /*
+       * A save in a proposal is a commit on the proposal's branch, at its own
+       * route: the site's `/commit` refuses a proposal's patches, which is
+       * the line that keeps them off the site until a merge.
+       */
+      const commitUrl =
+        this.proposal !== null
+          ? `${this.contentUrl}/v1/${this.project}/proposals/${this.proposal.name}/save`
+          : `${this.contentUrl}/v1/${this.project}/commit`;
+      const res = await fetch(commitUrl, {
         method: "POST",
         headers: {
           ...this.authHeaders,

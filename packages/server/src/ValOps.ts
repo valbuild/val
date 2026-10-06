@@ -151,6 +151,14 @@ export type ValOpsOptions = {
   disableFilePolling?: boolean;
   disableFileWatcher?: boolean;
   config: ValConfig;
+  /**
+   * Source that replaces what the modules evaluate to, for the modules it
+   * names: a proposal's saves (`ValProposal` in `./proposal`), the third
+   * source provider beside committed and draft. Applied once, as the modules
+   * are first read, so every read after it -- the tree, validation, previews,
+   * the next save's prepare -- starts from it, and the SHAs describe it.
+   */
+  snapshotSources?: Sources;
 };
 // #region ValOps
 export abstract class ValOps {
@@ -318,12 +326,21 @@ export abstract class ValOps {
       this.modulesErrors = moduleErrors;
       this.shaEntries = extracted.shaEntries;
       this.shaModuleErrors = extracted.moduleErrors;
+      /*
+       * The snapshot, over what the modules evaluated to. Through the same
+       * door a save uses, so the SHAs move with it: they describe the Source
+       * being served, and a base SHA that still described the bundle would
+       * say the snapshot's content was the bundle's.
+       */
+      if (this.options?.snapshotSources) {
+        this.promoteCommittedSources(this.options.snapshotSources);
+      }
       return {
         baseSha: this.baseSha,
         schemaSha: this.schemaSha,
         sourcesSha: this.sourcesSha,
         configSha: this.configSha,
-        sources: extracted.sources,
+        sources: this.sources,
         schemas: extracted.schemas,
         moduleErrors,
       };

@@ -363,6 +363,7 @@ export async function initHandlerOptions(
       ...(opts.publishBuild !== undefined
         ? { publishBuild: opts.publishBuild }
         : {}),
+      ...(opts.proposal !== undefined ? { proposal: opts.proposal } : {}),
       project: maybeValProject,
       valEnableRedirectUrl,
       valDisableRedirectUrl,
@@ -446,6 +447,9 @@ export function createValOps(
           : {}),
         ...(options.publishBuild !== undefined
           ? { publishBuild: options.publishBuild }
+          : {}),
+        ...(options.proposal !== undefined
+          ? { proposal: options.proposal }
           : {}),
       },
     );

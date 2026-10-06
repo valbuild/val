@@ -248,6 +248,39 @@ const valProject = secret("VAL_PROJECT");
  * Ignored by a @valbuild/tanstack that predates it.
  */
 const servedBuild = secret("VAL_BUILD");
+/*
+ * THE PROPOSAL this isolate serves the address of, when it does: its name and
+ * content branch, and the content it has saved (\`VAL_OVERLAY\`: the save's
+ * commit, its Source by module and its \`.val.ts\` text by path). Val reads
+ * that Source instead of the bundle's, commits a save to the proposal, and
+ * names the save as its position. valbuild/home \`docs/proposals.md\`,
+ * "Saving".
+ *
+ * Parsed here rather than with \`proposalFromEnv\` from @valbuild/server,
+ * because this file is compiled against whatever @valbuild/tanstack the
+ * PROJECT installed, and one from before proposals has no such export -- it
+ * also ignores the \`proposal\` key below, and serves the base build, which
+ * is the best an old app can do. A snapshot that does not parse is thrown,
+ * not served as the base: a reviewer must not be shown the wrong content as
+ * though it were the proposal.
+ */
+const proposal = (() => {
+  const name = secret("VAL_PROPOSAL");
+  const branch = secret("VAL_BRANCH");
+  if (!name || !branch) return undefined;
+  const overlay: {
+    commit?: string | null;
+    modules?: Record<string, unknown>;
+    files?: Record<string, string>;
+  } = JSON.parse(secret("VAL_OVERLAY") ?? "{}");
+  return {
+    name,
+    branch,
+    commit: overlay.commit ?? null,
+    modules: overlay.modules ?? {},
+    files: overlay.files ?? {},
+  };
+})();
 const valConfig = {
   ...config,
   ...(valProject !== undefined ? { project: valProject } : {}),
@@ -315,6 +348,7 @@ const http =
         projectSource: FILES,
         ...(BUILT_FOR_JOB !== null ? { publishJob: BUILT_FOR_JOB } : {}),
         ...(servedBuild !== undefined ? { publishBuild: servedBuild } : {}),
+        ...(proposal !== undefined ? { proposal } : {}),
       }
     : undefined;
 

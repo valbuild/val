@@ -5,6 +5,7 @@ import {
   type CommitContext,
   type CommitResult,
   type ValPatchStore,
+  type ValProposal,
 } from "@valbuild/server";
 import { VERSION } from "../version";
 import { valDraftMode, type ValDraftMode } from "./valDraftMode";
@@ -80,6 +81,14 @@ export type ValHttpMode = {
    * else should set it.
    */
   publishBuild?: string;
+  /**
+   * The proposal this build is serving the address of, when the platform
+   * says so (`VAL_PROPOSAL`, `VAL_BRANCH`, `VAL_OVERLAY`; read them with
+   * `proposalFromEnv`). Its saved content replaces the bundle's for what it
+   * saved, on every read, and a save commits to the proposal. Nothing else
+   * should set it.
+   */
+  proposal?: ValProposal;
 };
 
 /**

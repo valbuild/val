@@ -1,3 +1,4 @@
+import type { ValProposal } from "./proposal";
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   ValModules,
@@ -234,6 +235,8 @@ export type ValServerConfig = ValServerOptions &
         publishJob?: string;
         /** See `publishBuild` on {@link ValApiOptions}. */
         publishBuild?: string;
+        /** See `proposal` on {@link ValApiOptions}. */
+        proposal?: ValProposal;
         config: ValConfig;
       }
     /**

@@ -19,4 +19,17 @@ import type { Json, ModuleFilePath } from "@valbuild/core";
  */
 export type ValDraft = {
   sources: Record<ModuleFilePath, Json>;
+  /**
+   * At a proposal's address: the Source the proposal has saved, which
+   * replaces the bundle's for those modules on EVERY render, draft or not --
+   * the third source provider (`ValProposal` in `@valbuild/server`). Sent
+   * whether or not draft mode is on, because a reviewer who is not editing is
+   * looking at the proposal too. A draft, when there is one, applies on top.
+   */
+  snapshot?: Record<ModuleFilePath, Json>;
+  /**
+   * `false` when no draft was read -- draft mode is off -- and this carries
+   * only the {@link snapshot}. Absent: a draft, as it always was.
+   */
+  draftMode?: false;
 };

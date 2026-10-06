@@ -28,6 +28,8 @@ export type {
   Returns,
 } from "./externalRecords";
 export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
+export { proposalFromEnv, proposalSnapshot } from "./proposal";
+export type { ValProposal } from "./proposal";
 // Exported for a host that has to build the same config the API router builds:
 // two copies of this decision drift, and a registry that thinks it is in fs mode
 // while the Studio thinks it is in proxy mode reads different content from the
