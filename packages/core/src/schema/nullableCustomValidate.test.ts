@@ -88,6 +88,10 @@ const nullableAfterValidate: Record<
     .file()
     .validate(() => MESSAGE)
     .nullable(),
+  font: s
+    .font(define("/fonts.val.ts", s.fontset({ dir: "/public/val/fonts" }), {}))
+    .validate(() => MESSAGE)
+    .nullable(),
   fileset: s
     .fileset({ accept: "application/pdf", dir: "/public/val/files" })
     .validate(() => MESSAGE)

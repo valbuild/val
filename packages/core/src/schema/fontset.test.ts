@@ -153,4 +153,45 @@ describe("s.fontset()", () => {
       ),
     ).toEqual([]);
   });
+
+  test("s.font(fontsVal) is the s.file(fontsVal) field, serialized byte for byte", () => {
+    const fontsVal = c.define(
+      "/content/fonts-for-font.val.ts",
+      s.fontset({ dir: "/public/val/fonts" }),
+      { "/public/val/fonts/inter_a1b2c.woff2": { mimeType: "font/woff2" } },
+    );
+    expect(s.font(fontsVal)["executeSerialize"]()).toEqual(
+      s.file(fontsVal)["executeSerialize"](),
+    );
+    expect(
+      s
+        .font(fontsVal)
+        [
+          "executeValidate"
+        ]("/content/page.val.ts" as SourcePath, { path: "/public/val/fonts/inter_a1b2c.woff2" }),
+    ).toBe(false);
+  });
+
+  test("s.font() refuses a set that is not a font set", () => {
+    const pdfsVal = c.define(
+      "/content/pdfs-for-font.val.ts",
+      s.fileset({ dir: "/public/val/pdfs", accept: "application/pdf" }),
+      {},
+    );
+    expect(() => s.font(pdfsVal)).toThrow(/must be an s\.fontset\(\)/);
+  });
+
+  test("s.font() is remote under files: { remote: true }", () => {
+    const remote = initVal({ files: { remote: true } });
+    const fontsVal = remote.c.define(
+      "/content/remote-fonts.val.ts",
+      remote.s.fontset({ dir: "/public/val/fonts" }),
+      {},
+    );
+    expect(remote.s.font(fontsVal)["executeSerialize"]()).toMatchObject({
+      type: "file",
+      remote: true,
+      referencedModule: "/content/remote-fonts.val.ts",
+    });
+  });
 });

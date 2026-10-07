@@ -5,7 +5,7 @@ import { serverSource } from "./serverState";
 
 /**
  * `s.fontset()`, against the showcase's `fonts.val.ts` and the
- * `s.file(fontsVal)` field `media.val.ts` holds.
+ * `s.font(fontsVal)` field `media.val.ts` holds.
  *
  * What is asserted is that a face was LOADED, not that an element names one:
  * a `font-family` on a face the browser could not read falls back to the next
@@ -97,4 +97,43 @@ test("a font the browser gives no type is stored by what its bytes are", async (
         expect.objectContaining({ mimeType: "font/woff2" }),
       ],
     ]);
+});
+
+test("s.font() is a row in its parent, and opens on the set to pick from", async ({
+  page,
+  request,
+}) => {
+  const PAGE = "/src/content/media.val.ts";
+  await openStudio(page, `/val/~${PAGE}`);
+  const studio = page.locator("#val-shadow-root");
+  // In the parent: the font's "A", set in itself, and its file name.
+  const row = studio.getByRole("button", {
+    name: "Font: nunito-sans-bold_6bccb.woff2",
+  });
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await expect(row.getByText("A", { exact: true })).toBeVisible();
+  // …and not the set: that is what opening it is for.
+  await expect(studio.getByRole("region", { name: /^Fonts in / })).toHaveCount(
+    0,
+  );
+
+  await row.click();
+  await expect(page).toHaveURL(/headingFont/);
+  const set = studio.getByRole("region", { name: /^Fonts in / });
+  await expect(set.getByRole("button")).toHaveCount(2, { timeout: 30_000 });
+  await expect(
+    set.getByRole("button", { name: "nunito-sans-bold_6bccb.woff2" }),
+  ).toHaveAttribute("aria-pressed", "true");
+
+  await set
+    .getByRole("button", { name: "nunito-sans-regular_49fe0.woff2" })
+    .click();
+  await expect
+    .poll(async () => {
+      const source = await serverSource(request, PAGE);
+      return typeof source === "object" && source !== null
+        ? Reflect.get(source, "headingFont")
+        : undefined;
+    })
+    .toEqual({ path: "/public/val/fonts/nunito-sans-regular_49fe0.woff2" });
 });

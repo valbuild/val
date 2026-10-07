@@ -15,6 +15,7 @@ import {
 } from "./designSystem/accordion";
 import { FieldValidationError } from "./FieldValidationError";
 import { FieldErrorsOwned } from "./FieldErrorsOwner";
+import { ListedField } from "./ListedField";
 import { FieldPatchAuthorsSection } from "./FieldPatchAuthorsSection";
 import { ShallowSource, useGetNavPath } from "./ValFieldProvider";
 import { useAIChatActions, useInsertFieldRef } from "./AIChatActionsContext";
@@ -109,206 +110,212 @@ export function Field({
    * hook added here is a subscription added project-wide.
    */
   return (
-    <RestoreChrome path={path} schema={schema}>
-      <div
-        data-val-studio-path={path}
-        className={classNames("border", {
-          "px-4 pt-6 pb-4 rounded-lg": !compact,
-          "px-3 pt-2 pb-2 rounded-md": compact,
-          "bg-bg-tertiary": !transparent && !compact,
-          "border-bg-warning-secondary":
-            !hasOverrides &&
-            errorDisplay === "default" &&
-            validationErrors.length > 0,
-        })}
-      >
+    <ListedField>
+      <RestoreChrome path={path} schema={schema}>
         <div
-          className={classNames("flex justify-between items-center", {
-            "pb-2": !compact,
-            "pb-1.5": compact,
+          data-val-studio-path={path}
+          className={classNames("border", {
+            "px-4 pt-6 pb-4 rounded-lg": !compact,
+            "px-3 pt-2 pb-2 rounded-md": compact,
+            "bg-bg-tertiary": !transparent && !compact,
+            "border-bg-warning-secondary":
+              !hasOverrides &&
+              errorDisplay === "default" &&
+              validationErrors.length > 0,
           })}
         >
           <div
-            className={classNames("flex items-center", {
-              "gap-4": !compact,
-              "gap-3": compact,
-              "pt-2": compact && isBoolean,
+            className={classNames("flex justify-between items-center", {
+              "pb-2": !compact,
+              "pb-1.5": compact,
             })}
           >
-            {!hasOverrides &&
-              schema &&
-              !isBoolean &&
-              (isNullable || source === null) && (
-                <Checkbox
-                  disabled={effectiveReadonly || loadingStatus === "loading"}
-                  checked={source !== null || showEmptyFileOrImage}
-                  onCheckedChange={() => {
-                    if (effectiveReadonly) return;
-                    /*
-                     * Which way this click goes is decided by what the box
-                     * SHOWS, not by the source alone.
-                     *
-                     * A media field has a third state: source `null` with the
-                     * field shown, which is what "on" means before anything has
-                     * been uploaded. Branching on `source === null` conflated
-                     * that with "off", so a media field turned on and then off
-                     * again re-ran the turn-on branch: the box stayed ticked,
-                     * the empty field stayed open, and a nullable image could
-                     * not be cleared at all once it had been added.
-                     */
-                    const isMedia =
-                      schema.type === "image" ||
-                      schema.type === "file" ||
-                      schema.type === "video";
-                    const isChecked = source !== null || showEmptyFileOrImage;
-                    if (!isChecked) {
+            <div
+              className={classNames("flex items-center", {
+                "gap-4": !compact,
+                "gap-3": compact,
+                "pt-2": compact && isBoolean,
+              })}
+            >
+              {!hasOverrides &&
+                schema &&
+                !isBoolean &&
+                (isNullable || source === null) && (
+                  <Checkbox
+                    disabled={effectiveReadonly || loadingStatus === "loading"}
+                    checked={source !== null || showEmptyFileOrImage}
+                    onCheckedChange={() => {
+                      if (effectiveReadonly) return;
+                      /*
+                       * Which way this click goes is decided by what the box
+                       * SHOWS, not by the source alone.
+                       *
+                       * A media field has a third state: source `null` with the
+                       * field shown, which is what "on" means before anything has
+                       * been uploaded. Branching on `source === null` conflated
+                       * that with "off", so a media field turned on and then off
+                       * again re-ran the turn-on branch: the box stayed ticked,
+                       * the empty field stayed open, and a nullable image could
+                       * not be cleared at all once it had been added.
+                       */
+                      const isMedia =
+                        schema.type === "image" ||
+                        schema.type === "file" ||
+                        schema.type === "video";
+                      const isChecked = source !== null || showEmptyFileOrImage;
+                      if (!isChecked) {
+                        if (isMedia) {
+                          // There is no empty media value to write — a media
+                          // source without a file is not valid — so turning it on
+                          // opens the field, and the upload writes the patch.
+                          setShowEmptyFileOrImage(true);
+                        } else {
+                          addPatch(
+                            [
+                              {
+                                op: "replace",
+                                path: patchPath,
+                                value: emptyOf({
+                                  ...schema,
+                                  opt: false,
+                                }) as JSONValue,
+                              },
+                            ],
+                            schema.type,
+                          );
+                        }
+                        return;
+                      }
                       if (isMedia) {
-                        // There is no empty media value to write — a media
-                        // source without a file is not valid — so turning it on
-                        // opens the field, and the upload writes the patch.
-                        setShowEmptyFileOrImage(true);
-                      } else {
+                        setShowEmptyFileOrImage(false);
+                      }
+                      if (source !== null) {
                         addPatch(
                           [
                             {
                               op: "replace",
                               path: patchPath,
-                              value: emptyOf({
-                                ...schema,
-                                opt: false,
-                              }) as JSONValue,
+                              value: null,
                             },
                           ],
                           schema.type,
                         );
                       }
-                      return;
-                    }
-                    if (isMedia) {
-                      setShowEmptyFileOrImage(false);
-                    }
-                    if (source !== null) {
-                      addPatch(
-                        [
-                          {
-                            op: "replace",
-                            path: patchPath,
-                            value: null,
-                          },
-                        ],
-                        schema.type,
-                      );
-                    }
-                  }}
+                    }}
+                  />
+                )}
+              {isBoolean && (
+                <EmbeddedBooleanField
+                  path={path}
+                  isNullable={isNullable}
+                  loadingStatus={effectiveReadonly ? "loading" : loadingStatus}
+                  source={
+                    source as
+                      | ShallowSource[keyof ShallowSource]
+                      | undefined
+                      | null
+                  }
                 />
               )}
-            {isBoolean && (
-              <EmbeddedBooleanField
-                path={path}
-                isNullable={isNullable}
-                loadingStatus={effectiveReadonly ? "loading" : loadingStatus}
-                source={
-                  source as
-                    | ShallowSource[keyof ShallowSource]
-                    | undefined
-                    | null
-                }
-              />
-            )}
-            <div className="flex flex-col gap-1">
-              {typeof label === "string" &&
-                (labelClickable ? (
-                  <button
-                    onClick={handleLabelNavigate}
-                    className="font-mono text-sm px-2 py-0.5 rounded bg-bg-secondary text-fg-primary truncate cursor-pointer hover:bg-bg-tertiary transition-colors min-w-0 block"
-                  >
-                    {fromCamelToTitleCase(label)}
-                  </button>
-                ) : (
-                  <Label>{label}</Label>
-                ))}
-              {label && typeof label !== "string" && label}
-              {description && (
-                <div className="text-sm text-fg-tertiary">{description}</div>
+              <div className="flex flex-col gap-1">
+                {typeof label === "string" &&
+                  (labelClickable ? (
+                    <button
+                      onClick={handleLabelNavigate}
+                      className="font-mono text-sm px-2 py-0.5 rounded bg-bg-secondary text-fg-primary truncate cursor-pointer hover:bg-bg-tertiary transition-colors min-w-0 block"
+                    >
+                      {fromCamelToTitleCase(label)}
+                    </button>
+                  ) : (
+                    <Label>{label}</Label>
+                  ))}
+                {label && typeof label !== "string" && label}
+                {description && (
+                  <div className="text-sm text-fg-tertiary">{description}</div>
+                )}
+              </div>
+            </div>
+            <div
+              className={classNames("flex items-center", {
+                "gap-2 min-h-8": !compact,
+                "gap-1.5": compact,
+              })}
+            >
+              {!hasOverrides && !compact && (
+                <FieldPatchAuthorsSection path={path} />
+              )}
+              {!hasOverrides && canMentionField && (
+                <button
+                  type="button"
+                  onClick={() => insertFieldRef(path)}
+                  title="Mention this field in AI chat"
+                  aria-label="Mention this field in AI chat"
+                  className={classNames(
+                    "flex items-center justify-center rounded text-fg-secondary hover:text-fg-primary hover:bg-bg-secondary",
+                    {
+                      "size-6": !compact,
+                      "size-5": compact,
+                      invisible: effectiveReadonly,
+                    },
+                  )}
+                >
+                  <Sparkles size={compact ? 9 : 10} />
+                  <Plus size={compact ? 7 : 8} className="-ml-0.5" />
+                </button>
+              )}
+              {!hasOverrides && source !== null && (
+                <div className={classNames({ invisible: effectiveReadonly })}>
+                  <ArrayAndRecordTools path={path} variant={"field"} />
+                </div>
+              )}
+              {source !== null && !isBoolean && (
+                <button
+                  onClick={() => setIsExpanded((prev) => !prev)}
+                  className={classNames(
+                    "transform transition-transform flex items-center justify-center",
+                    {
+                      "size-6 m-[1px]": !compact,
+                      "size-5": compact,
+                      "rotate-180": isExpanded,
+                    },
+                  )}
+                >
+                  {foldLevel === "1" && (
+                    <ChevronDown size={compact ? 14 : 16} />
+                  )}
+                  {foldLevel === "2" && (
+                    <ChevronsDown size={compact ? 14 : 16} />
+                  )}
+                </button>
               )}
             </div>
           </div>
-          <div
-            className={classNames("flex items-center", {
-              "gap-2 min-h-8": !compact,
-              "gap-1.5": compact,
-            })}
-          >
-            {!hasOverrides && !compact && (
-              <FieldPatchAuthorsSection path={path} />
-            )}
-            {!hasOverrides && canMentionField && (
-              <button
-                type="button"
-                onClick={() => insertFieldRef(path)}
-                title="Mention this field in AI chat"
-                aria-label="Mention this field in AI chat"
-                className={classNames(
-                  "flex items-center justify-center rounded text-fg-secondary hover:text-fg-primary hover:bg-bg-secondary",
-                  {
-                    "size-6": !compact,
-                    "size-5": compact,
-                    invisible: effectiveReadonly,
-                  },
-                )}
-              >
-                <Sparkles size={compact ? 9 : 10} />
-                <Plus size={compact ? 7 : 8} className="-ml-0.5" />
-              </button>
-            )}
-            {!hasOverrides && source !== null && (
-              <div className={classNames({ invisible: effectiveReadonly })}>
-                <ArrayAndRecordTools path={path} variant={"field"} />
+          {!isBoolean && (
+            <Accordion
+              type="single"
+              collapsible
+              value={
+                isExpanded && (source !== null || showEmptyFileOrImage)
+                  ? "open"
+                  : "closed"
+              }
+            >
+              <AccordionItem value={"open"} className="w-full border-b-0">
+                <AccordionContent>
+                  <FieldErrorsOwned>{children}</FieldErrorsOwned>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          )}
+          {!hasOverrides &&
+            errorDisplay === "default" &&
+            validationErrors.length > 0 && (
+              <div className={compact ? "pb-0" : "pb-2"}>
+                <FieldValidationError validationErrors={validationErrors} />
               </div>
             )}
-            {source !== null && !isBoolean && (
-              <button
-                onClick={() => setIsExpanded((prev) => !prev)}
-                className={classNames(
-                  "transform transition-transform flex items-center justify-center",
-                  {
-                    "size-6 m-[1px]": !compact,
-                    "size-5": compact,
-                    "rotate-180": isExpanded,
-                  },
-                )}
-              >
-                {foldLevel === "1" && <ChevronDown size={compact ? 14 : 16} />}
-                {foldLevel === "2" && <ChevronsDown size={compact ? 14 : 16} />}
-              </button>
-            )}
-          </div>
         </div>
-        {!isBoolean && (
-          <Accordion
-            type="single"
-            collapsible
-            value={
-              isExpanded && (source !== null || showEmptyFileOrImage)
-                ? "open"
-                : "closed"
-            }
-          >
-            <AccordionItem value={"open"} className="w-full border-b-0">
-              <AccordionContent>
-                <FieldErrorsOwned>{children}</FieldErrorsOwned>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
-        )}
-        {!hasOverrides &&
-          errorDisplay === "default" &&
-          validationErrors.length > 0 && (
-            <div className={compact ? "pb-0" : "pb-2"}>
-              <FieldValidationError validationErrors={validationErrors} />
-            </div>
-          )}
-      </div>
-    </RestoreChrome>
+      </RestoreChrome>
+    </ListedField>
   );
 }

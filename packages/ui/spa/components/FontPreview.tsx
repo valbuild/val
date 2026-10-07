@@ -99,11 +99,14 @@ const SIZES = [32, 20, 14];
 export function FontSpecimen({
   url,
   variant,
+  text = "Aa",
   tileFontSize = "2.5rem",
   className,
 }: {
   url: string;
   variant: "tile" | "inspector";
+  /** What a tile sets: "Aa" in a gallery, a lone "A" in a field's row. */
+  text?: string;
   /** How large the tile's "Aa" is set: it fills a gallery tile by default. */
   tileFontSize?: string;
   className?: string;
@@ -140,7 +143,7 @@ export function FontSpecimen({
         )}
         style={{ fontFamily, fontSize: tileFontSize, lineHeight: 1 }}
       >
-        Aa
+        {text}
       </span>
     );
   }

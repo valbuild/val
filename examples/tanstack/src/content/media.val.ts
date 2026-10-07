@@ -56,9 +56,12 @@ export default c.define(
       .file(downloadsVal)
       .nullable()
       .describe("Picked from the file collection"),
-    /** A typeface is a file too: `s.file(fontsetVal)` picks one. */
+    /**
+     * `s.font(fontsetVal)`: `s.file(fontsetVal)` for fonts. A row here — the
+     * font's "A" and its name — that opens on the set to pick from.
+     */
     headingFont: s
-      .file(fontsVal)
+      .font(fontsVal)
       .nullable()
       .describe("The typeface the showcase's font sample is set in"),
   }),

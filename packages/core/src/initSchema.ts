@@ -14,6 +14,7 @@ import { keyOf } from "./schema/keyOf";
 import { view } from "./schema/view";
 import { record } from "./schema/record";
 import { file, remoteFile } from "./schema/file";
+import { font, remoteFont } from "./schema/font";
 import { video, remoteVideo } from "./schema/video";
 import { fileset } from "./schema/fileset";
 import { fontset } from "./schema/fontset";
@@ -224,6 +225,19 @@ export type InitSchema = {
    *
    */
   readonly file: typeof file;
+  /**
+   * A font picked from an `s.fontset()`: `s.file(fontsVal)` for fonts, which
+   * refuses a module that is not a font set. The Studio shows it in its parent
+   * as the font's "A" and file name, and opens it on the set to pick from.
+   *
+   * @example
+   * ```typescript
+   * import fontsVal from "./fonts.val"; // an s.fontset() module
+   * const schema = s.object({ headingFont: s.font(fontsVal) });
+   * // source: { headingFont: { path: "/public/val/fonts/inter_a1b2c.woff2" } }
+   * ```
+   */
+  readonly font: typeof font;
   /**
    * Define a video.
    *
@@ -494,6 +508,7 @@ export function initSchema(options?: InitSchemaOptions): InitSchema {
       ? {
           image: remoteImage,
           file: remoteFile,
+          font: remoteFont,
           video: remoteVideo,
           richtext: remoteRichtext,
           imageset: ((options) =>
@@ -505,7 +520,17 @@ export function initSchema(options?: InitSchemaOptions): InitSchema {
           videoset: ((options) =>
             videoset(options).remote()) satisfies typeof videoset,
         }
-      : { image, file, video, richtext, imageset, fileset, fontset, videoset };
+      : {
+          image,
+          file,
+          font,
+          video,
+          richtext,
+          imageset,
+          fileset,
+          fontset,
+          videoset,
+        };
   // locales: F.Narrow<Locales>
   return {
     string,
@@ -524,6 +549,7 @@ export function initSchema(options?: InitSchemaOptions): InitSchema {
     view,
     record,
     file: media.file,
+    font: media.font,
     video: media.video,
     fileset: media.fileset,
     fontset: media.fontset,

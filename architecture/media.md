@@ -403,6 +403,15 @@ as one (`mediaType: "files"`), so every check, fix, rename, delete and the
 it adds is a default `accept` (`font/woff2,font/woff,font/ttf,font/otf`) and a
 refusal of an `accept` that names anything but fonts.
 
+**`s.font(fontsVal)` is the field.** It is `s.file(fontsVal)` — same source,
+same serialization — that refuses, at definition, a module that is not a font
+set. In the Studio a font field (either spelling, since the two cannot be told
+apart once serialized: the set's `accept` is what is read) is a ROW in its
+parent — the font's "A" and its file name — and opens on the whole set as a
+grid to pick from, with the specimen of the chosen one below. A row because
+the choice needs the set in front of you, and a parent's field list has no
+room for it. "In its parent" is `useIsListedField`, which `Field` provides.
+
 **What makes a font a font is its mime type, not the set.** The Studio draws a
 specimen of any file whose type is a font (`Internal.isFontMimeType`) — in a
 gallery tile, the open entry, the picker of `s.file(fontsVal)`, and the field

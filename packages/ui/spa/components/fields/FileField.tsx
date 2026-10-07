@@ -36,7 +36,9 @@ import { ModuleMediaPicker } from "../MediaPicker/MediaPicker";
 import { prettyModuleName } from "../MediaPicker/GalleryUploadTarget";
 import { MediaSummaryRow } from "./MediaSummaryRow";
 import { FontSpecimen } from "../FontPreview";
-import { inputAccept } from "../../utils/fileAccept";
+import { inputAccept, isFontAccept } from "../../utils/fileAccept";
+import { FontFieldRow, FontSetGrid } from "./FontField";
+import { useIsListedField } from "../ListedField";
 import { RenameFileButton } from "./RenameFileButton";
 import { cn } from "../designSystem/cn";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
@@ -141,6 +143,7 @@ export function FileField({
     addModuleFilePatch,
   } = useValField(path, type);
   const portalContainer = useValPortal();
+  const listed = useIsListedField();
   /**
    * The hidden file input, clicked by name.
    *
@@ -348,6 +351,22 @@ export function FileField({
   const isFont = Internal.isFontMimeType(
     fileDetail ?? (filename ? Internal.filenameToMimeType(filename) : null),
   );
+  /**
+   * Picked from a font set — `s.font(fontsVal)`, or `s.file()` pointed at
+   * one. Such a field is a row in its parent and opens on the set: see
+   * `FontField.tsx`.
+   */
+  const isFontField =
+    !!referencedModule &&
+    referencedModuleSchema?.type === "record" &&
+    isFontAccept(referencedModuleSchema.accept);
+  if (isFontField && listed) {
+    return (
+      <div id={path}>
+        <FontFieldRow path={path} url={url} filename={filename} />
+      </div>
+    );
+  }
   return (
     <div id={path}>
       {missingModules.length > 0 && (
@@ -428,7 +447,18 @@ export function FileField({
                   <SquareArrowOutUpRight size={12} />
                 </a>
               )}
-              {referencedModule && (
+              {isFontField && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={disabled}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="mr-1.5 h-3.5 w-3.5" />
+                  Upload font
+                </Button>
+              )}
+              {referencedModule && !isFontField && (
                 <ModuleMediaPicker
                   compact
                   footer={
@@ -495,6 +525,21 @@ export function FileField({
             </>
           }
         />
+        {/* A font field opens on its set: the choice is made by looking. */}
+        {isFontField && (
+          <FontSetGrid
+            modulePath={referencedModule as ModuleFilePath}
+            selectedRef={source?.path ?? null}
+            disabled={disabled}
+            onSelect={(ref) => {
+              // Only the path, as from the picker: the set has the rest.
+              addPatch(
+                [{ op: "replace", path: patchPath, value: { path: ref } }],
+                "file",
+              );
+            }}
+          />
+        )}
         {/* A video or a font is worth showing at size; anything else is a name. */}
         {isFont && url && !loading && (
           <FontSpecimen key={url} url={url} variant="inspector" />

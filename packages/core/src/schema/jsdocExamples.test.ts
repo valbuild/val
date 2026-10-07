@@ -118,6 +118,11 @@ const videosVal = c.define(
   s.videoset({ dir: "/public/val/videos" }),
   {},
 );
+const fontsVal = c.define(
+  "/fonts.val.ts",
+  s.fontset({ dir: "/public/val/fonts" }),
+  {},
+);
 
 export const constructor = s;
 export const content = c;
@@ -153,6 +158,7 @@ export const probes = {
   imageset: s.imageset({ dir: "/public/val/images" }),
   fileset: s.fileset({ accept: "*/*", dir: "/public/val/files" }),
   fontset: s.fontset({ dir: "/public/val/fonts" }),
+  font: s.font(fontsVal),
   videoset: s.videoset({ dir: "/public/val/videos" }),
   settings: s.settings(),
 };
@@ -432,6 +438,18 @@ export default c.define(
       duration: 12.5,
       alt: null,
     },
+  },
+);
+`,
+  ],
+  [
+    "fonts.val.ts",
+    `import { s, c } from "./val.config";
+export default c.define(
+  "/fonts.val.ts",
+  s.fontset({ dir: "/public/val/fonts" }),
+  {
+    "/public/val/fonts/inter_a1b2c.woff2": { mimeType: "font/woff2" },
   },
 );
 `,
