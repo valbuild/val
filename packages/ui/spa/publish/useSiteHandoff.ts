@@ -143,6 +143,11 @@ export function useSiteHandoff(
   /** The request the job being run was pressed for. See `runJob`. */
   const pressedFor = useRef<string | null>(null);
   /**
+   * The request the tab presses for this hand-off, named in the tap. Unlike
+   * `pressedFor`, never the request of a job this page handed over.
+   */
+  const ownRequest = useRef<string | null>(null);
+  /**
    * When the tab last said anything, and whether it ever has. A tab that goes
    * quiet is gone -- closed, or suspended by a phone -- and a page that
    * waited for it for ever held the job, and the Publish button, with it: the
@@ -208,6 +213,7 @@ export function useSiteHandoff(
        */
       const requestId = randomUUID();
       pressedFor.current = requestId;
+      ownRequest.current = requestId;
       const after = prepareOptions?.after ?? null;
       const intent: HandoffIntent =
         prepareOptions?.tryAgainOf !== undefined
@@ -428,13 +434,33 @@ export function useSiteHandoff(
   const settled = useCallback<UseSiteHandoff["settled"]>(
     (requestId, status) => {
       const followed = following.current;
-      if (followed === null) return;
+      if (followed === null) {
+        /*
+         * The tab's own press, settled with no job ever leased to it -- a
+         * queued request another tab's publish took along, say. The tab said
+         * it was building, so the card is still waiting, and no `job-result`
+         * is coming to end it: this settlement is the end. Not while a job
+         * this page handed over is running there; its result ends it.
+         */
+        const handoff = current.current;
+        if (
+          handoff !== null &&
+          waiting.current === null &&
+          ownRequest.current === requestId
+        ) {
+          stopWatching();
+          handoff.close();
+          current.current = null;
+          showSettled(status);
+        }
+        return;
+      }
       if (followed.requestId !== null && followed.requestId !== requestId)
         return;
       following.current = null;
       showSettled(status);
     },
-    [showSettled],
+    [showSettled, stopWatching],
   );
 
   const cancel = useCallback(

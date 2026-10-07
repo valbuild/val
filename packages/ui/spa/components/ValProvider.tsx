@@ -3091,13 +3091,15 @@ export function usePublishSummary() {
      * is sent now, while the page still runs.
      */
     preparePublish: (): boolean => {
-      const handedOff = handoff.prepare(buildsInTab, {
-        after: val ? newestUnpublished(val.system.patchStore) : null,
-      });
-      if (handedOff) {
-        void val?.system.patchSync.flush().catch(() => undefined);
-      }
-      return handedOff;
+      const after = val ? newestUnpublished(val.system.patchStore) : null;
+      /*
+       * Before the tab opens, not after: on an iPhone this page is paused the
+       * moment it does, and a save not yet sent then never is. Started here,
+       * its request is on the wire first. A publish that stays on this page
+       * flushes as well, so nothing is sent that would not have been.
+       */
+      void val?.system.patchSync.flush().catch(() => undefined);
+      return handoff.prepare(buildsInTab, { after });
     },
     /**
      * Whether the project wants AI to write its commit messages.

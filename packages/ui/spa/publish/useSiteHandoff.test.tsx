@@ -446,6 +446,53 @@ describe("the tab presses for the page", () => {
       tab.close();
     }
   });
+
+  test("a press the tab was to build that settles with no job ends the card", async () => {
+    // Queued, and taken along by another tab's publish before any job came
+    // here: no `job-result` will ever say so, only this page's tracker.
+    const urls = openedUrls();
+    const pressed: HandoffPressed[] = [];
+    const { result } = renderHook(() =>
+      useSiteHandoff({
+        enabled: true,
+        onPressed: (message) => pressed.push(message),
+      }),
+    );
+    act(() => {
+      result.current.prepare(true);
+    });
+    const intent = intentOf(urls[0] ?? "");
+    const requestId = intent?.kind === "press" ? intent.requestId : "";
+    const id =
+      new URL(urls[0] ?? "", "http://site").searchParams.get(
+        "publish-handoff",
+      ) ?? "";
+    const tab = joinHandoff(id, () => undefined, { retryMs: 10 });
+    try {
+      tab.report({
+        type: "pressed",
+        requestId,
+        request: { kind: "queued" },
+        patchIds: [],
+        replaces: null,
+        building: true,
+      });
+      await waitFor(() => expect(pressed).toHaveLength(1));
+      expect(result.current.active()).toBe(true);
+      // Another request settling is not this one.
+      act(() =>
+        result.current.settled("someone-else", { kind: "live", commit: "c0" }),
+      );
+      expect(result.current.active()).toBe(true);
+      act(() =>
+        result.current.settled(requestId, { kind: "live", commit: "c1" }),
+      );
+      expect(result.current.active()).toBe(false);
+      expect(result.current.state).toMatchObject({ kind: "live" });
+    } finally {
+      tab.close();
+    }
+  });
 });
 
 test("the builder opens as a popup window, and a re-open reuses it", () => {
