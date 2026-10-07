@@ -1405,9 +1405,11 @@ function ValMenu({
   const validationErrors = useAllValidationErrors() || {};
   const validationErrorCount = Object.keys(validationErrors).length;
   const valMode = useValMode();
-  // Shown unless the project has turned it off: an assistant nobody has decided
-  // about is offered here, and the panel asks before it is used.
-  const isChatEnabled = useAssistantAvailability() !== "off";
+  // Shown unless the project has turned it off, or has no project to run it
+  // in: an assistant nobody has decided about is offered here, and the panel
+  // asks before it is used. The same flag as the Studio's (see `wsEnabled` in
+  // `ValProvider`), so the two cannot disagree about whether there is one.
+  const { isAIChatEnabled: isChatEnabled } = useAIChatActions();
   const sourcePathResult = useValRouterSourcePathFromCurrentPathname();
   const handoff = useSiteHandoffState();
   const publishPopoverSide =
