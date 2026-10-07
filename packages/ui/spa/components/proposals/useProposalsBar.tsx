@@ -40,6 +40,7 @@ import { deployPreparedJob } from "../../publish/useStudioDeploy";
 import { PUBLISH_TAB_ID } from "../../publish/tabId";
 import { randomUUID } from "../../utils/randomUUID";
 import { AllProposalsDialog } from "./ProposalsList";
+import { MergedProposalNotice } from "./MergedProposalNotice";
 import type { ProposalPerson, ProposalSummary, StudioLocation } from "./types";
 
 /** Why Publish is not offered, by the proposal's status; null when it is. */
@@ -85,6 +86,8 @@ export function useProposalsBar({
   /** `undefined` where this project has no proposals. */
   proposals: TopBarProposals | undefined;
   dialogs: ReactNode;
+  /** Above the editor, or null: a merged proposal says it is finished. */
+  notice: ReactNode | null;
 } {
   const mode = useValMode();
   const here = useCurrentProposal();
@@ -391,7 +394,7 @@ export function useProposalsBar({
   };
 
   if (state.status === "off" || (ready === null && here === null)) {
-    return { proposals: undefined, dialogs: null };
+    return { proposals: undefined, dialogs: null, notice: null };
   }
 
   const proposals: TopBarProposals = {
@@ -506,5 +509,28 @@ export function useProposalsBar({
       />
     </>
   );
-  return { proposals, dialogs };
+  /*
+   * A merged proposal is finished: said above the editor, with where to carry
+   * on, before anyone types something that will not be kept.
+   */
+  const continuedIn =
+    currentJson?.continuedIn != null
+      ? (all.find((p) => p.name === currentJson.continuedIn) ?? null)
+      : null;
+  const notice =
+    currentJson?.status === "merged" ? (
+      <MergedProposalNotice
+        displayName={currentJson.displayName}
+        continuedIn={
+          continuedIn !== null ? { displayName: continuedIn.displayName } : null
+        }
+        onOpenContinuation={() => {
+          if (continuedIn !== null) void openProposal(continuedIn.name);
+        }}
+        onNewProposal={() => openDialog("new")}
+        {...(siteUrl !== null ? { onGoToSite: () => go(siteUrl) } : {})}
+      />
+    ) : null;
+
+  return { proposals, dialogs, notice };
 }

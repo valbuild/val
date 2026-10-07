@@ -1069,13 +1069,25 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const siteChanges = useSiteChanges(inProposal);
   const [siteCompareOpen, setSiteCompareOpen] = useState(false);
   const openSiteCompare = useCallback(() => setSiteCompareOpen(true), []);
-  const { proposals: proposalsBar, dialogs: proposalDialogs } = useProposalsBar(
-    {
-      unsaved: hasNetChanges ? ownPendingChanges : 0,
-      portalContainer,
-      onCompare: openSiteCompare,
-    },
-  );
+  const {
+    proposals: proposalsBar,
+    dialogs: proposalDialogs,
+    notice: proposalNotice,
+  } = useProposalsBar({
+    unsaved: hasNetChanges ? ownPendingChanges : 0,
+    portalContainer,
+    onCompare: openSiteCompare,
+  });
+  // A merged proposal's notice first: it says this whole Studio is finished.
+  const shellNotice =
+    proposalNotice === null ? (
+      editorNotice
+    ) : (
+      <div className="flex flex-col gap-3">
+        {proposalNotice}
+        {editorNotice}
+      </div>
+    );
   const proposals = useMemo(
     () =>
       proposalsBar && inProposal
@@ -1228,7 +1240,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         renderExternalPages={renderExternalPages}
         tourEnabled={isTourOffered(studioSettings)}
         editorOverride={overrideEditor}
-        notice={editorNotice}
+        notice={shellNotice}
         statusNotice={remoteFilesStatusNotice}
         publishSlot={<PublishButton />}
         publishState={publishState}
