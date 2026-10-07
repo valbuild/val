@@ -16,9 +16,10 @@ export function readFileFromFile(file: File): Promise<{
       if (typeof result === "string") {
         const binaryData = base64DataUrlToUint8Array(result);
         const fileHash = Internal.getSHA256Hash(binaryData);
-        const mimeType = Internal.getMimeType(result);
+        const src = withFontMimeType(result, binaryData);
+        const mimeType = Internal.getMimeType(src);
         resolve({
-          src: result,
+          src,
           filename: file.name,
           fileHash,
           mimeType,
@@ -49,4 +50,27 @@ export function readFile(ev: ChangeEvent<HTMLInputElement>) {
     }
     readFileFromFile(uploadedFile).then(resolve).catch(reject);
   });
+}
+
+/**
+ * `dataUrl`, typed by its bytes when they are a font.
+ *
+ * The type a data URL carries is the one the picker reported, and for fonts
+ * that is unreliable: empty (which reads as `application/octet-stream`) on some
+ * platforms, a pre-RFC 8081 `application/x-font-ttf` on others. It decides the
+ * stored `mimeType` AND the filename's extension (`createFilename`), so a font
+ * typed by the picker could be stored as `inter_a1b2c.octet-stream`. The bytes
+ * are not touched, so the hash is the same either way.
+ */
+export function withFontMimeType(dataUrl: string, bytes: Uint8Array): string {
+  const sniffed = Internal.sniffFontMimeType(bytes);
+  const current = Internal.getMimeType(dataUrl);
+  if (!sniffed || sniffed === current) {
+    return dataUrl;
+  }
+  const comma = dataUrl.indexOf(";base64,");
+  if (comma === -1) {
+    return dataUrl;
+  }
+  return `data:${sniffed}${dataUrl.slice(comma)}`;
 }

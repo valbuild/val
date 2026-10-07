@@ -152,6 +152,7 @@ export const probes = {
   router: s.router(nextAppRouter, s.object({ title: s.string() })),
   imageset: s.imageset({ dir: "/public/val/images" }),
   fileset: s.fileset({ accept: "*/*", dir: "/public/val/files" }),
+  fontset: s.fontset({ dir: "/public/val/fonts" }),
   videoset: s.videoset({ dir: "/public/val/videos" }),
   settings: s.settings(),
 };

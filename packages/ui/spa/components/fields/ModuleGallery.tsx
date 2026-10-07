@@ -44,6 +44,7 @@ import type { ReadImageEncode } from "../../utils/readImage";
 import { resolveEncodeSettings } from "../../utils/encodeImage";
 import { readFile, readFileFromFile } from "../../utils/readFile";
 import { getFileExt } from "../../utils/getFileExt";
+import { fileMatchesAccept, inputAccept } from "../../utils/fileAccept";
 import { refToUrl } from "../MediaPicker/refToUrl";
 import { useUploadRequest } from "../UploadRequest";
 import { useRenameStreamEntry } from "../useRenameStreamEntry";
@@ -823,17 +824,9 @@ export function ModuleGallery({
         );
         return;
       }
-      const droppedFiles = Array.from(e.dataTransfer.files).filter((file) => {
-        if (!accept) return true;
-        return accept
-          .split(",")
-          .map((s) => s.trim())
-          .some((pattern) => {
-            if (pattern.endsWith("/*"))
-              return file.type.startsWith(pattern.slice(0, -1));
-            return file.type === pattern;
-          });
-      });
+      const droppedFiles = Array.from(e.dataTransfer.files).filter((file) =>
+        fileMatchesAccept(file, accept),
+      );
       if (droppedFiles.length === 0) return;
       setUploadError(null);
       setUploadNotice(null);
@@ -1038,7 +1031,7 @@ export function ModuleGallery({
         ref={inputRef}
         type="file"
         hidden
-        accept={accept}
+        accept={inputAccept(accept)}
         onChange={handleUpload}
       />
       <MediaGallery

@@ -16,6 +16,7 @@ import { record } from "./schema/record";
 import { file, remoteFile } from "./schema/file";
 import { video, remoteVideo } from "./schema/video";
 import { fileset } from "./schema/fileset";
+import { fontset } from "./schema/fontset";
 import { date } from "./schema/date";
 import { datetime } from "./schema/datetime";
 import { code } from "./schema/code";
@@ -404,6 +405,22 @@ export type InitSchema = {
    */
   readonly fileset: typeof fileset;
   /**
+   * Define a collection of fonts: an `s.fileset()` that accepts the web font
+   * formats, and whose files the Studio previews as type. A field picks from
+   * it with `s.file(fontsVal)`.
+   *
+   * @example
+   * ```typescript
+   * const schema = s.fontset({ dir: "/public/val/fonts" });
+   * export default c.define("/content/fonts.val.ts", schema, {
+   *   "/public/val/fonts/inter_a1b2c.woff2": {
+   *     mimeType: "font/woff2",
+   *   },
+   * });
+   * ```
+   */
+  readonly fontset: typeof fontset;
+  /**
    * Define a collection of videos. A field picks from it with
    * `s.video(videosVal)`.
    *
@@ -458,8 +475,8 @@ export type InitSchemaOptions = {
   /**
    * Every media schema is remote: `files.remote` in `val.config.ts`.
    *
-   * `s.image()`, `s.file()`, `s.video()`, `s.imageset()`, `s.fileset()` and
-   * `s.videoset()` come back with `.remote()` already applied, and so does the
+   * `s.image()`, `s.file()`, `s.video()`, `s.imageset()`, `s.fileset()`,
+   * `s.fontset()` and `s.videoset()` come back with `.remote()` already applied, and so does the
    * image `s.richtext({ img: true })` builds for itself. Nothing downstream
    * needs to know: the Studio, the MCP tools, validation and publishing all
    * read `remote` off the schema, exactly as they do for a `.remote()` written
@@ -483,10 +500,12 @@ export function initSchema(options?: InitSchemaOptions): InitSchema {
             imageset(options).remote()) satisfies typeof imageset,
           fileset: ((options) =>
             fileset(options).remote()) satisfies typeof fileset,
+          fontset: ((options) =>
+            fontset(options).remote()) satisfies typeof fontset,
           videoset: ((options) =>
             videoset(options).remote()) satisfies typeof videoset,
         }
-      : { image, file, video, richtext, imageset, fileset, videoset };
+      : { image, file, video, richtext, imageset, fileset, fontset, videoset };
   // locales: F.Narrow<Locales>
   return {
     string,
@@ -507,6 +526,7 @@ export function initSchema(options?: InitSchemaOptions): InitSchema {
     file: media.file,
     video: media.video,
     fileset: media.fileset,
+    fontset: media.fontset,
     date,
     datetime,
     color,

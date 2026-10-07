@@ -14,6 +14,7 @@ import {
   Image as ImageIcon,
   Loader2,
   Plus,
+  Type,
 } from "lucide-react";
 import { FloatingPanel, PanelEmptyState } from "./FloatingPanel";
 import {
@@ -27,7 +28,7 @@ import { ShellBreakpoint, ShellMediaFile, ShellMediaGallery } from "./types";
 import { servedPath } from "../../utils/mediaPath";
 import { MediaThumbnail } from "../MediaThumbnail";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
-import type { MediaCollectionType } from "@valbuild/core";
+import { Internal, type MediaCollectionType } from "@valbuild/core";
 
 const MEDIA_COLLECTION_LABEL: Record<MediaCollectionType, string> = {
   images: "Images",
@@ -419,6 +420,12 @@ function FileRow({
             <ImageIcon size={12} className="text-fg-secondary-alt" />
           ) : gallery.mediaType === "videos" ? (
             <Film size={12} className="text-fg-secondary-alt" />
+          ) : Internal.isFontMimeType(
+              Internal.filenameToMimeType(servedPath(file.ref).toLowerCase()),
+            ) ? (
+            // A row is too small to set a specimen in, and a list of fonts
+            // should not download every one of them to draw a 24px "Aa".
+            <Type size={12} className="text-fg-secondary-alt" />
           ) : (
             <FileText size={12} className="text-fg-secondary-alt" />
           )}
@@ -532,6 +539,8 @@ function UploadMenu({
                 <ImageIcon size={13} className="mt-0.5 shrink-0" />
               ) : gallery.mediaType === "videos" ? (
                 <Film size={13} className="mt-0.5 shrink-0" />
+              ) : gallery.fonts ? (
+                <Type size={13} className="mt-0.5 shrink-0" />
               ) : (
                 <FileText size={13} className="mt-0.5 shrink-0" />
               )}
@@ -540,7 +549,9 @@ function UploadMenu({
                   {servedPath(gallery.dir)}
                 </span>
                 <span className="block text-[0.6875rem] text-fg-secondary-alt">
-                  {MEDIA_COLLECTION_LABEL[gallery.mediaType]}
+                  {gallery.fonts
+                    ? "Fonts"
+                    : MEDIA_COLLECTION_LABEL[gallery.mediaType]}
                 </span>
               </span>
             </button>

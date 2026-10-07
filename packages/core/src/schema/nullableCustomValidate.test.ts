@@ -92,6 +92,10 @@ const nullableAfterValidate: Record<
     .fileset({ accept: "application/pdf", dir: "/public/val/files" })
     .validate(() => MESSAGE)
     .nullable(),
+  fontset: s
+    .fontset({ dir: "/public/val/fonts" })
+    .validate(() => MESSAGE)
+    .nullable(),
   date: s
     .date()
     .validate(() => MESSAGE)

@@ -38,6 +38,8 @@ export default c.define(
           "s.imageset(): a collection that owns the metadata, so a field pointing at it stores only a path.",
         downloads:
           "s.fileset(): the same collection for files that are not images.",
+        fonts:
+          "s.fontset(): a fileset of typefaces, which the Studio previews set in themselves. The sample below is in the font media.val.ts picks.",
         media:
           "Single s.image() and s.file() fields, both plain and gallery-backed.",
         video:

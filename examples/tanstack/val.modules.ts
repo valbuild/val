@@ -16,6 +16,7 @@ export default modules(config, [
   // Media: the two collections first, then the fields that point into them.
   { def: () => import("./src/content/gallery.val") },
   { def: () => import("./src/content/downloads.val") },
+  { def: () => import("./src/content/fonts.val") },
   { def: () => import("./src/content/media.val") },
   // `s.video()`: an mp4 and an HLS stream — and, like the images above, a
   // collection first and then the fields that pick from it.

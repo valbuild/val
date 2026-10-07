@@ -35,6 +35,8 @@ import { useValPortal } from "../ValPortalProvider";
 import { ModuleMediaPicker } from "../MediaPicker/MediaPicker";
 import { prettyModuleName } from "../MediaPicker/GalleryUploadTarget";
 import { MediaSummaryRow } from "./MediaSummaryRow";
+import { FontSpecimen } from "../FontPreview";
+import { inputAccept } from "../../utils/fileAccept";
 import { RenameFileButton } from "./RenameFileButton";
 import { cn } from "../designSystem/cn";
 import type { GalleryEntry } from "../MediaPicker/MediaPicker";
@@ -338,6 +340,14 @@ export function FileField({
    */
   const fileDetail =
     typeof source?.mimeType === "string" ? source.mimeType : null;
+  /**
+   * A font is shown set in itself. A field picked from a set carries no
+   * `mimeType` of its own (the set's entry has it), so the extension answers
+   * for it — every font extension maps to its `font/` type.
+   */
+  const isFont = Internal.isFontMimeType(
+    fileDetail ?? (filename ? Internal.filenameToMimeType(filename) : null),
+  );
   return (
     <div id={path}>
       {missingModules.length > 0 && (
@@ -364,6 +374,9 @@ export function FileField({
           name={filename}
           detail={fileDetail}
           isImage={false}
+          thumbnail={
+            isFont && url ? <FontSpecimen url={url} variant="tile" /> : null
+          }
           uploading={loading}
           progressPercentage={progressPercentage}
           actions={
@@ -482,7 +495,10 @@ export function FileField({
             </>
           }
         />
-        {/* A video is worth showing at size; anything else is a name. */}
+        {/* A video or a font is worth showing at size; anything else is a name. */}
+        {isFont && url && !loading && (
+          <FontSpecimen key={url} url={url} variant="inspector" />
+        )}
         {source && showAsVideo && (
           <video
             className="w-full h-auto rounded-lg"
@@ -497,7 +513,7 @@ export function FileField({
             ref={fileInputRef}
             id={`file_input:${path}`}
             type="file"
-            accept={acceptOptions}
+            accept={inputAccept(acceptOptions)}
             onChange={(ev) => {
               readFile(ev).then((res) => {
                 const type = "file";
