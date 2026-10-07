@@ -29,7 +29,11 @@ import {
   PublishProposalDialog,
   type PublishProposalState,
 } from "./PublishProposalDialog";
-import { runProposalMerge } from "../../proposals/mergeProposal";
+import {
+  followCarryOver,
+  runProposalMerge,
+  type CarryOver,
+} from "../../proposals/mergeProposal";
 import { createStudioJobClient } from "../../publish/jobClient";
 import { callJson } from "../../publish/publishClient";
 import { deployPreparedJob } from "../../publish/useStudioDeploy";
@@ -219,6 +223,8 @@ export function useProposalsBar({
   const [publishState, setPublishState] = useState<PublishProposalState>({
     kind: "checking",
   });
+  /** The proposal this one's later changes went to, once it is known. */
+  const [continuation, setContinuation] = useState<string | null>(null);
   const loadChecks = useCallback(async () => {
     if (here === null) return;
     setPublishState({ kind: "checking" });
@@ -259,11 +265,30 @@ export function useProposalsBar({
         requestId: randomUUID(),
         onStep: (step) => setPublishState({ kind: "publishing", step }),
       });
-      setPublishState(
-        outcome.kind === "merged"
-          ? { kind: "merged" }
-          : { kind: "failed", message: outcome.message },
-      );
+      if (outcome.kind === "failed") {
+        setPublishState({ kind: "failed", message: outcome.message });
+        return;
+      }
+      setPublishState({ kind: "merged" });
+      /*
+       * What was written here while it merged goes to a new proposal, by a
+       * job content runs once the merge lands: said, and offered, when it has.
+       */
+      // Not knowing where they went takes nothing away from the merge.
+      const carried = await followCarryOver({
+        get: (name) => client.get(name),
+        name: here.name,
+      }).catch((): CarryOver => ({ kind: "unknown" }));
+      if (carried.kind === "continued") {
+        setContinuation(carried.proposal.name);
+        setPublishState({
+          kind: "merged",
+          continuedIn: {
+            displayName: carried.proposal.displayName,
+            changes: carried.proposal.changes ?? 0,
+          },
+        });
+      }
     } catch (error) {
       setPublishState({
         kind: "failed",
@@ -422,6 +447,9 @@ export function useProposalsBar({
           }
           {...(onCompare !== undefined ? { onCompare } : {})}
           {...(siteUrl !== null ? { onGoToSite: () => go(siteUrl) } : {})}
+          {...(continuation !== null
+            ? { onOpenContinuation: () => void openProposal(continuation) }
+            : {})}
           portalContainer={portalContainer}
         />
       )}

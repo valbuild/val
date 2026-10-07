@@ -46,7 +46,15 @@ export type PublishProposalState =
       kind: "publishing";
       step: "saving" | "building" | "publishing";
     }
-  | { kind: "merged" }
+  | {
+      kind: "merged";
+      /**
+       * Where what was written during the merge went: a new proposal, made
+       * when the merge landed. Absent when nothing was, or while that is not
+       * known yet.
+       */
+      continuedIn?: { displayName: string; changes: number };
+    }
   | { kind: "failed"; message: string }
   | { kind: "error"; message: string };
 
@@ -58,6 +66,13 @@ const STEP_WORDS: Record<
   building: "Building the site with it…",
   publishing: "Publishing…",
 };
+
+/** "1 change made during the merge is", "3 changes made during the merge are". */
+function changesMadeDuring(changes: number): string {
+  return changes === 1
+    ? "1 change made during the merge is"
+    : `${changes} changes made during the merge are`;
+}
 
 /** A message from elsewhere, as a sentence: they do not all end in one. */
 function asSentence(message: string): string {
@@ -79,6 +94,7 @@ export function PublishProposalDialog({
   onRetry,
   onCompare,
   onGoToSite,
+  onOpenContinuation,
   portalContainer,
 }: {
   open: boolean;
@@ -92,6 +108,8 @@ export function PublishProposalDialog({
   onCompare?: () => void;
   /** After the merge. Absent when the site's address is not known. */
   onGoToSite?: () => void;
+  /** After the merge, when changes made during it went to a new proposal. */
+  onOpenContinuation?: () => void;
   portalContainer?: HTMLElement | null;
 }) {
   const busy = state.kind === "publishing";
@@ -197,9 +215,17 @@ export function PublishProposalDialog({
           )}
 
           {state.kind === "merged" && (
-            <div className="flex items-center gap-2 text-xs text-fg-primary">
-              <Check size={14} className="text-fg-proposal" /> Merged into the
-              site.
+            <div className="flex flex-col gap-1.5 text-xs">
+              <div className="flex items-center gap-2 text-fg-primary">
+                <Check size={14} className="text-fg-proposal" /> Merged into the
+                site.
+              </div>
+              {state.continuedIn !== undefined && (
+                <div className="pl-[22px] text-fg-secondary">
+                  {changesMadeDuring(state.continuedIn.changes)} in a new
+                  proposal, “{state.continuedIn.displayName}”.
+                </div>
+              )}
             </div>
           )}
 
@@ -228,14 +254,37 @@ export function PublishProposalDialog({
               >
                 Close
               </button>
-              {onGoToSite !== undefined && (
-                <button
-                  type="button"
-                  onClick={onGoToSite}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-bg-proposal px-3 text-xs font-medium text-fg-on-proposal hover:bg-bg-proposal-hover"
-                >
-                  Go to the site <ArrowRight size={14} />
-                </button>
+              {state.continuedIn !== undefined &&
+              onOpenContinuation !== undefined ? (
+                <>
+                  {onGoToSite !== undefined && (
+                    <button
+                      type="button"
+                      onClick={onGoToSite}
+                      className="h-8 rounded-md border border-border-float px-3 text-xs font-medium text-fg-primary hover:bg-bg-float-raised"
+                    >
+                      Go to the site
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={onOpenContinuation}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-bg-proposal px-3 text-xs font-medium text-fg-on-proposal hover:bg-bg-proposal-hover"
+                  >
+                    Open “{state.continuedIn.displayName}”{" "}
+                    <ArrowRight size={14} />
+                  </button>
+                </>
+              ) : (
+                onGoToSite !== undefined && (
+                  <button
+                    type="button"
+                    onClick={onGoToSite}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-bg-proposal px-3 text-xs font-medium text-fg-on-proposal hover:bg-bg-proposal-hover"
+                  >
+                    Go to the site <ArrowRight size={14} />
+                  </button>
+                )
               )}
             </>
           ) : (

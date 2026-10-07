@@ -102,6 +102,20 @@ export const Publishing = at({ kind: "publishing", step: "publishing" });
 /** Live on the site, and the proposal is finished. */
 export const Merged = at({ kind: "merged" });
 
+/**
+ * Live on the site, and three changes made while it merged went to a new
+ * proposal: opening it is the next step, so it is the primary button.
+ */
+export const MergedWithChangesMoved: Story = {
+  args: {
+    state: {
+      kind: "merged",
+      continuedIn: { displayName: "Spring campaign (2)", changes: 3 },
+    },
+    onOpenContinuation: () => {},
+  },
+};
+
 /** The merge went wrong after it was pressed: Try again. */
 export const Failed = at({
   kind: "failed",

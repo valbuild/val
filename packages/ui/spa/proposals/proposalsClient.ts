@@ -39,6 +39,10 @@ const ProposalJson = z.object({
   closedBy: z.string().nullable().optional(),
   address: z.string().nullable().optional(),
   changes: z.number().optional(),
+  /** Merged, and what was written during the merge has gone where it goes. */
+  carriedOver: z.boolean().optional(),
+  /** The proposal what was written during its merge continues in. */
+  continuedIn: z.string().nullable().optional(),
   setup: Job.nullable().optional(),
   overlay: Job.nullable().optional(),
   renderCheck: Job.nullable().optional(),
