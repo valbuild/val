@@ -260,14 +260,54 @@ describe("the proposals API, for the Studio", () => {
 
   test("a proposal's address publishes nothing to the site, and builds nothing for it", async () => {
     const o = ops(proposal("save-2"));
-    const answer = await o.publishApi("/publish-requests", {
-      method: "POST",
-      body: "{}",
-    });
-    expect(answer.status).toBe(403);
+    for (const path of [
+      "/publish-requests",
+      "/publish-jobs/next",
+      "/publish-jobs/J1/prepare",
+      "/publish-jobs/J1/discard",
+      "/publish/abc/promote",
+    ]) {
+      const answer = await o.publishApi(path, { method: "POST", body: "{}" });
+      expect([path, answer.status]).toEqual([path, 403]);
+    }
     expect(sent).toEqual([]);
     // `managed` would make the Studio build and publish after a Save.
     expect(o.sourceMode()).toBeNull();
+  });
+
+  test("a proposal's address builds its own merge: the merge's prepare and steps, the build's target and source", async () => {
+    const o = ops(proposal("save-2"));
+    const refusal = "nothing is published from here";
+    for (const [method, path] of [
+      ["POST", "/publish-jobs/J7/merge-prepare"],
+      ["POST", "/publish-jobs/J7/steps"],
+      ["POST", "/publish-jobs/J7/renew"],
+      ["GET", "/publish-requests/m1"],
+      ["GET", "/build-target"],
+      ["GET", "/project-source"],
+      ["POST", "/publish"],
+      ["POST", "/publish/p1/artifacts"],
+    ] as const) {
+      const answer = await o.publishApi(path, { method, body: "{}" });
+      expect([path, answer.body.includes(refusal)]).toEqual([path, false]);
+    }
+    for (const [method, path] of [
+      ["POST", "/publish-requests/try-again"],
+      ["POST", "/publish-requests/m1"],
+    ] as const) {
+      const answer = await o.publishApi(path, { method, body: "{}" });
+      expect([path, answer.status]).toEqual([path, 403]);
+    }
+  });
+
+  test("Publish in a proposal is pressed, and its checks read, through the proposals API", async () => {
+    const o = ops(undefined);
+    await o.proposalsApi(`/${NAME}/merge-checks`, { method: "GET" }, "p");
+    await o.proposalsApi(`/${NAME}/merge`, { method: "POST", body: "{}" }, "p");
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `GET /v1/org/project/proposals/${NAME}/merge-checks`,
+      `POST /v1/org/project/proposals/${NAME}/merge`,
+    ]);
   });
 
   test("reaches nothing else: not a save, not a move, not another route", async () => {

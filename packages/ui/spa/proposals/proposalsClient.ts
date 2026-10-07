@@ -50,6 +50,26 @@ const ListAnswer = z.object({
   siteUrl: z.string().nullable().optional(),
 });
 const OneAnswer = z.object({ proposal: ProposalJson });
+const MergeCheck = z.object({
+  id: z.string(),
+  ok: z.boolean(),
+  message: z.string(),
+});
+export type MergeCheckJson = z.infer<typeof MergeCheck>;
+const MergeChecksAnswer = z.object({
+  checks: z.array(MergeCheck),
+  canMerge: z.boolean(),
+});
+const MergeAnswer = z.object({
+  job: z
+    .object({
+      id: z.string(),
+      step: z.enum(["prepare", "build", "upload"]).nullable(),
+      base: z.string().nullable(),
+      patches: z.array(z.string()),
+    })
+    .nullable(),
+});
 
 /** An answer that was not a success: content's status and its words. */
 export class ProposalsApiError extends Error {
@@ -86,6 +106,15 @@ export type ProposalsClient = {
   close(name: string): Promise<ProposalJson>;
   reopen(name: string): Promise<ProposalJson>;
   retrySetup(name: string): Promise<ProposalJson>;
+  /** Whether it may be merged into the site now, and if not, who to ask. */
+  mergeChecks(
+    name: string,
+  ): Promise<{ checks: MergeCheckJson[]; canMerge: boolean }>;
+  /** Publish: press the merge. The job is this tab's to build, when it can. */
+  merge(
+    name: string,
+    input: { requestId: string; tab: string },
+  ): Promise<z.infer<typeof MergeAnswer>>;
 };
 
 export function createProposalsClient(options: {
@@ -140,6 +169,10 @@ export function createProposalsClient(options: {
     close: (name) => one(`${at(name)}/close`, "POST", {}),
     reopen: (name) => one(`${at(name)}/reopen`, "POST", {}),
     retrySetup: (name) => one(`${at(name)}/setup/retry`, "POST", {}),
+    mergeChecks: async (name) =>
+      MergeChecksAnswer.parse(await call(`${at(name)}/merge-checks`, "GET")),
+    merge: async (name, input) =>
+      MergeAnswer.parse(await call(`${at(name)}/merge`, "POST", input)),
   };
 }
 

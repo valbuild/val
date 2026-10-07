@@ -865,6 +865,10 @@ export class ValOpsHttp extends ValOps {
    * segment gets through.
    */
   private static publishApiPathAllowed(path: string): boolean {
+    // A merge's prepare is content's own, from the proposal's last save.
+    if (/^\/publish-jobs\/[A-Za-z0-9_-]{1,100}\/merge-prepare$/.test(path)) {
+      return true;
+    }
     if (
       path === "/build-target" ||
       path === "/project-source" ||
@@ -907,7 +911,10 @@ export class ValOpsHttp extends ValOps {
      * a merge. The publish API reaches the SITE's builds and jobs, so a
      * Studio there that asked would be publishing over the site.
      */
-    if (this.proposal !== null) {
+    if (
+      this.proposal !== null &&
+      !ValOpsHttp.mergeApiPathAllowed(init.method, path)
+    ) {
       return {
         status: 403,
         contentType: "application/json",
@@ -947,9 +954,39 @@ export class ValOpsHttp extends ValOps {
     if (path === "") return method === "GET" || method === "POST";
     const one = /^\/[0-9a-f]{20}$/.test(path);
     if (one) return method === "GET" || method === "PATCH";
+    if (method === "GET") return /^\/[0-9a-f]{20}\/merge-checks$/.test(path);
     return (
       method === "POST" &&
-      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry)$/.test(path)
+      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge)$/.test(path)
+    );
+  }
+
+  /**
+   * What a proposal's address may reach of the publish API: building ITS OWN
+   * merge, and nothing that publishes the site's changes. The merge's prepare
+   * (content's, from the proposal's last save), the build it needs -- the
+   * site's build target and source, declaring and uploading the build -- and
+   * the job's own steps. Not a press of the site's Publish, not `next` (which
+   * would hand this tab a site job), and not the site job's prepare.
+   */
+  private static mergeApiPathAllowed(method: string, path: string): boolean {
+    if (
+      path === "/build-target" ||
+      path === "/project-source" ||
+      path === "/publish"
+    ) {
+      return true;
+    }
+    if (/^\/publish\/[A-Za-z0-9_-]+\/artifacts$/.test(path)) return true;
+    // Where its press is -- read only: a POST there is the site's Try again.
+    if (
+      method === "GET" &&
+      path !== "/publish-requests/try-again" &&
+      /^\/publish-requests\/[A-Za-z0-9_-]{1,100}$/.test(path)
+    )
+      return true;
+    return /^\/publish-jobs\/[A-Za-z0-9_-]{1,100}\/(merge-prepare|steps|renew|cancel)$/.test(
+      path,
     );
   }
 

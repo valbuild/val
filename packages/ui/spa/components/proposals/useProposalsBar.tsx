@@ -6,6 +6,7 @@ import {
   useProfilesByAuthorId,
   usePublishSummary,
   useReportError,
+  useStudioDeployState,
   useValMode,
 } from "../ValProvider";
 import { toast } from "../designSystem/sonner";
@@ -24,17 +25,37 @@ import {
 } from "./NewProposalDialog";
 import { CloseProposalDialog } from "./CloseProposalDialog";
 import { RenameProposalDialog } from "./RenameProposalDialog";
+import {
+  PublishProposalDialog,
+  type PublishProposalState,
+} from "./PublishProposalDialog";
+import { runProposalMerge } from "../../proposals/mergeProposal";
+import { createStudioJobClient } from "../../publish/jobClient";
+import { callJson } from "../../publish/publishClient";
+import { deployPreparedJob } from "../../publish/useStudioDeploy";
+import { PUBLISH_TAB_ID } from "../../publish/tabId";
+import { randomUUID } from "../../utils/randomUUID";
 import { AllProposalsDialog } from "./ProposalsList";
 import type { ProposalPerson, ProposalSummary, StudioLocation } from "./types";
 
-/**
- * Merging is session 5 (`docs/proposals.md`, Flow F). Until then Publish in
- * a proposal is shown, so the bar looks as it will, and says why it waits.
- */
-const PUBLISH_NOT_YET =
-  "Publishing a proposal merges it into the site, and merging is not built yet.";
+/** Why Publish is not offered, by the proposal's status; null when it is. */
+function publishBlockedByStatus(status: string | undefined): string | null {
+  switch (status) {
+    case "merging":
+      return "It is being published to the site.";
+    case "merged":
+      return "It is published: this proposal is finished. Anything more starts a new one.";
+    case "closed":
+      return "It is closed. Reopen it from All proposals to publish it.";
+    case "updating":
+    case "needs-resolution":
+      return "It is being brought up to date with the site.";
+    default:
+      return null;
+  }
+}
 
-type Dialog = "new" | "close" | "rename" | "all" | null;
+type Dialog = "new" | "close" | "rename" | "all" | "publish" | null;
 
 /**
  * The proposals half of the Studio: what `TopBar` shows, from the content
@@ -49,10 +70,13 @@ type Dialog = "new" | "close" | "rename" | "all" | null;
 export function useProposalsBar({
   unsaved,
   portalContainer,
+  onCompare,
 }: {
   /** Changes made since the last save: the Save button's count. */
   unsaved: number;
   portalContainer?: HTMLElement | null;
+  /** Compare with the site: what Publish would publish. */
+  onCompare?: () => void;
 }): {
   /** `undefined` where this project has no proposals. */
   proposals: TopBarProposals | undefined;
@@ -160,28 +184,95 @@ export function useProposalsBar({
           : { state: "idle" },
       overlay: jobState(currentJson?.overlay),
       renderCheck: jobState(currentJson?.renderCheck),
-      publishBlockedBy: PUBLISH_NOT_YET,
+      publishBlockedBy: publishBlockedByStatus(currentJson?.status),
     };
   }, [here, currentJson, viewer, people, unsaved, isPublishing, saveError]);
 
-  const save = useCallback(async () => {
+  /** Save; the reason it did not, or null when it did. */
+  const save = useCallback(async (): Promise<string | null> => {
     setSaveError(null);
     const name = currentJson?.displayName ?? "the proposal";
+    let failed: string | null = null;
     try {
       const result = await publish(`Saved in ${name}`);
       if (result.status === "refused" || result.status === "failed") {
-        setSaveError(
+        failed =
           "message" in result && typeof result.message === "string"
             ? result.message
-            : "The save was refused",
-        );
+            : "The save was refused";
       }
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : String(error));
+      failed = error instanceof Error ? error.message : String(error);
     } finally {
       void refresh();
     }
+    setSaveError(failed);
+    return failed;
   }, [currentJson?.displayName, publish, refresh]);
+
+  /*
+   * Publish: merging the proposal into the site (Flow F). The dialog reads
+   * the merge checks first; the button saves anything unsaved, then runs the
+   * merge -- built in this tab, verified and sealed by content.
+   */
+  const deploy = useStudioDeployState().deploy;
+  const [publishState, setPublishState] = useState<PublishProposalState>({
+    kind: "checking",
+  });
+  const loadChecks = useCallback(async () => {
+    if (here === null) return;
+    setPublishState({ kind: "checking" });
+    try {
+      const { checks } = await client.mergeChecks(here.name);
+      setPublishState({
+        kind: "ready",
+        checks,
+        changes: (currentJson?.changes ?? 0) + unsaved,
+        unsaved,
+      });
+    } catch (error) {
+      setPublishState({
+        kind: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [client, here, currentJson?.changes, unsaved]);
+  const runPublish = useCallback(async () => {
+    if (here === null) return;
+    if (unsaved > 0) {
+      setPublishState({ kind: "publishing", step: "saving" });
+      const failed = await save();
+      if (failed !== null) {
+        setPublishState({ kind: "failed", message: `${failed}.` });
+        return;
+      }
+    }
+    const jobs = createStudioJobClient({ api: "/api/val" });
+    try {
+      const outcome = await runProposalMerge({
+        press: (input) => client.merge(here.name, input),
+        publishApi: (path, body) =>
+          callJson(fetch, `/api/val/publish-api${path}`, "POST", body),
+        jobs,
+        deploy: (prepared) => deployPreparedJob(deploy, prepared),
+        tab: PUBLISH_TAB_ID,
+        requestId: randomUUID(),
+        onStep: (step) => setPublishState({ kind: "publishing", step }),
+      });
+      setPublishState(
+        outcome.kind === "merged"
+          ? { kind: "merged" }
+          : { kind: "failed", message: outcome.message },
+      );
+    } catch (error) {
+      setPublishState({
+        kind: "failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      void refresh();
+    }
+  }, [client, deploy, here, refresh, save, unsaved]);
 
   const create = useCallback(
     async (input: { displayName: string; description: string }) => {
@@ -299,7 +390,10 @@ export function useProposalsBar({
       openDialog("all");
     },
     onSave: () => void save(),
-    onPublish: () => undefined,
+    onPublish: () => {
+      openDialog("publish");
+      void loadChecks();
+    },
     onRename: () => openDialog("rename"),
     onCopyLink: () => {
       // The address, on this page: whoever opens it lands where you are.
@@ -311,8 +405,26 @@ export function useProposalsBar({
 
   const currentSummary =
     location.kind === "proposal" ? location.proposal : null;
+  const siteUrl = ready?.siteUrl ?? null;
   const dialogs = (
     <>
+      {currentSummary !== null && (
+        <PublishProposalDialog
+          open={dialog === "publish"}
+          onOpenChange={(isOpen) => setDialog(isOpen ? "publish" : null)}
+          displayName={currentSummary.displayName}
+          state={publishState}
+          onPublish={() => void runPublish()}
+          onRetry={() =>
+            publishState.kind === "error"
+              ? void loadChecks()
+              : void runPublish()
+          }
+          {...(onCompare !== undefined ? { onCompare } : {})}
+          {...(siteUrl !== null ? { onGoToSite: () => go(siteUrl) } : {})}
+          portalContainer={portalContainer}
+        />
+      )}
       <NewProposalDialog
         open={dialog === "new"}
         onOpenChange={(isOpen) => {

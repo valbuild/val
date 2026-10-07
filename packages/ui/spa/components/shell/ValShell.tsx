@@ -1073,6 +1073,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     {
       unsaved: hasNetChanges ? ownPendingChanges : 0,
       portalContainer,
+      onCompare: openSiteCompare,
     },
   );
   const proposals = useMemo(
