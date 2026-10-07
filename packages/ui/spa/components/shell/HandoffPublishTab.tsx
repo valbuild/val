@@ -40,6 +40,7 @@ import { createStudioPublishClient } from "../../publish/publishClient";
 import { createStudioJobClient } from "../../publish/jobClient";
 import { runJobToEnd, runStudioJob } from "../../publish/runStudioJob";
 import { isSettled } from "../../publish/publishJobs";
+import { withinDeadline } from "../../publish/withinDeadline";
 import type {
   PublishRequestStatus,
   PublishTabJob,
@@ -117,6 +118,11 @@ const CLOSE_AFTER_S = 5;
  */
 const FAILURE_READS = 5;
 const FAILURE_READ_MS = 1_000;
+/**
+ * One read's answer, at most: a read that never answers ends the wait for
+ * content's words like none at all -- the tab's own are shown instead.
+ */
+const FAILURE_READ_DEADLINE_MS = 5_000;
 
 type Waiting =
   | { kind: "waiting"; since: number }
@@ -863,7 +869,10 @@ async function failureOf(
   requestId: string,
 ): Promise<string | null> {
   for (let read = 0; read < FAILURE_READS; read++) {
-    const status = await client.requestStatus(requestId).catch(() => null);
+    const status = await withinDeadline(
+      client.requestStatus(requestId),
+      FAILURE_READ_DEADLINE_MS,
+    ).catch(() => null);
     if (status !== null && isSettled(status))
       return status.kind === "failed" ? status.message : null;
     await new Promise((resolve) => setTimeout(resolve, FAILURE_READ_MS));
