@@ -92,7 +92,10 @@ test("the builder tab publishes on its own while the page that opened it is paus
     // stored for the tab -- not put in the tab's URL.
     const [request] = state.publishRequests;
     const stored = await builder.evaluate(() =>
-      localStorage.getItem("val-publish-handoff-intents"),
+      Object.keys(localStorage)
+        .filter((key) => key.startsWith("val-publish-handoff-intent:"))
+        .map((key) => localStorage.getItem(key))
+        .join("\n"),
     );
     expect(stored).toContain(request?.requestId ?? "no request");
     expect(builder.url()).not.toContain(request?.requestId ?? "no request");

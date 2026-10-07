@@ -2,7 +2,7 @@ import type { StudioDeployResult } from "./runStudioDeploy";
 import type { SiteUpdateOutcome } from "./runSiteUpdate";
 import type { StudioJobResult } from "./runStudioJob";
 import { randomUUID } from "../utils/randomUUID";
-import { browserStorage } from "./browserStorage";
+import { browserStorage, readKeyed, writeKeyed } from "./browserStorage";
 import {
   parseRequestStatus,
   type DependencyChange,
@@ -187,7 +187,8 @@ export function handoffUrl(id: string, studioPath = "/val"): string {
   return `${studioPath}?${HANDOFF_PARAM}=${encodeURIComponent(id)}`;
 }
 
-const INTENT_KEY = "val-publish-handoff-intents";
+/** One key per hand-off: see `writeKeyed`. */
+const INTENT_PREFIX = "val-publish-handoff-intent:";
 /** A week: long past any reload of the tab, and the list cannot grow unbounded. */
 const INTENT_KEEP_MS = 7 * 24 * 60 * 60_000;
 /**
@@ -196,8 +197,6 @@ const INTENT_KEEP_MS = 7 * 24 * 60 * 60_000;
  * one reopened from history, is not a press anyone is making now.
  */
 export const INTENT_MAX_AGE_MS = 60 * 60_000;
-
-type StoredIntents = Record<string, { at: number; intent: HandoffIntent }>;
 
 /**
  * Write down what the tab `id` is to do. In the tap, before the tab opens.
@@ -211,18 +210,10 @@ export function storeHandoffIntent(
   now: number = Date.now(),
 ): boolean {
   if (storage === null) return false;
-  try {
-    const kept = Object.fromEntries(
-      Object.entries(readIntents(storage)).filter(
-        ([, entry]) => now - entry.at < INTENT_KEEP_MS,
-      ),
-    );
-    kept[id] = { at: now, intent };
-    storage.setItem(INTENT_KEY, JSON.stringify(kept));
-    return true;
-  } catch {
-    return false;
-  }
+  return writeKeyed(storage, INTENT_PREFIX, id, intent, {
+    now,
+    keepMs: INTENT_KEEP_MS,
+  });
 }
 
 /**
@@ -234,33 +225,9 @@ export function storedHandoffIntent(
   storage: Storage | null = browserStorage(),
 ): { intent: HandoffIntent; at: number } | null {
   if (storage === null) return null;
-  return readIntents(storage)[id] ?? null;
-}
-
-function readIntents(storage: Storage): StoredIntents {
-  try {
-    const raw: unknown = JSON.parse(storage.getItem(INTENT_KEY) ?? "{}");
-    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-      return {};
-    }
-    const intents: StoredIntents = {};
-    for (const [id, value] of Object.entries(raw)) {
-      if (
-        typeof value !== "object" ||
-        value === null ||
-        !("at" in value) ||
-        typeof value.at !== "number" ||
-        !("intent" in value)
-      ) {
-        continue;
-      }
-      const intent = asIntent(value.intent);
-      if (intent !== null) intents[id] = { at: value.at, intent };
-    }
-    return intents;
-  } catch {
-    return {};
-  }
+  const entry = readKeyed(storage, INTENT_PREFIX, id);
+  const intent = entry === null ? null : asIntent(entry.value);
+  return entry === null || intent === null ? null : { intent, at: entry.at };
 }
 
 /* Read back structurally: storage is the origin's, and anything may be there. */

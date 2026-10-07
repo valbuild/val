@@ -249,6 +249,8 @@ export function HandoffPublishTab({ id }: { id: string }) {
       own: boolean;
     }[] = [];
     let runningJobId: string | null = null;
+    /** Whether the running job is this tab's own press's. See `runJob`. */
+    let runningOwn = false;
 
     /*
      * Once per job. A job the site sends AGAIN after this tab's run ended is
@@ -263,16 +265,24 @@ export function HandoffPublishTab({ id }: { id: string }) {
     ) => {
       if (updating.current) return;
       if (running.current) {
-        if (
-          runningJobId !== job.id &&
-          !queue.some((queued) => queued.job.id === job.id)
-        ) {
-          queue.push({ job, asTab, requestId, own });
+        /*
+         * The same job twice -- the page and this tab are the same tab to
+         * content, so the page can hand over the very job this press then
+         * finds -- is one run. But if either copy is this press's, the run
+         * is: the press is not over until it ends.
+         */
+        if (runningJobId === job.id) {
+          runningOwn = runningOwn || own;
+          return;
         }
+        const queued = queue.find((entry) => entry.job.id === job.id);
+        if (queued !== undefined) queued.own = queued.own || own;
+        else queue.push({ job, asTab, requestId, own });
         return;
       }
       running.current = true;
       runningJobId = job.id;
+      runningOwn = own;
       started.current = true;
       if (startedAt.current === null) startedAt.current = Date.now();
       setGoingLive(null);
@@ -309,13 +319,13 @@ export function HandoffPublishTab({ id }: { id: string }) {
             }),
         });
         report({ type: "job-result", result });
-        if (own) ownPending.current = false;
+        if (runningOwn) ownPending.current = false;
         /*
          * A job the page handed over, while this tab's own press is still to
          * come: its runner on the page has the result above, and nothing more
          * is said -- the screen, the card and closing are the press's.
          */
-        if (!own && ownPending.current) return;
+        if (!runningOwn && ownPending.current) return;
         if (result.status === "handed-off") {
           // Content checks it and puts it live; the page that opened this follows it.
           setGoingLive({ kind: "handed-off" });
@@ -578,8 +588,19 @@ export function HandoffPublishTab({ id }: { id: string }) {
     } else if (remembered !== null) {
       // Opened again: it shows how it ended, set from `remembered` above.
     } else if (intent.kind === "update") {
-      if (stale) setWaiting({ kind: "cancelled", message: STALE_MESSAGE });
-      else startUpdate();
+      if (stale) {
+        setWaiting({ kind: "cancelled", message: STALE_MESSAGE });
+        // Said to the page too, so its update ends rather than waits on this.
+        report({
+          type: "update-done",
+          outcome: {
+            status: "failed",
+            message: STALE_MESSAGE,
+            details: "",
+            deploy: null,
+          },
+        });
+      } else startUpdate();
     } else {
       ownPending.current = true;
       void press(intent);

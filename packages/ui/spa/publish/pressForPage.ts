@@ -6,7 +6,7 @@ import type { PressAs, PublishResult } from "../stores/PublishSeam";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
 import type { HandoffIntent } from "./handoff";
 import type { StudioJobClient } from "./jobClient";
-import { browserStorage } from "./browserStorage";
+import { browserStorage, readKeyed, writeKeyed } from "./browserStorage";
 import { isTransientPublishError, StudioPublishError } from "./publishClient";
 import type { SiteUpdateOutcome } from "./runSiteUpdate";
 import { isSettled } from "./publishJobs";
@@ -457,34 +457,10 @@ export type RememberedEnding =
    */
   | { kind: "shipped-elsewhere" };
 
-const ENDING_KEY = "val-publish-handoff-endings";
+/** One key per hand-off: see `writeKeyed`. */
+const ENDING_PREFIX = "val-publish-handoff-ending:";
 /** A week: long past any reload, and the list cannot grow without bound. */
 const ENDING_KEEP_MS = 7 * 24 * 60 * 60_000;
-
-type StoredEndings = Record<string, { at: number; ending: RememberedEnding }>;
-
-function readEndings(storage: Storage): StoredEndings {
-  try {
-    const raw: unknown = JSON.parse(storage.getItem(ENDING_KEY) ?? "{}");
-    return typeof raw === "object" && raw !== null && !Array.isArray(raw)
-      ? Object.fromEntries(
-          Object.entries(raw).flatMap(
-            ([id, value]): [string, StoredEndings[string]][] =>
-              typeof value === "object" &&
-              value !== null &&
-              "at" in value &&
-              typeof value.at === "number" &&
-              "ending" in value &&
-              isEnding(value.ending)
-                ? [[id, { at: value.at, ending: value.ending }]]
-                : [],
-          ),
-        )
-      : {};
-  } catch {
-    return {};
-  }
-}
 
 function isEnding(value: unknown): value is RememberedEnding {
   if (typeof value !== "object" || value === null || !("kind" in value))
@@ -509,22 +485,16 @@ export function rememberEnding(
   now: number = Date.now(),
 ): void {
   if (storage === null) return;
-  try {
-    const kept = Object.fromEntries(
-      Object.entries(readEndings(storage)).filter(
-        ([, entry]) => now - entry.at < ENDING_KEEP_MS,
-      ),
-    );
-    // The deploy's own record stays out: it is large, and the page shows words.
-    const stored: RememberedEnding =
-      ending.kind === "update" && ending.outcome.status === "failed"
-        ? { kind: "update", outcome: { ...ending.outcome, deploy: null } }
-        : ending;
-    kept[id] = { at: now, ending: stored };
-    storage.setItem(ENDING_KEY, JSON.stringify(kept));
-  } catch {
-    // Not remembered: opened again, the tab does it again.
-  }
+  // The deploy's own record stays out: it is large, and the page shows words.
+  const stored: RememberedEnding =
+    ending.kind === "update" && ending.outcome.status === "failed"
+      ? { kind: "update", outcome: { ...ending.outcome, deploy: null } }
+      : ending;
+  // Not remembered, if storage refuses: opened again, the tab does it again.
+  writeKeyed(storage, ENDING_PREFIX, id, stored, {
+    now,
+    keepMs: ENDING_KEEP_MS,
+  });
 }
 
 export function rememberedEnding(
@@ -532,5 +502,6 @@ export function rememberedEnding(
   storage: Storage | null = browserStorage(),
 ): RememberedEnding | null {
   if (storage === null) return null;
-  return readEndings(storage)[id]?.ending ?? null;
+  const entry = readKeyed(storage, ENDING_PREFIX, id);
+  return entry !== null && isEnding(entry.value) ? entry.value : null;
 }

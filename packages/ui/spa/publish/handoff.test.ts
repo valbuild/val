@@ -160,12 +160,32 @@ describe("what the tab is to do", () => {
       intent: { kind: "update" },
     });
     storage.setItem(
-      "val-publish-handoff-intents",
-      JSON.stringify({ x: { at: 1, intent: { kind: "press", tab: "t" } } }),
+      "val-publish-handoff-intent:x",
+      JSON.stringify({ at: 1, value: { kind: "press", tab: "t" } }),
     );
     expect(storedHandoffIntent("x", storage)).toBeNull();
-    storage.setItem("val-publish-handoff-intents", "{not json");
+    storage.setItem("val-publish-handoff-intent:x", "{not json");
     expect(storedHandoffIntent("x", storage)).toBeNull();
+  });
+
+  test("storing one hand-off never rewrites another's", () => {
+    // Two tabs pressing at once each write a key of their own: a shared
+    // value, read and written back by both, lost whichever wrote first.
+    const storage = memoryStorage();
+    const written: string[] = [];
+    const setItem = storage.setItem;
+    storage.setItem = (key, value) => {
+      written.push(key);
+      setItem(key, value);
+    };
+    storeHandoffIntent("a", { kind: "update" }, storage);
+    storeHandoffIntent("b", { kind: "update" }, storage);
+    expect(written).toEqual([
+      "val-publish-handoff-intent:a",
+      "val-publish-handoff-intent:b",
+    ]);
+    expect(storedHandoffIntent("a", storage)).not.toBeNull();
+    expect(storedHandoffIntent("b", storage)).not.toBeNull();
   });
 });
 

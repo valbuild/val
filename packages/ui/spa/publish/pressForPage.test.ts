@@ -475,7 +475,7 @@ describe("what a tab remembers of its own ending", () => {
     );
     expect(rememberedEnding("old", store)).toBeNull();
     expect(rememberedEnding("new", store)).not.toBeNull();
-    store.setItem("val-publish-handoff-endings", "{not json");
+    store.setItem("val-publish-handoff-ending:new", "{not json");
     expect(rememberedEnding("new", store)).toBeNull();
     expect(rememberedEnding("x", null)).toBeNull();
   });
