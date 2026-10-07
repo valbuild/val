@@ -27,6 +27,7 @@ import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 import { LocaleFilter } from "./LocaleFilter";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { MembersShare, orgOfProject } from "./MembersShare";
+import { ProjectMembersButton } from "./ProjectMembersButton";
 
 export type TopBarProps = {
   breakpoint: ShellBreakpoint;
@@ -209,7 +210,22 @@ export function TopBar({
     webComponentsUrl !== undefined ? (
       <MembersShare
         org={org}
+        project={projectName}
         membersHref={membersHref}
+        webComponentsUrl={webComponentsUrl}
+        studioMode={studioMode}
+        breakpoint={breakpoint}
+      />
+    ) : null;
+  // Who can open this project, beside Share (the organization's): only for a
+  // connected project, as Share is.
+  const members =
+    org !== null &&
+    projectHref !== undefined &&
+    webComponentsUrl !== undefined ? (
+      <ProjectMembersButton
+        projectName={projectName}
+        projectHref={projectHref}
         webComponentsUrl={webComponentsUrl}
         studioMode={studioMode}
         breakpoint={breakpoint}
@@ -258,6 +274,7 @@ export function TopBar({
          * project, not about the change being made. On a phone it is the one
          * project-level control that stays in the top bar, further right.
          */}
+        {!isMobile && members}
         {!isMobile && share}
         {/*
          * Before the divider: everything after it is something you DO, and
@@ -307,6 +324,7 @@ export function TopBar({
             <BarDivider />
           </>
         )}
+        {isMobile && members}
         {isMobile && share}
         {historyEnabled && (
           <IconButton
