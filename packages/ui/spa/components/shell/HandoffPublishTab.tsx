@@ -3,7 +3,8 @@ import { useStudioDeployState } from "../ValProvider";
 import {
   joinHandoff,
   leaveTo,
-  readHandoffIntent,
+  INTENT_MAX_AGE_MS,
+  storedHandoffIntent,
   type HandoffIntent,
   type TabHandoff,
 } from "../../publish/handoff";
@@ -87,14 +88,17 @@ const ORDER: DeployPhase["kind"][] = [
 ];
 
 /**
- * How long a tab with nothing in its URL waits to be told what to do: one
- * opened by a page from before intents, which hands it the job over the
- * channel. Not for ever -- a page that reloaded, or was closed, never will.
- * A job that arrives after this still runs.
+ * How long a tab with no stored intent waits to be told what to do over the
+ * channel, as a page from before intents tells it. Short: the usual reason is
+ * a link from somewhere else, or one so old its intent was forgotten -- and
+ * either way this tab must not start anything. A job that arrives after this
+ * still runs: only a page of this origin can send one.
  */
-const NO_INTENT_TIMEOUT_MS = 5 * 60_000;
+const NO_INTENT_TIMEOUT_MS = 15_000;
 const NO_INTENT_MESSAGE =
-  "The page you published from never sent this tab the publish, so nothing was published. Publish again from that page.";
+  "This tab has no publish to run: it was not opened by pressing Publish in this browser, or that was too long ago. Nothing was published.";
+const STALE_MESSAGE =
+  "This publish was started over an hour ago and never ran, so nothing was published. Publish again to publish your changes.";
 
 /**
  * What the tab shows when another publish took the page's change before this
@@ -132,14 +136,22 @@ export function HandoffPublishTab({ id }: { id: string }) {
   const valRef = useRef(val);
   valRef.current = val;
   /*
-   * What this tab is to do, from its URL. Read once, like the handoff's id:
-   * the tab is for this one press.
+   * What this tab is to do, as the tap that opened it stored it -- never from
+   * the URL, which anyone can send (see `handoff.ts`). Read once, like the
+   * hand-off's id: the tab is for this one press. `stale`: too old to start
+   * anything, only to show what it did.
    */
-  const [intent] = useState<HandoffIntent | null>(() =>
-    typeof window === "undefined"
-      ? null
-      : readHandoffIntent(window.location.search),
-  );
+  const [{ intent, stale }] = useState<{
+    intent: HandoffIntent | null;
+    stale: boolean;
+  }>(() => {
+    const stored =
+      typeof window === "undefined" ? null : storedHandoffIntent(id);
+    return {
+      intent: stored?.intent ?? null,
+      stale: stored !== null && Date.now() - stored.at > INTENT_MAX_AGE_MS,
+    };
+  });
   /** How this tab ended the last time it was open, if content cannot say. */
   const [remembered] = useState(() =>
     intent === null ? null : rememberedEnding(id),
@@ -364,6 +376,12 @@ export function HandoffPublishTab({ id }: { id: string }) {
         await follow(intent, already);
         return;
       }
+      // Never made, and too old to make now: nobody is pressing this.
+      if (stale) {
+        pressing.current = true;
+        notPressed(STALE_MESSAGE);
+        return;
+      }
       const loaded = await whenReady(() => {
         const current = valRef.current;
         return (
@@ -480,14 +498,16 @@ export function HandoffPublishTab({ id }: { id: string }) {
       }, NO_INTENT_TIMEOUT_MS);
     } else if (remembered !== null) {
       // Opened again: it shows how it ended, set from `remembered` above.
-    } else if (intent.kind === "update") startUpdate();
-    else void press(intent);
+    } else if (intent.kind === "update") {
+      if (stale) setWaiting({ kind: "cancelled", message: STALE_MESSAGE });
+      else startUpdate();
+    } else void press(intent);
     return () => {
       closed = true;
       if (noIntent !== null) clearTimeout(noIntent);
       handoff.close();
     };
-  }, [id, deploy, intent, remembered]);
+  }, [id, deploy, intent, stale, remembered]);
 
   // Ticks the elapsed time here, and relays it to the waiting page.
   useEffect(() => {

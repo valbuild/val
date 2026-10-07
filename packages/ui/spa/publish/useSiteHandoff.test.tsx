@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { joinHandoff, readHandoffIntent } from "./handoff";
+import { joinHandoff, storedHandoffIntent } from "./handoff";
 import { PUBLISH_TAB_ID } from "./tabId";
 import {
   LOST_GRACE_MS,
@@ -12,6 +12,7 @@ import {
 } from "./useSiteHandoff";
 import { RENEW_EVERY_MS } from "./runStudioJob";
 import { BroadcastChannel as NodeBroadcastChannel } from "node:worker_threads";
+import type { PublishRequestStatus } from "@valbuild/shared/internal";
 
 // jsdom has no BroadcastChannel; Node's is the same API.
 if (typeof globalThis.BroadcastChannel === "undefined") {
@@ -210,7 +211,11 @@ describe("the tab presses for the page", () => {
     });
     return urls;
   };
-  const searchOf = (url: string) => new URL(url, "http://site").search;
+  // What the tab reads: the intent its tap stored, by the id in its URL.
+  const intentOf = (url: string) =>
+    storedHandoffIntent(
+      new URL(url, "http://site").searchParams.get("publish-handoff") ?? "",
+    )?.intent ?? null;
 
   test("the tab's URL names the press: a request id minted here, as this page's tab", () => {
     const urls = openedUrls();
@@ -220,7 +225,7 @@ describe("the tab presses for the page", () => {
       handedOff = result.current.prepare(true);
     });
     expect(handedOff).toBe(true);
-    const intent = readHandoffIntent(searchOf(urls[0] ?? ""));
+    const intent = intentOf(urls[0] ?? "");
     expect(intent).toMatchObject({ kind: "press", tab: PUBLISH_TAB_ID });
     expect(intent?.kind === "press" && intent.requestId).toBeTruthy();
     act(() => result.current.cancel(""));
@@ -232,7 +237,7 @@ describe("the tab presses for the page", () => {
     act(() => {
       result.current.prepare(true, { after: "p9" });
     });
-    expect(readHandoffIntent(searchOf(urls[0] ?? ""))).toMatchObject({
+    expect(intentOf(urls[0] ?? "")).toMatchObject({
       kind: "press",
       after: "p9",
     });
@@ -245,7 +250,7 @@ describe("the tab presses for the page", () => {
     act(() => {
       result.current.prepare(true, { tryAgainOf: "r0" });
     });
-    expect(readHandoffIntent(searchOf(urls[0] ?? ""))).toMatchObject({
+    expect(intentOf(urls[0] ?? "")).toMatchObject({
       kind: "try-again",
       tab: PUBLISH_TAB_ID,
       replaces: "r0",
@@ -276,7 +281,7 @@ describe("the tab presses for the page", () => {
     });
     const url = new URL(urls[0] ?? "", "http://site");
     const id = url.searchParams.get("publish-handoff") ?? "";
-    const intent = readHandoffIntent(url.search);
+    const intent = intentOf(url.toString());
     if (intent?.kind !== "press") throw new Error("no press in the URL");
     // The page never ran a job: nothing here was handed one.
     const tab = joinHandoff(id, () => undefined, { retryMs: 10 });
@@ -319,6 +324,62 @@ describe("the tab presses for the page", () => {
     } finally {
       tab.close();
       act(() => result.current.cancel(""));
+    }
+  });
+
+  test("a publish that settled before the hand-off reached the page still ends Live", async () => {
+    // A paused page wakes to the tab's messages and its own tracker's read
+    // at once, and the read can land between two of the messages.
+    const urls = openedUrls();
+    // The page's own tracker: it read the request Live before the hand-off.
+    const tracked = new Map<string, PublishRequestStatus>();
+    const { result } = renderHook(() =>
+      useSiteHandoff({
+        enabled: true,
+        requestStatus: (requestId) => tracked.get(requestId) ?? null,
+      }),
+    );
+    act(() => {
+      result.current.prepare(true);
+    });
+    const url = urls[0] ?? "";
+    const id =
+      new URL(url, "http://site").searchParams.get("publish-handoff") ?? "";
+    const intent = intentOf(url);
+    if (intent?.kind !== "press") throw new Error("no press stored");
+    const tab = joinHandoff(id, () => undefined, { retryMs: 10 });
+    try {
+      tab.report({
+        type: "pressed",
+        requestId: intent.requestId,
+        request: { kind: "publishing" },
+        patchIds: ["p1"],
+        replaces: null,
+        building: true,
+      });
+      await waitFor(() =>
+        expect(result.current.state).not.toEqual({ kind: "blocked" }),
+      );
+      // Settled -- and told to the card -- before the hand-off arrived.
+      tracked.set(intent.requestId, { kind: "live", commit: "c1" });
+      act(() =>
+        result.current.settled(intent.requestId, {
+          kind: "live",
+          commit: "c1",
+        }),
+      );
+      tab.report({
+        type: "job-result",
+        result: { status: "handed-off", jobId: "J9", built: true },
+      });
+      await waitFor(() =>
+        expect(result.current.state).toMatchObject({
+          kind: "live",
+          followed: true,
+        }),
+      );
+    } finally {
+      tab.close();
     }
   });
 

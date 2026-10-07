@@ -4,7 +4,8 @@ import {
   joinHandoff,
   leaveTo,
   openHandoff,
-  readHandoffIntent,
+  storedHandoffIntent,
+  storeHandoffIntent,
   type ToSite,
   type ToTab,
 } from "./handoff";
@@ -50,71 +51,105 @@ test("the tab opens at a url that names the handoff", () => {
 });
 
 /**
- * What the tab is to do travels in its URL, not over the channel: on an iPhone
- * the page is paused from the moment the tab opens, and cannot answer it.
+ * What the tab is to do is stored in the tap, never put in its URL: a URL is
+ * something anyone can send, and a link must not be able to publish.
  */
-describe("the tab's URL says what it is to do", () => {
-  const searchOf = (url: string) => new URL(url, "http://site").search;
+describe("what the tab is to do", () => {
+  const memoryStorage = (): Storage => {
+    const items = new Map<string, string>();
+    return {
+      get length() {
+        return items.size;
+      },
+      clear: () => items.clear(),
+      getItem: (key) => items.get(key) ?? null,
+      key: (index) => [...items.keys()][index] ?? null,
+      removeItem: (key) => void items.delete(key),
+      setItem: (key, value) => void items.set(key, value),
+    };
+  };
+  const idOf = (url: string) =>
+    new URL(url, "http://site").searchParams.get("publish-handoff") ?? "";
 
-  test("a press, as the page's tab, under the page's request id", () => {
+  test("is stored by the hand-off id, and the URL carries only the id", () => {
+    const storage = memoryStorage();
     const site = openHandoff({
       open,
+      storage,
       intent: { kind: "press", requestId: "r1", tab: "site-tab", after: "p7" },
     });
-    expect(readHandoffIntent(searchOf(opened[0] ?? ""))).toEqual({
+    const url = new URL(opened[0] ?? "", "http://site");
+    expect([...url.searchParams.keys()]).toEqual(["publish-handoff"]);
+    expect(idOf(opened[0] ?? "")).toBe(site.id);
+    expect(storedHandoffIntent(site.id, storage)?.intent).toEqual({
       kind: "press",
       requestId: "r1",
       tab: "site-tab",
       after: "p7",
     });
-    // The platform isolates the tab by this parameter: it is still there.
-    expect(
-      new URL(opened[0] ?? "", "http://site").searchParams.get(
-        "publish-handoff",
-      ),
-    ).toBe(site.id);
     site.close();
   });
 
-  test("a try again, naming the request it replaces", () => {
-    const url = handoffUrl("h1", "/val", {
+  test("a try again and an update are stored the same way", () => {
+    const storage = memoryStorage();
+    storeHandoffIntent(
+      "h1",
+      {
+        kind: "try-again",
+        requestId: "r2",
+        tab: "site-tab",
+        replaces: "r1",
+        after: null,
+      },
+      storage,
+    );
+    storeHandoffIntent("h2", { kind: "update" }, storage);
+    expect(storedHandoffIntent("h1", storage)?.intent).toEqual({
       kind: "try-again",
       requestId: "r2",
       tab: "site-tab",
       replaces: "r1",
       after: null,
     });
-    expect(readHandoffIntent(searchOf(url))).toEqual({
-      kind: "try-again",
-      requestId: "r2",
-      tab: "site-tab",
-      replaces: "r1",
-      after: null,
+    expect(storedHandoffIntent("h2", storage)?.intent).toEqual({
+      kind: "update",
     });
   });
 
-  test("an update", () => {
-    const url = handoffUrl("h1", "/val", { kind: "update" });
-    expect(readHandoffIntent(searchOf(url))).toEqual({ kind: "update" });
+  test("a link this browser's tap did not store has nothing to run", () => {
+    const storage = memoryStorage();
+    storeHandoffIntent("mine", { kind: "update" }, storage);
+    // What a crafted link could carry is not read at all.
+    expect(storedHandoffIntent("someone-elses", storage)).toBeNull();
+    expect(storedHandoffIntent("mine", null)).toBeNull();
   });
 
-  test("a URL that says nothing, or not enough, is a tab that waits to be told", () => {
-    expect(readHandoffIntent(searchOf(handoffUrl("h1")))).toBeNull();
-    expect(
-      readHandoffIntent(
-        "?publish-handoff=h1&publish-do=press&publish-request=r1",
-      ),
-    ).toBeNull();
-    expect(
-      readHandoffIntent(
-        "?publish-handoff=h1&publish-do=try-again&publish-request=r2&publish-as=t",
-      ),
-    ).toBeNull();
-    expect(
-      readHandoffIntent(
-        "?publish-handoff=h1&publish-do=build&publish-request=r1&publish-as=t",
-      ),
-    ).toBeNull();
+  test("an id is not guessable from the one before it", () => {
+    const first = openHandoff({ open, storage: memoryStorage() });
+    const second = openHandoff({ open, storage: memoryStorage() });
+    expect(first.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(second.id).not.toBe(first.id);
+    first.close();
+    second.close();
+  });
+
+  test("what is stored is read back structurally, and forgotten after a week", () => {
+    const storage = memoryStorage();
+    const day = 24 * 60 * 60_000;
+    storeHandoffIntent("old", { kind: "update" }, storage, 0);
+    storeHandoffIntent("new", { kind: "update" }, storage, 8 * day);
+    expect(storedHandoffIntent("old", storage)).toBeNull();
+    expect(storedHandoffIntent("new", storage)).toEqual({
+      at: 8 * day,
+      intent: { kind: "update" },
+    });
+    storage.setItem(
+      "val-publish-handoff-intents",
+      JSON.stringify({ x: { at: 1, intent: { kind: "press", tab: "t" } } }),
+    );
+    expect(storedHandoffIntent("x", storage)).toBeNull();
+    storage.setItem("val-publish-handoff-intents", "{not json");
+    expect(storedHandoffIntent("x", storage)).toBeNull();
   });
 });
 

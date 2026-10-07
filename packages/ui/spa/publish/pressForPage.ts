@@ -6,6 +6,7 @@ import type { PressAs, PublishResult } from "../stores/PublishSeam";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
 import type { HandoffIntent } from "./handoff";
 import type { StudioJobClient } from "./jobClient";
+import { browserStorage } from "./browserStorage";
 import { isTransientPublishError, StudioPublishError } from "./publishClient";
 import type { SiteUpdateOutcome } from "./runSiteUpdate";
 import { isSettled } from "./publishJobs";
@@ -481,18 +482,10 @@ function isEnding(value: unknown): value is RememberedEnding {
   );
 }
 
-function defaultStorage(): Storage | null {
-  try {
-    return globalThis.localStorage ?? null;
-  } catch {
-    return null;
-  }
-}
-
 export function rememberEnding(
   id: string,
   ending: RememberedEnding,
-  storage: Storage | null = defaultStorage(),
+  storage: Storage | null = browserStorage(),
   now: number = Date.now(),
 ): void {
   if (storage === null) return;
@@ -516,7 +509,7 @@ export function rememberEnding(
 
 export function rememberedEnding(
   id: string,
-  storage: Storage | null = defaultStorage(),
+  storage: Storage | null = browserStorage(),
 ): RememberedEnding | null {
   if (storage === null) return null;
   return readEndings(storage)[id]?.ending ?? null;

@@ -1,6 +1,8 @@
 import type { StudioDeployResult } from "./runStudioDeploy";
 import type { SiteUpdateOutcome } from "./runSiteUpdate";
 import type { StudioJobResult } from "./runStudioJob";
+import { randomUUID } from "../utils/randomUUID";
+import { browserStorage } from "./browserStorage";
 import {
   parseRequestStatus,
   type DependencyChange,
@@ -33,10 +35,18 @@ import {
  * the press, not the answer to the tab's `ready`. Built the other way round
  * -- the page pressing and handing the job over -- the tab sat at "Starting
  * the publish" for as long as anyone watched it. So what the tab is to do
- * travels in its URL ({@link HandoffIntent}): the tab runs the gate and the
- * press itself, as the page's tab and under the request id the page minted,
- * and tells the page what it pressed (`pressed`), which reaches the page
- * whenever it is in front again. A page that is awake can still hand the tab a
+ * ({@link HandoffIntent}) is written down in the tap, before the tab opens:
+ * the tab runs the gate and the press itself, as the page's tab and under the
+ * request id the page minted, and tells the page what it pressed (`pressed`),
+ * which reaches the page whenever it is in front again.
+ *
+ * Written to this origin's `localStorage`, under the hand-off id, and NEVER
+ * to the URL, which carries only the id. A URL is something anyone can send:
+ * a link that said "press" would publish an editor's pending work -- and
+ * everyone else's, since a job takes everything pending -- without a press,
+ * for whoever opened it signed in. A page of another origin cannot write
+ * here, so an intent in storage is one this browser's own tap made. The write
+ * is synchronous, in the tap, so it is there before the page can be paused. A page that is awake can still hand the tab a
  * job over the channel -- queued work it took -- and the tab builds that too.
  *
  * On a desktop it is a small popup window rather than a tab, sized to the
@@ -47,20 +57,10 @@ import {
 
 export const HANDOFF_PARAM = "publish-handoff";
 const CHANNEL = "val-publish-handoff";
-/** What the tab is to do: `press`, `try-again` or `update`. */
-const DO_PARAM = "publish-do";
-/** The request id the page minted, for a press or a try again. */
-const REQUEST_PARAM = "publish-request";
-/** The page's tab: the press is the page's, and so is the job's lease. */
-const AS_PARAM = "publish-as";
-/** For a try again: the failed request it replaces. */
-const REPLACES_PARAM = "publish-replaces";
-/** The last change the page had when it was tapped: see `HandoffIntent`. */
-const AFTER_PARAM = "publish-after";
-
 /**
- * What a builder tab is to do, decided at the tap and carried in its URL. See
- * the top of this file for why it cannot be a message.
+ * What a builder tab is to do, decided at the tap and kept in storage by the
+ * hand-off id. See the top of this file for why it is neither a message nor
+ * part of the URL.
  */
 export type HandoffIntent =
   /**
@@ -171,49 +171,111 @@ export function canBuildHere(): boolean {
 }
 
 /**
- * Not `crypto.randomUUID`: that is secure-context only, and a site edited over
- * plain http -- a local dev server on a LAN address -- has no secure context.
- * This only has to tell two publishes of one browser apart.
+ * Unguessable, because it is what a builder tab finds its intent by: a link
+ * naming an id this browser stored an intent under could start that publish.
+ * `randomUUID` from utils, which works outside a secure context too.
  */
 function newId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return randomUUID();
 }
 
-export function handoffUrl(
+export function handoffUrl(id: string, studioPath = "/val"): string {
+  return `${studioPath}?${HANDOFF_PARAM}=${encodeURIComponent(id)}`;
+}
+
+const INTENT_KEY = "val-publish-handoff-intents";
+/** A week: long past any reload of the tab, and the list cannot grow unbounded. */
+const INTENT_KEEP_MS = 7 * 24 * 60 * 60_000;
+/**
+ * How old an intent may be and still START anything. An older one is only
+ * followed -- shown, if it ran -- never run: a tab nobody opened in time, or
+ * one reopened from history, is not a press anyone is making now.
+ */
+export const INTENT_MAX_AGE_MS = 60 * 60_000;
+
+type StoredIntents = Record<string, { at: number; intent: HandoffIntent }>;
+
+/**
+ * Write down what the tab `id` is to do. In the tap, before the tab opens.
+ * `false` when storage would not take it: the tab then has nothing to run, and
+ * says so.
+ */
+export function storeHandoffIntent(
   id: string,
-  studioPath = "/val",
-  intent?: HandoffIntent,
-): string {
-  const params = new URLSearchParams({ [HANDOFF_PARAM]: id });
-  if (intent !== undefined) {
-    params.set(DO_PARAM, intent.kind);
-    if (intent.kind !== "update") {
-      params.set(REQUEST_PARAM, intent.requestId);
-      params.set(AS_PARAM, intent.tab);
-      if (intent.after !== null) params.set(AFTER_PARAM, intent.after);
-    }
-    if (intent.kind === "try-again")
-      params.set(REPLACES_PARAM, intent.replaces);
+  intent: HandoffIntent,
+  storage: Storage | null = browserStorage(),
+  now: number = Date.now(),
+): boolean {
+  if (storage === null) return false;
+  try {
+    const kept = Object.fromEntries(
+      Object.entries(readIntents(storage)).filter(
+        ([, entry]) => now - entry.at < INTENT_KEEP_MS,
+      ),
+    );
+    kept[id] = { at: now, intent };
+    storage.setItem(INTENT_KEY, JSON.stringify(kept));
+    return true;
+  } catch {
+    return false;
   }
-  return `${studioPath}?${params.toString()}`;
 }
 
 /**
- * The tab's half of {@link handoffUrl}. `null` for a URL without an intent --
- * a page from before intents, which hands the tab its job over the channel.
+ * What this browser's tap told the tab `id` to do, and when; `null` for an id
+ * no tap here stored -- a link from anywhere else, or one older than a week.
  */
-export function readHandoffIntent(search: string): HandoffIntent | null {
-  const params = new URLSearchParams(search);
-  const kind = params.get(DO_PARAM);
-  if (kind === "update") return { kind: "update" };
-  const requestId = params.get(REQUEST_PARAM);
-  const tab = params.get(AS_PARAM);
-  if (requestId === null || requestId === "" || tab === null || tab === "")
+export function storedHandoffIntent(
+  id: string,
+  storage: Storage | null = browserStorage(),
+): { intent: HandoffIntent; at: number } | null {
+  if (storage === null) return null;
+  return readIntents(storage)[id] ?? null;
+}
+
+function readIntents(storage: Storage): StoredIntents {
+  try {
+    const raw: unknown = JSON.parse(storage.getItem(INTENT_KEY) ?? "{}");
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+      return {};
+    }
+    const intents: StoredIntents = {};
+    for (const [id, value] of Object.entries(raw)) {
+      if (
+        typeof value !== "object" ||
+        value === null ||
+        !("at" in value) ||
+        typeof value.at !== "number" ||
+        !("intent" in value)
+      ) {
+        continue;
+      }
+      const intent = asIntent(value.intent);
+      if (intent !== null) intents[id] = { at: value.at, intent };
+    }
+    return intents;
+  } catch {
+    return {};
+  }
+}
+
+/* Read back structurally: storage is the origin's, and anything may be there. */
+function asIntent(value: unknown): HandoffIntent | null {
+  if (typeof value !== "object" || value === null || !("kind" in value)) {
     return null;
-  const after = params.get(AFTER_PARAM) || null;
-  if (kind === "press") return { kind: "press", requestId, tab, after };
-  const replaces = params.get(REPLACES_PARAM);
-  if (kind === "try-again" && replaces !== null && replaces !== "") {
+  }
+  if (value.kind === "update") return { kind: "update" };
+  const text = (key: string): string | null => {
+    const field: unknown = key in value ? Reflect.get(value, key) : undefined;
+    return typeof field === "string" && field !== "" ? field : null;
+  };
+  const requestId = text("requestId");
+  const tab = text("tab");
+  if (requestId === null || tab === null) return null;
+  const after = text("after");
+  if (value.kind === "press") return { kind: "press", requestId, tab, after };
+  const replaces = text("replaces");
+  if (value.kind === "try-again" && replaces !== null) {
     return { kind: "try-again", requestId, tab, replaces, after };
   }
   return null;
@@ -328,12 +390,17 @@ export function openHandoff(
   options: {
     open?: (url: string, target: string) => unknown;
     studioPath?: string;
-    /** What the tab does on its own, page or no page. */
+    /** What the tab does on its own, page or no page: stored, not in the URL. */
     intent?: HandoffIntent;
+    storage?: Storage | null;
   } = {},
 ): SiteHandoff {
   const id = newId();
-  const url = handoffUrl(id, options.studioPath, options.intent);
+  // Before the tab opens: it reads this as soon as it loads.
+  if (options.intent !== undefined) {
+    storeHandoffIntent(id, options.intent, options.storage);
+  }
+  const url = handoffUrl(id, options.studioPath);
   const open = options.open ?? openBuilderWindow;
   const opened = open(url, `val-publish-${id}`) !== null;
   const channel = channelOf();

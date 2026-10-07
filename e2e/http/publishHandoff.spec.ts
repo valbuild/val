@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
 import {
   createUnsavedPatch,
@@ -87,11 +88,14 @@ test("the builder tab publishes on its own while the page that opened it is paus
     const state = await mock.state();
     expect(state.publishJobs.map((job) => job.done)).toEqual(["sealed"]);
     expect(state.commits).toHaveLength(1);
-    // The press was the page's: its id was minted there, in the tap.
+    // The press was the page's: its id was minted there, in the tap, and
+    // stored for the tab -- not put in the tab's URL.
     const [request] = state.publishRequests;
-    expect(new URL(builder.url()).searchParams.get("publish-request")).toBe(
-      request?.requestId,
+    const stored = await builder.evaluate(() =>
+      localStorage.getItem("val-publish-handoff-intents"),
     );
+    expect(stored).toContain(request?.requestId ?? "no request");
+    expect(builder.url()).not.toContain(request?.requestId ?? "no request");
   } finally {
     await cdp.send("Page.setWebLifecycleState", { state: "active" });
   }
@@ -245,4 +249,46 @@ test("the builder tab opened again shows its publish, and publishes nothing new"
     "Not pressed for",
   );
   await again.close();
+});
+
+/*
+ * A link is not a press. What the builder tab does is stored by the tap that
+ * opened it, in this browser, and the URL names only where: a link from
+ * anywhere else -- however it is dressed up -- must not publish an editor's
+ * pending work, or everyone else's with it.
+ */
+test("a builder link this browser did not open publishes nothing", async ({
+  page,
+  context,
+}) => {
+  await openHttpStudio(page);
+  await writePatch(page, "/content/authors.val.ts", [
+    { op: "replace", path: ["teddy", "name"], value: "Not pressed for" },
+  ]);
+
+  const crafted = await context.newPage();
+  const presses: string[] = [];
+  crafted.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      request.url().includes("/publish-requests")
+    ) {
+      presses.push(request.url());
+    }
+  });
+  const params = new URLSearchParams({
+    "publish-handoff": randomUUID(),
+    "publish-do": "press",
+    "publish-request": randomUUID(),
+    "publish-as": randomUUID(),
+  });
+  await crafted.goto(`/val?${params.toString()}`);
+  await expect(
+    crafted.getByText("This tab has no publish to run", { exact: false }),
+  ).toBeVisible({ timeout: 90_000 });
+  expect(presses).toEqual([]);
+  const state = await mock.state();
+  expect(state.publishRequests).toEqual([]);
+  expect(state.commits).toEqual([]);
+  await crafted.close();
 });

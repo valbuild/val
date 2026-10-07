@@ -963,17 +963,29 @@ the page. Desktop WebKit hit the same hang another way: a page that RELOADS
 between the tap and the tab's `ready` (the dev server compiling the builder
 route does it) loses the job it was holding.
 
-So the tab is told everything in its URL (`HandoffIntent` in
-`spa/publish/handoff.ts`) and presses itself, as the page's tab and under a
-request id the page minted in the tap. The page only follows what was pressed,
-whenever it is in front again. **Anything new in the hand-off has to work with
-the page frozen, or gone, from the tap onwards.**
+So the tap writes down everything the tab is to do (`HandoffIntent` in
+`spa/publish/handoff.ts`) and the tab presses itself, as the page's tab and
+under a request id the page minted in the tap. The page only follows what was
+pressed, whenever it is in front again. **Anything new in the hand-off has to
+work with the page frozen, or gone, from the tap onwards.**
 
-The tab presses what the SERVER has, so the URL also names the page's newest
+**The intent goes to `localStorage`, never into the URL** -- the URL carries
+only the hand-off id, a random UUID. It was the URL first, and that made a
+link able to publish: anyone could send an editor `/val?publish-handoff=x&publish-do=press…`,
+and opening it signed in pressed Publish on everything pending, theirs and
+everyone else's. Another origin cannot write this origin's storage, so an
+intent found there was stored by a tap in this browser. The write is
+synchronous, so it is there before iOS can pause the page; an intent over an
+hour old is only shown, never started.
+
+The tab presses what the SERVER has, so the intent also names the page's newest
 unpublished change (`after`), and the tab waits for it to arrive before it
 presses -- for minutes, because it arrives when the page's save does. Without
 that, "one change, then Publish" pressed before the change was saved and found
-nothing to publish.
+nothing to publish. The wait also asks the server where that change is
+(`PatchStore.serverStateOf`): a fresh tab's chain never lists a change that
+has already SHIPPED, so one another publish took would otherwise be waited on
+until the deadline.
 
 A builder tab is one attempt, and opening it again -- a reload, the back
 button, the URL reopened -- must SHOW that attempt, never make it again: the
@@ -981,7 +993,8 @@ page may hold new changes by then, and a second press would publish them
 without anyone pressing Publish. So the tab asks content for its request
 before anything else and follows it if it exists (content answers a request
 it never saw with 404), and remembers in `localStorage` what content cannot
-say: a press the gate refused, and an update. Content's press being
+say: a press the gate refused, and an update. Only ANSWERS are remembered: a
+press that gave up after no answer may have landed, so opened again it asks. Content's press being
 idempotent does not cover this on its own -- the second press makes no second
 publish, but the tab still re-runs the gate, waits for changes, and a try
 again unpauses content's queue.

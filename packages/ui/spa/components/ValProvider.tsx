@@ -62,7 +62,10 @@ import type { ChainProgress } from "../utils/describePendingChangesStall";
 import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { SerializedPatchSet } from "../utils/PatchSets";
-import type { PatchGroupT } from "@valbuild/shared/internal";
+import type {
+  PatchGroupT,
+  PublishRequestStatus,
+} from "@valbuild/shared/internal";
 import { z } from "zod";
 import {
   ValEnrichedDeployment,
@@ -1003,9 +1006,14 @@ export function ValProvider({
    */
   const onHandoffPressed = useRef<(pressed: HandoffPressed) => void>(() => {});
   /** See {@link ValContextValue.handoff}. */
+  /** This page's tracker, read by the handoff. A ref for the same reason. */
+  const trackedStatus = useRef<
+    (requestId: string) => PublishRequestStatus | null
+  >(() => null);
   const handoff = useSiteHandoff({
     enabled: handsOffPublish,
     onPressed: (pressed) => onHandoffPressed.current(pressed),
+    requestStatus: (requestId) => trackedStatus.current(requestId),
   });
 
   /*
@@ -1082,6 +1090,11 @@ export function ValProvider({
    * The builder tab's press is this page's: it pressed as this tab, under the
    * id this page minted. Followed without its job -- the tab builds that.
    */
+  trackedStatus.current = (requestId) =>
+    publishJobs
+      .get()
+      .requests.find((request) => request.requestId === requestId)?.status ??
+    null;
   onHandoffPressed.current = (pressed) =>
     publishJobs.track({
       requestId: pressed.requestId,

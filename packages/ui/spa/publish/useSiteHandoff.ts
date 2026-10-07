@@ -13,6 +13,7 @@ import {
   type ToSite,
 } from "./handoff";
 import { RENEW_EVERY_MS, type StudioJobResult } from "./runStudioJob";
+import { isSettled } from "./publishJobs";
 import { randomUUID } from "../utils/randomUUID";
 import { PUBLISH_TAB_ID } from "./tabId";
 
@@ -117,10 +118,17 @@ export function useSiteHandoff(
      * an iPhone, not before the editor goes back to it.
      */
     onPressed?: (pressed: HandoffPressed) => void;
+    /**
+     * Where this page's own tracker has a request, for a hand-off that
+     * arrives after the request already settled. See `job-result`.
+     */
+    requestStatus?: (requestId: string) => PublishRequestStatus | null;
   } = {},
 ): UseSiteHandoff {
   const onPressed = useRef(options.onPressed);
   onPressed.current = options.onPressed;
+  const requestStatus = useRef(options.requestStatus);
+  requestStatus.current = options.requestStatus;
   const [state, setState] = useState<HandoffState | null>(null);
   const current = useRef<SiteHandoff | null>(null);
   /** When the press that opened the tab was, for the card's "Live after". */
@@ -163,6 +171,25 @@ export function useSiteHandoff(
     waiting.current = null;
     w.stop();
     w.resolve(result === "lost" ? { status: "lost", jobId: w.jobId } : result);
+  }, []);
+
+  /** The card's last word on a request this page follows. */
+  const showSettled = useCallback((status: PublishRequestStatus) => {
+    if (status.kind === "live" || status.kind === "nothing-to-publish") {
+      setState({
+        kind: "live",
+        ms: Date.now() - (startedAt.current ?? Date.now()),
+        followed: true,
+      });
+    } else if (status.kind === "failed") {
+      setState({
+        kind: "failed",
+        message: status.message,
+        followed: true,
+      });
+    } else {
+      setState(null);
+    }
   }, []);
 
   const enabled = options.enabled ?? false;
@@ -304,6 +331,20 @@ export function useSiteHandoff(
           stopWatching();
           handoff.close();
           current.current = null;
+          /*
+           * Settled already? Messages a paused page missed arrive together
+           * when it wakes, and its own tracker's read of the request can land
+           * between two of them: Live before this hand-off says to follow it,
+           * and no settlement left to come.
+           */
+          const known =
+            pressedFor.current === null
+              ? null
+              : (requestStatus.current?.(pressedFor.current) ?? null);
+          if (known !== null && isSettled(known)) {
+            following.current = null;
+            showSettled(known);
+          }
         } else if (message.type === "done") {
           setState(
             message.result.status === "failed"
@@ -324,7 +365,7 @@ export function useSiteHandoff(
       });
       return true;
     },
-    [enabled, settleWaiting, stopWatching],
+    [enabled, settleWaiting, showSettled, stopWatching],
   );
 
   const active = useCallback(() => current.current !== null, []);
@@ -379,23 +420,9 @@ export function useSiteHandoff(
       if (followed.requestId !== null && followed.requestId !== requestId)
         return;
       following.current = null;
-      if (status.kind === "live" || status.kind === "nothing-to-publish") {
-        setState({
-          kind: "live",
-          ms: Date.now() - (startedAt.current ?? Date.now()),
-          followed: true,
-        });
-      } else if (status.kind === "failed") {
-        setState({
-          kind: "failed",
-          message: status.message,
-          followed: true,
-        });
-      } else {
-        setState(null);
-      }
+      showSettled(status);
     },
-    [],
+    [showSettled],
   );
 
   const cancel = useCallback(
