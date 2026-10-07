@@ -6,6 +6,8 @@ import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
 import { CanvasFrame } from "./canvas/CanvasFrame";
 import { canvasFallbackRoute } from "./canvasFallbackRoute";
 import { SaveState } from "./StatusBar";
+import { RemoteFilesCard, UploadsOffChip } from "./RemoteFilesNotice";
+import { useRemoteFiles } from "../ValRemoteProvider";
 import { useSteadySaveState } from "./useSteadySaveState";
 import { PublishState } from "./TopBar";
 import {
@@ -213,6 +215,25 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   // it. Held here because the overlay is presentational and the index is not.
   const [searchQuery, setSearchQuery] = useState("");
   const contentSearch = useContentSearch(searchQuery);
+  /**
+   * Remote files unavailable: a card above the editor, folded into a chip in
+   * the status bar once dismissed. See `RemoteFilesNotice`. Read from the
+   * remote settings themselves rather than `useGlobalError`, which reports one
+   * error at a time and would hide this behind a passing network blip.
+   */
+  const remoteFiles = useRemoteFiles();
+  const [remoteNoticeDismissed, setRemoteNoticeDismissed] = useState(false);
+  const remoteFilesNotice =
+    remoteFiles.status === "inactive" && !remoteNoticeDismissed ? (
+      <RemoteFilesCard
+        reason={remoteFiles.reason}
+        onDismiss={() => setRemoteNoticeDismissed(true)}
+      />
+    ) : undefined;
+  const remoteFilesStatusNotice =
+    remoteFiles.status === "inactive" && remoteNoticeDismissed ? (
+      <UploadsOffChip onClick={() => setRemoteNoticeDismissed(false)} />
+    ) : undefined;
 
   /**
    * The view state, from the URL and back into it.
@@ -1148,6 +1169,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         renderExternalPages={renderExternalPages}
         tourEnabled={isTourOffered(studioSettings)}
         editorOverride={overrideEditor}
+        notice={remoteFilesNotice}
+        statusNotice={remoteFilesStatusNotice}
         publishSlot={<PublishButton />}
         publishState={publishState}
         publishIndicator={publishIndicatorState}
