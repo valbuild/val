@@ -11,6 +11,7 @@ import { browserStorage, readKeyed, writeKeyed } from "./browserStorage";
 import { isTransientPublishError, StudioPublishError } from "./publishClient";
 import type { SiteUpdateOutcome } from "./runSiteUpdate";
 import { isSettled } from "./publishJobs";
+import { withinDeadline } from "./withinDeadline";
 
 /**
  * The press a builder tab makes for the page that opened it.
@@ -235,6 +236,8 @@ export async function pressForPage(options: {
   chain: () => string[];
   /** See {@link PRESS_RETRY_MS}. */
   retryMs?: readonly number[];
+  /** See {@link withinDeadline}. */
+  answerWithinMs?: number;
 }): Promise<PressForPageOutcome> {
   const { intent } = options;
   const retryMs = options.retryMs ?? PRESS_RETRY_MS;
@@ -248,7 +251,10 @@ export async function pressForPage(options: {
         Awaited<ReturnType<StudioJobClient["tryAgain"]>>
       > => {
         try {
-          return await options.client.tryAgain(intent.requestId, intent.tab);
+          return await withinDeadline(
+            options.client.tryAgain(intent.requestId, intent.tab),
+            options.answerWithinMs,
+          );
         } catch (error) {
           const wait = retryMs[attempt++];
           if (wait === undefined || !isTransientPublishError(error))
@@ -276,6 +282,9 @@ export async function pressForPage(options: {
             client: options.client,
             requestId: intent.requestId,
             retryMs,
+            ...(options.answerWithinMs !== undefined
+              ? { answerWithinMs: options.answerWithinMs }
+              : {}),
           })
         : null;
       if (landed !== null) {
@@ -327,6 +336,9 @@ export async function pressForPage(options: {
       client: options.client,
       requestId: intent.requestId,
       retryMs,
+      ...(options.answerWithinMs !== undefined
+        ? { answerWithinMs: options.answerWithinMs }
+        : {}),
     });
     if (landed !== null) {
       return {
@@ -426,6 +438,8 @@ export async function followRequest(options: {
   /** A job leased while following that is not this request's: still to run. */
   otherJob: (job: PublishTabJob) => void;
   everyMs?: number;
+  /** See {@link withinDeadline}. */
+  answerWithinMs?: number;
 }): Promise<
   | { kind: "job"; job: PublishTabJob }
   | { kind: "settled"; request: PublishRequestStatus }
@@ -434,14 +448,18 @@ export async function followRequest(options: {
   const everyMs = options.everyMs ?? QUEUED_EVERY_MS;
   for (;;) {
     if (options.stopped()) return { kind: "stopped" };
-    const request = await options.client
-      .requestStatus(options.requestId)
-      .catch(() => null);
+    const request = await withinDeadline(
+      options.client.requestStatus(options.requestId),
+      options.answerWithinMs,
+    ).catch(() => null);
     if (options.stopped()) return { kind: "stopped" };
     if (request !== null && isSettled(request)) {
       return { kind: "settled", request };
     }
-    const job = await options.client.next(options.tab).catch(() => null);
+    const job = await withinDeadline(
+      options.client.next(options.tab),
+      options.answerWithinMs,
+    ).catch(() => null);
     if (options.stopped()) return { kind: "stopped" };
     if (job !== null && job.step !== null) {
       /*
@@ -451,9 +469,10 @@ export async function followRequest(options: {
        * not as this press's, which is over. A request content could not be
        * asked about again is taken to be in the job, as before the check.
        */
-      const after = await options.client
-        .requestStatus(options.requestId)
-        .catch(() => null);
+      const after = await withinDeadline(
+        options.client.requestStatus(options.requestId),
+        options.answerWithinMs,
+      ).catch(() => null);
       if (options.stopped()) return { kind: "stopped" };
       if (after !== null && isSettled(after)) {
         options.otherJob(job);
@@ -478,11 +497,16 @@ export async function pressedAlready(options: {
   client: Pick<StudioJobClient, "requestStatus">;
   requestId: string;
   retryMs?: readonly number[];
+  /** See {@link withinDeadline}. */
+  answerWithinMs?: number;
 }): Promise<PublishRequestStatus | null> {
   const retryMs = options.retryMs ?? PRESS_RETRY_MS;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await options.client.requestStatus(options.requestId);
+      return await withinDeadline(
+        options.client.requestStatus(options.requestId),
+        options.answerWithinMs,
+      );
     } catch (error) {
       if (error instanceof StudioPublishError && error.statusCode === 404) {
         return null;

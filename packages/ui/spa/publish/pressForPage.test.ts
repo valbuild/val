@@ -363,6 +363,25 @@ describe("a press already made, followed", () => {
     expect(followed).toEqual({ kind: "job", job });
   });
 
+  test("a request for work that never answers is asked again", async () => {
+    let asked = 0;
+    const followed = await followRequest({
+      client: {
+        next: () =>
+          ++asked === 1 ? new Promise(() => undefined) : Promise.resolve(job),
+        requestStatus: async () => ({ kind: "queued" }),
+      },
+      requestId: "r1",
+      tab: "page-tab",
+      stopped: () => false,
+      otherJob: () => {},
+      everyMs: 1,
+      answerWithinMs: 5,
+    });
+    expect(followed).toEqual({ kind: "job", job });
+    expect(asked).toBe(2);
+  });
+
   test("a job leased just after the request settled is run, but not as its own", async () => {
     // The request goes live between the status read and `next`, which then
     // starts a job for the next queued request: that job is not this press's.
@@ -731,6 +750,32 @@ describe("a press that did not get through", () => {
       kind: "not-pressed",
       details: "Not a failed request",
     });
+  });
+
+  test("a try again that never answers is asked again, not waited on for ever", async () => {
+    let calls = 0;
+    const outcome = await pressForPage({
+      intent: {
+        kind: "try-again",
+        requestId: "page-r2",
+        tab: "page-tab",
+        replaces: "page-r1",
+        after: null,
+      },
+      client: {
+        requestStatus: neverPressed,
+        tryAgain: () =>
+          ++calls === 1
+            ? new Promise(() => undefined)
+            : Promise.resolve({ request: { kind: "publishing" }, job }),
+      },
+      chain: () => [],
+      retryMs: noWait,
+      answerWithinMs: 5,
+      publish: async () => ({ status: "nothing-to-publish" }),
+    });
+    expect(calls).toBe(2);
+    expect(outcome.kind).toBe("pressed");
   });
 
   test("a try again that landed though its answer was lost is followed", async () => {
