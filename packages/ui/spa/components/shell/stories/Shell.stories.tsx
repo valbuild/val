@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { ReadOnlyCard } from "../ReadOnlyNotice";
 import { useEffect, useState } from "react";
 import { Shell } from "../Shell";
 import { ExternalPagesDialog } from "../ExternalPagesDialog";
@@ -158,6 +159,12 @@ const meta: Meta<typeof ShellHarness> = {
       description:
         "Open the canvas beside the editor. Offered wherever there is a site to look at, not only on a page.",
     },
+    readOnly: {
+      control: "inline-radio",
+      options: ["", "owner", "editor"],
+      description:
+        "The organization's plan has made the Studio read-only (a trial that is over). An owner is offered Billing; anyone else, the owners to ask.",
+    },
     canvasView: {
       control: "inline-radio",
       options: ["normal", "fields"],
@@ -209,6 +216,7 @@ type HarnessProps = {
   canvasOpen: boolean;
   canvasView: CanvasView;
   canvasReported: boolean;
+  readOnly?: "" | "owner" | "editor";
 };
 
 type DeploymentsFixture =
@@ -351,6 +359,7 @@ function ShellHarness({
   canvasOpen,
   canvasView,
   canvasReported,
+  readOnly = "",
 }: HarnessProps) {
   const [currentTheme, setCurrentTheme] = useState<"dark" | "light">(theme);
   /**
@@ -397,6 +406,23 @@ function ShellHarness({
       )}
       key={`${openPanel}-${selectionId}-${empty}-${noPendingChanges}-${withoutRouters}-${aiEnabled}-${searchOpen}-${tourOpen}-${isLoading}-${loadError}-${mode}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
       data={data}
+      notice={
+        readOnly === "" ? undefined : (
+          <ReadOnlyCard
+            access={{
+              access: "read-only",
+              reason: "trial-over",
+              billingUrl: "https://admin.val.build/~/val-demo?section=billing",
+              org: "val-demo",
+              canFix: readOnly === "owner",
+              owners: [
+                { name: "Kari Nordmann", email: "kari@val-demo.example" },
+                { name: "Ola Hansen", email: "ola@val-demo.example" },
+              ],
+            }}
+          />
+        )
+      }
       initialPanel={openPanel}
       initialSelectionId={selectionId}
       initialSearchOpen={searchOpen}
@@ -684,6 +710,27 @@ export const PublishFailed: Story = {
     ...Default.args,
     selectionId: mockSelectionIds.home,
     publishState: "error",
+  },
+};
+
+/**
+ * The organization's trial is over, so nothing can be saved: said above the
+ * editor before anyone types. An owner is sent to Billing.
+ */
+export const ReadOnlyForAnOwner: Story = {
+  args: {
+    ...Default.args,
+    selectionId: mockSelectionIds.home,
+    readOnly: "owner",
+  },
+};
+
+/** The same, for an editor: the owners by name, and a way to write to them. */
+export const ReadOnlyForAnEditor: Story = {
+  args: {
+    ...Default.args,
+    selectionId: mockSelectionIds.home,
+    readOnly: "editor",
   },
 };
 

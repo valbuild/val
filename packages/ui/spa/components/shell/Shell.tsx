@@ -1044,7 +1044,9 @@ export function Shell({
   );
   const editorColumn = (
     <>
-      {notice}
+      {notice === undefined || notice === null ? null : (
+        <div className="mb-6">{notice}</div>
+      )}
       {editorBody}
     </>
   );
