@@ -688,6 +688,13 @@ export class ValOpsHttp extends ValOps {
    * has just arrived.
    */
   override sourceMode(): "managed" | "connected" | null {
+    /*
+     * Not reported in a proposal, whatever the project is. The Studio reads
+     * `managed` as "I am the deployer" and follows a commit with a build it
+     * publishes to the SITE -- and a proposal's commit is a Save, which its
+     * address serves without any build at all.
+     */
+    if (this.proposal !== null) return null;
     return this.projectExpectation?.sourceMode ?? null;
   }
 
@@ -895,6 +902,22 @@ export class ValOpsHttp extends ValOps {
     path: string,
     init: { method: string; body?: string },
   ): Promise<{ status: number; body: string; contentType: string }> {
+    /*
+     * Nothing is published from a proposal's address: its way to the site is
+     * a merge. The publish API reaches the SITE's builds and jobs, so a
+     * Studio there that asked would be publishing over the site.
+     */
+    if (this.proposal !== null) {
+      return {
+        status: 403,
+        contentType: "application/json",
+        body: JSON.stringify({
+          message:
+            "This is a proposal's address: nothing is published from here. " +
+            "A proposal reaches the site by being merged.",
+        }),
+      };
+    }
     if (!ValOpsHttp.publishApiPathAllowed(path)) {
       return {
         status: 403,
@@ -905,6 +928,68 @@ export class ValOpsHttp extends ValOps {
       };
     }
     return this.callPublishApi(path, init);
+  }
+
+  override currentProposal(): { name: string; branch: string } | null {
+    return this.proposal === null
+      ? null
+      : { name: this.proposal.name, branch: this.proposal.branch };
+  }
+
+  /**
+   * Which proposal calls the browser may make, by method and the path after
+   * `/proposals`: list and open, read and rename one, and close, reopen and
+   * retry its setup. Not `/save` -- the Studio saves through `/save`, which
+   * prepares the commit here -- and not `/patches`, which moves the site's
+   * changes into a proposal and has no screen yet.
+   */
+  private static proposalsApiAllowed(method: string, path: string): boolean {
+    if (path === "") return method === "GET" || method === "POST";
+    const one = /^\/[0-9a-f]{20}$/.test(path);
+    if (one) return method === "GET" || method === "PATCH";
+    return (
+      method === "POST" &&
+      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry)$/.test(path)
+    );
+  }
+
+  override async proposalsApi(
+    path: string,
+    init: { method: string; body?: string },
+    profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    if (!ValOpsHttp.proposalsApiAllowed(init.method, path)) {
+      return {
+        status: 403,
+        contentType: json,
+        body: JSON.stringify({
+          message: `'${init.method} ${path}' is not part of the proposals API.`,
+        }),
+      };
+    }
+    const res = await fetch(
+      `${this.contentUrl}/v1/${this.project}/proposals${path}`,
+      {
+        method: init.method,
+        headers: {
+          ...this.authHeaders,
+          /*
+           * WHO is asking, as for a commit: the app's key names the project,
+           * and a proposal is opened, renamed and closed by a person -- content
+           * refuses those writes from a credential that names nobody.
+           */
+          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+          ...(init.body === undefined ? {} : { "Content-Type": json }),
+        },
+        ...(init.body === undefined ? {} : { body: init.body }),
+      },
+    );
+    return {
+      status: res.status,
+      body: await res.text(),
+      contentType: res.headers.get("Content-Type") ?? json,
+    };
   }
 
   /**

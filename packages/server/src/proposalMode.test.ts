@@ -49,7 +49,12 @@ const proposal = (commit: string | null): ValProposal => ({
   },
 });
 
-const sent: Array<{ url: string; method: string; body: unknown }> = [];
+const sent: Array<{
+  url: string;
+  method: string;
+  body: unknown;
+  headers: Record<string, string>;
+}> = [];
 beforeEach(() => {
   sent.length = 0;
   jest.spyOn(global, "fetch").mockImplementation(async (input, init) => {
@@ -57,6 +62,7 @@ beforeEach(() => {
       url: String(input),
       method: init?.method ?? "GET",
       body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+      headers: Object.fromEntries(new Headers(init?.headers).entries()),
     });
     return new Response(JSON.stringify({ message: "stub" }), {
       status: 500,
@@ -202,6 +208,76 @@ describe("the snapshot", () => {
   test("is not the site's: a server with no proposal reads the bundle", async () => {
     const sources = await ops(undefined).getBaseSources();
     expect(sources[PAGE]).toEqual({ title: "From the bundle" });
+  });
+});
+
+describe("the proposals API, for the Studio", () => {
+  test("a proposal's server says which proposal it is; the site's says none", () => {
+    expect(ops(proposal(null)).currentProposal()).toEqual({
+      name: NAME,
+      branch: `val/p/${NAME}`,
+    });
+    expect(ops(undefined).currentProposal()).toBeNull();
+  });
+
+  test("goes to content's proposals, with the person beside the project's key", async () => {
+    const o = ops(undefined);
+    await o.proposalsApi("", { method: "GET" }, null);
+    await o.proposalsApi(
+      "",
+      { method: "POST", body: JSON.stringify({ displayName: "Spring" }) },
+      "profile-1",
+    );
+    await o.proposalsApi(
+      `/${NAME}`,
+      { method: "PATCH", body: JSON.stringify({ displayName: "Summer" }) },
+      "profile-1",
+    );
+    await o.proposalsApi(`/${NAME}/close`, { method: "POST" }, "profile-1");
+    await o.proposalsApi(`/${NAME}/setup/retry`, { method: "POST" }, "p");
+    expect(sent.map((r) => `${r.method} ${r.url}`)).toEqual([
+      "GET https://content.example/v1/org/project/proposals",
+      "POST https://content.example/v1/org/project/proposals",
+      `PATCH https://content.example/v1/org/project/proposals/${NAME}`,
+      `POST https://content.example/v1/org/project/proposals/${NAME}/close`,
+      `POST https://content.example/v1/org/project/proposals/${NAME}/setup/retry`,
+    ]);
+    expect(sent[0]!.headers).not.toHaveProperty("x-val-profile-id");
+    expect(sent[1]!.headers).toMatchObject({
+      authorization: "Bearer test",
+      "x-val-profile-id": "profile-1",
+    });
+    expect(sent[1]!.body).toEqual({ displayName: "Spring" });
+  });
+
+  test("a proposal's address publishes nothing to the site, and builds nothing for it", async () => {
+    const o = ops(proposal("save-2"));
+    const answer = await o.publishApi("/publish-requests", {
+      method: "POST",
+      body: "{}",
+    });
+    expect(answer.status).toBe(403);
+    expect(sent).toEqual([]);
+    // `managed` would make the Studio build and publish after a Save.
+    expect(o.sourceMode()).toBeNull();
+  });
+
+  test("reaches nothing else: not a save, not a move, not another route", async () => {
+    const o = ops(undefined);
+    for (const [method, path] of [
+      ["POST", `/${NAME}/save`],
+      ["POST", `/${NAME}/patches`],
+      ["DELETE", `/${NAME}`],
+      ["POST", `/${NAME}`],
+      ["GET", `/${NAME}/close`],
+      ["GET", "/../commit"],
+      ["GET", `/${NAME}?x=1`],
+      ["GET", "/NOTAPROPOSAL00000000"],
+    ] as const) {
+      const answer = await o.proposalsApi(path, { method }, "p");
+      expect([method, path, answer.status]).toEqual([method, path, 403]);
+    }
+    expect(sent).toEqual([]);
   });
 });
 

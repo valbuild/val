@@ -181,6 +181,8 @@ export const StatData = z.object({
     .optional(),
   /** See `publishJobs` in `ApiRoutes`. */
   publishJobs: z.boolean().optional(),
+  /** The proposal this server runs at the address of. See `proposal` in `ApiRoutes`. */
+  proposal: z.object({ name: z.string(), branch: z.string() }).optional(),
   /**
    * FS mode only: fingerprint of the `.jsonValues()` entry files on disk. No
    * other sha here can see an entry edit, because a jsonValues module's source is

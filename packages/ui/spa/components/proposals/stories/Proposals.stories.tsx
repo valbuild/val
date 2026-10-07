@@ -8,6 +8,7 @@ import {
   type NewProposalProblem,
 } from "../NewProposalDialog";
 import { CloseProposalDialog } from "../CloseProposalDialog";
+import { RenameProposalDialog } from "../RenameProposalDialog";
 import { AllProposalsDialog, ProposalsList } from "../ProposalsList";
 import type { ProposalSummary, StudioLocation } from "../types";
 
@@ -99,7 +100,7 @@ type HarnessProps = {
   theme?: "dark" | "light";
   switcherOpen?: boolean;
   menuOpen?: boolean;
-  dialog?: "new" | "close" | "all" | null;
+  dialog?: "new" | "close" | "rename" | "all" | null;
   newProblem?: NewProposalProblem | null;
 };
 
@@ -186,7 +187,7 @@ function ProposalsShell({
     },
     onPublish: () => undefined,
     onCompare: () => console.log("compare with the site"),
-    onRename: () => console.log("rename"),
+    onRename: () => setDialog("rename"),
     onCopyLink: () => console.log("copy link"),
     onClose: () => setDialog("close"),
     defaultSwitcherOpen: switcherOpen,
@@ -261,6 +262,23 @@ function ProposalsShell({
           }, 900);
         }}
       />
+      {current !== null && (
+        <RenameProposalDialog
+          open={dialog === "rename"}
+          onOpenChange={(isOpen) => setDialog(isOpen ? "rename" : null)}
+          displayName={current.displayName}
+          onRename={(displayName) => {
+            const renamed = { ...current, displayName };
+            setAll((list) =>
+              list.map((p) => (p.name === current.name ? renamed : p)),
+            );
+            setLocation((loc) =>
+              loc.kind === "proposal" ? { ...loc, proposal: renamed } : loc,
+            );
+            setDialog(null);
+          }}
+        />
+      )}
       {current !== null && (
         <CloseProposalDialog
           open={dialog === "close"}
@@ -390,6 +408,12 @@ export const NewProposalAlreadyExists = shell({
     name: open[0].name,
     displayName: open[0].displayName,
   },
+});
+
+/** Rename: what people call it changes; its address and link do not. */
+export const RenameAProposal = shell({
+  location: inProposal(),
+  dialog: "rename",
 });
 
 export const CloseAProposal = shell({

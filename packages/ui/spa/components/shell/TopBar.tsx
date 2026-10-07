@@ -50,7 +50,11 @@ export type TopBarProposals = {
   onSave: () => void;
   /** Publish the proposal: merge it into the site. */
   onPublish: () => void;
-  onCompare: () => void;
+  /**
+   * The proposal against the site. Absent until the Studio can show that
+   * (it arrives with merging, which is what it previews).
+   */
+  onCompare?: () => void;
   onRename: () => void;
   onCopyLink: () => void;
   onClose: () => void;

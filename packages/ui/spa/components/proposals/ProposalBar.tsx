@@ -129,7 +129,8 @@ export function ProposalMenu({
   defaultOpen = false,
   menuPlacement = "below",
 }: {
-  onCompare: () => void;
+  /** Absent: not offered. */
+  onCompare?: () => void;
   onRename: () => void;
   onCopyLink: () => void;
   onClose: () => void;
@@ -188,9 +189,14 @@ export function ProposalMenu({
               <div className="my-1 border-t border-border-float" />
             </>
           )}
-          <MenuItem icon={<GitCompare size={14} />} onClick={choose(onCompare)}>
-            Compare with the site
-          </MenuItem>
+          {onCompare !== undefined && (
+            <MenuItem
+              icon={<GitCompare size={14} />}
+              onClick={choose(onCompare)}
+            >
+              Compare with the site
+            </MenuItem>
+          )}
           <MenuItem icon={<Pencil size={14} />} onClick={choose(onRename)}>
             Rename…
           </MenuItem>

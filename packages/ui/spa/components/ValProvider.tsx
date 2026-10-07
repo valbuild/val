@@ -186,6 +186,11 @@ type ValContextValue = {
    * server saying nothing is not evidence that a project has no repository.
    */
   sourceMode: "managed" | "connected" | null;
+  /**
+   * The proposal this Studio is in, or `null` on the site. From `/stat`;
+   * the same object until the server names a different one.
+   */
+  proposal: { name: string; branch: string } | null;
   profileId: string | null;
   profileAuthError: string | null;
   /**
@@ -1182,6 +1187,18 @@ export function ValProvider({
   );
   const statSourceMode =
     "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null;
+  const statProposal =
+    "data" in stat && stat.data ? (stat.data.proposal ?? null) : null;
+  const proposalName = statProposal?.name ?? null;
+  const proposalBranch = statProposal?.branch ?? null;
+  // Held by value: every stat is a new object, and the proposal is not.
+  const proposal = useMemo(
+    () =>
+      proposalName === null || proposalBranch === null
+        ? null
+        : { name: proposalName, branch: proposalBranch },
+    [proposalName, proposalBranch],
+  );
   const publishesAsJobs =
     "data" in stat && stat.data
       ? (stat.data.publishJobs ?? statSourceMode === "managed")
@@ -1301,6 +1318,7 @@ export function ValProvider({
             : null,
         sourceMode:
           "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null,
+        proposal,
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,
         profilesError:
@@ -2664,6 +2682,14 @@ export function useStudioDeployState(): UseStudioDeploy {
 }
 
 /** See {@link ValContextValue.publishRefusal}. */
+/**
+ * The proposal this Studio is in -- its name and branch -- or `null` on the
+ * site. valbuild/home `docs/proposals.md`.
+ */
+export function useCurrentProposal(): { name: string; branch: string } | null {
+  return useContext(ValContext).proposal;
+}
+
 export function usePublishRefusal(): string | null {
   const { publishRefusal } = useContext(ValContext);
   return publishRefusal;

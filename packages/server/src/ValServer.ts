@@ -692,6 +692,37 @@ export const ValServer = (
     }
   };
 
+  /** The person a session names, or `null` for an anonymous one. */
+  const profileOf = (auth: ReturnType<typeof getAuth>): string | null =>
+    "id" in auth && auth.id ? auth.id : null;
+
+  /** One proposals-API call, carried as `proxyPublishApi` carries one. */
+  const proxyProposalsApi = async (
+    path: string | undefined,
+    method: "GET" | "POST" | "PATCH",
+    profileId: string | null,
+    body?: string,
+  ): Promise<{ status: number; json: unknown }> => {
+    const answer = await serverOps.proposalsApi(
+      path ?? "",
+      { method, ...(body === undefined ? {} : { body }) },
+      profileId,
+    );
+    try {
+      return { status: answer.status, json: JSON.parse(answer.body) };
+    } catch {
+      return {
+        status: answer.status,
+        json: {
+          message:
+            answer.body.trim() === ""
+              ? `The proposals API answered ${answer.status} with no body.`
+              : `The proposals API answered ${answer.status}: ${answer.body.slice(0, 300)}`,
+        },
+      };
+    }
+  };
+
   return {
     "/draft/enable": {
       GET: async (req) => {
@@ -1169,6 +1200,8 @@ export const ValServer = (
          * shows one story to a project that lives by the other.
          */
         const sourceMode = serverOps.sourceMode();
+        // Spread like the two above: absent is "on the site".
+        const proposal = serverOps.currentProposal();
         return {
           status: 200,
           json: {
@@ -1178,6 +1211,7 @@ export const ValServer = (
             ...(publishRefusal ? { publishRefusal } : {}),
             ...(sourceMode ? { sourceMode } : {}),
             ...(sourceMode ? { publishJobs: serverOps.publishesAsJobs() } : {}),
+            ...(proposal ? { proposal } : {}),
             // Not `options.config` verbatim: in proxy mode the branch the
             // server resolved is filled in where the file did not name one.
             // See `clientConfig`.
@@ -1218,6 +1252,45 @@ export const ValServer = (
           req.path,
           "POST",
           req.body === undefined ? undefined : JSON.stringify(req.body),
+        );
+      },
+    },
+    /**
+     * The content service's proposals API, reached through this deployment --
+     * the switcher, the list and the dialogs. The session is checked and its
+     * profile sent along, because a proposal is changed by a person; see
+     * `ValOpsHttp.proposalsApi` for what may be reached.
+     */
+    "/proposals-api": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyProposalsApi(req.path, "GET", profileOf(auth));
+      },
+      POST: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyProposalsApi(
+          req.path,
+          "POST",
+          profileOf(auth),
+          JSON.stringify(req.body ?? {}),
+        );
+      },
+      PATCH: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyProposalsApi(
+          req.path,
+          "PATCH",
+          profileOf(auth),
+          JSON.stringify(req.body ?? {}),
         );
       },
     },

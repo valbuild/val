@@ -117,6 +117,7 @@ import { useProjectLocales } from "../../hooks/useProjectLocales";
 import { useStudioSettings } from "../../hooks/useStudioSettings";
 import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
+import { useProposalsBar } from "../proposals/useProposalsBar";
 
 /**
  * The Val studio on the floating shell.
@@ -1004,6 +1005,16 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
 
   const publishState: PublishState = isPublishing ? "publishing" : "idle";
 
+  /*
+   * Proposals, where the project has them: the switcher, and in a proposal
+   * Save where Publish is. The unsaved count is Review's, for the same reason
+   * Review's is what it is: changes that cancel out are nothing to save.
+   */
+  const { proposals, dialogs: proposalDialogs } = useProposalsBar({
+    unsaved: hasNetChanges ? ownPendingChanges : 0,
+    portalContainer,
+  });
+
   /**
    * The real auto-save setting, not one of the shell's own.
    *
@@ -1266,7 +1277,9 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         pendingChangesLoaded={pendingChangesLoaded}
         pendingChangesProgress={pendingChangesProgress}
         pendingChangesError={pendingChangesError}
+        proposals={proposals}
       />
+      {proposalDialogs}
       {handoff.state !== null && handoffCardInStudio(handoff.state) && (
         /*
          * A publish this Studio handed to a builder tab, because it cannot

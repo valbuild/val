@@ -2622,6 +2622,35 @@ export abstract class ValOps {
   }
 
   /**
+   * The proposal this server runs at the address of, or `null` on the site --
+   * and always in `fs` and memory mode, which have no proposals. See
+   * `ValProposal`.
+   */
+  currentProposal(): { name: string; branch: string } | null {
+    return null;
+  }
+
+  /**
+   * The content service's proposals API, for the Studio's switcher, list and
+   * dialogs. Refused here for the reason {@link publishApi} is: there is no
+   * content service to forward to. `profileId` is the person asking.
+   */
+  async proposalsApi(
+    _path: string,
+    _init: { method: string; body?: string },
+    _profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    return {
+      status: 501,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message:
+          "This Val server has no content service, so it has no proposals.",
+      }),
+    };
+  }
+
+  /**
    * Whether a commit here produces `.val.ts` TEXT as well as data.
    *
    * True everywhere there is somewhere to put it: a working tree in `fs` mode,
