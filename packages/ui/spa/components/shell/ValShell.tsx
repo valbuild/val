@@ -1454,7 +1454,8 @@ function CompareView() {
  *
  * At shell level rather than in the review screen, because publish must be
  * scoped whether or not that screen was ever opened — otherwise the first
- * publish of a session ships the whole pending chain.
+ * publish of a session ships the whole pending chain. The builder tab, which
+ * renders instead of the shell, calls it too: its press runs the same gate.
  *
  * The SEED runs once. After it, the scope moves on the user's own stages and
  * unstages, on this tab's writes, and on members the server has put in this
@@ -1464,7 +1465,7 @@ function CompareView() {
  * the group when patch sets coalesce — see `PatchStagingProvider` for why that
  * is the policy — so this hook has no other job.
  */
-function usePatchGroupScope(): void {
+export function usePatchGroupScope(): void {
   const val = useValSystem();
   const group = useCurrentPatchGroup();
   const scoped = val?.system.patchGroup() ?? null;

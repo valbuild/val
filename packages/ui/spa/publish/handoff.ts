@@ -55,6 +55,10 @@ import {
  * is why the rest of this file still says "tab".
  */
 
+/** What the card says when the intent could not be stored for the tab. */
+export const NOT_STORED_MESSAGE =
+  "This browser would not let Val hand the publish to a new tab, so nothing was published. Allow site data for this site, or leave private browsing, then publish again.";
+
 export const HANDOFF_PARAM = "publish-handoff";
 const CHANNEL = "val-publish-handoff";
 /**
@@ -377,6 +381,11 @@ export type SiteHandoff = {
   id: string;
   url: string;
   opened: boolean;
+  /**
+   * `false` when the intent could not be stored. Then no tab was opened --
+   * one would find nothing to run, and the page would wait on it for ever.
+   */
+  stored: boolean;
   /** Hand the tab the job to build. Re-sent whenever a tab says it is ready. */
   job: (payload: Extract<ToTab, { type: "job" }>) => void;
   /** Ask the tab to run an update. Re-sent whenever a tab says it is ready. */
@@ -397,12 +406,12 @@ export function openHandoff(
 ): SiteHandoff {
   const id = newId();
   // Before the tab opens: it reads this as soon as it loads.
-  if (options.intent !== undefined) {
+  const stored =
+    options.intent === undefined ||
     storeHandoffIntent(id, options.intent, options.storage);
-  }
   const url = handoffUrl(id, options.studioPath);
   const open = options.open ?? openBuilderWindow;
-  const opened = open(url, `val-publish-${id}`) !== null;
+  const opened = stored && open(url, `val-publish-${id}`) !== null;
   const channel = channelOf();
   let pending: ToTab | null = null;
   const listeners = new Set<(message: ToSite) => void>();
@@ -425,6 +434,7 @@ export function openHandoff(
     id,
     url,
     opened,
+    stored,
     job: (payload) => {
       pending = payload;
       send(payload);

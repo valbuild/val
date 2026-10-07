@@ -7,6 +7,7 @@ import type { HandoffState } from "../components/shell/PublishHandoff";
 import {
   canBuildHere,
   openBuilderWindow,
+  NOT_STORED_MESSAGE,
   openHandoff,
   type HandoffIntent,
   type SiteHandoff,
@@ -219,6 +220,17 @@ export function useSiteHandoff(
             }
           : { kind: "press", requestId, tab: PUBLISH_TAB_ID, after };
       const handoff = openHandoff({ intent });
+      if (!handoff.stored) {
+        /*
+         * Said here and now, and handled: nothing can publish this. This page
+         * cannot build, and a tab could not be told what to do -- the page
+         * must not press a job that nobody will build either.
+         */
+        handoff.close();
+        current.current = null;
+        setState({ kind: "failed", message: NOT_STORED_MESSAGE });
+        return true;
+      }
       current.current = handoff;
       blocked.current = !handoff.opened;
       setState(blocked.current ? { kind: "blocked" } : { kind: "opening" });

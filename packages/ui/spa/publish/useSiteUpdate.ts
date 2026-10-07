@@ -15,6 +15,7 @@ import { runSiteUpdate, type SiteUpdateOutcome } from "./runSiteUpdate";
 import { describeDeployPhase } from "./deployProgress";
 import type { UseStudioDeploy } from "./useStudioDeploy";
 import {
+  NOT_STORED_MESSAGE,
   canBuildHere,
   openBuilderWindow,
   openHandoff,
@@ -154,6 +155,14 @@ export function useSiteUpdate(options: {
        * The message is sent as well, for a tab from before intents.
        */
       const tab = openHandoff({ intent: { kind: "update" } });
+      if (!tab.stored) {
+        // No tab was opened: it would have had nothing to run. See `stored`.
+        tab.close();
+        updating.current = false;
+        lock.release();
+        setView({ status: "failed", message: NOT_STORED_MESSAGE, details: "" });
+        return;
+      }
       handoff.current = tab;
       const timeout = setTimeout(lock.release, HANDOFF_LOCK_MS);
       setView(

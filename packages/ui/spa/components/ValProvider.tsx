@@ -2878,17 +2878,19 @@ export function usePublishSummary() {
        * publish that did not come from one. It may be blocked, and the card
        * then offers the tab as a button.
        */
-      if (!handoff.active()) {
+      const handedOff =
+        handoff.active() ||
         handoff.prepare(buildsInTab, {
           after: val ? newestUnpublished(val.system.patchStore) : null,
         });
-      }
       /*
        * And the tab presses, not this page: on an iPhone this page is paused
        * from the moment the tab takes the screen, and a press that waited on
-       * it never went out. See `publish/handoff.ts`.
+       * it never went out. See `publish/handoff.ts`. (Handled, too, when the
+       * tab could not be told what to do: the card says so, and this page
+       * cannot build what it would press.)
        */
-      if (handoff.active()) return { status: "handed-off" };
+      if (handedOff) return { status: "handed-off" };
       if (globalServerSidePatchIds === null) {
         handoff.cancel("No changes to publish");
         return {

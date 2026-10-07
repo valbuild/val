@@ -90,6 +90,22 @@ describe("what the tab is to do", () => {
     site.close();
   });
 
+  test("one that cannot be stored opens no tab: it would have nothing to run", () => {
+    const full = memoryStorage();
+    full.setItem = () => {
+      throw new Error("QuotaExceededError");
+    };
+    const site = openHandoff({
+      open,
+      storage: full,
+      intent: { kind: "update" },
+    });
+    expect(site.stored).toBe(false);
+    expect(site.opened).toBe(false);
+    expect(opened).toEqual([]);
+    site.close();
+  });
+
   test("a try again and an update are stored the same way", () => {
     const storage = memoryStorage();
     storeHandoffIntent(

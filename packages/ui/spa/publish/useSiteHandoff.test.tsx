@@ -1,6 +1,10 @@
 /** @jest-environment jsdom */
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { joinHandoff, storedHandoffIntent } from "./handoff";
+import {
+  joinHandoff,
+  NOT_STORED_MESSAGE,
+  storedHandoffIntent,
+} from "./handoff";
 import { PUBLISH_TAB_ID } from "./tabId";
 import {
   LOST_GRACE_MS,
@@ -242,6 +246,32 @@ describe("the tab presses for the page", () => {
       after: "p9",
     });
     act(() => result.current.cancel(""));
+  });
+
+  test("a press that could not be handed to a tab says so, and is not made here either", () => {
+    const urls = openedUrls();
+    const setItem = jest
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("QuotaExceededError");
+      });
+    try {
+      const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+      let handedOff = false;
+      act(() => {
+        handedOff = result.current.prepare(true);
+      });
+      // Handled: the page cannot build, so it must not press either.
+      expect(handedOff).toBe(true);
+      expect(urls).toEqual([]);
+      expect(result.current.active()).toBe(false);
+      expect(result.current.state).toEqual({
+        kind: "failed",
+        message: NOT_STORED_MESSAGE,
+      });
+    } finally {
+      setItem.mockRestore();
+    }
   });
 
   test("a try again is the tab's to press too, replacing the failed request", () => {
