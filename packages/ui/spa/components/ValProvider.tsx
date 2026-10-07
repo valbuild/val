@@ -1191,11 +1191,18 @@ export function ValProvider({
                  * tab that will -- and that tab presses the try again, as
                  * this page: see `publish/handoff.ts`. A no-op where this
                  * page can build.
+                 *
+                 * The last edit is sent first, as Publish does: on an iPhone
+                 * this page is paused once the tab opens, and the tab waits
+                 * for that edit. Where the try again stays on this page, it
+                 * is only the save autosave was about to make.
                  */
+                const after = newestUnpublished(system.patchStore);
+                void system.patchSync.flush().catch(() => undefined);
                 if (
                   handoffRef.current.prepare(true, {
                     tryAgainOf: request.requestId,
-                    after: newestUnpublished(system.patchStore),
+                    after,
                   })
                 ) {
                   return;

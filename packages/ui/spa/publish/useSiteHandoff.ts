@@ -234,7 +234,12 @@ export function useSiteHandoff(
          */
         handoff.close();
         current.current = null;
-        setState({ kind: "failed", message: NOT_STORED_MESSAGE });
+        setState({
+          kind: "failed",
+          message: NOT_STORED_MESSAGE,
+          // The Studio hands its publish to a tab the same way, and fails alike.
+          studioCannotHelp: true,
+        });
         return true;
       }
       current.current = handoff;

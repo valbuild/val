@@ -268,6 +268,7 @@ describe("the tab presses for the page", () => {
       expect(result.current.state).toEqual({
         kind: "failed",
         message: NOT_STORED_MESSAGE,
+        studioCannotHelp: true,
       });
     } finally {
       setItem.mockRestore();

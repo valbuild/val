@@ -402,6 +402,23 @@ export function HandoffPublishTab({ id }: { id: string }) {
     };
 
     /**
+     * Another publish took the editor's change before this tab could: it is
+     * on the site, which is the answer they came here for.
+     */
+    const shippedElsewhere = () => {
+      ownPending.current = false;
+      setSettled(SHIPPED_ELSEWHERE);
+      // No request of this tab's exists: opened again, nothing says this.
+      rememberEnding(id, { kind: "shipped-elsewhere" });
+      // Nor will one reach the page's tracker: the card ends here.
+      report({
+        type: "done",
+        result: { status: "already-live", url: null },
+        ms: Date.now() - (startedAt.current ?? Date.now()),
+      });
+    };
+
+    /**
      * Follow a press already made -- this tab's, or one it finds made when it
      * is opened again -- until it has a job here or has settled.
      */
@@ -516,6 +533,17 @@ export function HandoffPublishTab({ id }: { id: string }) {
         notPressed(CHANGE_NOT_SAVED_MESSAGE);
         return;
       }
+      /*
+       * The change the tap named is live already, and with it everything
+       * before it: the chain is published in order. Whatever is pending now
+       * was saved after the tap, and no Publish was pressed for it. A try
+       * again goes on: it resumes a request that exists, and content says
+       * what is left of it.
+       */
+      if (change === "shipped" && intent.kind === "press") {
+        shippedElsewhere();
+        return;
+      }
       const chain = () =>
         system.patchStore.allRecords().map((record) => record.patchId);
       const outcome = await pressForPage({
@@ -528,14 +556,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
       if (closed) return;
       if (outcome.kind === "not-pressed") {
         if (outcome.nothingToPublish && change === "shipped") {
-          /*
-           * Another publish took the editor's change before this tab could:
-           * it is on the site, which is the answer they came here for.
-           */
-          ownPending.current = false;
-          setSettled(SHIPPED_ELSEWHERE);
-          // No request of this tab's exists: opened again, nothing says this.
-          rememberEnding(id, { kind: "shipped-elsewhere" });
+          shippedElsewhere();
           return;
         }
         notPressed(outcome.message, outcome.details, {
