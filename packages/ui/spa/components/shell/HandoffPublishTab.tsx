@@ -431,6 +431,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
         tab: intent.tab,
         // Not while a job runs here: a job for this press waits in `queue`.
         stopped: () => closed,
+        otherJob: (job) => runJob(job, intent.tab, null, false),
       });
       if (followed.kind === "job") {
         runJob(followed.job, intent.tab, intent.requestId, true);

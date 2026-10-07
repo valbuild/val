@@ -2,7 +2,12 @@ import type { StudioDeployResult } from "./runStudioDeploy";
 import type { SiteUpdateOutcome } from "./runSiteUpdate";
 import type { StudioJobResult } from "./runStudioJob";
 import { randomUUID } from "../utils/randomUUID";
-import { browserStorage, readKeyed, writeKeyed } from "./browserStorage";
+import {
+  browserStorage,
+  readKeyed,
+  removeKeyed,
+  writeKeyed,
+} from "./browserStorage";
 import {
   parseRequestStatus,
   type DependencyChange,
@@ -228,6 +233,19 @@ export function storedHandoffIntent(
   const entry = readKeyed(storage, INTENT_PREFIX, id);
   const intent = entry === null ? null : asIntent(entry.value);
   return entry === null || intent === null ? null : { intent, at: entry.at };
+}
+
+/**
+ * Retire the intent for the tab `id`: once it has done its part and the
+ * ending could not be written down, so a tab opened again does not run it
+ * again. It then finds nothing to run, and says so.
+ */
+export function forgetHandoffIntent(
+  id: string,
+  storage: Storage | null = browserStorage(),
+): void {
+  if (storage === null) return;
+  removeKeyed(storage, INTENT_PREFIX, id);
 }
 
 /* Read back structurally: storage is the origin's, and anything may be there. */

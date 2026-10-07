@@ -4,7 +4,7 @@ import type {
 } from "@valbuild/shared/internal";
 import type { PressAs, PublishResult } from "../stores/PublishSeam";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
-import type { HandoffIntent } from "./handoff";
+import { forgetHandoffIntent, type HandoffIntent } from "./handoff";
 import type { StudioJobClient } from "./jobClient";
 import { browserStorage, readKeyed, writeKeyed } from "./browserStorage";
 import { isTransientPublishError, StudioPublishError } from "./publishClient";
@@ -362,6 +362,8 @@ export async function followRequest(options: {
   requestId: string;
   tab: string;
   stopped: () => boolean;
+  /** A job leased while following that is not this request's: still to run. */
+  otherJob: (job: PublishTabJob) => void;
   everyMs?: number;
 }): Promise<
   | { kind: "job"; job: PublishTabJob }
@@ -380,7 +382,24 @@ export async function followRequest(options: {
     }
     const job = await options.client.next(options.tab).catch(() => null);
     if (options.stopped()) return { kind: "stopped" };
-    if (job !== null && job.step !== null) return { kind: "job", job };
+    if (job !== null && job.step !== null) {
+      /*
+       * Asking for status and asking for work are two calls, and the request
+       * can settle between them -- then the job leased is another request's
+       * (content starts one for whatever is queued): this tab's to run, but
+       * not as this press's, which is over. A request content could not be
+       * asked about again is taken to be in the job, as before the check.
+       */
+      const after = await options.client
+        .requestStatus(options.requestId)
+        .catch(() => null);
+      if (options.stopped()) return { kind: "stopped" };
+      if (after !== null && isSettled(after)) {
+        options.otherJob(job);
+        return { kind: "settled", request: after };
+      }
+      return { kind: "job", job };
+    }
     await new Promise((resolve) => setTimeout(resolve, everyMs));
   }
 }
@@ -490,11 +509,18 @@ export function rememberEnding(
     ending.kind === "update" && ending.outcome.status === "failed"
       ? { kind: "update", outcome: { ...ending.outcome, deploy: null } }
       : ending;
-  // Not remembered, if storage refuses: opened again, the tab does it again.
-  writeKeyed(storage, ENDING_PREFIX, id, stored, {
+  const written = writeKeyed(storage, ENDING_PREFIX, id, stored, {
     now,
     keepMs: ENDING_KEEP_MS,
   });
+  /*
+   * Storage refused the ending (full, most likely): then the intent goes
+   * instead. Left behind, a tab opened again within the hour would find no
+   * ending and no request -- an update, or a press another publish made
+   * unnecessary, has none -- and run it a second time. Removing asks storage
+   * for nothing new, so it works where writing did not.
+   */
+  if (!written) forgetHandoffIntent(id, storage);
 }
 
 export function rememberedEnding(

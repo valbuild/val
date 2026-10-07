@@ -52,6 +52,20 @@ export function writeKeyed(
   return true;
 }
 
+/** Remove the entry for `id`. `false` if storage would not. */
+export function removeKeyed(
+  storage: Storage,
+  prefix: string,
+  id: string,
+): boolean {
+  try {
+    storage.removeItem(prefix + id);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** The entry stored for `id`, or `null`. The value is the caller's to check. */
 export function readKeyed(
   storage: Storage,

@@ -24,6 +24,7 @@ import {
   whenReady,
 } from "./pressForPage";
 import { createRequestPublish } from "./requestPublish";
+import { storedHandoffIntent, storeHandoffIntent } from "./handoff";
 
 /**
  * The press a builder tab makes for the page that opened it. The page cannot:
@@ -261,6 +262,7 @@ describe("a press already made, followed", () => {
       requestId: "r1",
       tab: "page-tab",
       stopped: () => false,
+      otherJob: () => {},
       everyMs: 1,
     });
     expect(followed).toEqual({ kind: "job", job });
@@ -285,6 +287,7 @@ describe("a press already made, followed", () => {
       requestId: "r1",
       tab: "page-tab",
       stopped: () => false,
+      otherJob: () => {},
       everyMs: 1,
     });
     expect(followed).toEqual({ kind: "job", job });
@@ -301,6 +304,7 @@ describe("a press already made, followed", () => {
       requestId: "r1",
       tab: "page-tab",
       stopped: () => false,
+      otherJob: () => {},
       everyMs: 1,
     });
     expect(followed).toEqual({
@@ -322,6 +326,7 @@ describe("a press already made, followed", () => {
       requestId: "r1",
       tab: "page-tab",
       stopped: () => stopped,
+      otherJob: () => {},
       everyMs: 1,
     });
     expect(followed).toEqual({ kind: "stopped" });
@@ -343,9 +348,34 @@ describe("a press already made, followed", () => {
       requestId: "r1",
       tab: "page-tab",
       stopped: () => false,
+      otherJob: () => {},
       everyMs: 1,
     });
     expect(followed).toEqual({ kind: "job", job });
+  });
+
+  test("a job leased just after the request settled is run, but not as its own", async () => {
+    // The request goes live between the status read and `next`, which then
+    // starts a job for the next queued request: that job is not this press's.
+    let reads = 0;
+    const others: PublishTabJob[] = [];
+    const followed = await followRequest({
+      client: {
+        next: async () => job,
+        requestStatus: async () =>
+          ++reads < 2 ? { kind: "publishing" } : { kind: "live", commit: "c1" },
+      },
+      requestId: "r1",
+      tab: "page-tab",
+      stopped: () => false,
+      otherJob: (other) => others.push(other),
+      everyMs: 1,
+    });
+    expect(followed).toEqual({
+      kind: "settled",
+      request: { kind: "live", commit: "c1" },
+    });
+    expect(others).toEqual([job]);
   });
 });
 
@@ -478,6 +508,23 @@ describe("what a tab remembers of its own ending", () => {
     store.setItem("val-publish-handoff-ending:new", "{not json");
     expect(rememberedEnding("new", store)).toBeNull();
     expect(rememberedEnding("x", null)).toBeNull();
+  });
+
+  test("an ending storage refuses retires the intent instead", () => {
+    const store = storage();
+    expect(storeHandoffIntent("h5", { kind: "update" }, store)).toBe(true);
+    const full: Storage = {
+      ...store,
+      get length() {
+        return store.length;
+      },
+      setItem: () => {
+        throw new Error("QuotaExceededError");
+      },
+    };
+    rememberEnding("h5", { kind: "shipped-elsewhere" }, full);
+    // Opened again, the tab finds nothing to run, rather than running it twice.
+    expect(storedHandoffIntent("h5", store)).toBeNull();
   });
 });
 
