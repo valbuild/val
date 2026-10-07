@@ -820,6 +820,14 @@ export function ValProvider({
   useEffect(() => {
     if ("data" in stat && stat.data) {
       setDeployments((prev) => {
+        /*
+         * Not in a proposal. Its commits are SAVES, which its address serves
+         * as soon as they answer, and none of them is ever deployed -- so the
+         * feed showed each one "Building", for good. Deploys are the site's.
+         */
+        if (stat.data?.proposal) {
+          return prev.length === 0 ? prev : [];
+        }
         if (
           (stat.data?.deployments && stat.data.deployments?.length > 0) ||
           (stat.data?.commits && stat.data.commits?.length > 0)
