@@ -733,6 +733,35 @@ describe("a press that did not get through", () => {
     });
   });
 
+  test("a try again that landed though its answer was lost is followed", async () => {
+    const outcome = await pressForPage({
+      intent: {
+        kind: "try-again",
+        requestId: "page-r2",
+        tab: "page-tab",
+        replaces: "page-r1",
+        after: null,
+      },
+      client: {
+        requestStatus: async () => ({ kind: "queued" }),
+        tryAgain: async () => {
+          throw new TypeError("Load failed");
+        },
+      },
+      chain: () => ["p1"],
+      retryMs: noWait,
+      publish: async () => ({ status: "nothing-to-publish" }),
+    });
+    expect(outcome).toEqual({
+      kind: "pressed",
+      requestId: "page-r2",
+      request: { kind: "queued" },
+      job: null,
+      patchIds: ["p1"],
+      replaces: "page-r1",
+    });
+  });
+
   test("a try again that did not get through is asked again", async () => {
     let calls = 0;
     const outcome = await pressForPage({

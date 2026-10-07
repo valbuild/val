@@ -254,6 +254,27 @@ export async function pressForPage(options: {
         replaces: intent.replaces,
       };
     } catch (error) {
+      /*
+       * No answer is not a no: content may have made the request and lost
+       * only the reply, as with a press. It says whether it did.
+       */
+      const landed = isTransientPublishError(error)
+        ? await pressedAlready({
+            client: options.client,
+            requestId: intent.requestId,
+            retryMs,
+          })
+        : null;
+      if (landed !== null) {
+        return {
+          kind: "pressed",
+          requestId: intent.requestId,
+          request: landed,
+          job: null,
+          patchIds: options.chain(),
+          replaces: intent.replaces,
+        };
+      }
       return {
         kind: "not-pressed",
         message:
