@@ -203,6 +203,44 @@ test("Try again replaces the failed request with a new press, and builds its job
   expect(built).toEqual(["J2"]);
 });
 
+test("a try again a builder tab pressed replaces the failed request, and holds what both sent", async () => {
+  const { client } = fakeClient();
+  const built: string[] = [];
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => {
+      built.push(j.id);
+      return handedOff(j.id);
+    },
+    takesQueuedWork: () => false,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: {
+      kind: "failed",
+      message: "a page failed to render",
+      actions: ["try-again", "discard"],
+      job: "J1",
+    },
+    job: null,
+    patchIds: ["p1"],
+  });
+  // Followed without its job: the tab that pressed it builds that.
+  jobs.track({
+    requestId: "r2",
+    request: { kind: "publishing" },
+    job: null,
+    patchIds: ["p2"],
+    replaces: "r1",
+  });
+  await flush();
+  expect(jobs.get().requests).toEqual([
+    expect.objectContaining({ requestId: "r2", patchIds: ["p1", "p2"] }),
+  ]);
+  expect(built).toEqual([]);
+});
+
 test("Discard is pressed on the failed request's job", async () => {
   const discarded: string[] = [];
   const { client } = fakeClient({

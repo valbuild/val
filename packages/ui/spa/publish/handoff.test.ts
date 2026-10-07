@@ -4,6 +4,7 @@ import {
   joinHandoff,
   leaveTo,
   openHandoff,
+  readHandoffIntent,
   type ToSite,
   type ToTab,
 } from "./handoff";
@@ -46,6 +47,106 @@ test("the tab opens at a url that names the handoff", () => {
   expect(opened).toEqual([handoffUrl(site.id)]);
   expect(site.opened).toBe(true);
   site.close();
+});
+
+/**
+ * What the tab is to do travels in its URL, not over the channel: on an iPhone
+ * the page is paused from the moment the tab opens, and cannot answer it.
+ */
+describe("the tab's URL says what it is to do", () => {
+  const searchOf = (url: string) => new URL(url, "http://site").search;
+
+  test("a press, as the page's tab, under the page's request id", () => {
+    const site = openHandoff({
+      open,
+      intent: { kind: "press", requestId: "r1", tab: "site-tab" },
+    });
+    expect(readHandoffIntent(searchOf(opened[0] ?? ""))).toEqual({
+      kind: "press",
+      requestId: "r1",
+      tab: "site-tab",
+    });
+    // The platform isolates the tab by this parameter: it is still there.
+    expect(
+      new URL(opened[0] ?? "", "http://site").searchParams.get(
+        "publish-handoff",
+      ),
+    ).toBe(site.id);
+    site.close();
+  });
+
+  test("a try again, naming the request it replaces", () => {
+    const url = handoffUrl("h1", "/val", {
+      kind: "try-again",
+      requestId: "r2",
+      tab: "site-tab",
+      replaces: "r1",
+    });
+    expect(readHandoffIntent(searchOf(url))).toEqual({
+      kind: "try-again",
+      requestId: "r2",
+      tab: "site-tab",
+      replaces: "r1",
+    });
+  });
+
+  test("an update", () => {
+    const url = handoffUrl("h1", "/val", { kind: "update" });
+    expect(readHandoffIntent(searchOf(url))).toEqual({ kind: "update" });
+  });
+
+  test("a URL that says nothing, or not enough, is a tab that waits to be told", () => {
+    expect(readHandoffIntent(searchOf(handoffUrl("h1")))).toBeNull();
+    expect(
+      readHandoffIntent(
+        "?publish-handoff=h1&publish-do=press&publish-request=r1",
+      ),
+    ).toBeNull();
+    expect(
+      readHandoffIntent(
+        "?publish-handoff=h1&publish-do=try-again&publish-request=r2&publish-as=t",
+      ),
+    ).toBeNull();
+    expect(
+      readHandoffIntent(
+        "?publish-handoff=h1&publish-do=build&publish-request=r1&publish-as=t",
+      ),
+    ).toBeNull();
+  });
+});
+
+test("what the tab pressed reaches the site, and a status that is not one is dropped", async () => {
+  const site = openHandoff({ open });
+  const heard: ToSite[] = [];
+  site.onMessage((message) => heard.push(message));
+  const tab = joinHandoff(site.id, () => undefined, { retryMs: 10 });
+  const pressed: Extract<ToSite, { type: "pressed" }> = {
+    type: "pressed",
+    requestId: "r1",
+    request: { kind: "queued" },
+    patchIds: ["p1", "p2"],
+    replaces: null,
+    building: true,
+  };
+  // What another tab of the origin could post: a status nobody can follow.
+  const channel = new BroadcastChannel("val-publish-handoff");
+  channel.postMessage({
+    id: site.id,
+    message: { ...pressed, requestId: "junk", request: { kind: "somewhere" } },
+  });
+  tab.report(pressed);
+  try {
+    await until(() => heard.some((message) => message.type === "pressed"));
+    // Two channels are not ordered: give the junk time to arrive too.
+    await wait(40);
+    expect(heard.filter((message) => message.type === "pressed")).toEqual([
+      pressed,
+    ]);
+  } finally {
+    channel.close();
+    tab.close();
+    site.close();
+  }
 });
 
 test("a blocked tab is reported, so the page can offer it as a button", () => {

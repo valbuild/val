@@ -8,15 +8,18 @@ import { PUBLISH_TAB_ID } from "./tabId";
  * request, pressed by this tab. Every press mints its own id -- the id is
  * what makes a retried press the same press -- and never throws: a refusal is
  * a result, as every seam's is.
+ *
+ * A builder tab pressing for the page that opened it passes that page's id and
+ * tab instead (`pressAs`), so the page can follow the request it named.
  */
 export function createRequestPublish(
   client: StudioJobClient,
   tab: string = PUBLISH_TAB_ID,
 ): RequestPublish {
-  return async () => {
-    const requestId = randomUUID();
+  return async (pressAs) => {
+    const requestId = pressAs?.requestId ?? randomUUID();
     try {
-      const pressed = await client.press(requestId, tab);
+      const pressed = await client.press(requestId, pressAs?.tab ?? tab);
       return { status: "requested", requestId, ...pressed };
     } catch (error) {
       return {

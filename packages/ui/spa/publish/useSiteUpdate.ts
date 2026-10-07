@@ -148,10 +148,12 @@ export function useSiteUpdate(options: {
       /*
        * A page that cannot build -- the Studio in WebKit, which is not cross
        * origin isolated -- hands the whole update to a Studio tab, which is.
-       * The same channel a publish uses, with `update` in place of a commit:
-       * nothing is saved first, so the message goes at once.
+       * The same channel a publish uses, and the tab starts on its own: its
+       * URL says to update, because on an iPhone this page is paused while the
+       * tab is in front, and a message sent before the tab listens is lost.
+       * The message is sent as well, for a tab from before intents.
        */
-      const tab = openHandoff();
+      const tab = openHandoff({ intent: { kind: "update" } });
       handoff.current = tab;
       const timeout = setTimeout(lock.release, HANDOFF_LOCK_MS);
       setView(

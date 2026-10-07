@@ -84,6 +84,12 @@ export type PublishJobs = {
     job: PublishTabJob | null;
     /** What the press sent; see `TrackedPublish.patchIds`. */
     patchIds?: readonly string[];
+    /**
+     * A try again pressed somewhere else -- the builder tab this page opened
+     * -- replaces this failed request, as {@link PublishJobs.tryAgain}'s own
+     * does, and holds what it sent too.
+     */
+    replaces?: string;
   }): void;
   /** A job moved: re-read what is not settled, and look for queued work. */
   nudge(): void;
@@ -263,9 +269,9 @@ export function createPublishJobs(options: {
   ) => Promise<StudioJobResult>;
   /**
    * Whether this tab asks for queued work now. Not where it cannot build,
-   * unless a builder tab it opened is still waiting for a job: such a page
-   * hands its own presses to that tab, and has no tab to hand anything to
-   * once it has closed.
+   * unless a builder tab it opened is still open to hand it to -- and none
+   * once that tab has closed. (That tab makes such a page's presses itself,
+   * and asks for their queued jobs itself, as the page.)
    */
   takesQueuedWork: () => boolean;
   /** A tracked request settled: Live, failed, cancelled, nothing to publish. */
@@ -470,14 +476,30 @@ export function createPublishJobs(options: {
     requestId,
     request,
     job,
-    patchIds,
+    patchIds: sent,
+    replaces,
   }: {
     requestId: string;
     request: PublishRequestStatus;
     job: PublishTabJob | null;
     patchIds?: readonly string[];
+    replaces?: string;
   }) {
     const at = now();
+    const replaced =
+      replaces === undefined
+        ? undefined
+        : state.requests.find((r) => r.requestId === replaces);
+    if (replaced !== undefined) {
+      set({
+        ...state,
+        requests: state.requests.filter((r) => r.requestId !== replaces),
+      });
+    }
+    const patchIds =
+      replaced?.patchIds === undefined
+        ? sent
+        : [...replaced.patchIds, ...(sent ?? [])];
     /*
      * And the job's own list: a job takes everything pending, which can be
      * more than the gate checked -- a save that landed after it. Only for a

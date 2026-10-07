@@ -940,6 +940,32 @@ rewriting at all. It is returned from the plugin's `config()` hook for that
 reason, and `closeBundle` refuses to delete anything still referenced by a
 chunk, which is what turns a 404 in someone's browser into a failed build.
 
+### On an iPhone, the page that opened the builder tab stops running
+
+A page that cannot build (every iPhone's Studio, every overlay) opens a builder
+tab in the tap of Publish. On iOS that tab takes the screen and the page behind
+it is paused AT ONCE: no timers, no fetch callbacks, no `BroadcastChannel`
+messages, until the editor goes back to it. Anything the page means to do after
+the tap does not happen while the tab is in front.
+
+The hand-off was first built with the page doing the work: wait for the AI's
+commit message, run the gate, press, then answer the tab's `ready` with the
+job. On an iPhone none of it ran, and the tab sat at "Starting the publish"
+indefinitely. Going back to the page woke it, and it sent the job, to a tab that
+was now the paused one.
+
+So the tab is told everything in its URL (`HandoffIntent` in
+`spa/publish/handoff.ts`) and presses itself, as the page's tab and under a
+request id the page minted in the tap. The page only follows what was pressed,
+whenever it is in front again. **Anything new in the hand-off has to work with
+the page frozen from the tap onwards.**
+
+Desktop browsers do not do this, so a hand-off that works on a laptop proves
+nothing. Chromium can, on request: `Page.setWebLifecycleState` with
+`state: "frozen"` over CDP pauses a page the same way, and
+`e2e/http/publishHandoff.spec.ts` freezes the Studio straight after the tap.
+That spec fails on the old hand-off with the same screen an iPhone showed.
+
 ## A request "pending" in dev is usually queued, not slow
 
 The devtools show a request as pending from the moment it is _created_, which

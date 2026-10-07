@@ -1,6 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { useStudioDeployState } from "../ValProvider";
-import { joinHandoff, leaveTo, type TabHandoff } from "../../publish/handoff";
+import {
+  joinHandoff,
+  leaveTo,
+  readHandoffIntent,
+  type HandoffIntent,
+  type TabHandoff,
+} from "../../publish/handoff";
+import {
+  NOT_LOADED_MESSAGE,
+  nothingToBuildMessage,
+  pressBuilds,
+  pressForPage,
+  waitForQueuedJob,
+  whenReady,
+} from "../../publish/pressForPage";
+import { useValSystem } from "../../stores/react/SystemContext";
 import {
   deployPercent,
   describeDeployPhase,
@@ -15,6 +30,10 @@ import { createStudioPublishClient } from "../../publish/publishClient";
 import { createStudioJobClient } from "../../publish/jobClient";
 import { runJobToEnd, runStudioJob } from "../../publish/runStudioJob";
 import { isSettled } from "../../publish/publishJobs";
+import type {
+  PublishRequestStatus,
+  PublishTabJob,
+} from "@valbuild/shared/internal";
 import {
   runSiteUpdate,
   type SiteUpdateOutcome,
@@ -28,13 +47,18 @@ import {
 /**
  * The Studio tab a page that cannot build opened to publish from it.
  *
- * It waits for the publish job (the press runs on the site after this tab
- * opened), runs it AS THE SITE'S TAB -- the job is leased to the tab that
- * pressed -- with the same `runStudioJob` a Studio runs its own jobs with, and
- * reports each step back to the page that is waiting. Its work ends at the
+ * It presses Publish FOR the page -- the gate, then content's press, as the
+ * site's tab and under the request id the page minted (its URL says so: see
+ * `HandoffIntent`) -- because the page may be paused from the moment this tab
+ * took the screen. It runs the job AS THE SITE'S TAB -- the job is leased to
+ * the tab that pressed -- with the same `runStudioJob` a Studio runs its own
+ * jobs with, and reports each step back to the page. Its work ends at the
  * upload: content checks the site renders and puts it live on its own, and the
  * page that opened this follows that itself -- so this closes, rather than
  * being kept open for a check it plays no part in.
+ *
+ * A page that is awake may still hand it a job over the channel -- queued
+ * work it took -- and this builds that the same way.
  */
 
 const ORDER: DeployPhase["kind"][] = [
@@ -61,7 +85,7 @@ const FAILURE_READ_MS = 1_000;
 type Waiting =
   | { kind: "waiting"; since: number }
   | { kind: "started"; waitedMs: number; jobId: string | null }
-  | { kind: "cancelled"; message: string };
+  | { kind: "cancelled"; message: string; details?: string };
 
 /** How this tab's part ended. */
 type GoingLive =
@@ -70,6 +94,19 @@ type GoingLive =
 
 export function HandoffPublishTab({ id }: { id: string }) {
   const { state, deploy } = useStudioDeployState();
+  const val = useValSystem();
+  /** Read by the press, which outlives the render it started in. */
+  const valRef = useRef(val);
+  valRef.current = val;
+  /*
+   * What this tab is to do, from its URL. Read once, like the handoff's id:
+   * the tab is for this one press.
+   */
+  const [intent] = useState<HandoffIntent | null>(() =>
+    typeof window === "undefined"
+      ? null
+      : readHandoffIntent(window.location.search),
+  );
   const [waiting, setWaiting] = useState<Waiting>(() => ({
     kind: "waiting",
     since: Date.now(),
@@ -82,6 +119,10 @@ export function HandoffPublishTab({ id }: { id: string }) {
   const running = useRef(false);
   const started = useRef(false);
   const startedAt = useRef<number | null>(null);
+  /** The page cancelled before this tab's own press went out. */
+  const cancelled = useRef(false);
+  /** This tab has pressed: one press per tab, however often the effect runs. */
+  const pressing = useRef(false);
   /**
    * An update rather than a publish job: the page that cannot build pressed
    * Update site. Reported with `update-done`, never `done`, because it can end
@@ -97,44 +138,43 @@ export function HandoffPublishTab({ id }: { id: string }) {
     const client = createStudioJobClient({ api: "/api/val" });
     const report = (message: Parameters<TabHandoff["report"]>[0]) =>
       tab.current?.report(message);
-    const handoff = joinHandoff(id, (message) => {
-      if (message.type === "cancel") {
-        if (!started.current) {
-          setWaiting({ kind: "cancelled", message: message.message });
-        }
-        return;
-      }
-      if (message.type === "update") {
-        if (started.current) return;
-        started.current = true;
-        updating.current = true;
-        setWaiting({ kind: "started", waitedMs: 0, jobId: null });
-        void runSiteUpdate({
-          client: createStudioPublishClient({ api: "/api/val" }),
-          deploy,
-        }).then((outcome) => {
-          setUpdateOutcome(outcome);
-          report({ type: "update-done", outcome });
-          if (outcome.status === "updated") setClosingIn(CLOSE_AFTER_S);
-        });
-        return;
-      }
-      /*
-       * Once per job: the site re-sends it whenever a tab says it is ready.
-       * A job the site sends AGAIN after this tab's run ended is a new run --
-       * content kept it at its step for another attempt.
-       */
+
+    const startUpdate = () => {
+      if (started.current) return;
+      started.current = true;
+      updating.current = true;
+      setWaiting({ kind: "started", waitedMs: 0, jobId: null });
+      void runSiteUpdate({
+        client: createStudioPublishClient({ api: "/api/val" }),
+        deploy,
+      }).then((outcome) => {
+        setUpdateOutcome(outcome);
+        report({ type: "update-done", outcome });
+        if (outcome.status === "updated") setClosingIn(CLOSE_AFTER_S);
+      });
+    };
+
+    /*
+     * Once per job. A job the site sends AGAIN after this tab's run ended is
+     * a new run -- content kept it at its step for another attempt.
+     */
+    const runJob = (
+      job: PublishTabJob,
+      asTab: string,
+      requestId: string | null,
+    ) => {
       if (running.current || updating.current) return;
       running.current = true;
       started.current = true;
       if (startedAt.current === null) startedAt.current = Date.now();
       setGoingLive(null);
+      // A job after this tab said it had nothing to build: it has now.
+      setClosingIn(null);
       setWaiting((prev) => ({
         kind: "started",
         waitedMs: prev.kind === "waiting" ? Date.now() - prev.since : 0,
-        jobId: message.job.id,
+        jobId: job.id,
       }));
-      const { job, tab: asTab, requestId } = message;
       void (async () => {
         const result = await runJobToEnd({
           client,
@@ -193,13 +233,129 @@ export function HandoffPublishTab({ id }: { id: string }) {
           summary: message,
         });
       })();
+    };
+
+    /** The press did not happen: said here, and on the page's card. */
+    const notPressed = (message: string, details?: string) => {
+      setWaiting({
+        kind: "cancelled",
+        message,
+        ...(details !== undefined ? { details } : {}),
+      });
+      report({
+        type: "done",
+        result: { status: "failed", message: details ?? message, problems: [] },
+        ms: 0,
+        summary: message,
+      });
+    };
+
+    /** The press left this tab nothing to build. The page follows the request. */
+    const nothingToBuild = (
+      pressed: {
+        requestId: string;
+        patchIds: string[];
+        replaces: string | null;
+      },
+      request: PublishRequestStatus,
+    ) => {
+      report({ type: "pressed", ...pressed, request, building: false });
+      setWaiting({
+        kind: "cancelled",
+        message: nothingToBuildMessage(request),
+      });
+    };
+
+    /** Press for the page: see `pressForPage`. */
+    const press = async (
+      intent: Exclude<HandoffIntent, { kind: "update" }>,
+    ) => {
+      const loaded = await whenReady(() => {
+        const current = valRef.current;
+        return (
+          current !== null &&
+          current.system.host.initializedAt() !== null &&
+          current.system.patchStore.chainSettled()
+        );
+      });
+      // A job the page handed over meanwhile, or a cancel, has the tab now.
+      if (closed || started.current || cancelled.current || pressing.current)
+        return;
+      pressing.current = true;
+      const system = valRef.current?.system;
+      if (!loaded || system === undefined) {
+        notPressed(NOT_LOADED_MESSAGE);
+        return;
+      }
+      const chain = () =>
+        system.patchStore.allRecords().map((record) => record.patchId);
+      const outcome = await pressForPage({
+        intent,
+        client,
+        chain,
+        publish: (pressAs) =>
+          system.publish(chain(), "", { request: true, pressAs }),
+      });
+      if (closed) return;
+      if (outcome.kind === "not-pressed") {
+        notPressed(outcome.message, outcome.details);
+        return;
+      }
+      const pressed = {
+        requestId: outcome.requestId,
+        patchIds: outcome.patchIds,
+        replaces: outcome.replaces,
+      };
+      if (!pressBuilds(outcome)) {
+        nothingToBuild(pressed, outcome.request);
+        return;
+      }
+      report({
+        type: "pressed",
+        ...pressed,
+        request: outcome.request,
+        building: true,
+      });
+      if (outcome.job !== null && outcome.job.step !== null) {
+        runJob(outcome.job, intent.tab, outcome.requestId);
+        return;
+      }
+      // Queued behind another job: this tab takes its turn, as the page's.
+      const waited = await waitForQueuedJob({
+        client,
+        requestId: outcome.requestId,
+        tab: intent.tab,
+        stopped: () => closed || running.current,
+      });
+      if (waited.kind === "job") {
+        runJob(waited.job, intent.tab, outcome.requestId);
+      } else if (waited.kind === "moved" && !closed) {
+        nothingToBuild(pressed, waited.request);
+      }
+    };
+
+    const handoff = joinHandoff(id, (message) => {
+      if (message.type === "cancel") {
+        if (!started.current) {
+          cancelled.current = true;
+          setWaiting({ kind: "cancelled", message: message.message });
+        }
+        return;
+      }
+      if (message.type === "update") {
+        startUpdate();
+        return;
+      }
+      runJob(message.job, message.tab, message.requestId);
     });
     tab.current = handoff;
+    if (intent?.kind === "update") startUpdate();
+    else if (intent !== null) void press(intent);
     return () => {
       closed = true;
       handoff.close();
     };
-  }, [id, deploy]);
+  }, [id, deploy, intent]);
 
   // Ticks the elapsed time here, and relays it to the waiting page.
   useEffect(() => {
@@ -241,7 +397,13 @@ export function HandoffPublishTab({ id }: { id: string }) {
   const result: PublishPageResult | undefined = updating.current
     ? updateResultOf(updateOutcome, closingIn)
     : waiting.kind === "cancelled"
-      ? { kind: "failed", message: waiting.message }
+      ? {
+          kind: "failed",
+          message: waiting.message,
+          ...(waiting.details !== undefined
+            ? { details: waiting.details }
+            : {}),
+        }
       : goingLive?.kind === "handed-off"
         ? {
             kind: "handed-off",

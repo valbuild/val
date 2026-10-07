@@ -3001,7 +3001,9 @@ export function createSystem(options: SystemOptions): System {
               retryable: false,
             };
           }
-          const requested = await options.requestPublish();
+          const requested = await options.requestPublish(
+            publishOptions.pressAs,
+          );
           if (requested.status !== "requested") {
             return {
               status: "failed",
