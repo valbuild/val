@@ -243,7 +243,7 @@ export function useProposalsBar({
       setPublishState({ kind: "publishing", step: "saving" });
       const failed = await save();
       if (failed !== null) {
-        setPublishState({ kind: "failed", message: `${failed}.` });
+        setPublishState({ kind: "failed", message: failed });
         return;
       }
     }

@@ -59,6 +59,12 @@ const STEP_WORDS: Record<
   publishing: "Publishing…",
 };
 
+/** A message from elsewhere, as a sentence: they do not all end in one. */
+function asSentence(message: string): string {
+  const trimmed = message.trim();
+  return /[.!?…]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
 /**
  * Publish, in a proposal: merging it into the site. One commit on the site,
  * built and checked before anything changes there; afterwards the proposal is
@@ -205,8 +211,8 @@ export function PublishProposalDialog({
               <AlertTriangle size={14} className="mt-px shrink-0" />
               <span>
                 {state.kind === "failed"
-                  ? `It was not published: ${state.message} Nothing changed on the site.`
-                  : `Could not check whether it can be published: ${state.message}`}
+                  ? `It was not published: ${asSentence(state.message)} Nothing changed on the site.`
+                  : `Could not check whether it can be published: ${asSentence(state.message)}`}
               </span>
             </div>
           )}
