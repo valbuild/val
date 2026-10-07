@@ -222,7 +222,8 @@ export type PublishStep = {
 };
 
 export type PublishPageResult =
-  | { kind: "live"; ms: number; closingInS?: number }
+  /** `ms` absent: a tab opened again after the publish, which never timed it. */
+  | { kind: "live"; ms?: number; closingInS?: number }
   /**
    * The build is the content service's now: it checks the site renders and
    * puts it live without this tab, and the page that opened it says when.
@@ -288,7 +289,9 @@ export function StudioPublishPage({
         </p>
         <h1 className="mt-1 text-lg font-semibold">
           {result?.kind === "live"
-            ? `Live after ${seconds(result.ms)}`
+            ? result.ms !== undefined
+              ? `Live after ${seconds(result.ms)}`
+              : "Live"
             : result?.kind === "handed-off"
               ? "Built and handed over"
               : result?.kind === "failed"

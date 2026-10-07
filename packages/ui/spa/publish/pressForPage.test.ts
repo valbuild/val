@@ -9,13 +9,16 @@ import { StudioPublishError } from "./publishClient";
 import {
   hasChange,
   newestUnpublished,
+  followRequest,
   NOT_LOADED_MESSAGE,
   type PressedForPage,
   type PressIntent,
-  nothingToBuildMessage,
   pressBuilds,
+  pressedAlready,
   pressForPage,
-  waitForQueuedJob,
+  rememberedEnding,
+  rememberEnding,
+  settledMessage,
   whenReady,
 } from "./pressForPage";
 import { createRequestPublish } from "./requestPublish";
@@ -232,22 +235,16 @@ describe("what a press leaves the tab", () => {
     expect(
       pressBuilds(pressed({ kind: "publishing" }, { ...job, step: null })),
     ).toBe(false);
-    expect(nothingToBuildMessage({ kind: "publishing" })).toBe(
-      "Your changes are publishing with the publish before them.",
-    );
-    expect(nothingToBuildMessage({ kind: "nothing-to-publish" })).toBe(
-      "There was nothing to publish.",
-    );
   });
 });
 
-describe("a queued press", () => {
+describe("a press already made, followed", () => {
   test("asks for its job, as the page, until its turn comes", async () => {
     const asked: string[] = [];
     let turn = 0;
-    const waited = await waitForQueuedJob({
+    const followed = await followRequest({
       client: {
-        next: async (tab) => {
+        next: async (tab: string) => {
           asked.push(tab);
           return ++turn < 3 ? null : job;
         },
@@ -258,14 +255,23 @@ describe("a queued press", () => {
       stopped: () => false,
       everyMs: 1,
     });
-    expect(waited).toEqual({ kind: "job", job });
+    expect(followed).toEqual({ kind: "job", job });
     expect(asked).toEqual(["page-tab", "page-tab", "page-tab"]);
   });
 
-  test("stops asking once another tab's job took it", async () => {
-    const waited = await waitForQueuedJob({
+  test("takes its build up again once a reloaded tab's lease has lapsed", async () => {
+    // Content says `publishing` until a tab asking for work lets it see the
+    // lapsed lease and put the job back: then that tab gets it.
+    let lapsed = false;
+    const followed = await followRequest({
       client: {
-        next: async () => null,
+        next: async () => {
+          if (!lapsed) {
+            lapsed = true;
+            return null;
+          }
+          return job;
+        },
         requestStatus: async () => ({ kind: "publishing" }),
       },
       requestId: "r1",
@@ -273,12 +279,31 @@ describe("a queued press", () => {
       stopped: () => false,
       everyMs: 1,
     });
-    expect(waited).toEqual({ kind: "moved", request: { kind: "publishing" } });
+    expect(followed).toEqual({ kind: "job", job });
+  });
+
+  test("ends with the result once it has settled", async () => {
+    let reads = 0;
+    const followed = await followRequest({
+      client: {
+        next: async () => null,
+        requestStatus: async () =>
+          ++reads < 3 ? { kind: "publishing" } : { kind: "live", commit: "c1" },
+      },
+      requestId: "r1",
+      tab: "page-tab",
+      stopped: () => false,
+      everyMs: 1,
+    });
+    expect(followed).toEqual({
+      kind: "settled",
+      request: { kind: "live", commit: "c1" },
+    });
   });
 
   test("stops when a job arrived some other way", async () => {
     let stopped = false;
-    const waited = await waitForQueuedJob({
+    const followed = await followRequest({
       client: {
         next: async () => {
           stopped = true;
@@ -291,12 +316,12 @@ describe("a queued press", () => {
       stopped: () => stopped,
       everyMs: 1,
     });
-    expect(waited).toEqual({ kind: "stopped" });
+    expect(followed).toEqual({ kind: "stopped" });
   });
 
-  test("keeps asking through a request that did not get through", async () => {
+  test("keeps asking through requests that did not get through", async () => {
     let turn = 0;
-    const waited = await waitForQueuedJob({
+    const followed = await followRequest({
       client: {
         next: async () => {
           turn++;
@@ -312,7 +337,131 @@ describe("a queued press", () => {
       stopped: () => false,
       everyMs: 1,
     });
-    expect(waited).toEqual({ kind: "job", job });
+    expect(followed).toEqual({ kind: "job", job });
+  });
+});
+
+/*
+ * A tab opened again -- reloaded, gone back to, the URL reopened -- asks
+ * content first, and shows the publish rather than making it again.
+ */
+describe("a tab opened again", () => {
+  test("finds the press it already made", async () => {
+    await expect(
+      pressedAlready({
+        client: { requestStatus: async () => ({ kind: "live", commit: "c1" }) },
+        requestId: "r1",
+      }),
+    ).resolves.toEqual({ kind: "live", commit: "c1" });
+  });
+
+  test("presses when content has never heard of the request", async () => {
+    let asked = 0;
+    await expect(
+      pressedAlready({
+        client: {
+          requestStatus: async () => {
+            asked++;
+            throw new StudioPublishError(404, "No such request", null);
+          },
+        },
+        requestId: "r1",
+        retryMs: noWait,
+      }),
+    ).resolves.toBeNull();
+    expect(asked).toBe(1);
+  });
+
+  test("asks again when content could not be reached, then presses anyway", async () => {
+    let asked = 0;
+    await expect(
+      pressedAlready({
+        client: {
+          requestStatus: async () => {
+            asked++;
+            throw new TypeError("Load failed");
+          },
+        },
+        requestId: "r1",
+        retryMs: noWait,
+      }),
+    ).resolves.toBeNull();
+    // A press is idempotent on its id, so pressing after this is safe.
+    expect(asked).toBe(4);
+  });
+
+  test("says how a settled publish ended", () => {
+    expect(settledMessage({ kind: "live", commit: "c1" })).toEqual({
+      live: true,
+    });
+    expect(
+      settledMessage({
+        kind: "failed",
+        message: "verify failed: / answered 500",
+        actions: ["try-again"],
+        job: "J1",
+      }),
+    ).toEqual({ live: false, message: "verify failed: / answered 500" });
+    expect(settledMessage({ kind: "nothing-to-publish" })).toEqual({
+      live: false,
+      message: "There was nothing to publish.",
+    });
+  });
+});
+
+describe("what a tab remembers of its own ending", () => {
+  const storage = (): Storage => {
+    const items = new Map<string, string>();
+    return {
+      get length() {
+        return items.size;
+      },
+      clear: () => items.clear(),
+      getItem: (key) => items.get(key) ?? null,
+      key: (index) => [...items.keys()][index] ?? null,
+      removeItem: (key) => void items.delete(key),
+      setItem: (key, value) => void items.set(key, value),
+    };
+  };
+
+  test("a refusal and an update are shown again, by hand-off id", () => {
+    const store = storage();
+    rememberEnding(
+      "h1",
+      { kind: "not-pressed", message: "Cannot publish: errors." },
+      store,
+    );
+    rememberEnding(
+      "h2",
+      { kind: "update", outcome: { status: "current" } },
+      store,
+    );
+    expect(rememberedEnding("h1", store)).toEqual({
+      kind: "not-pressed",
+      message: "Cannot publish: errors.",
+    });
+    expect(rememberedEnding("h2", store)).toEqual({
+      kind: "update",
+      outcome: { status: "current" },
+    });
+    expect(rememberedEnding("h3", store)).toBeNull();
+  });
+
+  test("forgets after a week, and is not the reason a tab breaks", () => {
+    const store = storage();
+    const day = 24 * 60 * 60_000;
+    rememberEnding("old", { kind: "not-pressed", message: "a" }, store, 0);
+    rememberEnding(
+      "new",
+      { kind: "not-pressed", message: "b" },
+      store,
+      8 * day,
+    );
+    expect(rememberedEnding("old", store)).toBeNull();
+    expect(rememberedEnding("new", store)).not.toBeNull();
+    store.setItem("val-publish-handoff-endings", "{not json");
+    expect(rememberedEnding("new", store)).toBeNull();
+    expect(rememberedEnding("x", null)).toBeNull();
   });
 });
 

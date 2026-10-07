@@ -975,6 +975,17 @@ presses -- for minutes, because it arrives when the page's save does. Without
 that, "one change, then Publish" pressed before the change was saved and found
 nothing to publish.
 
+A builder tab is one attempt, and opening it again -- a reload, the back
+button, the URL reopened -- must SHOW that attempt, never make it again: the
+page may hold new changes by then, and a second press would publish them
+without anyone pressing Publish. So the tab asks content for its request
+before anything else and follows it if it exists (content answers a request
+it never saw with 404), and remembers in `localStorage` what content cannot
+say: a press the gate refused, and an update. Content's press being
+idempotent does not cover this on its own -- the second press makes no second
+publish, but the tab still re-runs the gate, waits for changes, and a try
+again unpauses content's queue.
+
 The rule every wait in the tab follows: it waits only on something that can
 still happen, with a deadline, and when the deadline passes it says what to do
 next. The press is retried when asking again could get past the failure (no

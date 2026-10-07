@@ -6,7 +6,8 @@ import type { PressAs, PublishResult } from "../stores/PublishSeam";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
 import type { HandoffIntent } from "./handoff";
 import type { StudioJobClient } from "./jobClient";
-import { isTransientPublishError } from "./publishClient";
+import { isTransientPublishError, StudioPublishError } from "./publishClient";
+import type { SiteUpdateOutcome } from "./runSiteUpdate";
 import { isSettled } from "./publishJobs";
 
 /**
@@ -254,28 +255,24 @@ export function pressBuilds(pressed: PressedForPage): boolean {
 }
 
 /**
- * What the tab says for a press that left it nothing to build -- the same
- * sentences the page used to cancel the tab with.
- */
-export function nothingToBuildMessage(request: PublishRequestStatus): string {
-  return request.kind === "publishing"
-    ? "Your changes are publishing with the publish before them."
-    : "There was nothing to publish.";
-}
-
-/**
- * A queued press's job, when its turn comes.
+ * Where a press already made is, followed until this tab has a job to build or
+ * the request has settled.
  *
- * On a page that could build, the page's own job runner asks content for
- * queued work. This tab is the page's runner now -- the page may be paused --
- * so it asks, as the page's tab. Content starts a job for every queued
- * request at once, so the job may carry other presses than this one.
+ * For a press this tab made that was queued, and for one it finds already
+ * made when it opens again (a reload, the back button, the URL reopened):
+ * that tab must show the publish, not make it a second time.
  *
- * Ends with the job, or with the request's status once it is no longer
- * queued without one: another tab's job took it, or it settled.
- * `stopped()` ends it early -- a job arrived over the channel instead.
+ * Each round also asks content for work, as the page's tab, because that is
+ * how a job comes back to a tab: a queued request starts one when its turn
+ * comes, and a job whose tab went away mid-build -- the tab that was reloaded
+ * -- is put back in the queue once its lease lapses, which content checks
+ * when a tab asks. Asking never takes a job another live tab holds.
+ *
+ * No deadline of its own: every state a request can be in moves on without
+ * this tab -- leases lapse, content reconciles a seal -- so the wait is on
+ * something that will happen. `stopped()` ends it early.
  */
-export async function waitForQueuedJob(options: {
+export async function followRequest(options: {
   client: Pick<StudioJobClient, "next" | "requestStatus">;
   requestId: string;
   tab: string;
@@ -283,24 +280,172 @@ export async function waitForQueuedJob(options: {
   everyMs?: number;
 }): Promise<
   | { kind: "job"; job: PublishTabJob }
-  | { kind: "moved"; request: PublishRequestStatus }
+  | { kind: "settled"; request: PublishRequestStatus }
   | { kind: "stopped" }
 > {
   const everyMs = options.everyMs ?? QUEUED_EVERY_MS;
   for (;;) {
     if (options.stopped()) return { kind: "stopped" };
-    const job = await options.client.next(options.tab).catch(() => null);
-    if (options.stopped()) return { kind: "stopped" };
-    if (job !== null && job.step !== null) return { kind: "job", job };
     const request = await options.client
       .requestStatus(options.requestId)
       .catch(() => null);
-    if (
-      request !== null &&
-      (isSettled(request) || request.kind === "publishing")
-    ) {
-      return { kind: "moved", request };
+    if (options.stopped()) return { kind: "stopped" };
+    if (request !== null && isSettled(request)) {
+      return { kind: "settled", request };
     }
+    const job = await options.client.next(options.tab).catch(() => null);
+    if (options.stopped()) return { kind: "stopped" };
+    if (job !== null && job.step !== null) return { kind: "job", job };
     await new Promise((resolve) => setTimeout(resolve, everyMs));
   }
+}
+
+/**
+ * Has the press this tab is for been made already? Asked before anything
+ * else, so a tab opened again shows the publish rather than making it again.
+ *
+ * `null`: content has never heard of it, so it is this tab's to make. A
+ * request content could not be asked about is asked again; if it still
+ * cannot be, the press goes ahead, which is safe -- content's press is
+ * idempotent on the request id, so a press already made is not made twice.
+ */
+export async function pressedAlready(options: {
+  client: Pick<StudioJobClient, "requestStatus">;
+  requestId: string;
+  retryMs?: readonly number[];
+}): Promise<PublishRequestStatus | null> {
+  const retryMs = options.retryMs ?? PRESS_RETRY_MS;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await options.client.requestStatus(options.requestId);
+    } catch (error) {
+      if (error instanceof StudioPublishError && error.statusCode === 404) {
+        return null;
+      }
+      const wait = retryMs[attempt];
+      if (wait === undefined || !isTransientPublishError(error)) return null;
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
+  }
+}
+
+/** What a settled request means to the person looking at the tab. */
+export function settledMessage(
+  request: PublishRequestStatus,
+): { live: true } | { live: false; message: string } {
+  switch (request.kind) {
+    case "live":
+      return { live: true };
+    case "failed":
+      return { live: false, message: request.message };
+    case "cancelled":
+      return { live: false, message: "This publish was cancelled." };
+    case "nothing-to-publish":
+      return { live: false, message: "There was nothing to publish." };
+    case "queued":
+    case "publishing":
+      return {
+        live: false,
+        message: "This publish has not finished yet.",
+      };
+  }
+}
+
+/**
+ * What a tab remembers of its own ending, by hand-off id, where content has
+ * nothing to ask: a press the gate refused (nothing was requested), and an
+ * update (which is not a request). Opened again -- reloaded, gone back to,
+ * the URL reopened -- the tab shows this rather than doing it again.
+ *
+ * In `localStorage`, so it reaches a reopened URL in another tab too, and
+ * through `try`: storage can be off, full, or throw in a private window, and
+ * then the tab simply does not remember.
+ */
+export type RememberedEnding =
+  | { kind: "not-pressed"; message: string; details?: string }
+  | { kind: "update"; outcome: SiteUpdateOutcome };
+
+const ENDING_KEY = "val-publish-handoff-endings";
+/** A week: long past any reload, and the list cannot grow without bound. */
+const ENDING_KEEP_MS = 7 * 24 * 60 * 60_000;
+
+type StoredEndings = Record<string, { at: number; ending: RememberedEnding }>;
+
+function readEndings(storage: Storage): StoredEndings {
+  try {
+    const raw: unknown = JSON.parse(storage.getItem(ENDING_KEY) ?? "{}");
+    return typeof raw === "object" && raw !== null && !Array.isArray(raw)
+      ? Object.fromEntries(
+          Object.entries(raw).flatMap(
+            ([id, value]): [string, StoredEndings[string]][] =>
+              typeof value === "object" &&
+              value !== null &&
+              "at" in value &&
+              typeof value.at === "number" &&
+              "ending" in value &&
+              isEnding(value.ending)
+                ? [[id, { at: value.at, ending: value.ending }]]
+                : [],
+          ),
+        )
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function isEnding(value: unknown): value is RememberedEnding {
+  if (typeof value !== "object" || value === null || !("kind" in value))
+    return false;
+  if (value.kind === "not-pressed") {
+    return "message" in value && typeof value.message === "string";
+  }
+  return (
+    value.kind === "update" &&
+    "outcome" in value &&
+    typeof value.outcome === "object" &&
+    value.outcome !== null &&
+    "status" in value.outcome
+  );
+}
+
+function defaultStorage(): Storage | null {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberEnding(
+  id: string,
+  ending: RememberedEnding,
+  storage: Storage | null = defaultStorage(),
+  now: number = Date.now(),
+): void {
+  if (storage === null) return;
+  try {
+    const kept = Object.fromEntries(
+      Object.entries(readEndings(storage)).filter(
+        ([, entry]) => now - entry.at < ENDING_KEEP_MS,
+      ),
+    );
+    // The deploy's own record stays out: it is large, and the page shows words.
+    const stored: RememberedEnding =
+      ending.kind === "update" && ending.outcome.status === "failed"
+        ? { kind: "update", outcome: { ...ending.outcome, deploy: null } }
+        : ending;
+    kept[id] = { at: now, ending: stored };
+    storage.setItem(ENDING_KEY, JSON.stringify(kept));
+  } catch {
+    // Not remembered: opened again, the tab does it again.
+  }
+}
+
+export function rememberedEnding(
+  id: string,
+  storage: Storage | null = defaultStorage(),
+): RememberedEnding | null {
+  if (storage === null) return null;
+  return readEndings(storage)[id]?.ending ?? null;
 }

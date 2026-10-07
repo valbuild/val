@@ -184,3 +184,59 @@ test("one change, then Publish, goes live", async ({ page }) => {
     await builder.close().catch(() => {});
   }
 });
+
+/*
+ * A builder tab opened again after its publish -- reloaded, gone back to, the
+ * URL reopened -- shows that publish. It must not make it again: the page
+ * may hold new changes by now, and a second press would publish those
+ * without anyone having pressed Publish for them.
+ */
+test("the builder tab opened again shows its publish, and publishes nothing new", async ({
+  page,
+  context,
+}) => {
+  await openHttpStudio(page);
+  await writePatch(page, "/content/authors.val.ts", [
+    { op: "replace", path: ["teddy", "name"], value: "Published once" },
+  ]);
+  await expect(publishButton(page)).toBeEnabled({ timeout: 30_000 });
+  const opened = page.waitForEvent("popup");
+  await publishButton(page).click();
+  const builder = await opened;
+  const builderUrl = builder.url();
+  await expect.poll(requestStatuses, { timeout: 90_000 }).toEqual(["live"]);
+  await builder.close().catch(() => {});
+
+  // Edited since, and not published: the tab must leave this alone.
+  await writePatch(page, "/content/authors.val.ts", [
+    { op: "replace", path: ["teddy", "name"], value: "Not pressed for" },
+  ]);
+
+  const again = await context.newPage();
+  // Content would answer a second press as the first one, so what is asserted
+  // is that there is no second press at all: the tab only looks.
+  const pressedAgain: string[] = [];
+  again.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      request.url().includes("/publish-requests")
+    ) {
+      pressedAgain.push(request.url());
+    }
+  });
+  await again.goto(builderUrl);
+  await expect(again.getByRole("heading", { name: "Live" })).toBeVisible({
+    timeout: 90_000,
+  });
+  // Long enough for a second press to have been made, if one were.
+  await again.waitForTimeout(5_000);
+  expect(pressedAgain).toEqual([]);
+  const state = await mock.state();
+  expect(state.publishRequests.map((r) => r.status.kind)).toEqual(["live"]);
+  expect(state.publishJobs).toHaveLength(1);
+  expect(state.commits).toHaveLength(1);
+  expect(await mock.committedSource("/content/authors.val.ts")).not.toContain(
+    "Not pressed for",
+  );
+  await again.close();
+});
