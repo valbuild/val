@@ -6,6 +6,7 @@ import type { PressAs, PublishResult } from "../stores/PublishSeam";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
 import type { HandoffIntent } from "./handoff";
 import type { StudioJobClient } from "./jobClient";
+import { isTransientPublishError } from "./publishClient";
 import { isSettled } from "./publishJobs";
 
 /**
@@ -25,6 +26,25 @@ import { isSettled } from "./publishJobs";
 /** How often a tab asks whether its project has loaded, and for how long. */
 export const READY_EVERY_MS = 200;
 export const READY_TIMEOUT_MS = 90_000;
+/**
+ * How long the tab waits for the page's last change to reach the server.
+ *
+ * Longer than the load: the change is on its way from a page an iPhone may
+ * have paused, and it arrives once the page runs again. Waiting costs nothing
+ * -- nothing is pressed until it is there -- while giving up throws away a
+ * publish that would have gone through.
+ */
+export const CHANGE_TIMEOUT_MS = 5 * 60_000;
+/**
+ * The press, again, after a failure that was not an answer (a network error,
+ * a 5xx): content's press is idempotent on the request id, so a second one is
+ * the same press. A refusal -- validation, nothing to publish -- is an answer,
+ * and is never pressed again.
+ */
+export const PRESS_RETRY_MS: readonly number[] = [1_000, 3_000, 9_000];
+
+/** The intents a tab presses for: everything but an update. */
+export type PressIntent = Exclude<HandoffIntent, { kind: "update" }>;
 /** How often a queued press asks for its job. */
 export const QUEUED_EVERY_MS = 3_000;
 
@@ -48,6 +68,44 @@ export type PressForPageOutcome =
 /** The message for a project that never finished loading in the tab. */
 export const NOT_LOADED_MESSAGE =
   "The Studio could not load your changes here, so nothing was published. Open the Studio and publish again.";
+/** The message for a last change that never reached the server. */
+export const CHANGE_NOT_SAVED_MESSAGE =
+  "Your last change has not reached Val yet, so nothing was published. Go back to the page you were editing so it can save, then publish again.";
+
+/** What a page knows about its changes: enough to name its newest one. */
+type ChainOf = {
+  allRecords(): readonly { patchId: string }[];
+  pendingAmong(patchIds: Iterable<string>): Set<string>;
+};
+
+/**
+ * The newest change a page has not published, or `null`: what a builder tab
+ * must see on the server before it presses (see `HandoffIntent`). Saved or
+ * not -- one made just before the tap usually is not.
+ */
+export function newestUnpublished(store: ChainOf): string | null {
+  const ids = store.allRecords().map((record) => record.patchId);
+  const pending = store.pendingAmong(ids);
+  for (let i = ids.length - 1; i >= 0; i--) {
+    const id = ids[i];
+    if (id !== undefined && pending.has(id)) return id;
+  }
+  return null;
+}
+
+/**
+ * Has the server got the change `after` names, as this tab sees it? Either it
+ * is in the chain, saved -- or it has shipped already, which is when another
+ * publish took it.
+ */
+export function hasChange(
+  store: ChainOf & { isPending(patchId: string): boolean },
+  after: string | null,
+): boolean {
+  if (after === null) return true;
+  const inChain = store.allRecords().some((record) => record.patchId === after);
+  return inChain && !store.isPending(after);
+}
 
 /**
  * Resolves `true` once `ready()` holds, or `false` after `timeoutMs`.
@@ -80,19 +138,35 @@ export function whenReady(
  * `pressAs` -- and `chain` what is pending, for a try again, which runs no gate.
  */
 export async function pressForPage(options: {
-  intent: Exclude<HandoffIntent, { kind: "update" }>;
+  intent: PressIntent;
   publish: (pressAs: PressAs) => Promise<PublishResult>;
   client: Pick<StudioJobClient, "tryAgain">;
   chain: () => string[];
+  /** See {@link PRESS_RETRY_MS}. */
+  retryMs?: readonly number[];
 }): Promise<PressForPageOutcome> {
   const { intent } = options;
+  const retryMs = options.retryMs ?? PRESS_RETRY_MS;
+  const pause = (ms: number) =>
+    new Promise((resolve) => setTimeout(resolve, ms));
   const pressAs: PressAs = { requestId: intent.requestId, tab: intent.tab };
   if (intent.kind === "try-again") {
     try {
-      const pressed = await options.client.tryAgain(
-        intent.requestId,
-        intent.tab,
-      );
+      let attempt = 0;
+      const tryAgain = async (): Promise<
+        Awaited<ReturnType<StudioJobClient["tryAgain"]>>
+      > => {
+        try {
+          return await options.client.tryAgain(intent.requestId, intent.tab);
+        } catch (error) {
+          const wait = retryMs[attempt++];
+          if (wait === undefined || !isTransientPublishError(error))
+            throw error;
+          await pause(wait);
+          return tryAgain();
+        }
+      };
+      const pressed = await tryAgain();
       return {
         kind: "pressed",
         requestId: intent.requestId,
@@ -116,6 +190,15 @@ export async function pressForPage(options: {
    */
   let result = await options.publish(pressAs);
   if (result.status === "refused" && result.reason === "chain-moved") {
+    result = await options.publish(pressAs);
+  }
+  /*
+   * A press that failed without an answer -- `retryable` is the seam saying
+   * so -- is pressed again: the same request id, so the same press.
+   */
+  for (const wait of retryMs) {
+    if (result.status !== "failed" || !result.retryable) break;
+    await pause(wait);
     result = await options.publish(pressAs);
   }
   switch (result.status) {

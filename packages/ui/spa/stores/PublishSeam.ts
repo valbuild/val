@@ -68,7 +68,15 @@ export type RequestPublish = (press?: PressAs) => Promise<
       /** The job this tab is to build, when the press started one. */
       job: PublishTabJob | null;
     }
-  | { status: "error"; message: string }
+  | {
+      status: "error";
+      message: string;
+      /**
+       * Could the same press get through if made again? Absent means it
+       * might: a seam that does not say is not claiming an answer.
+       */
+      transient?: boolean;
+    }
 >;
 
 /**

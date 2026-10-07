@@ -57,6 +57,7 @@ import {
 import { isJsonArray } from "../utils/isJsonArray";
 import { readableProfilesError } from "../utils/readableProfilesError";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
+import { newestUnpublished } from "../publish/pressForPage";
 import type { ChainProgress } from "../utils/describePendingChangesStall";
 import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
@@ -1181,6 +1182,7 @@ export function ValProvider({
                 if (
                   handoffRef.current.prepare(true, {
                     tryAgainOf: request.requestId,
+                    after: newestUnpublished(system.patchStore),
                   })
                 ) {
                   return;
@@ -2863,7 +2865,11 @@ export function usePublishSummary() {
        * publish that did not come from one. It may be blocked, and the card
        * then offers the tab as a button.
        */
-      if (!handoff.active()) handoff.prepare(buildsInTab);
+      if (!handoff.active()) {
+        handoff.prepare(buildsInTab, {
+          after: val ? newestUnpublished(val.system.patchStore) : null,
+        });
+      }
       /*
        * And the tab presses, not this page: on an iPhone this page is paused
        * from the moment the tab takes the screen, and a press that waited on
@@ -3070,7 +3076,9 @@ export function usePublishSummary() {
      * is sent now, while the page still runs.
      */
     preparePublish: (): boolean => {
-      const handedOff = handoff.prepare(buildsInTab);
+      const handedOff = handoff.prepare(buildsInTab, {
+        after: val ? newestUnpublished(val.system.patchStore) : null,
+      });
       if (handedOff) {
         void val?.system.patchSync.flush().catch(() => undefined);
       }

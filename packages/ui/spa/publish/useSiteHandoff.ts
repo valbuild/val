@@ -16,6 +16,8 @@ import { RENEW_EVERY_MS, type StudioJobResult } from "./runStudioJob";
 import { randomUUID } from "../utils/randomUUID";
 import { PUBLISH_TAB_ID } from "./tabId";
 
+export type PrepareOptions = { tryAgainOf?: string; after?: string | null };
+
 /** What the builder tab pressed for this page. See `ToSite`. */
 export type HandoffPressed = Extract<ToSite, { type: "pressed" }>;
 
@@ -56,9 +58,11 @@ export interface UseSiteHandoff {
    * `true` when it opened (or tried to open) a builder tab: the TAB presses,
    * as this page, under a request id minted here -- this page must not press
    * as well. It hears what was pressed through `onPressed`. `tryAgainOf`
-   * makes the press a try again of that failed request.
+   * makes the press a try again of that failed request; `after` is the newest
+   * change this page has not published, which the tab waits for (see
+   * `HandoffIntent`).
    */
-  prepare: (buildsInTab: boolean, options?: { tryAgainOf?: string }) => boolean;
+  prepare: (buildsInTab: boolean, options?: PrepareOptions) => boolean;
   /**
    * Is a handoff under way? Its tab presses for this page, and builds any job
    * this page is handed meanwhile -- so neither happens here.
@@ -163,7 +167,7 @@ export function useSiteHandoff(
 
   const enabled = options.enabled ?? false;
   const prepare = useCallback(
-    (buildsInTab: boolean, prepareOptions?: { tryAgainOf?: string }) => {
+    (buildsInTab: boolean, prepareOptions?: PrepareOptions) => {
       if (!enabled || !buildsInTab || canBuildHere()) return false;
       current.current?.close();
       settleWaiting("lost");
@@ -176,6 +180,7 @@ export function useSiteHandoff(
        */
       const requestId = randomUUID();
       pressedFor.current = requestId;
+      const after = prepareOptions?.after ?? null;
       const intent: HandoffIntent =
         prepareOptions?.tryAgainOf !== undefined
           ? {
@@ -183,8 +188,9 @@ export function useSiteHandoff(
               requestId,
               tab: PUBLISH_TAB_ID,
               replaces: prepareOptions.tryAgainOf,
+              after,
             }
-          : { kind: "press", requestId, tab: PUBLISH_TAB_ID };
+          : { kind: "press", requestId, tab: PUBLISH_TAB_ID, after };
       const handoff = openHandoff({ intent });
       current.current = handoff;
       blocked.current = !handoff.opened;

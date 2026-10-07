@@ -3008,7 +3008,8 @@ export function createSystem(options: SystemOptions): System {
             return {
               status: "failed",
               message: requested.message,
-              retryable: true,
+              // A press is the same press when made again: see `RequestPublish`.
+              retryable: requested.transient ?? true,
             };
           }
           return { ...requested, patchIds: toPublish };

@@ -5,10 +5,13 @@ import type {
 import type { PatchId } from "@valbuild/core";
 import type { PressAs, PublishResult } from "../stores/PublishSeam";
 import type { StudioJobClient } from "./jobClient";
-import type { HandoffIntent } from "./handoff";
+import { StudioPublishError } from "./publishClient";
 import {
+  hasChange,
+  newestUnpublished,
   NOT_LOADED_MESSAGE,
   type PressedForPage,
+  type PressIntent,
   nothingToBuildMessage,
   pressBuilds,
   pressForPage,
@@ -23,11 +26,15 @@ import { createRequestPublish } from "./requestPublish";
  * "Starting the publish" waiting for a press that never went out.
  */
 
-const press: HandoffIntent = {
+const press: PressIntent = {
   kind: "press",
   requestId: "page-r1",
   tab: "page-tab",
+  after: null,
 };
+
+/** No waiting between retries: what is tested is whether there is one. */
+const noWait = [0, 0, 0];
 
 const job: PublishTabJob = {
   id: "J1",
@@ -131,6 +138,7 @@ test("a try again resumes content's queue as the page, with no gate", async () =
       requestId: "page-r2",
       tab: "page-tab",
       replaces: "page-r1",
+      after: null,
     },
     client: {
       tryAgain: async (requestId, tab) => {
@@ -161,12 +169,14 @@ test("a try again content refused is said, with content's words as details", asy
       requestId: "page-r2",
       tab: "page-tab",
       replaces: "page-r1",
+      after: null,
     },
     client: {
       tryAgain: async () => {
-        throw new Error("503 Service Unavailable");
+        throw new StudioPublishError(503, "503 Service Unavailable", null);
       },
     },
+    retryMs: noWait,
     chain: () => [],
     publish: async () => ({ status: "nothing-to-publish" }),
   });
@@ -339,3 +349,151 @@ function fakeJobClient(): StudioJobClient {
     newestCiRun: unused,
   };
 }
+
+/*
+ * Retried when asking again could get past it, and only then: a press is
+ * idempotent on its request id, so pressing again is safe -- but a refusal is
+ * an answer, and asking again only delays saying it.
+ */
+describe("a press that did not get through", () => {
+  const failed = (retryable: boolean): PublishResult => ({
+    status: "failed",
+    message: "fetch failed",
+    retryable,
+  });
+
+  test("is pressed again, as the same press, until it does", async () => {
+    const pressedAs: PressAs[] = [];
+    const outcome = await pressForPage({
+      intent: press,
+      client: noTryAgain,
+      chain: () => [],
+      retryMs: noWait,
+      publish: async (pressAs) => {
+        pressedAs.push(pressAs);
+        return pressedAs.length < 3
+          ? failed(true)
+          : requested(pressAs, { kind: "publishing" }, job);
+      },
+    });
+    expect(outcome.kind).toBe("pressed");
+    expect(new Set(pressedAs.map((p) => p.requestId))).toEqual(
+      new Set(["page-r1"]),
+    );
+  });
+
+  test("gives up after the last retry, and says so", async () => {
+    let calls = 0;
+    const outcome = await pressForPage({
+      intent: press,
+      client: noTryAgain,
+      chain: () => [],
+      retryMs: noWait,
+      publish: async () => {
+        calls++;
+        return failed(true);
+      },
+    });
+    expect(calls).toBe(4);
+    expect(outcome).toMatchObject({ kind: "not-pressed" });
+  });
+
+  test("is not pressed again when content answered", async () => {
+    let calls = 0;
+    await pressForPage({
+      intent: press,
+      client: noTryAgain,
+      chain: () => [],
+      retryMs: noWait,
+      publish: async () => {
+        calls++;
+        return failed(false);
+      },
+    });
+    expect(calls).toBe(1);
+  });
+
+  test("a try again content refused is not asked again", async () => {
+    let calls = 0;
+    const outcome = await pressForPage({
+      intent: {
+        kind: "try-again",
+        requestId: "page-r2",
+        tab: "page-tab",
+        replaces: "page-r1",
+        after: null,
+      },
+      client: {
+        tryAgain: async () => {
+          calls++;
+          throw new StudioPublishError(409, "Not a failed request", null);
+        },
+      },
+      chain: () => [],
+      retryMs: noWait,
+      publish: async () => ({ status: "nothing-to-publish" }),
+    });
+    expect(calls).toBe(1);
+    expect(outcome).toMatchObject({
+      kind: "not-pressed",
+      details: "Not a failed request",
+    });
+  });
+
+  test("a try again that did not get through is asked again", async () => {
+    let calls = 0;
+    const outcome = await pressForPage({
+      intent: {
+        kind: "try-again",
+        requestId: "page-r2",
+        tab: "page-tab",
+        replaces: "page-r1",
+        after: null,
+      },
+      client: {
+        tryAgain: async () => {
+          if (++calls < 2) throw new TypeError("Load failed");
+          return { request: { kind: "publishing" }, job };
+        },
+      },
+      chain: () => [],
+      retryMs: noWait,
+      publish: async () => ({ status: "nothing-to-publish" }),
+    });
+    expect(calls).toBe(2);
+    expect(outcome.kind).toBe("pressed");
+  });
+});
+
+/*
+ * The page names its newest change at the tap, and the tab waits to see it on
+ * the server: a change made just before Publish is usually still being saved,
+ * and the tab presses what the server has.
+ */
+describe("the page's last change", () => {
+  const store = (
+    chain: string[],
+    shipped: string[] = [],
+    local: string[] = [],
+  ) => ({
+    allRecords: () => chain.map((patchId) => ({ patchId })),
+    pendingAmong: (ids: Iterable<string>) =>
+      new Set([...ids].filter((id) => !shipped.includes(id))),
+    isPending: (id: string) => local.includes(id),
+  });
+
+  test("is the newest one not yet published, saved or not", () => {
+    expect(newestUnpublished(store(["p1", "p2", "p3"]))).toBe("p3");
+    expect(newestUnpublished(store(["p1", "p2"], ["p2"]))).toBe("p1");
+    expect(newestUnpublished(store(["p1"], ["p1"]))).toBeNull();
+    expect(newestUnpublished(store([]))).toBeNull();
+  });
+
+  test("is there once the tab's chain has it, saved", () => {
+    expect(hasChange(store(["p1"]), null)).toBe(true);
+    expect(hasChange(store(["p1"]), "p2")).toBe(false);
+    expect(hasChange(store(["p1", "p2"]), "p2")).toBe(true);
+    // Still only on this tab: not something content can publish yet.
+    expect(hasChange(store(["p1", "p2"], [], ["p2"]), "p2")).toBe(false);
+  });
+});

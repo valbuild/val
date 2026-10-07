@@ -1,5 +1,11 @@
 import { expect, type Page, test } from "@playwright/test";
-import { mock, openHttpStudio, sessionCookie, writePatch } from "./httpMode";
+import {
+  createUnsavedPatch,
+  mock,
+  openHttpStudio,
+  sessionCookie,
+  writePatch,
+} from "./httpMode";
 
 /**
  * Publishing from a page that cannot build, while that page is PAUSED.
@@ -14,14 +20,19 @@ import { mock, openHttpStudio, sessionCookie, writePatch } from "./httpMode";
  * The Studio here sends no isolation headers, so it hands off exactly as an
  * iPhone's does, and Chromium can freeze a page the way iOS does
  * (`Page.setWebLifecycleState`): its timers, fetches and channel messages wait
- * until it is thawed.
+ * until it is thawed. Those tests are Chromium's alone; the rest also run in
+ * WebKit (`--project=webkit-http`), Safari's engine and every iPhone's.
  */
 
 test.use({
   storageState: { cookies: [sessionCookie("ada")], origins: [] },
 });
 
-test.describe.configure({ mode: "serial" });
+/*
+ * Longer than the project's default: each test loads a second Studio, the
+ * builder tab, and on a cold dev server that alone is most of a minute.
+ */
+test.describe.configure({ mode: "serial", timeout: 4 * 60_000 });
 
 test.beforeEach(async () => {
   await mock.reset();
@@ -46,7 +57,9 @@ const requestStatuses = async () =>
 test("the builder tab publishes on its own while the page that opened it is paused", async ({
   page,
   context,
+  browserName,
 }) => {
+  test.skip(browserName !== "chromium", "freezing a page is a CDP command");
   await openHttpStudio(page);
   await writePatch(page, "/content/authors.val.ts", [
     { op: "replace", path: ["teddy", "name"], value: "Published from a phone" },
@@ -93,4 +106,81 @@ test("the builder tab publishes on its own while the page that opened it is paus
   );
   expect(await requestStatuses()).toEqual(["live"]);
   expect((await mock.state()).commits).toHaveLength(1);
+});
+
+/*
+ * One change, then Publish -- the case that got stuck. A change made just
+ * before the tap is still being saved when the tab presses, and the tab
+ * presses what the server has: it has to wait for the change rather than
+ * publish without it, or find nothing to publish.
+ */
+test("a change still being saved at the tap is published, though the page is paused", async ({
+  page,
+  context,
+  browserName,
+}) => {
+  test.skip(browserName !== "chromium", "freezing a page is a CDP command");
+  await openHttpStudio(page);
+  // Longer than the builder tab takes to load and press.
+  let held = 0;
+  await page.route("**/api/val/patches**", async (route) => {
+    if (route.request().method() !== "PUT") return route.continue();
+    held++;
+    await new Promise((resolve) => setTimeout(resolve, 20_000));
+    await route.continue();
+  });
+  // Made, not saved: what a field's blur does as Publish is tapped.
+  await createUnsavedPatch(page, "/content/authors.val.ts", [
+    { op: "replace", path: ["teddy", "name"], value: "Saved after the tap" },
+  ]);
+  await expect(publishButton(page)).toBeEnabled({ timeout: 30_000 });
+
+  const cdp = await context.newCDPSession(page);
+  const opened = page.waitForEvent("popup");
+  await publishButton(page).click();
+  await cdp.send("Page.setWebLifecycleState", { state: "frozen" });
+  const builder = await opened;
+  try {
+    await expect
+      .poll(requestStatuses, {
+        timeout: 90_000,
+        message: "the builder tab never published the change",
+      })
+      .toEqual(["live"]);
+    expect(held).toBeGreaterThan(0);
+    expect(await mock.committedSource("/content/authors.val.ts")).toContain(
+      "Saved after the tap",
+    );
+  } finally {
+    await builder.close();
+    await cdp.send("Page.setWebLifecycleState", { state: "active" });
+  }
+});
+
+/*
+ * The same tap with nothing paused, in every engine: one change, then
+ * Publish, and the page left to run as a desktop browser leaves it.
+ */
+test("one change, then Publish, goes live", async ({ page }) => {
+  await openHttpStudio(page);
+  await writePatch(page, "/content/authors.val.ts", [
+    { op: "replace", path: ["teddy", "name"], value: "One change" },
+  ]);
+  await expect(publishButton(page)).toBeEnabled({ timeout: 30_000 });
+  const opened = page.waitForEvent("popup");
+  await publishButton(page).click();
+  const builder = await opened;
+  try {
+    await expect
+      .poll(requestStatuses, {
+        timeout: 90_000,
+        message: "the builder tab never published",
+      })
+      .toEqual(["live"]);
+    expect(await mock.committedSource("/content/authors.val.ts")).toContain(
+      "One change",
+    );
+  } finally {
+    await builder.close().catch(() => {});
+  }
 });

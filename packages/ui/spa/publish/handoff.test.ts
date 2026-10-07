@@ -59,12 +59,13 @@ describe("the tab's URL says what it is to do", () => {
   test("a press, as the page's tab, under the page's request id", () => {
     const site = openHandoff({
       open,
-      intent: { kind: "press", requestId: "r1", tab: "site-tab" },
+      intent: { kind: "press", requestId: "r1", tab: "site-tab", after: "p7" },
     });
     expect(readHandoffIntent(searchOf(opened[0] ?? ""))).toEqual({
       kind: "press",
       requestId: "r1",
       tab: "site-tab",
+      after: "p7",
     });
     // The platform isolates the tab by this parameter: it is still there.
     expect(
@@ -81,12 +82,14 @@ describe("the tab's URL says what it is to do", () => {
       requestId: "r2",
       tab: "site-tab",
       replaces: "r1",
+      after: null,
     });
     expect(readHandoffIntent(searchOf(url))).toEqual({
       kind: "try-again",
       requestId: "r2",
       tab: "site-tab",
       replaces: "r1",
+      after: null,
     });
   });
 

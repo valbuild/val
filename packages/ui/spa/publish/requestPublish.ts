@@ -1,6 +1,7 @@
 import type { RequestPublish } from "../stores/PublishSeam";
 import { randomUUID } from "../utils/randomUUID";
 import type { StudioJobClient } from "./jobClient";
+import { isTransientPublishError } from "./publishClient";
 import { PUBLISH_TAB_ID } from "./tabId";
 
 /**
@@ -25,6 +26,7 @@ export function createRequestPublish(
       return {
         status: "error",
         message: error instanceof Error ? error.message : String(error),
+        transient: isTransientPublishError(error),
       };
     }
   };

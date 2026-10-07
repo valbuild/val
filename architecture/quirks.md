@@ -954,11 +954,33 @@ job. On an iPhone none of it ran, and the tab sat at "Starting the publish"
 indefinitely. Going back to the page woke it, and it sent the job, to a tab that
 was now the paused one.
 
+It was flaky rather than always broken, which is what kept it hidden. iOS lets
+the page run for a moment, and a press that was quick enough got through: with
+changes saved a while ago the page pressed at once. One change made just
+before Publish is still being saved, and since a publish waits for that save
+(up to 60 s, from 5 s before `3c5f54a`), the press came after iOS had paused
+the page. Desktop WebKit hit the same hang another way: a page that RELOADS
+between the tap and the tab's `ready` (the dev server compiling the builder
+route does it) loses the job it was holding.
+
 So the tab is told everything in its URL (`HandoffIntent` in
 `spa/publish/handoff.ts`) and presses itself, as the page's tab and under a
 request id the page minted in the tap. The page only follows what was pressed,
 whenever it is in front again. **Anything new in the hand-off has to work with
-the page frozen from the tap onwards.**
+the page frozen, or gone, from the tap onwards.**
+
+The tab presses what the SERVER has, so the URL also names the page's newest
+unpublished change (`after`), and the tab waits for it to arrive before it
+presses -- for minutes, because it arrives when the page's save does. Without
+that, "one change, then Publish" pressed before the change was saved and found
+nothing to publish.
+
+The rule every wait in the tab follows: it waits only on something that can
+still happen, with a deadline, and when the deadline passes it says what to do
+next. The press is retried when asking again could get past the failure (no
+answer, a 5xx, 408, 429 -- `isTransientPublishError`), which is safe because
+content's press is idempotent on the request id; an answer, such as a
+validation refusal, is never asked again.
 
 Desktop browsers do not do this, so a hand-off that works on a laptop proves
 nothing. Chromium can, on request: `Page.setWebLifecycleState` with

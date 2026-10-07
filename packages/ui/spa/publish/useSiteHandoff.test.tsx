@@ -226,6 +226,19 @@ describe("the tab presses for the page", () => {
     act(() => result.current.cancel(""));
   });
 
+  test("the tab's URL names the newest change, for the tab to wait for", () => {
+    const urls = openedUrls();
+    const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+    act(() => {
+      result.current.prepare(true, { after: "p9" });
+    });
+    expect(readHandoffIntent(searchOf(urls[0] ?? ""))).toMatchObject({
+      kind: "press",
+      after: "p9",
+    });
+    act(() => result.current.cancel(""));
+  });
+
   test("a try again is the tab's to press too, replacing the failed request", () => {
     const urls = openedUrls();
     const { result } = renderHook(() => useSiteHandoff({ enabled: true }));

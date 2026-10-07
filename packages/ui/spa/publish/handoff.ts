@@ -55,19 +55,35 @@ const REQUEST_PARAM = "publish-request";
 const AS_PARAM = "publish-as";
 /** For a try again: the failed request it replaces. */
 const REPLACES_PARAM = "publish-replaces";
+/** The last change the page had when it was tapped: see `HandoffIntent`. */
+const AFTER_PARAM = "publish-after";
 
 /**
  * What a builder tab is to do, decided at the tap and carried in its URL. See
  * the top of this file for why it cannot be a message.
  */
 export type HandoffIntent =
-  /** Run the gate and press Publish as `tab`, under `requestId`. */
-  | { kind: "press"; requestId: string; tab: string }
+  /**
+   * Run the gate and press Publish as `tab`, under `requestId`.
+   *
+   * `after`: the newest change the page had not published when it was tapped,
+   * which the tab waits to see on the server before it presses. A change made
+   * just before the tap is usually still being saved, and the tab presses
+   * what the server has -- without the wait it published without the change,
+   * or found nothing to publish.
+   */
+  | { kind: "press"; requestId: string; tab: string; after: string | null }
   /**
    * "Try again" on a failed publish: resume content's queue and press anew.
    * No gate, as on a page that can build -- see `PublishJobs.tryAgain`.
    */
-  | { kind: "try-again"; requestId: string; tab: string; replaces: string }
+  | {
+      kind: "try-again";
+      requestId: string;
+      tab: string;
+      replaces: string;
+      after: string | null;
+    }
   /** Update the site's dependencies: `runSiteUpdate`. */
   | { kind: "update" };
 
@@ -174,6 +190,7 @@ export function handoffUrl(
     if (intent.kind !== "update") {
       params.set(REQUEST_PARAM, intent.requestId);
       params.set(AS_PARAM, intent.tab);
+      if (intent.after !== null) params.set(AFTER_PARAM, intent.after);
     }
     if (intent.kind === "try-again")
       params.set(REPLACES_PARAM, intent.replaces);
@@ -193,10 +210,11 @@ export function readHandoffIntent(search: string): HandoffIntent | null {
   const tab = params.get(AS_PARAM);
   if (requestId === null || requestId === "" || tab === null || tab === "")
     return null;
-  if (kind === "press") return { kind: "press", requestId, tab };
+  const after = params.get(AFTER_PARAM) || null;
+  if (kind === "press") return { kind: "press", requestId, tab, after };
   const replaces = params.get(REPLACES_PARAM);
   if (kind === "try-again" && replaces !== null && replaces !== "") {
-    return { kind: "try-again", requestId, tab, replaces };
+    return { kind: "try-again", requestId, tab, replaces, after };
   }
   return null;
 }

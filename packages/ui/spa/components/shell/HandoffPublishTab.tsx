@@ -8,8 +8,12 @@ import {
   type TabHandoff,
 } from "../../publish/handoff";
 import {
+  CHANGE_NOT_SAVED_MESSAGE,
+  CHANGE_TIMEOUT_MS,
+  hasChange,
   NOT_LOADED_MESSAGE,
   nothingToBuildMessage,
+  type PressIntent,
   pressBuilds,
   pressForPage,
   waitForQueuedJob,
@@ -71,6 +75,16 @@ const ORDER: DeployPhase["kind"][] = [
   "verifying",
   "promoting",
 ];
+
+/**
+ * How long a tab with nothing in its URL waits to be told what to do: one
+ * opened by a page from before intents, which hands it the job over the
+ * channel. Not for ever -- a page that reloaded, or was closed, never will.
+ * A job that arrives after this still runs.
+ */
+const NO_INTENT_TIMEOUT_MS = 5 * 60_000;
+const NO_INTENT_MESSAGE =
+  "The page you published from never sent this tab the publish, so nothing was published. Publish again from that page.";
 
 /** Seconds a finished tab stays up before closing itself. */
 const CLOSE_AFTER_S = 5;
@@ -267,9 +281,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
     };
 
     /** Press for the page: see `pressForPage`. */
-    const press = async (
-      intent: Exclude<HandoffIntent, { kind: "update" }>,
-    ) => {
+    const press = async (intent: PressIntent) => {
       const loaded = await whenReady(() => {
         const current = valRef.current;
         return (
@@ -278,6 +290,24 @@ export function HandoffPublishTab({ id }: { id: string }) {
           current.system.patchStore.chainSettled()
         );
       });
+      /*
+       * Then the page's last change: pressed without it, the publish leaves
+       * out what the editor just did, or finds nothing at all. It arrives when
+       * the page's save does -- on an iPhone, maybe only once the editor has
+       * gone back to it -- so this waits, rather than fails, for a long time.
+       */
+      const saved =
+        loaded &&
+        (await whenReady(
+          () => {
+            const current = valRef.current;
+            return (
+              current !== null &&
+              hasChange(current.system.patchStore, intent.after)
+            );
+          },
+          { timeoutMs: CHANGE_TIMEOUT_MS },
+        ));
       // A job the page handed over meanwhile, or a cancel, has the tab now.
       if (closed || started.current || cancelled.current || pressing.current)
         return;
@@ -285,6 +315,10 @@ export function HandoffPublishTab({ id }: { id: string }) {
       const system = valRef.current?.system;
       if (!loaded || system === undefined) {
         notPressed(NOT_LOADED_MESSAGE);
+        return;
+      }
+      if (!saved) {
+        notPressed(CHANGE_NOT_SAVED_MESSAGE);
         return;
       }
       const chain = () =>
@@ -349,10 +383,18 @@ export function HandoffPublishTab({ id }: { id: string }) {
       runJob(message.job, message.tab, message.requestId);
     });
     tab.current = handoff;
-    if (intent?.kind === "update") startUpdate();
-    else if (intent !== null) void press(intent);
+    let noIntent: ReturnType<typeof setTimeout> | null = null;
+    if (intent === null) {
+      noIntent = setTimeout(() => {
+        if (!started.current && !cancelled.current) {
+          setWaiting({ kind: "cancelled", message: NO_INTENT_MESSAGE });
+        }
+      }, NO_INTENT_TIMEOUT_MS);
+    } else if (intent.kind === "update") startUpdate();
+    else void press(intent);
     return () => {
       closed = true;
+      if (noIntent !== null) clearTimeout(noIntent);
       handoff.close();
     };
   }, [id, deploy, intent]);
