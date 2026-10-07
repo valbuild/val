@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { CatalogFeatures } from "./catalog";
 import { applyFeatures } from "./features";
 
 /**
@@ -12,7 +13,31 @@ import { applyFeatures } from "./features";
  * from the same assumptions as the code would agree with it either way.
  */
 
-/** The parts of `template-nextjs-starter` these functions touch. */
+/**
+ * What `valbuild/templates`' catalog says about the Next.js templates. The
+ * paths are the template's to name; these are the ones it names.
+ */
+const NEXT_FEATURES: CatalogFeatures = {
+  mcp: {
+    paths: [
+      "src/app/api/mcp",
+      "src/app/.well-known/oauth-protected-resource",
+      "src/val/mcp.ts",
+      "src/val/mcp.images.ts",
+    ],
+    dependencies: [
+      "@valbuild/mcp",
+      "@modelcontextprotocol/server",
+      "mcp-handler",
+      "zod",
+      "sharp",
+    ],
+    docs: ["README.md", "AGENTS.md"],
+  },
+  imageUploads: { file: "src/val/mcp.images.ts", dependencies: ["sharp"] },
+};
+
+/** The parts of a Next.js template these functions touch. */
 function writeTemplate(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "val-create-test"));
   const write = (relativePath: string, contents: string) => {
@@ -89,7 +114,7 @@ describe("everything on", () => {
     const root = writeTemplate();
     const before = readPackageJson(root);
 
-    applyFeatures(root, { mcp: true, imageUploads: true });
+    applyFeatures(root, { mcp: true, imageUploads: true }, NEXT_FEATURES);
 
     expect(readPackageJson(root)).toEqual(before);
     expect(fs.readFileSync(path.join(root, "src/val/mcp.images.ts"), "utf-8")) //
@@ -102,7 +127,7 @@ describe("image uploads declined", () => {
   it("replaces the image tools with an empty list and drops sharp", () => {
     const root = writeTemplate();
 
-    applyFeatures(root, { mcp: true, imageUploads: false });
+    applyFeatures(root, { mcp: true, imageUploads: false }, NEXT_FEATURES);
 
     const contents = fs.readFileSync(
       path.join(root, "src/val/mcp.images.ts"),
@@ -120,7 +145,7 @@ describe("image uploads declined", () => {
   it("keeps the endpoint itself", () => {
     const root = writeTemplate();
 
-    applyFeatures(root, { mcp: true, imageUploads: false });
+    applyFeatures(root, { mcp: true, imageUploads: false }, NEXT_FEATURES);
 
     expect(exists(root, "src/val/mcp.ts")).toBe(true);
     expect(exists(root, "src/app/api/mcp/route.ts")).toBe(true);
@@ -135,7 +160,7 @@ describe("MCP declined", () => {
   it("removes the endpoint, the transport and the discovery document", () => {
     const root = writeTemplate();
 
-    applyFeatures(root, { mcp: false, imageUploads: false });
+    applyFeatures(root, { mcp: false, imageUploads: false }, NEXT_FEATURES);
 
     expect(exists(root, "src/val/mcp.ts")).toBe(false);
     expect(exists(root, "src/val/mcp.images.ts")).toBe(false);
@@ -146,7 +171,7 @@ describe("MCP declined", () => {
   it("leaves the Studio's own route and files alone", () => {
     const root = writeTemplate();
 
-    applyFeatures(root, { mcp: false, imageUploads: false });
+    applyFeatures(root, { mcp: false, imageUploads: false }, NEXT_FEATURES);
 
     // `src/app/api` goes, but the Studio's route is under `(val)/api` — a
     // different directory that happens to be spelled similarly, and the one
@@ -160,7 +185,7 @@ describe("MCP declined", () => {
   it("drops every dependency that was only there for it", () => {
     const root = writeTemplate();
 
-    applyFeatures(root, { mcp: false, imageUploads: false });
+    applyFeatures(root, { mcp: false, imageUploads: false }, NEXT_FEATURES);
 
     const { dependencies, devDependencies } = readPackageJson(root);
     for (const name of [
@@ -182,10 +207,26 @@ describe("MCP declined", () => {
     expect(devDependencies).toEqual({ "@valbuild/cli": "0.121.0" });
   });
 
+  it("takes them off pnpm's list of packages allowed to build, too", () => {
+    const root = writeTemplate();
+    const packageJsonPath = path.join(root, "package.json");
+    const withPnpm = {
+      ...JSON.parse(fs.readFileSync(packageJsonPath, "utf-8")),
+      pnpm: { onlyBuiltDependencies: ["esbuild", "sharp"] },
+    };
+    fs.writeFileSync(packageJsonPath, JSON.stringify(withPnpm));
+
+    applyFeatures(root, { mcp: false, imageUploads: false }, NEXT_FEATURES);
+
+    expect(JSON.parse(fs.readFileSync(packageJsonPath, "utf-8")).pnpm).toEqual({
+      onlyBuiltDependencies: ["esbuild"],
+    });
+  });
+
   it("takes the README's MCP section out between its markers", () => {
     const root = writeTemplate();
 
-    applyFeatures(root, { mcp: false, imageUploads: false });
+    applyFeatures(root, { mcp: false, imageUploads: false }, NEXT_FEATURES);
 
     const readme = fs.readFileSync(path.join(root, "README.md"), "utf-8");
     expect(readme).not.toContain("Coding agents (MCP)");
@@ -202,7 +243,7 @@ describe("MCP declined", () => {
     const unmarked = "# my-app\n\nNo markers here.\n";
     fs.writeFileSync(path.join(root, "README.md"), unmarked);
 
-    applyFeatures(root, { mcp: false, imageUploads: false });
+    applyFeatures(root, { mcp: false, imageUploads: false }, NEXT_FEATURES);
 
     expect(fs.readFileSync(path.join(root, "README.md"), "utf-8")).toBe(
       unmarked,
@@ -215,8 +256,148 @@ describe("MCP declined", () => {
     fs.rmSync(path.join(root, "README.md"));
 
     expect(() =>
-      applyFeatures(root, { mcp: false, imageUploads: false }),
+      applyFeatures(root, { mcp: false, imageUploads: false }, NEXT_FEATURES),
     ).not.toThrow();
     expect(readPackageJson(root).dependencies).not.toHaveProperty("sharp");
+  });
+});
+
+describe("what it reports", () => {
+  it("says nothing was removed when every feature is kept", () => {
+    const root = writeTemplate();
+    expect(
+      applyFeatures(root, { mcp: true, imageUploads: true }, NEXT_FEATURES),
+    ).toBe(false);
+  });
+
+  it("says something was removed when a feature was declined", () => {
+    // Which is what decides whether generated files are rebuilt afterwards.
+    expect(
+      applyFeatures(
+        writeTemplate(),
+        { mcp: true, imageUploads: false },
+        NEXT_FEATURES,
+      ),
+    ).toBe(true);
+    expect(
+      applyFeatures(
+        writeTemplate(),
+        { mcp: false, imageUploads: false },
+        NEXT_FEATURES,
+      ),
+    ).toBe(true);
+  });
+
+  it("removes nothing a template does not list", () => {
+    // A template without the feature has nothing to take out, whatever the
+    // answer was.
+    const root = writeTemplate();
+    const before = readPackageJson(root);
+
+    expect(applyFeatures(root, { mcp: false, imageUploads: false }, {})).toBe(
+      false,
+    );
+    expect(readPackageJson(root)).toEqual(before);
+    expect(exists(root, "src/app/api/mcp/route.ts")).toBe(true);
+  });
+});
+
+describe("a TanStack Start template", () => {
+  const TANSTACK_FEATURES: CatalogFeatures = {
+    mcp: {
+      paths: [
+        "src/routes/api/mcp.ts",
+        "src/routes/[.]well-known.oauth-protected-resource.ts",
+        "src/val/mcp.server.ts",
+        "src/val/mcp.images.server.ts",
+      ],
+      dependencies: ["@valbuild/mcp", "mcp-handler"],
+      docs: ["README.md", "AGENTS.md"],
+    },
+    imageUploads: {
+      file: "src/val/mcp.images.server.ts",
+      dependencies: ["sharp"],
+    },
+  };
+
+  function writeTanstackTemplate(): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "val-create-test"));
+    const write = (relativePath: string, contents: string) => {
+      const absolute = path.join(root, relativePath);
+      fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      fs.writeFileSync(absolute, contents);
+    };
+    write("src/routes/api/mcp.ts", "// the transport\n");
+    write("src/routes/api/val.$.ts", "// the Studio's own API\n");
+    write("src/routes/[.]well-known.oauth-protected-resource.ts", "// rfc\n");
+    write("src/val/mcp.server.ts", "// the endpoint\n");
+    write("src/val/mcp.images.server.ts", "// sharp\n");
+    write(
+      "package.json",
+      `${JSON.stringify({
+        dependencies: {
+          "@valbuild/mcp": "1",
+          "@valbuild/tanstack": "1",
+          "mcp-handler": "1",
+          sharp: "1",
+        },
+      })}\n`,
+    );
+    write(
+      "AGENTS.md",
+      [
+        "# Working in this project",
+        "",
+        "Rules.",
+        "",
+        "<!-- val:mcp:start -->",
+        "",
+        "## Content tools (MCP)",
+        "",
+        "Served at /api/mcp.",
+        "",
+        "<!-- val:mcp:end -->",
+        "",
+      ].join("\n"),
+    );
+    return root;
+  }
+
+  it("keeps the Studio's API beside the MCP route it removes", () => {
+    // Both live in `src/routes/api`, so the directory must survive.
+    const root = writeTanstackTemplate();
+
+    applyFeatures(root, { mcp: false, imageUploads: false }, TANSTACK_FEATURES);
+
+    expect(exists(root, "src/routes/api/mcp.ts")).toBe(false);
+    expect(exists(root, "src/routes/api/val.$.ts")).toBe(true);
+    expect(
+      exists(root, "src/routes/[.]well-known.oauth-protected-resource.ts"),
+    ).toBe(false);
+    expect(exists(root, "src/val/mcp.server.ts")).toBe(false);
+    expect(readPackageJson(root).dependencies).toEqual({
+      "@valbuild/tanstack": "1",
+    });
+  });
+
+  it("cuts a section at the end of a doc and leaves one newline", () => {
+    const root = writeTanstackTemplate();
+
+    applyFeatures(root, { mcp: false, imageUploads: false }, TANSTACK_FEATURES);
+
+    expect(fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8")).toBe(
+      "# Working in this project\n\nRules.\n",
+    );
+  });
+
+  it("replaces its own image tools file when image uploads are declined", () => {
+    const root = writeTanstackTemplate();
+
+    applyFeatures(root, { mcp: true, imageUploads: false }, TANSTACK_FEATURES);
+
+    expect(
+      fs.readFileSync(path.join(root, "src/val/mcp.images.server.ts"), "utf-8"),
+    ).toContain("export const valImageTools: ValToolImpl[] = []");
+    expect(exists(root, "src/routes/api/mcp.ts")).toBe(true);
   });
 });

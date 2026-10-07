@@ -38,23 +38,41 @@ cmd.exe, Git Bash, WSL and every shell on macOS and Linux pass `@valbuild`
 through as written, so the quotes are only needed in PowerShell — but they are
 harmless everywhere.
 
-## Which framework
+## Which template
 
-The first question is which framework to build on:
+The first questions are which framework to build on, then which template:
 
-- **Next.js** — [`valbuild/template-nextjs-starter`](https://github.com/valbuild/template-nextjs-starter)
-- **TanStack Start** — [`valbuild/template-tanstack-starter`](https://github.com/valbuild/template-tanstack-starter)
+| Framework      | Template    | What it is                                                                    |
+| -------------- | ----------- | ----------------------------------------------------------------------------- |
+| TanStack Start | **Full**    | A site to build on: a theme editors can change, sections, light and dark mode |
+| TanStack Start | **Minimal** | Val set up and nothing else: one example page, no CSS framework               |
+| Next.js        | **Full**    | The same as TanStack's, on the App Router                                     |
+| Next.js        | **Minimal** | The same as TanStack's, on the App Router                                     |
 
-Answer it up front to skip the prompt:
+TanStack Start is offered first and is the default. The templates live in
+[`valbuild/templates`](https://github.com/valbuild/templates), and that
+repository's `catalog.json` is what is offered: the list is read when you run
+the command, so a new template needs no new version of this package.
+
+Answer up front to skip the prompts:
 
 ```sh
-pnpm create @valbuild@latest my-app --framework tanstack
-pnpm create @valbuild@latest my-app --tanstack          # shorthand
-pnpm create @valbuild@latest my-app --nextjs
+pnpm create @valbuild@latest my-app --template tanstack-full
+pnpm create @valbuild@latest my-app --tanstack --template minimal
+pnpm create @valbuild@latest my-app --framework nextjs --template full
 ```
 
-`--framework` also takes `next`, `next.js` and `tanstack-start`, and the last
-flag wins if you pass more than one.
+`--template` takes a template's id (`tanstack-full`, which names the framework
+too) or its name (`full`, `minimal`) within the framework. `--framework` takes
+`tanstack` or `nextjs`, and also `next`, `next.js` and `tanstack-start`;
+`--tanstack` and `--nextjs` are shorthands. The last flag wins if you pass more
+than one.
+
+To try a branch of the templates before it lands:
+
+```sh
+VAL_TEMPLATES_REF=my-branch pnpm create @valbuild@latest
+```
 
 ## Package manager
 
@@ -79,10 +97,9 @@ pnpm create @valbuild@latest my-app
 
 ## Features it asks about
 
-Two parts of the template are optional, and both default to yes. They are asked
-about only where the chosen starter has them — the TanStack Start starter does
-not ship an MCP endpoint yet, so neither question is asked for it, and a
-`--mcp` flag given anyway is turned off with a note rather than silently
+Two parts of the template are optional, and both default to yes. Every
+template has both today; a template that lacks one is not asked about it, and a
+flag that asks for it anyway is turned off with a note rather than silently
 producing a project whose endpoint is not there.
 
 - **MCP.** Serves Val's content tools at `/api/mcp`, so a coding agent can read
@@ -104,5 +121,10 @@ pnpm create @valbuild@latest my-app --no-mcp
 `--image-uploads` without an MCP endpoint to serve it on is turned off with a
 note rather than refused; giving a flag both ways (`--mcp --no-mcp`) is an
 error.
+
+Which files, dependencies and README sections a declined feature takes with it
+is the template's to say, in the catalog — so it is always exactly what that
+template has. Generated files that pointed at them (TanStack's route tree) are
+regenerated after the install.
 
 See the [documentation](https://val.build/docs) for more information.

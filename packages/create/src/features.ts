@@ -1,5 +1,13 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { join } from "path";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  rmdirSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
+import { dirname, join } from "path";
+import type { CatalogFeatures } from "./catalog";
 
 /**
  * Turning the two optional parts of the template off.
@@ -20,30 +28,8 @@ export type Features = {
   imageUploads: boolean;
 };
 
-/** Files and directories that exist only to serve MCP. */
-const MCP_PATHS = [
-  "src/val/mcp.ts",
-  "src/val/mcp.images.ts",
-  "src/app/api/mcp",
-  "src/app/.well-known",
-  // Left behind empty once `api/mcp` goes: the Studio's own route lives under
-  // `src/app/(val)/api`, not here.
-  "src/app/api",
-];
-
-/** Dependencies that exist only to serve MCP. */
-const MCP_DEPENDENCIES = [
-  "@valbuild/mcp",
-  "@modelcontextprotocol/server",
-  "mcp-handler",
-  "zod",
-];
-
-/** The dependency the image tool is the whole reason for. */
-const IMAGE_DEPENDENCY = "sharp";
-
 /**
- * What `src/val/mcp.images.ts` becomes when image uploads are declined.
+ * What the image tools file becomes when image uploads are declined.
  *
  * Replaced whole rather than edited, so there is no partial state to get
  * wrong — and the file stays, with the comment, so turning the feature on later
@@ -70,32 +56,61 @@ const IMAGE_TOOLS_OFF = `import type { ValToolImpl } from "@valbuild/mcp";
 export const valImageTools: ValToolImpl[] = [];
 `;
 
-const README_START = "<!-- val:mcp:start -->";
-const README_END = "<!-- val:mcp:end -->";
+const SECTION_START = "<!-- val:mcp:start -->";
+const SECTION_END = "<!-- val:mcp:end -->";
 
 /**
  * Take the declined features out of a freshly downloaded template.
  *
+ * WHAT to take out is the template's to say, in the catalog (`catalog.ts`):
+ * the template knows which of its files serve MCP, and this package would be
+ * wrong the first time one moved. Each path there has already been checked to
+ * stay inside the project.
+ *
  * Best effort by design: a template that has moved on and no longer has one of
  * these files should not fail a project's creation over it, and everything
  * removed here is additive to a project that works without it.
+ *
+ * Returns whether anything was removed, which is what decides whether the
+ * template's generated files have to be brought up to date afterwards.
  */
-export function applyFeatures(projectPath: string, features: Features): void {
-  if (!features.mcp) {
-    for (const relativePath of MCP_PATHS) {
-      remove(join(projectPath, relativePath));
+export function applyFeatures(
+  projectPath: string,
+  features: Features,
+  available: CatalogFeatures,
+): boolean {
+  const { mcp, imageUploads } = available;
+  if (mcp !== undefined && !features.mcp) {
+    for (const relativePath of mcp.paths) {
+      remove(projectPath, relativePath);
     }
-    removeDependencies(projectPath, [...MCP_DEPENDENCIES, IMAGE_DEPENDENCY]);
-    removeReadmeSection(projectPath);
-    return;
+    removeDependencies(projectPath, [
+      ...mcp.dependencies,
+      ...(imageUploads?.dependencies ?? []),
+    ]);
+    for (const doc of mcp.docs) {
+      removeMarkedSection(join(projectPath, doc));
+    }
+    return true;
   }
-  if (!features.imageUploads) {
-    writeIfPresent(join(projectPath, "src/val/mcp.images.ts"), IMAGE_TOOLS_OFF);
-    removeDependencies(projectPath, [IMAGE_DEPENDENCY]);
+  if (imageUploads !== undefined && !features.imageUploads) {
+    writeIfPresent(join(projectPath, imageUploads.file), IMAGE_TOOLS_OFF);
+    removeDependencies(projectPath, imageUploads.dependencies);
+    return true;
   }
+  return false;
 }
 
-function remove(path: string): void {
+/**
+ * Remove a file or directory, and then any directory it leaves empty.
+ *
+ * The empty parents go too because they are part of what the feature was:
+ * `src/app/api/mcp` is the only thing in `src/app/api` in a Next template, and a
+ * project with an empty `api` folder looks like something was half-deleted.
+ * Never above the project itself.
+ */
+function remove(projectPath: string, relativePath: string): void {
+  const path = join(projectPath, relativePath);
   if (!existsSync(path)) {
     return;
   }
@@ -103,6 +118,19 @@ function remove(path: string): void {
     rmSync(path, { recursive: true, force: true });
   } catch {
     // Not worth failing the whole creation over.
+    return;
+  }
+  let parent = dirname(path);
+  while (parent !== projectPath && parent.startsWith(projectPath)) {
+    try {
+      if (readdirSync(parent).length > 0) {
+        return;
+      }
+      rmdirSync(parent);
+    } catch {
+      return;
+    }
+    parent = dirname(parent);
   }
 }
 
@@ -152,6 +180,22 @@ function removeDependencies(projectPath: string, names: string[]): void {
       }
       packageJson[block] = remaining;
     }
+    // pnpm's list of packages allowed to run install scripts. `sharp` is on it
+    // for its binary, and a name left there for a package that is gone is the
+    // one trace of the feature a reader would still find.
+    const pnpm = packageJson.pnpm;
+    if (typeof pnpm === "object" && pnpm !== null && !Array.isArray(pnpm)) {
+      const pnpmConfig: Record<string, unknown> = {
+        ...(pnpm as Record<string, unknown>),
+      };
+      const allowed = pnpmConfig.onlyBuiltDependencies;
+      if (Array.isArray(allowed)) {
+        pnpmConfig.onlyBuiltDependencies = allowed.filter(
+          (name) => !names.includes(name),
+        );
+        packageJson.pnpm = pnpmConfig;
+      }
+    }
     writeFileSync(
       packageJsonPath,
       `${JSON.stringify(packageJson, null, 2)}\n`,
@@ -162,16 +206,15 @@ function removeDependencies(projectPath: string, names: string[]): void {
   }
 }
 
-/** The README's MCP section, between the markers the template puts around it. */
-function removeReadmeSection(projectPath: string): void {
-  const readmePath = join(projectPath, "README.md");
-  if (!existsSync(readmePath)) {
+/** A doc's MCP section, between the markers the template puts around it. */
+function removeMarkedSection(docPath: string): void {
+  if (!existsSync(docPath)) {
     return;
   }
   try {
-    const contents = readFileSync(readmePath, "utf-8");
-    const start = contents.indexOf(README_START);
-    const end = contents.indexOf(README_END);
+    const contents = readFileSync(docPath, "utf-8");
+    const start = contents.indexOf(SECTION_START);
+    const end = contents.indexOf(SECTION_END);
     if (start === -1 || end === -1 || end < start) {
       // The markers are the contract. Without them there is no region to be
       // sure of, and a README that documents a feature the project does not
@@ -179,12 +222,11 @@ function removeReadmeSection(projectPath: string): void {
       return;
     }
     const before = contents.slice(0, start);
-    const after = contents.slice(end + README_END.length);
-    writeFileSync(
-      readmePath,
-      `${before.trimEnd()}\n\n${after.trimStart()}`,
-      "utf-8",
-    );
+    const after = contents.slice(end + SECTION_END.length);
+    // A section at the very end leaves nothing after it, and the file should
+    // still end in exactly one newline rather than the blank lines around it.
+    const rest = after.trim() === "" ? "" : `\n${after.trimStart()}`;
+    writeFileSync(docPath, `${before.trimEnd()}\n${rest}`, "utf-8");
   } catch {
     // As above.
   }

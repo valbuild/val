@@ -1114,20 +1114,29 @@ sent, so most releases need no credential. A new one (a rolldown bump) needs
 server, not a Hetzner key -- and without it the release stops, naming it.
 `rolldown:check` asks the same question without uploading.
 
-**After a release, ask whether to update the starter template** — and default to
-yes. The template repository ([`valbuild/template-nextjs-starter`](https://github.com/valbuild/template-nextjs-starter))
-pins `@valbuild/*` versions in its `package.json`, so it keeps serving the old
-release to everyone who runs `npm create @valbuild` / `pnpm create @valbuild`
-until someone bumps it. So, once the new version is on npm:
+**After a release, ask whether to update the templates** — and default to
+yes. [`valbuild/templates`](https://github.com/valbuild/templates) holds every
+template `npm create @valbuild` can make (`tanstack/full`, `tanstack/minimal`,
+`nextjs/full`, `nextjs/minimal`), and each pins `@valbuild/*` versions in its
+own `package.json` and lockfile, so they keep serving the old release to
+everyone who creates a project until someone bumps them. So, once the new
+version is on npm:
 
-1. Ask the user whether to update the template now, proposing that we do.
-2. Bump the `@valbuild/*` dependencies in the template's `package.json`, install
-   so the lock file follows, and open a PR on the template repository.
-3. **Test it out** — do not ship the bump on a green typecheck alone. Install and
-   run the template against the new version, open `/val`, and check that the
-   Studio loads and that an edit can be made and saved. Breakage from a release
-   shows up here first, and this is the last place to catch it before it is what
+1. Ask the user whether to update the templates now, proposing that we do.
+2. Bump the `@valbuild/*` dependencies in EVERY template's `package.json`,
+   install in each so its lock file follows, and open a PR on the templates
+   repository. Its `AGENTS.md` has the per-template checks.
+3. **Test it out** — do not ship the bump on a green typecheck alone. Run each
+   template against the new version, open `/val`, and check that the Studio
+   loads and that an edit can be made and saved. Breakage from a release shows
+   up here first, and this is the last place to catch it before it is what
    every new project starts from.
+
+What `npm create @valbuild` offers is not in this repository at all: it reads
+`catalog.json` from the templates repository at run time (see
+`packages/create/src/catalog.ts`), which also lists the files each optional
+feature is made of. Adding, renaming or moving a template, or a file that
+serves MCP in one, is a change there and not here.
 
 ### Publishing a package for the FIRST time
 
