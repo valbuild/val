@@ -103,6 +103,7 @@ import {
   usePendingChangesProgress,
   useValMode,
   useAutoPublish,
+  useCurrentProposal,
   useReportError,
 } from "../ValProvider";
 import {
@@ -121,6 +122,8 @@ import { useStudioSettings } from "../../hooks/useStudioSettings";
 import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
+import { useSiteChanges } from "../../proposals/useSiteChanges";
+import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 
 /**
  * The Val studio on the floating shell.
@@ -1056,10 +1059,29 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * Save where Publish is. The unsaved count is Review's, for the same reason
    * Review's is what it is: changes that cancel out are nothing to save.
    */
-  const { proposals, dialogs: proposalDialogs } = useProposalsBar({
-    unsaved: hasNetChanges ? ownPendingChanges : 0,
-    portalContainer,
-  });
+  /*
+   * In a proposal, Review is Compare with the site: what Publish -- merging
+   * it -- would change, saved and unsaved alike, against what visitors see.
+   * The review page lists pending patches, and a proposal's saved changes are
+   * not patches the Studio holds.
+   */
+  const inProposal = useCurrentProposal() !== null;
+  const siteChanges = useSiteChanges(inProposal);
+  const [siteCompareOpen, setSiteCompareOpen] = useState(false);
+  const openSiteCompare = useCallback(() => setSiteCompareOpen(true), []);
+  const { proposals: proposalsBar, dialogs: proposalDialogs } = useProposalsBar(
+    {
+      unsaved: hasNetChanges ? ownPendingChanges : 0,
+      portalContainer,
+    },
+  );
+  const proposals = useMemo(
+    () =>
+      proposalsBar && inProposal
+        ? { ...proposalsBar, onCompare: openSiteCompare }
+        : proposalsBar,
+    [proposalsBar, inProposal, openSiteCompare],
+  );
 
   /**
    * The real auto-save setting, not one of the shell's own.
@@ -1230,7 +1252,15 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
          * that view is where Discard is, and where a held change is staged again,
          * and Publish is disabled until one of those happens.
          */
-        reviewCount={hasNetChanges ? ownPendingChanges : 0}
+        reviewCount={
+          inProposal
+            ? siteChanges.status === "ready"
+              ? siteChanges.changeCount
+              : 0
+            : hasNetChanges
+              ? ownPendingChanges
+              : 0
+        }
         /*
          * Offered only once the metadata behind the confirm has arrived.
          *
@@ -1270,7 +1300,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         // enables preview and redirects, so it is worth sending to someone.
         previewHref={previewHref}
         onSelectValidationError={onSelectValidationError}
-        onCompare={showReview}
+        onCompare={inProposal ? openSiteCompare : showReview}
         // Recent activity rows did nothing: the panel listed them and no handler
         // was passed. They carry a real source path, so opening one is the same
         // act as opening a search hit.
@@ -1328,6 +1358,12 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         proposals={proposals}
       />
       {proposalDialogs}
+      <ProposalSiteCompare
+        changes={siteChanges}
+        open={siteCompareOpen}
+        onOpenChange={setSiteCompareOpen}
+        portalContainer={portalContainer}
+      />
       {handoff.state !== null && handoffCardInStudio(handoff.state) && (
         /*
          * A publish this Studio handed to a builder tab, because it cannot

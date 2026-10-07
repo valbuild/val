@@ -205,6 +205,14 @@ describe("the snapshot", () => {
     expect(atProposal).not.toBe(site);
   });
 
+  test("keeps the site's Source for what it replaced, to compare the proposal with", async () => {
+    const o = ops(proposal("save-2"));
+    expect(await o.siteSourcesUnderSnapshot()).toEqual({
+      [PAGE]: { title: "From the bundle" },
+    });
+    expect(await ops(undefined).siteSourcesUnderSnapshot()).toBeNull();
+  });
+
   test("is not the site's: a server with no proposal reads the bundle", async () => {
     const sources = await ops(undefined).getBaseSources();
     expect(sources[PAGE]).toEqual({ title: "From the bundle" });

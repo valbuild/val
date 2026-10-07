@@ -1298,6 +1298,22 @@ export const ValServer = (
         );
       },
     },
+    "/proposal-site-sources": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const modules = await serverOps.siteSourcesUnderSnapshot();
+        if (modules === null) {
+          return {
+            status: 404,
+            json: { message: "This is not a proposal's address." },
+          };
+        }
+        return { status: 200, json: { modules } };
+      },
+    },
     "/upload/patches": {
       POST: async (req) => {
         if (serverOps instanceof ValOpsHttp) {

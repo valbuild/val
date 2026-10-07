@@ -1570,6 +1570,36 @@ export const Api = {
       ]),
     },
   },
+  /**
+   * In a proposal: the SITE's Source for every module the proposal has saved,
+   * as the build it is based on has it. What Compare with the site diffs the
+   * proposal against -- saved and unsaved alike -- because the Studio's own
+   * base Source there is the proposal's last save. 404 anywhere that is not a
+   * proposal's address. valbuild/home `docs/proposals.md`.
+   */
+  "/proposal-site-sources": {
+    GET: {
+      req: {
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(404),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            /** By module file path. A module absent here is the same in both. */
+            modules: z.record(z.string(), z.unknown()),
+          }),
+        }),
+      ]),
+    },
+  },
   "/profiles": {
     GET: {
       req: {

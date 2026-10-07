@@ -192,6 +192,12 @@ export abstract class ValOps {
    */
   private shaModuleErrors: ExtractedModuleError[] | null;
   /**
+   * The SITE's Source for the modules a proposal's snapshot replaced: what the
+   * bundle evaluated to before the snapshot went over it. Kept for
+   * {@link siteSourcesUnderSnapshot}, and only where there is a snapshot.
+   */
+  private siteSourcesBeforeSnapshot: Sources | null = null;
+  /**
    * What a save has told us each `.jsonValues()` entry now holds.
    *
    * The entry twin of {@link sources}, and it has to be separate because an
@@ -333,6 +339,16 @@ export abstract class ValOps {
        * say the snapshot's content was the bundle's.
        */
       if (this.options?.snapshotSources) {
+        const site: Sources = {};
+        for (const moduleFilePath of Object.keys(
+          this.options.snapshotSources,
+        )) {
+          const source = extracted.sources[moduleFilePath as ModuleFilePath];
+          if (source !== undefined) {
+            site[moduleFilePath as ModuleFilePath] = source;
+          }
+        }
+        this.siteSourcesBeforeSnapshot = site;
         this.promoteCommittedSources(this.options.snapshotSources);
       }
       return {
@@ -354,6 +370,18 @@ export abstract class ValOps {
       schemas: this.schemas,
       moduleErrors: this.modulesErrors,
     };
+  }
+
+  /**
+   * In a proposal: the SITE's Source for every module the proposal has saved,
+   * as the build it is based on evaluated it -- what the proposal is compared
+   * against, and what merging it changes. Every other module is the same in
+   * both, so it is not sent. `null` anywhere that is not a proposal.
+   */
+  async siteSourcesUnderSnapshot(): Promise<Sources | null> {
+    if (!this.options?.snapshotSources) return null;
+    await this.initSources();
+    return this.siteSourcesBeforeSnapshot;
   }
 
   /**
