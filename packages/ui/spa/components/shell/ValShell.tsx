@@ -234,9 +234,15 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   /**
    * The organization's plan has made the Studio read-only (a trial that is
    * over, a payment failed past its grace): said above everything, because
-   * nothing typed here can be saved. See `ReadOnlyNotice`.
+   * nothing typed here can be saved. See `ReadOnlyNotice`. Asked only where
+   * the Studio is connected to Val Build (the same test that mounts its web
+   * components): elsewhere the proxy has nothing to forward to, and answers
+   * 404.
    */
-  const planAccess = usePlanAccess(useValConfig()?.project);
+  const project = useValConfig()?.project;
+  const valBuildConnected =
+    state.status === "success" && state.data.webComponentsUrl !== undefined;
+  const planAccess = usePlanAccess(valBuildConnected ? project : undefined);
   const editorNotices = [
     planAccess?.access === "read-only" ? (
       <ReadOnlyCard key="read-only" access={planAccess} />
