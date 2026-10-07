@@ -241,6 +241,38 @@ test("a try again a builder tab pressed replaces the failed request, and holds w
   expect(built).toEqual([]);
 });
 
+test("a request told again, without what it sent, keeps what it was told first", async () => {
+  // A builder tab reloaded mid-publish says what it follows again, but no
+  // longer knows the changes its press sent.
+  const { client } = fakeClient();
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => handedOff(j.id),
+    takesQueuedWork: () => false,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "queued" },
+    job: null,
+    patchIds: ["p1", "p2"],
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: null,
+    patchIds: [],
+  });
+  await flush();
+  expect(jobs.get().requests).toEqual([
+    expect.objectContaining({
+      requestId: "r1",
+      status: { kind: "publishing" },
+      patchIds: ["p1", "p2"],
+    }),
+  ]);
+});
+
 test("Discard is pressed on the failed request's job", async () => {
   const discarded: string[] = [];
   const { client } = fakeClient({

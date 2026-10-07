@@ -475,6 +475,20 @@ export function HandoffPublishTab({ id }: { id: string }) {
       if (closed || cancelled.current || pressing.current) return;
       if (already !== null) {
         pressing.current = true;
+        /*
+         * Said to the page again: the first `pressed` may never have reached
+         * it -- a reload between the press and the message -- and a page
+         * that never heard of the request has nothing to follow it by. What
+         * the press sent is not known here; the page keeps what it knows.
+         */
+        report({
+          type: "pressed",
+          requestId: intent.requestId,
+          request: already,
+          patchIds: [],
+          replaces: intent.kind === "try-again" ? intent.replaces : null,
+          building: !isSettled(already),
+        });
         await follow(intent, already);
         return;
       }

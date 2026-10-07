@@ -486,6 +486,12 @@ export function createPublishJobs(options: {
     replaces?: string;
   }) {
     const at = now();
+    /*
+     * The same request told again -- a builder tab reloaded mid-publish says
+     * what it is following, without the changes its press sent -- forgets
+     * nothing it was told the first time.
+     */
+    const before = state.requests.find((r) => r.requestId === requestId);
     const replaced =
       replaces === undefined
         ? undefined
@@ -496,10 +502,13 @@ export function createPublishJobs(options: {
         requests: state.requests.filter((r) => r.requestId !== replaces),
       });
     }
+    const told = [...(before?.patchIds ?? []), ...(sent ?? [])];
     const patchIds =
       replaced?.patchIds === undefined
-        ? sent
-        : [...replaced.patchIds, ...(sent ?? [])];
+        ? before?.patchIds === undefined
+          ? sent
+          : told
+        : [...replaced.patchIds, ...told];
     /*
      * And the job's own list: a job takes everything pending, which can be
      * more than the gate checked -- a save that landed after it. Only for a
@@ -514,10 +523,14 @@ export function createPublishJobs(options: {
       pressedAt: at,
       status: request,
       ...(isSettled(request) ? { settledAt: at } : {}),
-      ...(job !== null ? { jobId: job.id } : {}),
+      ...(job !== null
+        ? { jobId: job.id }
+        : before?.jobId !== undefined
+          ? { jobId: before.jobId }
+          : {}),
       ...(carried.length > 0 ? { patchIds: carried } : {}),
     };
-    const known = state.requests.some((r) => r.requestId === requestId);
+    const known = before !== undefined;
     set({
       ...state,
       requests: known
