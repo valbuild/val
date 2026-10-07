@@ -199,7 +199,12 @@ export function HandoffPublishTab({ id }: { id: string }) {
       tab.current?.report(message);
 
     const startUpdate = () => {
-      if (started.current) return;
+      /*
+       * Never from a stale intent -- and this is where that is checked, not
+       * only at the start: a page from before intents sends `update` over the
+       * channel too, and a check before this let that start it anyway.
+       */
+      if (started.current || stale) return;
       started.current = true;
       updating.current = true;
       setWaiting({ kind: "started", waitedMs: 0, jobId: null });
@@ -216,6 +221,19 @@ export function HandoffPublishTab({ id }: { id: string }) {
     };
 
     /*
+     * Jobs waiting for the one being run. The tab's own press can start a job
+     * while it builds one the page handed it (queued work the page took), and
+     * neither may be dropped: one after the other, as content leases them to
+     * the same tab.
+     */
+    const queue: {
+      job: PublishTabJob;
+      asTab: string;
+      requestId: string | null;
+    }[] = [];
+    let runningJobId: string | null = null;
+
+    /*
      * Once per job. A job the site sends AGAIN after this tab's run ended is
      * a new run -- content kept it at its step for another attempt.
      */
@@ -224,8 +242,18 @@ export function HandoffPublishTab({ id }: { id: string }) {
       asTab: string,
       requestId: string | null,
     ) => {
-      if (running.current || updating.current) return;
+      if (updating.current) return;
+      if (running.current) {
+        if (
+          runningJobId !== job.id &&
+          !queue.some((queued) => queued.job.id === job.id)
+        ) {
+          queue.push({ job, asTab, requestId });
+        }
+        return;
+      }
       running.current = true;
+      runningJobId = job.id;
       started.current = true;
       if (startedAt.current === null) startedAt.current = Date.now();
       setGoingLive(null);
@@ -237,6 +265,17 @@ export function HandoffPublishTab({ id }: { id: string }) {
         jobId: job.id,
       }));
       void (async () => {
+        await runOne();
+        // Only now: until its failure is read and said, this job is the tab's.
+        running.current = false;
+        runningJobId = null;
+        const next = queue.shift();
+        if (next !== undefined && !closed) {
+          runJob(next.job, next.asTab, next.requestId);
+        }
+      })();
+
+      async function runOne() {
         const result = await runJobToEnd({
           client,
           job,
@@ -250,7 +289,6 @@ export function HandoffPublishTab({ id }: { id: string }) {
               onPhase: () => {},
             }),
         });
-        running.current = false;
         report({ type: "job-result", result });
         if (result.status === "handed-off") {
           // Content checks it and puts it live; the page that opened this follows it.
@@ -293,7 +331,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
           ms: Date.now() - (startedAt.current ?? Date.now()),
           summary: message,
         });
-      })();
+      }
     };
 
     /**
@@ -338,19 +376,23 @@ export function HandoffPublishTab({ id }: { id: string }) {
         setSettled(request);
         return;
       }
-      setWaiting({
-        kind: "following",
-        since: Date.now(),
-        label:
-          request.kind === "queued"
-            ? "Waiting for the publish before it"
-            : "Finishing the publish",
-      });
+      // A job running here keeps the screen: its steps are what is happening.
+      if (!running.current) {
+        setWaiting({
+          kind: "following",
+          since: Date.now(),
+          label:
+            request.kind === "queued"
+              ? "Waiting for the publish before it"
+              : "Finishing the publish",
+        });
+      }
       const followed = await followRequest({
         client,
         requestId: intent.requestId,
         tab: intent.tab,
-        stopped: () => closed || running.current,
+        // Not while a job runs here: a job for this press waits in `queue`.
+        stopped: () => closed,
       });
       if (followed.kind === "job") {
         runJob(followed.job, intent.tab, intent.requestId);
@@ -369,8 +411,11 @@ export function HandoffPublishTab({ id }: { id: string }) {
         client,
         requestId: intent.requestId,
       });
-      if (closed || started.current || cancelled.current || pressing.current)
-        return;
+      /*
+       * Not `started`: a job the page handed this tab is not this tab's own
+       * press, and must not stand in for it -- see `queue`.
+       */
+      if (closed || cancelled.current || pressing.current) return;
       if (already !== null) {
         pressing.current = true;
         await follow(intent, already);
@@ -416,9 +461,8 @@ export function HandoffPublishTab({ id }: { id: string }) {
                   after,
                 ),
             });
-      // A job the page handed over meanwhile, or a cancel, has the tab now.
-      if (closed || started.current || cancelled.current || pressing.current)
-        return;
+      // A cancel from the page, or a press already made, has the tab now.
+      if (closed || cancelled.current || pressing.current) return;
       pressing.current = true;
       const system = valRef.current?.system;
       if (!loaded || system === undefined) {
