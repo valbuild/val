@@ -63,8 +63,22 @@ export type PressedForPage = {
 
 export type PressForPageOutcome =
   | PressedForPage
-  /** Nothing was requested: `message` for the editor, `details` for a report. */
-  | { kind: "not-pressed"; message: string; details?: string };
+  /**
+   * Nothing was requested: `message` for the editor, `details` for a report.
+   *
+   * `durable`: an answer that the same press would get again -- the gate
+   * refused, content refused -- which a tab opened again may show as it is.
+   * Not durable: it gave up on a press that got no answer, which content may
+   * have taken after all, so a tab opened again must ask rather than say so.
+   */
+  | {
+      kind: "not-pressed";
+      message: string;
+      details?: string;
+      durable: boolean;
+      /** The gate found nothing pending. */
+      nothingToPublish?: true;
+    };
 
 /** The message for a project that never finished loading in the tab. */
 export const NOT_LOADED_MESSAGE =
@@ -94,10 +108,58 @@ export function newestUnpublished(store: ChainOf): string | null {
   return null;
 }
 
+/** Where the server says a change is: see `PatchStore.serverStateOf`. */
+export type ChangeOnServer = "shipped" | "pending" | "absent" | "unknown";
+
+/** Ask `store` where `patchId` is; `unknown` without a store to ask. */
+export function askServerAbout(
+  store: { serverStateOf(patchId: string): Promise<ChangeOnServer> } | null,
+  patchId: string,
+): Promise<ChangeOnServer> {
+  return store === null
+    ? Promise.resolve("unknown")
+    : store.serverStateOf(patchId);
+}
+
+/** How often the tab asks the server about a change it has not seen arrive. */
+export const CHANGE_ASK_EVERY_MS = 3_000;
+
 /**
- * Has the server got the change `after` names, as this tab sees it? Either it
- * is in the chain, saved -- or it has shipped already, which is when another
- * publish took it.
+ * Wait for the page's last change: until it is in this tab's chain, or the
+ * server says it has SHIPPED -- another publish took it before this tab
+ * loaded, and a fresh tab's chain never lists a shipped patch, so without
+ * asking it would wait out the deadline over a change already live.
+ *
+ * `inChain` is polled as often as {@link whenReady} does; the server is asked
+ * every `askEveryMs`, since that is a request.
+ */
+export async function waitForChange(options: {
+  inChain: () => boolean;
+  serverState: () => Promise<ChangeOnServer>;
+  everyMs?: number;
+  askEveryMs?: number;
+  timeoutMs?: number;
+}): Promise<"arrived" | "shipped" | "timed-out"> {
+  const everyMs = options.everyMs ?? READY_EVERY_MS;
+  const askEveryMs = options.askEveryMs ?? CHANGE_ASK_EVERY_MS;
+  const timeoutMs = options.timeoutMs ?? CHANGE_TIMEOUT_MS;
+  const startedAt = Date.now();
+  let askedAt = -Infinity;
+  for (;;) {
+    if (options.inChain()) return "arrived";
+    if (Date.now() - askedAt >= askEveryMs) {
+      askedAt = Date.now();
+      if ((await options.serverState()) === "shipped") return "shipped";
+      if (options.inChain()) return "arrived";
+    }
+    if (Date.now() - startedAt >= timeoutMs) return "timed-out";
+    await new Promise((resolve) => setTimeout(resolve, everyMs));
+  }
+}
+
+/**
+ * Is the change `after` names in this tab's chain, saved? One that has
+ * shipped is not in it: see {@link waitForChange}.
  */
 export function hasChange(
   store: ChainOf & { isPending(patchId: string): boolean },
@@ -182,6 +244,7 @@ export async function pressForPage(options: {
         message:
           "The publish could not be started again. Publish again to retry.",
         details: error instanceof Error ? error.message : String(error),
+        durable: !isTransientPublishError(error),
       };
     }
   }
@@ -213,13 +276,20 @@ export async function pressForPage(options: {
         replaces: null,
       };
     case "nothing-to-publish":
-      return { kind: "not-pressed", message: "There was nothing to publish." };
+      return {
+        kind: "not-pressed",
+        message: "There was nothing to publish.",
+        durable: true,
+        nothingToPublish: true,
+      };
     case "refused": {
       const said = describePublishRefusal(result);
       return {
         kind: "not-pressed",
         message: said.message,
         ...(said.details !== undefined ? { details: said.details } : {}),
+        // The rest are about this moment: a save, an edit, a running publish.
+        durable: result.reason === "validation-errors",
       };
     }
     case "failed":
@@ -231,6 +301,7 @@ export async function pressForPage(options: {
               .map(([patchId, message]) => `${patchId}: ${message}`)
               .join("\n")
           : result.message,
+        durable: !result.retryable,
       };
     case "published":
       /*
@@ -242,6 +313,7 @@ export async function pressForPage(options: {
         kind: "not-pressed",
         message:
           "This project publishes without a builder tab. Open the Studio to see the publish.",
+        durable: true,
       };
   }
 }

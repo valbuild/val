@@ -20,7 +20,7 @@ import {
  * The Studio here sends no isolation headers, so it hands off exactly as an
  * iPhone's does, and Chromium can freeze a page the way iOS does
  * (`Page.setWebLifecycleState`): its timers, fetches and channel messages wait
- * until it is thawed. Those tests are Chromium's alone; the rest also run in
+ * until it is thawed. That test is Chromium's alone; the rest also run in
  * WebKit (`--project=webkit-http`), Safari's engine and every iPhone's.
  */
 
@@ -114,12 +114,9 @@ test("the builder tab publishes on its own while the page that opened it is paus
  * presses what the server has: it has to wait for the change rather than
  * publish without it, or find nothing to publish.
  */
-test("a change still being saved at the tap is published, though the page is paused", async ({
+test("a change still being saved at the tap is published with it", async ({
   page,
-  context,
-  browserName,
 }) => {
-  test.skip(browserName !== "chromium", "freezing a page is a CDP command");
   await openHttpStudio(page);
   // Longer than the builder tab takes to load and press.
   let held = 0;
@@ -127,18 +124,29 @@ test("a change still being saved at the tap is published, though the page is pau
     if (route.request().method() !== "PUT") return route.continue();
     held++;
     await new Promise((resolve) => setTimeout(resolve, 20_000));
-    await route.continue();
+    /*
+     * Sent from here rather than `route.continue()`d: a request continued
+     * after being held this long did not always reach the server, and the
+     * test then measured the hold rather than the tab.
+     */
+    await route.fulfill({ response: await route.fetch() });
   });
   // Made, not saved: what a field's blur does as Publish is tapped.
   await createUnsavedPatch(page, "/content/authors.val.ts", [
     { op: "replace", path: ["teddy", "name"], value: "Saved after the tap" },
   ]);
   await expect(publishButton(page)).toBeEnabled({ timeout: 30_000 });
+  // On its way, and held there: the save is IN FLIGHT at the tap.
+  await expect.poll(() => held, { timeout: 30_000 }).toBeGreaterThan(0);
 
-  const cdp = await context.newCDPSession(page);
+  /*
+   * Not frozen, unlike the test above. The page does not press either way,
+   * so freezing adds nothing to what this is about -- and Chromium cannot
+   * finish sending a request whose page is frozen, so the held save would
+   * never land at all.
+   */
   const opened = page.waitForEvent("popup");
   await publishButton(page).click();
-  await cdp.send("Page.setWebLifecycleState", { state: "frozen" });
   const builder = await opened;
   try {
     await expect
@@ -147,13 +155,11 @@ test("a change still being saved at the tap is published, though the page is pau
         message: "the builder tab never published the change",
       })
       .toEqual(["live"]);
-    expect(held).toBeGreaterThan(0);
     expect(await mock.committedSource("/content/authors.val.ts")).toContain(
       "Saved after the tap",
     );
   } finally {
-    await builder.close();
-    await cdp.send("Page.setWebLifecycleState", { state: "active" });
+    await builder.close().catch(() => {});
   }
 });
 

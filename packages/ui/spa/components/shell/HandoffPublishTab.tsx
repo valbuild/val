@@ -9,7 +9,7 @@ import {
 } from "../../publish/handoff";
 import {
   CHANGE_NOT_SAVED_MESSAGE,
-  CHANGE_TIMEOUT_MS,
+  askServerAbout,
   hasChange,
   followRequest,
   NOT_LOADED_MESSAGE,
@@ -20,6 +20,7 @@ import {
   rememberedEnding,
   rememberEnding,
   settledMessage,
+  waitForChange,
   whenReady,
 } from "../../publish/pressForPage";
 import { useValSystem } from "../../stores/react/SystemContext";
@@ -94,6 +95,13 @@ const ORDER: DeployPhase["kind"][] = [
 const NO_INTENT_TIMEOUT_MS = 5 * 60_000;
 const NO_INTENT_MESSAGE =
   "The page you published from never sent this tab the publish, so nothing was published. Publish again from that page.";
+
+/**
+ * What the tab shows when another publish took the page's change before this
+ * tab could press: Live. Shown here and never sent anywhere, so it names no
+ * commit.
+ */
+const SHIPPED_ELSEWHERE: PublishRequestStatus = { kind: "live", commit: "" };
 
 /** Seconds a finished tab stays up before closing itself. */
 const CLOSE_AFTER_S = 5;
@@ -369,19 +377,27 @@ export function HandoffPublishTab({ id }: { id: string }) {
        * out what the editor just did, or finds nothing at all. It arrives when
        * the page's save does -- on an iPhone, maybe only once the editor has
        * gone back to it -- so this waits, rather than fails, for a long time.
+       * Or another publish has taken it already, which only the server can
+       * say: a fresh tab's chain never lists a shipped change.
        */
-      const saved =
-        loaded &&
-        (await whenReady(
-          () => {
-            const current = valRef.current;
-            return (
-              current !== null &&
-              hasChange(current.system.patchStore, intent.after)
-            );
-          },
-          { timeoutMs: CHANGE_TIMEOUT_MS },
-        ));
+      const after = intent.after;
+      const change =
+        !loaded || after === null
+          ? "arrived"
+          : await waitForChange({
+              inChain: () => {
+                const current = valRef.current;
+                return (
+                  current !== null &&
+                  hasChange(current.system.patchStore, after)
+                );
+              },
+              serverState: () =>
+                askServerAbout(
+                  valRef.current?.system.patchStore ?? null,
+                  after,
+                ),
+            });
       // A job the page handed over meanwhile, or a cancel, has the tab now.
       if (closed || started.current || cancelled.current || pressing.current)
         return;
@@ -391,7 +407,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
         notPressed(NOT_LOADED_MESSAGE);
         return;
       }
-      if (!saved) {
+      if (change === "timed-out") {
         notPressed(CHANGE_NOT_SAVED_MESSAGE);
         return;
       }
@@ -406,7 +422,17 @@ export function HandoffPublishTab({ id }: { id: string }) {
       });
       if (closed) return;
       if (outcome.kind === "not-pressed") {
-        notPressed(outcome.message, outcome.details, { answer: true });
+        if (outcome.nothingToPublish && change === "shipped") {
+          /*
+           * Another publish took the editor's change before this tab could:
+           * it is on the site, which is the answer they came here for.
+           */
+          setSettled(SHIPPED_ELSEWHERE);
+          return;
+        }
+        notPressed(outcome.message, outcome.details, {
+          answer: outcome.durable,
+        });
         return;
       }
       const building = pressBuilds(outcome);

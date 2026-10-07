@@ -7,6 +7,7 @@ import type { PressAs, PublishResult } from "../stores/PublishSeam";
 import type { StudioJobClient } from "./jobClient";
 import { StudioPublishError } from "./publishClient";
 import {
+  askServerAbout,
   hasChange,
   newestUnpublished,
   followRequest,
@@ -19,6 +20,7 @@ import {
   rememberedEnding,
   rememberEnding,
   settledMessage,
+  waitForChange,
   whenReady,
 } from "./pressForPage";
 import { createRequestPublish } from "./requestPublish";
@@ -117,6 +119,8 @@ test("a refusal is said in the editor's words, with what to look at", async () =
     kind: "not-pressed",
     message: "Cannot publish: some modules have validation errors.",
     details: "",
+    // The same press would be refused again: a tab opened again says so.
+    durable: true,
   });
 });
 
@@ -130,6 +134,8 @@ test("nothing pending is nothing to publish", async () => {
   expect(outcome).toEqual({
     kind: "not-pressed",
     message: "There was nothing to publish.",
+    durable: true,
+    nothingToPublish: true,
   });
 });
 
@@ -187,6 +193,8 @@ test("a try again content refused is said, with content's words as details", asy
     kind: "not-pressed",
     message: "The publish could not be started again. Publish again to retry.",
     details: "503 Service Unavailable",
+    // No answer is not an answer: opened again, the tab asks content.
+    durable: false,
   });
 });
 
@@ -531,7 +539,7 @@ describe("a press that did not get through", () => {
     );
   });
 
-  test("gives up after the last retry, and says so", async () => {
+  test("gives up after the last retry, and is not remembered as an answer", async () => {
     let calls = 0;
     const outcome = await pressForPage({
       intent: press,
@@ -544,7 +552,9 @@ describe("a press that did not get through", () => {
       },
     });
     expect(calls).toBe(4);
-    expect(outcome).toMatchObject({ kind: "not-pressed" });
+    // Content may have taken the press and lost only the answer: a tab
+    // opened again must ask, not repeat this.
+    expect(outcome).toMatchObject({ kind: "not-pressed", durable: false });
   });
 
   test("is not pressed again when content answered", async () => {
@@ -644,5 +654,67 @@ describe("the page's last change", () => {
     expect(hasChange(store(["p1", "p2"]), "p2")).toBe(true);
     // Still only on this tab: not something content can publish yet.
     expect(hasChange(store(["p1", "p2"], [], ["p2"]), "p2")).toBe(false);
+  });
+});
+
+/*
+ * A change another publish took before the tab loaded is never in a fresh
+ * tab's chain, so the tab asks the server rather than wait out the deadline
+ * over a change that is already live.
+ */
+describe("waiting for the page's last change", () => {
+  test("ends when it arrives in the chain", async () => {
+    let polls = 0;
+    await expect(
+      waitForChange({
+        inChain: () => ++polls > 3,
+        serverState: async () => "absent",
+        everyMs: 1,
+        askEveryMs: 1,
+      }),
+    ).resolves.toBe("arrived");
+  });
+
+  test("ends when the server says another publish shipped it", async () => {
+    let asked = 0;
+    await expect(
+      waitForChange({
+        inChain: () => false,
+        serverState: async () => (++asked < 2 ? "absent" : "shipped"),
+        everyMs: 1,
+        askEveryMs: 1,
+      }),
+    ).resolves.toBe("shipped");
+  });
+
+  test("does not take a server it could not ask as an answer", async () => {
+    await expect(
+      waitForChange({
+        inChain: () => false,
+        serverState: async () => "unknown",
+        everyMs: 1,
+        askEveryMs: 1,
+        timeoutMs: 20,
+      }),
+    ).resolves.toBe("timed-out");
+  });
+
+  test("asks the server only as often as it is told to", async () => {
+    let asked = 0;
+    await waitForChange({
+      inChain: () => false,
+      serverState: async () => {
+        asked++;
+        return "pending";
+      },
+      everyMs: 1,
+      askEveryMs: 60_000,
+      timeoutMs: 30,
+    });
+    expect(asked).toBe(1);
+  });
+
+  test("a tab with no store to ask knows nothing", async () => {
+    await expect(askServerAbout(null, "p1")).resolves.toBe("unknown");
   });
 });
