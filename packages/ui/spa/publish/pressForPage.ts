@@ -1,4 +1,5 @@
 import type {
+  DependencyChange,
   PublishRequestStatus,
   PublishTabJob,
 } from "@valbuild/shared/internal";
@@ -156,12 +157,13 @@ export async function waitForChange(options: {
        * this exists to get past.
        */
       const left = Math.max(0, timeoutMs - (Date.now() - startedAt));
+      let deadline: ReturnType<typeof setTimeout> | undefined;
       const said = await Promise.race<ChangeOnServer>([
         options.serverState(),
-        new Promise<ChangeOnServer>((resolve) =>
-          setTimeout(() => resolve("unknown"), left),
-        ),
-      ]);
+        new Promise<ChangeOnServer>((resolve) => {
+          deadline = setTimeout(() => resolve("unknown"), left);
+        }),
+      ]).finally(() => clearTimeout(deadline));
       if (said === "shipped") return "shipped";
       if (options.inChain()) return "arrived";
     }
@@ -216,7 +218,7 @@ export function whenReady(
 export async function pressForPage(options: {
   intent: PressIntent;
   publish: (pressAs: PressAs) => Promise<PublishResult>;
-  client: Pick<StudioJobClient, "tryAgain">;
+  client: Pick<StudioJobClient, "tryAgain" | "requestStatus">;
   chain: () => string[];
   /** See {@link PRESS_RETRY_MS}. */
   retryMs?: readonly number[];
@@ -273,10 +275,35 @@ export async function pressForPage(options: {
    * A press that failed without an answer -- `retryable` is the seam saying
    * so -- is pressed again: the same request id, so the same press.
    */
+  let unanswered = false;
   for (const wait of retryMs) {
     if (result.status !== "failed" || !result.retryable) break;
+    unanswered = true;
     await pause(wait);
     result = await options.publish(pressAs);
+  }
+  /*
+   * A press with no answer may still have reached content, and each retry
+   * runs the whole gate again -- so an edit that landed in the pause can
+   * refuse the retry before it gets there, and a press that did land would
+   * be called "not pressed" and left behind. Content says whether it did.
+   */
+  if (unanswered && result.status !== "requested") {
+    const landed = await pressedAlready({
+      client: options.client,
+      requestId: intent.requestId,
+      retryMs,
+    });
+    if (landed !== null) {
+      return {
+        kind: "pressed",
+        requestId: intent.requestId,
+        request: landed,
+        job: null,
+        patchIds: options.chain(),
+        replaces: null,
+      };
+    }
   }
   switch (result.status) {
     case "requested":
@@ -485,15 +512,67 @@ function isEnding(value: unknown): value is RememberedEnding {
   if (typeof value !== "object" || value === null || !("kind" in value))
     return false;
   if (value.kind === "not-pressed") {
-    return "message" in value && typeof value.message === "string";
+    return (
+      "message" in value &&
+      typeof value.message === "string" &&
+      (!("details" in value) ||
+        value.details === undefined ||
+        typeof value.details === "string")
+    );
   }
   if (value.kind === "shipped-elsewhere") return true;
   return (
     value.kind === "update" &&
     "outcome" in value &&
-    typeof value.outcome === "object" &&
-    value.outcome !== null &&
-    "status" in value.outcome
+    isUpdateOutcome(value.outcome)
+  );
+}
+
+/* Every arm, in full: storage is the origin's, and anything may be there. */
+function isUpdateOutcome(value: unknown): value is SiteUpdateOutcome {
+  if (typeof value !== "object" || value === null || !("status" in value)) {
+    return false;
+  }
+  const text = (key: string) =>
+    key in value && typeof Reflect.get(value, key) === "string";
+  switch (value.status) {
+    case "updated":
+      return (
+        "changes" in value &&
+        Array.isArray(value.changes) &&
+        value.changes.every(isDependencyChange)
+      );
+    case "current":
+      return true;
+    case "unavailable":
+      return text("message");
+    case "failed":
+      // Remembered without the deploy's record: see `rememberEnding`.
+      return (
+        text("message") &&
+        text("details") &&
+        "deploy" in value &&
+        value.deploy === null
+      );
+    default:
+      return false;
+  }
+}
+
+function isDependencyChange(value: unknown): value is DependencyChange {
+  if (typeof value !== "object" || value === null) return false;
+  const field = (key: string): unknown =>
+    key in value ? Reflect.get(value, key) : undefined;
+  const version = (key: string) => {
+    const at = field(key);
+    return at === null || typeof at === "string";
+  };
+  const section = field("section");
+  return (
+    typeof field("name") === "string" &&
+    (section === "dependencies" || section === "devDependencies") &&
+    version("from") &&
+    version("to")
   );
 }
 

@@ -24,6 +24,7 @@ import {
   whenReady,
 } from "./pressForPage";
 import { createRequestPublish } from "./requestPublish";
+import type { SiteUpdateOutcome } from "./runSiteUpdate";
 import { storedHandoffIntent, storeHandoffIntent } from "./handoff";
 
 /**
@@ -61,10 +62,16 @@ const requested = (
   patchIds: ["p1" as PatchId],
 });
 
-const noTryAgain: Pick<StudioJobClient, "tryAgain"> = {
+/** Content has never heard of the request: what a press not made gets. */
+const neverPressed = async (): Promise<PublishRequestStatus> => {
+  throw new StudioPublishError(404, "Unknown publish request", null);
+};
+
+const noTryAgain: Pick<StudioJobClient, "tryAgain" | "requestStatus"> = {
   tryAgain: async () => {
     throw new Error("not a try again");
   },
+  requestStatus: neverPressed,
 };
 
 test("the tab presses as the page, under the request id the page minted", async () => {
@@ -151,6 +158,7 @@ test("a try again resumes content's queue as the page, with no gate", async () =
       after: null,
     },
     client: {
+      requestStatus: neverPressed,
       tryAgain: async (requestId, tab) => {
         tried.push(`${requestId} as ${tab}`);
         return { request: { kind: "publishing" }, job };
@@ -182,6 +190,7 @@ test("a try again content refused is said, with content's words as details", asy
       after: null,
     },
     client: {
+      requestStatus: neverPressed,
       tryAgain: async () => {
         throw new StudioPublishError(503, "503 Service Unavailable", null);
       },
@@ -510,6 +519,48 @@ describe("what a tab remembers of its own ending", () => {
     expect(rememberedEnding("x", null)).toBeNull();
   });
 
+  test("an ending that is not one in full is not remembered", () => {
+    const store = storage();
+    const put = (id: string, value: unknown) =>
+      store.setItem(
+        `val-publish-handoff-ending:${id}`,
+        JSON.stringify({ at: Date.now(), value }),
+      );
+    // A tab that took these for its ending would wait on an update it never runs.
+    put("u1", { kind: "update", outcome: { status: "unknown" } });
+    put("u2", { kind: "update", outcome: { status: "failed", message: "x" } });
+    put("u3", { kind: "update", outcome: { status: "updated", changes: [1] } });
+    put("n1", { kind: "not-pressed", message: "m", details: 3 });
+    for (const id of ["u1", "u2", "u3", "n1"]) {
+      expect(rememberedEnding(id, store)).toBeNull();
+    }
+    const failed: SiteUpdateOutcome = {
+      status: "failed",
+      message: "The rebuild failed.",
+      details: "exit 1",
+      deploy: null,
+    };
+    rememberEnding("u4", { kind: "update", outcome: failed }, store);
+    expect(rememberedEnding("u4", store)).toEqual({
+      kind: "update",
+      outcome: failed,
+    });
+    rememberEnding(
+      "u5",
+      {
+        kind: "update",
+        outcome: {
+          status: "updated",
+          changes: [
+            { name: "next", section: "dependencies", from: "15", to: "16" },
+          ],
+        },
+      },
+      store,
+    );
+    expect(rememberedEnding("u5", store)).not.toBeNull();
+  });
+
   test("an ending storage refuses retires the intent instead", () => {
     const store = storage();
     expect(storeHandoffIntent("h5", { kind: "update" }, store)).toBe(true);
@@ -612,6 +663,33 @@ describe("a press that did not get through", () => {
     expect(outcome).toMatchObject({ kind: "not-pressed", durable: false });
   });
 
+  test("a press that landed though its answer was lost is followed, whatever the retry says", async () => {
+    // The first press reached content; its answer did not. An edit saved in
+    // the pause makes the retry's gate refuse before it gets to content.
+    let calls = 0;
+    const outcome = await pressForPage({
+      intent: press,
+      client: {
+        ...noTryAgain,
+        requestStatus: async () => ({ kind: "publishing" }),
+      },
+      chain: () => ["p1"],
+      retryMs: noWait,
+      publish: async () =>
+        ++calls === 1
+          ? failed(true)
+          : { status: "refused", reason: "chain-moved" },
+    });
+    expect(outcome).toEqual({
+      kind: "pressed",
+      requestId: "page-r1",
+      request: { kind: "publishing" },
+      job: null,
+      patchIds: ["p1"],
+      replaces: null,
+    });
+  });
+
   test("is not pressed again when content answered", async () => {
     let calls = 0;
     await pressForPage({
@@ -638,6 +716,7 @@ describe("a press that did not get through", () => {
         after: null,
       },
       client: {
+        requestStatus: neverPressed,
         tryAgain: async () => {
           calls++;
           throw new StudioPublishError(409, "Not a failed request", null);
@@ -665,6 +744,7 @@ describe("a press that did not get through", () => {
         after: null,
       },
       client: {
+        requestStatus: neverPressed,
         tryAgain: async () => {
           if (++calls < 2) throw new TypeError("Load failed");
           return { request: { kind: "publishing" }, job };
