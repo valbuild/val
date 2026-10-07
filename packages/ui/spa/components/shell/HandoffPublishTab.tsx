@@ -175,7 +175,9 @@ export function HandoffPublishTab({ id }: { id: string }) {
       : { kind: "waiting", since: Date.now() },
   );
   /** The request, settled, when this tab followed it rather than built it. */
-  const [settled, setSettled] = useState<PublishRequestStatus | null>(null);
+  const [settled, setSettled] = useState<PublishRequestStatus | null>(() =>
+    remembered?.kind === "shipped-elsewhere" ? SHIPPED_ELSEWHERE : null,
+  );
   const [goingLive, setGoingLive] = useState<GoingLive | null>(null);
   const [closingIn, setClosingIn] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -189,6 +191,13 @@ export function HandoffPublishTab({ id }: { id: string }) {
   const cancelled = useRef(false);
   /** This tab has pressed: one press per tab, however often the effect runs. */
   const pressing = useRef(false);
+  /**
+   * This tab's own press is still to come or still going: not pressed yet,
+   * queued, or its job not handed off. While it is, a job the page handed
+   * over (queued work it took) is not the end of anything -- it neither
+   * closes the tab, nor says on the page's card that the publish is done.
+   */
+  const ownPending = useRef(false);
   /**
    * An update rather than a publish job: the page that cannot build pressed
    * Update site. Reported with `update-done`, never `done`, because it can end
@@ -237,6 +246,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
       job: PublishTabJob;
       asTab: string;
       requestId: string | null;
+      own: boolean;
     }[] = [];
     let runningJobId: string | null = null;
 
@@ -248,6 +258,8 @@ export function HandoffPublishTab({ id }: { id: string }) {
       job: PublishTabJob,
       asTab: string,
       requestId: string | null,
+      /** The job of this tab's own press, rather than one the page handed it. */
+      own: boolean,
     ) => {
       if (updating.current) return;
       if (running.current) {
@@ -255,7 +267,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
           runningJobId !== job.id &&
           !queue.some((queued) => queued.job.id === job.id)
         ) {
-          queue.push({ job, asTab, requestId });
+          queue.push({ job, asTab, requestId, own });
         }
         return;
       }
@@ -278,7 +290,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
         runningJobId = null;
         const next = queue.shift();
         if (next !== undefined && !closed) {
-          runJob(next.job, next.asTab, next.requestId);
+          runJob(next.job, next.asTab, next.requestId, next.own);
         }
       })();
 
@@ -297,6 +309,13 @@ export function HandoffPublishTab({ id }: { id: string }) {
             }),
         });
         report({ type: "job-result", result });
+        if (own) ownPending.current = false;
+        /*
+         * A job the page handed over, while this tab's own press is still to
+         * come: its runner on the page has the result above, and nothing more
+         * is said -- the screen, the card and closing are the press's.
+         */
+        if (!own && ownPending.current) return;
         if (result.status === "handed-off") {
           // Content checks it and puts it live; the page that opened this follows it.
           setGoingLive({ kind: "handed-off" });
@@ -351,6 +370,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
       details?: string,
       options: { answer?: boolean } = {},
     ) => {
+      ownPending.current = false;
       if (options.answer) {
         rememberEnding(id, {
           kind: "not-pressed",
@@ -380,6 +400,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
       request: PublishRequestStatus,
     ) => {
       if (isSettled(request)) {
+        ownPending.current = false;
         setSettled(request);
         return;
       }
@@ -402,8 +423,9 @@ export function HandoffPublishTab({ id }: { id: string }) {
         stopped: () => closed,
       });
       if (followed.kind === "job") {
-        runJob(followed.job, intent.tab, intent.requestId);
+        runJob(followed.job, intent.tab, intent.requestId, true);
       } else if (followed.kind === "settled" && !closed) {
+        ownPending.current = false;
         setSettled(followed.request);
       }
     };
@@ -499,7 +521,10 @@ export function HandoffPublishTab({ id }: { id: string }) {
            * Another publish took the editor's change before this tab could:
            * it is on the site, which is the answer they came here for.
            */
+          ownPending.current = false;
           setSettled(SHIPPED_ELSEWHERE);
+          // No request of this tab's exists: opened again, nothing says this.
+          rememberEnding(id, { kind: "shipped-elsewhere" });
           return;
         }
         notPressed(outcome.message, outcome.details, {
@@ -517,7 +542,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
         building,
       });
       if (outcome.job !== null && outcome.job.step !== null) {
-        runJob(outcome.job, intent.tab, outcome.requestId);
+        runJob(outcome.job, intent.tab, outcome.requestId, true);
         return;
       }
       /*
@@ -540,7 +565,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
         startUpdate();
         return;
       }
-      runJob(message.job, message.tab, message.requestId);
+      runJob(message.job, message.tab, message.requestId, false);
     });
     tab.current = handoff;
     let noIntent: ReturnType<typeof setTimeout> | null = null;
@@ -555,7 +580,10 @@ export function HandoffPublishTab({ id }: { id: string }) {
     } else if (intent.kind === "update") {
       if (stale) setWaiting({ kind: "cancelled", message: STALE_MESSAGE });
       else startUpdate();
-    } else void press(intent);
+    } else {
+      ownPending.current = true;
+      void press(intent);
+    }
     return () => {
       closed = true;
       if (noIntent !== null) clearTimeout(noIntent);

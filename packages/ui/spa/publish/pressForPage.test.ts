@@ -455,6 +455,14 @@ describe("what a tab remembers of its own ending", () => {
     expect(rememberedEnding("h3", store)).toBeNull();
   });
 
+  test("a change another publish shipped is remembered as Live", () => {
+    const store = storage();
+    rememberEnding("h4", { kind: "shipped-elsewhere" }, store);
+    expect(rememberedEnding("h4", store)).toEqual({
+      kind: "shipped-elsewhere",
+    });
+  });
+
   test("forgets after a week, and is not the reason a tab breaks", () => {
     const store = storage();
     const day = 24 * 60 * 60_000;
@@ -712,6 +720,18 @@ describe("waiting for the page's last change", () => {
       timeoutMs: 30,
     });
     expect(asked).toBe(1);
+  });
+
+  test("a server that never answers does not hold the wait past its deadline", async () => {
+    await expect(
+      waitForChange({
+        inChain: () => false,
+        serverState: () => new Promise(() => {}),
+        everyMs: 1,
+        askEveryMs: 1,
+        timeoutMs: 30,
+      }),
+    ).resolves.toBe("timed-out");
   });
 
   test("a tab with no store to ask knows nothing", async () => {

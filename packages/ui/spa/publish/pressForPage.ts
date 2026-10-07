@@ -150,7 +150,19 @@ export async function waitForChange(options: {
     if (options.inChain()) return "arrived";
     if (Date.now() - askedAt >= askEveryMs) {
       askedAt = Date.now();
-      if ((await options.serverState()) === "shipped") return "shipped";
+      /*
+       * Bounded by what is left of the deadline: a request that never
+       * answers would otherwise hold the wait past it, at the very screen
+       * this exists to get past.
+       */
+      const left = Math.max(0, timeoutMs - (Date.now() - startedAt));
+      const said = await Promise.race<ChangeOnServer>([
+        options.serverState(),
+        new Promise<ChangeOnServer>((resolve) =>
+          setTimeout(() => resolve("unknown"), left),
+        ),
+      ]);
+      if (said === "shipped") return "shipped";
       if (options.inChain()) return "arrived";
     }
     if (Date.now() - startedAt >= timeoutMs) return "timed-out";
@@ -436,7 +448,14 @@ export function settledMessage(
  */
 export type RememberedEnding =
   | { kind: "not-pressed"; message: string; details?: string }
-  | { kind: "update"; outcome: SiteUpdateOutcome };
+  | { kind: "update"; outcome: SiteUpdateOutcome }
+  /**
+   * Another publish took the editor's change before this tab could press,
+   * and there was nothing left to: Live, with no request of this tab's for
+   * content to answer about. Remembered, or a tab opened again would find
+   * no request, press, and publish whatever is pending by then.
+   */
+  | { kind: "shipped-elsewhere" };
 
 const ENDING_KEY = "val-publish-handoff-endings";
 /** A week: long past any reload, and the list cannot grow without bound. */
@@ -473,6 +492,7 @@ function isEnding(value: unknown): value is RememberedEnding {
   if (value.kind === "not-pressed") {
     return "message" in value && typeof value.message === "string";
   }
+  if (value.kind === "shipped-elsewhere") return true;
   return (
     value.kind === "update" &&
     "outcome" in value &&
