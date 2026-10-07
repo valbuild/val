@@ -806,10 +806,17 @@ describe("the page's last change", () => {
   });
 
   test("is the newest one not yet published, saved or not", () => {
-    expect(newestUnpublished(store(["p1", "p2", "p3"]))).toBe("p3");
-    expect(newestUnpublished(store(["p1", "p2"], ["p2"]))).toBe("p1");
-    expect(newestUnpublished(store(["p1"], ["p1"]))).toBeNull();
-    expect(newestUnpublished(store([]))).toBeNull();
+    expect(newestUnpublished(store(["p1", "p2", "p3"]), null)).toBe("p3");
+    expect(newestUnpublished(store(["p1", "p2"], ["p2"]), null)).toBe("p1");
+    expect(newestUnpublished(store(["p1"], ["p1"]), null)).toBeNull();
+    expect(newestUnpublished(store([]), null)).toBeNull();
+  });
+
+  test("is the editor's own, where the project has patch groups", () => {
+    // p1 is this editor's edit, not yet saved; p2 is another editor's, saved
+    // after it. Named p2, the tab would see it at once and press without p1.
+    expect(newestUnpublished(store(["p1", "p2"]), ["p1"])).toBe("p1");
+    expect(newestUnpublished(store(["p1", "p2"]), [])).toBeNull();
   });
 
   test("is there once the tab's chain has it, saved", () => {

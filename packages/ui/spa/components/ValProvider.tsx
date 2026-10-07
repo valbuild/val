@@ -1197,7 +1197,10 @@ export function ValProvider({
                  * for that edit. Where the try again stays on this page, it
                  * is only the save autosave was about to make.
                  */
-                const after = newestUnpublished(system.patchStore);
+                const after = newestUnpublished(
+                  system.patchStore,
+                  system.patchGroup(),
+                );
                 void system.patchSync.flush().catch(() => undefined);
                 if (
                   handoffRef.current.prepare(true, {
@@ -2888,7 +2891,9 @@ export function usePublishSummary() {
       const handedOff =
         handoff.active() ||
         handoff.prepare(buildsInTab, {
-          after: val ? newestUnpublished(val.system.patchStore) : null,
+          after: val
+            ? newestUnpublished(val.system.patchStore, val.system.patchGroup())
+            : null,
         });
       /*
        * And the tab presses, not this page: on an iPhone this page is paused
@@ -3098,7 +3103,9 @@ export function usePublishSummary() {
      * is sent now, while the page still runs.
      */
     preparePublish: (): boolean => {
-      const after = val ? newestUnpublished(val.system.patchStore) : null;
+      const after = val
+        ? newestUnpublished(val.system.patchStore, val.system.patchGroup())
+        : null;
       /*
        * Before the tab opens, not after: on an iPhone this page is paused the
        * moment it does, and a save not yet sent then never is. Started here,

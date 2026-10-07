@@ -99,9 +99,22 @@ type ChainOf = {
  * The newest change a page has not published, or `null`: what a builder tab
  * must see on the server before it presses (see `HandoffIntent`). Saved or
  * not -- one made just before the tap usually is not.
+ *
+ * Of the editor's own patch group, where the project has groups (`scope`,
+ * `system.patchGroup()`): that is what the press publishes. Another editor's
+ * saved change after this one's unsaved edit would otherwise be the one
+ * named, already on the server, and the tab would press without the edit.
+ * `null` scope: the whole chain.
  */
-export function newestUnpublished(store: ChainOf): string | null {
-  const ids = store.allRecords().map((record) => record.patchId);
+export function newestUnpublished(
+  store: ChainOf,
+  scope: readonly string[] | null,
+): string | null {
+  const inScope = scope === null ? null : new Set(scope);
+  const ids = store
+    .allRecords()
+    .map((record) => record.patchId)
+    .filter((patchId) => inScope === null || inScope.has(patchId));
   const pending = store.pendingAmong(ids);
   for (let i = ids.length - 1; i >= 0; i--) {
     const id = ids[i];
