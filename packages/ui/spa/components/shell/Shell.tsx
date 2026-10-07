@@ -334,6 +334,14 @@ export type ShellProps = {
    */
   editorOverride?: ReactNode;
   /**
+   * Something the studio has to tell the editor before they start, above the
+   * editor column: `RemoteFilesCard`, today. In the column rather than over the
+   * chrome, so it never covers the top bar or Publish.
+   */
+  notice?: ReactNode;
+  /** Its folded form, in the status bar. See `StatusBarProps.notice`. */
+  statusNotice?: ReactNode;
+  /**
    * The past, beside the editor.
    *
    * A render prop rather than a node, because the shell is what knows the
@@ -532,6 +540,8 @@ export function Shell({
   renderSettings,
   renderExternalPages,
   editorOverride,
+  notice,
+  statusNotice,
   renderHistory,
   onPublish,
   publishSlot,
@@ -1001,7 +1011,7 @@ export function Shell({
    * navigation and its real pending-changes gate, not a second rendering of it
    * that would drift.
    */
-  const editorColumn = editorOverride ? (
+  const editorBody = editorOverride ? (
     editorOverride
   ) : selection === null ? (
     <EmptyEditorState
@@ -1038,6 +1048,14 @@ export function Shell({
         />
       )}
     </PendingChangesGate>
+  );
+  const editorColumn = (
+    <>
+      {notice === undefined || notice === null ? null : (
+        <div className="mb-6">{notice}</div>
+      )}
+      {editorBody}
+    </>
   );
 
   return (
@@ -1215,6 +1233,7 @@ export function Shell({
             publishIndicator={publishIndicator}
             deploymentsOpen={deploymentsOpen}
             onDeploymentsOpenChange={setDeploymentsOpen}
+            notice={statusNotice}
           />
         )}
 
@@ -1318,6 +1337,14 @@ export function Shell({
         {openPanel === "account" && (
           <AccountPanel
             breakpoint={breakpoint}
+            // The status bar is not shown on a phone; this sheet is. Acting
+            // on the notice closes the sheet, so what it brings back (the card
+            // above the editor) is in view rather than underneath.
+            notice={
+              breakpoint === "mobile" && statusNotice ? (
+                <div onClick={closePanel}>{statusNotice}</div>
+              ) : undefined
+            }
             mode={mode}
             user={data.user}
             accountError={accountError}

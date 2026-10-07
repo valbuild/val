@@ -41,9 +41,26 @@ declare module "react" {
         /** `fs` locally, `http` deployed: what "sign in again" means. */
         mode?: "fs" | "http";
       }>;
+      "val-project-members": CustomElementProps<{
+        /** `org/name` of the project whose members these are. */
+        project: string;
+        /** The Studio's proxy to Val Build. */
+        "api-base"?: string;
+        layout?: "popover" | "sheet";
+        /** `slot`: the Studio draws the trigger (see `val-project-switcher`). */
+        trigger?: "slot";
+        theme?: "light" | "dark";
+        /** `fs` locally, `http` deployed: what "sign in again" means. */
+        mode?: "fs" | "http";
+      }>;
       "val-members": CustomElementProps<{
         /** The organization whose members these are. */
         org: string;
+        /**
+         * `org/name` of the project it is opened from: an invite made there
+         * also lets them open that project.
+         */
+        project?: string;
         /** The Studio's proxy to Val Build. */
         "api-base"?: string;
         layout?: "popover" | "sheet";

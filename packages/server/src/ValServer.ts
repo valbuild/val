@@ -1,6 +1,10 @@
 import type { ValProposal } from "./proposal";
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
+  commitCarriesFiles,
+  commitCarriesRemoteFiles,
+} from "./commitCarriesRemoteFiles";
+import {
   ValModules,
   PatchId,
   ModuleFilePath,
@@ -2980,9 +2984,16 @@ export const ValServer = (
            * tree; a store with no working tree does only the push.
            */
           if (serverOps instanceof ValOpsMemory) {
-            const isRemoteRequired = getIsRemoteRequired(
-              await serverOps.getSchemas(),
-            );
+            /*
+             * A commit with no files uploads nothing and needs no credentials;
+             * see `commitCarriesRemoteFiles`. One with a LOCAL file still goes
+             * through `uploadRemoteFiles` where the project is remote, because
+             * that is where a local file is refused rather than dropped.
+             */
+            const isRemoteRequired =
+              commitCarriesRemoteFiles(preparedCommit) ||
+              (commitCarriesFiles(preparedCommit) &&
+                getIsRemoteRequired(await serverOps.getSchemas()));
             if (isRemoteRequired) {
               const authRes = await getRemoteFileAuth();
               if (authRes.status !== 200) {
@@ -3012,9 +3023,9 @@ export const ValServer = (
             }
           }
           if (serverOps instanceof ValOpsFS) {
-            const isRemoteRequired = getIsRemoteRequired(
-              await serverOps.getSchemas(),
-            );
+            // Credentials when THIS save uploads a remote file, not whenever
+            // the project has a remote schema. See `commitCarriesRemoteFiles`.
+            const isRemoteRequired = commitCarriesRemoteFiles(preparedCommit);
             let mode: "skip-remote" | "upload-remote";
             let remoteFileAuthRes:
               | undefined

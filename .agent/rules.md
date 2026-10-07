@@ -52,6 +52,34 @@ expensive to re-derive from the code:
    An `as const` on a return inside a function that already has a return type
    annotation is pure noise - remove it.
 
+## An error says what the person can do about it
+
+An error shown to a person is there to help them take the next step. When
+there is something they can do about it, put that action right next to the
+message: a button or a link, not just a sentence telling them to go and find
+it.
+
+| The error                          | What it offers                                                                                        |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Signed out, or the session ran out | **Sign in**, which comes back to the same page afterwards                                             |
+| A request failed or timed out      | **Try again**, which retries the same request                                                         |
+| A setting is missing               | A link to that exact setting, not to the settings page                                                |
+| Something they typed is wrong      | The field is marked, with what it accepts, and focus is moved to it                                   |
+| They are not allowed to do it      | Who can allow it (the org's owners, by name) and how to ask them                                      |
+| A publish or build failed          | Where to see why, and how to retry                                                                    |
+| Nothing they can do (our outage)   | Say so plainly and say what happens next. Keep what they were working on, so a retry does not lose it |
+
+- **Write for the person, not the log.** A raw `fetch failed`, `500` or stack
+  trace on its own helps no one. Put it under "Details" when support will need
+  it, under a message that says what happened in their terms.
+- **Don't blame them for our failures.** "Val Build could not be reached" is
+  true. "Check your connection" is a guess, and usually a wrong one.
+- **An action has to work.** A button that leads to the same error again is
+  worse than no button. If retrying cannot help, don't offer it.
+- **Check every error state you add**, including in stories and tests: what
+  can the person do from here? If the answer is "nothing" while there is
+  something they could do, the error is not finished.
+
 ## Type System Architecture
 
 ### Core Type Hierarchy
@@ -1220,49 +1248,38 @@ when you set it up, and expect this failure on the first release if you forget.
 **The E401 is what identifies this one.** Without it you are looking at the
 next section, and ticking a box that is already ticked will not help.
 
-### A green Release job, and the version is not on npm
+### A green Release job, and the version is not on npm yet
 
-Symptom: `changeset publish` prints the package under **Successfully
-published**, the job goes green — and the version cannot be installed. Re-run
-the job and it fails:
+Symptom: `changeset publish` prints every package under **Successfully
+published**, the job goes green, and `npm view @valbuild/<pkg>@<version>`
+answers E404 for some of them.
 
-```
-└ E409: 409 Conflict - PUT https://registry.npmjs.org/@valbuild%2fui - Cannot publish over previously staged version "0.136.0".
-```
-
-This is [npm/cli#9889](https://github.com/npm/cli/issues/9889): the registry
-STAGES a publish that asked to publish directly, and answers the client as
-though it had published. Nothing in the run says otherwise. It is not the
-section above — there is no E401, and it happens with `npm publish` ticked
-under Allowed actions.
-
-`@valbuild/ui@0.136.0` is the case this was written from: attempt 1 reported
-it published and the job succeeded; the version was not readable; a re-run
-answered E409; the staged version was approved ten minutes later and went live
-WITH its provenance attestation.
-
-**So a green Release job is not evidence a version shipped.** The registry is:
+**It is almost always registry lag. Wait.** A version can take several minutes
+to become readable, and the packages of one release do not appear together:
+for 0.141.0 seven of the eleven were readable within three minutes and the
+rest a while later, with nothing wrong. Check again after five minutes, from
+the registry itself rather than a cache:
 
 ```bash
-npm view @valbuild/ui@0.136.0 version        # E404 => it did not ship
-cd $(mktemp -d) && npm init -y >/dev/null && npm i @valbuild/ui@0.136.0
+curl -s "https://registry.npmjs.org/@valbuild%2fui" | grep -c '"0.141.0"'
 ```
 
-**Before re-running anything, look at Staged Packages**, because there are two
-outcomes and a re-run only makes one of them harder to read:
+Do not re-run the Release job while you wait. `changeset publish` skips what
+the registry already has, so a re-run either does nothing or collides with a
+publish that is still landing.
 
-- **The stage is there.** Approve it (2FA). The version is preserved and so is
-  the provenance from the original run — nothing is rebuilt, and this is what
-  happened for `@valbuild/ui@0.136.0`. Rejecting instead frees the number.
-- **The stage is not there**, and `npm stage list` is empty even unfiltered
-  from a maintainer account. This is the phantom in the issue: there is no
-  stage-id to approve or reject, and the version number is burned with no way
-  to release it. The only way out is a version bump and another release. Do
-  not hand-publish over it — the number is unusable, not free.
-
-Re-running the job is not the fix in either case and costs something in both:
-against a real stage it turns a recoverable state into an E409 that reads like
-the first section, and against a phantom it just fails again.
+**Staged packages are only a thing for NEW packages.** A package's trusted
+publisher configuration is created when the package is, and configurations
+created after the npm change described in the section above default to
+staging -- so a package published for the first time, or one whose trusted
+publisher was recreated, can be staged instead of published. The established
+`@valbuild/*` packages are not. If a NEW package is still not readable well
+after the rest of its release, look under **Staged Packages** on npmjs.com:
+approve the stage (2FA) to publish it with its original provenance, or reject
+it to free the version number, then fix its configuration as described above.
+That is also the case [npm/cli#9889](https://github.com/npm/cli/issues/9889)
+describes, where the registry answers a staged publish as though it had
+published.
 
 ## Adding a `ValidationFix` code
 

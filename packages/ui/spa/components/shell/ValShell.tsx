@@ -6,6 +6,9 @@ import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
 import { CanvasFrame } from "./canvas/CanvasFrame";
 import { canvasFallbackRoute } from "./canvasFallbackRoute";
 import { SaveState } from "./StatusBar";
+import { RemoteFilesCard, UploadsOffChip } from "./RemoteFilesNotice";
+import { ReadOnlyCard, usePlanAccess } from "./ReadOnlyNotice";
+import { useRemoteFiles } from "../ValRemoteProvider";
 import { useSteadySaveState } from "./useSteadySaveState";
 import { PublishState } from "./TopBar";
 import {
@@ -214,6 +217,49 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   // it. Held here because the overlay is presentational and the index is not.
   const [searchQuery, setSearchQuery] = useState("");
   const contentSearch = useContentSearch(searchQuery);
+  /**
+   * Remote files unavailable: a card above the editor, folded into a chip in
+   * the status bar once dismissed. See `RemoteFilesNotice`. Read from the
+   * remote settings themselves rather than `useGlobalError`, which reports one
+   * error at a time and would hide this behind a passing network blip.
+   */
+  const remoteFiles = useRemoteFiles();
+  const [remoteNoticeDismissed, setRemoteNoticeDismissed] = useState(false);
+  const remoteFilesNotice =
+    remoteFiles.status === "inactive" && !remoteNoticeDismissed ? (
+      <RemoteFilesCard
+        reason={remoteFiles.reason}
+        onDismiss={() => setRemoteNoticeDismissed(true)}
+      />
+    ) : undefined;
+  /**
+   * The organization's plan has made the Studio read-only (a trial that is
+   * over, a payment failed past its grace): said above everything, because
+   * nothing typed here can be saved. See `ReadOnlyNotice`. Asked only where
+   * the Studio is connected to Val Build (the same test that mounts its web
+   * components): elsewhere the proxy has nothing to forward to, and answers
+   * 404.
+   */
+  const project = useValConfig()?.project;
+  const valBuildConnected =
+    state.status === "success" && state.data.webComponentsUrl !== undefined;
+  const planAccess = usePlanAccess(valBuildConnected ? project : undefined);
+  const editorNotices = [
+    planAccess?.access === "read-only" ? (
+      <ReadOnlyCard key="read-only" access={planAccess} />
+    ) : null,
+    remoteFilesNotice === undefined ? null : (
+      <div key="remote-files">{remoteFilesNotice}</div>
+    ),
+  ].filter((notice) => notice !== null);
+  const editorNotice =
+    editorNotices.length === 0 ? undefined : (
+      <div className="flex flex-col gap-3">{editorNotices}</div>
+    );
+  const remoteFilesStatusNotice =
+    remoteFiles.status === "inactive" && remoteNoticeDismissed ? (
+      <UploadsOffChip onClick={() => setRemoteNoticeDismissed(false)} />
+    ) : undefined;
 
   /**
    * The view state, from the URL and back into it.
@@ -1159,6 +1205,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         renderExternalPages={renderExternalPages}
         tourEnabled={isTourOffered(studioSettings)}
         editorOverride={overrideEditor}
+        notice={editorNotice}
+        statusNotice={remoteFilesStatusNotice}
         publishSlot={<PublishButton />}
         publishState={publishState}
         publishIndicator={publishIndicatorState}
