@@ -435,8 +435,20 @@ export function ValProvider({
    * what turns both features off downstream. Commit summaries still honour
    * `config.ai.commitMessages.disabled`, and the chat still honours settings —
    * each where it is used, rather than here.
+   *
+   * "A project to open it for" is meant literally. The socket lives at the
+   * content server under `/v1/<project>/ai`, so with no `project` in the
+   * config the server can only refuse — `/ai/initialize` answers 401 "Project
+   * is not configured" — and that refusal used to surface as a "Login to use
+   * AI chat" prompt in every project created from a template, which no login
+   * can fix. With no project there is no assistant to offer, so nothing is
+   * opened and every way in to the chat stays hidden (`isAIChatEnabled`).
+   * `project` here is the server's resolved one, `VAL_PROJECT` included: see
+   * `clientConfig`.
    */
-  const wsEnabled = isStatConnected;
+  const statConfig =
+    "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
+  const wsEnabled = isStatConnected && !!statConfig?.project;
   const {
     subscribeToMessages: subscribeToWsMessages,
     send: sendWsMessage,
@@ -535,8 +547,7 @@ export function ValProvider({
     [client],
   );
 
-  const runtimeConfig =
-    "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
+  const runtimeConfig = statConfig;
 
   const [showServiceUnavailable, setShowServiceUnavailable] = useState<
     boolean | undefined
@@ -1696,6 +1707,14 @@ function useProfilesData(
       authenticationState === "not-asked" ||
       authenticationState === "loading"
     ) {
+      return;
+    }
+    // Not before the server has said which mode it is in. Authentication can
+    // resolve first, and the two checks below are both about the mode: with
+    // it still "unknown", the fs-mode check for a project could not apply, and
+    // a project with none configured got a 500 from `/profiles` on every load
+    // — a race, so it came and went with how fast `/stat` answered.
+    if (mode === "unknown") {
       return;
     }
     if (mode !== "fs" && authenticationState !== "authorized") {
