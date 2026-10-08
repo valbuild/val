@@ -459,6 +459,79 @@ describe("Remirror to RichTextSource", () => {
     });
   });
 
+  describe("existing remote image", () => {
+    const ref =
+      "https://remote.val.build/file/p/3f9a2c1/b/01/v/0.136.2/h/9c41e0b2d7aa/f/3fa9c81be402/p/public/val/hero_3fa9c.jpg";
+    const input: RemirrorJSON = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "image",
+              attrs: {
+                src: ref, // <- a published remote ref is its own URL
+                alt: "Image",
+                width: 100,
+                height: 10,
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const expected = {
+      blocks: [
+        {
+          tag: "p",
+          children: [
+            {
+              tag: "img",
+              src: {
+                path: ref,
+                mimeType: "image/jpeg",
+                width: 100,
+                height: 10,
+              },
+            },
+          ],
+        },
+      ],
+      files: {},
+    };
+
+    test("on the host the project uploads to", () => {
+      expect(
+        remirrorToRichTextSource(input, "/public/val", {
+          publicProjectId: "3f9a2c1",
+          coreVersion: "0.136.2",
+          bucket: "01",
+          schema: { type: "image", opt: false, remote: true },
+          remoteHost: "https://remote.val.build",
+        }),
+      ).toEqual(expected);
+    });
+
+    test("on a host the project no longer uploads to", () => {
+      expect(
+        remirrorToRichTextSource(input, "/public/val", {
+          publicProjectId: "3f9a2c1",
+          coreVersion: "0.136.2",
+          bucket: "r2",
+          schema: { type: "image", opt: false, remote: true },
+          remoteHost: "https://3f9a2c1.valstart.dev",
+        }),
+      ).toEqual(expected);
+    });
+
+    test("in a field that does not upload remote files", () => {
+      expect(remirrorToRichTextSource(input, "/public/val", null)).toEqual(
+        expected,
+      );
+    });
+  });
+
   test("new image", () => {
     const smallPngBuffer =
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQAAAAA3bvkkAAAACklEQVR4AWNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==";
