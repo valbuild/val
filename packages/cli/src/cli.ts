@@ -92,6 +92,8 @@ async function main(): Promise<void> {
         --links-own-css          The app links its own CSS (--no-links-own-css for the
                                  opposite; omit it when the build did not say)
         --dry-run                Verify, and stop before the site changes
+        --skip-validation        Publish without running "val validate" first. It runs by
+                                 default, and an error stops the publish
 
       Command: list-unused-files
       Description: EXPERIMENTAL.
@@ -184,6 +186,9 @@ async function main(): Promise<void> {
         dryRun: {
           type: "boolean",
         },
+        skipValidation: {
+          type: "boolean",
+        },
         yes: {
           type: "boolean",
         },
@@ -262,6 +267,7 @@ async function main(): Promise<void> {
         buildHash: flags.buildHash,
         linksOwnCss: flags.linksOwnCss,
         dryRun: flags.dryRun,
+        skipValidation: flags.skipValidation,
       });
     case "login":
       return login({

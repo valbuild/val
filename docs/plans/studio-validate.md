@@ -235,6 +235,11 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
 
 1. **The reader in `createFixPatch`**, with the CLI and language server passing
    a disk reader. A refactor with no visible change; the CLI's tests pin it.
+   **Done** for image, file and video metadata and for downloading a remote
+   file (`FixFiles` in `server/src/fixFiles.ts`; the CLI and the language
+   server get `diskFixFiles` by default). Still on disk: the gallery checks,
+   which need `listFiles` (step 5), and `checkRemoteRef`'s download cache
+   (step 4).
 2. **The two routes**, for source and local-file checks only.
 3. **The page and the top bar button.** Useful from here for local metadata.
 4. **`validateRemoteFiles`** and the remote fixes.
@@ -244,7 +249,8 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
 7. **The light check on open**, once the host rewrite exists to fix what it
    finds.
 8. **`val validate` inside `val publish`** (cli), independent of the rest and
-   can land first.
+   can land first. **Done**: `validateOnce` in `cli/src/validate.ts` is the
+   one pass both commands run, and `--skip-validation` is the way past it.
 
 Each step is shown working in `examples/tanstack` (fs mode) and through the
 `chromium-http` project's mock content host (http mode) before the next.
