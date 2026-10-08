@@ -1,5 +1,25 @@
 # @valbuild/server
 
+## 0.142.0
+
+### Patch Changes
+
+- [#805](https://github.com/valbuild/val/pull/805) [`1ec4ff4`](https://github.com/valbuild/val/commit/1ec4ff4165a33f2248b52608ff58e626523e4212) Thanks [@freekh](https://github.com/freekh)! - Fix: a draft preview could miss a change its editor had just saved. Draft pages scoped to your own changes worked out which pending changes are yours from a list of patch groups remembered for a second, so a save followed by a reload inside that second rendered without the save. The draft page now takes your changes from the same answer as the changes themselves, and any save, discard, stage or unstage through the server forgets the remembered list.
+
+- [#805](https://github.com/valbuild/val/pull/805) [`bb63738`](https://github.com/valbuild/val/commit/bb63738aabed1cf1287611ecaab7c35fc4b08a12) Thanks [@freekh](https://github.com/freekh)! - Publish in a proposal: merging it into the site. The dialog shows whether it can go now, and names who to ask when it cannot; Publish saves anything unsaved, builds the site with the proposal in this tab, and content checks it renders and makes it live as one change. A merged proposal is finished: its Studio says so above the editor, and anything written in it while it merged is moved to a new proposal, which the Studio offers to open. Review in a proposal now compares it with the site, saved and unsaved changes alike.
+
+- [#805](https://github.com/valbuild/val/pull/805) [`fa03698`](https://github.com/valbuild/val/commit/fa03698ef0f2c7a6df334b4ba0e41843bde60029) Thanks [@freekh](https://github.com/freekh)! - Groundwork for proposals on the Val platform: a server can be told it is running at a proposal's address (`proposal` in the http options, `proposalFromEnv` to read it from the platform). There, the content the proposal has saved replaces the bundled content for those modules on every read, edits go to the proposal's branch, and Save commits to the proposal instead of the site. Nothing changes for a site that is not given a proposal.
+
+- [#805](https://github.com/valbuild/val/pull/805) [`3d2b9e8`](https://github.com/valbuild/val/commit/3d2b9e8c11aa6a4449527e2a1bbb363566797a14) Thanks [@freekh](https://github.com/freekh)! - Proposals in the Studio, for projects on the Val platform that have them turned on: a switcher in the top bar to move between the site and its proposals, New proposal, Rename, Close and All proposals (with Reopen), and — inside a proposal — Save where Publish is, in the proposal's colour. Nothing is shown for a project without proposals. At a proposal's address the server now refuses to publish to the site, so a Save there can never start a site build.
+
+- [#815](https://github.com/valbuild/val/pull/815) [`a3236a5`](https://github.com/valbuild/val/commit/a3236a5f2c41b92422b40340dba060b53218c6ab) Thanks [@freekh](https://github.com/freekh)! - Fixed: a project that is not connected to Val Build yet (no `project` in `val.config`) no longer gets errors from the Studio on every page load. The Studio used to ask for the assistant, its conversations and the project's members anyway, and got `401` and `500` answers that showed up in the browser console and as an issue badge in the Next.js dev overlay. It now asks only once there is a project to ask about, and the assistant is hidden until there is. The chat used to say "Login to use AI chat" in that state, which no login could fix.
+
+  A project named only in the `VAL_PROJECT` environment variable counts as connected, as it always did on the server.
+
+- Updated dependencies [[`1671bce`](https://github.com/valbuild/val/commit/1671bce6f0b65dac77e51655f24ef825f4671ebb), [`bb63738`](https://github.com/valbuild/val/commit/bb63738aabed1cf1287611ecaab7c35fc4b08a12), [`3d2b9e8`](https://github.com/valbuild/val/commit/3d2b9e8c11aa6a4449527e2a1bbb363566797a14), [`a3236a5`](https://github.com/valbuild/val/commit/a3236a5f2c41b92422b40340dba060b53218c6ab), [`f14e0aa`](https://github.com/valbuild/val/commit/f14e0aabedba07b832b1453d49635af5d2fbc019), [`521fe94`](https://github.com/valbuild/val/commit/521fe9400c0b660aa5b3642942cd0cc26622f193)]:
+  - @valbuild/ui@0.142.0
+  - @valbuild/shared@0.142.0
+
 ## 0.141.1
 
 ### Patch Changes
