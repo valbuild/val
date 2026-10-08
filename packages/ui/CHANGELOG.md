@@ -1,5 +1,37 @@
 # @valbuild/ui
 
+## 0.142.0
+
+### Minor Changes
+
+- [#806](https://github.com/valbuild/val/pull/806) [`f14e0aa`](https://github.com/valbuild/val/commit/f14e0aabedba07b832b1453d49635af5d2fbc019) Thanks [@freekh](https://github.com/freekh)! - New: a **Members** button in the Studio's top bar, beside Share, for projects connected to Val Build.
+
+  It lists who can open the project: the organization's owners, and the people chosen for it. Owners and developers can add someone from the organization or remove them, and owners see what each seat costs. "Invite to {org}" in the same panel brings in someone new. Share still lists the organization's members and invites.
+
+  An invite created from a Studio's Share panel now also lets the person open that project. Before, they only joined the organization, which no longer opens its projects.
+
+- [#812](https://github.com/valbuild/val/pull/812) [`521fe94`](https://github.com/valbuild/val/commit/521fe9400c0b660aa5b3642942cd0cc26622f193) Thanks [@freekh](https://github.com/freekh)! - New: when a project's organization on Val Build is read-only, the Studio says so above the editor before anyone starts typing. An organization becomes read-only when its trial has ended, or when a payment failed and the grace period has run out.
+
+  The site keeps running, but nothing can be saved or published until the plan is fixed. An owner gets a button to Billing (**Start Pro** or **Update payment**). Everyone else sees who the owners are and gets a button to email them.
+
+### Patch Changes
+
+- [#814](https://github.com/valbuild/val/pull/814) [`1671bce`](https://github.com/valbuild/val/commit/1671bce6f0b65dac77e51655f24ef825f4671ebb) Thanks [@freekh](https://github.com/freekh)! - Publishing from an iPhone no longer gets stuck on "Starting the publish".
+
+  On a phone, Publish opens a builder tab to build the site, and iOS pauses the page you pressed Publish on as soon as that tab opens. That page used to be the one that started the publish, so the builder tab could wait for it indefinitely. It happened most often when you pressed Publish right after making a change, while that change was still being saved. The builder tab now starts the publish itself, waits for your last change to be saved first, and the page you came from picks it up when you go back to it. "Try again" on a failed publish and "Update site" work the same way.
+
+  If something does go wrong, the builder tab now says what happened and what to do instead of spinning: a publish that could not reach Val is retried, and one that cannot go ahead says why.
+
+  Reloading the builder tab, going back to it or opening its link again now shows how that publish went instead of starting it again.
+
+- [#805](https://github.com/valbuild/val/pull/805) [`bb63738`](https://github.com/valbuild/val/commit/bb63738aabed1cf1287611ecaab7c35fc4b08a12) Thanks [@freekh](https://github.com/freekh)! - Publish in a proposal: merging it into the site. The dialog shows whether it can go now, and names who to ask when it cannot; Publish saves anything unsaved, builds the site with the proposal in this tab, and content checks it renders and makes it live as one change. A merged proposal is finished: its Studio says so above the editor, and anything written in it while it merged is moved to a new proposal, which the Studio offers to open. Review in a proposal now compares it with the site, saved and unsaved changes alike.
+
+- [#805](https://github.com/valbuild/val/pull/805) [`3d2b9e8`](https://github.com/valbuild/val/commit/3d2b9e8c11aa6a4449527e2a1bbb363566797a14) Thanks [@freekh](https://github.com/freekh)! - Proposals in the Studio, for projects on the Val platform that have them turned on: a switcher in the top bar to move between the site and its proposals, New proposal, Rename, Close and All proposals (with Reopen), and — inside a proposal — Save where Publish is, in the proposal's colour. Nothing is shown for a project without proposals. At a proposal's address the server now refuses to publish to the site, so a Save there can never start a site build.
+
+- [#815](https://github.com/valbuild/val/pull/815) [`a3236a5`](https://github.com/valbuild/val/commit/a3236a5f2c41b92422b40340dba060b53218c6ab) Thanks [@freekh](https://github.com/freekh)! - Fixed: a project that is not connected to Val Build yet (no `project` in `val.config`) no longer gets errors from the Studio on every page load. The Studio used to ask for the assistant, its conversations and the project's members anyway, and got `401` and `500` answers that showed up in the browser console and as an issue badge in the Next.js dev overlay. It now asks only once there is a project to ask about, and the assistant is hidden until there is. The chat used to say "Login to use AI chat" in that state, which no login could fix.
+
+  A project named only in the `VAL_PROJECT` environment variable counts as connected, as it always did on the server.
+
 ## 0.141.1
 
 ### Patch Changes
