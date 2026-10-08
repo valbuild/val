@@ -171,6 +171,14 @@ const PublishRefusal = z.object({
   message: z.string(),
 });
 
+/** See `proposal` on `/stat`. */
+const StatProposal = z.object({
+  /** Twenty hex characters, the hash of what it was made from. */
+  name: z.string(),
+  /** `val/p/<name>`. */
+  branch: z.string(),
+});
+
 /**
  * A patch group: the set of patches one user has chosen to publish.
  *
@@ -720,6 +728,12 @@ export const Api = {
                */
               publishJobs: z.boolean().optional(),
               publishRefusal: PublishRefusal.optional(),
+              /**
+               * The proposal this server runs at the address of, or absent
+               * on the site. What the Studio's switcher says it is in, and
+               * where its Save goes (valbuild/home `docs/proposals.md`).
+               */
+              proposal: StatProposal.optional(),
             }),
             z.object({
               type: z.literal("use-websocket"),
@@ -841,6 +855,12 @@ export const Api = {
                */
               publishJobs: z.boolean().optional(),
               publishRefusal: PublishRefusal.optional(),
+              /**
+               * The proposal this server runs at the address of, or absent
+               * on the site. What the Studio's switcher says it is in, and
+               * where its Save goes (valbuild/home `docs/proposals.md`).
+               */
+              proposal: StatProposal.optional(),
             }),
           ]),
         }),
@@ -915,6 +935,45 @@ export const Api = {
        * `{ message }` rather than throwing, because a publish failing is
        * something the editor has to be told about in words.
        */
+      res: z.object({ status: z.number(), json: z.unknown() }),
+    },
+  },
+  /**
+   * The content service's proposals API, reached through this deployment:
+   * list, open, read, rename, close, reopen and retry a setup
+   * (valbuild/home `docs/proposals.md`, Flow B).
+   *
+   * The same arrangement as `/publish-api`, for the same reasons: the browser
+   * holds a session for this origin and no credential content accepts, so
+   * this server checks the session, sends the project's key with the person's
+   * profile id beside it -- a proposal is opened, renamed and closed by
+   * somebody -- and carries content's status and body back unread. The sub-path
+   * is content's, after `/proposals`; `ValOpsHttp.proposalsApi` holds the
+   * allow list. A save is not here: it is `/save`, which a proposal's server
+   * sends to the proposal's own route.
+   */
+  "/proposals-api": {
+    GET: {
+      req: {
+        path: z.string().optional(),
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.object({ status: z.number(), json: z.unknown() }),
+    },
+    POST: {
+      req: {
+        path: z.string().optional(),
+        body: z.unknown().optional(),
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.object({ status: z.number(), json: z.unknown() }),
+    },
+    PATCH: {
+      req: {
+        path: z.string().optional(),
+        body: z.unknown().optional(),
+        cookies: { val_session: z.string().optional() },
+      },
       res: z.object({ status: z.number(), json: z.unknown() }),
     },
   },
@@ -1506,6 +1565,36 @@ export const Api = {
              * which only answered buildable jobs.
              */
             buildable: z.boolean().optional(),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * In a proposal: the SITE's Source for every module the proposal has saved,
+   * as the build it is based on has it. What Compare with the site diffs the
+   * proposal against -- saved and unsaved alike -- because the Studio's own
+   * base Source there is the proposal's last save. 404 anywhere that is not a
+   * proposal's address. valbuild/home `docs/proposals.md`.
+   */
+  "/proposal-site-sources": {
+    GET: {
+      req: {
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(404),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            /** By module file path. A module absent here is the same in both. */
+            modules: z.record(z.string(), z.unknown()),
           }),
         }),
       ]),

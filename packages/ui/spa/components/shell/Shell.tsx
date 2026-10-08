@@ -46,7 +46,8 @@ import { AccountPanel } from "./AccountPanel";
 import { NoSettingsModule, SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
-import { PublishState, TopBar } from "./TopBar";
+import { PublishState, TopBar, type TopBarProposals } from "./TopBar";
+import { ProposalSaveButton } from "../proposals/ProposalBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
 import { StudioTour } from "./StudioTour";
@@ -387,6 +388,11 @@ export type ShellProps = {
    */
   aiEnabled?: boolean;
   /**
+   * Proposals, for a project that has them: the switcher in the top bar, and
+   * in a proposal the controls in Publish's place. See `TopBarProposals`.
+   */
+  proposals?: TopBarProposals;
+  /**
    * The assistant, rendered inside the assistant panel.
    *
    * A slot, like `publishSlot`, and for the same reason: the shell is
@@ -544,6 +550,7 @@ export function Shell({
   onSignOut,
   accountError,
   aiEnabled = false,
+  proposals,
   aiSlot,
   historyEnabled = false,
   historyActive = false,
@@ -1136,6 +1143,7 @@ export function Shell({
           accountError={breakpoint === "desktop" ? undefined : accountError}
           isLoading={isLoading}
           aiEnabled={aiEnabled}
+          proposals={proposals}
           historyEnabled={historyEnabled}
           historyActive={historyActive}
           onOpenHistory={onOpenHistory}
@@ -1182,7 +1190,22 @@ export function Shell({
               // out has to be somewhere the menu can offer it too.
               onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
               onPublish={onPublish ?? (() => undefined)}
-              publishSlot={publishSlot}
+              /*
+               * In a proposal the phone's one action is Save: Publish (the
+               * proposal's, which merges it) is the first thing in its menu
+               * in the top bar. See `TopBar`.
+               */
+              publishSlot={
+                proposals?.location.kind === "proposal" ? (
+                  <ProposalSaveButton
+                    location={proposals.location}
+                    onSave={proposals.onSave}
+                    className="h-9 min-w-[5.5rem]"
+                  />
+                ) : (
+                  publishSlot
+                )
+              }
               onOpenStatus={() => setOpenPanel("account")}
               onOpenQuickActions={() => setOpenPanel("utility")}
               /*

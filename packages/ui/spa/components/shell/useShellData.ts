@@ -5,6 +5,7 @@ import {
   useCommittedPatches,
   useCurrentPatchIds,
   useCurrentProfile,
+  useCurrentProposal,
   useDeployments,
   useStudioDeployState,
   usePatchSets,
@@ -138,6 +139,11 @@ export function useShellData(): ShellDataState {
    */
   const themeSettings = useThemeSettings();
   const filePatchIds = useFilePatchIds();
+  /*
+   * In a proposal the branch is the proposal's: its changes and saves are on
+   * it, never on the site's, and the status bar should not say otherwise.
+   */
+  const proposalBranch = useCurrentProposal()?.branch ?? null;
 
   return useMemo((): ShellDataState => {
     if (navMenu.status === "loading") {
@@ -167,7 +173,7 @@ export function useShellData(): ShellDataState {
           ? toWebComponentsUrl(config)
           : undefined,
         studioMode: valBuild.studioMode,
-        branch: config?.gitBranch,
+        branch: proposalBranch ?? config?.gitBranch,
         hasRouters: navData?.hasRouters ?? false,
         pages: navData?.sitemap
           ? toShellPages(navData.sitemap, modulesWithDrafts)
@@ -254,5 +260,6 @@ export function useShellData(): ShellDataState {
     valBuild.connected,
     valBuild.studioMode,
     mode,
+    proposalBranch,
   ]);
 }

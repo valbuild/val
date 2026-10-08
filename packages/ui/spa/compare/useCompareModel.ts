@@ -6,7 +6,10 @@ import {
 } from "../components/ValProvider";
 import { useSchemas } from "../components/ValFieldProvider";
 import { isPageModule } from "../utils/pageRoutes";
-import { computeChangedSourcePaths } from "../utils/computeChangedSourcePaths";
+import {
+  computeChangedSourcePaths,
+  type ChangeTreeNode,
+} from "../utils/computeChangedSourcePaths";
 import type { SerializedPatchSet } from "../utils/PatchSets";
 import { useDescriptions } from "../components/useDescriptions";
 import {
@@ -37,8 +40,17 @@ export function useCompareModel({
   mode,
   renderValue,
   focusSourcePath = null,
+  site = null,
 }: {
   patchSets: SerializedPatchSet;
+  /**
+   * Compare against the SITE rather than against what is published here: a
+   * proposal, whose own base is its last save (valbuild/home
+   * `docs/proposals.md`, "Compare with the site"). The changes are given as
+   * trees diffed from Source -- a saved change is no patch the Studio holds --
+   * and nothing in them can be undone from here: they are the proposal's.
+   */
+  site?: { trees: ChangeTreeNode[] } | null;
   /** Decides the words: an fs project SAVES, it does not publish. */
   mode: "fs" | "http" | "unknown";
   renderValue: (path: SourcePath, side: "before" | "after") => React.ReactNode;
@@ -52,7 +64,9 @@ export function useCompareModel({
   const structure = useMemo(() => {
     const all = schemas.status === "success" ? schemas.data : {};
     return toCompareStructure({
-      trees: computeChangedSourcePaths(patchSets, committedPatchIds).trees,
+      trees:
+        site?.trees ??
+        computeChangedSourcePaths(patchSets, committedPatchIds).trees,
       /*
        * Whether a module's keys are URLs, which decides whether its changes
        * are listed as pages or as one module. Read here because it is a
@@ -60,7 +74,7 @@ export function useCompareModel({
        */
       isPageModule: (moduleFilePath) => isPageModule(all[moduleFilePath]),
     });
-  }, [patchSets, committedPatchIds, schemas]);
+  }, [patchSets, committedPatchIds, schemas, site]);
 
   /*
    * Every path the dialog names — the module headings and every row under
@@ -123,7 +137,7 @@ export function useCompareModel({
                * about to be published — so undoing means DISCARDING the patch.
                * No schema question: the result is a state that already existed.
                */
-              undo: { kind: "discard" },
+              ...(site ? {} : { undo: { kind: "discard" } }),
             })),
           },
         ],
@@ -141,10 +155,12 @@ export function useCompareModel({
        * offer, which is how a screen teaches people that its words are
        * approximate.
        */
-      left: {
-        label: mode === "fs" ? "On disk" : "Published",
-        caption: mode === "fs" ? "What is saved now" : "What is live now",
-      },
+      left: site
+        ? SITE_SIDE
+        : {
+            label: mode === "fs" ? "On disk" : "Published",
+            caption: mode === "fs" ? "What is saved now" : "What is live now",
+          },
       right: {
         label: mode === "fs" ? "After save" : "After publish",
         caption: `${structure.changeCount} ${
@@ -166,19 +182,25 @@ export function useCompareModel({
        * mechanic behind a dropdown here would be a second way in that has to
        * agree with the first forever.
        */
-      selectedBasisId: "published",
+      selectedBasisId: site ? "site" : "published",
       basisOptions: [
-        {
-          id: "published",
-          label: mode === "fs" ? "On disk" : "Published",
-          caption: mode === "fs" ? "What is saved now" : "What is live now",
-        },
+        site
+          ? { id: "site", ...SITE_SIDE }
+          : {
+              id: "published",
+              label: mode === "fs" ? "On disk" : "Published",
+              caption: mode === "fs" ? "What is saved now" : "What is live now",
+            },
       ],
-      undo: { kind: "discard" },
+      // Against the site, read-only: see `site`.
+      ...(site ? {} : { undo: { kind: "discard" } }),
     };
-  }, [structure, descriptions, profiles, renderValue, mode]);
+  }, [structure, descriptions, profiles, renderValue, mode, site]);
   return { model, focus };
 }
+
+/** The left side, in a proposal: what merging it would change. */
+const SITE_SIDE = { label: "The site", caption: "What visitors see now" };
 
 /** The pane a nav node opens, for a caller that has a module path. */
 export function paneIdOf(moduleFilePath: ModuleFilePath): string {

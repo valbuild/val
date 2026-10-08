@@ -826,6 +826,48 @@ export const commitBasisModel: CompareModel = {
 };
 
 /**
+ * In a proposal: against the SITE, which is what Publish -- merging the
+ * proposal -- would change. Read-only, with no authors per row: a saved
+ * change is the proposal's, not a patch anyone could undo from here.
+ */
+export const siteBasisModel: CompareModel = {
+  sections: compareModel.sections,
+  changeCount: compareModel.changeCount,
+  profiles: compareModel.profiles,
+  selectedBasisId: "site",
+  basisOptions: [
+    { id: "site", label: "The site", caption: "What visitors see now" },
+  ],
+  left: { label: "The site", caption: "What visitors see now" },
+  right: { label: "After publish", caption: "14 changes" },
+  panes: Object.fromEntries(
+    Object.entries(compareModel.panes).map(([id, pane]) => [
+      id,
+      {
+        ...pane,
+        groups: pane.groups.map((group) =>
+          group.kind === "fields"
+            ? {
+                ...group,
+                rows: group.rows.map(
+                  ({ id, label, change, before, after }) => ({
+                    id,
+                    label,
+                    change,
+                    before,
+                    after,
+                    authors: {},
+                  }),
+                ),
+              }
+            : group,
+        ),
+      },
+    ]),
+  ),
+};
+
+/**
  * A basis whose label is a real commit message.
  *
  * Commit messages are prose and routinely run long — `ValServer` even generates

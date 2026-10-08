@@ -194,6 +194,11 @@ type ValContextValue = {
    * server saying nothing is not evidence that a project has no repository.
    */
   sourceMode: "managed" | "connected" | null;
+  /**
+   * The proposal this Studio is in, or `null` on the site. From `/stat`;
+   * the same object until the server names a different one.
+   */
+  proposal: { name: string; branch: string } | null;
   profileId: string | null;
   profileAuthError: string | null;
   /**
@@ -840,6 +845,14 @@ export function ValProvider({
   useEffect(() => {
     if ("data" in stat && stat.data) {
       setDeployments((prev) => {
+        /*
+         * Not in a proposal. Its commits are SAVES, which its address serves
+         * as soon as they answer, and none of them is ever deployed -- so the
+         * feed showed each one "Building", for good. Deploys are the site's.
+         */
+        if (stat.data?.proposal) {
+          return prev.length === 0 ? prev : [];
+        }
         if (
           (stat.data?.deployments && stat.data.deployments?.length > 0) ||
           (stat.data?.commits && stat.data.commits?.length > 0)
@@ -1263,6 +1276,18 @@ export function ValProvider({
   );
   const statSourceMode =
     "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null;
+  const statProposal =
+    "data" in stat && stat.data ? (stat.data.proposal ?? null) : null;
+  const proposalName = statProposal?.name ?? null;
+  const proposalBranch = statProposal?.branch ?? null;
+  // Held by value: every stat is a new object, and the proposal is not.
+  const proposal = useMemo(
+    () =>
+      proposalName === null || proposalBranch === null
+        ? null
+        : { name: proposalName, branch: proposalBranch },
+    [proposalName, proposalBranch],
+  );
   const publishesAsJobs =
     "data" in stat && stat.data
       ? (stat.data.publishJobs ?? statSourceMode === "managed")
@@ -1383,6 +1408,7 @@ export function ValProvider({
             : null,
         sourceMode:
           "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null,
+        proposal,
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,
         profilesError:
@@ -2763,6 +2789,14 @@ export function useStudioDeployState(): UseStudioDeploy {
 }
 
 /** See {@link ValContextValue.publishRefusal}. */
+/**
+ * The proposal this Studio is in -- its name and branch -- or `null` on the
+ * site. valbuild/home `docs/proposals.md`.
+ */
+export function useCurrentProposal(): { name: string; branch: string } | null {
+  return useContext(ValContext).proposal;
+}
+
 export function usePublishRefusal(): string | null {
   const { publishRefusal } = useContext(ValContext);
   return publishRefusal;
@@ -2794,6 +2828,37 @@ function useInitialized(): number | null {
     [val],
   );
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/**
+ * Each module's Source as the Studio holds it now -- pending changes applied
+ * -- and its BASE Source, for comparing whole modules: Compare with the site
+ * in a proposal. Read out of the store and moved by any source change, like
+ * `useShallowModulesAtPaths`, because the caller is one whole-list view.
+ */
+export function useModuleSourcesNowAndBase(
+  moduleFilePaths: readonly ModuleFilePath[],
+): {
+  now: Partial<Record<ModuleFilePath, Json>>;
+  base: Partial<Record<ModuleFilePath, Json>>;
+} | null {
+  const val = useValSystem();
+  const sourcesVersion = useSourcesVersion();
+  return useMemo(() => {
+    if (val === null) return null;
+    void sourcesVersion;
+    const now: Partial<Record<ModuleFilePath, Json>> = {};
+    const base: Partial<Record<ModuleFilePath, Json>> = {};
+    for (const moduleFilePath of moduleFilePaths) {
+      const current = val.system.sourceStore.moduleSource(moduleFilePath);
+      if (current !== undefined) now[moduleFilePath] = current;
+      const peeked = val.system.sourceStore.peekBase(
+        moduleFilePath as unknown as SourcePath,
+      );
+      if (peeked.status === "ready") base[moduleFilePath] = peeked.data;
+    }
+    return { now, base };
+  }, [val, sourcesVersion, moduleFilePaths]);
 }
 
 /** Moved by every source change anywhere in the project. */

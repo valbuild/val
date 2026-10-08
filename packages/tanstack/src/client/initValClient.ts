@@ -129,8 +129,13 @@ function useValStega<T extends Resolvable>(selector: T): UseValType<T> {
     disabled: !encodes,
     getModule: (moduleId) => {
       if (moduleMap && valOverlayContext.draftMode) {
-        return moduleMap[moduleId as ModuleFilePath];
+        const draft = moduleMap[moduleId as ModuleFilePath];
+        if (draft !== undefined) {
+          return draft;
+        }
       }
+      // At a proposal's address: its saved Source, not the bundle's.
+      return valOverlayContext.snapshot?.[moduleId as ModuleFilePath];
     },
   });
 }
@@ -162,10 +167,15 @@ function useDraftModuleSource(
       ? store.getServerSnapshot(moduleIds)
       : (): Record<ModuleFilePath, Json> | undefined => undefined,
   );
-  if (!valOverlayContext.draftMode || !moduleFilePath) {
+  if (!moduleFilePath) {
     return undefined;
   }
-  return moduleMap?.[moduleFilePath];
+  // A proposal's saved Source stands in for the bundle's, draft or not.
+  const snapshot = valOverlayContext.snapshot?.[moduleFilePath];
+  if (!valOverlayContext.draftMode) {
+    return snapshot;
+  }
+  return moduleMap?.[moduleFilePath] ?? snapshot;
 }
 
 /**
