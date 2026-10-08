@@ -254,7 +254,10 @@ export default defineConfig({
      * runs, and what `chromium-http` cannot speak for. The specs that publish
      * and then hold the open Studio to what a reload shows -- the bugs there
      * lived in the websocket and the stores, which every engine runs, but only
-     * running them says so. Only present when asked for by name: see
+     * running them says so. And the Publish BUTTON on a Studio that cannot
+     * build, which opens a builder tab: until `publishHandoff.spec.ts` was
+     * here no spec pressed it in WebKit, so a hand-off that hung in Safari
+     * showed up on a phone first. Only present when asked for by name: see
      * `webkitRequested`.
      */
     ...(webkitRequested
@@ -264,6 +267,7 @@ export default defineConfig({
             testMatch: [
               "http/reloadEquivalence.spec.ts",
               "http/publish.spec.ts",
+              "http/publishHandoff.spec.ts",
             ],
             use: {
               baseURL: `http://localhost:${HTTP_APP_PORT}`,

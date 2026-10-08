@@ -57,11 +57,15 @@ import {
 import { isJsonArray } from "../utils/isJsonArray";
 import { readableProfilesError } from "../utils/readableProfilesError";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
+import { newestUnpublished } from "../publish/pressForPage";
 import type { ChainProgress } from "../utils/describePendingChangesStall";
 import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { SerializedPatchSet } from "../utils/PatchSets";
-import type { PatchGroupT } from "@valbuild/shared/internal";
+import type {
+  PatchGroupT,
+  PublishRequestStatus,
+} from "@valbuild/shared/internal";
 import { z } from "zod";
 import {
   ValEnrichedDeployment,
@@ -96,7 +100,11 @@ import {
   useStudioDeploy,
   type UseStudioDeploy,
 } from "../publish/useStudioDeploy";
-import { useSiteHandoff, type UseSiteHandoff } from "../publish/useSiteHandoff";
+import {
+  useSiteHandoff,
+  type HandoffPressed,
+  type UseSiteHandoff,
+} from "../publish/useSiteHandoff";
 import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
@@ -1005,8 +1013,21 @@ export function ValProvider({
       markObserved(deploy.state.commit);
     }
   }, [deploy.state, markObserved]);
+  /**
+   * What a builder tab pressed for this page, followed by this page's tracker.
+   * A ref: the tracker is made below, after the handoff that hears it.
+   */
+  const onHandoffPressed = useRef<(pressed: HandoffPressed) => void>(() => {});
   /** See {@link ValContextValue.handoff}. */
-  const handoff = useSiteHandoff({ enabled: handsOffPublish });
+  /** This page's tracker, read by the handoff. A ref for the same reason. */
+  const trackedStatus = useRef<
+    (requestId: string) => PublishRequestStatus | null
+  >(() => null);
+  const handoff = useSiteHandoff({
+    enabled: handsOffPublish,
+    onPressed: (pressed) => onHandoffPressed.current(pressed),
+    requestStatus: (requestId) => trackedStatus.current(requestId),
+  });
 
   /*
    * The publish jobs, made once. The tracker outlives renders, so what it
@@ -1035,7 +1056,11 @@ export function ValProvider({
       build: (job, onPhase) => {
         const handoff = handoffRef.current;
         if (handoff.active()) {
-          // This page cannot build: the tab it opened runs the job, as this tab.
+          /*
+           * This page cannot build: a job it took goes to the tab it opened,
+           * which runs it as this tab. Only queued work -- that tab makes the
+           * presses itself, and builds the jobs they start.
+           */
           const pressed =
             jobs
               .get()
@@ -1060,9 +1085,10 @@ export function ValProvider({
         });
       },
       /*
-       * Not the builder tab a page opened: it runs the one job it was handed,
-       * as that page's tab. Elsewhere, where this page can build -- or while
-       * a builder tab it opened is waiting for work.
+       * Not the builder tab a page opened: it runs the one press it was
+       * opened for, as that page's tab, and asks for that press's queued job
+       * itself. Elsewhere, where this page can build -- or while a builder
+       * tab it opened is open to build what this page takes.
        */
       takesQueuedWork: () =>
         handsOffPublish &&
@@ -1073,6 +1099,23 @@ export function ValProvider({
     });
     return jobs;
   }, [handsOffPublish]);
+  /*
+   * The builder tab's press is this page's: it pressed as this tab, under the
+   * id this page minted. Followed without its job -- the tab builds that.
+   */
+  trackedStatus.current = (requestId) =>
+    publishJobs
+      .get()
+      .requests.find((request) => request.requestId === requestId)?.status ??
+    null;
+  onHandoffPressed.current = (pressed) =>
+    publishJobs.track({
+      requestId: pressed.requestId,
+      request: pressed.request,
+      job: null,
+      patchIds: pressed.patchIds,
+      ...(pressed.replaces !== null ? { replaces: pressed.replaces } : {}),
+    });
   onPublishSettled.current = (request) => {
     const status = request.status;
     const id = `publish:${request.requestId}`;
@@ -1156,9 +1199,30 @@ export function ValProvider({
             action: {
               label: "Try again",
               onClick: () => {
-                // In the click, where a page that cannot build may open the
-                // tab that will. A no-op where this page can build.
-                handoffRef.current.prepare(true);
+                /*
+                 * In the click, where a page that cannot build may open the
+                 * tab that will -- and that tab presses the try again, as
+                 * this page: see `publish/handoff.ts`. A no-op where this
+                 * page can build.
+                 *
+                 * The last edit is sent first, as Publish does: on an iPhone
+                 * this page is paused once the tab opens, and the tab waits
+                 * for that edit. Where the try again stays on this page, it
+                 * is only the save autosave was about to make.
+                 */
+                const after = newestUnpublished(
+                  system.patchStore,
+                  system.patchGroup(),
+                );
+                void system.patchSync.flush().catch(() => undefined);
+                if (
+                  handoffRef.current.prepare(true, {
+                    tryAgainOf: request.requestId,
+                    after,
+                  })
+                ) {
+                  return;
+                }
                 // What the new job will take: everything pending now, edits
                 // saved since the failure included.
                 const store = system.patchStore;
@@ -2809,6 +2873,14 @@ const PublishSummaryState = z.union([
 ]);
 type PublishSummaryState = z.infer<typeof PublishSummaryState>;
 /**
+ * What a press of Publish on this page came to. `handed-off`: a builder tab
+ * presses for it -- see `publish/handoff.ts`.
+ */
+type PagePublishResult =
+  | PublishResult
+  | { status: "error"; message: string }
+  | { status: "handed-off" };
+/**
  * Responsible for publishing and also managing publishing state
  */
 export function usePublishSummary() {
@@ -2873,15 +2945,29 @@ export function usePublishSummary() {
     !isSettled(latestRequest.status);
   const busyHere = deployState.status === "running" && !waitingElsewhere;
   const publish = useCallback(
-    async (summary: string) => {
+    async (summary: string): Promise<PagePublishResult> => {
       /*
-       * A page that cannot build hands the build to a Studio tab. The press
+       * A page that cannot build hands the publish to a Studio tab. The press
        * that opened the summary normally prepared it already -- that is the
        * moment the browser lets a tab open -- and this is the fallback for a
        * publish that did not come from one. It may be blocked, and the card
        * then offers the tab as a button.
        */
-      if (!handoff.active()) handoff.prepare(buildsInTab);
+      const handedOff =
+        handoff.active() ||
+        handoff.prepare(buildsInTab, {
+          after: val
+            ? newestUnpublished(val.system.patchStore, val.system.patchGroup())
+            : null,
+        });
+      /*
+       * And the tab presses, not this page: on an iPhone this page is paused
+       * from the moment the tab takes the screen, and a press that waited on
+       * it never went out. See `publish/handoff.ts`. (Handled, too, when the
+       * tab could not be told what to do: the card says so, and this page
+       * cannot build what it would press.)
+       */
+      if (handedOff) return { status: "handed-off" };
       if (globalServerSidePatchIds === null) {
         handoff.cancel("No changes to publish");
         return {
@@ -2969,28 +3055,12 @@ export function usePublishSummary() {
           }
           if (res.status === "requested") {
             /*
-             * Tracked until it is Live. The job it came with is built here, or
-             * by the tab this page opened; a press queued behind another is
-             * built when its turn comes, by whichever free tab asks first.
+             * Tracked until it is Live. The job it came with is built here; a
+             * press queued behind another is built when its turn comes, by
+             * whichever free tab asks first. (A page that cannot build never
+             * gets here: its builder tab presses, and says what it pressed.)
              */
             publishJobs.track(res);
-            /*
-             * No job for the tab this page opened. Queued: it waits, and is
-             * handed the job when its turn comes. Otherwise there is nothing
-             * for it to build -- the changes went with a job in flight, or
-             * there were none.
-             */
-            if (
-              res.job === null &&
-              handoff.active() &&
-              res.request.kind !== "queued"
-            ) {
-              handoff.cancel(
-                res.request.kind === "publishing"
-                  ? "Your changes are publishing with the publish before them."
-                  : "There was nothing to publish.",
-              );
-            }
           } else if (res.status === "refused") {
             // Said out loud rather than swallowed: a publish button that does
             // nothing and reports nothing is how a user comes to believe their
@@ -3092,8 +3162,24 @@ export function usePublishSummary() {
      * opens the Studio tab that will, which a browser only allows in the press
      * itself -- not after the AI has written the commit message. See
      * `publish/handoff.ts`.
+     *
+     * `true` when it did: that tab presses, so there is no commit message to
+     * wait for here. It presses what the server has, so this page's last edit
+     * is sent now, while the page still runs.
      */
-    preparePublish: () => handoff.prepare(buildsInTab),
+    preparePublish: (): boolean => {
+      const after = val
+        ? newestUnpublished(val.system.patchStore, val.system.patchGroup())
+        : null;
+      /*
+       * Before the tab opens, not after: on an iPhone this page is paused the
+       * moment it does, and a save not yet sent then never is. Started here,
+       * its request is on the wire first. A publish that stays on this page
+       * flushes as well, so nothing is sent that would not have been.
+       */
+      void val?.system.patchSync.flush().catch(() => undefined);
+      return handoff.prepare(buildsInTab, { after });
+    },
     /**
      * Whether the project wants AI to write its commit messages.
      *
