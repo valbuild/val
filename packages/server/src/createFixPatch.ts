@@ -22,13 +22,13 @@ import fs from "fs";
 import {
   extractFileMetadata,
   extractImageMetadata,
-  extractVideoMetadataFromFile,
   unreadableVideoMetadataMessage,
 } from "./extractMetadata";
 import { galleryEntryOf } from "./galleryEntryKey";
 import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
 import path from "path";
-import { checkRemoteRef, downloadFileFromRemote } from "./checkRemoteRef";
+import { checkRemoteRef } from "./checkRemoteRef";
+import { diskFixFiles, FixFiles } from "./fixFiles";
 import { rewriteVideoPathsPatch } from "./videoRemote";
 import {
   videosetAddMetadataPatch,
@@ -98,7 +98,15 @@ function mediaValueOf(value: unknown): Record<string, unknown> | undefined {
 }
 
 export async function createFixPatch(
-  config: { projectRoot: string; remoteHost: string },
+  config: {
+    projectRoot: string;
+    remoteHost: string;
+    /**
+     * Where a fix reads a file's bytes and puts a downloaded one. Defaults to
+     * the disk under `projectRoot`; see {@link FixFiles}.
+     */
+    files?: FixFiles;
+  },
   apply: boolean,
   sourcePath: SourcePath,
   validationError: ValidationError,
@@ -116,12 +124,10 @@ export async function createFixPatch(
 > {
   const remainingErrors: FixPatchRemainingError[] = [];
   const patch: Patch = [];
+  const files = config.files ?? diskFixFiles(config.projectRoot);
   for (const fix of validationError.fixes || []) {
     if (fix === "image:check-metadata" || fix === "image:add-metadata") {
-      const imageMetadata = await getImageMetadata(
-        config.projectRoot,
-        validationError,
-      );
+      const imageMetadata = await getImageMetadata(files, validationError);
       if (
         imageMetadata.width === undefined ||
         imageMetadata.height === undefined
@@ -201,10 +207,7 @@ export async function createFixPatch(
         }
       }
     } else if (fix === "file:add-metadata" || fix === "file:check-metadata") {
-      const fileMetadata = await getFileMetadata(
-        config.projectRoot,
-        validationError,
-      );
+      const fileMetadata = await getFileMetadata(files, validationError);
       if (fileMetadata === undefined) {
         remainingErrors.push({
           ...validationError,
@@ -274,7 +277,7 @@ export async function createFixPatch(
       }
       let metadata: VideoMetadata;
       try {
-        metadata = await getVideoMetadata(config.projectRoot, fileRef);
+        metadata = await getVideoMetadata(files, fileRef);
       } catch (err) {
         remainingErrors.push({
           ...validationError,
@@ -312,7 +315,7 @@ export async function createFixPatch(
       // A set entry's twin of `video:add-metadata`: the file is the entry's
       // KEY, and only what is missing is written.
       const fixed = await videosetAddMetadataPatch({
-        projectRoot: config.projectRoot,
+        files,
         sourcePath,
         validationError,
         moduleSource,
@@ -336,12 +339,9 @@ export async function createFixPatch(
       let metadata = remoteFile.metadata as JSONValue | undefined;
       if (!metadata) {
         if (fix === "image:upload-remote") {
-          metadata = await getImageMetadata(
-            config.projectRoot,
-            validationError,
-          );
+          metadata = await getImageMetadata(files, validationError);
         } else if (fix === "file:upload-remote") {
-          metadata = await getFileMetadata(config.projectRoot, validationError);
+          metadata = await getFileMetadata(files, validationError);
         }
       }
       if (!metadata) {
@@ -490,14 +490,7 @@ export async function createFixPatch(
         });
         continue;
       }
-      const absoluteFilePath = path.join(
-        config.projectRoot,
-        splitRemoteRefDataRes.filePath,
-      );
-      await fs.promises.mkdir(path.dirname(absoluteFilePath), {
-        recursive: true,
-      });
-      const res = await downloadFileFromRemote(url, absoluteFilePath);
+      const res = await files.saveRemoteFile(url, filePath);
       if (res.status === "error") {
         remainingErrors.push({
           ...validationError,
@@ -847,7 +840,7 @@ function currentVideoValue(
 }
 
 export async function getVideoMetadata(
-  projectRoot: string,
+  files: FixFiles,
   fileRef: string,
 ): Promise<VideoMetadata> {
   // Not read into memory: only the headers are, and a video is mostly not
@@ -856,11 +849,11 @@ export async function getVideoMetadata(
   if (Internal.isRemoteMediaPath(fileRef)) {
     return extractVideoMetadataFromUrl(fileRef, nameForTypeOf(fileRef));
   }
-  return extractVideoMetadataFromFile(path.join(projectRoot, fileRef));
+  return files.readVideoMetadata(fileRef);
 }
 
 export async function getImageMetadata(
-  projectRoot: string,
+  files: FixFiles,
   validationError: ValidationError,
 ): Promise<ImageMetadata> {
   const fileRef = getValidationErrorFileRef(validationError);
@@ -868,13 +861,11 @@ export async function getImageMetadata(
     // TODO:
     throw Error("Cannot fix image without a file reference");
   }
-  const filename = path.join(projectRoot, fileRef);
-  const buffer = fs.readFileSync(filename);
-  return extractImageMetadata(filename, buffer);
+  return extractImageMetadata(fileRef, await files.readFile(fileRef));
 }
 
 export async function getFileMetadata(
-  projectRoot: string,
+  files: FixFiles,
   validationError: ValidationError,
 ): Promise<FileMetadata> {
   const fileRef = getValidationErrorFileRef(validationError);
@@ -882,7 +873,5 @@ export async function getFileMetadata(
     // TODO:
     throw Error("Cannot fix file without a file reference");
   }
-  const filename = path.join(projectRoot, fileRef);
-  const buffer = fs.readFileSync(filename);
-  return extractFileMetadata(fileRef, buffer);
+  return extractFileMetadata(fileRef, await files.readFile(fileRef));
 }
