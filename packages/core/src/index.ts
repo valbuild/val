@@ -309,8 +309,13 @@ export {
   parseTanStackRoutePattern,
   tanStackSegmentsOfRoutePath,
   validateUrlAgainstPattern,
+  matchRoutePattern,
 } from "./router";
-export { getSourcePathFromRoute, isPageRouter } from "./getSourcePathFromRoute";
+export {
+  getSourcePathFromRoute,
+  isPageRouter,
+  routePatternOf,
+} from "./getSourcePathFromRoute";
 /**
  * Which URL schemes an external page key may carry.
  *

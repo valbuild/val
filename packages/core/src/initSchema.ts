@@ -360,6 +360,25 @@ export type InitSchema = {
    * });
    * ```
    *
+   * @example Route parameters, by the names the route file gives them
+   * ```typescript
+   * import { s, c, tanstackRouter } from "../val.config";
+   * // `/about` is English and `/nb/about` Norwegian: `{-$locale}` is an
+   * // optional segment, and `{ null }` says what a URL without it is in.
+   * const locale = s
+   *   .enum("nb")
+   *   .nullable()
+   *   .locales({ nb: "nb-NO" }, { null: "en-US" });
+   * export default c.define(
+   *   "/src/routes/{-$locale}.$slug.val.ts",
+   *   s.router(tanstackRouter, { locale, slug: s.string() }, s.object({ title: s.string() })),
+   *   {
+   *     "/about": { title: "About us" },
+   *     "/nb/about": { title: "Om oss" },
+   *   },
+   * );
+   * ```
+   *
    * @param router - The router configuration (e.g., nextAppRouter)
    * @param schema - The schema for each route item
    * @returns A RecordSchema configured as a router

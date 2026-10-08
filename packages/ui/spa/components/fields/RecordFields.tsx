@@ -5,6 +5,7 @@ import {
   isInlineRender,
 } from "@valbuild/core";
 import { useMemo, type ReactNode } from "react";
+import { isLocaleSchema } from "@valbuild/shared/internal";
 import {
   usePreviewAtPath,
   useSchemaAtPath,
@@ -131,7 +132,8 @@ export function RecordFields({
    * Every other record's keys say nothing about language, so there the entry is
    * the only thing that can answer and `LocaleFiltered` does the work.
    */
-  const keyDecidesLocale = schema.key?.type === "locale";
+  const keyDecidesLocale =
+    schema.key !== undefined && isLocaleSchema(schema.key);
 
   // Entries are rendered in place either because the caller asked for it
   // (`inline` prop) or because the record itself declares

@@ -72,3 +72,19 @@ export function getSourcePathFromRoute(
 export function isPageRouter(routerId: string): boolean {
   return routerId in PAGE_ROUTE_PATTERN_PARSERS;
 }
+
+/**
+ * The route pattern a page router's module serves, or `null` for a router
+ * whose keys are not routes of this site.
+ *
+ * By router id, for the callers that hold a SERIALIZED schema — which carries
+ * the id and not the router. A schema instance asks its router directly
+ * (`ValRouter.getRoutePattern`), and both end at the same parser.
+ */
+export function routePatternOf(
+  routerId: string,
+  moduleFilePath: ModuleFilePath,
+): string[] | null {
+  const parse = PAGE_ROUTE_PATTERN_PARSERS[routerId];
+  return parse ? parse(moduleFilePath) : null;
+}

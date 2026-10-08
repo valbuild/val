@@ -97,6 +97,32 @@ describe("getValRouteUrlFromVal with the TanStack router", () => {
     ).toBe("/docs/a/b");
   });
 
+  test("an optional segment the URL left out adds nothing to the key", () => {
+    const val = routerVal("/src/routes/{-$locale}.blog.$slug.val.ts", {
+      "/blog/hello": { title: "Hello" },
+      "/nb/blog/hei": { title: "Hei" },
+    });
+    const { path, schema, source } = argsOf(val);
+    expect(
+      getValRouteUrlFromVal(
+        { locale: undefined, slug: "hello" },
+        "useValRoute",
+        path,
+        schema,
+        source,
+      ),
+    ).toBe("/blog/hello");
+    expect(
+      getValRouteUrlFromVal(
+        { locale: "nb", slug: "hei" },
+        "useValRoute",
+        path,
+        schema,
+        source,
+      ),
+    ).toBe("/nb/blog/hei");
+  });
+
   test("the index route resolves to /", () => {
     const val = routerVal("/src/routes/index.val.ts", {
       "/": { title: "Home" },
