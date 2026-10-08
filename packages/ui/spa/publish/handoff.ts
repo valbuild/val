@@ -1,9 +1,18 @@
 import type { StudioDeployResult } from "./runStudioDeploy";
 import type { SiteUpdateOutcome } from "./runSiteUpdate";
 import type { StudioJobResult } from "./runStudioJob";
-import type {
-  DependencyChange,
-  PublishTabJob,
+import { randomUUID } from "../utils/randomUUID";
+import {
+  browserStorage,
+  readKeyed,
+  removeKeyed,
+  writeKeyed,
+} from "./browserStorage";
+import {
+  parseRequestStatus,
+  type DependencyChange,
+  type PublishRequestStatus,
+  type PublishTabJob,
 } from "@valbuild/shared/internal";
 
 /**
@@ -23,9 +32,27 @@ import type {
  * `Cross-Origin-Opener-Policy: same-origin`, which severs the opener's handle
  * to it the moment it loads. A channel is same-origin and needs no handle.
  *
- * The tab opens at the PRESS, before the request: a window opened after an
- * await has lost the click that allowed it, and the browser blocks it. So the
- * tab starts out waiting, and is told the job when content has handed one.
+ * The tab opens at the PRESS, and it is the tab that PRESSES: the page only
+ * names the request. A window opened after an await has lost the click that
+ * allowed it, so the tab has to open in the tap -- and on an iPhone the tab
+ * then takes the screen, and iOS pauses the page behind it. Nothing the page
+ * would do after the tap runs: not the AI's commit message, not the gate, not
+ * the press, not the answer to the tab's `ready`. Built the other way round
+ * -- the page pressing and handing the job over -- the tab sat at "Starting
+ * the publish" for as long as anyone watched it. So what the tab is to do
+ * ({@link HandoffIntent}) is written down in the tap, before the tab opens:
+ * the tab runs the gate and the press itself, as the page's tab and under the
+ * request id the page minted, and tells the page what it pressed (`pressed`),
+ * which reaches the page whenever it is in front again.
+ *
+ * Written to this origin's `localStorage`, under the hand-off id, and NEVER
+ * to the URL, which carries only the id. A URL is something anyone can send:
+ * a link that said "press" would publish an editor's pending work -- and
+ * everyone else's, since a job takes everything pending -- without a press,
+ * for whoever opened it signed in. A page of another origin cannot write
+ * here, so an intent in storage is one this browser's own tap made. The write
+ * is synchronous, in the tap, so it is there before the page can be paused. A page that is awake can still hand the tab a
+ * job over the channel -- queued work it took -- and the tab builds that too.
  *
  * On a desktop it is a small popup window rather than a tab, sized to the
  * publish card: see `openBuilderWindow`. iPadOS ignores the window features
@@ -33,8 +60,41 @@ import type {
  * is why the rest of this file still says "tab".
  */
 
+/** What the card says when the intent could not be stored for the tab. */
+export const NOT_STORED_MESSAGE =
+  "This browser would not let Val hand the publish to a new tab, so nothing was published. Allow site data for this site, or leave private browsing, then publish again.";
+
 export const HANDOFF_PARAM = "publish-handoff";
 const CHANNEL = "val-publish-handoff";
+/**
+ * What a builder tab is to do, decided at the tap and kept in storage by the
+ * hand-off id. See the top of this file for why it is neither a message nor
+ * part of the URL.
+ */
+export type HandoffIntent =
+  /**
+   * Run the gate and press Publish as `tab`, under `requestId`.
+   *
+   * `after`: the newest change the page had not published when it was tapped,
+   * which the tab waits to see on the server before it presses. A change made
+   * just before the tap is usually still being saved, and the tab presses
+   * what the server has -- without the wait it published without the change,
+   * or found nothing to publish.
+   */
+  | { kind: "press"; requestId: string; tab: string; after: string | null }
+  /**
+   * "Try again" on a failed publish: resume content's queue and press anew.
+   * No gate, as on a page that can build -- see `PublishJobs.tryAgain`.
+   */
+  | {
+      kind: "try-again";
+      requestId: string;
+      tab: string;
+      replaces: string;
+      after: string | null;
+    }
+  /** Update the site's dependencies: `runSiteUpdate`. */
+  | { kind: "update" };
 
 /** Site -> tab. */
 export type ToTab =
@@ -66,6 +126,23 @@ export type ToSite =
    * phone, rather than waiting for it, and holding the job, for ever.
    */
   | { type: "alive" }
+  /**
+   * What the tab pressed for the page ({@link HandoffIntent}), so the page
+   * follows the request as one of its own -- to Live, in the status bar.
+   * `building`: the press came with a job for the tab, or was queued for one;
+   * otherwise it joined a job already in flight, or settled at once, and the
+   * tab has nothing to build.
+   */
+  | {
+      type: "pressed";
+      requestId: string;
+      request: PublishRequestStatus;
+      /** What the gate checked: see `TrackedPublish.patchIds`. */
+      patchIds: string[];
+      /** The failed request a try again replaces. */
+      replaces: string | null;
+      building: boolean;
+    }
   /**
    * The step the tab is on, and -- from a tab that sends it -- how far the
    * build has got, so the page that opened it draws the same bar.
@@ -103,16 +180,94 @@ export function canBuildHere(): boolean {
 }
 
 /**
- * Not `crypto.randomUUID`: that is secure-context only, and a site edited over
- * plain http -- a local dev server on a LAN address -- has no secure context.
- * This only has to tell two publishes of one browser apart.
+ * Unguessable, because it is what a builder tab finds its intent by: a link
+ * naming an id this browser stored an intent under could start that publish.
+ * `randomUUID` from utils, which works outside a secure context too.
  */
 function newId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return randomUUID();
 }
 
 export function handoffUrl(id: string, studioPath = "/val"): string {
   return `${studioPath}?${HANDOFF_PARAM}=${encodeURIComponent(id)}`;
+}
+
+/** One key per hand-off: see `writeKeyed`. */
+const INTENT_PREFIX = "val-publish-handoff-intent:";
+/** A week: long past any reload of the tab, and the list cannot grow unbounded. */
+const INTENT_KEEP_MS = 7 * 24 * 60 * 60_000;
+/**
+ * How old an intent may be and still START anything. An older one is only
+ * followed -- shown, if it ran -- never run: a tab nobody opened in time, or
+ * one reopened from history, is not a press anyone is making now.
+ */
+export const INTENT_MAX_AGE_MS = 60 * 60_000;
+
+/**
+ * Write down what the tab `id` is to do. In the tap, before the tab opens.
+ * `false` when storage would not take it: the tab then has nothing to run, and
+ * says so.
+ */
+export function storeHandoffIntent(
+  id: string,
+  intent: HandoffIntent,
+  storage: Storage | null = browserStorage(),
+  now: number = Date.now(),
+): boolean {
+  if (storage === null) return false;
+  return writeKeyed(storage, INTENT_PREFIX, id, intent, {
+    now,
+    keepMs: INTENT_KEEP_MS,
+  });
+}
+
+/**
+ * What this browser's tap told the tab `id` to do, and when; `null` for an id
+ * no tap here stored -- a link from anywhere else, or one older than a week.
+ */
+export function storedHandoffIntent(
+  id: string,
+  storage: Storage | null = browserStorage(),
+): { intent: HandoffIntent; at: number } | null {
+  if (storage === null) return null;
+  const entry = readKeyed(storage, INTENT_PREFIX, id);
+  const intent = entry === null ? null : asIntent(entry.value);
+  return entry === null || intent === null ? null : { intent, at: entry.at };
+}
+
+/**
+ * Retire the intent for the tab `id`: once it has done its part and the
+ * ending could not be written down, so a tab opened again does not run it
+ * again. It then finds nothing to run, and says so.
+ */
+export function forgetHandoffIntent(
+  id: string,
+  storage: Storage | null = browserStorage(),
+): void {
+  if (storage === null) return;
+  removeKeyed(storage, INTENT_PREFIX, id);
+}
+
+/* Read back structurally: storage is the origin's, and anything may be there. */
+function asIntent(value: unknown): HandoffIntent | null {
+  if (typeof value !== "object" || value === null || !("kind" in value)) {
+    return null;
+  }
+  if (value.kind === "update") return { kind: "update" };
+  const text = (key: string): string | null => {
+    const field: unknown = key in value ? Reflect.get(value, key) : undefined;
+    return typeof field === "string" && field !== "" ? field : null;
+  };
+  const requestId = text("requestId");
+  const tab = text("tab");
+  if (requestId === null || tab === null) return null;
+  const after = text("after");
+  if (value.kind === "press") return { kind: "press", requestId, tab, after };
+  const replaces = text("replaces");
+  if (value.kind === "try-again" && replaces !== null) {
+    return { kind: "try-again", requestId, tab, replaces, after };
+  }
+  return null;
 }
 
 /** The publish card is `max-w-md` (448px) with a 24px gutter each side. */
@@ -211,6 +366,11 @@ export type SiteHandoff = {
   id: string;
   url: string;
   opened: boolean;
+  /**
+   * `false` when the intent could not be stored. Then no tab was opened --
+   * one would find nothing to run, and the page would wait on it for ever.
+   */
+  stored: boolean;
   /** Hand the tab the job to build. Re-sent whenever a tab says it is ready. */
   job: (payload: Extract<ToTab, { type: "job" }>) => void;
   /** Ask the tab to run an update. Re-sent whenever a tab says it is ready. */
@@ -224,12 +384,19 @@ export function openHandoff(
   options: {
     open?: (url: string, target: string) => unknown;
     studioPath?: string;
+    /** What the tab does on its own, page or no page: stored, not in the URL. */
+    intent?: HandoffIntent;
+    storage?: Storage | null;
   } = {},
 ): SiteHandoff {
   const id = newId();
+  // Before the tab opens: it reads this as soon as it loads.
+  const stored =
+    options.intent === undefined ||
+    storeHandoffIntent(id, options.intent, options.storage);
   const url = handoffUrl(id, options.studioPath);
   const open = options.open ?? openBuilderWindow;
-  const opened = open(url, `val-publish-${id}`) !== null;
+  const opened = stored && open(url, `val-publish-${id}`) !== null;
   const channel = channelOf();
   let pending: ToTab | null = null;
   const listeners = new Set<(message: ToSite) => void>();
@@ -252,6 +419,7 @@ export function openHandoff(
     id,
     url,
     opened,
+    stored,
     job: (payload) => {
       pending = payload;
       send(payload);
@@ -407,6 +575,32 @@ function asToSite(message: unknown): ToSite | null {
   if (message.type === "ready") return { type: "ready" };
   if (message.type === "alive") return { type: "alive" };
   if (
+    message.type === "pressed" &&
+    "requestId" in message &&
+    typeof message.requestId === "string" &&
+    "request" in message &&
+    "patchIds" in message &&
+    Array.isArray(message.patchIds) &&
+    "building" in message &&
+    typeof message.building === "boolean"
+  ) {
+    const request = asRequestStatus(message.request);
+    if (request === null) return null;
+    return {
+      type: "pressed",
+      requestId: message.requestId,
+      request,
+      patchIds: message.patchIds.filter(
+        (patchId): patchId is string => typeof patchId === "string",
+      ),
+      replaces:
+        "replaces" in message && typeof message.replaces === "string"
+          ? message.replaces
+          : null,
+      building: message.building,
+    };
+  }
+  if (
     message.type === "phase" &&
     "label" in message &&
     typeof message.label === "string" &&
@@ -443,6 +637,15 @@ function asToSite(message: unknown): ToSite | null {
       : { type: "done", result, ms: message.ms };
   }
   return null;
+}
+
+/** Content's own reader, so the two cannot disagree about what a status is. */
+function asRequestStatus(value: unknown): PublishRequestStatus | null {
+  try {
+    return parseRequestStatus({ request: value }).request;
+  } catch {
+    return null;
+  }
 }
 
 function asUpdateOutcome(value: unknown): SiteUpdateOutcome | null {

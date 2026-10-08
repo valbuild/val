@@ -129,3 +129,24 @@ test("a request names the changes the gate checked, so the button can stop offer
   });
   system.dispose();
 });
+
+test("a press made for another tab carries that tab's request id and tab", async () => {
+  const pressedAs: unknown[] = [];
+  const { system } = makeSystem(async (pressAs) => {
+    pressedAs.push(pressAs);
+    return {
+      status: "requested",
+      requestId: pressAs?.requestId ?? "minted",
+      request: { kind: "publishing" },
+      job: null,
+    };
+  });
+  const patchId = await edit(system, "pressed by the builder tab");
+  const res = await system.publish([patchId], "", {
+    request: true,
+    pressAs: { requestId: "page-r1", tab: "page-tab" },
+  });
+  expect(res).toMatchObject({ status: "requested", requestId: "page-r1" });
+  expect(pressedAs).toEqual([{ requestId: "page-r1", tab: "page-tab" }]);
+  system.dispose();
+});

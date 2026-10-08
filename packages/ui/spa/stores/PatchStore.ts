@@ -1009,6 +1009,25 @@ export class PatchStore {
   }
 
   /**
+   * Where the server says one patch is, read without touching this store.
+   *
+   * For a tab that was told to expect a patch it has not got: a fresh tab's
+   * chain never lists one that has SHIPPED, so "not in my chain" cannot tell
+   * "not saved yet" from "already published" -- this can. `unknown` when the
+   * server could not be asked, which is evidence of nothing.
+   */
+  async serverStateOf(
+    patchId: PatchId,
+  ): Promise<"shipped" | "pending" | "absent" | "unknown"> {
+    const res = await this.fetchPatches([patchId]).catch((): null => null);
+    if (res === null || res.error !== undefined) return "unknown";
+    if (res.errors?.[patchId] !== undefined) return "unknown";
+    const record = res.patches.find((r) => r.patchId === patchId);
+    if (record === undefined) return "absent";
+    return record.appliedAt != null ? "shipped" : "pending";
+  }
+
+  /**
    * Ask the server where {@link omittedUnplaced} patches stand. A record back
    * with `appliedAt` has shipped; no record and no error means it is gone; a
    * record without `appliedAt` is still pending and stays in the chain.

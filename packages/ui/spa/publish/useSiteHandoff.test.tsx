@@ -1,15 +1,22 @@
 /** @jest-environment jsdom */
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { joinHandoff } from "./handoff";
+import {
+  joinHandoff,
+  NOT_STORED_MESSAGE,
+  storedHandoffIntent,
+} from "./handoff";
+import { PUBLISH_TAB_ID } from "./tabId";
 import {
   LOST_GRACE_MS,
   TAB_FIRST_WORD_MS,
   TAB_GONE_MESSAGE,
   TAB_SILENT_MS,
   useSiteHandoff,
+  type HandoffPressed,
 } from "./useSiteHandoff";
 import { RENEW_EVERY_MS } from "./runStudioJob";
 import { BroadcastChannel as NodeBroadcastChannel } from "node:worker_threads";
+import type { PublishRequestStatus } from "@valbuild/shared/internal";
 
 // jsdom has no BroadcastChannel; Node's is the same API.
 if (typeof globalThis.BroadcastChannel === "undefined") {
@@ -191,6 +198,302 @@ test("a page that cannot build -- WebKit's Studio -- opens the builder tab", () 
   expect(open).toHaveBeenCalledTimes(1);
   expect(String(open.mock.calls[0]?.[0])).toMatch(/\/val\?publish-handoff=/);
   act(() => result.current.cancel(""));
+});
+
+/**
+ * An iPhone pauses the page the moment the builder tab takes the screen, so the
+ * page cannot press and hand the job over: the tab sat at "Starting the
+ * publish" for ever. The tab presses itself, from what its URL says, and the
+ * page -- whenever it is in front again -- follows what was pressed.
+ */
+describe("the tab presses for the page", () => {
+  const openedUrls = () => {
+    const urls: string[] = [];
+    jest.spyOn(window, "open").mockImplementation((url) => {
+      urls.push(String(url));
+      return null;
+    });
+    return urls;
+  };
+  // What the tab reads: the intent its tap stored, by the id in its URL.
+  const intentOf = (url: string) =>
+    storedHandoffIntent(
+      new URL(url, "http://site").searchParams.get("publish-handoff") ?? "",
+    )?.intent ?? null;
+
+  test("the tab's URL names the press: a request id minted here, as this page's tab", () => {
+    const urls = openedUrls();
+    const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+    let handedOff = false;
+    act(() => {
+      handedOff = result.current.prepare(true);
+    });
+    expect(handedOff).toBe(true);
+    const intent = intentOf(urls[0] ?? "");
+    expect(intent).toMatchObject({ kind: "press", tab: PUBLISH_TAB_ID });
+    expect(intent?.kind === "press" && intent.requestId).toBeTruthy();
+    act(() => result.current.cancel(""));
+  });
+
+  test("the tab's URL names the newest change, for the tab to wait for", () => {
+    const urls = openedUrls();
+    const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+    act(() => {
+      result.current.prepare(true, { after: "p9" });
+    });
+    expect(intentOf(urls[0] ?? "")).toMatchObject({
+      kind: "press",
+      after: "p9",
+    });
+    act(() => result.current.cancel(""));
+  });
+
+  test("a press that could not be handed to a tab says so, and is not made here either", () => {
+    const urls = openedUrls();
+    const setItem = jest
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("QuotaExceededError");
+      });
+    try {
+      const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+      let handedOff = false;
+      act(() => {
+        handedOff = result.current.prepare(true);
+      });
+      // Handled: the page cannot build, so it must not press either.
+      expect(handedOff).toBe(true);
+      expect(urls).toEqual([]);
+      expect(result.current.active()).toBe(false);
+      expect(result.current.state).toEqual({
+        kind: "failed",
+        message: NOT_STORED_MESSAGE,
+        studioCannotHelp: true,
+      });
+    } finally {
+      setItem.mockRestore();
+    }
+  });
+
+  test("a try again is the tab's to press too, replacing the failed request", () => {
+    const urls = openedUrls();
+    const { result } = renderHook(() => useSiteHandoff({ enabled: true }));
+    act(() => {
+      result.current.prepare(true, { tryAgainOf: "r0" });
+    });
+    expect(intentOf(urls[0] ?? "")).toMatchObject({
+      kind: "try-again",
+      tab: PUBLISH_TAB_ID,
+      replaces: "r0",
+    });
+    act(() => result.current.cancel(""));
+  });
+
+  test("a page that hands nothing off says so, and presses itself", () => {
+    const { result } = renderHook(() => useSiteHandoff());
+    let handedOff = true;
+    act(() => {
+      handedOff = result.current.prepare(true);
+    });
+    expect(handedOff).toBe(false);
+  });
+
+  test("what the tab pressed reaches the page, and the card follows it to Live", async () => {
+    const urls = openedUrls();
+    const pressed: HandoffPressed[] = [];
+    const { result } = renderHook(() =>
+      useSiteHandoff({
+        enabled: true,
+        onPressed: (message) => pressed.push(message),
+      }),
+    );
+    act(() => {
+      result.current.prepare(true);
+    });
+    const url = new URL(urls[0] ?? "", "http://site");
+    const id = url.searchParams.get("publish-handoff") ?? "";
+    const intent = intentOf(url.toString());
+    if (intent?.kind !== "press") throw new Error("no press in the URL");
+    // The page never ran a job: nothing here was handed one.
+    const tab = joinHandoff(id, () => undefined, { retryMs: 10 });
+    try {
+      tab.report({
+        type: "pressed",
+        requestId: intent.requestId,
+        request: { kind: "publishing" },
+        patchIds: ["p1"],
+        replaces: null,
+        building: true,
+      });
+      tab.report({
+        type: "job-result",
+        result: { status: "handed-off", jobId: "J9", built: true },
+      });
+      await waitFor(() =>
+        expect(result.current.state).toEqual({ kind: "checking" }),
+      );
+      expect(pressed).toEqual([
+        {
+          type: "pressed",
+          requestId: intent.requestId,
+          request: { kind: "publishing" },
+          patchIds: ["p1"],
+          replaces: null,
+          building: true,
+        },
+      ]);
+      act(() =>
+        result.current.settled(intent.requestId, {
+          kind: "live",
+          commit: "c1",
+        }),
+      );
+      expect(result.current.state).toMatchObject({
+        kind: "live",
+        followed: true,
+      });
+    } finally {
+      tab.close();
+      act(() => result.current.cancel(""));
+    }
+  });
+
+  test("a publish that settled before the hand-off reached the page still ends Live", async () => {
+    // A paused page wakes to the tab's messages and its own tracker's read
+    // at once, and the read can land between two of the messages.
+    const urls = openedUrls();
+    // The page's own tracker: it read the request Live before the hand-off.
+    const tracked = new Map<string, PublishRequestStatus>();
+    const { result } = renderHook(() =>
+      useSiteHandoff({
+        enabled: true,
+        requestStatus: (requestId) => tracked.get(requestId) ?? null,
+      }),
+    );
+    act(() => {
+      result.current.prepare(true);
+    });
+    const url = urls[0] ?? "";
+    const id =
+      new URL(url, "http://site").searchParams.get("publish-handoff") ?? "";
+    const intent = intentOf(url);
+    if (intent?.kind !== "press") throw new Error("no press stored");
+    const tab = joinHandoff(id, () => undefined, { retryMs: 10 });
+    try {
+      tab.report({
+        type: "pressed",
+        requestId: intent.requestId,
+        request: { kind: "publishing" },
+        patchIds: ["p1"],
+        replaces: null,
+        building: true,
+      });
+      await waitFor(() =>
+        expect(result.current.state).not.toEqual({ kind: "blocked" }),
+      );
+      // Settled -- and told to the card -- before the hand-off arrived.
+      tracked.set(intent.requestId, { kind: "live", commit: "c1" });
+      act(() =>
+        result.current.settled(intent.requestId, {
+          kind: "live",
+          commit: "c1",
+        }),
+      );
+      tab.report({
+        type: "job-result",
+        result: { status: "handed-off", jobId: "J9", built: true },
+      });
+      await waitFor(() =>
+        expect(result.current.state).toMatchObject({
+          kind: "live",
+          followed: true,
+        }),
+      );
+    } finally {
+      tab.close();
+    }
+  });
+
+  test("a press that left the tab nothing to build clears the card", async () => {
+    const urls = openedUrls();
+    const pressed: HandoffPressed[] = [];
+    const { result } = renderHook(() =>
+      useSiteHandoff({
+        enabled: true,
+        onPressed: (message) => pressed.push(message),
+      }),
+    );
+    act(() => {
+      result.current.prepare(true);
+    });
+    const id =
+      new URL(urls[0] ?? "", "http://site").searchParams.get(
+        "publish-handoff",
+      ) ?? "";
+    const tab = joinHandoff(id, () => undefined, { retryMs: 10 });
+    try {
+      tab.report({
+        type: "pressed",
+        requestId: "r1",
+        request: { kind: "publishing" },
+        patchIds: [],
+        replaces: null,
+        building: false,
+      });
+      await waitFor(() => expect(pressed).toHaveLength(1));
+      expect(result.current.state).toBeNull();
+      expect(result.current.active()).toBe(false);
+    } finally {
+      tab.close();
+    }
+  });
+
+  test("a press the tab was to build that settles with no job ends the card", async () => {
+    // Queued, and taken along by another tab's publish before any job came
+    // here: no `job-result` will ever say so, only this page's tracker.
+    const urls = openedUrls();
+    const pressed: HandoffPressed[] = [];
+    const { result } = renderHook(() =>
+      useSiteHandoff({
+        enabled: true,
+        onPressed: (message) => pressed.push(message),
+      }),
+    );
+    act(() => {
+      result.current.prepare(true);
+    });
+    const intent = intentOf(urls[0] ?? "");
+    const requestId = intent?.kind === "press" ? intent.requestId : "";
+    const id =
+      new URL(urls[0] ?? "", "http://site").searchParams.get(
+        "publish-handoff",
+      ) ?? "";
+    const tab = joinHandoff(id, () => undefined, { retryMs: 10 });
+    try {
+      tab.report({
+        type: "pressed",
+        requestId,
+        request: { kind: "queued" },
+        patchIds: [],
+        replaces: null,
+        building: true,
+      });
+      await waitFor(() => expect(pressed).toHaveLength(1));
+      expect(result.current.active()).toBe(true);
+      // Another request settling is not this one.
+      act(() =>
+        result.current.settled("someone-else", { kind: "live", commit: "c0" }),
+      );
+      expect(result.current.active()).toBe(true);
+      act(() =>
+        result.current.settled(requestId, { kind: "live", commit: "c1" }),
+      );
+      expect(result.current.active()).toBe(false);
+      expect(result.current.state).toMatchObject({ kind: "live" });
+    } finally {
+      tab.close();
+    }
+  });
 });
 
 test("the builder opens as a popup window, and a re-open reuses it", () => {
