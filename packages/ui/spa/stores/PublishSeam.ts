@@ -49,12 +49,18 @@ export type PublishPatches = (request: {
 }) => Promise<PublishOutcome>;
 
 /**
+ * A press made on another tab's behalf: the request id that tab minted, and
+ * the tab the job is to be leased to. See `PublishOptions.pressAs`.
+ */
+export type PressAs = { requestId: string; tab: string };
+
+/**
  * A press of Publish, for a MANAGED project: a publish JOB is requested, and
  * the answer comes back at once (valbuild/home, docs/app-mode.md, "Publishing
  * is a queued job"). Nothing is committed here -- the job takes every pending
  * change, the tab builds it if it is handed one, and content seals it.
  */
-export type RequestPublish = () => Promise<
+export type RequestPublish = (press?: PressAs) => Promise<
   | {
       status: "requested";
       requestId: string;
@@ -62,7 +68,15 @@ export type RequestPublish = () => Promise<
       /** The job this tab is to build, when the press started one. */
       job: PublishTabJob | null;
     }
-  | { status: "error"; message: string }
+  | {
+      status: "error";
+      message: string;
+      /**
+       * Could the same press get through if made again? Absent means it
+       * might: a seam that does not say is not claiming an answer.
+       */
+      transient?: boolean;
+    }
 >;
 
 /**
@@ -83,6 +97,15 @@ export type PublishOptions = {
    * same gate. For a managed project, where the Studio is the deployer.
    */
   request?: boolean;
+  /**
+   * With `request`: press as another tab, under the request id it minted.
+   *
+   * The builder tab a page that cannot build opens presses FOR that page
+   * (`publish/handoff.ts`): an iPhone pauses the page the moment the builder
+   * takes the screen, so nothing the page would do after the tap ever runs.
+   * The page names the request at the tap, so it can follow it to Live.
+   */
+  pressAs?: PressAs;
   exact?: boolean;
 };
 

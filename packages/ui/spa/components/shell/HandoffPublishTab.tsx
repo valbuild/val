@@ -1,6 +1,31 @@
 import { useEffect, useRef, useState } from "react";
 import { useStudioDeployState } from "../ValProvider";
-import { joinHandoff, leaveTo, type TabHandoff } from "../../publish/handoff";
+import {
+  joinHandoff,
+  leaveTo,
+  INTENT_MAX_AGE_MS,
+  storedHandoffIntent,
+  type HandoffIntent,
+  type TabHandoff,
+} from "../../publish/handoff";
+import {
+  CHANGE_NOT_SAVED_MESSAGE,
+  askServerAbout,
+  hasChange,
+  followRequest,
+  NOT_LOADED_MESSAGE,
+  type PressIntent,
+  pressBuilds,
+  pressedAlready,
+  pressForPage,
+  rememberedEnding,
+  rememberEnding,
+  settledMessage,
+  waitForChange,
+  whenReady,
+} from "../../publish/pressForPage";
+import { useValSystem } from "../../stores/react/SystemContext";
+import { usePatchGroupScope } from "./ValShell";
 import {
   deployPercent,
   describeDeployPhase,
@@ -15,6 +40,11 @@ import { createStudioPublishClient } from "../../publish/publishClient";
 import { createStudioJobClient } from "../../publish/jobClient";
 import { runJobToEnd, runStudioJob } from "../../publish/runStudioJob";
 import { isSettled } from "../../publish/publishJobs";
+import { withinDeadline } from "../../publish/withinDeadline";
+import type {
+  PublishRequestStatus,
+  PublishTabJob,
+} from "@valbuild/shared/internal";
 import {
   runSiteUpdate,
   type SiteUpdateOutcome,
@@ -28,13 +58,24 @@ import {
 /**
  * The Studio tab a page that cannot build opened to publish from it.
  *
- * It waits for the publish job (the press runs on the site after this tab
- * opened), runs it AS THE SITE'S TAB -- the job is leased to the tab that
- * pressed -- with the same `runStudioJob` a Studio runs its own jobs with, and
- * reports each step back to the page that is waiting. Its work ends at the
+ * It presses Publish FOR the page -- the gate, then content's press, as the
+ * site's tab and under the request id the page minted (its URL says so: see
+ * `HandoffIntent`) -- because the page may be paused from the moment this tab
+ * took the screen. It runs the job AS THE SITE'S TAB -- the job is leased to
+ * the tab that pressed -- with the same `runStudioJob` a Studio runs its own
+ * jobs with, and reports each step back to the page. Its work ends at the
  * upload: content checks the site renders and puts it live on its own, and the
  * page that opened this follows that itself -- so this closes, rather than
  * being kept open for a check it plays no part in.
+ *
+ * A page that is awake may still hand it a job over the channel -- queued
+ * work it took -- and this builds that the same way.
+ *
+ * Opened again -- reloaded, gone back to, the URL reopened -- it shows the
+ * publish it was opened for and never makes it a second time: it asks content
+ * where that request is first, and follows it if it was made (taking its
+ * build up again if a reload cut it short), and what content cannot say --
+ * a press the gate refused, an update -- it remembers itself.
  */
 
 const ORDER: DeployPhase["kind"][] = [
@@ -48,6 +89,26 @@ const ORDER: DeployPhase["kind"][] = [
   "promoting",
 ];
 
+/**
+ * How long a tab with no stored intent waits to be told what to do over the
+ * channel, as a page from before intents tells it. Short: the usual reason is
+ * a link from somewhere else, or one so old its intent was forgotten -- and
+ * either way this tab must not start anything. A job that arrives after this
+ * still runs: only a page of this origin can send one.
+ */
+const NO_INTENT_TIMEOUT_MS = 15_000;
+const NO_INTENT_MESSAGE =
+  "This tab has no publish to run: it was not opened by pressing Publish in this browser, or that was too long ago. Nothing was published.";
+const STALE_MESSAGE =
+  "This publish was started over an hour ago and never ran, so nothing was published. Publish again to publish your changes.";
+
+/**
+ * What the tab shows when another publish took the page's change before this
+ * tab could press: Live. Shown here and never sent anywhere, so it names no
+ * commit.
+ */
+const SHIPPED_ELSEWHERE: PublishRequestStatus = { kind: "live", commit: "" };
+
 /** Seconds a finished tab stays up before closing itself. */
 const CLOSE_AFTER_S = 5;
 
@@ -57,11 +118,18 @@ const CLOSE_AFTER_S = 5;
  */
 const FAILURE_READS = 5;
 const FAILURE_READ_MS = 1_000;
+/**
+ * One read's answer, at most: a read that never answers ends the wait for
+ * content's words like none at all -- the tab's own are shown instead.
+ */
+const FAILURE_READ_DEADLINE_MS = 5_000;
 
 type Waiting =
   | { kind: "waiting"; since: number }
+  /** Following a press already made, until it settles or has a job here. */
+  | { kind: "following"; since: number; label: string }
   | { kind: "started"; waitedMs: number; jobId: string | null }
-  | { kind: "cancelled"; message: string };
+  | { kind: "cancelled"; message: string; details?: string };
 
 /** How this tab's part ended. */
 type GoingLive =
@@ -70,26 +138,80 @@ type GoingLive =
 
 export function HandoffPublishTab({ id }: { id: string }) {
   const { state, deploy } = useStudioDeployState();
-  const [waiting, setWaiting] = useState<Waiting>(() => ({
-    kind: "waiting",
-    since: Date.now(),
-  }));
+  const val = useValSystem();
+  /*
+   * Scoped to the editor's own patch group, as the page that opened this is:
+   * the gate below is the page's gate, and unscoped it checked every pending
+   * change -- another editor's invalid one refused this editor's publish.
+   */
+  usePatchGroupScope();
+  /** Read by the press, which outlives the render it started in. */
+  const valRef = useRef(val);
+  valRef.current = val;
+  /*
+   * What this tab is to do, as the tap that opened it stored it -- never from
+   * the URL, which anyone can send (see `handoff.ts`). Read once, like the
+   * hand-off's id: the tab is for this one press. `stale`: too old to start
+   * anything, only to show what it did.
+   */
+  const [{ intent, stale }] = useState<{
+    intent: HandoffIntent | null;
+    stale: boolean;
+  }>(() => {
+    const stored =
+      typeof window === "undefined" ? null : storedHandoffIntent(id);
+    return {
+      intent: stored?.intent ?? null,
+      stale: stored !== null && Date.now() - stored.at > INTENT_MAX_AGE_MS,
+    };
+  });
+  /** How this tab ended the last time it was open, if content cannot say. */
+  const [remembered] = useState(() =>
+    intent === null ? null : rememberedEnding(id),
+  );
+  const [waiting, setWaiting] = useState<Waiting>(() =>
+    remembered?.kind === "not-pressed"
+      ? {
+          kind: "cancelled",
+          message: remembered.message,
+          ...(remembered.details !== undefined
+            ? { details: remembered.details }
+            : {}),
+        }
+      : { kind: "waiting", since: Date.now() },
+  );
+  /** The request, settled, when this tab followed it rather than built it. */
+  const [settled, setSettled] = useState<PublishRequestStatus | null>(() =>
+    remembered?.kind === "shipped-elsewhere" ? SHIPPED_ELSEWHERE : null,
+  );
   const [goingLive, setGoingLive] = useState<GoingLive | null>(null);
   const [closingIn, setClosingIn] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const tab = useRef<TabHandoff | null>(null);
   /** A job is being run; the site re-sends it whenever this tab is ready. */
   const running = useRef(false);
-  const started = useRef(false);
+  /** A tab that remembers its ending has done its part already. */
+  const started = useRef(remembered !== null);
   const startedAt = useRef<number | null>(null);
+  /** The page cancelled before this tab's own press went out. */
+  const cancelled = useRef(false);
+  /** This tab has pressed: one press per tab, however often the effect runs. */
+  const pressing = useRef(false);
+  /**
+   * This tab's own press is still to come or still going: not pressed yet,
+   * queued, or its job not handed off. While it is, a job the page handed
+   * over (queued work it took) is not the end of anything -- it neither
+   * closes the tab, nor says on the page's card that the publish is done.
+   */
+  const ownPending = useRef(false);
   /**
    * An update rather than a publish job: the page that cannot build pressed
    * Update site. Reported with `update-done`, never `done`, because it can end
    * without a deploy -- see `ToSite`.
    */
-  const updating = useRef(false);
+  const updating = useRef(remembered?.kind === "update");
   const [updateOutcome, setUpdateOutcome] = useState<SiteUpdateOutcome | null>(
-    null,
+    () => (remembered?.kind === "update" ? remembered.outcome : null),
   );
 
   useEffect(() => {
@@ -97,45 +219,98 @@ export function HandoffPublishTab({ id }: { id: string }) {
     const client = createStudioJobClient({ api: "/api/val" });
     const report = (message: Parameters<TabHandoff["report"]>[0]) =>
       tab.current?.report(message);
-    const handoff = joinHandoff(id, (message) => {
-      if (message.type === "cancel") {
-        if (!started.current) {
-          setWaiting({ kind: "cancelled", message: message.message });
-        }
-        return;
-      }
-      if (message.type === "update") {
-        if (started.current) return;
-        started.current = true;
-        updating.current = true;
-        setWaiting({ kind: "started", waitedMs: 0, jobId: null });
-        void runSiteUpdate({
-          client: createStudioPublishClient({ api: "/api/val" }),
-          deploy,
-        }).then((outcome) => {
-          setUpdateOutcome(outcome);
-          report({ type: "update-done", outcome });
-          if (outcome.status === "updated") setClosingIn(CLOSE_AFTER_S);
-        });
-        return;
-      }
+
+    const startUpdate = () => {
       /*
-       * Once per job: the site re-sends it whenever a tab says it is ready.
-       * A job the site sends AGAIN after this tab's run ended is a new run --
-       * content kept it at its step for another attempt.
+       * Never from a stale intent -- and this is where that is checked, not
+       * only at the start: a page from before intents sends `update` over the
+       * channel too, and a check before this let that start it anyway.
        */
-      if (running.current || updating.current) return;
+      if (started.current || stale) return;
+      started.current = true;
+      updating.current = true;
+      setWaiting({ kind: "started", waitedMs: 0, jobId: null });
+      void runSiteUpdate({
+        client: createStudioPublishClient({ api: "/api/val" }),
+        deploy,
+      }).then((outcome) => {
+        setUpdateOutcome(outcome);
+        // Opened again, the tab shows this rather than updating again.
+        rememberEnding(id, { kind: "update", outcome });
+        report({ type: "update-done", outcome });
+        if (outcome.status === "updated") setClosingIn(CLOSE_AFTER_S);
+      });
+    };
+
+    /*
+     * Jobs waiting for the one being run. The tab's own press can start a job
+     * while it builds one the page handed it (queued work the page took), and
+     * neither may be dropped: one after the other, as content leases them to
+     * the same tab.
+     */
+    const queue: {
+      job: PublishTabJob;
+      asTab: string;
+      requestId: string | null;
+      own: boolean;
+    }[] = [];
+    let runningJobId: string | null = null;
+    /** Whether the running job is this tab's own press's. See `runJob`. */
+    let runningOwn = false;
+
+    /*
+     * Once per job. A job the site sends AGAIN after this tab's run ended is
+     * a new run -- content kept it at its step for another attempt.
+     */
+    const runJob = (
+      job: PublishTabJob,
+      asTab: string,
+      requestId: string | null,
+      /** The job of this tab's own press, rather than one the page handed it. */
+      own: boolean,
+    ) => {
+      if (updating.current) return;
+      if (running.current) {
+        /*
+         * The same job twice -- the page and this tab are the same tab to
+         * content, so the page can hand over the very job this press then
+         * finds -- is one run. But if either copy is this press's, the run
+         * is: the press is not over until it ends.
+         */
+        if (runningJobId === job.id) {
+          runningOwn = runningOwn || own;
+          return;
+        }
+        const queued = queue.find((entry) => entry.job.id === job.id);
+        if (queued !== undefined) queued.own = queued.own || own;
+        else queue.push({ job, asTab, requestId, own });
+        return;
+      }
       running.current = true;
+      runningJobId = job.id;
+      runningOwn = own;
       started.current = true;
       if (startedAt.current === null) startedAt.current = Date.now();
       setGoingLive(null);
+      // A job after this tab said it had nothing to build: it has now.
+      setClosingIn(null);
       setWaiting((prev) => ({
         kind: "started",
         waitedMs: prev.kind === "waiting" ? Date.now() - prev.since : 0,
-        jobId: message.job.id,
+        jobId: job.id,
       }));
-      const { job, tab: asTab, requestId } = message;
       void (async () => {
+        await runOne();
+        // Only now: until its failure is read and said, this job is the tab's.
+        running.current = false;
+        runningJobId = null;
+        const next = queue.shift();
+        if (next !== undefined && !closed) {
+          runJob(next.job, next.asTab, next.requestId, next.own);
+        }
+      })();
+
+      async function runOne() {
         const result = await runJobToEnd({
           client,
           job,
@@ -149,8 +324,14 @@ export function HandoffPublishTab({ id }: { id: string }) {
               onPhase: () => {},
             }),
         });
-        running.current = false;
         report({ type: "job-result", result });
+        if (runningOwn) ownPending.current = false;
+        /*
+         * A job the page handed over, while this tab's own press is still to
+         * come: its runner on the page has the result above, and nothing more
+         * is said -- the screen, the card and closing are the press's.
+         */
+        if (!runningOwn && ownPending.current) return;
         if (result.status === "handed-off") {
           // Content checks it and puts it live; the page that opened this follows it.
           setGoingLive({ kind: "handed-off" });
@@ -192,14 +373,286 @@ export function HandoffPublishTab({ id }: { id: string }) {
           ms: Date.now() - (startedAt.current ?? Date.now()),
           summary: message,
         });
-      })();
+      }
+    };
+
+    /**
+     * The press did not happen: said here, and on the page's card. An answer
+     * -- the gate refused -- is remembered, so the tab opened again says it
+     * again; a wait that ran out is not, because opened again it may not.
+     */
+    const notPressed = (
+      message: string,
+      details?: string,
+      options: { answer?: boolean } = {},
+    ) => {
+      ownPending.current = false;
+      if (options.answer) {
+        rememberEnding(id, {
+          kind: "not-pressed",
+          message,
+          ...(details !== undefined ? { details } : {}),
+        });
+      }
+      setWaiting({
+        kind: "cancelled",
+        message,
+        ...(details !== undefined ? { details } : {}),
+      });
+      report({
+        type: "done",
+        result: { status: "failed", message: details ?? message, problems: [] },
+        ms: 0,
+        summary: message,
+      });
+    };
+
+    /**
+     * Another publish took the editor's change before this tab could: it is
+     * on the site, which is the answer they came here for.
+     */
+    const shippedElsewhere = () => {
+      ownPending.current = false;
+      setSettled(SHIPPED_ELSEWHERE);
+      // No request of this tab's exists: opened again, nothing says this.
+      rememberEnding(id, { kind: "shipped-elsewhere" });
+      // Nor will one reach the page's tracker: the card ends here.
+      report({
+        type: "done",
+        result: { status: "already-live", url: null },
+        ms: Date.now() - (startedAt.current ?? Date.now()),
+      });
+    };
+
+    /**
+     * Follow a press already made -- this tab's, or one it finds made when it
+     * is opened again -- until it has a job here or has settled.
+     */
+    const follow = async (
+      intent: PressIntent,
+      request: PublishRequestStatus,
+    ) => {
+      if (isSettled(request)) {
+        ownPending.current = false;
+        setSettled(request);
+        return;
+      }
+      // A job running here keeps the screen: its steps are what is happening.
+      if (!running.current) {
+        setWaiting({
+          kind: "following",
+          since: Date.now(),
+          label:
+            request.kind === "queued"
+              ? "Waiting for the publish before it"
+              : "Finishing the publish",
+        });
+      }
+      const followed = await followRequest({
+        client,
+        requestId: intent.requestId,
+        tab: intent.tab,
+        // Not while a job runs here: a job for this press waits in `queue`.
+        stopped: () => closed,
+        otherJob: (job) => runJob(job, intent.tab, null, false),
+      });
+      if (followed.kind === "job") {
+        runJob(followed.job, intent.tab, intent.requestId, true);
+      } else if (followed.kind === "settled" && !closed) {
+        ownPending.current = false;
+        setSettled(followed.request);
+      }
+    };
+
+    /** Press for the page: see `pressForPage`. */
+    const press = async (intent: PressIntent) => {
+      /*
+       * Opened again after its press -- a reload, the back button, the URL
+       * reopened: show that publish, and never make it a second time.
+       */
+      const already = await pressedAlready({
+        client,
+        requestId: intent.requestId,
+      });
+      /*
+       * Not `started`: a job the page handed this tab is not this tab's own
+       * press, and must not stand in for it -- see `queue`.
+       */
+      if (closed || cancelled.current || pressing.current) return;
+      if (already !== null) {
+        pressing.current = true;
+        /*
+         * Said to the page again: the first `pressed` may never have reached
+         * it -- a reload between the press and the message -- and a page
+         * that never heard of the request has nothing to follow it by. What
+         * the press sent is not known here; the page keeps what it knows.
+         */
+        report({
+          type: "pressed",
+          requestId: intent.requestId,
+          request: already,
+          patchIds: [],
+          replaces: intent.kind === "try-again" ? intent.replaces : null,
+          building: !isSettled(already),
+        });
+        await follow(intent, already);
+        return;
+      }
+      // Never made, and too old to make now: nobody is pressing this.
+      if (stale) {
+        pressing.current = true;
+        notPressed(STALE_MESSAGE);
+        return;
+      }
+      const loaded = await whenReady(() => {
+        const current = valRef.current;
+        return (
+          current !== null &&
+          current.system.host.initializedAt() !== null &&
+          current.system.patchStore.chainSettled() &&
+          // Scoped, where the project has groups: see `usePatchGroupScope`.
+          (!current.system.patchStore.patchGroupsSupported() ||
+            current.system.patchGroup() !== null)
+        );
+      });
+      /*
+       * Then the page's last change: pressed without it, the publish leaves
+       * out what the editor just did, or finds nothing at all. It arrives when
+       * the page's save does -- on an iPhone, maybe only once the editor has
+       * gone back to it -- so this waits, rather than fails, for a long time.
+       * Or another publish has taken it already, which only the server can
+       * say: a fresh tab's chain never lists a shipped change.
+       */
+      const after = intent.after;
+      const change =
+        !loaded || after === null
+          ? "arrived"
+          : await waitForChange({
+              inChain: () => {
+                const current = valRef.current;
+                return (
+                  current !== null &&
+                  hasChange(current.system.patchStore, after)
+                );
+              },
+              serverState: () =>
+                askServerAbout(
+                  valRef.current?.system.patchStore ?? null,
+                  after,
+                ),
+            });
+      // A cancel from the page, or a press already made, has the tab now.
+      if (closed || cancelled.current || pressing.current) return;
+      pressing.current = true;
+      const system = valRef.current?.system;
+      if (!loaded || system === undefined) {
+        notPressed(NOT_LOADED_MESSAGE);
+        return;
+      }
+      if (change === "timed-out") {
+        notPressed(CHANGE_NOT_SAVED_MESSAGE);
+        return;
+      }
+      /*
+       * The change the tap named is live already, and with it everything
+       * before it: the chain is published in order. Whatever is pending now
+       * was saved after the tap, and no Publish was pressed for it. A try
+       * again goes on: it resumes a request that exists, and content says
+       * what is left of it.
+       */
+      if (change === "shipped" && intent.kind === "press") {
+        shippedElsewhere();
+        return;
+      }
+      const chain = () =>
+        system.patchStore.allRecords().map((record) => record.patchId);
+      const outcome = await pressForPage({
+        intent,
+        client,
+        chain,
+        publish: (pressAs) =>
+          system.publish(chain(), "", { request: true, pressAs }),
+      });
+      if (closed) return;
+      if (outcome.kind === "not-pressed") {
+        if (outcome.nothingToPublish && change === "shipped") {
+          shippedElsewhere();
+          return;
+        }
+        notPressed(outcome.message, outcome.details, {
+          answer: outcome.durable,
+        });
+        return;
+      }
+      const building = pressBuilds(outcome);
+      report({
+        type: "pressed",
+        requestId: outcome.requestId,
+        patchIds: outcome.patchIds,
+        replaces: outcome.replaces,
+        request: outcome.request,
+        building,
+      });
+      if (outcome.job !== null && outcome.job.step !== null) {
+        runJob(outcome.job, intent.tab, outcome.requestId, true);
+        return;
+      }
+      /*
+       * Queued behind another job: this tab takes its turn, as the page's.
+       * Joined to a job in flight, or settled at once: nothing to build, and
+       * the tab says where it ended up.
+       */
+      await follow(intent, outcome.request);
+    };
+
+    const handoff = joinHandoff(id, (message) => {
+      if (message.type === "cancel") {
+        if (!started.current) {
+          cancelled.current = true;
+          setWaiting({ kind: "cancelled", message: message.message });
+        }
+        return;
+      }
+      if (message.type === "update") {
+        startUpdate();
+        return;
+      }
+      runJob(message.job, message.tab, message.requestId, false);
     });
     tab.current = handoff;
+    let noIntent: ReturnType<typeof setTimeout> | null = null;
+    if (intent === null) {
+      noIntent = setTimeout(() => {
+        if (!started.current && !cancelled.current) {
+          setWaiting({ kind: "cancelled", message: NO_INTENT_MESSAGE });
+        }
+      }, NO_INTENT_TIMEOUT_MS);
+    } else if (remembered !== null) {
+      // Opened again: it shows how it ended, set from `remembered` above.
+    } else if (intent.kind === "update") {
+      if (stale) {
+        setWaiting({ kind: "cancelled", message: STALE_MESSAGE });
+        // Said to the page too, so its update ends rather than waits on this.
+        report({
+          type: "update-done",
+          outcome: {
+            status: "failed",
+            message: STALE_MESSAGE,
+            details: "",
+            deploy: null,
+          },
+        });
+      } else startUpdate();
+    } else {
+      ownPending.current = true;
+      void press(intent);
+    }
     return () => {
       closed = true;
+      if (noIntent !== null) clearTimeout(noIntent);
       handoff.close();
     };
-  }, [id, deploy]);
+  }, [id, deploy, intent, stale, remembered]);
 
   // Ticks the elapsed time here, and relays it to the waiting page.
   useEffect(() => {
@@ -237,27 +690,38 @@ export function HandoffPublishTab({ id }: { id: string }) {
     return () => clearTimeout(timer);
   }, [closingIn]);
 
-  const steps = stepsOf(waiting, state, updating.current, goingLive);
+  const steps = stepsOf(waiting, state, updating.current, goingLive, settled);
+  const settledResult = settled === null ? null : settledMessage(settled);
   const result: PublishPageResult | undefined = updating.current
     ? updateResultOf(updateOutcome, closingIn)
     : waiting.kind === "cancelled"
-      ? { kind: "failed", message: waiting.message }
-      : goingLive?.kind === "handed-off"
-        ? {
-            kind: "handed-off",
-            ...(closingIn !== null && closingIn > 0
-              ? { closingInS: closingIn }
-              : {}),
-          }
-        : goingLive?.kind === "failed"
+      ? {
+          kind: "failed",
+          message: waiting.message,
+          ...(waiting.details !== undefined
+            ? { details: waiting.details }
+            : {}),
+        }
+      : settledResult !== null
+        ? settledResult.live
+          ? { kind: "live" }
+          : { kind: "failed", message: settledResult.message }
+        : goingLive?.kind === "handed-off"
           ? {
-              kind: "failed",
-              message: goingLive.message,
-              ...(goingLive.details ? { details: goingLive.details } : {}),
+              kind: "handed-off",
+              ...(closingIn !== null && closingIn > 0
+                ? { closingInS: closingIn }
+                : {}),
             }
-          : undefined;
+          : goingLive?.kind === "failed"
+            ? {
+                kind: "failed",
+                message: goingLive.message,
+                ...(goingLive.details ? { details: goingLive.details } : {}),
+              }
+            : undefined;
   const elapsedMs =
-    waiting.kind === "waiting"
+    waiting.kind === "waiting" || waiting.kind === "following"
       ? now - waiting.since
       : updating.current
         ? state.status === "running"
@@ -319,7 +783,27 @@ function stepsOf(
   state: StudioDeployState,
   update: boolean,
   goingLive: GoingLive | null,
+  settled: PublishRequestStatus | null,
 ): PublishStep[] {
+  /*
+   * Following a publish rather than building it: its steps are another tab's,
+   * or content's, so the one step here is the wait for it to end.
+   */
+  if (waiting.kind === "following" || (settled !== null && !update)) {
+    const label =
+      waiting.kind === "following" ? waiting.label : "Finishing the publish";
+    return [
+      {
+        label,
+        status:
+          settled === null
+            ? "current"
+            : settledMessage(settled).live
+              ? "done"
+              : "failed",
+      },
+    ];
+  }
   // An update requests nothing; its first step is asking the platform for it.
   const first = update ? "Starting the update" : "Starting the publish";
   const begun: PublishStep =
@@ -385,7 +869,10 @@ async function failureOf(
   requestId: string,
 ): Promise<string | null> {
   for (let read = 0; read < FAILURE_READS; read++) {
-    const status = await client.requestStatus(requestId).catch(() => null);
+    const status = await withinDeadline(
+      client.requestStatus(requestId),
+      FAILURE_READ_DEADLINE_MS,
+    ).catch(() => null);
     if (status !== null && isSettled(status))
       return status.kind === "failed" ? status.message : null;
     await new Promise((resolve) => setTimeout(resolve, FAILURE_READ_MS));

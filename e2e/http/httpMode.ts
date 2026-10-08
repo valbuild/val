@@ -604,6 +604,31 @@ export async function writePatch(
 }
 
 /**
+ * Make one edit and do NOT wait for the server to have it: what a field's
+ * blur does as Publish is tapped. The store saves it on its own schedule.
+ */
+export async function createUnsavedPatch(
+  page: Page,
+  moduleFilePath: string,
+  patch: unknown[],
+): Promise<string> {
+  return page.evaluate(
+    async ({ mfp, ops }) => {
+      const bag = window as unknown as { __VAL_STORES__: StoreBag };
+      const res = await bag.__VAL_STORES__.system.patchStore.createPatch(
+        mfp,
+        ops,
+      );
+      if (!("record" in res)) {
+        throw new Error(`createPatch failed: ${JSON.stringify(res)}`);
+      }
+      return res.record.patchId;
+    },
+    { mfp: moduleFilePath, ops: patch },
+  );
+}
+
+/**
  * Make one edit and report the outcome instead of waiting for it to succeed.
  *
  * {@link writePatch} is the happy path and throws on anything else, which is
