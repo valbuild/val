@@ -25,6 +25,7 @@ import {
 import {
   createValServer,
   ValServer,
+  proposalSnapshot,
   type ValPatchStore,
 } from "@valbuild/server";
 import { VERSION } from "../version";
@@ -195,6 +196,8 @@ export const initFetchValStega =
       get(name: string): { name: string; value: string } | undefined;
     }>,
     getDraftSourcesScope: GetDraftSourcesScope,
+    /** A proposal's saved Source; see `ValDraft.snapshot`. */
+    snapshot?: Snapshot,
   ) =>
   <T extends Resolvable>(selector: T): Promise<ResolvedVal<T>> => {
     const exec = async (): Promise<ResolvedVal<T>> => {
@@ -264,20 +267,32 @@ export const initFetchValStega =
                 if (module) {
                   return module.source;
                 }
+                return snapshot?.[path as ModuleFilePath];
               },
             });
           }
         }
       }
+      // At a proposal's address, its saved Source rather than the bundle's.
       return stegaEncode(selector, {
         disabled: !enabled,
+        ...(snapshot !== undefined
+          ? { getModule: (path: string) => snapshot[path as ModuleFilePath] }
+          : {}),
       });
     };
     return exec().catch((err) => {
       console.error("Val: failed to fetch ", err);
-      return stegaEncode(selector, {});
+      return stegaEncode(selector, {
+        ...(snapshot !== undefined
+          ? { getModule: (path: string) => snapshot[path as ModuleFilePath] }
+          : {}),
+      });
     });
   };
+
+/** A proposal's saved Source, by module: see `ValProposal` in `@valbuild/server`. */
+type Snapshot = Record<ModuleFilePath, Json>;
 
 /** What `fetchValDraft` reads: the tree, the entries, and the patches' ops. */
 export type DraftValServer = {
@@ -306,11 +321,19 @@ export const initFetchValDraft =
       get(name: string): { name: string; value: string } | undefined;
     }>,
     getDraftSourcesScope: GetDraftSourcesScope,
+    /** A proposal's saved Source; see `ValDraft.snapshot`. */
+    snapshot?: Snapshot,
   ) =>
   async (): Promise<ValDraft | null> => {
+    // At a proposal's address the page needs the snapshot whatever draft mode
+    // says, so a reviewer who is not editing sees the proposal too.
+    const onlySnapshot: ValDraft | null =
+      snapshot !== undefined
+        ? { sources: {}, snapshot, draftMode: false }
+        : null;
     try {
       if (!(await isEnabled())) {
-        return null;
+        return onlySnapshot;
       }
       // Possibly absent: a local `fs` server answers without one. The server
       // decides, and a 401 is `null` -- the same rule `fetchVal` follows.
@@ -321,7 +344,7 @@ export const initFetchValDraft =
         () => loadDraftSources(valServerPromise, sessionCookie),
       );
       if (!modules) {
-        return null;
+        return onlySnapshot;
       }
       const sources: ValDraft["sources"] = {};
       for (const [path, module] of Object.entries(modules)) {
@@ -339,12 +362,12 @@ export const initFetchValDraft =
           sources[path as ModuleFilePath] = source;
         }
       }
-      return { sources };
+      return { sources, ...(snapshot !== undefined ? { snapshot } : {}) };
     } catch (err) {
       // Published content, as before this existed: a draft page that renders
       // the site is a degraded preview, one that fails to render is an outage.
       console.error("Val: could not read the draft", err);
-      return null;
+      return onlySnapshot;
     }
   };
 
@@ -508,6 +531,8 @@ const initFetchValRouteStega =
       get(name: string): { name: string; value: string } | undefined;
     }>,
     getDraftSourcesScope: GetDraftSourcesScope,
+    /** A proposal's saved Source; see `ValDraft.snapshot`. */
+    snapshot?: Snapshot,
   ) =>
   async <T extends ResolvableModule>(
     selector: T,
@@ -572,6 +597,7 @@ const initFetchValRouteStega =
       getHeaders,
       getCookies,
       getDraftSourcesScope,
+      snapshot,
     );
     const val = valModule && (await fetchVal(valModule));
     const route = initValRouteFromVal(
@@ -788,6 +814,8 @@ const initFetchValRouteUrl =
       get(name: string): { name: string; value: string } | undefined;
     }>,
     getDraftSourcesScope: GetDraftSourcesScope,
+    /** A proposal's saved Source; see `ValDraft.snapshot`. */
+    snapshot?: Snapshot,
   ) =>
   async <T extends ResolvableModule>(
     selector: T,
@@ -804,6 +832,7 @@ const initFetchValRouteUrl =
       getHeaders,
       getCookies,
       getDraftSourcesScope,
+      snapshot,
     );
     const resolvedParams =
       params === undefined ? undefined : await Promise.resolve(params);
@@ -961,6 +990,10 @@ export function initValContent(
     throw new Error("Could not get @valbuild/tanstack package version");
   }
   const draftSourcesScope = createTanStackRequestScope();
+  const snapshot: Snapshot | undefined =
+    opts?.http?.proposal !== undefined
+      ? proposalSnapshot(opts.http.proposal)
+      : undefined;
   const draftMode = opts?.draftMode ?? valDraftMode();
   const isEnabled = () => draftMode.isEnabled();
 
@@ -1008,6 +1041,7 @@ export function initValContent(
       requestHeaders,
       requestCookies,
       draftSourcesScope,
+      snapshot,
     ),
     fetchValKeyStega: initFetchValKeyStega(
       valServerPromise,
@@ -1022,6 +1056,7 @@ export function initValContent(
       requestHeaders,
       requestCookies,
       draftSourcesScope,
+      snapshot,
     ),
     fetchValRouteUrl: initFetchValRouteUrl(
       config,
@@ -1031,12 +1066,14 @@ export function initValContent(
       requestHeaders,
       requestCookies,
       draftSourcesScope,
+      snapshot,
     ),
     fetchValDraft: initFetchValDraft(
       valServerPromise,
       isEnabled,
       requestCookies,
       draftSourcesScope,
+      snapshot,
     ),
   };
 }

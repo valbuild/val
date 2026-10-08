@@ -7,6 +7,7 @@ import {
   createPublishJobs,
   publishingPatchIds,
   heldByContent,
+  type PublishJobsState,
   type TrackedPublish,
 } from "./publishJobs";
 import type { StudioJobResult } from "./runStudioJob";
@@ -200,6 +201,76 @@ test("Try again replaces the failed request with a new press, and builds its job
   expect(requests).toHaveLength(1);
   expect(requests[0]!.requestId).not.toBe("r1");
   expect(built).toEqual(["J2"]);
+});
+
+test("a try again a builder tab pressed replaces the failed request, and holds what both sent", async () => {
+  const { client } = fakeClient();
+  const built: string[] = [];
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => {
+      built.push(j.id);
+      return handedOff(j.id);
+    },
+    takesQueuedWork: () => false,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: {
+      kind: "failed",
+      message: "a page failed to render",
+      actions: ["try-again", "discard"],
+      job: "J1",
+    },
+    job: null,
+    patchIds: ["p1"],
+  });
+  // Followed without its job: the tab that pressed it builds that.
+  jobs.track({
+    requestId: "r2",
+    request: { kind: "publishing" },
+    job: null,
+    patchIds: ["p2"],
+    replaces: "r1",
+  });
+  await flush();
+  expect(jobs.get().requests).toEqual([
+    expect.objectContaining({ requestId: "r2", patchIds: ["p1", "p2"] }),
+  ]);
+  expect(built).toEqual([]);
+});
+
+test("a request told again, without what it sent, keeps what it was told first", async () => {
+  // A builder tab reloaded mid-publish says what it follows again, but no
+  // longer knows the changes its press sent.
+  const { client } = fakeClient();
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => handedOff(j.id),
+    takesQueuedWork: () => false,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "queued" },
+    job: null,
+    patchIds: ["p1", "p2"],
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: null,
+    patchIds: [],
+  });
+  await flush();
+  expect(jobs.get().requests).toEqual([
+    expect.objectContaining({
+      requestId: "r1",
+      status: { kind: "publishing" },
+      patchIds: ["p1", "p2"],
+    }),
+  ]);
 });
 
 test("Discard is pressed on the failed request's job", async () => {
@@ -598,6 +669,61 @@ describe("publishingPatchIds with what content reports", () => {
 
   test("content not saying is the same as before it could", () => {
     expect(publishingPatchIds(nothingPressedHere, undefined).size).toBe(0);
+  });
+
+  /*
+   * valbuild/home's `pnpm loop`, step 5b: the publish of edit A fails at
+   * verify. The toast says so at once -- this tab reads its request -- but
+   * the last word content sent about what is publishing was from while the
+   * job ran, and still named A. Publish read "Publishing" over A until
+   * content spoke again, which with a socket up is a `patches` message that
+   * can be lost, and otherwise the next `/stat`.
+   */
+  describe("a press of ours that failed gives its changes back", () => {
+    const failedAt = (
+      settledAt: number,
+      actions: Extract<PublishRequestStatus, { kind: "failed" }>["actions"] = [
+        "try-again",
+        "discard",
+      ],
+    ): PublishJobsState => ({
+      requests: [
+        {
+          requestId: "r1",
+          pressedAt: 0,
+          settledAt,
+          status: {
+            kind: "failed",
+            message: "verify failed 3 times",
+            actions,
+            job: "J1",
+          },
+          patchIds: ["p1"],
+        },
+      ],
+      running: null,
+    });
+
+    test("over what content said before it failed", () => {
+      expect(publishingPatchIds(failedAt(10_000), ["p1"], 5_000).size).toBe(0);
+    });
+
+    test("but not over what content said after: another publish took them", () => {
+      expect([...publishingPatchIds(failedAt(10_000), ["p1"], 15_000)]).toEqual(
+        ["p1"],
+      );
+    });
+
+    test("and only its own: another publish's changes stay held", () => {
+      expect([
+        ...publishingPatchIds(failedAt(10_000), ["p1", "p2"], 5_000),
+      ]).toEqual(["p2"]);
+    });
+
+    test("not after the seal: a build CI failed has published them", () => {
+      const sealed = failedAt(10_000, ["re-run-build"]);
+      expect([...publishingPatchIds(sealed, ["p1"], 5_000)]).toEqual(["p1"]);
+    });
   });
 });
 

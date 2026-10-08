@@ -1,4 +1,9 @@
+import type { ValProposal } from "./proposal";
 /* eslint-disable @typescript-eslint/no-unused-vars */
+import {
+  commitCarriesFiles,
+  commitCarriesRemoteFiles,
+} from "./commitCarriesRemoteFiles";
 import {
   ValModules,
   PatchId,
@@ -234,6 +239,8 @@ export type ValServerConfig = ValServerOptions &
         publishJob?: string;
         /** See `publishBuild` on {@link ValApiOptions}. */
         publishBuild?: string;
+        /** See `proposal` on {@link ValApiOptions}. */
+        proposal?: ValProposal;
         config: ValConfig;
       }
     /**
@@ -684,6 +691,37 @@ export const ValServer = (
             answer.body.trim() === ""
               ? `The publish API answered ${answer.status} with no body.`
               : `The publish API answered ${answer.status}: ${answer.body.slice(0, 300)}`,
+        },
+      };
+    }
+  };
+
+  /** The person a session names, or `null` for an anonymous one. */
+  const profileOf = (auth: ReturnType<typeof getAuth>): string | null =>
+    "id" in auth && auth.id ? auth.id : null;
+
+  /** One proposals-API call, carried as `proxyPublishApi` carries one. */
+  const proxyProposalsApi = async (
+    path: string | undefined,
+    method: "GET" | "POST" | "PATCH",
+    profileId: string | null,
+    body?: string,
+  ): Promise<{ status: number; json: unknown }> => {
+    const answer = await serverOps.proposalsApi(
+      path ?? "",
+      { method, ...(body === undefined ? {} : { body }) },
+      profileId,
+    );
+    try {
+      return { status: answer.status, json: JSON.parse(answer.body) };
+    } catch {
+      return {
+        status: answer.status,
+        json: {
+          message:
+            answer.body.trim() === ""
+              ? `The proposals API answered ${answer.status} with no body.`
+              : `The proposals API answered ${answer.status}: ${answer.body.slice(0, 300)}`,
         },
       };
     }
@@ -1166,6 +1204,8 @@ export const ValServer = (
          * shows one story to a project that lives by the other.
          */
         const sourceMode = serverOps.sourceMode();
+        // Spread like the two above: absent is "on the site".
+        const proposal = serverOps.currentProposal();
         return {
           status: 200,
           json: {
@@ -1175,6 +1215,7 @@ export const ValServer = (
             ...(publishRefusal ? { publishRefusal } : {}),
             ...(sourceMode ? { sourceMode } : {}),
             ...(sourceMode ? { publishJobs: serverOps.publishesAsJobs() } : {}),
+            ...(proposal ? { proposal } : {}),
             // Not `options.config` verbatim: in proxy mode the branch the
             // server resolved is filled in where the file did not name one.
             // See `clientConfig`.
@@ -1216,6 +1257,61 @@ export const ValServer = (
           "POST",
           req.body === undefined ? undefined : JSON.stringify(req.body),
         );
+      },
+    },
+    /**
+     * The content service's proposals API, reached through this deployment --
+     * the switcher, the list and the dialogs. The session is checked and its
+     * profile sent along, because a proposal is changed by a person; see
+     * `ValOpsHttp.proposalsApi` for what may be reached.
+     */
+    "/proposals-api": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyProposalsApi(req.path, "GET", profileOf(auth));
+      },
+      POST: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyProposalsApi(
+          req.path,
+          "POST",
+          profileOf(auth),
+          JSON.stringify(req.body ?? {}),
+        );
+      },
+      PATCH: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyProposalsApi(
+          req.path,
+          "PATCH",
+          profileOf(auth),
+          JSON.stringify(req.body ?? {}),
+        );
+      },
+    },
+    "/proposal-site-sources": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const modules = await serverOps.siteSourcesUnderSnapshot();
+        if (modules === null) {
+          return {
+            status: 404,
+            json: { message: "This is not a proposal's address." },
+          };
+        }
+        return { status: 200, json: { modules } };
       },
     },
     "/upload/patches": {
@@ -2172,9 +2268,27 @@ export const ValServer = (
               patchIds: undefined,
               excludePatchOps: false,
             });
+            /*
+             * Membership from THIS response when it carries one, not from the
+             * group list `resolveOwnPatchScope` read.
+             *
+             * That list is a separate request, remembered for a second
+             * (`ValOpsHttp.getPatchGroups`), so it can be older than the chain
+             * fetched here: an editor who saved and reloaded at once was
+             * rendered without the patch they had just written, because the
+             * list still had their group without it. The content service reads
+             * the chain and each patch's groups in one transaction, and
+             * `fetchPatches` folds that onto `patchGroups` -- so the patches
+             * and who owns them come from the same moment.
+             */
+            const own = ownPatchScopeFor(
+              all,
+              ("id" in auth && auth.id) || undefined,
+              ownPatchIds,
+            );
             patchOps = {
               ...all,
-              patches: scopedPatches(all.patches, ownPatchIds),
+              patches: scopedPatches(all.patches, own),
             };
           } else if (
             requestedPatchIds !== undefined &&
@@ -2886,9 +3000,16 @@ export const ValServer = (
            * tree; a store with no working tree does only the push.
            */
           if (serverOps instanceof ValOpsMemory) {
-            const isRemoteRequired = getIsRemoteRequired(
-              await serverOps.getSchemas(),
-            );
+            /*
+             * A commit with no files uploads nothing and needs no credentials;
+             * see `commitCarriesRemoteFiles`. One with a LOCAL file still goes
+             * through `uploadRemoteFiles` where the project is remote, because
+             * that is where a local file is refused rather than dropped.
+             */
+            const isRemoteRequired =
+              commitCarriesRemoteFiles(preparedCommit) ||
+              (commitCarriesFiles(preparedCommit) &&
+                getIsRemoteRequired(await serverOps.getSchemas()));
             if (isRemoteRequired) {
               const authRes = await getRemoteFileAuth();
               if (authRes.status !== 200) {
@@ -2918,9 +3039,9 @@ export const ValServer = (
             }
           }
           if (serverOps instanceof ValOpsFS) {
-            const isRemoteRequired = getIsRemoteRequired(
-              await serverOps.getSchemas(),
-            );
+            // Credentials when THIS save uploads a remote file, not whenever
+            // the project has a remote schema. See `commitCarriesRemoteFiles`.
+            const isRemoteRequired = commitCarriesRemoteFiles(preparedCommit);
             let mode: "skip-remote" | "upload-remote";
             let remoteFileAuthRes:
               | undefined
@@ -4328,6 +4449,36 @@ export function boundUnstageClosure(
  * `undefined` means "apply everything", which is what every caller that does
  * not ask for scoping gets and must keep getting.
  */
+/** The patches in this author's OPEN groups: what a scoped draft shows. */
+export function ownPatchIdsIn(
+  patchGroups: PatchGroupT[],
+  authorId: string,
+): PatchId[] {
+  return patchGroups
+    .filter(
+      (group) => group.publishedAt === null && group.authorId === authorId,
+    )
+    .flatMap((group) => group.patchIds);
+}
+
+/**
+ * Whose pending patches a scoped draft shows, taken from the SAME response as
+ * the patches when it says, and from the list read beforehand only when not.
+ *
+ * See the call in `/sources/~`: the list read beforehand can be older than the
+ * chain, and the response's membership cannot be.
+ */
+export function ownPatchScopeFor(
+  fetched: { patchGroups?: PatchGroupT[] },
+  authorId: string | undefined,
+  remembered: PatchId[] | undefined,
+): PatchId[] | undefined {
+  if (fetched.patchGroups === undefined || authorId === undefined) {
+    return remembered;
+  }
+  return ownPatchIdsIn(fetched.patchGroups, authorId);
+}
+
 export async function resolveOwnPatchScope(
   /*
    * `ValOps`, not the two concrete stores: the one thing this needs is whether
@@ -4393,12 +4544,7 @@ export async function resolveOwnPatchScope(
          * nothing, and base is the honest answer. Distinct from the
          * case above, which is why the two are not one expression.
          */
-        ownPatchIds = groupsRes.patchGroups
-          .filter(
-            (group) =>
-              group.publishedAt === null && group.authorId === opts.authorId,
-          )
-          .flatMap((group) => group.patchIds);
+        ownPatchIds = ownPatchIdsIn(groupsRes.patchGroups, opts.authorId);
         /*
          * Scoping applies to PENDING work only. Anything already
          * committed is part of everyone's view.

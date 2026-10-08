@@ -43,8 +43,18 @@ export type HandoffState =
   | { kind: "live"; ms: number; followed?: boolean }
   /** The browser refused to open the tab. The changes are kept. */
   | { kind: "blocked" }
-  /** `message` is the sentence; `details` the technical text, folded away. */
-  | { kind: "failed"; message: string; details?: string; followed?: boolean };
+  /**
+   * `message` is the sentence; `details` the technical text, folded away.
+   * `studioCannotHelp`: the Studio would fail the same way -- the browser
+   * refused what any tab needs -- so the card offers no way there.
+   */
+  | {
+      kind: "failed";
+      message: string;
+      details?: string;
+      followed?: boolean;
+      studioCannotHelp?: boolean;
+    };
 
 /**
  * The card in the Studio, where the status bar's indicator already follows
@@ -108,7 +118,8 @@ export function PublishHandoffCard({
                 Reload to see it
               </CardButton>
             )}
-            {(state.kind === "blocked" || state.kind === "failed") &&
+            {(state.kind === "blocked" ||
+              (state.kind === "failed" && !state.studioCannotHelp)) &&
               onOpenStudio && (
                 <CardButton
                   onClick={onOpenStudio}
@@ -222,7 +233,8 @@ export type PublishStep = {
 };
 
 export type PublishPageResult =
-  | { kind: "live"; ms: number; closingInS?: number }
+  /** `ms` absent: a tab opened again after the publish, which never timed it. */
+  | { kind: "live"; ms?: number; closingInS?: number }
   /**
    * The build is the content service's now: it checks the site renders and
    * puts it live without this tab, and the page that opened it says when.
@@ -288,7 +300,9 @@ export function StudioPublishPage({
         </p>
         <h1 className="mt-1 text-lg font-semibold">
           {result?.kind === "live"
-            ? `Live after ${seconds(result.ms)}`
+            ? result.ms !== undefined
+              ? `Live after ${seconds(result.ms)}`
+              : "Live"
             : result?.kind === "handed-off"
               ? "Built and handed over"
               : result?.kind === "failed"

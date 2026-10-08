@@ -117,6 +117,13 @@ module.exports = {
         "bg-float": "var(--bg-float)",
         "bg-float-raised": "var(--bg-float-raised)",
         "border-float": "var(--border-float)",
+        // A proposal: the chrome says where you are. See `ProposalSwitcher`.
+        "bg-proposal": "var(--bg-proposal)",
+        "bg-proposal-hover": "var(--bg-proposal-hover)",
+        "bg-proposal-soft": "var(--bg-proposal-soft)",
+        "fg-proposal": "var(--fg-proposal)",
+        "fg-on-proposal": "var(--fg-on-proposal)",
+        "border-proposal": "var(--border-proposal)",
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",

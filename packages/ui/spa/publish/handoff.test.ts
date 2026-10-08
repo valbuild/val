@@ -4,6 +4,8 @@ import {
   joinHandoff,
   leaveTo,
   openHandoff,
+  storedHandoffIntent,
+  storeHandoffIntent,
   type ToSite,
   type ToTab,
 } from "./handoff";
@@ -46,6 +48,179 @@ test("the tab opens at a url that names the handoff", () => {
   expect(opened).toEqual([handoffUrl(site.id)]);
   expect(site.opened).toBe(true);
   site.close();
+});
+
+/**
+ * What the tab is to do is stored in the tap, never put in its URL: a URL is
+ * something anyone can send, and a link must not be able to publish.
+ */
+describe("what the tab is to do", () => {
+  const memoryStorage = (): Storage => {
+    const items = new Map<string, string>();
+    return {
+      get length() {
+        return items.size;
+      },
+      clear: () => items.clear(),
+      getItem: (key) => items.get(key) ?? null,
+      key: (index) => [...items.keys()][index] ?? null,
+      removeItem: (key) => void items.delete(key),
+      setItem: (key, value) => void items.set(key, value),
+    };
+  };
+  const idOf = (url: string) =>
+    new URL(url, "http://site").searchParams.get("publish-handoff") ?? "";
+
+  test("is stored by the hand-off id, and the URL carries only the id", () => {
+    const storage = memoryStorage();
+    const site = openHandoff({
+      open,
+      storage,
+      intent: { kind: "press", requestId: "r1", tab: "site-tab", after: "p7" },
+    });
+    const url = new URL(opened[0] ?? "", "http://site");
+    expect([...url.searchParams.keys()]).toEqual(["publish-handoff"]);
+    expect(idOf(opened[0] ?? "")).toBe(site.id);
+    expect(storedHandoffIntent(site.id, storage)?.intent).toEqual({
+      kind: "press",
+      requestId: "r1",
+      tab: "site-tab",
+      after: "p7",
+    });
+    site.close();
+  });
+
+  test("one that cannot be stored opens no tab: it would have nothing to run", () => {
+    const full = memoryStorage();
+    full.setItem = () => {
+      throw new Error("QuotaExceededError");
+    };
+    const site = openHandoff({
+      open,
+      storage: full,
+      intent: { kind: "update" },
+    });
+    expect(site.stored).toBe(false);
+    expect(site.opened).toBe(false);
+    expect(opened).toEqual([]);
+    site.close();
+  });
+
+  test("a try again and an update are stored the same way", () => {
+    const storage = memoryStorage();
+    storeHandoffIntent(
+      "h1",
+      {
+        kind: "try-again",
+        requestId: "r2",
+        tab: "site-tab",
+        replaces: "r1",
+        after: null,
+      },
+      storage,
+    );
+    storeHandoffIntent("h2", { kind: "update" }, storage);
+    expect(storedHandoffIntent("h1", storage)?.intent).toEqual({
+      kind: "try-again",
+      requestId: "r2",
+      tab: "site-tab",
+      replaces: "r1",
+      after: null,
+    });
+    expect(storedHandoffIntent("h2", storage)?.intent).toEqual({
+      kind: "update",
+    });
+  });
+
+  test("a link this browser's tap did not store has nothing to run", () => {
+    const storage = memoryStorage();
+    storeHandoffIntent("mine", { kind: "update" }, storage);
+    // What a crafted link could carry is not read at all.
+    expect(storedHandoffIntent("someone-elses", storage)).toBeNull();
+    expect(storedHandoffIntent("mine", null)).toBeNull();
+  });
+
+  test("an id is not guessable from the one before it", () => {
+    const first = openHandoff({ open, storage: memoryStorage() });
+    const second = openHandoff({ open, storage: memoryStorage() });
+    expect(first.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(second.id).not.toBe(first.id);
+    first.close();
+    second.close();
+  });
+
+  test("what is stored is read back structurally, and forgotten after a week", () => {
+    const storage = memoryStorage();
+    const day = 24 * 60 * 60_000;
+    storeHandoffIntent("old", { kind: "update" }, storage, 0);
+    storeHandoffIntent("new", { kind: "update" }, storage, 8 * day);
+    expect(storedHandoffIntent("old", storage)).toBeNull();
+    expect(storedHandoffIntent("new", storage)).toEqual({
+      at: 8 * day,
+      intent: { kind: "update" },
+    });
+    storage.setItem(
+      "val-publish-handoff-intent:x",
+      JSON.stringify({ at: 1, value: { kind: "press", tab: "t" } }),
+    );
+    expect(storedHandoffIntent("x", storage)).toBeNull();
+    storage.setItem("val-publish-handoff-intent:x", "{not json");
+    expect(storedHandoffIntent("x", storage)).toBeNull();
+  });
+
+  test("storing one hand-off never rewrites another's", () => {
+    // Two tabs pressing at once each write a key of their own: a shared
+    // value, read and written back by both, lost whichever wrote first.
+    const storage = memoryStorage();
+    const written: string[] = [];
+    const setItem = storage.setItem;
+    storage.setItem = (key, value) => {
+      written.push(key);
+      setItem(key, value);
+    };
+    storeHandoffIntent("a", { kind: "update" }, storage);
+    storeHandoffIntent("b", { kind: "update" }, storage);
+    expect(written).toEqual([
+      "val-publish-handoff-intent:a",
+      "val-publish-handoff-intent:b",
+    ]);
+    expect(storedHandoffIntent("a", storage)).not.toBeNull();
+    expect(storedHandoffIntent("b", storage)).not.toBeNull();
+  });
+});
+
+test("what the tab pressed reaches the site, and a status that is not one is dropped", async () => {
+  const site = openHandoff({ open });
+  const heard: ToSite[] = [];
+  site.onMessage((message) => heard.push(message));
+  const tab = joinHandoff(site.id, () => undefined, { retryMs: 10 });
+  const pressed: Extract<ToSite, { type: "pressed" }> = {
+    type: "pressed",
+    requestId: "r1",
+    request: { kind: "queued" },
+    patchIds: ["p1", "p2"],
+    replaces: null,
+    building: true,
+  };
+  // What another tab of the origin could post: a status nobody can follow.
+  const channel = new BroadcastChannel("val-publish-handoff");
+  channel.postMessage({
+    id: site.id,
+    message: { ...pressed, requestId: "junk", request: { kind: "somewhere" } },
+  });
+  tab.report(pressed);
+  try {
+    await until(() => heard.some((message) => message.type === "pressed"));
+    // Two channels are not ordered: give the junk time to arrive too.
+    await wait(40);
+    expect(heard.filter((message) => message.type === "pressed")).toEqual([
+      pressed,
+    ]);
+  } finally {
+    channel.close();
+    tab.close();
+    site.close();
+  }
 });
 
 test("a blocked tab is reported, so the page can offer it as a button", () => {

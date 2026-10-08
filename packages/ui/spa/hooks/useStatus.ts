@@ -181,6 +181,8 @@ export const StatData = z.object({
     .optional(),
   /** See `publishJobs` in `ApiRoutes`. */
   publishJobs: z.boolean().optional(),
+  /** The proposal this server runs at the address of. See `proposal` in `ApiRoutes`. */
+  proposal: z.object({ name: z.string(), branch: z.string() }).optional(),
   /**
    * FS mode only: fingerprint of the `.jsonValues()` entry files on disk. No
    * other sha here can see an entry edit, because a jsonValues module's source is
@@ -314,8 +316,15 @@ export function useStatus(client: ValClient) {
    * {@link holdsOfAnswer}.
    */
   const socketPatchesRef = useRef(0);
-  /** See {@link ContentHolds}. */
-  const [holds, setHolds] = useState<ContentHolds | undefined>();
+  /** See {@link ContentHolds}, and {@link HeardHolds} for the time. */
+  const [heard, setHeard] = useState<HeardHolds | undefined>();
+  const setHolds = useCallback<SetHolds>((update, at) => {
+    setHeard((prev) => {
+      const holds = update(prev?.holds);
+      // The same holds are no news: they keep the time they were said at.
+      return holds === prev?.holds ? prev : { holds, at };
+    });
+  }, []);
   /** Who hears a `publish-job` nudge. See `subscribePublishJobs`. */
   const publishJobListeners = useRef(new Set<(job: PublishJobNudge) => void>());
   const onPublishJob = useCallback((job: PublishJobNudge) => {
@@ -433,7 +442,8 @@ export function useStatus(client: ValClient) {
     setIsAuthenticated,
     serviceUnavailable,
     subscribePublishJobs,
-    holds,
+    heard?.holds,
+    heard?.at,
   ] as const;
 }
 
@@ -510,6 +520,19 @@ export type ContentHolds = Pick<
   StatData,
   "patches" | "appliedPatches" | "publishingPatches"
 >;
+
+/**
+ * The holds, and when content said them: the time a `/stat` request went out
+ * (its answer can be no older), or the time a socket message arrived. A
+ * press of this tab's that failed after that gives its changes back over
+ * them -- see `reportedAt` on `publishingPatchIds`.
+ */
+type HeardHolds = { holds: ContentHolds; at: number };
+
+type SetHolds = (
+  update: (prev: ContentHolds | undefined) => ContentHolds,
+  at: number,
+) => void;
 
 /** The holds after a socket `patches` message. See {@link chainOfMessage}. */
 export function holdsOfMessage(
@@ -615,7 +638,7 @@ async function execStat(
   connectionIdRef: React.MutableRefObject<string>,
   statIdRef: React.MutableRefObject<number>,
   socketPatchesRef: React.MutableRefObject<number>,
-  setHolds: Dispatch<SetStateAction<ContentHolds | undefined>>,
+  setHolds: SetHolds,
   stat: StatState,
   setStat: Dispatch<SetStateAction<StatState>>,
   setAuthenticationLoadingIfNotAuthenticated: () => void,
@@ -625,6 +648,7 @@ async function execStat(
 ) {
   const id = ++statIdRef.current;
   const socketPatchesAtRequest = socketPatchesRef.current;
+  const requestedAt = Date.now();
   let body = null;
   if ("data" in stat && stat.data) {
     body = {
@@ -685,12 +709,14 @@ async function execStat(
             wait: webSocketRef.current ? WebSocketStatInterval : 0, // why 0 wait unless websocket? If websocket is not used, we are long polling so no point in waiting
           });
           const answer = res.json;
-          setHolds((prev) =>
-            holdsOfAnswer(
-              prev,
-              answer,
-              socketPatchesRef.current !== socketPatchesAtRequest,
-            ),
+          setHolds(
+            (prev) =>
+              holdsOfAnswer(
+                prev,
+                answer,
+                socketPatchesRef.current !== socketPatchesAtRequest,
+              ),
+            requestedAt,
           );
         } else if (res.json.type === "use-websocket") {
           const answer = res.json;
@@ -702,12 +728,14 @@ async function execStat(
             waitStart: Date.now(),
             wait: WebSocketStatInterval,
           }));
-          setHolds((prev) =>
-            holdsOfAnswer(
-              prev,
-              answer,
-              socketPatchesRef.current !== socketPatchesAtRequest,
-            ),
+          setHolds(
+            (prev) =>
+              holdsOfAnswer(
+                prev,
+                answer,
+                socketPatchesRef.current !== socketPatchesAtRequest,
+              ),
+            requestedAt,
           );
           if (webSocketRef.current) {
             console.debug("Closing existing WebSocket");
@@ -741,7 +769,7 @@ async function execStat(
               const message = messageRes.data;
               if (message.type === "patches") {
                 socketPatchesRef.current++;
-                setHolds((prev) => holdsOfMessage(prev, message));
+                setHolds((prev) => holdsOfMessage(prev, message), Date.now());
                 setStat((prev) => {
                   if ("data" in prev && prev.data) {
                     return {

@@ -151,6 +151,14 @@ export type ValOpsOptions = {
   disableFilePolling?: boolean;
   disableFileWatcher?: boolean;
   config: ValConfig;
+  /**
+   * Source that replaces what the modules evaluate to, for the modules it
+   * names: a proposal's saves (`ValProposal` in `./proposal`), the third
+   * source provider beside committed and draft. Applied once, as the modules
+   * are first read, so every read after it -- the tree, validation, previews,
+   * the next save's prepare -- starts from it, and the SHAs describe it.
+   */
+  snapshotSources?: Sources;
 };
 // #region ValOps
 export abstract class ValOps {
@@ -183,6 +191,12 @@ export abstract class ValOps {
    * hash. Re-folding with the wrong list changes the base SHA for no reason.
    */
   private shaModuleErrors: ExtractedModuleError[] | null;
+  /**
+   * The SITE's Source for the modules a proposal's snapshot replaced: what the
+   * bundle evaluated to before the snapshot went over it. Kept for
+   * {@link siteSourcesUnderSnapshot}, and only where there is a snapshot.
+   */
+  private siteSourcesBeforeSnapshot: Sources | null = null;
   /**
    * What a save has told us each `.jsonValues()` entry now holds.
    *
@@ -318,12 +332,31 @@ export abstract class ValOps {
       this.modulesErrors = moduleErrors;
       this.shaEntries = extracted.shaEntries;
       this.shaModuleErrors = extracted.moduleErrors;
+      /*
+       * The snapshot, over what the modules evaluated to. Through the same
+       * door a save uses, so the SHAs move with it: they describe the Source
+       * being served, and a base SHA that still described the bundle would
+       * say the snapshot's content was the bundle's.
+       */
+      if (this.options?.snapshotSources) {
+        const site: Sources = {};
+        for (const moduleFilePath of Object.keys(
+          this.options.snapshotSources,
+        )) {
+          const source = extracted.sources[moduleFilePath as ModuleFilePath];
+          if (source !== undefined) {
+            site[moduleFilePath as ModuleFilePath] = source;
+          }
+        }
+        this.siteSourcesBeforeSnapshot = site;
+        this.promoteCommittedSources(this.options.snapshotSources);
+      }
       return {
         baseSha: this.baseSha,
         schemaSha: this.schemaSha,
         sourcesSha: this.sourcesSha,
         configSha: this.configSha,
-        sources: extracted.sources,
+        sources: this.sources,
         schemas: extracted.schemas,
         moduleErrors,
       };
@@ -337,6 +370,18 @@ export abstract class ValOps {
       schemas: this.schemas,
       moduleErrors: this.modulesErrors,
     };
+  }
+
+  /**
+   * In a proposal: the SITE's Source for every module the proposal has saved,
+   * as the build it is based on evaluated it -- what the proposal is compared
+   * against, and what merging it changes. Every other module is the same in
+   * both, so it is not sent. `null` anywhere that is not a proposal.
+   */
+  async siteSourcesUnderSnapshot(): Promise<Sources | null> {
+    if (!this.options?.snapshotSources) return null;
+    await this.initSources();
+    return this.siteSourcesBeforeSnapshot;
   }
 
   /**
@@ -2600,6 +2645,35 @@ export abstract class ValOps {
           "This Val server has no content service to publish through. " +
           "Publishing from the browser is for a project whose content is " +
           "served over HTTP.",
+      }),
+    };
+  }
+
+  /**
+   * The proposal this server runs at the address of, or `null` on the site --
+   * and always in `fs` and memory mode, which have no proposals. See
+   * `ValProposal`.
+   */
+  currentProposal(): { name: string; branch: string } | null {
+    return null;
+  }
+
+  /**
+   * The content service's proposals API, for the Studio's switcher, list and
+   * dialogs. Refused here for the reason {@link publishApi} is: there is no
+   * content service to forward to. `profileId` is the person asking.
+   */
+  async proposalsApi(
+    _path: string,
+    _init: { method: string; body?: string },
+    _profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    return {
+      status: 501,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message:
+          "This Val server has no content service, so it has no proposals.",
       }),
     };
   }

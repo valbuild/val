@@ -52,6 +52,34 @@ expensive to re-derive from the code:
    An `as const` on a return inside a function that already has a return type
    annotation is pure noise - remove it.
 
+## An error says what the person can do about it
+
+An error shown to a person is there to help them take the next step. When
+there is something they can do about it, put that action right next to the
+message: a button or a link, not just a sentence telling them to go and find
+it.
+
+| The error                          | What it offers                                                                                        |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Signed out, or the session ran out | **Sign in**, which comes back to the same page afterwards                                             |
+| A request failed or timed out      | **Try again**, which retries the same request                                                         |
+| A setting is missing               | A link to that exact setting, not to the settings page                                                |
+| Something they typed is wrong      | The field is marked, with what it accepts, and focus is moved to it                                   |
+| They are not allowed to do it      | Who can allow it (the org's owners, by name) and how to ask them                                      |
+| A publish or build failed          | Where to see why, and how to retry                                                                    |
+| Nothing they can do (our outage)   | Say so plainly and say what happens next. Keep what they were working on, so a retry does not lose it |
+
+- **Write for the person, not the log.** A raw `fetch failed`, `500` or stack
+  trace on its own helps no one. Put it under "Details" when support will need
+  it, under a message that says what happened in their terms.
+- **Don't blame them for our failures.** "Val Build could not be reached" is
+  true. "Check your connection" is a guess, and usually a wrong one.
+- **An action has to work.** A button that leads to the same error again is
+  worse than no button. If retrying cannot help, don't offer it.
+- **Check every error state you add**, including in stories and tests: what
+  can the person do from here? If the answer is "nothing" while there is
+  something they could do, the error is not finished.
+
 ## Type System Architecture
 
 ### Core Type Hierarchy
@@ -1088,20 +1116,29 @@ sent, so most releases need no credential. A new one (a rolldown bump) needs
 server, not a Hetzner key -- and without it the release stops, naming it.
 `rolldown:check` asks the same question without uploading.
 
-**After a release, ask whether to update the starter template** — and default to
-yes. The template repository ([`valbuild/template-nextjs-starter`](https://github.com/valbuild/template-nextjs-starter))
-pins `@valbuild/*` versions in its `package.json`, so it keeps serving the old
-release to everyone who runs `npm create @valbuild` / `pnpm create @valbuild`
-until someone bumps it. So, once the new version is on npm:
+**After a release, ask whether to update the templates** — and default to
+yes. [`valbuild/templates`](https://github.com/valbuild/templates) holds every
+template `npm create @valbuild` can make (`tanstack/full`, `tanstack/minimal`,
+`nextjs/full`, `nextjs/minimal`), and each pins `@valbuild/*` versions in its
+own `package.json` and lockfile, so they keep serving the old release to
+everyone who creates a project until someone bumps them. So, once the new
+version is on npm:
 
-1. Ask the user whether to update the template now, proposing that we do.
-2. Bump the `@valbuild/*` dependencies in the template's `package.json`, install
-   so the lock file follows, and open a PR on the template repository.
-3. **Test it out** — do not ship the bump on a green typecheck alone. Install and
-   run the template against the new version, open `/val`, and check that the
-   Studio loads and that an edit can be made and saved. Breakage from a release
-   shows up here first, and this is the last place to catch it before it is what
+1. Ask the user whether to update the templates now, proposing that we do.
+2. Bump the `@valbuild/*` dependencies in EVERY template's `package.json`,
+   install in each so its lock file follows, and open a PR on the templates
+   repository. Its `AGENTS.md` has the per-template checks.
+3. **Test it out** — do not ship the bump on a green typecheck alone. Run each
+   template against the new version, open `/val`, and check that the Studio
+   loads and that an edit can be made and saved. Breakage from a release shows
+   up here first, and this is the last place to catch it before it is what
    every new project starts from.
+
+What `npm create @valbuild` offers is not in this repository at all: it reads
+`catalog.json` from the templates repository at run time (see
+`packages/create/src/catalog.ts`), which also lists the files each optional
+feature is made of. Adding, renaming or moving a template, or a file that
+serves MCP in one, is a change there and not here.
 
 ### Publishing a package for the FIRST time
 

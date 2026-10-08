@@ -2706,18 +2706,30 @@ Do not describe what you will do unless you do it for clarification — just do 
     [chatRef, aiGetSessionMessages, rejectPendingQuestions],
   );
 
-  // On mount, populate the sessions dropdown and (if an initial session id was
-  // passed in, e.g. from ?session= in the URL) load it. Intentional: this runs
-  // only once — popstate / URL changes after mount must NOT hijack the user's
-  // open chat, so we capture initialSessionId via opts only on the first render.
+  // Once the assistant is reachable, populate the sessions dropdown and (if an
+  // initial session id was passed in, e.g. from ?session= in the URL) load it.
+  // Intentional: this runs only once — popstate / URL changes after mount must
+  // NOT hijack the user's open chat, so we capture initialSessionId via opts
+  // only on the first render.
+  //
+  // "Reachable" is the socket being up, not the component mounting. The
+  // sessions come from the same content server, behind the same project and
+  // the same credentials, so until `/ai/initialize` has said yes the request
+  // can only fail — and the on-page overlay mounts this hook on every page
+  // load, so a project with no `project` configured, or a developer who has
+  // not run `val login`, got a 500 from `/ai/sessions` on every page.
   const initialSessionIdRef = useRef(opts?.initialSessionId ?? null);
+  const hasLoadedSessionsRef = useRef(false);
   useEffect(() => {
-    if (!isChatEnabled) return;
+    if (!isChatEnabled || !isWsConnected || hasLoadedSessionsRef.current) {
+      return;
+    }
+    hasLoadedSessionsRef.current = true;
     getSessions({ limit: 1 }).catch(() => {});
     if (initialSessionIdRef.current != null) {
       loadSession(initialSessionIdRef.current);
     }
-  }, [isChatEnabled]);
+  }, [isChatEnabled, isWsConnected]);
 
   return {
     sendMessage,

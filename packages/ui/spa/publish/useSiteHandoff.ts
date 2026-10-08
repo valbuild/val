@@ -7,10 +7,21 @@ import type { HandoffState } from "../components/shell/PublishHandoff";
 import {
   canBuildHere,
   openBuilderWindow,
+  NOT_STORED_MESSAGE,
   openHandoff,
+  type HandoffIntent,
   type SiteHandoff,
+  type ToSite,
 } from "./handoff";
 import { RENEW_EVERY_MS, type StudioJobResult } from "./runStudioJob";
+import { isSettled } from "./publishJobs";
+import { randomUUID } from "../utils/randomUUID";
+import { PUBLISH_TAB_ID } from "./tabId";
+
+export type PrepareOptions = { tryAgainOf?: string; after?: string | null };
+
+/** What the builder tab pressed for this page. See `ToSite`. */
+export type HandoffPressed = Extract<ToSite, { type: "pressed" }>;
 
 /**
  * How long a refused renewal waits for the tab's own report. See `runJob`.
@@ -45,9 +56,19 @@ export interface UseSiteHandoff {
    * Call in the PRESS that starts a publish, before anything awaits: that is
    * the only moment the browser lets a tab open. A no-op where the page can
    * build, and for a project the Studio does not deploy.
+   *
+   * `true` when it opened (or tried to open) a builder tab: the TAB presses,
+   * as this page, under a request id minted here -- this page must not press
+   * as well. It hears what was pressed through `onPressed`. `tryAgainOf`
+   * makes the press a try again of that failed request; `after` is the newest
+   * change this page has not published, which the tab waits for (see
+   * `HandoffIntent`).
    */
-  prepare: (buildsInTab: boolean) => void;
-  /** Is a handoff waiting for a job? Then the job must not build here. */
+  prepare: (buildsInTab: boolean, options?: PrepareOptions) => boolean;
+  /**
+   * Is a handoff under way? Its tab presses for this page, and builds any job
+   * this page is handed meanwhile -- so neither happens here.
+   */
   active: () => boolean;
   /**
    * Hand the tab the job to run, as this page's tab `tab`. Resolves with the
@@ -92,8 +113,23 @@ export function useSiteHandoff(
   options: {
     /** See `handsOffPublish` on `ValProvider`: the overlay's alone. */
     enabled?: boolean;
+    /**
+     * The builder tab pressed for this page: follow the request as one of
+     * this page's own. It arrives whenever the page is in front again -- on
+     * an iPhone, not before the editor goes back to it.
+     */
+    onPressed?: (pressed: HandoffPressed) => void;
+    /**
+     * Where this page's own tracker has a request, for a hand-off that
+     * arrives after the request already settled. See `job-result`.
+     */
+    requestStatus?: (requestId: string) => PublishRequestStatus | null;
   } = {},
 ): UseSiteHandoff {
+  const onPressed = useRef(options.onPressed);
+  onPressed.current = options.onPressed;
+  const requestStatus = useRef(options.requestStatus);
+  requestStatus.current = options.requestStatus;
   const [state, setState] = useState<HandoffState | null>(null);
   const current = useRef<SiteHandoff | null>(null);
   /** When the press that opened the tab was, for the card's "Live after". */
@@ -106,6 +142,11 @@ export function useSiteHandoff(
   const following = useRef<{ requestId: string | null } | null>(null);
   /** The request the job being run was pressed for. See `runJob`. */
   const pressedFor = useRef<string | null>(null);
+  /**
+   * The request the tab presses for this hand-off, named in the tap. Unlike
+   * `pressedFor`, never the request of a job this page handed over.
+   */
+  const ownRequest = useRef<string | null>(null);
   /**
    * When the tab last said anything, and whether it ever has. A tab that goes
    * quiet is gone -- closed, or suspended by a phone -- and a page that
@@ -138,15 +179,69 @@ export function useSiteHandoff(
     w.resolve(result === "lost" ? { status: "lost", jobId: w.jobId } : result);
   }, []);
 
+  /** The card's last word on a request this page follows. */
+  const showSettled = useCallback((status: PublishRequestStatus) => {
+    if (status.kind === "live" || status.kind === "nothing-to-publish") {
+      setState({
+        kind: "live",
+        ms: Date.now() - (startedAt.current ?? Date.now()),
+        followed: true,
+      });
+    } else if (status.kind === "failed") {
+      setState({
+        kind: "failed",
+        message: status.message,
+        followed: true,
+      });
+    } else {
+      setState(null);
+    }
+  }, []);
+
   const enabled = options.enabled ?? false;
   const prepare = useCallback(
-    (buildsInTab: boolean) => {
-      if (!enabled || !buildsInTab || canBuildHere()) return;
+    (buildsInTab: boolean, prepareOptions?: PrepareOptions) => {
+      if (!enabled || !buildsInTab || canBuildHere()) return false;
       current.current?.close();
       settleWaiting("lost");
       following.current = null;
       startedAt.current = Date.now();
-      const handoff = openHandoff();
+      /*
+       * Named here, in the tap, and pressed by the tab: see `handoff.ts`.
+       * This page's tab, so the job is leased to the tab content expects and
+       * this page's own runner can still hand the tab a job it took.
+       */
+      const requestId = randomUUID();
+      pressedFor.current = requestId;
+      ownRequest.current = requestId;
+      const after = prepareOptions?.after ?? null;
+      const intent: HandoffIntent =
+        prepareOptions?.tryAgainOf !== undefined
+          ? {
+              kind: "try-again",
+              requestId,
+              tab: PUBLISH_TAB_ID,
+              replaces: prepareOptions.tryAgainOf,
+              after,
+            }
+          : { kind: "press", requestId, tab: PUBLISH_TAB_ID, after };
+      const handoff = openHandoff({ intent });
+      if (!handoff.stored) {
+        /*
+         * Said here and now, and handled: nothing can publish this. This page
+         * cannot build, and a tab could not be told what to do -- the page
+         * must not press a job that nobody will build either.
+         */
+        handoff.close();
+        current.current = null;
+        setState({
+          kind: "failed",
+          message: NOT_STORED_MESSAGE,
+          // The Studio hands its publish to a tab the same way, and fails alike.
+          studioCannotHelp: true,
+        });
+        return true;
+      }
       current.current = handoff;
       blocked.current = !handoff.opened;
       setState(blocked.current ? { kind: "blocked" } : { kind: "opening" });
@@ -216,6 +311,19 @@ export function useSiteHandoff(
           setState((prev) =>
             prev?.kind === "blocked" ? { kind: "opening" } : prev,
           );
+        } else if (message.type === "pressed") {
+          pressedFor.current = message.requestId;
+          onPressed.current?.(message);
+          if (message.building) return;
+          /*
+           * It joined a job already in flight, or settled at once: the tab has
+           * nothing to build, and says why itself. This page's tracker follows
+           * the request; the card has nothing left to say.
+           */
+          stopWatching();
+          handoff.close();
+          current.current = null;
+          setState(null);
         } else if (message.type === "phase") {
           setState({
             kind: "running",
@@ -226,7 +334,15 @@ export function useSiteHandoff(
               : {}),
           });
         } else if (message.type === "job-result") {
-          if (waiting.current?.jobId !== message.result.jobId) return;
+          /*
+           * The job this page handed over, or -- with nothing handed over --
+           * the one the tab's own press started.
+           */
+          if (
+            waiting.current !== null &&
+            waiting.current.jobId !== message.result.jobId
+          )
+            return;
           settleWaiting(message.result);
           if (message.result.status !== "handed-off") return;
           /*
@@ -238,6 +354,20 @@ export function useSiteHandoff(
           stopWatching();
           handoff.close();
           current.current = null;
+          /*
+           * Settled already? Messages a paused page missed arrive together
+           * when it wakes, and its own tracker's read of the request can land
+           * between two of them: Live before this hand-off says to follow it,
+           * and no settlement left to come.
+           */
+          const known =
+            pressedFor.current === null
+              ? null
+              : (requestStatus.current?.(pressedFor.current) ?? null);
+          if (known !== null && isSettled(known)) {
+            following.current = null;
+            showSettled(known);
+          }
         } else if (message.type === "done") {
           setState(
             message.result.status === "failed"
@@ -256,8 +386,9 @@ export function useSiteHandoff(
           current.current = null;
         }
       });
+      return true;
     },
-    [enabled, settleWaiting, stopWatching],
+    [enabled, settleWaiting, showSettled, stopWatching],
   );
 
   const active = useCallback(() => current.current !== null, []);
@@ -308,27 +439,33 @@ export function useSiteHandoff(
   const settled = useCallback<UseSiteHandoff["settled"]>(
     (requestId, status) => {
       const followed = following.current;
-      if (followed === null) return;
+      if (followed === null) {
+        /*
+         * The tab's own press, settled with no job ever leased to it -- a
+         * queued request another tab's publish took along, say. The tab said
+         * it was building, so the card is still waiting, and no `job-result`
+         * is coming to end it: this settlement is the end. Not while a job
+         * this page handed over is running there; its result ends it.
+         */
+        const handoff = current.current;
+        if (
+          handoff !== null &&
+          waiting.current === null &&
+          ownRequest.current === requestId
+        ) {
+          stopWatching();
+          handoff.close();
+          current.current = null;
+          showSettled(status);
+        }
+        return;
+      }
       if (followed.requestId !== null && followed.requestId !== requestId)
         return;
       following.current = null;
-      if (status.kind === "live" || status.kind === "nothing-to-publish") {
-        setState({
-          kind: "live",
-          ms: Date.now() - (startedAt.current ?? Date.now()),
-          followed: true,
-        });
-      } else if (status.kind === "failed") {
-        setState({
-          kind: "failed",
-          message: status.message,
-          followed: true,
-        });
-      } else {
-        setState(null);
-      }
+      showSettled(status);
     },
-    [],
+    [showSettled, stopWatching],
   );
 
   const cancel = useCallback(
@@ -357,7 +494,7 @@ export function useSiteHandoff(
   const openStudio = useCallback(() => {
     const handoff = current.current;
     if (handoff !== null) {
-      // The same id, so the tab finds the job this page is holding.
+      // The same URL: the tab presses what it names, and finds this page by its id.
       const opened =
         openBuilderWindow(handoff.url, `val-publish-${handoff.id}`) !== null;
       // Blocked again: keep offering the button rather than claiming it opened.

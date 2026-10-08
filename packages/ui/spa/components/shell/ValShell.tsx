@@ -6,6 +6,9 @@ import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
 import { CanvasFrame } from "./canvas/CanvasFrame";
 import { canvasFallbackRoute } from "./canvasFallbackRoute";
 import { SaveState } from "./StatusBar";
+import { RemoteFilesCard, UploadsOffChip } from "./RemoteFilesNotice";
+import { ReadOnlyCard, usePlanAccess } from "./ReadOnlyNotice";
+import { useRemoteFiles } from "../ValRemoteProvider";
 import { useSteadySaveState } from "./useSteadySaveState";
 import { PublishState } from "./TopBar";
 import {
@@ -100,6 +103,7 @@ import {
   usePendingChangesProgress,
   useValMode,
   useAutoPublish,
+  useCurrentProposal,
   useReportError,
 } from "../ValProvider";
 import {
@@ -117,6 +121,9 @@ import { useProjectLocales } from "../../hooks/useProjectLocales";
 import { useStudioSettings } from "../../hooks/useStudioSettings";
 import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
+import { useProposalsBar } from "../proposals/useProposalsBar";
+import { useSiteChanges } from "../../proposals/useSiteChanges";
+import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 
 /**
  * The Val studio on the floating shell.
@@ -213,6 +220,49 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   // it. Held here because the overlay is presentational and the index is not.
   const [searchQuery, setSearchQuery] = useState("");
   const contentSearch = useContentSearch(searchQuery);
+  /**
+   * Remote files unavailable: a card above the editor, folded into a chip in
+   * the status bar once dismissed. See `RemoteFilesNotice`. Read from the
+   * remote settings themselves rather than `useGlobalError`, which reports one
+   * error at a time and would hide this behind a passing network blip.
+   */
+  const remoteFiles = useRemoteFiles();
+  const [remoteNoticeDismissed, setRemoteNoticeDismissed] = useState(false);
+  const remoteFilesNotice =
+    remoteFiles.status === "inactive" && !remoteNoticeDismissed ? (
+      <RemoteFilesCard
+        reason={remoteFiles.reason}
+        onDismiss={() => setRemoteNoticeDismissed(true)}
+      />
+    ) : undefined;
+  /**
+   * The organization's plan has made the Studio read-only (a trial that is
+   * over, a payment failed past its grace): said above everything, because
+   * nothing typed here can be saved. See `ReadOnlyNotice`. Asked only where
+   * the Studio is connected to Val Build (the same test that mounts its web
+   * components): elsewhere the proxy has nothing to forward to, and answers
+   * 404.
+   */
+  const project = useValConfig()?.project;
+  const valBuildConnected =
+    state.status === "success" && state.data.webComponentsUrl !== undefined;
+  const planAccess = usePlanAccess(valBuildConnected ? project : undefined);
+  const editorNotices = [
+    planAccess?.access === "read-only" ? (
+      <ReadOnlyCard key="read-only" access={planAccess} />
+    ) : null,
+    remoteFilesNotice === undefined ? null : (
+      <div key="remote-files">{remoteFilesNotice}</div>
+    ),
+  ].filter((notice) => notice !== null);
+  const editorNotice =
+    editorNotices.length === 0 ? undefined : (
+      <div className="flex flex-col gap-3">{editorNotices}</div>
+    );
+  const remoteFilesStatusNotice =
+    remoteFiles.status === "inactive" && remoteNoticeDismissed ? (
+      <UploadsOffChip onClick={() => setRemoteNoticeDismissed(false)} />
+    ) : undefined;
 
   /**
    * The view state, from the URL and back into it.
@@ -1004,6 +1054,48 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
 
   const publishState: PublishState = isPublishing ? "publishing" : "idle";
 
+  /*
+   * Proposals, where the project has them: the switcher, and in a proposal
+   * Save where Publish is. The unsaved count is Review's, for the same reason
+   * Review's is what it is: changes that cancel out are nothing to save.
+   */
+  /*
+   * In a proposal, Review is Compare with the site: what Publish -- merging
+   * it -- would change, saved and unsaved alike, against what visitors see.
+   * The review page lists pending patches, and a proposal's saved changes are
+   * not patches the Studio holds.
+   */
+  const inProposal = useCurrentProposal() !== null;
+  const siteChanges = useSiteChanges(inProposal);
+  const [siteCompareOpen, setSiteCompareOpen] = useState(false);
+  const openSiteCompare = useCallback(() => setSiteCompareOpen(true), []);
+  const {
+    proposals: proposalsBar,
+    dialogs: proposalDialogs,
+    notice: proposalNotice,
+  } = useProposalsBar({
+    unsaved: hasNetChanges ? ownPendingChanges : 0,
+    portalContainer,
+    onCompare: openSiteCompare,
+  });
+  // A merged proposal's notice first: it says this whole Studio is finished.
+  const shellNotice =
+    proposalNotice === null ? (
+      editorNotice
+    ) : (
+      <div className="flex flex-col gap-3">
+        {proposalNotice}
+        {editorNotice}
+      </div>
+    );
+  const proposals = useMemo(
+    () =>
+      proposalsBar && inProposal
+        ? { ...proposalsBar, onCompare: openSiteCompare }
+        : proposalsBar,
+    [proposalsBar, inProposal, openSiteCompare],
+  );
+
   /**
    * The real auto-save setting, not one of the shell's own.
    *
@@ -1148,6 +1240,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         renderExternalPages={renderExternalPages}
         tourEnabled={isTourOffered(studioSettings)}
         editorOverride={overrideEditor}
+        notice={shellNotice}
+        statusNotice={remoteFilesStatusNotice}
         publishSlot={<PublishButton />}
         publishState={publishState}
         publishIndicator={publishIndicatorState}
@@ -1171,7 +1265,15 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
          * that view is where Discard is, and where a held change is staged again,
          * and Publish is disabled until one of those happens.
          */
-        reviewCount={hasNetChanges ? ownPendingChanges : 0}
+        reviewCount={
+          inProposal
+            ? siteChanges.status === "ready"
+              ? siteChanges.changeCount
+              : 0
+            : hasNetChanges
+              ? ownPendingChanges
+              : 0
+        }
         /*
          * Offered only once the metadata behind the confirm has arrived.
          *
@@ -1211,7 +1313,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         // enables preview and redirects, so it is worth sending to someone.
         previewHref={previewHref}
         onSelectValidationError={onSelectValidationError}
-        onCompare={showReview}
+        onCompare={inProposal ? openSiteCompare : showReview}
         // Recent activity rows did nothing: the panel listed them and no handler
         // was passed. They carry a real source path, so opening one is the same
         // act as opening a search hit.
@@ -1266,6 +1368,14 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         pendingChangesLoaded={pendingChangesLoaded}
         pendingChangesProgress={pendingChangesProgress}
         pendingChangesError={pendingChangesError}
+        proposals={proposals}
+      />
+      {proposalDialogs}
+      <ProposalSiteCompare
+        changes={siteChanges}
+        open={siteCompareOpen}
+        onOpenChange={setSiteCompareOpen}
+        portalContainer={portalContainer}
       />
       {handoff.state !== null && handoffCardInStudio(handoff.state) && (
         /*
@@ -1406,7 +1516,8 @@ function CompareView() {
  *
  * At shell level rather than in the review screen, because publish must be
  * scoped whether or not that screen was ever opened — otherwise the first
- * publish of a session ships the whole pending chain.
+ * publish of a session ships the whole pending chain. The builder tab, which
+ * renders instead of the shell, calls it too: its press runs the same gate.
  *
  * The SEED runs once. After it, the scope moves on the user's own stages and
  * unstages, on this tab's writes, and on members the server has put in this
@@ -1416,7 +1527,7 @@ function CompareView() {
  * the group when patch sets coalesce — see `PatchStagingProvider` for why that
  * is the policy — so this hook has no other job.
  */
-function usePatchGroupScope(): void {
+export function usePatchGroupScope(): void {
   const val = useValSystem();
   const group = useCurrentPatchGroup();
   const scoped = val?.system.patchGroup() ?? null;

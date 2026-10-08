@@ -57,11 +57,15 @@ import {
 import { isJsonArray } from "../utils/isJsonArray";
 import { readableProfilesError } from "../utils/readableProfilesError";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
+import { newestUnpublished } from "../publish/pressForPage";
 import type { ChainProgress } from "../utils/describePendingChangesStall";
 import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { SerializedPatchSet } from "../utils/PatchSets";
-import type { PatchGroupT } from "@valbuild/shared/internal";
+import type {
+  PatchGroupT,
+  PublishRequestStatus,
+} from "@valbuild/shared/internal";
 import { z } from "zod";
 import {
   ValEnrichedDeployment,
@@ -96,7 +100,11 @@ import {
   useStudioDeploy,
   type UseStudioDeploy,
 } from "../publish/useStudioDeploy";
-import { useSiteHandoff, type UseSiteHandoff } from "../publish/useSiteHandoff";
+import {
+  useSiteHandoff,
+  type HandoffPressed,
+  type UseSiteHandoff,
+} from "../publish/useSiteHandoff";
 import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
@@ -186,6 +194,11 @@ type ValContextValue = {
    * server saying nothing is not evidence that a project has no repository.
    */
   sourceMode: "managed" | "connected" | null;
+  /**
+   * The proposal this Studio is in, or `null` on the site. From `/stat`;
+   * the same object until the server names a different one.
+   */
+  proposal: { name: string; branch: string } | null;
   profileId: string | null;
   profileAuthError: string | null;
   /**
@@ -241,6 +254,11 @@ type ValContextValue = {
    * content lists them as pending again. See `heldByContent`.
    */
   serverPublishingPatchIds: ReadonlySet<string>;
+  /**
+   * When content said the holds `serverPublishingPatchIds` was last moved by,
+   * or `undefined` before it has. See `reportedAt` on `publishingPatchIds`.
+   */
+  serverPublishingReportedAt: number | undefined;
   /**
    * Whether a press of Publish is a publish job here: every managed project,
    * and a connected one hosted on the platform (the server says, on `/stat`).
@@ -397,6 +415,7 @@ export function ValProvider({
     serviceUnavailable,
     subscribePublishJobs,
     contentHolds,
+    contentHoldsAt,
   ] = useStatus(client);
 
   const isStatConnected = "data" in stat && !!stat.data;
@@ -416,8 +435,20 @@ export function ValProvider({
    * what turns both features off downstream. Commit summaries still honour
    * `config.ai.commitMessages.disabled`, and the chat still honours settings —
    * each where it is used, rather than here.
+   *
+   * "A project to open it for" is meant literally. The socket lives at the
+   * content server under `/v1/<project>/ai`, so with no `project` in the
+   * config the server can only refuse — `/ai/initialize` answers 401 "Project
+   * is not configured" — and that refusal used to surface as a "Login to use
+   * AI chat" prompt in every project created from a template, which no login
+   * can fix. With no project there is no assistant to offer, so nothing is
+   * opened and every way in to the chat stays hidden (`isAIChatEnabled`).
+   * `project` here is the server's resolved one, `VAL_PROJECT` included: see
+   * `clientConfig`.
    */
-  const wsEnabled = isStatConnected;
+  const statConfig =
+    "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
+  const wsEnabled = isStatConnected && !!statConfig?.project;
   const {
     subscribeToMessages: subscribeToWsMessages,
     send: sendWsMessage,
@@ -516,8 +547,7 @@ export function ValProvider({
     [client],
   );
 
-  const runtimeConfig =
-    "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
+  const runtimeConfig = statConfig;
 
   const [showServiceUnavailable, setShowServiceUnavailable] = useState<
     boolean | undefined
@@ -815,6 +845,14 @@ export function ValProvider({
   useEffect(() => {
     if ("data" in stat && stat.data) {
       setDeployments((prev) => {
+        /*
+         * Not in a proposal. Its commits are SAVES, which its address serves
+         * as soon as they answer, and none of them is ever deployed -- so the
+         * feed showed each one "Building", for good. Deploys are the site's.
+         */
+        if (stat.data?.proposal) {
+          return prev.length === 0 ? prev : [];
+        }
         if (
           (stat.data?.deployments && stat.data.deployments?.length > 0) ||
           (stat.data?.commits && stat.data.commits?.length > 0)
@@ -986,8 +1024,21 @@ export function ValProvider({
       markObserved(deploy.state.commit);
     }
   }, [deploy.state, markObserved]);
+  /**
+   * What a builder tab pressed for this page, followed by this page's tracker.
+   * A ref: the tracker is made below, after the handoff that hears it.
+   */
+  const onHandoffPressed = useRef<(pressed: HandoffPressed) => void>(() => {});
   /** See {@link ValContextValue.handoff}. */
-  const handoff = useSiteHandoff({ enabled: handsOffPublish });
+  /** This page's tracker, read by the handoff. A ref for the same reason. */
+  const trackedStatus = useRef<
+    (requestId: string) => PublishRequestStatus | null
+  >(() => null);
+  const handoff = useSiteHandoff({
+    enabled: handsOffPublish,
+    onPressed: (pressed) => onHandoffPressed.current(pressed),
+    requestStatus: (requestId) => trackedStatus.current(requestId),
+  });
 
   /*
    * The publish jobs, made once. The tracker outlives renders, so what it
@@ -1016,7 +1067,11 @@ export function ValProvider({
       build: (job, onPhase) => {
         const handoff = handoffRef.current;
         if (handoff.active()) {
-          // This page cannot build: the tab it opened runs the job, as this tab.
+          /*
+           * This page cannot build: a job it took goes to the tab it opened,
+           * which runs it as this tab. Only queued work -- that tab makes the
+           * presses itself, and builds the jobs they start.
+           */
           const pressed =
             jobs
               .get()
@@ -1041,9 +1096,10 @@ export function ValProvider({
         });
       },
       /*
-       * Not the builder tab a page opened: it runs the one job it was handed,
-       * as that page's tab. Elsewhere, where this page can build -- or while
-       * a builder tab it opened is waiting for work.
+       * Not the builder tab a page opened: it runs the one press it was
+       * opened for, as that page's tab, and asks for that press's queued job
+       * itself. Elsewhere, where this page can build -- or while a builder
+       * tab it opened is open to build what this page takes.
        */
       takesQueuedWork: () =>
         handsOffPublish &&
@@ -1054,6 +1110,23 @@ export function ValProvider({
     });
     return jobs;
   }, [handsOffPublish]);
+  /*
+   * The builder tab's press is this page's: it pressed as this tab, under the
+   * id this page minted. Followed without its job -- the tab builds that.
+   */
+  trackedStatus.current = (requestId) =>
+    publishJobs
+      .get()
+      .requests.find((request) => request.requestId === requestId)?.status ??
+    null;
+  onHandoffPressed.current = (pressed) =>
+    publishJobs.track({
+      requestId: pressed.requestId,
+      request: pressed.request,
+      job: null,
+      patchIds: pressed.patchIds,
+      ...(pressed.replaces !== null ? { replaces: pressed.replaces } : {}),
+    });
   onPublishSettled.current = (request) => {
     const status = request.status;
     const id = `publish:${request.requestId}`;
@@ -1137,9 +1210,30 @@ export function ValProvider({
             action: {
               label: "Try again",
               onClick: () => {
-                // In the click, where a page that cannot build may open the
-                // tab that will. A no-op where this page can build.
-                handoffRef.current.prepare(true);
+                /*
+                 * In the click, where a page that cannot build may open the
+                 * tab that will -- and that tab presses the try again, as
+                 * this page: see `publish/handoff.ts`. A no-op where this
+                 * page can build.
+                 *
+                 * The last edit is sent first, as Publish does: on an iPhone
+                 * this page is paused once the tab opens, and the tab waits
+                 * for that edit. Where the try again stays on this page, it
+                 * is only the save autosave was about to make.
+                 */
+                const after = newestUnpublished(
+                  system.patchStore,
+                  system.patchGroup(),
+                );
+                void system.patchSync.flush().catch(() => undefined);
+                if (
+                  handoffRef.current.prepare(true, {
+                    tryAgainOf: request.requestId,
+                    after,
+                  })
+                ) {
+                  return;
+                }
                 // What the new job will take: everything pending now, edits
                 // saved since the failure included.
                 const store = system.patchStore;
@@ -1182,6 +1276,18 @@ export function ValProvider({
   );
   const statSourceMode =
     "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null;
+  const statProposal =
+    "data" in stat && stat.data ? (stat.data.proposal ?? null) : null;
+  const proposalName = statProposal?.name ?? null;
+  const proposalBranch = statProposal?.branch ?? null;
+  // Held by value: every stat is a new object, and the proposal is not.
+  const proposal = useMemo(
+    () =>
+      proposalName === null || proposalBranch === null
+        ? null
+        : { name: proposalName, branch: proposalBranch },
+    [proposalName, proposalBranch],
+  );
   const publishesAsJobs =
     "data" in stat && stat.data
       ? (stat.data.publishJobs ?? statSourceMode === "managed")
@@ -1292,6 +1398,7 @@ export function ValProvider({
         publishJobsState,
         observedPublishJobs,
         serverPublishingPatchIds,
+        serverPublishingReportedAt: contentHoldsAt,
         publishesAsJobs,
         profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
@@ -1301,6 +1408,7 @@ export function ValProvider({
             : null,
         sourceMode:
           "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null,
+        proposal,
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,
         profilesError:
@@ -1599,6 +1707,14 @@ function useProfilesData(
       authenticationState === "not-asked" ||
       authenticationState === "loading"
     ) {
+      return;
+    }
+    // Not before the server has said which mode it is in. Authentication can
+    // resolve first, and the two checks below are both about the mode: with
+    // it still "unknown", the fs-mode check for a project could not apply, and
+    // a project with none configured got a 500 from `/profiles` on every load
+    // — a race, so it came and went with how fast `/stat` answered.
+    if (mode === "unknown") {
       return;
     }
     if (mode !== "fs" && authenticationState !== "authorized") {
@@ -2639,10 +2755,19 @@ export function useOtherPublishJobs(): readonly ObservedJob[] {
  * Not pending work while they go, so Publish does not offer them again.
  */
 export function usePublishingPatchIds(): ReadonlySet<string> {
-  const { publishJobsState, serverPublishingPatchIds } = useContext(ValContext);
+  const {
+    publishJobsState,
+    serverPublishingPatchIds,
+    serverPublishingReportedAt,
+  } = useContext(ValContext);
   return useMemo(
-    () => publishingPatchIds(publishJobsState, serverPublishingPatchIds),
-    [publishJobsState, serverPublishingPatchIds],
+    () =>
+      publishingPatchIds(
+        publishJobsState,
+        serverPublishingPatchIds,
+        serverPublishingReportedAt,
+      ),
+    [publishJobsState, serverPublishingPatchIds, serverPublishingReportedAt],
   );
 }
 
@@ -2664,6 +2789,14 @@ export function useStudioDeployState(): UseStudioDeploy {
 }
 
 /** See {@link ValContextValue.publishRefusal}. */
+/**
+ * The proposal this Studio is in -- its name and branch -- or `null` on the
+ * site. valbuild/home `docs/proposals.md`.
+ */
+export function useCurrentProposal(): { name: string; branch: string } | null {
+  return useContext(ValContext).proposal;
+}
+
 export function usePublishRefusal(): string | null {
   const { publishRefusal } = useContext(ValContext);
   return publishRefusal;
@@ -2697,6 +2830,37 @@ function useInitialized(): number | null {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
+/**
+ * Each module's Source as the Studio holds it now -- pending changes applied
+ * -- and its BASE Source, for comparing whole modules: Compare with the site
+ * in a proposal. Read out of the store and moved by any source change, like
+ * `useShallowModulesAtPaths`, because the caller is one whole-list view.
+ */
+export function useModuleSourcesNowAndBase(
+  moduleFilePaths: readonly ModuleFilePath[],
+): {
+  now: Partial<Record<ModuleFilePath, Json>>;
+  base: Partial<Record<ModuleFilePath, Json>>;
+} | null {
+  const val = useValSystem();
+  const sourcesVersion = useSourcesVersion();
+  return useMemo(() => {
+    if (val === null) return null;
+    void sourcesVersion;
+    const now: Partial<Record<ModuleFilePath, Json>> = {};
+    const base: Partial<Record<ModuleFilePath, Json>> = {};
+    for (const moduleFilePath of moduleFilePaths) {
+      const current = val.system.sourceStore.moduleSource(moduleFilePath);
+      if (current !== undefined) now[moduleFilePath] = current;
+      const peeked = val.system.sourceStore.peekBase(
+        moduleFilePath as unknown as SourcePath,
+      );
+      if (peeked.status === "ready") base[moduleFilePath] = peeked.data;
+    }
+    return { now, base };
+  }, [val, sourcesVersion, moduleFilePaths]);
+}
+
 /** Moved by every source change anywhere in the project. */
 function useSourcesVersion(): number {
   const val = useValSystem();
@@ -2727,6 +2891,14 @@ const PublishSummaryState = z.union([
   }),
 ]);
 type PublishSummaryState = z.infer<typeof PublishSummaryState>;
+/**
+ * What a press of Publish on this page came to. `handed-off`: a builder tab
+ * presses for it -- see `publish/handoff.ts`.
+ */
+type PagePublishResult =
+  | PublishResult
+  | { status: "error"; message: string }
+  | { status: "handed-off" };
 /**
  * Responsible for publishing and also managing publishing state
  */
@@ -2792,15 +2964,29 @@ export function usePublishSummary() {
     !isSettled(latestRequest.status);
   const busyHere = deployState.status === "running" && !waitingElsewhere;
   const publish = useCallback(
-    async (summary: string) => {
+    async (summary: string): Promise<PagePublishResult> => {
       /*
-       * A page that cannot build hands the build to a Studio tab. The press
+       * A page that cannot build hands the publish to a Studio tab. The press
        * that opened the summary normally prepared it already -- that is the
        * moment the browser lets a tab open -- and this is the fallback for a
        * publish that did not come from one. It may be blocked, and the card
        * then offers the tab as a button.
        */
-      if (!handoff.active()) handoff.prepare(buildsInTab);
+      const handedOff =
+        handoff.active() ||
+        handoff.prepare(buildsInTab, {
+          after: val
+            ? newestUnpublished(val.system.patchStore, val.system.patchGroup())
+            : null,
+        });
+      /*
+       * And the tab presses, not this page: on an iPhone this page is paused
+       * from the moment the tab takes the screen, and a press that waited on
+       * it never went out. See `publish/handoff.ts`. (Handled, too, when the
+       * tab could not be told what to do: the card says so, and this page
+       * cannot build what it would press.)
+       */
+      if (handedOff) return { status: "handed-off" };
       if (globalServerSidePatchIds === null) {
         handoff.cancel("No changes to publish");
         return {
@@ -2888,28 +3074,12 @@ export function usePublishSummary() {
           }
           if (res.status === "requested") {
             /*
-             * Tracked until it is Live. The job it came with is built here, or
-             * by the tab this page opened; a press queued behind another is
-             * built when its turn comes, by whichever free tab asks first.
+             * Tracked until it is Live. The job it came with is built here; a
+             * press queued behind another is built when its turn comes, by
+             * whichever free tab asks first. (A page that cannot build never
+             * gets here: its builder tab presses, and says what it pressed.)
              */
             publishJobs.track(res);
-            /*
-             * No job for the tab this page opened. Queued: it waits, and is
-             * handed the job when its turn comes. Otherwise there is nothing
-             * for it to build -- the changes went with a job in flight, or
-             * there were none.
-             */
-            if (
-              res.job === null &&
-              handoff.active() &&
-              res.request.kind !== "queued"
-            ) {
-              handoff.cancel(
-                res.request.kind === "publishing"
-                  ? "Your changes are publishing with the publish before them."
-                  : "There was nothing to publish.",
-              );
-            }
           } else if (res.status === "refused") {
             // Said out loud rather than swallowed: a publish button that does
             // nothing and reports nothing is how a user comes to believe their
@@ -3011,8 +3181,24 @@ export function usePublishSummary() {
      * opens the Studio tab that will, which a browser only allows in the press
      * itself -- not after the AI has written the commit message. See
      * `publish/handoff.ts`.
+     *
+     * `true` when it did: that tab presses, so there is no commit message to
+     * wait for here. It presses what the server has, so this page's last edit
+     * is sent now, while the page still runs.
      */
-    preparePublish: () => handoff.prepare(buildsInTab),
+    preparePublish: (): boolean => {
+      const after = val
+        ? newestUnpublished(val.system.patchStore, val.system.patchGroup())
+        : null;
+      /*
+       * Before the tab opens, not after: on an iPhone this page is paused the
+       * moment it does, and a save not yet sent then never is. Started here,
+       * its request is on the wire first. A publish that stays on this page
+       * flushes as well, so nothing is sent that would not have been.
+       */
+      void val?.system.patchSync.flush().catch(() => undefined);
+      return handoff.prepare(buildsInTab, { after });
+    },
     /**
      * Whether the project wants AI to write its commit messages.
      *

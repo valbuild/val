@@ -17,6 +17,7 @@ type Versions = {
   };
 };
 import type { ValPatchStore } from "./ValOpsMemory";
+import type { ValProposal } from "./proposal";
 import type { CommitContext, CommitResult } from "./ValServer";
 
 export type ValApiOptions = ValServerOverrides & ValConfig & Versions;
@@ -167,6 +168,12 @@ type ValServerOverrides = Partial<{
    * one -- whose changes it does not hold, so they drop out of the overlay.
    */
   publishBuild?: string;
+  /**
+   * The proposal this server runs at the address of, when a platform serves
+   * one. See {@link ValProposal}: its branch, its position, its save route,
+   * and the snapshot that replaces the bundle's Source for what it saved.
+   */
+  proposal?: ValProposal;
   /**
    * The base url of Val.
    *

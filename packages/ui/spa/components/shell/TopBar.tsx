@@ -27,6 +27,42 @@ import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 import { LocaleFilter } from "./LocaleFilter";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { MembersShare, orgOfProject } from "./MembersShare";
+import { ProjectMembersButton } from "./ProjectMembersButton";
+import { ProposalSwitcher } from "../proposals/ProposalSwitcher";
+import {
+  ProposalMenu,
+  ProposalPublishButton,
+  ProposalSaveButton,
+} from "../proposals/ProposalBar";
+import type { ProposalSummary, StudioLocation } from "../proposals/types";
+
+/**
+ * Proposals, when this project has them: the switcher, and in a proposal the
+ * controls that take Publish's place. See `docs/proposals.md`, Flow B.
+ */
+export type TopBarProposals = {
+  location: StudioLocation;
+  /** Open proposals, for the switcher. */
+  open: ProposalSummary[];
+  onOpenSite: () => void;
+  onOpenProposal: (name: string) => void;
+  onNewProposal: () => void;
+  onShowAllProposals: () => void;
+  onSave: () => void;
+  /** Publish the proposal: merge it into the site. */
+  onPublish: () => void;
+  /**
+   * The proposal against the site. Absent until the Studio can show that
+   * (it arrives with merging, which is what it previews).
+   */
+  onCompare?: () => void;
+  onRename: () => void;
+  onCopyLink: () => void;
+  onClose: () => void;
+  /** For stories. */
+  defaultSwitcherOpen?: boolean;
+  defaultMenuOpen?: boolean;
+};
 
 export type TopBarProps = {
   breakpoint: ShellBreakpoint;
@@ -152,6 +188,8 @@ export type TopBarProps = {
    * not here at all — the bottom bar carries it.
    */
   aiEnabled?: boolean;
+  /** Absent for a project without proposals: nothing here changes. */
+  proposals?: TopBarProposals;
 };
 
 /** `blocked` means validation errors are stopping the publish. */
@@ -199,7 +237,65 @@ export function TopBar({
   isLoading,
   aiEnabled = false,
   previewHref,
+  proposals,
 }: TopBarProps) {
+  const proposalLocation =
+    proposals?.location.kind === "proposal" ? proposals.location : null;
+  /*
+   * Above a phone, where you are is the middle of the bar: the switcher, and
+   * in a proposal Publish beside it -- publishing a proposal is merging it,
+   * an act about the proposal -- while Save takes Publish's place on the
+   * right. On a phone the bottom bar has room for one action, which is Save,
+   * and Publish is first in the proposal's menu.
+   */
+  const layout: "phone" | "centered" = isMobileBreakpoint(breakpoint)
+    ? "phone"
+    : "centered";
+  const switcher = proposals !== undefined && (
+    <ProposalSwitcher
+      location={proposals.location}
+      proposals={proposals.open}
+      onOpenSite={proposals.onOpenSite}
+      onOpenProposal={proposals.onOpenProposal}
+      onNewProposal={proposals.onNewProposal}
+      onShowAllProposals={proposals.onShowAllProposals}
+      defaultOpen={proposals.defaultSwitcherOpen}
+    />
+  );
+  const inProposal =
+    proposals !== undefined && proposalLocation !== null
+      ? {
+          menu: (
+            <ProposalMenu
+              onCompare={proposals.onCompare}
+              onRename={proposals.onRename}
+              onCopyLink={proposals.onCopyLink}
+              onClose={proposals.onClose}
+              defaultOpen={proposals.defaultMenuOpen}
+              // On a phone the bottom bar has room for Save alone, so
+              // Publish is the first thing in the menu.
+              {...(layout === "phone"
+                ? {
+                    onPublish: proposals.onPublish,
+                    publishBlockedBy: proposalLocation.publishBlockedBy,
+                  }
+                : {})}
+            />
+          ),
+          save: (
+            <ProposalSaveButton
+              location={proposalLocation}
+              onSave={proposals.onSave}
+            />
+          ),
+          publish: (
+            <ProposalPublishButton
+              location={proposalLocation}
+              onPublish={proposals.onPublish}
+            />
+          ),
+        }
+      : null;
   const isMobile = breakpoint === "mobile";
   const isDesktop = breakpoint === "desktop";
   const org = orgOfProject(projectName);
@@ -209,7 +305,22 @@ export function TopBar({
     webComponentsUrl !== undefined ? (
       <MembersShare
         org={org}
+        project={projectName}
         membersHref={membersHref}
+        webComponentsUrl={webComponentsUrl}
+        studioMode={studioMode}
+        breakpoint={breakpoint}
+      />
+    ) : null;
+  // Who can open this project, beside Share (the organization's): only for a
+  // connected project, as Share is.
+  const members =
+    org !== null &&
+    projectHref !== undefined &&
+    webComponentsUrl !== undefined ? (
+      <ProjectMembersButton
+        projectName={projectName}
+        projectHref={projectHref}
         webComponentsUrl={webComponentsUrl}
         studioMode={studioMode}
         breakpoint={breakpoint}
@@ -219,7 +330,14 @@ export function TopBar({
     <header
       className={cn(
         "absolute z-full top-3 h-11 flex items-center gap-1.5 px-2 rounded-lg",
-        "bg-bg-float border border-border-float shadow-sm",
+        "bg-bg-float border shadow-sm",
+        /*
+         * In a proposal the bar wears the proposal colour: where you are must
+         * never be in doubt, and a screenshot should say where it was taken.
+         */
+        proposalLocation !== null
+          ? "border-border-proposal ring-1 ring-border-proposal bg-bg-proposal-soft"
+          : "border-border-float",
         // Leaves room for the rail on desktop; full-bleed below that.
         isDesktop ? "left-[4.75rem] right-3" : "left-3 right-3",
       )}
@@ -239,25 +357,58 @@ export function TopBar({
           <StudioMark logo={logo} className="h-5" blinking={isLoading} />
         </div>
       )}
-      {projectHref !== undefined && webComponentsUrl !== undefined ? (
-        <ProjectSwitcher
-          projectName={projectName}
-          projectHref={projectHref}
-          webComponentsUrl={webComponentsUrl}
-          studioMode={studioMode}
-          breakpoint={breakpoint}
-        />
-      ) : (
-        <ProjectName projectName={projectName} projectHref={projectHref} />
+      {/*
+       * On a phone in a proposal, the proposal's name rather than the
+       * project's: where you are matters more than which project it is, and
+       * there is room for one name.
+       */}
+      {!(layout === "phone" && proposalLocation !== null) && (
+        <>
+          {projectHref !== undefined && webComponentsUrl !== undefined ? (
+            <ProjectSwitcher
+              projectName={projectName}
+              projectHref={projectHref}
+              webComponentsUrl={webComponentsUrl}
+              studioMode={studioMode}
+              breakpoint={breakpoint}
+            />
+          ) : (
+            <ProjectName projectName={projectName} projectHref={projectHref} />
+          )}
+        </>
+      )}
+      {layout === "phone" && (
+        <>
+          {switcher}
+          {inProposal?.menu}
+        </>
       )}
       <SearchTrigger breakpoint={breakpoint} onClick={onOpenSearch} />
-      <div className="ml-auto flex items-center gap-1.5 shrink-0">
+      {/* Where you are, in the middle of the bar. */}
+      {layout === "centered" && (
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
+          {switcher}
+          {inProposal !== null && (
+            <>
+              {inProposal.publish}
+              {inProposal.menu}
+            </>
+          )}
+        </div>
+      )}
+      <div
+        className={cn(
+          "flex items-center gap-1.5 shrink-0",
+          layout === "phone" && "ml-auto",
+        )}
+      >
         {/*
          * Who else is here, and a way to bring more people in. Above mobile it
          * leads the cluster, to the left of the locale: it is about the
          * project, not about the change being made. On a phone it is the one
          * project-level control that stays in the top bar, further right.
          */}
+        {!isMobile && members}
         {!isMobile && share}
         {/*
          * Before the divider: everything after it is something you DO, and
@@ -296,17 +447,21 @@ export function TopBar({
               />
             </span>
             <span data-val-tour="publish" className="inline-flex">
-              {publishSlot ?? (
-                <PublishButton
-                  pendingChanges={pendingChanges}
-                  onPublish={onPublish}
-                  publishState={publishState}
-                />
-              )}
+              {inProposal !== null
+                ? // In a proposal, Save is where Publish is on the site.
+                  inProposal.save
+                : (publishSlot ?? (
+                    <PublishButton
+                      pendingChanges={pendingChanges}
+                      onPublish={onPublish}
+                      publishState={publishState}
+                    />
+                  ))}
             </span>
             <BarDivider />
           </>
         )}
+        {isMobile && members}
         {isMobile && share}
         {historyEnabled && (
           <IconButton
@@ -897,4 +1052,8 @@ function SearchTrigger({
       </kbd>
     </button>
   );
+}
+
+function isMobileBreakpoint(breakpoint: ShellBreakpoint): boolean {
+  return breakpoint === "mobile";
 }

@@ -49,6 +49,8 @@ test("a connected project gets the Studio's Share button inside the members pane
   );
   const element = container.querySelector("val-members");
   expect(element?.getAttribute("org")).toBe("acme");
+  // Invites made from this Studio also let them open this project.
+  expect(element?.getAttribute("project")).toBe("acme/marketing-site");
   expect(element?.getAttribute("api-base")).toBe("/api/val/admin/proxy");
   expect(element?.getAttribute("layout")).toBe("popover");
   expect(element?.getAttribute("trigger")).toBe("slot");

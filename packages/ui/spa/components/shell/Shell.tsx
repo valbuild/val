@@ -46,7 +46,8 @@ import { AccountPanel } from "./AccountPanel";
 import { NoSettingsModule, SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
-import { PublishState, TopBar } from "./TopBar";
+import { PublishState, TopBar, type TopBarProposals } from "./TopBar";
+import { ProposalSaveButton } from "../proposals/ProposalBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
 import { StudioTour } from "./StudioTour";
@@ -333,6 +334,14 @@ export type ShellProps = {
    */
   editorOverride?: ReactNode;
   /**
+   * Something the studio has to tell the editor before they start, above the
+   * editor column: `RemoteFilesCard`, today. In the column rather than over the
+   * chrome, so it never covers the top bar or Publish.
+   */
+  notice?: ReactNode;
+  /** Its folded form, in the status bar. See `StatusBarProps.notice`. */
+  statusNotice?: ReactNode;
+  /**
    * The past, beside the editor.
    *
    * A render prop rather than a node, because the shell is what knows the
@@ -378,6 +387,11 @@ export type ShellProps = {
    * affordance.
    */
   aiEnabled?: boolean;
+  /**
+   * Proposals, for a project that has them: the switcher in the top bar, and
+   * in a proposal the controls in Publish's place. See `TopBarProposals`.
+   */
+  proposals?: TopBarProposals;
   /**
    * The assistant, rendered inside the assistant panel.
    *
@@ -526,6 +540,8 @@ export function Shell({
   renderSettings,
   renderExternalPages,
   editorOverride,
+  notice,
+  statusNotice,
   renderHistory,
   onPublish,
   publishSlot,
@@ -534,6 +550,7 @@ export function Shell({
   onSignOut,
   accountError,
   aiEnabled = false,
+  proposals,
   aiSlot,
   historyEnabled = false,
   historyActive = false,
@@ -994,7 +1011,7 @@ export function Shell({
    * navigation and its real pending-changes gate, not a second rendering of it
    * that would drift.
    */
-  const editorColumn = editorOverride ? (
+  const editorBody = editorOverride ? (
     editorOverride
   ) : selection === null ? (
     <EmptyEditorState
@@ -1031,6 +1048,14 @@ export function Shell({
         />
       )}
     </PendingChangesGate>
+  );
+  const editorColumn = (
+    <>
+      {notice === undefined || notice === null ? null : (
+        <div className="mb-6">{notice}</div>
+      )}
+      {editorBody}
+    </>
   );
 
   return (
@@ -1118,6 +1143,7 @@ export function Shell({
           accountError={breakpoint === "desktop" ? undefined : accountError}
           isLoading={isLoading}
           aiEnabled={aiEnabled}
+          proposals={proposals}
           historyEnabled={historyEnabled}
           historyActive={historyActive}
           onOpenHistory={onOpenHistory}
@@ -1164,7 +1190,22 @@ export function Shell({
               // out has to be somewhere the menu can offer it too.
               onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
               onPublish={onPublish ?? (() => undefined)}
-              publishSlot={publishSlot}
+              /*
+               * In a proposal the phone's one action is Save: Publish (the
+               * proposal's, which merges it) is the first thing in its menu
+               * in the top bar. See `TopBar`.
+               */
+              publishSlot={
+                proposals?.location.kind === "proposal" ? (
+                  <ProposalSaveButton
+                    location={proposals.location}
+                    onSave={proposals.onSave}
+                    className="h-9 min-w-[5.5rem]"
+                  />
+                ) : (
+                  publishSlot
+                )
+              }
               onOpenStatus={() => setOpenPanel("account")}
               onOpenQuickActions={() => setOpenPanel("utility")}
               /*
@@ -1192,6 +1233,7 @@ export function Shell({
             publishIndicator={publishIndicator}
             deploymentsOpen={deploymentsOpen}
             onDeploymentsOpenChange={setDeploymentsOpen}
+            notice={statusNotice}
           />
         )}
 
@@ -1295,6 +1337,14 @@ export function Shell({
         {openPanel === "account" && (
           <AccountPanel
             breakpoint={breakpoint}
+            // The status bar is not shown on a phone; this sheet is. Acting
+            // on the notice closes the sheet, so what it brings back (the card
+            // above the editor) is in view rather than underneath.
+            notice={
+              breakpoint === "mobile" && statusNotice ? (
+                <div onClick={closePanel}>{statusNotice}</div>
+              ) : undefined
+            }
             mode={mode}
             user={data.user}
             accountError={accountError}

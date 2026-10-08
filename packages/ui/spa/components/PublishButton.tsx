@@ -334,7 +334,8 @@ export function PublishButton({
         aria-label={compact ? state.description : undefined}
         onClick={() => {
           // In the press, before the AI is asked anything: see `preparePublish`.
-          preparePublish();
+          // A builder tab it opened presses itself, with no message to wait for.
+          if (preparePublish()) return;
           publishAutomatically();
         }}
       >

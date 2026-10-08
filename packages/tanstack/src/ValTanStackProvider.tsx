@@ -200,16 +200,23 @@ export const ValTanStackProvider = (props: {
    * overlay has been updating since.
    */
   const initialDraft = React.useRef(props.draft ?? null).current;
+  /*
+   * At a proposal's address the server sends its snapshot whether or not
+   * draft mode is on, and one that is ONLY a snapshot (`draftMode: false`) is
+   * not a draft: it must not turn draft mode on or say the draft is synced.
+   */
+  const hasDraft = initialDraft !== null && initialDraft.draftMode !== false;
+  const snapshot = initialDraft?.snapshot;
   // TODO: move below into react package
   const valStore = React.useMemo(() => {
     const store = new ValExternalStore();
-    if (initialDraft !== null) {
+    if (hasDraft) {
       for (const [path, source] of Object.entries(initialDraft.sources)) {
         store.update(path as ModuleFilePath, source);
       }
     }
     return store;
-  }, [initialDraft]);
+  }, [initialDraft, hasDraft]);
   // Whether useValStega should actually suspend. False during SSR and the
   // hydration render. Two paths: without `draft` the server store is empty
   // (draft data arrives via browser CustomEvents only), so suspending there
@@ -232,9 +239,7 @@ export const ValTanStackProvider = (props: {
    */
   // A server-read draft is everything there is: a module missing from it has
   // no changes, so there is nothing more to wait for.
-  const [draftSourcesSynced, setDraftSourcesSynced] = React.useState(
-    initialDraft !== null,
-  );
+  const [draftSourcesSynced, setDraftSourcesSynced] = React.useState(hasDraft);
   const [mountOverlay, setMountOverlay] = React.useState<boolean>();
   /**
    * Whether this document is the studio's canvas frame.
@@ -253,7 +258,7 @@ export const ValTanStackProvider = (props: {
   // Known on the server when it read a draft: `fetchValDraft` only reads one
   // in draft mode. Otherwise unknown until `/draft/stat` answers.
   const [draftMode, setDraftMode] = React.useState<boolean | null>(
-    initialDraft !== null ? true : null,
+    hasDraft ? true : null,
   );
   /**
    * Resolves when `draftMode` stops being unknown.
@@ -783,7 +788,8 @@ export const ValTanStackProvider = (props: {
       draftMode={draftMode}
       draftModeReady={draftModeReady.current?.promise}
       draftSourcesSynced={draftSourcesSynced}
-      serverDraft={initialDraft !== null}
+      serverDraft={hasDraft}
+      snapshot={snapshot}
       suspend={suspendActive}
       store={valStore}
     >

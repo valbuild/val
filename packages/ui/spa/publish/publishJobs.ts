@@ -84,6 +84,12 @@ export type PublishJobs = {
     job: PublishTabJob | null;
     /** What the press sent; see `TrackedPublish.patchIds`. */
     patchIds?: readonly string[];
+    /**
+     * A try again pressed somewhere else -- the builder tab this page opened
+     * -- replaces this failed request, as {@link PublishJobs.tryAgain}'s own
+     * does, and holds what it sent too.
+     */
+    replaces?: string;
   }): void;
   /** A job moved: re-read what is not settled, and look for queued work. */
   nudge(): void;
@@ -159,8 +165,33 @@ export function publishingPatchIds(
    * content's next answer, when Publish would otherwise light up again.
    */
   reported?: Iterable<string>,
+  /**
+   * When content said `reported`. A press of this tab's that failed before
+   * its seal AFTER that gives its changes back over it: the job that held
+   * them has ended, and `reported` is from while it ran. Without this,
+   * Publish read "Publishing" beside the "Could not publish" toast until
+   * content spoke again -- a `patches` message, which can be lost, or the
+   * next `/stat`, which with a socket up is twenty minutes away. What content
+   * says after the failure stands: another publish may have taken them since.
+   */
+  reportedAt?: number,
 ): ReadonlySet<string> {
-  const ids = new Set<string>(reported ?? []);
+  const givenBack = new Set<string>();
+  if (reportedAt !== undefined) {
+    for (const request of state.requests) {
+      if (
+        isSettled(request.status) &&
+        !isSealed(request.status) &&
+        (request.settledAt ?? -Infinity) > reportedAt
+      ) {
+        for (const id of request.patchIds ?? []) givenBack.add(id);
+      }
+    }
+  }
+  const ids = new Set<string>();
+  for (const id of reported ?? []) {
+    if (!givenBack.has(id)) ids.add(id);
+  }
   for (const held of Object.values(state.retrying ?? {})) {
     for (const id of held) ids.add(id);
   }
@@ -238,9 +269,9 @@ export function createPublishJobs(options: {
   ) => Promise<StudioJobResult>;
   /**
    * Whether this tab asks for queued work now. Not where it cannot build,
-   * unless a builder tab it opened is still waiting for a job: such a page
-   * hands its own presses to that tab, and has no tab to hand anything to
-   * once it has closed.
+   * unless a builder tab it opened is still open to hand it to -- and none
+   * once that tab has closed. (That tab makes such a page's presses itself,
+   * and asks for their queued jobs itself, as the page.)
    */
   takesQueuedWork: () => boolean;
   /** A tracked request settled: Live, failed, cancelled, nothing to publish. */
@@ -445,14 +476,39 @@ export function createPublishJobs(options: {
     requestId,
     request,
     job,
-    patchIds,
+    patchIds: sent,
+    replaces,
   }: {
     requestId: string;
     request: PublishRequestStatus;
     job: PublishTabJob | null;
     patchIds?: readonly string[];
+    replaces?: string;
   }) {
     const at = now();
+    /*
+     * The same request told again -- a builder tab reloaded mid-publish says
+     * what it is following, without the changes its press sent -- forgets
+     * nothing it was told the first time.
+     */
+    const before = state.requests.find((r) => r.requestId === requestId);
+    const replaced =
+      replaces === undefined
+        ? undefined
+        : state.requests.find((r) => r.requestId === replaces);
+    if (replaced !== undefined) {
+      set({
+        ...state,
+        requests: state.requests.filter((r) => r.requestId !== replaces),
+      });
+    }
+    const told = [...(before?.patchIds ?? []), ...(sent ?? [])];
+    const patchIds =
+      replaced?.patchIds === undefined
+        ? before?.patchIds === undefined
+          ? sent
+          : told
+        : [...replaced.patchIds, ...told];
     /*
      * And the job's own list: a job takes everything pending, which can be
      * more than the gate checked -- a save that landed after it. Only for a
@@ -467,10 +523,14 @@ export function createPublishJobs(options: {
       pressedAt: at,
       status: request,
       ...(isSettled(request) ? { settledAt: at } : {}),
-      ...(job !== null ? { jobId: job.id } : {}),
+      ...(job !== null
+        ? { jobId: job.id }
+        : before?.jobId !== undefined
+          ? { jobId: before.jobId }
+          : {}),
       ...(carried.length > 0 ? { patchIds: carried } : {}),
     };
-    const known = state.requests.some((r) => r.requestId === requestId);
+    const known = before !== undefined;
     set({
       ...state,
       requests: known

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { CompareDialog } from "./CompareDialog";
 import {
   commitBasisModel,
+  siteBasisModel,
   compareModel,
   deepDataModel,
   emptyModel,
@@ -154,6 +155,12 @@ export const FilteredToOneAuthor: Story = {
  * question — who staged this particular change.
  */
 export const AgainstACommit: Story = { args: { model: commitBasisModel } };
+
+/**
+ * In a proposal, Review opens this: the proposal against the site, saved and
+ * unsaved alike -- what Publish would change. Read-only.
+ */
+export const AgainstTheSite: Story = { args: { model: siteBasisModel } };
 
 /**
  * A commit message long enough to break the header.
