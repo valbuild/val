@@ -40,9 +40,10 @@ terminal, but only by someone with the repository and a `val login`.
 - **A page, `/val/validate`**, beside `/val/history` and `/val/errors` in
   `ValRouter.tsx`.
 - **A button in the top bar** (`TopBar.tsx`), next to History, always shown:
-  every mode has something to validate. It carries a count from the last run
-  in this session, and nothing before the first run — a number the Studio has
-  not checked is not one it should show.
+  every mode has something to validate. It carries a count from the light
+  check that runs when the Studio opens (below), replaced by the full check's
+  count once one has run in this session. A number nothing has checked is not
+  one it should show.
 - **"Check everything"** on the page runs the full validation and fills the
   page as results arrive, module by module.
 - **Each error that has a fix gets a Fix button**, each module a "Fix all", and
@@ -78,8 +79,50 @@ Studio's own validator found, opened from the Publish button's "Fix N"
 `/val/validate` is the full check: run on the server, slower, and covering
 files. They render rows with the same components (`FieldErrorList`, the
 module grouping in `ValidationErrors.tsx`) so an error looks the same on both.
-Whether they should become one page is an open question; this plan keeps them
-apart so the publish gate does not get slower.
+They stay two pages, so the publish gate does not get slower.
+
+## The light check, when the Studio opens
+
+Remote refs only, HEAD requests only, and not every ref:
+
+- **Published refs: one per host.** Every ref in published content that no
+  pending patch touches is assumed to stand or fall with its host, so the
+  check takes one ref per distinct host and HEADs it. In a managed project
+  that assumption holds by construction: refs are only ever written by the
+  Studio, and a host changes for every ref at once (a domain is added or
+  removed for the whole project), so one ref cannot break on its own without
+  a patch. A project has a handful of hosts at most, so this is a handful of
+  requests.
+- **Patched refs: every one.** A ref in a pending patch is where a single file
+  can be wrong on its own: an upload that failed half way, a file added while
+  a domain was changing. Each gets its own HEAD. There are rarely many.
+- **Connected projects rely on CI for the rest.** Their refs live in git, where
+  a developer can edit one by hand, so "one per host" is not guaranteed. That
+  is covered by `val validate` running before every publish (below), not by
+  the Studio.
+
+A host that fails is one row on the page — "Images on `www.acme.no` cannot be
+reached" — with the count of refs it covers and **Fix**, which rewrites them
+to the project's current host. A patched ref that fails is a row of its own,
+with **Try again** (re-upload, when the Studio still has the bytes) or
+**Remove**. Results are kept for the session; nothing is re-checked on every
+navigation.
+
+### What connected projects need: `val validate` before `val publish`
+
+The assumption above is only true if something checks the whole of a
+connected project before it goes live, and today nothing does. The workflow
+the templates ship (`val-publish.yml` in `valbuild/template-tanstack-starter`)
+runs `pnpm exec val publish` and nothing else, and `val publish`
+(`packages/cli/src/publish.ts`) does not validate.
+
+**`val publish` runs the full validation first and refuses to publish on an
+error**, without `--fix`: CI must not rewrite the content it was asked to
+publish. Putting it in `val publish` rather than in the workflow file means
+every connected repository gets it on its next `@valbuild/cli` bump, including
+the ones whose workflow file was written before this existed. The failure goes
+through `val ci-report --status failed` like any other, so the Studio already
+shows it with **View run**.
 
 ## What is checked
 
@@ -181,7 +224,9 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
   `listFiles` in `ValOps`; the two routes in `ValServer`.
 - **ui:** the `/val/validate` route and page, the top bar button and its count,
   and applying a returned patch through the existing patch path.
-- **cli, language-server:** pass a disk reader to `createFixPatch`. Their
+- **cli:** passes a disk reader to `createFixPatch`, and `val publish` runs
+  the full validation before it builds.
+- **language-server:** passes a disk reader to `createFixPatch`. Its
   behaviour does not change.
 - **valbuild/home:** nothing new: content already serves the bytes and the
   file list `ValOpsHttp` needs.
@@ -196,19 +241,20 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
 5. **`listFiles`** and the gallery checks.
 6. **The host rewrite** from the remote-files plan, which then needs nothing
    here but its own fix code.
+7. **The light check on open**, once the host rewrite exists to fix what it
+   finds.
+8. **`val validate` inside `val publish`** (cli), independent of the rest and
+   can land first.
 
 Each step is shown working in `examples/tanstack` (fs mode) and through the
 `chromium-http` project's mock content host (http mode) before the next.
 
 ## Open questions
 
-- **One page or two?** `/val/errors` and `/val/validate` could merge, with the
-  full check as a section of the errors page. Kept apart here so the publish
-  gate stays fast; worth revisiting once both exist.
-- **Should the Studio run a light version on its own?** For example the
-  remote-host check alone on open, so a removed domain shows up without anyone
-  pressing a button. Cheap (HEAD requests), but it is network traffic on every
-  Studio load.
+- **How long may `val validate` take inside `val publish`?** The remote
+  checks download bytes where metadata has to be read. A CI run that doubles
+  in length is a cost on every publish of a connected project; the verdict
+  cache helps within a run, not across runs.
 - **What does `check-all-files` mean for a managed project?** Its "directory"
   is the build's `public/` plus whatever the Studio has uploaded since. Content
   knows both, but the answer has to be one list.
