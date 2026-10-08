@@ -282,6 +282,22 @@ describe("localeAt with locales the URL names", () => {
     ).toBe(null);
   });
 
+  test("a record keyed by an enum with .locales() is in the language each key stands for", () => {
+    const page = c.define(
+      "/content/page.val.ts",
+      s.record(
+        s.enum("en", "nb").locales({ en: "en-US", nb: "nb-NO" }),
+        s.object({ title: s.string() }),
+      ),
+      { en: { title: "Winter jacket" }, nb: { title: "Vinterjakke" } },
+    );
+    const snapshot = project(["en-US", "nb-NO"], [page]);
+    expect(localeAt(AT('/content/page.val.ts?p="nb"'), snapshot)).toBe("nb-NO");
+    expect(localeAt(AT('/content/page.val.ts?p="en"."title"'), snapshot)).toBe(
+      "en-US",
+    );
+  });
+
   test("an enum field with .locales() is the language its value stands for", () => {
     const page = c.define(
       "/content/page.val.ts",

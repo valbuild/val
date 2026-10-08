@@ -155,10 +155,14 @@ function walk(
       return locale;
     }
     if (currentSchema.type === "record") {
-      if (currentSchema.key?.type === "locale") {
+      if (
+        currentSchema.key !== undefined &&
+        isLocaleSchema(currentSchema.key)
+      ) {
         // In a locale-keyed record the KEY is the language, so the segment we
-        // are about to take is the answer.
-        const resolved = localeOfValue(segment, available);
+        // are about to take is the answer — the tag itself for `s.locale()`,
+        // the tag it stands for when the key is an enum with `.locales()`.
+        const resolved = localeMeantBy(currentSchema.key, segment, available);
         if (resolved !== null) {
           locale = resolved;
         }

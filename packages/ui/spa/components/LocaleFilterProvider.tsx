@@ -1,5 +1,4 @@
 import {
-  localeOfValue,
   discriminatedUnionBranchOf,
   type SerializedSchema,
   type SourcePath,
@@ -216,8 +215,12 @@ function localeScopeOf(
   node: LocaleFilterNode,
   projectLocales: string[],
 ): string | null {
-  if (node.keySchema?.type === "locale" && node.key !== undefined) {
-    return localeOfValue(node.key, projectLocales);
+  if (
+    node.keySchema !== undefined &&
+    isLocaleSchema(node.keySchema) &&
+    node.key !== undefined
+  ) {
+    return localeMeantBy(node.keySchema, node.key, projectLocales);
   }
   const source = node.source;
   if (!isRecord(source)) {

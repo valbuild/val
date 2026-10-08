@@ -1,4 +1,5 @@
 import { SerializedSchema, SourcePath } from "@valbuild/core";
+import { isLocaleSchema } from "@valbuild/shared/internal";
 import { Plus } from "lucide-react";
 import { Button } from "./designSystem/button";
 import { useAddPatch } from "./ValFieldProvider";
@@ -50,7 +51,8 @@ export function FieldNull({
   const isUntranslated =
     parentPath !== path &&
     parentSchema?.type === "record" &&
-    parentSchema.key?.type === "locale";
+    parentSchema.key !== undefined &&
+    isLocaleSchema(parentSchema.key);
   return (
     <div id={path}>
       <Button
