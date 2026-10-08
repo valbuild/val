@@ -894,6 +894,43 @@ describe("telling a publish from a discard", () => {
     expect(read.data).toBe("Hello");
     dispose();
   });
+
+  /**
+   * A save at a proposal's address, which is a publish whose base has not
+   * moved YET.
+   *
+   * The save folds the patch into the address's snapshot at once, so the
+   * server's next list leaves it out -- while the stat this tab holds still
+   * names the snapshot from before, so the base looks still. Read as a discard,
+   * that took the saved value off the screen, and the next edit was made on
+   * content the proposal had already moved past. This tab published it, and
+   * nothing discards a committed patch.
+   */
+  it("keeps the value of a patch this tab published, even before the base moves", async () => {
+    const { sourceStore, patchStore, patchSync, server, stat, dispose } =
+      initTestSystem();
+    await sourceStore.testReceive([module()]);
+    stat.simulateExternal([]);
+    await patchStore.createPatch("/t.val.ts", [
+      { op: "replace", path: ["title"], value: "saved in the proposal" },
+    ]);
+    await patchSync.flush();
+    // What a successful publish does in `http` mode: the chain keeps it,
+    // known to have shipped.
+    patchStore.markPublished(["local-1" as PatchId]);
+
+    server.simulateForeignDiscard(["local-1" as PatchId]);
+    await settle();
+    await settle();
+
+    expect(await patchStore.getHead()).toEqual({ type: "empty" });
+    const read = await sourceStore.get(TITLE, null);
+    if (read.status !== "resolved-head") {
+      throw new Error(`expected a value, got ${read.status}`);
+    }
+    expect(read.data).toBe("saved in the proposal");
+    dispose();
+  });
 });
 
 /**
