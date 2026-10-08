@@ -81,7 +81,13 @@ export function applyFeatures(
 ): boolean {
   const { mcp, imageUploads } = available;
   if (mcp !== undefined && !features.mcp) {
-    for (const relativePath of mcp.paths) {
+    // The image tools file is removed with the endpoint even where the catalog
+    // lists it only under `imageUploads`: left behind, it imports `sharp`,
+    // which is removed with the rest of MCP's dependencies just below.
+    for (const relativePath of [
+      ...mcp.paths,
+      ...(imageUploads ? [imageUploads.file] : []),
+    ]) {
       remove(projectPath, relativePath);
     }
     removeDependencies(projectPath, [

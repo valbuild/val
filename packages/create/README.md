@@ -45,6 +45,8 @@ The first questions are which framework to build on, then which template:
 | Framework      | Template    | What it is                                                                    |
 | -------------- | ----------- | ----------------------------------------------------------------------------- |
 | TanStack Start | **Full**    | A site to build on: a theme editors can change, sections, light and dark mode |
+| TanStack Start | **Blog**    | Full, with a blog: posts, authors and an RSS feed                             |
+| TanStack Start | **Docs**    | Full, with documentation: nested pages and a sidebar worked out from them     |
 | TanStack Start | **Minimal** | Val set up and nothing else: one example page, no CSS framework               |
 | Next.js        | **Full**    | The same as TanStack's, on the App Router                                     |
 | Next.js        | **Minimal** | The same as TanStack's, on the App Router                                     |
@@ -52,7 +54,8 @@ The first questions are which framework to build on, then which template:
 TanStack Start is offered first and is the default. The templates live in
 [`valbuild/templates`](https://github.com/valbuild/templates), and that
 repository's `catalog.json` is what is offered: the list is read when you run
-the command, so a new template needs no new version of this package.
+the command, so a new template needs no new version of this package, and the
+table above can be behind it.
 
 Answer up front to skip the prompts:
 

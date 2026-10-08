@@ -141,6 +141,11 @@ function parseTemplate(
     return `${where} has an invalid path: ${JSON.stringify(entry.path)}`;
   }
   const features: CatalogFeatures = {};
+  // Absent is "no optional features". Present and not an object is a mistake,
+  // and reading it as absent would make `--no-mcp` silently remove nothing.
+  if (entry.features !== undefined && !isRecord(entry.features)) {
+    return `${where} has an invalid features value`;
+  }
   const rawFeatures = isRecord(entry.features) ? entry.features : {};
   if (rawFeatures.mcp !== undefined) {
     const mcp = rawFeatures.mcp;
@@ -212,7 +217,11 @@ export function isSafeRelativePath(value: unknown): value is string {
     !value.startsWith("/") &&
     !value.includes("\\") &&
     !/^[a-zA-Z]:/.test(value) &&
-    !value.split("/").some((segment) => segment === ".." || segment === "")
+    // `.` too, not only `..`: `src/.` resolves to `src`, and a bare `.` to the
+    // project itself, which a feature removal would then delete whole.
+    !value
+      .split("/")
+      .some((segment) => segment === ".." || segment === "." || segment === "")
   );
 }
 
@@ -270,7 +279,8 @@ export async function fetchCatalog(
   } catch (error) {
     return {
       status: "error",
-      message: "Could not reach GitHub to list the templates.",
+      message:
+        "Could not reach GitHub to list the templates. Run the command again to try again.",
       details: error instanceof Error ? error.message : String(error),
     };
   }
@@ -286,7 +296,7 @@ export async function fetchCatalog(
   if (!response.ok) {
     return {
       status: "error",
-      message: `GitHub answered ${response.status} when asked for the template list.`,
+      message: `GitHub answered ${response.status} when asked for the template list. Run the command again to try again.`,
       details: url,
     };
   }

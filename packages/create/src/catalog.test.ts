@@ -104,6 +104,9 @@ describe("parseCatalog", () => {
     for (const path of [
       "../outside",
       "src/../../outside",
+      ".",
+      "src/.",
+      "./src",
       "/etc/passwd",
       "C:/Windows",
       "src\\..\\..",
@@ -126,6 +129,13 @@ describe("parseCatalog", () => {
     expect(parseCatalog(catalogOf(entry({ path: "../x" }))).status).toBe(
       "error",
     );
+  });
+
+  it("refuses a features value that is not an object", () => {
+    // Read as "no features", `--no-mcp` would remove nothing and say nothing.
+    for (const features of ["mcp", ["mcp"], null]) {
+      expect(parseCatalog(catalogOf(entry({ features }))).status).toBe("error");
+    }
   });
 
   it("refuses image uploads without the endpoint that serves them", () => {
@@ -224,7 +234,8 @@ describe("fetchCatalog", () => {
     });
     expect(fetched).toEqual({
       status: "error",
-      message: "Could not reach GitHub to list the templates.",
+      message:
+        "Could not reach GitHub to list the templates. Run the command again to try again.",
       details: "getaddrinfo ENOTFOUND raw.githubusercontent.com",
     });
   });

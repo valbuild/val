@@ -390,6 +390,27 @@ describe("a TanStack Start template", () => {
     );
   });
 
+  it("removes the image tools file with MCP even when only imageUploads names it", () => {
+    // Left behind, it imports `sharp`, which goes with MCP's dependencies.
+    const root = writeTanstackTemplate();
+    const mcp = TANSTACK_FEATURES.mcp;
+    if (!mcp) throw new Error("fixture");
+
+    applyFeatures(
+      root,
+      { mcp: false, imageUploads: false },
+      {
+        ...TANSTACK_FEATURES,
+        mcp: {
+          ...mcp,
+          paths: mcp.paths.filter((p) => p !== "src/val/mcp.images.server.ts"),
+        },
+      },
+    );
+
+    expect(exists(root, "src/val/mcp.images.server.ts")).toBe(false);
+  });
+
   it("replaces its own image tools file when image uploads are declined", () => {
     const root = writeTanstackTemplate();
 
