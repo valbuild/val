@@ -13,13 +13,16 @@ import { ShellBreakpoint } from "./types";
  *
  * Since project members, being in the organization is not enough to open a
  * project: an owner, or someone chosen for it. This is where they are chosen,
- * from the Studio they are being let into. Share beside it is the
- * organization's members and invites; this is the project's.
+ * from the Studio they are being let into. Someone who is not in the
+ * organization yet is invited from inside the panel ("Invite to {org}"), which
+ * opens Val Build's organization members panel. The bar used to carry that
+ * panel as a Share button of its own beside this one; two people buttons side
+ * by side were one too many, so there is only this.
  *
  * The button is the Studio's, and the panel is Val Build's
  * `<val-project-members>` around it (`trigger="slot"`), loaded on the first
- * hover or click — the same arrangement as Share and the project switcher
- * (see `ProjectSwitcher`). If the script cannot load, the click opens the
+ * hover or click — the same arrangement as the project switcher (see
+ * `ProjectSwitcher`). If the script cannot load, the click opens the
  * project's page in Val Build instead.
  */
 export function ProjectMembersButton({
@@ -83,4 +86,10 @@ export function ProjectMembersButton({
       </button>
     </val-project-members>
   );
+}
+
+/** The org of an `org/name` project, or null for anything else. */
+export function orgOfProject(projectName: string): string | null {
+  const [org, name, ...rest] = projectName.split("/");
+  return org && name && rest.length === 0 ? org : null;
 }

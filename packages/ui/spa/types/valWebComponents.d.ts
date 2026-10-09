@@ -53,27 +53,6 @@ declare module "react" {
         /** `fs` locally, `http` deployed: what "sign in again" means. */
         mode?: "fs" | "http";
       }>;
-      "val-members": CustomElementProps<{
-        /** The organization whose members these are. */
-        org: string;
-        /**
-         * `org/name` of the project it is opened from: an invite made there
-         * also lets them open that project.
-         */
-        project?: string;
-        /** The Studio's proxy to Val Build. */
-        "api-base"?: string;
-        layout?: "popover" | "sheet";
-        /**
-         * `slot`: the Studio draws the trigger as the element's child and the
-         * component is only the panel (see `val-project-switcher`). `button`
-         * and `icon` are the component's own triggers.
-         */
-        trigger?: "slot" | "button" | "icon";
-        theme?: "light" | "dark";
-        /** `fs` locally, `http` deployed: what "sign in again" means. */
-        mode?: "fs" | "http";
-      }>;
     }
   }
 }

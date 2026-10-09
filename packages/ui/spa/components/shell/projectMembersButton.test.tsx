@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { TopBar } from "./TopBar";
-import { ProjectMembersButton } from "./ProjectMembersButton";
+import { ProjectMembersButton, orgOfProject } from "./ProjectMembersButton";
 import { ShellBreakpoint } from "./types";
 
 /**
@@ -22,7 +22,6 @@ beforeEach(() => {
 });
 
 const PROJECT_HREF = "https://admin.val.build/~/acme/marketing-site";
-const MEMBERS_HREF = "https://admin.val.build/manage-members/acme";
 const WC = "https://content.val.build/wc/v1";
 
 function topBar(
@@ -46,13 +45,12 @@ function topBar(
       onPublish={() => undefined}
       pendingChanges={0}
       projectHref={props.projectHref}
-      membersHref={MEMBERS_HREF}
       webComponentsUrl={props.webComponentsUrl}
     />
   );
 }
 
-test("a connected project gets Members beside Share, and loads nothing yet", () => {
+test("a connected project gets Members, and loads nothing yet", () => {
   const before = document.head.querySelectorAll(
     "script[data-val-web-component]",
   ).length;
@@ -67,13 +65,6 @@ test("a connected project gets Members beside Share, and loads nothing yet", () 
   const button = screen.getByRole("button", { name: "Members" });
   expect(element?.contains(button)).toBe(true);
   expect(button.getAttribute("aria-haspopup")).toBe("dialog");
-  // Left of Share: the project's people, then the organization's.
-  const share = container.querySelector("val-members");
-  expect(
-    element !== null &&
-      share !== null &&
-      element.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
   expect(
     document.head.querySelectorAll("script[data-val-web-component]").length,
   ).toBe(before);
@@ -163,4 +154,24 @@ test("tells the component where the Studio runs", () => {
   expect(
     container.querySelector("val-project-members")?.getAttribute("mode"),
   ).toBe("fs");
+});
+
+test("there is no Share button beside it, on a phone or above one", () => {
+  // Inviting someone new is "Invite to {org}" inside the Members panel.
+  for (const breakpoint of ["mobile", "tablet", "desktop"] as const) {
+    const { container, unmount } = render(
+      topBar({ projectHref: PROJECT_HREF, webComponentsUrl: WC, breakpoint }),
+    );
+    expect(container.querySelector("val-project-members")).not.toBeNull();
+    expect(container.querySelector("val-members")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Share/ })).toBeNull();
+    unmount();
+  }
+});
+
+test("orgOfProject reads org/name and nothing else", () => {
+  expect(orgOfProject("acme/site")).toBe("acme");
+  expect(orgOfProject("acme")).toBeNull();
+  expect(orgOfProject("acme/site/extra")).toBeNull();
+  expect(orgOfProject("/site")).toBeNull();
 });
