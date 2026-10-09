@@ -199,6 +199,11 @@ type ValContextValue = {
    * the same object until the server names a different one.
    */
   proposal: { name: string; branch: string } | null;
+  /**
+   * Ask `/stat` now rather than when its wait runs out. A save at a proposal's
+   * address moves the base the server answers with; see `useStatus`.
+   */
+  refreshStat: () => void;
   profileId: string | null;
   profileAuthError: string | null;
   /**
@@ -416,6 +421,7 @@ export function ValProvider({
     subscribePublishJobs,
     contentHolds,
     contentHoldsAt,
+    refreshStat,
   ] = useStatus(client);
 
   const isStatConnected = "data" in stat && !!stat.data;
@@ -1409,6 +1415,7 @@ export function ValProvider({
         sourceMode:
           "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null,
         proposal,
+        refreshStat,
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,
         profilesError:
@@ -2907,6 +2914,8 @@ export function usePublishSummary() {
     publishSummaryState,
     setPublishSummaryState,
     config: runtimeConfig,
+    proposal,
+    refreshStat,
   } = useContext(ValContext);
   const val = useValSystem();
   const globalServerSidePatchIds = useCurrentPatchIds();
@@ -3065,6 +3074,14 @@ export function usePublishSummary() {
       };
       return attempt()
         .then((res) => {
+          /*
+           * A save at a proposal's address moved the base the server answers
+           * with: the saved changes are in the address's snapshot now. Read
+           * it now, not when the stat's wait runs out -- see `useStatus`.
+           */
+          if (res.status === "published" && proposal !== null) {
+            refreshStat();
+          }
           if (res.status === "published" || res.status === "requested") {
             deleteSummaryStateFromLocalStorage(runtimeConfig?.project);
             setPublishSummaryState((prev) => ({
@@ -3120,6 +3137,8 @@ export function usePublishSummary() {
       handoff,
       publishJobs,
       publishesAsJobs,
+      proposal,
+      refreshStat,
     ],
   );
   const setSummary = useCallback(
