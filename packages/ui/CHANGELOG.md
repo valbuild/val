@@ -1,5 +1,47 @@
 # @valbuild/ui
 
+## 0.143.0
+
+### Minor Changes
+
+- [#813](https://github.com/valbuild/val/pull/813) [`f7c25bd`](https://github.com/valbuild/val/commit/f7c25bd4b44c288db8e5ab914e6d8a72c0216ba5) Thanks [@freekh](https://github.com/freekh)! - New: `s.font(fontsVal)`, a field that picks a font from an `s.fontset()`.
+
+  ```ts
+  s.object({
+    headingFont: s.font(fontsVal),
+    title: s.string(),
+  });
+  ```
+
+  It stores `{ path }` like `s.file(fontsVal)` does, and refuses a module that is not a font set. In the Studio, a font field is shown among its object's other fields as a small row — the letter "A" set in the chosen font, and the font's file name. Click it to open the field, which shows every font in the set to pick from, an upload button, and a full specimen of the chosen font. This applies to `s.file()` fields that point at a font set too.
+
+- [#813](https://github.com/valbuild/val/pull/813) [`729c4ed`](https://github.com/valbuild/val/commit/729c4edfa28f5a2942c435ccf225e65858b080cc) Thanks [@freekh](https://github.com/freekh)! - New: `s.fontset()`, a collection of fonts.
+
+  ```ts
+  const fontsVal = c.define(
+    "/content/fonts.val.ts",
+    s.fontset({ dir: "/public/val/fonts" }),
+    {},
+  );
+  // a field that picks one of them
+  s.object({ headingFont: s.file(fontsVal) });
+  ```
+
+  It is an `s.fileset()` whose `accept` defaults to the web font formats (`font/woff2`, `font/woff`, `font/ttf`, `font/otf`); pass `accept: "font/woff2"` to allow only WOFF2. Fonts are not converted on upload.
+
+  The Studio now previews fonts set in themselves — in the gallery, in the picker of a field that points at a font set, and in the field — wherever a file is a font, including fonts in an ordinary `s.fileset()`.
+
+  Font uploads are typed from their bytes, so a font is stored as `font/woff2`, `font/ttf` and so on even when the browser reports no type for it. Files ending in `.ttf`, `.otf` and `.woff` now map to the `font/` types rather than the older `application/x-font-*` names, which are still accepted where they are already stored.
+
+### Patch Changes
+
+- [#817](https://github.com/valbuild/val/pull/817) [`8cadf84`](https://github.com/valbuild/val/commit/8cadf840e8a47168172286ce6a9ac4b15dfe596c) Thanks [@freekh](https://github.com/freekh)! - Saving twice in a row in a proposal now works.
+
+  After a Save in a proposal, the Studio went back to showing the content from before that save, although the proposal had it. The next edit was then made on top of content the proposal had already moved past, and its save failed. Two changes fix it:
+
+  - A change this tab saved is no longer mistaken for one that was thrown away when it leaves the server's list of pending changes. It stays on screen.
+  - After a Save in a proposal, the Studio reads the proposal's new content straight away, instead of on its next periodic check, which could be twenty minutes away.
+
 ## 0.142.0
 
 ### Minor Changes
