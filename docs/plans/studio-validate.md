@@ -51,6 +51,11 @@ terminal, but only by someone with the repository and a `val login`.
   page as results arrive, module by module. **Nothing runs it on its own**:
   not when the Studio opens, not on navigation. It runs when someone presses
   it.
+- **Stop** ends a run between modules and keeps what was already checked; the
+  rest reads as not checked, never as clean.
+- **Results last for the session.** The page says when the full check last ran
+  ("Checked everything 2 min ago") and offers **Check again**; nothing re-runs
+  it behind anyone's back, and a reload starts from the Studio's own check.
 - **Each error that has a fix gets a Fix button**, each module a "Fix all", and
   the page a "Fix everything", shown to everyone who can open the page: the
   Studio has no roles that hide actions from editors, and this page does not
@@ -123,6 +128,138 @@ every connected repository gets it on its next `@valbuild/cli` bump, including
 the ones whose workflow file was written before this existed. The failure goes
 through `val ci-report --status failed` like any other, so the Studio already
 shows it with **View run**.
+
+## Sketches
+
+The agreed UX, as ASCII. Wording is indicative; the structure is not.
+
+**Top bar.** Validate sits next to History. Its count is the one the publish
+gate already has, so it costs no request.
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│ ◧ Val   Pages  Explorer  Media                 [Publish ▾ Fix 3]  ✓3  ⟲  ✦ │
+└────────────────────────────────────────────────────────────────────────────┘
+                                                                     │   │  └ AI
+                                                                     │   └ History
+                                                                     └ Validate
+```
+
+**`/val/validate` on arrival.** Today's errors page: what the Studio already
+knows, and nothing has been asked of the server.
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│ Validate                                                                   │
+│ 3 errors in 2 files · from the Studio's own check        [Check everything]│
+│                                                                            │
+│ content/blog.val.ts                                                   2    │
+│ ├─ ✘ /blogs/hello · title                                                  │
+│ │    Must be at most 80 characters (is 94)                         [Open]  │
+│ └─ ✘ /blogs/hello · author                                                 │
+│      "kari" is not a key in authors.val.ts                         [Open]  │
+│                                                                            │
+│ content/menu.val.ts                                                   1    │
+│ └─ ✘ items · 2 · link                                                      │
+│      "/kontakt" is not a page on this site                         [Open]  │
+│                                                                            │
+│ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
+│ Files, remote files and media sets have not been checked.                  │
+│ "Check everything" checks them on the server. It can take a minute.        │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+**While "Check everything" runs.** One module at a time, rows arriving as
+they come.
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│ Validate                                                                   │
+│ Checking everything…  ▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░  9 of 17 files        [Stop]   │
+│                                                                            │
+│ content/blog.val.ts  ✓ checked                                        2    │
+│ content/menu.val.ts  ✓ checked                                        1    │
+│ content/media.val.ts  checking…                                            │
+│ content/videos.val.ts                                                      │
+│ …                                                                          │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+**After the run.** Every row ends in something the person can do.
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│ Validate                                                                   │
+│ 9 errors in 5 files · 6 can be fixed here        [Fix everything (6)]      │
+│ Checked everything 2 min ago                     [Check again]             │
+│                                                                            │
+│ Remote files                                                               │
+│ └─ ✘ Images on www.acme.no cannot be reached                               │
+│      38 images in 6 files use this address. They are still served at       │
+│      3f9a2c1.valstart.dev. Fix points them at www.acme-group.no.   [Fix]   │
+│      ▸ Details                                                             │
+│                                                                            │
+│ content/media.val.ts  (image set)                                     3    │
+│ ├─ ✘ /public/val/team_8a1f3.jpg                                            │
+│ │    The file is gone, but the set still lists it.     [Remove from set]   │
+│ ├─ ⚠ /public/val/office_2c9e0.jpg                                          │
+│ │    Size is 1200×800 in the set, 2400×1600 in the file.          [Fix]    │
+│ └─ ⚠ /public/val/logo_77b21.png                                            │
+│      No width, height or type recorded.                           [Fix]    │
+│                                                     [Fix all in this file] │
+│                                                                            │
+│ content/home.val.ts                                                   1    │
+│ └─ ✘ hero · image   (in your unpublished changes)                          │
+│      This image did not finish uploading.          [Try again]  [Remove]   │
+│                                                                            │
+│ content/blog.val.ts                                                   2    │
+│ ├─ ✘ /blogs/hello · title   Must be at most 80 characters (is 94)  [Open]  │
+│ └─ ✘ /blogs/hello · author  "kari" is not a key in authors.val.ts  [Open]  │
+│                                                                            │
+│ content/videos.val.ts                                                 1    │
+│ └─ ⚠ Ran out of time before this file was finished.                        │
+│      The rest of the page is complete.                [Check this file]    │
+│                                                                            │
+│ content/products.val.ts                                               1    │
+│ └─ ✘ Entries written inline in an external record                          │
+│      Moving them writes to live data, so it is not done here.              │
+│      Run:  val external upload                                    [Copy]   │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+**A fix is a pending change.** The page never publishes.
+
+```
+  [Fix]  ──►  ┌──────────────────────────────────────────────┐
+              │ ✓ Added to your changes                       │
+              │   office_2c9e0.jpg: size 2400×1600            │
+              │                          [Review]   [Undo]    │
+              └──────────────────────────────────────────────┘
+
+  Top bar now:   [Publish ▾ 1 change]  ✓8  ⟲  ✦
+```
+
+**A connected project's CI.** `val publish` refuses, and the Studio shows the
+failed run as it shows any other.
+
+```
+$ val publish
+Validating project 'acme/web'...
+Found 17 files...
+content/media.val.ts  ⚠ 1 fixable
+│  ⚠  content/media.val.ts:12:5
+│     Image metadata is missing
+│     → run with --fix to apply
+✘ 1 error (1 fixable) across 1 file · 16 valid
+❌Error: Not published: 1 validation error.
+    Run "val validate --fix" in the project, commit what it changes and push,
+    and fix by hand what it cannot. --skip-validation publishes anyway.
+
+Studio:  ┌───────────────────────────────────────────────────┐
+         │ Published, not on the site yet. The build failed.  │
+         │                                      [View run]    │
+         └───────────────────────────────────────────────────┘
+```
 
 ## What is checked
 
