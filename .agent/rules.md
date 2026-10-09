@@ -10,7 +10,7 @@ expensive to re-derive from the code:
 - [`architecture/stores.md`](../architecture/stores.md) — the Studio's client
   state in one page: marks vs demand, the two realms, `peek`/`get`, and why
   reference stability is load-bearing.
-- [`architecture/media.md`](../architecture/media.md) — `s.imageset()` / `s.fileset()`
+- [`architecture/media.md`](../architecture/media.md) — `s.imageset()` / `s.fileset()` / `s.fontset()`
   vs `s.image()` / `s.file()`, where uploaded bytes land, and how a file's URL is
   chosen (the rule that has been got wrong repeatedly). Also `s.video()`: the one
   media value that names several files, and HLS made in the browser.
@@ -585,7 +585,8 @@ description; `.jsonValues()` with `c.json()`; `tanstackRouter` and
 HLS stream (`stream: { type: "hls" }`), rendered with `ValVideo`, and
 `s.videoset()` with an `s.video(videosVal)` field that picks from it, the set's
 entries holding default posters, times, focal point and captions that the field
-partly overrides, and an image gallery entry with a default focal point. What it does NOT cover, and why: `.remote()` on media (and
+partly overrides, and an image gallery entry with a default focal point; and `s.fontset()` with an
+`s.font(fontsVal)` field whose font the showcase sets its sample in. What it does NOT cover, and why: `.remote()` on media (and
 `files: { remote: true }` in `val.config.ts`, which turns it on for every media
 schema) and `.external()` on a record, because both need credentials or an
 adapter a plain `pnpm dev` does not have — `examples/next` gates the remote one behind

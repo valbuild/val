@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ExternalLink, FileText, Trash2, X } from "lucide-react";
+import { Internal } from "@valbuild/core";
 import { Input } from "../designSystem/input";
 import {
   Tooltip,
@@ -10,6 +11,7 @@ import { FilenameInput } from "../FileGallery/FilenameInput";
 import { FieldValidationError } from "../FieldValidationError";
 import { HotspotMarker } from "../fields/HotspotMarker";
 import { VideoPlayer } from "../fields/VideoPlayer";
+import { FontSpecimen } from "../FontPreview";
 import { factsOf, typeLabel } from "./format";
 import type { MediaItem, MediaKind } from "./types";
 
@@ -56,7 +58,8 @@ export type MediaInspectorProps = {
  * the way of the grid made every step two clicks.
  *
  * The top is the one part that differs by kind — the image with its focal
- * point, the video in a real player (an HLS stream too), a file's type — and
+ * point, the video in a real player (an HLS stream too), a font set in
+ * itself, any other file's type — and
  * everything under it is the same in every gallery.
  */
 export function MediaInspector({
@@ -223,6 +226,9 @@ function Preview({ kind, item }: { kind: MediaKind; item: MediaItem }) {
         {item.hotspot && <HotspotMarker hotspot={item.hotspot} />}
       </div>
     );
+  }
+  if (Internal.isFontMimeType(item.mimeType)) {
+    return <FontSpecimen key={item.ref} url={item.url} variant="inspector" />;
   }
   return (
     <div className="grid aspect-[4/3] place-items-center rounded-md bg-bg-tertiary">

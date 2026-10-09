@@ -36,6 +36,7 @@ export function MediaSummaryRow({
   uploading,
   progressPercentage,
   isImage = true,
+  thumbnail: customThumbnail,
   onOpenPreview,
 }: {
   /** Resolved URL of the file, or null when there is nothing chosen yet. */
@@ -51,6 +52,11 @@ export function MediaSummaryRow({
   uploading?: boolean;
   progressPercentage?: number | null;
   isImage?: boolean;
+  /**
+   * Drawn in the thumbnail box instead of the type's icon, for a file that is
+   * not an image but can still be shown: a font, set in itself.
+   */
+  thumbnail?: ReactNode;
   /**
    * Open the file at a size worth looking at.
    *
@@ -72,6 +78,8 @@ export function MediaSummaryRow({
         // Cropped around the focal point, and never enlarged: see
         // `MediaThumbnail`.
         <MediaThumbnail url={url} hotspot={hotspot} />
+      ) : customThumbnail ? (
+        customThumbnail
       ) : (
         <Icon size={20} strokeWidth={1.5} className="text-fg-secondary-alt" />
       )}

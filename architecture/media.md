@@ -1,4 +1,4 @@
-# Media: `s.imageset()`, `s.fileset()`, `s.videoset()`, `s.image()`, `s.file()`, `s.video()`
+# Media: `s.imageset()`, `s.fileset()`, `s.fontset()`, `s.videoset()`, `s.image()`, `s.file()`, `s.video()`
 
 ## The four names are two pairs on different axes
 
@@ -394,6 +394,54 @@ publish gate. A **required alt** (`s.imageset({ alt: s.string().minLength(4) })`
 blocking, and upload sets `alt: null` — so such a gallery is unpublishable until
 someone types alt text. Correct, but it means uploading alone never reaches a
 publishable state there.
+
+## Fonts: `s.fontset()`
+
+`s.fontset({ dir, accept? })` IS an `s.fileset()` — it serializes byte for byte
+as one (`mediaType: "files"`), so every check, fix, rename, delete and the
+`s.file(fontsVal)` field that picks from it are the fileset's, untouched. What
+it adds is a default `accept` (`font/woff2,font/woff,font/ttf,font/otf`) and a
+refusal of an `accept` that names anything but fonts.
+
+**`s.font(fontsVal)` is the field.** It is `s.file(fontsVal)` — same source,
+same serialization — that refuses, at definition, a module that is not a font
+set. In the Studio a font field (either spelling, since the two cannot be told
+apart once serialized: the set's `accept` is what is read) is a ROW in its
+parent — the font's "A" and its file name — and opens on the whole set as a
+grid to pick from, with the specimen of the chosen one below. A row because
+the choice needs the set in front of you, and a parent's field list has no
+room for it. "In its parent" is `useIsListedField`, which `Field` provides.
+
+**What makes a font a font is its mime type, not the set.** The Studio draws a
+specimen of any file whose type is a font (`Internal.isFontMimeType`) — in a
+gallery tile, the open entry, the picker of `s.file(fontsVal)`, and the field
+once a font is chosen — so a font in a plain fileset previews too. A
+set-backed field has no `mimeType` of its own, so the field asks the
+extension. The Media nav calls a set "Fonts" when its `accept` is all fonts
+(`isFontAccept`), the one place the set rather than the file is asked.
+
+The specimen loads the file with `FontFace` under a family of our own and adds
+it to `document.fonts`: an `@font-face` written inside the Studio's shadow root
+is ignored by browsers, while the document's font set reaches every tree. A
+remote font needs CORS for this, which the content host sends.
+
+**Types come from the bytes.** Pickers type fonts unreliably — `.woff2` is
+`font/woff2`, an empty type (read as `application/octet-stream`) or a pre-RFC
+8081 `application/x-font-*`, by platform. The type decides the stored
+`mimeType` and the filename's extension (`createFilename`), so `readFile`
+retypes a font's data URL from its signature (`sniffFontMimeType`: `wOF2`,
+`wOFF`, `OTTO`, `0x00010000`/`true`, `ttcf`) before anything is hashed. The
+file input's `accept` also lists the extensions (`inputAccept`), and a drop is
+matched by extension when the browser gave no usable type. The extension table
+itself was moved to the `font/` types; a stored legacy name is still accepted
+as matching its extension (`canonicalFontMimeType`).
+
+**There is no conversion to WOFF2.** WOFF2 is Brotli-compressed, and of the
+browsers only Safari offers Brotli in `CompressionStream`; anywhere else it
+needs a WASM encoder, which is a dependency. WOFF (zlib, which every browser
+has) could be written without one, but it is the older and larger format, so
+nothing is converted. A project that wants only WOFF2 says so with
+`accept: "font/woff2"`.
 
 ## Video: `s.video()` and `s.videoset()`
 

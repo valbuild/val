@@ -141,6 +141,9 @@ import {
   mimeTypeMatchesAccept,
   EXT_TO_MIME_TYPES,
   MIME_TYPES_TO_EXT,
+  FONT_MIME_TYPE_EXTENSIONS,
+  isFontMimeType,
+  sniffFontMimeType,
 } from "./mimeType";
 import { type ImageMetadata } from "./schema/image";
 import { type FileMetadata } from "./schema/file";
@@ -195,6 +198,7 @@ export { type SerializedNumberSchema, NumberSchema } from "./schema/number";
 export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";
 export { type SerializedImageSchema, ImageSchema } from "./schema/image";
 export { type SerializedFileSchema, FileSchema } from "./schema/file";
+export { DEFAULT_FONT_ACCEPT, FONT_MIME_TYPES } from "./mimeType/font";
 export {
   type SerializedVideoSchema,
   VideoSchema,
@@ -483,6 +487,9 @@ const Internal = {
   mimeTypeMatchesAccept,
   EXT_TO_MIME_TYPES,
   MIME_TYPES_TO_EXT,
+  FONT_MIME_TYPE_EXTENSIONS,
+  isFontMimeType,
+  sniffFontMimeType,
   ModuleFilePathSep,
   notFileOp: (op: Operation) => op.op !== "file",
   isFileOp: (

@@ -86,7 +86,7 @@ export type ValConfig = {
      * of in the repository.
      *
      * `s.image()`, `s.file()`, `s.video()`, `s.imageset()`, `s.fileset()`,
-     * `s.videoset()` and `s.richtext({ img: true })` all behave as though
+     * `s.fontset()`, `s.videoset()` and `s.richtext({ img: true })` all behave as though
      * `.remote()` had been written on them. Required for a project in the Val
      * app, which has no repository for the bytes to go into: there the Val
      * server refuses to start without it.

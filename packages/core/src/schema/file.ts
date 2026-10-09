@@ -20,7 +20,7 @@ import { Internal, ValModule } from "..";
 import { ItemPreviewInput, PreviewItem } from "../preview";
 import { FilesetEntryMetadata } from "./fileset";
 import { getSource } from "../module";
-import { mimeTypeMatchesAccept } from "../mimeType";
+import { canonicalFontMimeType, mimeTypeMatchesAccept } from "../mimeType";
 
 export type FileOptions = {
   accept?: string;
@@ -315,7 +315,9 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     // fix was offered -- and the `file:add-metadata` branch below could never be
     // reached for any file whose extension is recognized, which is all of them
     // that get this far.
-    if (mimeType && fileMimeType !== mimeType) {
+    // A legacy font name (`application/x-font-ttf`) is what the extension
+    // table itself used to say, so it is not a mismatch.
+    if (mimeType && fileMimeType !== canonicalFontMimeType(mimeType)) {
       return {
         [path]: [
           ...customValidationErrors,

@@ -193,6 +193,7 @@ export function useShellData(): ShellDataState {
             dir: entry.dir,
             moduleFilePath: entry.moduleFilePath,
             mediaType: entry.mediaType,
+            ...(entry.fonts ? { fonts: true } : {}),
             itemCount: countKeys(mediaRecords[index]),
             files: toMediaFiles(mediaRecords[index]),
           }),
