@@ -1,10 +1,12 @@
 # Full validation in the Studio
 
-> **Status: plan.** Nothing below is implemented yet.
+> **Status: plan.** Steps 1 and 7 are done (see Order of work); the rest is
+> not built yet.
 
-A page in the Studio that runs the whole of `val validate` — sources, local
-files and remote files — and offers each fix as an ordinary pending change,
-reached from a button in the top bar.
+The Studio's errors page, grown so that it can also run the whole of
+`val validate` — sources, local files, remote files and media sets — and
+offer each fix as an ordinary pending change, reached from a button in the top
+bar.
 
 Companion to `valbuild/home` `docs/remote-files-on-platform.md`, which needs
 this to be the way a managed project gets its remote refs fixed.
@@ -37,17 +39,22 @@ terminal, but only by someone with the repository and a `val login`.
 
 ## What it is
 
-- **A page, `/val/validate`**, beside `/val/history` and `/val/errors` in
-  `ValRouter.tsx`.
+- **One page, `/val/validate`.** It is the errors page the Studio already
+  has (`/val/errors`, `ValidationErrors.tsx`), grown, not a second page beside
+  it. `/val/errors` redirects there, and the Publish button's "Fix N" opens
+  it as it does today.
 - **A button in the top bar** (`TopBar.tsx`), next to History, always shown:
-  every mode has something to validate. It carries a count from the light
-  check that runs when the Studio opens (below), replaced by the full check's
-  count once one has run in this session. A number nothing has checked is not
-  one it should show.
+  every mode has something to validate. Its count is the one the publish gate
+  already has, from the Studio's own validator, so it costs no request; after
+  a full check has run in this session it includes that check's errors too.
 - **"Check everything"** on the page runs the full validation and fills the
-  page as results arrive, module by module.
+  page as results arrive, module by module. **Nothing runs it on its own**:
+  not when the Studio opens, not on navigation. It runs when someone presses
+  it.
 - **Each error that has a fix gets a Fix button**, each module a "Fix all", and
-  the page a "Fix everything". A fix becomes a **pending change**, reviewed and
+  the page a "Fix everything", shown to everyone who can open the page: the
+  Studio has no roles that hide actions from editors, and this page does not
+  invent one. A fix becomes a **pending change**, reviewed and
   published like any edit. The page never writes a file and never publishes.
 - **An error with no fix** (a custom `.validate()`, a schema mismatch) links to
   the field, as `/val/errors` does, or says that a developer has to change the
@@ -70,51 +77,44 @@ what the person can do:
 A raw network error or stack trace goes under "Details", never in place of
 the sentence.
 
-### How it relates to `/val/errors`
+### One page, two depths
 
-`/val/errors` is the publish gate's list: a snapshot of the errors the
-Studio's own validator found, opened from the Publish button's "Fix N"
-(`ValidationErrors.tsx`). It is fast, client-side, and covers sources only.
+What the page shows straight away is what `/val/errors` shows today: the
+errors the Studio's own validator found, fast, client-side, sources only. That
+part stays exactly as fast, because it is the publish gate.
 
-`/val/validate` is the full check: run on the server, slower, and covering
-files. They render rows with the same components (`FieldErrorList`, the
-module grouping in `ValidationErrors.tsx`) so an error looks the same on both.
-They stay two pages, so the publish gate does not get slower.
+"Check everything" adds the rest below it, from the server: files, remote
+files and the media sets. Rows from both look the same (`FieldErrorList`, the
+module grouping in `ValidationErrors.tsx`), and a row the full check also
+found is shown once.
 
-## The light check, when the Studio opens
+### Remote refs in the full check
 
-Remote refs only, HEAD requests only, and not every ref:
+How many refs the full check asks about depends on who could have written
+them:
 
-- **Published refs: one per host.** Every ref in published content that no
-  pending patch touches is assumed to stand or fall with its host, so the
-  check takes one ref per distinct host and HEADs it. In a managed project
-  that assumption holds by construction: refs are only ever written by the
-  Studio, and a host changes for every ref at once (a domain is added or
-  removed for the whole project), so one ref cannot break on its own without
-  a patch. A project has a handful of hosts at most, so this is a handful of
-  requests.
-- **Patched refs: every one.** A ref in a pending patch is where a single file
-  can be wrong on its own: an upload that failed half way, a file added while
-  a domain was changing. Each gets its own HEAD. There are rarely many.
-- **Connected projects rely on CI for the rest.** Their refs live in git, where
-  a developer can edit one by hand, so "one per host" is not guaranteed. That
-  is covered by `val validate` running before every publish (below), not by
-  the Studio.
+- **Managed projects: published refs one per host, patched refs every one.**
+  Refs in a managed project are only ever written by the Studio, and a host
+  changes for every ref at once (a domain is added or removed for the whole
+  project), so a published ref cannot break on its own: the check HEADs one
+  ref per distinct host and takes the answer for all of them. A ref in a
+  pending patch can be wrong on its own (an upload that failed half way), so
+  each of those gets its own HEAD.
+- **Connected projects: every ref.** Their refs live in git, where a developer
+  can edit one by hand, so "one per host" is not guaranteed.
 
-A host that fails is one row on the page — "Images on `www.acme.no` cannot be
-reached" — with the count of refs it covers and **Fix**, which rewrites them
-to the project's current host. A patched ref that fails is a row of its own,
-with **Try again** (re-upload, when the Studio still has the bytes) or
-**Remove**. Results are kept for the session; nothing is re-checked on every
-navigation.
+A host that fails is one row — "Images on `www.acme.no` cannot be reached" —
+with the count of refs it covers and **Fix**, which rewrites them to the
+project's current host. A patched ref that fails is a row of its own, with
+**Try again** (re-upload, when the Studio still has the bytes) or **Remove**.
 
 ### What connected projects need: `val validate` before `val publish`
 
-The assumption above is only true if something checks the whole of a
-connected project before it goes live, and today nothing does. The workflow
-the templates ship (`val-publish.yml` in `valbuild/template-tanstack-starter`)
-runs `pnpm exec val publish` and nothing else, and `val publish`
-(`packages/cli/src/publish.ts`) does not validate.
+A connected project's content also changes outside the Studio, so the Studio
+cannot be the only place it is checked, and nobody has to press anything for
+the check that matters most to run. The workflow the templates ship
+(`val-publish.yml` in `valbuild/template-tanstack-starter`) runs
+`pnpm exec val publish` and nothing else, and `val publish` did not validate.
 
 **`val publish` runs the full validation first and refuses to publish on an
 error**, without `--fix`: CI must not rewrite the content it was asked to
@@ -128,13 +128,13 @@ shows it with **View run**.
 
 Everything `val validate` checks, from the same code:
 
-| Check                                   | Codes                                                          | Needs                         |
-| --------------------------------------- | -------------------------------------------------------------- | ----------------------------- |
-| Sources against schemas                 | keyof, router, locale, record, jsonValues, view                | sources, schemas              |
-| Local file metadata                     | `image:*-metadata`, `file:*-metadata`, `video(s):add-metadata` | the file's bytes              |
-| Remote files: present, hashed, metadata | `*:check-remote`, `*:upload-remote`, `*:download-remote`       | the remote bytes, or a HEAD   |
-| Remote ref on a host the project left   | the new code from the remote-files plan                        | the project's current hosts   |
-| Gallery directories                     | `*:check-unique-folder`, `*:check-all-files`                   | a list of the project's files |
+| Check                                   | Codes                                                          | Needs                       |
+| --------------------------------------- | -------------------------------------------------------------- | --------------------------- |
+| Sources against schemas                 | keyof, router, locale, record, jsonValues, view                | sources, schemas            |
+| Local file metadata                     | `image:*-metadata`, `file:*-metadata`, `video(s):add-metadata` | the file's bytes            |
+| Remote files: present, hashed, metadata | `*:check-remote`, `*:upload-remote`, `*:download-remote`       | the remote bytes, or a HEAD |
+| Remote ref on a host the project left   | the new code from the remote-files plan                        | the project's current hosts |
+| Media sets                              | `*:check-unique-folder`, `*:check-all-files`                   | the set's own entries       |
 
 `external:upload` is shown but **not** offered: it writes to live data, which
 is why `val validate --fix` does not apply it either. The page says to run
@@ -180,13 +180,26 @@ where the app runs in a Worker isolate.
 It is a stub today. It shares its check with the CLI's `checkRemoteRef`
 (`server/src/checkRemoteRef.ts`) rather than growing a second one.
 
-### The gallery checks get a file list
+### The media sets are checked by what they track
 
-`*:check-all-files` lists a gallery's directory, which `validateSources`
-cannot do ("Requires filesystem access to enumerate the gallery directory",
-`ValOps.ts`). `ValOps` gains a `listFiles(dir)`: the disk in fs mode, and in
-http mode the project's public files as content knows them (`publicPaths` /
-`publicFiles` from `/project-source`).
+`s.imageset()`, `s.fileset()` and `s.videoset()` each hold a record of the
+files they track, keyed by path. The Studio checks **those entries**: that
+each tracked file exists, and that what the entry says about it (dimensions,
+mime type, a video's length) matches its bytes. A tracked file that is gone
+is a row with **Remove from the set**; an entry whose metadata is wrong is a
+row with **Fix**.
+
+It does not list the set's directory looking for files the set does not
+track. `*:check-all-files` does that on disk today (`validateSources` cannot,
+"Requires filesystem access to enumerate the gallery directory", `ValOps.ts`),
+and it stays the CLI's: in a managed project nothing puts a file in a set's
+directory except the set itself, so there is nothing untracked to find, and in
+a connected project the files that could be untracked are in the repository,
+where `val validate` sees them. So `ValOps` needs no `listFiles`, and http
+mode needs no file list from content.
+
+`*:check-unique-folder` needs no files at all: it compares the sets' `dir`
+options across the schemas, and runs the same everywhere.
 
 ## How it runs
 
@@ -220,16 +233,18 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
 - **shared:** routes and zod schemas for the two endpoints in `ApiRoutes.ts`.
   `partitionValidationErrors` is unchanged: it still decides what the publish
   gate shows. The new page does not go through it.
-- **server:** the reader in `createFixPatch`; `validateRemoteFiles`;
-  `listFiles` in `ValOps`; the two routes in `ValServer`.
-- **ui:** the `/val/validate` route and page, the top bar button and its count,
-  and applying a returned patch through the existing patch path.
+- **server:** the reader in `createFixPatch`; `validateRemoteFiles`; the
+  tracked-entries half of the set checks, split from the directory listing
+  the CLI keeps; the two routes in `ValServer`.
+- **ui:** `/val/errors` grown into `/val/validate` (and the redirect), the top
+  bar button and its count, and applying a returned patch through the
+  existing patch path.
 - **cli:** passes a disk reader to `createFixPatch`, and `val publish` runs
   the full validation before it builds.
 - **language-server:** passes a disk reader to `createFixPatch`. Its
   behaviour does not change.
-- **valbuild/home:** nothing new: content already serves the bytes and the
-  file list `ValOpsHttp` needs.
+- **valbuild/home:** nothing new: content already serves the bytes
+  `ValOpsHttp` needs.
 
 ## Order of work
 
@@ -237,18 +252,16 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
    a disk reader. A refactor with no visible change; the CLI's tests pin it.
    **Done** for image, file and video metadata and for downloading a remote
    file (`FixFiles` in `server/src/fixFiles.ts`; the CLI and the language
-   server get `diskFixFiles` by default). Still on disk: the gallery checks,
-   which need `listFiles` (step 5), and `checkRemoteRef`'s download cache
-   (step 4).
+   server get `diskFixFiles` by default). Still on disk: the set checks
+   (step 5), and `checkRemoteRef`'s download cache (step 4).
 2. **The two routes**, for source and local-file checks only.
-3. **The page and the top bar button.** Useful from here for local metadata.
+3. **`/val/errors` grown into `/val/validate`, and the top bar button.**
+   Useful from here for local metadata.
 4. **`validateRemoteFiles`** and the remote fixes.
-5. **`listFiles`** and the gallery checks.
+5. **The set checks over the set's own entries**, read through `FixFiles`.
 6. **The host rewrite** from the remote-files plan, which then needs nothing
    here but its own fix code.
-7. **The light check on open**, once the host rewrite exists to fix what it
-   finds.
-8. **`val validate` inside `val publish`** (cli), independent of the rest and
+7. **`val validate` inside `val publish`** (cli), independent of the rest and
    can land first. **Done**: `validateOnce` in `cli/src/validate.ts` is the
    one pass both commands run, and `--skip-validation` is the way past it.
 
@@ -261,8 +274,3 @@ Each step is shown working in `examples/tanstack` (fs mode) and through the
   checks download bytes where metadata has to be read. A CI run that doubles
   in length is a cost on every publish of a connected project; the verdict
   cache helps within a run, not across runs.
-- **What does `check-all-files` mean for a managed project?** Its "directory"
-  is the build's `public/` plus whatever the Studio has uploaded since. Content
-  knows both, but the answer has to be one list.
-- **Who sees "Fix everything"?** Bulk fixes are edits to many modules at once;
-  fine for a developer, possibly surprising for an editor.
