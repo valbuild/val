@@ -371,7 +371,11 @@ export function useProposalsBar({
     })
       .catch((): CarryOver => ({ kind: "unknown" }))
       .then((carried) => {
-        if (stopped || carried.kind !== "continued") return;
+        if (stopped) return;
+        // The list again, now it says where the later changes went: the
+        // notice above the editor reads it from there.
+        void refresh();
+        if (carried.kind !== "continued") return;
         setContinuation(carried.proposal.name);
         setPublishState({
           kind: "merged",
@@ -384,7 +388,7 @@ export function useProposalsBar({
     return () => {
       stopped = true;
     };
-  }, [mergedName, client]);
+  }, [mergedName, client, refresh]);
 
   /** Press the merge, or press it again: then follow it. */
   const pressMerge = useCallback(
