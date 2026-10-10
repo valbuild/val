@@ -415,7 +415,15 @@ export function createValApiRouter<Res>(
       const method = req.method?.toUpperCase();
       let route = null;
       let path: string | undefined = undefined;
-      for (const routeDef of Object.keys(Api)) {
+      // An exact match wins over every prefix match, wherever it sits in
+      // `Api`: checked per key, in order, `/validate` took `/validate/fix`
+      // because it was declared first.
+      const exactRouteDef = Object.keys(Api).find(
+        (routeDef) => routeDef === reqApiRoutePath,
+      );
+      for (const routeDef of exactRouteDef
+        ? [exactRouteDef]
+        : Object.keys(Api)) {
         if (routeDef === reqApiRoutePath) {
           route = routeDef;
           break;

@@ -1257,6 +1257,13 @@ export abstract class ValOps {
     schemas: Schemas,
     sources: Sources,
     patchesByModule?: PatchAnalysis["patchesByModule"],
+    /**
+     * Validate only these modules. The snapshot the cross-module checks read
+     * (a keyOf's keys, a route, a set's directory) is still built from every
+     * module, which is what makes checking one module at a time give the same
+     * answer for it as checking them all. Wins over `patchesByModule`.
+     */
+    onlyModules?: readonly ModuleFilePath[],
   ): Promise<{
     errors: Record<
       ModuleFilePath,
@@ -1307,8 +1314,8 @@ export abstract class ValOps {
         }
       }
     }
-    const modulePathsToValidate =
-      patchesByModule && Object.keys(patchesByModule);
+    const modulePathsToValidate: readonly string[] | undefined =
+      onlyModules ?? (patchesByModule && Object.keys(patchesByModule));
     for (const [pathS, schema] of entries) {
       if (modulePathsToValidate && !modulePathsToValidate.includes(pathS)) {
         continue;

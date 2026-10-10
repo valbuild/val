@@ -1,6 +1,6 @@
 # Full validation in the Studio
 
-> **Status: plan.** Steps 1 and 7 are done (see Order of work); the rest is
+> **Status: plan.** Steps 1, 2 and 7 are done (see Order of work); the rest is
 > not built yet.
 
 The Studio's errors page, grown so that it can also run the whole of
@@ -391,7 +391,10 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
    file (`FixFiles` in `server/src/fixFiles.ts`; the CLI and the language
    server get `diskFixFiles` by default). Still on disk: the set checks
    (step 5), and `checkRemoteRef`'s download cache (step 4).
-2. **The two routes**, for source and local-file checks only.
+2. **The two routes**, for source and local-file checks only. **Done**:
+   `POST /validate` and `POST /validate/fix` (`server/src/studioValidation.ts`).
+   The fix route finds the error again from its own reading of the module, and
+   builds only the codes in `STUDIO_FIXES` (`shared/…/validation/studioFixes.ts`).
 3. **`/val/errors` grown into `/val/validate`, and the top bar button.**
    Useful from here for local metadata.
 4. **`validateRemoteFiles`** and the remote fixes.
