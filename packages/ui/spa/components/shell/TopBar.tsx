@@ -26,8 +26,7 @@ import { ShellBreakpoint, ShellLogo, ShellPanel } from "./types";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 import { LocaleFilter } from "./LocaleFilter";
 import { ProjectSwitcher } from "./ProjectSwitcher";
-import { MembersShare, orgOfProject } from "./MembersShare";
-import { ProjectMembersButton } from "./ProjectMembersButton";
+import { ProjectMembersButton, orgOfProject } from "./ProjectMembersButton";
 import { ProposalSwitcher } from "../proposals/ProposalSwitcher";
 import {
   ProposalMenu,
@@ -78,12 +77,6 @@ export type TopBarProps = {
    * switcher — see `ProjectSwitcher`.
    */
   webComponentsUrl?: string;
-  /**
-   * The organization's members page in Val Build. With it (and a
-   * `webComponentsUrl`) the bar gets Val Build's Share button — see
-   * `MembersShare`.
-   */
-  membersHref?: string;
   /** See `ShellData.studioMode`. */
   studioMode?: "fs" | "http";
   openPanel: ShellPanel | null;
@@ -209,7 +202,6 @@ export function TopBar({
   projectName,
   projectHref,
   webComponentsUrl,
-  membersHref,
   studioMode,
   openPanel,
   onTogglePanel,
@@ -299,21 +291,6 @@ export function TopBar({
   const isMobile = breakpoint === "mobile";
   const isDesktop = breakpoint === "desktop";
   const org = orgOfProject(projectName);
-  const share =
-    org !== null &&
-    membersHref !== undefined &&
-    webComponentsUrl !== undefined ? (
-      <MembersShare
-        org={org}
-        project={projectName}
-        membersHref={membersHref}
-        webComponentsUrl={webComponentsUrl}
-        studioMode={studioMode}
-        breakpoint={breakpoint}
-      />
-    ) : null;
-  // Who can open this project, beside Share (the organization's): only for a
-  // connected project, as Share is.
   const members =
     org !== null &&
     projectHref !== undefined &&
@@ -409,7 +386,6 @@ export function TopBar({
          * project-level control that stays in the top bar, further right.
          */}
         {!isMobile && members}
-        {!isMobile && share}
         {/*
          * Before the divider: everything after it is something you DO, and
          * this is what you are looking at while you do it. On a phone it moves
@@ -462,7 +438,6 @@ export function TopBar({
           </>
         )}
         {isMobile && members}
-        {isMobile && share}
         {historyEnabled && (
           <IconButton
             label="History"
