@@ -10,6 +10,7 @@ import {
   VAL_STATE_COOKIE,
 } from "./server/types";
 import { Patch, PatchId } from "./zod/Patch";
+import { SourcePath } from "./zod/SourcePath";
 import { SerializedSchema } from "./zod/SerializedSchema";
 import { ValCommit } from "./zod/ValCommit";
 import { ValDeployment } from "./zod/ValDeployment";
@@ -73,6 +74,7 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("videos:check-all-files"),
   z.literal("jsonValues:extract-entry"),
   z.literal("view:check-module"),
+  z.literal("external:upload"),
 ]);
 const ValidationError = z.object({
   message: z.string(),
@@ -1513,6 +1515,87 @@ export const Api = {
                   .record(z.string(), z.array(ValidationError))
                   .optional(),
               }),
+            ),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * The Studio's full check, one module per request: its sources against its
+   * schema and its local files against their bytes, on the content the caller
+   * is looking at. See `docs/plans/studio-validate.md`.
+   */
+  "/validate": {
+    POST: {
+      req: {
+        body: z.object({
+          moduleFilePath: ModuleFilePath,
+          /**
+           * The patches the caller is showing, applied over base. Omitted
+           * means every pending patch, as `/sources/~`; empty means base.
+           */
+          patchIds: z.array(PatchId).optional(),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(500),
+          json: z.object({ message: z.string() }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            moduleFilePath: ModuleFilePath,
+            errors: z.record(z.string(), z.array(ValidationError)),
+            /** Set when the module's source could not be read at all. */
+            invalidSource: z.string().optional(),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * The patch that fixes one error the full check reported. The server finds
+   * the error again rather than trusting the caller's copy, and builds only the
+   * fixes `STUDIO_FIXES` lists. The patch is returned, not applied: the Studio
+   * adds it as a pending change like any edit.
+   */
+  "/validate/fix": {
+    POST: {
+      req: {
+        body: z.object({
+          moduleFilePath: ModuleFilePath,
+          sourcePath: SourcePath,
+          fix: ValidationFixZ,
+          patchIds: z.array(PatchId).optional(),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(400),
+          json: z.object({ message: z.string() }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: z.object({ message: z.string() }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            patch: Patch,
+            remainingErrors: z.array(
+              ValidationError.extend({ sourcePath: z.string().optional() }),
             ),
           }),
         }),

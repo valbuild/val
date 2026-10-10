@@ -11,6 +11,7 @@ import {
   ValidationError,
 } from "@valbuild/core";
 import { createFixPatch, mediaValue } from "./createFixPatch";
+import type { FixFiles } from "./fixFiles";
 
 /**
  * The value the four remote fixes replace a media field with.
@@ -307,5 +308,148 @@ describe("video:add-metadata", () => {
         message: expect.stringContaining("is 'string', not a video"),
       }),
     ]);
+  });
+});
+
+/**
+ * A fix reads bytes through `config.files`, not from the disk under
+ * `projectRoot`, so it can run where there is no disk: http mode, and the
+ * platform's Worker. These run with a `projectRoot` that does not exist, so a
+ * read that slipped past `files` fails the test rather than passing by luck.
+ */
+describe("files", () => {
+  // A 1×1 PNG.
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQAAAAA3bvkkAAAACklEQVR4AWNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const config = (files: FixFiles) => ({
+    projectRoot: "/does/not/exist",
+    remoteHost: "https://remote.val.build",
+    files,
+  });
+  const unused = () => Promise.reject(new Error("not expected in this test"));
+
+  test("image metadata is read through files", async () => {
+    const read: string[] = [];
+    const res = await createFixPatch(
+      config({
+        readFile: async (filePath) => {
+          read.push(filePath);
+          return png;
+        },
+        readVideoMetadata: unused,
+        saveRemoteFile: unused,
+      }),
+      true,
+      '/content/page.val.ts?p="hero"' as SourcePath,
+      {
+        message: "Image metadata is missing",
+        value: { path: "/public/val/hero.png" },
+        fixes: ["image:add-metadata"],
+      },
+      {},
+    );
+    expect(read).toEqual(["/public/val/hero.png"]);
+    expect(res?.patch).toEqual([
+      { op: "add", path: ["hero", "width"], value: 1 },
+      { op: "add", path: ["hero", "height"], value: 1 },
+      { op: "add", path: ["hero", "mimeType"], value: "image/png" },
+    ]);
+    expect(res?.remainingErrors).toEqual([]);
+  });
+
+  test("video metadata is read through files", async () => {
+    const read: string[] = [];
+    const res = await createFixPatch(
+      config({
+        readFile: unused,
+        readVideoMetadata: async (filePath) => {
+          read.push(filePath);
+          return {
+            mimeType: "video/mp4",
+            width: 1920,
+            height: 1080,
+            duration: 12.5,
+          };
+        },
+        saveRemoteFile: unused,
+      }),
+      true,
+      '/content/page.val.ts?p="intro"' as SourcePath,
+      {
+        message: "Video metadata is missing",
+        value: { path: "/public/val/intro.mp4" },
+        fixes: ["video:add-metadata"],
+      },
+      {},
+    );
+    expect(read).toEqual(["/public/val/intro.mp4"]);
+    expect(res?.patch).toEqual(
+      expect.arrayContaining([
+        { op: "add", path: ["intro", "width"], value: 1920 },
+        { op: "add", path: ["intro", "height"], value: 1080 },
+      ]),
+    );
+    expect(res?.remainingErrors).toEqual([]);
+  });
+
+  test("a downloaded remote file is saved through files, at its project path", async () => {
+    const saved: { url: string; filePath: string }[] = [];
+    const ref =
+      "https://remote.val.build/file/p/3f9a2c1/b/01/v/0.136.2/h/9c41e0b2d7aa/f/3fa9c81be402/p/public/val/hero_3fa9c.png";
+    const res = await createFixPatch(
+      config({
+        readFile: unused,
+        readVideoMetadata: unused,
+        saveRemoteFile: async (url, filePath) => {
+          saved.push({ url, filePath });
+          return { status: "success" };
+        },
+      }),
+      true,
+      '/content/page.val.ts?p="hero"' as SourcePath,
+      {
+        message: "Remote file should be local",
+        value: { path: ref, width: 1, height: 1, mimeType: "image/png" },
+        fixes: ["image:download-remote"],
+      },
+      {},
+    );
+    expect(saved).toEqual([
+      { url: ref, filePath: "public/val/hero_3fa9c.png" },
+    ]);
+    expect(res?.patch).toEqual([
+      {
+        op: "replace",
+        path: ["hero"],
+        value: {
+          path: "/public/val/hero_3fa9c.png",
+          width: 1,
+          height: 1,
+          mimeType: "image/png",
+        },
+      },
+    ]);
+  });
+
+  test("a file that cannot be read is an error, not a silent pass", async () => {
+    await expect(
+      createFixPatch(
+        config({
+          readFile: () => Promise.reject(new Error("ENOENT")),
+          readVideoMetadata: unused,
+          saveRemoteFile: unused,
+        }),
+        true,
+        '/content/page.val.ts?p="hero"' as SourcePath,
+        {
+          message: "Image metadata is missing",
+          value: { path: "/public/val/hero.png" },
+          fixes: ["image:add-metadata"],
+        },
+        {},
+      ),
+    ).rejects.toThrow("ENOENT");
   });
 });
