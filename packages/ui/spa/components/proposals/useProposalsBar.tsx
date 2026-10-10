@@ -45,6 +45,7 @@ import { callJson } from "../../publish/publishClient";
 import { deployPreparedJob } from "../../publish/useStudioDeploy";
 import { PUBLISH_TAB_ID } from "../../publish/tabId";
 import { randomUUID } from "../../utils/randomUUID";
+import { randomProposalName } from "../../proposals/proposalNames";
 import { AllProposalsDialog } from "./ProposalsList";
 import { MergedProposalNotice } from "./MergedProposalNotice";
 import type { ProposalPerson, ProposalSummary, StudioLocation } from "./types";
@@ -107,6 +108,12 @@ export function useProposalsBar({
   const { publish, isPublishing } = usePublishSummary();
 
   const [dialog, setDialog] = useState<Dialog>(null);
+  /*
+   * One of each per opening of New proposal: pressing Create twice, or again
+   * after an answer that was lost, is the same create, and so the same
+   * proposal. Opening the dialog again is a new one.
+   */
+  const [newProposal, setNewProposal] = useState(nextNewProposal);
   const [busy, setBusy] = useState<"creating" | "closing" | "renaming" | null>(
     null,
   );
@@ -385,6 +392,7 @@ export function useProposalsBar({
       setNewProblem(null);
       try {
         const made = await client.create({
+          requestId: newProposal.requestId,
           displayName: input.displayName,
           ...(input.description ? { description: input.description } : {}),
         });
@@ -408,7 +416,7 @@ export function useProposalsBar({
         setBusy(null);
       }
     },
-    [client, go, refresh],
+    [client, go, newProposal.requestId, refresh],
   );
 
   const close = useCallback(async () => {
@@ -467,6 +475,7 @@ export function useProposalsBar({
   const openDialog = (next: Dialog) => {
     setDialogError(null);
     setNewProblem(null);
+    if (next === "new") setNewProposal(nextNewProposal());
     setDialog(next);
   };
 
@@ -543,6 +552,7 @@ export function useProposalsBar({
           setDialog(null);
           void openProposal(name);
         }}
+        suggestedName={newProposal.suggestedName}
         creating={busy === "creating"}
         problem={newProblem}
         portalContainer={portalContainer}
@@ -611,4 +621,8 @@ export function useProposalsBar({
     ) : null;
 
   return { proposals, dialogs, notice };
+}
+
+function nextNewProposal(): { requestId: string; suggestedName: string } {
+  return { requestId: randomUUID(), suggestedName: randomProposalName() };
 }

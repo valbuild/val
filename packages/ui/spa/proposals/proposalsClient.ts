@@ -105,6 +105,11 @@ export type ProposalsClient = {
   create(input: {
     displayName: string;
     description?: string;
+    /**
+     * The create's own id, one per New proposal: sent again, it answers the
+     * proposal the first one made rather than making a second.
+     */
+    requestId: string;
   }): Promise<ProposalJson>;
   rename(name: string, displayName: string): Promise<ProposalJson>;
   close(name: string): Promise<ProposalJson>;
