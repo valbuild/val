@@ -1110,6 +1110,8 @@ export function ValProvider({
        */
       takesQueuedWork: () =>
         handsOffPublish &&
+        // A proposal's address may reach its own merge's job, and no other.
+        !atProposalRef.current &&
         (connectedJobsRef.current ||
           canBuildHere() ||
           handoffRef.current.active()),
@@ -1311,15 +1313,23 @@ export function ValProvider({
    */
   const connectedJobsRef = useRef(false);
   connectedJobsRef.current = publishesAsJobs && statSourceMode === "connected";
+  const atProposalRef = useRef(false);
+  atProposalRef.current = proposal !== null;
+  /*
+   * At a proposal's address too, where saves are commits rather than jobs:
+   * Publish there merges the proposal, which IS a job, and this tracker
+   * follows it to Live. It takes no queued work there (see above).
+   */
+  const followsJobs = publishesAsJobs || proposal !== null;
   useEffect(() => {
-    if (!publishesAsJobs) return;
+    if (!followsJobs) return;
     publishJobs.start();
     const off = subscribePublishJobs(() => publishJobs.nudge());
     return () => {
       off();
       publishJobs.stop();
     };
-  }, [publishesAsJobs, publishJobs, subscribePublishJobs]);
+  }, [followsJobs, publishJobs, subscribePublishJobs]);
   const [observedPublishJobs, setObservedPublishJobs] = useState<
     readonly ObservedJob[]
   >([]);
@@ -3194,7 +3204,12 @@ export function usePublishSummary() {
    */
   const publishProposal = useCallback(
     async (proposalName: string): Promise<ProposalPublishPress> => {
-      if (handoff.prepare(buildsInTab, { merge: proposalName })) {
+      /*
+       * Built in a tab, always: a merge is a managed publish, whatever this
+       * address's own saves are -- they are commits, and build nothing, so
+       * `buildsInTab` is false here.
+       */
+      if (handoff.prepare(true, { merge: proposalName })) {
         return { status: "handed-off" };
       }
       const lock = beginSiteOperation("publish");
@@ -3226,7 +3241,7 @@ export function usePublishSummary() {
         lock.release();
       }
     },
-    [handoff, buildsInTab, studioIsDeployer, publishJobs],
+    [handoff, studioIsDeployer, publishJobs],
   );
   /**
    * Try again on a failed publish of a proposal, from its dialog: what the
@@ -3241,8 +3256,9 @@ export function usePublishSummary() {
       failedRequestId: string,
     ): Promise<ProposalPublishPress> => {
       toast.dismiss(`publish:${failedRequestId}`);
+      // In a tab, always: see `publishProposal`.
       if (
-        handoff.prepare(buildsInTab, {
+        handoff.prepare(true, {
           tryAgainOf: failedRequestId,
           merge: proposalName,
         })
@@ -3254,7 +3270,7 @@ export function usePublishSummary() {
         ? { status: "requested" }
         : { status: "error", message: done.message };
     },
-    [handoff, buildsInTab, publishJobs],
+    [handoff, publishJobs],
   );
   const setSummary = useCallback(
     (
