@@ -1,6 +1,7 @@
 import { createRequestPublish } from "../publish/requestPublish";
 import { createStudioJobClient } from "../publish/jobClient";
 import { randomUUID } from "../utils/randomUUID";
+import { isTransientPublishError } from "../publish/publishClient";
 import {
   createPublishJobs,
   isSettled,
@@ -58,7 +59,7 @@ import {
 import { isJsonArray } from "../utils/isJsonArray";
 import { readableProfilesError } from "../utils/readableProfilesError";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
-import { newestUnpublished } from "../publish/pressForPage";
+import { newestUnpublished, pressedAlready } from "../publish/pressForPage";
 import type { ChainProgress } from "../utils/describePendingChangesStall";
 import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
@@ -3222,21 +3223,44 @@ export function usePublishSummary() {
           return { status: "error", message: STUDIO_OUT_OF_DATE_MESSAGE };
         }
         const requestId = randomUUID();
-        const pressed = await createStudioJobClient({
-          api: "/api/val",
-        }).pressMerge(proposalName, requestId, PUBLISH_TAB_ID);
-        publishJobs.track({
-          requestId,
-          request: pressed.request,
-          job: pressed.job,
-          merge: proposalName,
-        });
-        return { status: "requested" };
-      } catch (error) {
-        return {
-          status: "error",
-          message: error instanceof Error ? error.message : String(error),
-        };
+        const client = createStudioJobClient({ api: "/api/val" });
+        try {
+          const pressed = await client.pressMerge(
+            proposalName,
+            requestId,
+            PUBLISH_TAB_ID,
+          );
+          publishJobs.track({
+            requestId,
+            request: pressed.request,
+            job: pressed.job,
+            merge: proposalName,
+          });
+          return { status: "requested" };
+        } catch (error) {
+          /*
+           * No answer is not a no: content may have taken the press and lost
+           * only the reply, and the merge is then under way with nobody
+           * following it. It says whether it did; followed if so, and its
+           * job claimed by pressing it again (see `PublishJobs`).
+           */
+          const landed = isTransientPublishError(error)
+            ? await pressedAlready({ client, requestId })
+            : null;
+          if (landed !== null) {
+            publishJobs.track({
+              requestId,
+              request: landed,
+              job: null,
+              merge: proposalName,
+            });
+            return { status: "requested" };
+          }
+          return {
+            status: "error",
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
       } finally {
         lock.release();
       }
