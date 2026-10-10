@@ -421,6 +421,24 @@ export const CloseAProposal = shell({
   dialog: "close",
 });
 
+/**
+ * Close, on a proposal stuck being published -- pressed on a phone that could
+ * not build it, say. Closing stops that publish first: a merging proposal is
+ * never a dead end.
+ */
+export const CloseWhilePublishing: StoryObj = {
+  render: () => (
+    <CloseProposalDialog
+      open
+      onOpenChange={() => {}}
+      displayName="Spring campaign"
+      changes={3}
+      merging
+      onConfirm={() => {}}
+    />
+  ),
+};
+
 export const AllProposals = shell({
   location: { kind: "site" },
   dialog: "all",

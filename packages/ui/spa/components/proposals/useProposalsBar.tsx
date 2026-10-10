@@ -563,6 +563,7 @@ export function useProposalsBar({
             onOpenChange={(isOpen) => setDialog(isOpen ? "close" : null)}
             displayName={currentSummary.displayName}
             changes={currentSummary.changes}
+            merging={currentJson?.status === "merging"}
             onConfirm={() => void close()}
             closing={busy === "closing"}
             error={dialog === "close" ? dialogError : null}
