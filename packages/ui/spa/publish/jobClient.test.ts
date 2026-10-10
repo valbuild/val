@@ -10,7 +10,10 @@ describe("preparing a job", () => {
   const calls: { url: string; body: unknown }[] = [];
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = String(input);
-    calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
+    calls.push({
+      url,
+      body: init?.body ? JSON.parse(String(init.body)) : null,
+    });
     const body = url.endsWith("/merge-prepare")
       ? {
           job: { id: "J9", step: "build", base: "c1", patches: ["merge:p1"] },
