@@ -31,9 +31,15 @@ import {
 } from "./PublishProposalDialog";
 import {
   followCarryOver,
+  followMerge,
   runProposalMerge,
   type CarryOver,
 } from "../../proposals/mergeProposal";
+import {
+  canBuildHere,
+  NOT_STORED_MESSAGE,
+  openHandoff,
+} from "../../publish/handoff";
 import { createStudioJobClient } from "../../publish/jobClient";
 import { callJson } from "../../publish/publishClient";
 import { deployPreparedJob } from "../../publish/useStudioDeploy";
@@ -248,6 +254,68 @@ export function useProposalsBar({
   }, [client, here, currentJson?.changes, unsaved]);
   const runPublish = useCallback(async () => {
     if (here === null) return;
+    /*
+     * A page that cannot run the bundler -- an iPhone, never cross-origin
+     * isolated -- hands the build to a builder tab, as the site's Publish
+     * does (`publish/handoff.ts`). The tab presses the merge and builds it:
+     * once it takes the screen, iOS pauses this page. It has to open in the
+     * tap, before anything here awaits, so a proposal with unsaved changes is
+     * saved first and Publish asks for a second tap.
+     */
+    if (!canBuildHere()) {
+      if (unsaved > 0) {
+        const checks = publishState.kind === "ready" ? publishState.checks : [];
+        setPublishState({ kind: "publishing", step: "saving" });
+        const failed = await save();
+        if (failed !== null) {
+          setPublishState({ kind: "failed", message: failed });
+          return;
+        }
+        setPublishState({
+          kind: "ready",
+          checks,
+          changes: (currentJson?.changes ?? 0) + unsaved,
+          unsaved: 0,
+          note: "Saved. Press Publish again: on this device the site is built in a new tab.",
+        });
+        return;
+      }
+      const requestId = randomUUID();
+      const handoff = openHandoff({
+        intent: {
+          kind: "merge",
+          requestId,
+          tab: PUBLISH_TAB_ID,
+          proposal: here.name,
+        },
+      });
+      handoff.close();
+      if (!handoff.stored) {
+        setPublishState({ kind: "failed", message: NOT_STORED_MESSAGE });
+        return;
+      }
+      if (!handoff.opened) {
+        setPublishState({
+          kind: "failed",
+          message:
+            "This browser did not open the new tab the publish is built in, so nothing was published. Press Try again: it opens the tab.",
+        });
+        return;
+      }
+      setPublishState({ kind: "publishing", step: "building" });
+      const outcome = await followMerge({
+        jobs: createStudioJobClient({ api: "/api/val" }),
+        requestId,
+        timeoutMs: 10 * 60_000,
+      });
+      void refresh();
+      setPublishState(
+        outcome.kind === "merged"
+          ? { kind: "merged" }
+          : { kind: "failed", message: outcome.message },
+      );
+      return;
+    }
     if (unsaved > 0) {
       setPublishState({ kind: "publishing", step: "saving" });
       const failed = await save();
@@ -300,7 +368,16 @@ export function useProposalsBar({
     } finally {
       void refresh();
     }
-  }, [client, deploy, here, refresh, save, unsaved]);
+  }, [
+    client,
+    currentJson?.changes,
+    deploy,
+    here,
+    publishState,
+    refresh,
+    save,
+    unsaved,
+  ]);
 
   const create = useCallback(
     async (input: { displayName: string; description: string }) => {

@@ -6,8 +6,10 @@ import {
   INTENT_MAX_AGE_MS,
   storedHandoffIntent,
   type HandoffIntent,
+  type MergeIntent,
   type TabHandoff,
 } from "../../publish/handoff";
+import { createProposalsClient } from "../../proposals/proposalsClient";
 import {
   CHANGE_NOT_SAVED_MESSAGE,
   askServerAbout,
@@ -429,7 +431,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
      * is opened again -- until it has a job here or has settled.
      */
     const follow = async (
-      intent: PressIntent,
+      intent: { requestId: string; tab: string },
       request: PublishRequestStatus,
     ) => {
       if (isSettled(request)) {
@@ -605,6 +607,68 @@ export function HandoffPublishTab({ id }: { id: string }) {
       await follow(intent, outcome.request);
     };
 
+    /**
+     * Publish a proposal for a page that cannot build it: press its merge, as
+     * the page's tab, and build the job here. See `MergeIntent`.
+     */
+    const pressMerge = async (intent: MergeIntent) => {
+      // Opened again after its press: show that merge, never press it twice.
+      const already = await pressedAlready({
+        client,
+        requestId: intent.requestId,
+      });
+      if (closed || cancelled.current || pressing.current) return;
+      pressing.current = true;
+      if (already !== null) {
+        report({
+          type: "pressed",
+          requestId: intent.requestId,
+          request: already,
+          patchIds: [],
+          replaces: null,
+          building: !isSettled(already),
+        });
+        await follow(intent, already);
+        return;
+      }
+      if (stale) {
+        notPressed(STALE_MESSAGE);
+        return;
+      }
+      let job: PublishTabJob | null;
+      try {
+        ({ job } = await createProposalsClient({ api: "/api/val" }).merge(
+          intent.proposal,
+          { requestId: intent.requestId, tab: intent.tab },
+        ));
+      } catch (error) {
+        notPressed(
+          "The proposal was not published: the publish could not be started.",
+          error instanceof Error ? error.message : String(error),
+        );
+        return;
+      }
+      if (closed) return;
+      const request = await client
+        .requestStatus(intent.requestId)
+        .catch((): null => null);
+      if (request !== null) {
+        report({
+          type: "pressed",
+          requestId: intent.requestId,
+          request,
+          patchIds: [],
+          replaces: null,
+          building: job !== null,
+        });
+      }
+      if (job !== null && job.step !== null) {
+        runJob(job, intent.tab, intent.requestId, true);
+        return;
+      }
+      if (request !== null) await follow(intent, request);
+    };
+
     const handoff = joinHandoff(id, (message) => {
       if (message.type === "cancel") {
         if (!started.current) {
@@ -643,6 +707,9 @@ export function HandoffPublishTab({ id }: { id: string }) {
           },
         });
       } else startUpdate();
+    } else if (intent.kind === "merge") {
+      ownPending.current = true;
+      void pressMerge(intent);
     } else {
       ownPending.current = true;
       void press(intent);

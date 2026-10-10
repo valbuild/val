@@ -94,7 +94,17 @@ export type HandoffIntent =
       after: string | null;
     }
   /** Update the site's dependencies: `runSiteUpdate`. */
-  | { kind: "update" };
+  | { kind: "update" }
+  /**
+   * Publish a proposal -- merge it into the site -- from a page that cannot
+   * build it: press the merge of `proposal` as `tab`, under `requestId`, and
+   * build the job it starts. The proposal was saved before the tap (see
+   * `useProposalsBar`), so there is nothing for the tab to wait for.
+   */
+  | { kind: "merge"; requestId: string; tab: string; proposal: string };
+
+/** Publish a proposal, from a builder tab. See `HandoffIntent`. */
+export type MergeIntent = Extract<HandoffIntent, { kind: "merge" }>;
 
 /** Site -> tab. */
 export type ToTab =
@@ -263,6 +273,10 @@ function asIntent(value: unknown): HandoffIntent | null {
   if (requestId === null || tab === null) return null;
   const after = text("after");
   if (value.kind === "press") return { kind: "press", requestId, tab, after };
+  const proposal = text("proposal");
+  if (value.kind === "merge" && proposal !== null) {
+    return { kind: "merge", requestId, tab, proposal };
+  }
   const replaces = text("replaces");
   if (value.kind === "try-again" && replaces !== null) {
     return { kind: "try-again", requestId, tab, replaces, after };

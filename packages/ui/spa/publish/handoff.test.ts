@@ -132,6 +132,31 @@ describe("what the tab is to do", () => {
     });
   });
 
+  /*
+   * Publish in a proposal from a page that cannot build: the builder tab is
+   * told which proposal to merge, and presses it -- the page behind it is
+   * paused on an iPhone, and would never press.
+   */
+  test("a proposal's merge is stored for the builder tab to press", () => {
+    const storage = memoryStorage();
+    storeHandoffIntent(
+      "h3",
+      {
+        kind: "merge",
+        requestId: "r3",
+        tab: "site-tab",
+        proposal: "0123456789abcdef0123",
+      },
+      storage,
+    );
+    expect(storedHandoffIntent("h3", storage)?.intent).toEqual({
+      kind: "merge",
+      requestId: "r3",
+      tab: "site-tab",
+      proposal: "0123456789abcdef0123",
+    });
+  });
+
   test("a link this browser's tap did not store has nothing to run", () => {
     const storage = memoryStorage();
     storeHandoffIntent("mine", { kind: "update" }, storage);

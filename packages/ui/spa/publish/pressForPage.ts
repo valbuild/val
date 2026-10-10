@@ -48,7 +48,10 @@ export const CHANGE_TIMEOUT_MS = 5 * 60_000;
 export const PRESS_RETRY_MS: readonly number[] = [1_000, 3_000, 9_000];
 
 /** The intents a tab presses for: everything but an update. */
-export type PressIntent = Exclude<HandoffIntent, { kind: "update" }>;
+export type PressIntent = Exclude<
+  HandoffIntent,
+  { kind: "update" } | { kind: "merge" }
+>;
 /** How often a queued press asks for its job. */
 export const QUEUED_EVERY_MS = 3_000;
 

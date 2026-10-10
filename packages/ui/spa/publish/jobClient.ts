@@ -98,6 +98,27 @@ export function createStudioJobClient(options: {
         "POST /v1/publish-jobs/next",
       ).job,
     prepare: async (tabJob, tab) => {
+      /*
+       * A merge's job is prepared by content, from the proposal's last save
+       * (`/publish-jobs/:id/merge-prepare`): this server's prepare knows the
+       * site's pending changes, and `merge:<name>` is none of them. Here,
+       * rather than only where Publish was pressed in the proposal, so any
+       * tab that is handed the merge can build it: the builder tab a page
+       * that cannot build opens, or a free tab taking queued work.
+       */
+      if (tabJob.patches.some(isMergeChange)) {
+        const merged = MergePrepareAnswer.parse(
+          await proxy(job(tabJob.id, "merge-prepare"), "POST", { tab }),
+        );
+        return {
+          job: merged.job,
+          sourceFiles: merged.sourceFiles,
+          binaryFiles: {},
+          binaryFilesUnread: [],
+          branch: null,
+          buildable: true,
+        };
+      }
       const answer = await callJson(
         fetchImpl,
         `${api}/publish-job-prepare`,
@@ -127,6 +148,24 @@ export function createStudioJobClient(options: {
       parseNewestCiRun(await proxy("/ci-runs/newest", "GET")).run,
   };
 }
+
+/** A job's change that merges a proposal: `merge:<name>` (content's `mergeChange`). */
+export function isMergeChange(change: string): boolean {
+  return change.startsWith("merge:");
+}
+
+/** `/publish-jobs/:id/merge-prepare`'s answer: the merge's files, from content. */
+export const MergePrepareAnswer = z.object({
+  job: z
+    .object({
+      id: z.string(),
+      step: z.enum(["prepare", "build", "upload"]).nullable(),
+      base: z.string().nullable(),
+      patches: z.array(z.string()),
+    })
+    .nullable(),
+  sourceFiles: z.record(z.string(), z.string().nullable()),
+});
 
 /** `/api/val/publish-job-prepare`'s answer, checked: it crossed a network. */
 const preparedJob = z.object({

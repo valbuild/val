@@ -1,9 +1,12 @@
-import { z } from "zod";
 import type {
   PublishRequestStatus,
   PublishTabJob,
 } from "@valbuild/shared/internal";
-import type { PreparedJob, StudioJobClient } from "../publish/jobClient";
+import {
+  MergePrepareAnswer,
+  type PreparedJob,
+  type StudioJobClient,
+} from "../publish/jobClient";
 import type {
   DeployPhase,
   StudioDeployResult,
@@ -28,18 +31,6 @@ export type MergeOutcome =
   | { kind: "merged"; commit: string }
   | { kind: "failed"; message: string };
 
-const MergePrepareAnswer = z.object({
-  job: z
-    .object({
-      id: z.string(),
-      step: z.enum(["prepare", "build", "upload"]).nullable(),
-      base: z.string().nullable(),
-      patches: z.array(z.string()),
-    })
-    .nullable(),
-  sourceFiles: z.record(z.string(), z.string().nullable()),
-});
-
 export async function runProposalMerge(deps: {
   /** Press the merge: `POST /proposals/:name/merge`, through this deployment. */
   press: (input: {
@@ -63,8 +54,6 @@ export async function runProposalMerge(deps: {
   timeoutMs?: number;
   wait?: (ms: number) => Promise<void>;
 }): Promise<MergeOutcome> {
-  const wait =
-    deps.wait ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
   deps.onStep("building");
   const pressed = await deps.press({
     requestId: deps.requestId,
@@ -108,17 +97,37 @@ export async function runProposalMerge(deps: {
    * and the seal run without this tab. Followed until it is live or fails.
    */
   deps.onStep("publishing");
+  return followMerge(deps);
+}
+
+/**
+ * Follow a merge's press until it is live or has failed.
+ *
+ * Also what a page that cannot build follows, once it has handed the merge to
+ * a builder tab: that tab presses, so the request may not exist yet when this
+ * first asks, and a read that fails is "not yet" rather than an answer -- the
+ * deadline is what ends the wait.
+ */
+export async function followMerge(deps: {
+  jobs: Pick<StudioJobClient, "requestStatus">;
+  requestId: string;
+  pollMs?: number;
+  timeoutMs?: number;
+  wait?: (ms: number) => Promise<void>;
+}): Promise<MergeOutcome> {
+  const wait =
+    deps.wait ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
   const until = Date.now() + (deps.timeoutMs ?? 5 * 60_000);
   for (;;) {
-    const status: PublishRequestStatus = await deps.jobs.requestStatus(
-      deps.requestId,
-    );
-    if (status.kind === "live")
+    const status: PublishRequestStatus | null = await deps.jobs
+      .requestStatus(deps.requestId)
+      .catch((): null => null);
+    if (status?.kind === "live")
       return { kind: "merged", commit: status.commit };
-    if (status.kind === "failed") {
+    if (status?.kind === "failed") {
       return { kind: "failed", message: status.message };
     }
-    if (status.kind === "cancelled" || status.kind === "nothing-to-publish") {
+    if (status?.kind === "cancelled" || status?.kind === "nothing-to-publish") {
       return { kind: "failed", message: "The publish was cancelled." };
     }
     if (Date.now() > until) {
