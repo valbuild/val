@@ -429,7 +429,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
      * is opened again -- until it has a job here or has settled.
      */
     const follow = async (
-      intent: { requestId: string; tab: string },
+      intent: { requestId: string; tab: string; merge?: string },
       request: PublishRequestStatus,
     ) => {
       if (isSettled(request)) {
@@ -448,6 +448,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
               : "Finishing the publish",
         });
       }
+      const merge = intent.merge;
       const followed = await followRequest({
         client,
         requestId: intent.requestId,
@@ -455,6 +456,14 @@ export function HandoffPublishTab({ id }: { id: string }) {
         // Not while a job runs here: a job for this press waits in `queue`.
         stopped: () => closed,
         otherJob: (job) => runJob(job, intent.tab, null, false),
+        ...(merge !== undefined
+          ? {
+              claim: () =>
+                client
+                  .pressMerge(merge, intent.requestId, intent.tab)
+                  .then((pressed) => pressed.job),
+            }
+          : {}),
       });
       if (followed.kind === "job") {
         runJob(followed.job, intent.tab, intent.requestId, true);

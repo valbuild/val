@@ -436,6 +436,35 @@ export function createPublishJobs(options: {
     if (job !== null && job.step !== null && !ended.has(job.id)) await run(job);
   }
 
+  /**
+   * A merge this tab pressed that is still queued: pressed again, under its
+   * own id, which starts it once its turn has come. A tab at a proposal's
+   * address may not ask for queued work -- it would be handed the site's --
+   * so this is how its merge reaches it. The same press, so never a second
+   * merge.
+   */
+  async function claimQueuedMerges() {
+    if (state.running !== null || stopped) return;
+    const waiting = state.requests.filter(
+      (request) =>
+        request.merge !== undefined && request.status.kind === "queued",
+    );
+    for (const request of waiting) {
+      const merge = request.merge;
+      if (merge === undefined) continue;
+      const pressed = await client
+        .pressMerge(merge, request.requestId, tab)
+        .catch(() => null);
+      if (pressed === null) continue;
+      update(request.requestId, (r) => ({ ...r, status: pressed.request }));
+      if (pressed.job !== null && pressed.job.step !== null) {
+        jobOfRequest.set(request.requestId, pressed.job.id);
+        await run(pressed.job);
+        return;
+      }
+    }
+  }
+
   async function refreshOnce() {
     const open = state.requests.filter((request) => !isSettled(request.status));
     await Promise.all(
@@ -476,6 +505,7 @@ export function createPublishJobs(options: {
     poll = setInterval(() => {
       if (state.requests.some((request) => !isSettled(request.status))) {
         void refresh();
+        void claimQueuedMerges();
       }
     }, options.pollMs ?? POLL_MS);
   }
@@ -564,6 +594,7 @@ export function createPublishJobs(options: {
     nudge: () => {
       void refresh();
       void takeQueuedWork();
+      void claimQueuedMerges();
     },
     tryAgain: async (requestId, retryOptions) => {
       const requestIdAgain = randomUUID();

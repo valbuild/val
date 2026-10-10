@@ -1084,3 +1084,29 @@ describe("waiting for the page's last change", () => {
     await expect(askServerAbout(null, "p1")).resolves.toBe("unknown");
   });
 });
+
+/*
+ * A merge's builder tab is at the proposal's address, which may not ask for
+ * queued work: it claims its job by pressing the merge again instead.
+ */
+test("following a queued merge claims its job by pressing it again, never as the site's queue", async () => {
+  let asked = 0;
+  const followed = await followRequest({
+    client: {
+      next: async () => {
+        throw new Error("a merge's tab never asks for the site's queue");
+      },
+      requestStatus: async () => ({ kind: "queued" }),
+    },
+    requestId: "m1",
+    tab: "page-tab",
+    stopped: () => false,
+    otherJob: () => {
+      throw new Error("no other job");
+    },
+    claim: async () => (++asked < 2 ? null : job),
+    everyMs: 0,
+  });
+  expect(followed).toEqual({ kind: "job", job });
+  expect(asked).toBe(2);
+});

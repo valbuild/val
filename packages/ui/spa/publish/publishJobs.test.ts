@@ -210,6 +210,55 @@ test("Try again replaces the failed request with a new press, and builds its job
  * pressed anew, never the site's queue, which would publish the site's
  * changes instead.
  */
+/*
+ * A tab at a proposal's address may not ask for queued work -- it would be
+ * handed the site's -- so a merge queued behind another publish reaches it by
+ * being pressed again under its own id, which starts it once its turn comes.
+ */
+test("a queued merge is pressed again until its turn comes, and then built here", async () => {
+  let turnCome = false;
+  const pressedAgain: string[] = [];
+  const { client, calls } = fakeClient({
+    pressMerge: async (proposal, requestId) => {
+      pressedAgain.push(`${proposal} ${requestId}`);
+      return turnCome
+        ? {
+            request: { kind: "publishing" },
+            job: { ...job("J5"), patches: ["merge:spring"] },
+          }
+        : { request: { kind: "queued" }, job: null };
+    },
+    requestStatus: async () => ({ kind: "queued" }),
+  });
+  const built: string[] = [];
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => {
+      built.push(j.id);
+      return handedOff(j.id);
+    },
+    // At a proposal's address: no queued work.
+    takesQueuedWork: () => false,
+  });
+  jobs.track({
+    requestId: "m1",
+    request: { kind: "queued" },
+    job: null,
+    merge: "spring",
+  });
+  jobs.nudge();
+  await flush();
+  expect(built).toEqual([]);
+  turnCome = true;
+  jobs.nudge();
+  await flush();
+  expect(built).toEqual(["J5"]);
+  expect(new Set(pressedAgain)).toEqual(new Set(["spring m1"]));
+  // Never as the site's queue.
+  expect(calls).not.toContain("next");
+});
+
 test("a merge is tracked as a publish, and its Try again presses the merge again", async () => {
   const pressedMerges: string[] = [];
   const { client, calls } = fakeClient({

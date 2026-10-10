@@ -462,6 +462,13 @@ export async function followRequest(options: {
   stopped: () => boolean;
   /** A job leased while following that is not this request's: still to run. */
   otherJob: (job: PublishTabJob) => void;
+  /**
+   * How to ask for the job, in place of `client.next`: a merge's tab is at
+   * the proposal's address, which may not ask for queued work, and presses
+   * its merge again instead -- which starts it once its turn has come, and
+   * hands it nothing else.
+   */
+  claim?: () => Promise<PublishTabJob | null>;
   everyMs?: number;
   /** See {@link withinDeadline}. */
   answerWithinMs?: number;
@@ -482,7 +489,7 @@ export async function followRequest(options: {
       return { kind: "settled", request };
     }
     const job = await withinDeadline(
-      options.client.next(options.tab),
+      options.claim?.() ?? options.client.next(options.tab),
       options.answerWithinMs,
     ).catch(() => null);
     if (options.stopped()) return { kind: "stopped" };
