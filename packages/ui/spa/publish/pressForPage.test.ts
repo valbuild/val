@@ -67,10 +67,17 @@ const neverPressed = async (): Promise<PublishRequestStatus> => {
   throw new StudioPublishError(404, "Unknown publish request", null);
 };
 
-const noTryAgain: Pick<StudioJobClient, "tryAgain" | "requestStatus"> = {
+const notAMerge = async (): Promise<never> => {
+  throw new Error("not a merge");
+};
+const noTryAgain: Pick<
+  StudioJobClient,
+  "tryAgain" | "pressMerge" | "requestStatus"
+> = {
   tryAgain: async () => {
     throw new Error("not a try again");
   },
+  pressMerge: notAMerge,
   requestStatus: neverPressed,
 };
 
@@ -158,6 +165,7 @@ test("a try again resumes content's queue as the page, with no gate", async () =
       after: null,
     },
     client: {
+      pressMerge: notAMerge,
       requestStatus: neverPressed,
       tryAgain: async (requestId, tab) => {
         tried.push(`${requestId} as ${tab}`);
@@ -180,6 +188,130 @@ test("a try again resumes content's queue as the page, with no gate", async () =
   });
 });
 
+/*
+ * Publish in a proposal, from a page that cannot build: the builder tab
+ * presses the merge. No gate and nothing of the chain: the merge ships the
+ * proposal's last save, and content's merge checks say whether it may.
+ */
+describe("a merge", () => {
+  const merge: PressIntent = { ...press, merge: "spring" };
+  const noTry = async (): Promise<never> => {
+    throw new Error("a merge is not the site's try again");
+  };
+
+  test("is pressed as the page, as a merge, with no gate", async () => {
+    const pressedMerges: string[] = [];
+    const outcome = await pressForPage({
+      intent: merge,
+      client: {
+        tryAgain: noTry,
+        requestStatus: neverPressed,
+        pressMerge: async (proposal, requestId, tab) => {
+          pressedMerges.push(`${proposal} ${requestId} as ${tab}`);
+          return { request: { kind: "publishing" }, job };
+        },
+      },
+      chain: () => ["p1"],
+      publish: async () => {
+        throw new Error("a merge runs no gate");
+      },
+    });
+    expect(pressedMerges).toEqual(["spring page-r1 as page-tab"]);
+    expect(outcome).toEqual({
+      kind: "pressed",
+      requestId: "page-r1",
+      request: { kind: "publishing" },
+      job,
+      patchIds: [],
+      replaces: null,
+      merge: "spring",
+    });
+  });
+
+  test("its try again presses the merge again, not the site's queue", async () => {
+    const pressedMerges: string[] = [];
+    const outcome = await pressForPage({
+      intent: {
+        kind: "try-again",
+        requestId: "page-r2",
+        tab: "page-tab",
+        replaces: "page-r1",
+        after: null,
+        merge: "spring",
+      },
+      client: {
+        tryAgain: noTry,
+        requestStatus: neverPressed,
+        pressMerge: async (proposal, requestId) => {
+          pressedMerges.push(`${proposal} ${requestId}`);
+          return { request: { kind: "queued" }, job: null };
+        },
+      },
+      chain: () => ["p1"],
+      publish: async () => {
+        throw new Error("a merge runs no gate");
+      },
+    });
+    expect(pressedMerges).toEqual(["spring page-r2"]);
+    expect(outcome).toMatchObject({
+      kind: "pressed",
+      replaces: "page-r1",
+      merge: "spring",
+    });
+  });
+
+  test("refused by content is said in content's words, for good", async () => {
+    const outcome = await pressForPage({
+      intent: merge,
+      client: {
+        tryAgain: noTry,
+        requestStatus: neverPressed,
+        pressMerge: async () => {
+          throw new StudioPublishError(
+            409,
+            "Conflict: Autumn changed /content/a.val.ts on the site since",
+            null,
+          );
+        },
+      },
+      retryMs: noWait,
+      chain: () => [],
+      publish: async () => ({ status: "nothing-to-publish" }),
+    });
+    expect(outcome).toEqual({
+      kind: "not-pressed",
+      message: "Conflict: Autumn changed /content/a.val.ts on the site since",
+      durable: true,
+    });
+  });
+
+  test("an answer lost on the way back is the press that landed", async () => {
+    let presses = 0;
+    const outcome = await pressForPage({
+      intent: merge,
+      client: {
+        tryAgain: noTry,
+        pressMerge: async () => {
+          presses++;
+          throw new StudioPublishError(502, "Bad gateway", null);
+        },
+        // Content took it: it has the request.
+        requestStatus: async () => ({ kind: "publishing" }),
+      },
+      retryMs: noWait,
+      chain: () => [],
+      publish: async () => ({ status: "nothing-to-publish" }),
+    });
+    expect(presses).toBe(noWait.length + 1);
+    expect(outcome).toMatchObject({
+      kind: "pressed",
+      requestId: "page-r1",
+      request: { kind: "publishing" },
+      merge: "spring",
+    });
+  });
+});
+
 test("a try again content refused is said, with content's words as details", async () => {
   const outcome = await pressForPage({
     intent: {
@@ -190,6 +322,7 @@ test("a try again content refused is said, with content's words as details", asy
       after: null,
     },
     client: {
+      pressMerge: notAMerge,
       requestStatus: neverPressed,
       tryAgain: async () => {
         throw new StudioPublishError(503, "503 Service Unavailable", null);
@@ -620,6 +753,7 @@ function fakeJobClient(): StudioJobClient {
   };
   return {
     press: unused,
+    pressMerge: unused,
     tryAgain: unused,
     requestStatus: unused,
     next: unused,
@@ -735,6 +869,7 @@ describe("a press that did not get through", () => {
         after: null,
       },
       client: {
+        pressMerge: notAMerge,
         requestStatus: neverPressed,
         tryAgain: async () => {
           calls++;
@@ -763,6 +898,7 @@ describe("a press that did not get through", () => {
         after: null,
       },
       client: {
+        pressMerge: notAMerge,
         requestStatus: neverPressed,
         tryAgain: () =>
           ++calls === 1
@@ -788,6 +924,7 @@ describe("a press that did not get through", () => {
         after: null,
       },
       client: {
+        pressMerge: notAMerge,
         requestStatus: async () => ({ kind: "queued" }),
         tryAgain: async () => {
           throw new TypeError("Load failed");
@@ -818,6 +955,7 @@ describe("a press that did not get through", () => {
         after: null,
       },
       client: {
+        pressMerge: notAMerge,
         requestStatus: neverPressed,
         tryAgain: async () => {
           if (++calls < 2) throw new TypeError("Load failed");
@@ -945,4 +1083,30 @@ describe("waiting for the page's last change", () => {
   test("a tab with no store to ask knows nothing", async () => {
     await expect(askServerAbout(null, "p1")).resolves.toBe("unknown");
   });
+});
+
+/*
+ * A merge's builder tab is at the proposal's address, which may not ask for
+ * queued work: it claims its job by pressing the merge again instead.
+ */
+test("following a queued merge claims its job by pressing it again, never as the site's queue", async () => {
+  let asked = 0;
+  const followed = await followRequest({
+    client: {
+      next: async () => {
+        throw new Error("a merge's tab never asks for the site's queue");
+      },
+      requestStatus: async () => ({ kind: "queued" }),
+    },
+    requestId: "m1",
+    tab: "page-tab",
+    stopped: () => false,
+    otherJob: () => {
+      throw new Error("no other job");
+    },
+    claim: async () => (++asked < 2 ? null : job),
+    everyMs: 0,
+  });
+  expect(followed).toEqual({ kind: "job", job });
+  expect(asked).toBe(2);
 });

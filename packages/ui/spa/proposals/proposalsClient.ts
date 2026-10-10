@@ -64,16 +64,6 @@ const MergeChecksAnswer = z.object({
   checks: z.array(MergeCheck),
   canMerge: z.boolean(),
 });
-const MergeAnswer = z.object({
-  job: z
-    .object({
-      id: z.string(),
-      step: z.enum(["prepare", "build", "upload"]).nullable(),
-      base: z.string().nullable(),
-      patches: z.array(z.string()),
-    })
-    .nullable(),
-});
 
 /** An answer that was not a success: content's status and its words. */
 export class ProposalsApiError extends Error {
@@ -105,6 +95,11 @@ export type ProposalsClient = {
   create(input: {
     displayName: string;
     description?: string;
+    /**
+     * The create's own id, one per New proposal: sent again, it answers the
+     * proposal the first one made rather than making a second.
+     */
+    requestId: string;
   }): Promise<ProposalJson>;
   rename(name: string, displayName: string): Promise<ProposalJson>;
   close(name: string): Promise<ProposalJson>;
@@ -114,11 +109,6 @@ export type ProposalsClient = {
   mergeChecks(
     name: string,
   ): Promise<{ checks: MergeCheckJson[]; canMerge: boolean }>;
-  /** Publish: press the merge. The job is this tab's to build, when it can. */
-  merge(
-    name: string,
-    input: { requestId: string; tab: string },
-  ): Promise<z.infer<typeof MergeAnswer>>;
 };
 
 export function createProposalsClient(options: {
@@ -175,8 +165,6 @@ export function createProposalsClient(options: {
     retrySetup: (name) => one(`${at(name)}/setup/retry`, "POST", {}),
     mergeChecks: async (name) =>
       MergeChecksAnswer.parse(await call(`${at(name)}/merge-checks`, "GET")),
-    merge: async (name, input) =>
-      MergeAnswer.parse(await call(`${at(name)}/merge`, "POST", input)),
   };
 }
 

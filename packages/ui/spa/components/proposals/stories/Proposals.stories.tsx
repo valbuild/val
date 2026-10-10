@@ -216,6 +216,7 @@ function ProposalsShell({
       <NewProposalDialog
         open={dialog === "new"}
         onOpenChange={(isOpen) => setDialog(isOpen ? "new" : null)}
+        suggestedName="Bright harbour"
         creating={creating}
         problem={problem}
         onOpenExisting={goTo}
@@ -399,7 +400,10 @@ export const NewProposal = shell({
   dialog: "new",
 });
 
-/** The same empty proposal of this version of the site already exists. */
+/**
+ * The same empty proposal of this version of the site already exists: what a
+ * content service from before every New proposal was a new one answers.
+ */
 export const NewProposalAlreadyExists = shell({
   location: { kind: "site" },
   dialog: "new",
@@ -420,6 +424,24 @@ export const CloseAProposal = shell({
   location: inProposal(),
   dialog: "close",
 });
+
+/**
+ * Close, on a proposal stuck being published -- pressed on a phone that could
+ * not build it, say. Closing stops that publish first: a merging proposal is
+ * never a dead end.
+ */
+export const CloseWhilePublishing: StoryObj = {
+  render: () => (
+    <CloseProposalDialog
+      open
+      onOpenChange={() => {}}
+      displayName="Spring campaign"
+      changes={3}
+      merging
+      onConfirm={() => {}}
+    />
+  ),
+};
 
 export const AllProposals = shell({
   location: { kind: "site" },

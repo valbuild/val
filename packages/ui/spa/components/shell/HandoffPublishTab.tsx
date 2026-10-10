@@ -429,7 +429,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
      * is opened again -- until it has a job here or has settled.
      */
     const follow = async (
-      intent: PressIntent,
+      intent: { requestId: string; tab: string; merge?: string },
       request: PublishRequestStatus,
     ) => {
       if (isSettled(request)) {
@@ -448,6 +448,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
               : "Finishing the publish",
         });
       }
+      const merge = intent.merge;
       const followed = await followRequest({
         client,
         requestId: intent.requestId,
@@ -455,6 +456,14 @@ export function HandoffPublishTab({ id }: { id: string }) {
         // Not while a job runs here: a job for this press waits in `queue`.
         stopped: () => closed,
         otherJob: (job) => runJob(job, intent.tab, null, false),
+        ...(merge !== undefined
+          ? {
+              claim: () =>
+                client
+                  .pressMerge(merge, intent.requestId, intent.tab)
+                  .then((pressed) => pressed.job),
+            }
+          : {}),
       });
       if (followed.kind === "job") {
         runJob(followed.job, intent.tab, intent.requestId, true);
@@ -494,6 +503,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
           patchIds: [],
           replaces: intent.kind === "try-again" ? intent.replaces : null,
           building: !isSettled(already),
+          ...(intent.merge !== undefined ? { merge: intent.merge } : {}),
         });
         await follow(intent, already);
         return;
@@ -504,17 +514,24 @@ export function HandoffPublishTab({ id }: { id: string }) {
         notPressed(STALE_MESSAGE);
         return;
       }
-      const loaded = await whenReady(() => {
-        const current = valRef.current;
-        return (
-          current !== null &&
-          current.system.host.initializedAt() !== null &&
-          current.system.patchStore.chainSettled() &&
-          // Scoped, where the project has groups: see `usePatchGroupScope`.
-          (!current.system.patchStore.patchGroupsSupported() ||
-            current.system.patchGroup() !== null)
-        );
-      });
+      /*
+       * A merge needs nothing from this tab's Studio: there is no gate, and
+       * its files come from content. Waiting for the project to load would
+       * only hold the press.
+       */
+      const loaded =
+        intent.merge !== undefined ||
+        (await whenReady(() => {
+          const current = valRef.current;
+          return (
+            current !== null &&
+            current.system.host.initializedAt() !== null &&
+            current.system.patchStore.chainSettled() &&
+            // Scoped, where the project has groups: see `usePatchGroupScope`.
+            (!current.system.patchStore.patchGroupsSupported() ||
+              current.system.patchGroup() !== null)
+          );
+        }));
       /*
        * Then the page's last change: pressed without it, the publish leaves
        * out what the editor just did, or finds nothing at all. It arrives when
@@ -545,7 +562,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
       if (closed || cancelled.current || pressing.current) return;
       pressing.current = true;
       const system = valRef.current?.system;
-      if (!loaded || system === undefined) {
+      if (!loaded || (system === undefined && intent.merge === undefined)) {
         notPressed(NOT_LOADED_MESSAGE);
         return;
       }
@@ -565,13 +582,19 @@ export function HandoffPublishTab({ id }: { id: string }) {
         return;
       }
       const chain = () =>
-        system.patchStore.allRecords().map((record) => record.patchId);
+        system?.patchStore.allRecords().map((record) => record.patchId) ?? [];
       const outcome = await pressForPage({
         intent,
         client,
         chain,
         publish: (pressAs) =>
-          system.publish(chain(), "", { request: true, pressAs }),
+          system === undefined
+            ? Promise.resolve({
+                status: "failed",
+                message: NOT_LOADED_MESSAGE,
+                retryable: false,
+              })
+            : system.publish(chain(), "", { request: true, pressAs }),
       });
       if (closed) return;
       if (outcome.kind === "not-pressed") {
@@ -592,6 +615,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
         replaces: outcome.replaces,
         request: outcome.request,
         building,
+        ...(outcome.merge !== undefined ? { merge: outcome.merge } : {}),
       });
       if (outcome.job !== null && outcome.job.step !== null) {
         runJob(outcome.job, intent.tab, outcome.requestId, true);

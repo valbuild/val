@@ -1,5 +1,5 @@
 import { ArrowRight, GitBranch, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
 import {
   Dialog,
@@ -10,7 +10,10 @@ import {
 
 /** What creating answered, when it did not open the new proposal. */
 export type NewProposalProblem =
-  /** The site as it is now already has an empty proposal: the same one. */
+  /**
+   * The site as it is now already has an empty proposal. Only from a content
+   * service from before every New proposal was a new one.
+   */
   | { kind: "exists"; displayName: string; name: string }
   | { kind: "error"; message: string };
 
@@ -19,15 +22,16 @@ export type NewProposalProblem =
  *
  * Starts from the site as it is now, and from nothing else yet: carrying
  * staged changes or an AI session into one arrives with the flows that need
- * them. A proposal is named by what it was made from, so two empty ones of
- * the same version of the site are the same proposal -- which is said, with a
- * way to open it, rather than shown as an error.
+ * them. Every press makes a new proposal, so the Name field comes filled in
+ * with `suggestedName` and selected: Create works at once, and typing
+ * replaces it.
  */
 export function NewProposalDialog({
   open,
   onOpenChange,
   onCreate,
   onOpenExisting,
+  suggestedName,
   creating = false,
   problem = null,
   portalContainer,
@@ -36,18 +40,28 @@ export function NewProposalDialog({
   onOpenChange: (open: boolean) => void;
   onCreate: (input: { displayName: string; description: string }) => void;
   onOpenExisting: (name: string) => void;
+  /** What Name starts as, each time the dialog opens: `randomProposalName`. */
+  suggestedName: string;
   creating?: boolean;
   problem?: NewProposalProblem | null;
   portalContainer?: HTMLElement | null;
 }) {
-  const [displayName, setDisplayName] = useState("");
+  const [displayName, setDisplayName] = useState(suggestedName);
   const [description, setDescription] = useState("");
+  /*
+   * The suggestion is selected when the field is first focused, so typing
+   * replaces it -- once per opening, never again: a name someone has typed
+   * is theirs, and coming back to the field must not select it away.
+   */
+  const selectedSuggestion = useRef(false);
   useEffect(() => {
-    if (!open) {
-      setDisplayName("");
+    if (open) {
+      setDisplayName(suggestedName);
+      selectedSuggestion.current = false;
+    } else {
       setDescription("");
     }
-  }, [open]);
+  }, [open, suggestedName]);
   const canCreate = displayName.trim().length > 0 && !creating;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -81,6 +95,11 @@ export function NewProposalDialog({
               <span className="text-xs font-medium text-fg-primary">Name</span>
               <input
                 autoFocus
+                onFocus={(event) => {
+                  if (selectedSuggestion.current) return;
+                  selectedSuggestion.current = true;
+                  event.currentTarget.select();
+                }}
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
                 placeholder="Spring campaign"
