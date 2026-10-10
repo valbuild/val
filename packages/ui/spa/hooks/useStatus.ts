@@ -343,6 +343,34 @@ export function useStatus(client: ValClient) {
     },
     [],
   );
+  /**
+   * A `/stat` asked for now rather than when the wait runs out. See `refresh`.
+   */
+  const refreshRef = useRef(false);
+  /**
+   * Ask `/stat` now: for when this tab knows the server's answer has moved.
+   *
+   * A save at a proposal's address does that. It folds the saved changes into
+   * the address's snapshot, so the base the server answers with moves at
+   * once -- and with a socket connected the next `/stat` was twenty minutes
+   * away. Until then the Studio held the base from before the save: the socket's
+   * next list of changes left the saved one out, and the next edit was made on
+   * content the proposal had already moved past.
+   *
+   * A `/stat` already in flight is not interrupted: it may have been answered
+   * from before the save, so the ask is taken when it lands, and another goes
+   * out at once.
+   */
+  const refresh = useCallback(() => {
+    refreshRef.current = true;
+    // A new object, so the effect below runs again and sees the ask.
+    setStat((prev) =>
+      prev.status === "updated-request-again" ||
+      prev.status === "ws-message-received"
+        ? { ...prev }
+        : prev,
+    );
+  }, []);
   useEffect(() => {
     if (
       stat.status === "updated-request-again" ||
@@ -355,11 +383,15 @@ export function useStatus(client: ValClient) {
       // Never wait longer than a publish that has not reached the site yet can
       // afford: `/stat` is the only thing that reports which commit the site
       // actually serves.
-      const wait = Math.min(
-        stat.wait,
-        awaitingDeploymentInterval(stat.data, Date.now()),
-      );
+      const wait =
+        refreshRef.current && stat.status !== "error"
+          ? 0
+          : Math.min(
+              stat.wait,
+              awaitingDeploymentInterval(stat.data, Date.now()),
+            );
       if (wait === 0) {
+        refreshRef.current = false;
         console.debug(
           "Executing stat immediately",
           stat.status,
@@ -444,6 +476,7 @@ export function useStatus(client: ValClient) {
     subscribePublishJobs,
     heard?.holds,
     heard?.at,
+    refresh,
   ] as const;
 }
 

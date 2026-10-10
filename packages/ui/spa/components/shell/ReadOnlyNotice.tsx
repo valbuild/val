@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ExternalLink, Lock, Mail } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { ADMIN_PROXY } from "./ProjectSwitcher";
-import { orgOfProject } from "./MembersShare";
+import { orgOfProject } from "./ProjectMembersButton";
 
 /**
  * The Studio is read-only: the organization's trial is over, or a payment

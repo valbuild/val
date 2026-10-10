@@ -174,6 +174,8 @@ export type ShellMediaGallery = {
   moduleFilePath: string;
   itemCount: number;
   mediaType: MediaCollectionType;
+  /** A files gallery that takes only fonts (`s.fontset()`). */
+  fonts?: boolean;
   /**
    * The files in the gallery.
    *
