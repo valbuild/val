@@ -60,6 +60,12 @@ export type TrackedPublish = {
    * `publishingPatchIds`.
    */
   patchIds?: readonly string[];
+  /**
+   * The proposal it merges into the site: Publish pressed in a proposal.
+   * Built, followed and announced like any other publish; only its Try again
+   * differs, which presses that merge anew rather than the site's changes.
+   */
+  merge?: string;
 };
 
 export type PublishJobsState = {
@@ -90,6 +96,8 @@ export type PublishJobs = {
      * does, and holds what it sent too.
      */
     replaces?: string;
+    /** See `TrackedPublish.merge`. */
+    merge?: string;
   }): void;
   /** A job moved: re-read what is not settled, and look for queued work. */
   nudge(): void;
@@ -478,12 +486,14 @@ export function createPublishJobs(options: {
     job,
     patchIds: sent,
     replaces,
+    merge: namedMerge,
   }: {
     requestId: string;
     request: PublishRequestStatus;
     job: PublishTabJob | null;
     patchIds?: readonly string[];
     replaces?: string;
+    merge?: string;
   }) {
     const at = now();
     /*
@@ -502,6 +512,7 @@ export function createPublishJobs(options: {
         requests: state.requests.filter((r) => r.requestId !== replaces),
       });
     }
+    const merge = namedMerge ?? before?.merge ?? replaced?.merge;
     const told = [...(before?.patchIds ?? []), ...(sent ?? [])];
     const patchIds =
       replaced?.patchIds === undefined
@@ -529,6 +540,7 @@ export function createPublishJobs(options: {
           ? { jobId: before.jobId }
           : {}),
       ...(carried.length > 0 ? { patchIds: carried } : {}),
+      ...(merge !== undefined ? { merge } : {}),
     };
     const known = before !== undefined;
     set({
@@ -576,8 +588,17 @@ export function createPublishJobs(options: {
         void _released;
         set({ ...state, retrying: rest });
       };
+      const merge = replaced?.merge;
       try {
-        const pressed = await client.tryAgain(requestIdAgain, tab);
+        /*
+         * A merge's try again is the merge pressed anew: the proposal is open
+         * again since it failed, and content checks again whether it may.
+         * Resuming the site's queue would publish the site's changes instead.
+         */
+        const pressed =
+          merge !== undefined
+            ? await client.pressMerge(merge, requestIdAgain, tab)
+            : await client.tryAgain(requestIdAgain, tab);
         set({
           ...state,
           requests: state.requests.filter((r) => r.requestId !== requestId),
@@ -587,10 +608,12 @@ export function createPublishJobs(options: {
           requestId: requestIdAgain,
           request: pressed.request,
           job: pressed.job,
-          ...(replaced?.patchIds !== undefined ||
-          retryOptions?.patchIds !== undefined
-            ? { patchIds: sent }
-            : {}),
+          ...(merge !== undefined
+            ? { merge }
+            : replaced?.patchIds !== undefined ||
+                retryOptions?.patchIds !== undefined
+              ? { patchIds: sent }
+              : {}),
         });
         // `track` holds them now, as the new press's own.
         releaseRetryHold();

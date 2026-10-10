@@ -48,10 +48,7 @@ export const CHANGE_TIMEOUT_MS = 5 * 60_000;
 export const PRESS_RETRY_MS: readonly number[] = [1_000, 3_000, 9_000];
 
 /** The intents a tab presses for: everything but an update. */
-export type PressIntent = Exclude<
-  HandoffIntent,
-  { kind: "update" } | { kind: "merge" }
->;
+export type PressIntent = Exclude<HandoffIntent, { kind: "update" }>;
 /** How often a queued press asks for its job. */
 export const QUEUED_EVERY_MS = 3_000;
 
@@ -65,6 +62,8 @@ export type PressedForPage = {
   patchIds: string[];
   /** For a try again: the failed request it replaces. */
   replaces: string | null;
+  /** The proposal it merges: see `HandoffIntent`. */
+  merge?: string;
 };
 
 export type PressForPageOutcome =
@@ -231,11 +230,13 @@ export function whenReady(
  *
  * `publish` is the gate and the press -- `system.publish` with `request` and
  * `pressAs` -- and `chain` what is pending, for a try again, which runs no gate.
+ * A merge runs no gate either: it ships the proposal's last save, and content
+ * checks whether it may (the merge checks).
  */
 export async function pressForPage(options: {
   intent: PressIntent;
   publish: (pressAs: PressAs) => Promise<PublishResult>;
-  client: Pick<StudioJobClient, "tryAgain" | "requestStatus">;
+  client: Pick<StudioJobClient, "tryAgain" | "pressMerge" | "requestStatus">;
   chain: () => string[];
   /** See {@link PRESS_RETRY_MS}. */
   retryMs?: readonly number[];
@@ -247,17 +248,26 @@ export async function pressForPage(options: {
   const pause = (ms: number) =>
     new Promise((resolve) => setTimeout(resolve, ms));
   const pressAs: PressAs = { requestId: intent.requestId, tab: intent.tab };
-  if (intent.kind === "try-again") {
+  const merge = intent.merge;
+  if (intent.kind === "try-again" || merge !== undefined) {
+    const replaces = intent.kind === "try-again" ? intent.replaces : null;
+    /*
+     * A merge sends nothing of the page's chain: what it publishes is the
+     * proposal's last save.
+     */
+    const patchIds = () => (merge !== undefined ? [] : options.chain());
+    const merging = merge !== undefined ? { merge } : {};
+    const pressDirectly = () =>
+      merge !== undefined
+        ? options.client.pressMerge(merge, intent.requestId, intent.tab)
+        : options.client.tryAgain(intent.requestId, intent.tab);
     try {
       let attempt = 0;
       const tryAgain = async (): Promise<
         Awaited<ReturnType<StudioJobClient["tryAgain"]>>
       > => {
         try {
-          return await withinDeadline(
-            options.client.tryAgain(intent.requestId, intent.tab),
-            options.answerWithinMs,
-          );
+          return await withinDeadline(pressDirectly(), options.answerWithinMs);
         } catch (error) {
           const wait = retryMs[attempt++];
           if (wait === undefined || !isTransientPublishError(error))
@@ -272,8 +282,9 @@ export async function pressForPage(options: {
         requestId: intent.requestId,
         request: pressed.request,
         job: pressed.job,
-        patchIds: options.chain(),
-        replaces: intent.replaces,
+        patchIds: patchIds(),
+        replaces,
+        ...merging,
       };
     } catch (error) {
       /*
@@ -296,15 +307,26 @@ export async function pressForPage(options: {
           requestId: intent.requestId,
           request: landed,
           job: null,
-          patchIds: options.chain(),
-          replaces: intent.replaces,
+          patchIds: patchIds(),
+          replaces,
+          ...merging,
         };
+      }
+      const details = error instanceof Error ? error.message : String(error);
+      /*
+       * A merge content refused is an answer meant for the editor: a merge
+       * check said no, or the proposal was saved since. Said as it is.
+       */
+      if (merge !== undefined && !isTransientPublishError(error)) {
+        return { kind: "not-pressed", message: details, durable: true };
       }
       return {
         kind: "not-pressed",
         message:
-          "The publish could not be started again. Publish again to retry.",
-        details: error instanceof Error ? error.message : String(error),
+          merge !== undefined
+            ? "The publish could not be started. Publish again to retry."
+            : "The publish could not be started again. Publish again to retry.",
+        details,
         durable: !isTransientPublishError(error),
       };
     }

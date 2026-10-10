@@ -24,6 +24,7 @@ function fakeClient(over: Partial<StudioJobClient> = {}) {
   };
   const client: StudioJobClient = {
     press: async () => ({ request: { kind: "publishing" }, job }),
+    pressMerge: async () => ({ request: { kind: "publishing" }, job }),
     tryAgain: async () => ({ request: { kind: "publishing" }, job }),
     requestStatus: async () => ({ kind: "publishing" }),
     next: async () => null,

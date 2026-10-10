@@ -6,10 +6,8 @@ import {
   INTENT_MAX_AGE_MS,
   storedHandoffIntent,
   type HandoffIntent,
-  type MergeIntent,
   type TabHandoff,
 } from "../../publish/handoff";
-import { createProposalsClient } from "../../proposals/proposalsClient";
 import {
   CHANGE_NOT_SAVED_MESSAGE,
   askServerAbout,
@@ -496,6 +494,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
           patchIds: [],
           replaces: intent.kind === "try-again" ? intent.replaces : null,
           building: !isSettled(already),
+          ...(intent.merge !== undefined ? { merge: intent.merge } : {}),
         });
         await follow(intent, already);
         return;
@@ -506,17 +505,24 @@ export function HandoffPublishTab({ id }: { id: string }) {
         notPressed(STALE_MESSAGE);
         return;
       }
-      const loaded = await whenReady(() => {
-        const current = valRef.current;
-        return (
-          current !== null &&
-          current.system.host.initializedAt() !== null &&
-          current.system.patchStore.chainSettled() &&
-          // Scoped, where the project has groups: see `usePatchGroupScope`.
-          (!current.system.patchStore.patchGroupsSupported() ||
-            current.system.patchGroup() !== null)
-        );
-      });
+      /*
+       * A merge needs nothing from this tab's Studio: there is no gate, and
+       * its files come from content. Waiting for the project to load would
+       * only hold the press.
+       */
+      const loaded =
+        intent.merge !== undefined ||
+        (await whenReady(() => {
+          const current = valRef.current;
+          return (
+            current !== null &&
+            current.system.host.initializedAt() !== null &&
+            current.system.patchStore.chainSettled() &&
+            // Scoped, where the project has groups: see `usePatchGroupScope`.
+            (!current.system.patchStore.patchGroupsSupported() ||
+              current.system.patchGroup() !== null)
+          );
+        }));
       /*
        * Then the page's last change: pressed without it, the publish leaves
        * out what the editor just did, or finds nothing at all. It arrives when
@@ -547,7 +553,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
       if (closed || cancelled.current || pressing.current) return;
       pressing.current = true;
       const system = valRef.current?.system;
-      if (!loaded || system === undefined) {
+      if (!loaded || (system === undefined && intent.merge === undefined)) {
         notPressed(NOT_LOADED_MESSAGE);
         return;
       }
@@ -567,13 +573,19 @@ export function HandoffPublishTab({ id }: { id: string }) {
         return;
       }
       const chain = () =>
-        system.patchStore.allRecords().map((record) => record.patchId);
+        system?.patchStore.allRecords().map((record) => record.patchId) ?? [];
       const outcome = await pressForPage({
         intent,
         client,
         chain,
         publish: (pressAs) =>
-          system.publish(chain(), "", { request: true, pressAs }),
+          system === undefined
+            ? Promise.resolve({
+                status: "failed",
+                message: NOT_LOADED_MESSAGE,
+                retryable: false,
+              })
+            : system.publish(chain(), "", { request: true, pressAs }),
       });
       if (closed) return;
       if (outcome.kind === "not-pressed") {
@@ -594,6 +606,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
         replaces: outcome.replaces,
         request: outcome.request,
         building,
+        ...(outcome.merge !== undefined ? { merge: outcome.merge } : {}),
       });
       if (outcome.job !== null && outcome.job.step !== null) {
         runJob(outcome.job, intent.tab, outcome.requestId, true);
@@ -605,68 +618,6 @@ export function HandoffPublishTab({ id }: { id: string }) {
        * the tab says where it ended up.
        */
       await follow(intent, outcome.request);
-    };
-
-    /**
-     * Publish a proposal for a page that cannot build it: press its merge, as
-     * the page's tab, and build the job here. See `MergeIntent`.
-     */
-    const pressMerge = async (intent: MergeIntent) => {
-      // Opened again after its press: show that merge, never press it twice.
-      const already = await pressedAlready({
-        client,
-        requestId: intent.requestId,
-      });
-      if (closed || cancelled.current || pressing.current) return;
-      pressing.current = true;
-      if (already !== null) {
-        report({
-          type: "pressed",
-          requestId: intent.requestId,
-          request: already,
-          patchIds: [],
-          replaces: null,
-          building: !isSettled(already),
-        });
-        await follow(intent, already);
-        return;
-      }
-      if (stale) {
-        notPressed(STALE_MESSAGE);
-        return;
-      }
-      let job: PublishTabJob | null;
-      try {
-        ({ job } = await createProposalsClient({ api: "/api/val" }).merge(
-          intent.proposal,
-          { requestId: intent.requestId, tab: intent.tab },
-        ));
-      } catch (error) {
-        notPressed(
-          "The proposal was not published: the publish could not be started.",
-          error instanceof Error ? error.message : String(error),
-        );
-        return;
-      }
-      if (closed) return;
-      const request = await client
-        .requestStatus(intent.requestId)
-        .catch((): null => null);
-      if (request !== null) {
-        report({
-          type: "pressed",
-          requestId: intent.requestId,
-          request,
-          patchIds: [],
-          replaces: null,
-          building: job !== null,
-        });
-      }
-      if (job !== null && job.step !== null) {
-        runJob(job, intent.tab, intent.requestId, true);
-        return;
-      }
-      if (request !== null) await follow(intent, request);
     };
 
     const handoff = joinHandoff(id, (message) => {
@@ -707,9 +658,6 @@ export function HandoffPublishTab({ id }: { id: string }) {
           },
         });
       } else startUpdate();
-    } else if (intent.kind === "merge") {
-      ownPending.current = true;
-      void pressMerge(intent);
     } else {
       ownPending.current = true;
       void press(intent);

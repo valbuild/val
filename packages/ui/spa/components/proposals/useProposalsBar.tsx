@@ -1,13 +1,21 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import type { TopBarProposals } from "../shell/TopBar";
 import {
   useCurrentAuthorId,
   useCurrentProposal,
   useProfilesByAuthorId,
   usePublishSummary,
+  useProposalPublish,
   useReportError,
-  useStudioDeployState,
+  useSiteHandoffState,
   useValMode,
+  type ProposalPublishPress,
 } from "../ValProvider";
 import { toast } from "../designSystem/sonner";
 import { copyText } from "../../utils/copyText";
@@ -29,21 +37,8 @@ import {
   PublishProposalDialog,
   type PublishProposalState,
 } from "./PublishProposalDialog";
-import {
-  followCarryOver,
-  followMerge,
-  runProposalMerge,
-  type CarryOver,
-} from "../../proposals/mergeProposal";
-import {
-  canBuildHere,
-  NOT_STORED_MESSAGE,
-  openHandoff,
-} from "../../publish/handoff";
-import { createStudioJobClient } from "../../publish/jobClient";
-import { callJson } from "../../publish/publishClient";
-import { deployPreparedJob } from "../../publish/useStudioDeploy";
-import { PUBLISH_TAB_ID } from "../../publish/tabId";
+import { followCarryOver, type CarryOver } from "../../proposals/carryOver";
+import { canBuildHere } from "../../publish/handoff";
 import { randomUUID } from "../../utils/randomUUID";
 import { randomProposalName } from "../../proposals/proposalNames";
 import { AllProposalsDialog } from "./ProposalsList";
@@ -105,7 +100,8 @@ export function useProposalsBar({
   const profiles = useProfilesByAuthorId();
   const viewer = useCurrentAuthorId();
   const reportError = useReportError();
-  const { publish, isPublishing } = usePublishSummary();
+  const { publish, isPublishing, publishProposal, retryProposalPublish } =
+    usePublishSummary();
 
   const [dialog, setDialog] = useState<Dialog>(null);
   /*
@@ -232,13 +228,26 @@ export function useProposalsBar({
 
   /*
    * Publish: merging the proposal into the site (Flow F). The dialog reads
-   * the merge checks first; the button saves anything unsaved, then runs the
-   * merge -- built in this tab, verified and sealed by content.
+   * the merge checks first; the button saves anything unsaved, then presses
+   * the merge -- a publish request like the site's, built and followed to
+   * Live by the same tracker (`publishProposal`). This dialog only reads it.
    */
-  const deploy = useStudioDeployState().deploy;
+  const tracked = useProposalPublish(here?.name ?? null);
+  const handoffState = useSiteHandoffState().state;
   const [publishState, setPublishState] = useState<PublishProposalState>({
     kind: "checking",
   });
+  /**
+   * Pressed, and not settled yet: from then the dialog follows the press --
+   * the newest tracked publish of this proposal made since `since`, or, while
+   * a builder tab has it and has not said what it pressed, that tab.
+   */
+  const [pressed, setPressed] = useState<{
+    since: number;
+    handedOff: boolean;
+  } | null>(null);
+  /** The publish that failed, for a Try again that replaces it. */
+  const [failedRequest, setFailedRequest] = useState<string | null>(null);
   /** The proposal this one's later changes went to, once it is known. */
   const [continuation, setContinuation] = useState<string | null>(null);
   const loadChecks = useCallback(async () => {
@@ -259,25 +268,159 @@ export function useProposalsBar({
       });
     }
   }, [client, here, currentJson?.changes, unsaved]);
+
+  /** Where the press is, while it is followed. See `pressed`. */
+  const following = useMemo<
+    | { kind: "running"; step: "building" | "publishing" }
+    | { kind: "merged" }
+    | { kind: "failed"; message: string; requestId: string | null }
+    | null
+  >(() => {
+    if (pressed === null) return null;
+    const request =
+      tracked !== null && tracked.request.pressedAt >= pressed.since
+        ? tracked.request
+        : null;
+    if (request !== null) {
+      const status = request.status;
+      switch (status.kind) {
+        case "live":
+          return { kind: "merged" };
+        case "failed":
+          return {
+            kind: "failed",
+            message: status.message,
+            requestId: request.requestId,
+          };
+        case "cancelled":
+          return {
+            kind: "failed",
+            message: "It was stopped before it reached the site.",
+            requestId: null,
+          };
+        case "nothing-to-publish":
+          return {
+            kind: "failed",
+            message: "There was nothing to publish.",
+            requestId: null,
+          };
+        case "queued":
+        case "publishing":
+          return {
+            kind: "running",
+            step:
+              request.handedOffAt !== undefined ||
+              handoffState?.kind === "checking"
+                ? "publishing"
+                : "building",
+          };
+      }
+    }
+    if (pressed.handedOff) {
+      switch (handoffState?.kind) {
+        case "blocked":
+          return {
+            kind: "failed",
+            message:
+              "This browser did not open the new tab the publish is built in, so nothing was published. Press Try again: it opens the tab.",
+            requestId: null,
+          };
+        case "failed":
+          return {
+            kind: "failed",
+            message: handoffState.message,
+            requestId: null,
+          };
+        case "checking":
+          return { kind: "running", step: "publishing" };
+        case "live":
+          return { kind: "merged" };
+        default:
+          return { kind: "running", step: "building" };
+      }
+    }
+    return { kind: "running", step: "building" };
+  }, [pressed, tracked, handoffState]);
+
+  /*
+   * Settled: the dialog keeps the outcome, and stops following. A merge that
+   * landed is followed a little further, to where what was written while it
+   * merged went -- said, and offered, when it has.
+   */
+  const [mergedName, setMergedName] = useState<string | null>(null);
+  useEffect(() => {
+    if (following === null || following.kind === "running") return;
+    setPressed(null);
+    void refresh();
+    if (following.kind === "failed") {
+      setFailedRequest(following.requestId);
+      setPublishState({ kind: "failed", message: following.message });
+      return;
+    }
+    setFailedRequest(null);
+    setPublishState({ kind: "merged" });
+    setMergedName(here?.name ?? null);
+  }, [following, here?.name, refresh]);
+  useEffect(() => {
+    if (mergedName === null) return;
+    let stopped = false;
+    // Not knowing where they went takes nothing away from the merge.
+    void followCarryOver({
+      get: (name) => client.get(name),
+      name: mergedName,
+    })
+      .catch((): CarryOver => ({ kind: "unknown" }))
+      .then((carried) => {
+        if (stopped || carried.kind !== "continued") return;
+        setContinuation(carried.proposal.name);
+        setPublishState({
+          kind: "merged",
+          continuedIn: {
+            displayName: carried.proposal.displayName,
+            changes: carried.proposal.changes ?? 0,
+          },
+        });
+      });
+    return () => {
+      stopped = true;
+    };
+  }, [mergedName, client]);
+
+  /** Press the merge, or press it again: then follow it. */
+  const pressMerge = useCallback(
+    async (press: () => Promise<ProposalPublishPress>) => {
+      const since = Date.now();
+      setPressed({ since, handedOff: false });
+      const answer = await press();
+      if (answer.status === "error") {
+        setPressed(null);
+        setPublishState({ kind: "failed", message: answer.message });
+        return;
+      }
+      setPressed({ since, handedOff: answer.status === "handed-off" });
+    },
+    [],
+  );
+
   const runPublish = useCallback(async () => {
     if (here === null) return;
+    const name = here.name;
     /*
      * A page that cannot run the bundler -- an iPhone, never cross-origin
      * isolated -- hands the build to a builder tab, as the site's Publish
-     * does (`publish/handoff.ts`). The tab presses the merge and builds it:
-     * once it takes the screen, iOS pauses this page. It has to open in the
-     * tap, before anything here awaits, so a proposal with unsaved changes is
-     * saved first and Publish asks for a second tap.
+     * does (`publish/handoff.ts`), and the tab has to open in the tap,
+     * before anything here awaits. So a proposal with unsaved changes is
+     * saved first, and Publish asks for a second tap.
      */
-    if (!canBuildHere()) {
-      if (unsaved > 0) {
-        const checks = publishState.kind === "ready" ? publishState.checks : [];
-        setPublishState({ kind: "publishing", step: "saving" });
-        const failed = await save();
-        if (failed !== null) {
-          setPublishState({ kind: "failed", message: failed });
-          return;
-        }
+    if (unsaved > 0) {
+      const checks = publishState.kind === "ready" ? publishState.checks : [];
+      setPublishState({ kind: "publishing", step: "saving" });
+      const failed = await save();
+      if (failed !== null) {
+        setPublishState({ kind: "failed", message: failed });
+        return;
+      }
+      if (!canBuildHere()) {
         setPublishState({
           kind: "ready",
           checks,
@@ -287,104 +430,39 @@ export function useProposalsBar({
         });
         return;
       }
-      const requestId = randomUUID();
-      const handoff = openHandoff({
-        intent: {
-          kind: "merge",
-          requestId,
-          tab: PUBLISH_TAB_ID,
-          proposal: here.name,
-        },
-      });
-      handoff.close();
-      if (!handoff.stored) {
-        setPublishState({ kind: "failed", message: NOT_STORED_MESSAGE });
-        return;
-      }
-      if (!handoff.opened) {
-        setPublishState({
-          kind: "failed",
-          message:
-            "This browser did not open the new tab the publish is built in, so nothing was published. Press Try again: it opens the tab.",
-        });
-        return;
-      }
-      setPublishState({ kind: "publishing", step: "building" });
-      const outcome = await followMerge({
-        jobs: createStudioJobClient({ api: "/api/val" }),
-        requestId,
-        timeoutMs: 10 * 60_000,
-      });
-      void refresh();
-      setPublishState(
-        outcome.kind === "merged"
-          ? { kind: "merged" }
-          : { kind: "failed", message: outcome.message },
-      );
-      return;
     }
-    if (unsaved > 0) {
-      setPublishState({ kind: "publishing", step: "saving" });
-      const failed = await save();
-      if (failed !== null) {
-        setPublishState({ kind: "failed", message: failed });
-        return;
-      }
-    }
-    const jobs = createStudioJobClient({ api: "/api/val" });
-    try {
-      const outcome = await runProposalMerge({
-        press: (input) => client.merge(here.name, input),
-        publishApi: (path, body) =>
-          callJson(fetch, `/api/val/publish-api${path}`, "POST", body),
-        jobs,
-        deploy: (prepared) => deployPreparedJob(deploy, prepared),
-        tab: PUBLISH_TAB_ID,
-        requestId: randomUUID(),
-        onStep: (step) => setPublishState({ kind: "publishing", step }),
-      });
-      if (outcome.kind === "failed") {
-        setPublishState({ kind: "failed", message: outcome.message });
-        return;
-      }
-      setPublishState({ kind: "merged" });
-      /*
-       * What was written here while it merged goes to a new proposal, by a
-       * job content runs once the merge lands: said, and offered, when it has.
-       */
-      // Not knowing where they went takes nothing away from the merge.
-      const carried = await followCarryOver({
-        get: (name) => client.get(name),
-        name: here.name,
-      }).catch((): CarryOver => ({ kind: "unknown" }));
-      if (carried.kind === "continued") {
-        setContinuation(carried.proposal.name);
-        setPublishState({
-          kind: "merged",
-          continuedIn: {
-            displayName: carried.proposal.displayName,
-            changes: carried.proposal.changes ?? 0,
-          },
-        });
-      }
-    } catch (error) {
-      setPublishState({
-        kind: "failed",
-        message: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      void refresh();
-    }
+    await pressMerge(() => publishProposal(name));
   }, [
-    client,
     currentJson?.changes,
-    deploy,
     here,
+    pressMerge,
+    publishProposal,
     publishState,
-    refresh,
     save,
     unsaved,
   ]);
+
+  /** Try again, after a failure: the failed publish's own, or a new press. */
+  const retryPublish = useCallback(async () => {
+    if (here === null) return;
+    const name = here.name;
+    if (failedRequest === null) {
+      await runPublish();
+      return;
+    }
+    setFailedRequest(null);
+    await pressMerge(() => retryProposalPublish(name, failedRequest));
+  }, [failedRequest, here, pressMerge, retryProposalPublish, runPublish]);
+
+  /* Settled is shown at once; the effect above keeps it once pressed clears. */
+  const dialogState: PublishProposalState =
+    following === null
+      ? publishState
+      : following.kind === "running"
+        ? { kind: "publishing", step: following.step }
+        : following.kind === "merged"
+          ? { kind: "merged" }
+          : { kind: "failed", message: following.message };
 
   const create = useCallback(
     async (input: { displayName: string; description: string }) => {
@@ -527,12 +605,12 @@ export function useProposalsBar({
           open={dialog === "publish"}
           onOpenChange={(isOpen) => setDialog(isOpen ? "publish" : null)}
           displayName={currentSummary.displayName}
-          state={publishState}
+          state={dialogState}
           onPublish={() => void runPublish()}
           onRetry={() =>
             publishState.kind === "error"
               ? void loadChecks()
-              : void runPublish()
+              : void retryPublish()
           }
           {...(onCompare !== undefined ? { onCompare } : {})}
           {...(siteUrl !== null ? { onGoToSite: () => go(siteUrl) } : {})}

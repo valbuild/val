@@ -142,18 +142,37 @@ describe("what the tab is to do", () => {
     storeHandoffIntent(
       "h3",
       {
-        kind: "merge",
+        kind: "press",
         requestId: "r3",
         tab: "site-tab",
-        proposal: "0123456789abcdef0123",
+        after: null,
+        merge: "0123456789abcdef0123",
       },
       storage,
     );
     expect(storedHandoffIntent("h3", storage)?.intent).toEqual({
-      kind: "merge",
+      kind: "press",
       requestId: "r3",
       tab: "site-tab",
-      proposal: "0123456789abcdef0123",
+      after: null,
+      merge: "0123456789abcdef0123",
+    });
+    // And a try again of a failed merge presses that merge again.
+    storeHandoffIntent(
+      "h4",
+      {
+        kind: "try-again",
+        requestId: "r4",
+        tab: "site-tab",
+        replaces: "r3",
+        after: null,
+        merge: "0123456789abcdef0123",
+      },
+      storage,
+    );
+    expect(storedHandoffIntent("h4", storage)?.intent).toMatchObject({
+      kind: "try-again",
+      merge: "0123456789abcdef0123",
     });
   });
 

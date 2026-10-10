@@ -69,3 +69,39 @@ describe("preparing a job", () => {
     ]);
   });
 });
+
+/*
+ * Publish in a proposal is pressed by a person -- content records who asked
+ * for the merge -- so it goes through the proposals proxy, which carries the
+ * editor's session. What comes back is a press's answer like any other.
+ */
+test("a merge is pressed through the proposals proxy, and answered as a press", async () => {
+  const calls: { url: string; body: unknown }[] = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    calls.push({
+      url: String(input),
+      body: init?.body ? JSON.parse(String(init.body)) : null,
+    });
+    return new Response(
+      JSON.stringify({
+        request: { kind: "publishing" },
+        job: { id: "J9", step: "prepare", base: "c1", patches: ["merge:p1"] },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  const pressed = await createStudioJobClient({
+    api: "/api/val/",
+    fetchImpl,
+  }).pressMerge("p1", "r1", "tab-1");
+  expect(calls).toEqual([
+    {
+      url: "/api/val/proposals-api/p1/merge",
+      body: { requestId: "r1", tab: "tab-1" },
+    },
+  ]);
+  expect(pressed).toEqual({
+    request: { kind: "publishing" },
+    job: { id: "J9", step: "prepare", base: "c1", patches: ["merge:p1"] },
+  });
+});

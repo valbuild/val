@@ -24,6 +24,7 @@ function fakeClient(over: Partial<StudioJobClient> = {}) {
   const calls: string[] = [];
   const client: StudioJobClient = {
     press: async () => ({ request: { kind: "publishing" }, job: null }),
+    pressMerge: async () => ({ request: { kind: "publishing" }, job: null }),
     tryAgain: async (requestId) => {
       calls.push(`try-again ${requestId}`);
       return { request: { kind: "publishing" }, job: job("J2") };
@@ -201,6 +202,67 @@ test("Try again replaces the failed request with a new press, and builds its job
   expect(requests).toHaveLength(1);
   expect(requests[0]!.requestId).not.toBe("r1");
   expect(built).toEqual(["J2"]);
+});
+
+/*
+ * Publish in a proposal is a publish like any other from its press on:
+ * built here, followed, announced. Only its Try again is its own -- the merge
+ * pressed anew, never the site's queue, which would publish the site's
+ * changes instead.
+ */
+test("a merge is tracked as a publish, and its Try again presses the merge again", async () => {
+  const pressedMerges: string[] = [];
+  const { client, calls } = fakeClient({
+    pressMerge: async (proposal, requestId) => {
+      pressedMerges.push(`${proposal} ${requestId}`);
+      return { request: { kind: "publishing" }, job: job("J3") };
+    },
+  });
+  const built: string[] = [];
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => {
+      built.push(j.id);
+      return handedOff(j.id);
+    },
+    takesQueuedWork: () => false,
+  });
+  jobs.track({
+    requestId: "m1",
+    request: { kind: "publishing" },
+    job: { ...job("J1"), patches: ["merge:spring"] },
+    merge: "spring",
+  });
+  await flush();
+  expect(built).toEqual(["J1"]);
+  expect(jobs.get().requests[0]).toMatchObject({
+    requestId: "m1",
+    merge: "spring",
+  });
+  // Nothing of the site's chain is held for it: it publishes no patch.
+  expect(jobs.get().requests[0]!.patchIds).toBeUndefined();
+
+  jobs.track({
+    requestId: "m1",
+    request: {
+      kind: "failed",
+      message: "a page failed to render",
+      actions: ["try-again"],
+      job: "J1",
+    },
+    job: null,
+  });
+  expect(await jobs.tryAgain("m1")).toEqual({ ok: true });
+  await flush();
+  expect(calls.filter((c) => c.startsWith("try-again"))).toEqual([]);
+  expect(pressedMerges).toHaveLength(1);
+  expect(pressedMerges[0]).toMatch(/^spring /);
+  const requests = jobs.get().requests;
+  expect(requests).toHaveLength(1);
+  expect(requests[0]).toMatchObject({ merge: "spring" });
+  expect(requests[0]!.requestId).not.toBe("m1");
+  expect(built).toEqual(["J1", "J3"]);
 });
 
 test("a try again a builder tab pressed replaces the failed request, and holds what both sent", async () => {

@@ -80,11 +80,23 @@ export type HandoffIntent =
    * just before the tap is usually still being saved, and the tab presses
    * what the server has -- without the wait it published without the change,
    * or found nothing to publish.
+   *
+   * `merge`: Publish in a proposal -- press the merge of that proposal
+   * instead of the site's pending changes. Everything after the press is a
+   * publish like any other. There is no gate and nothing to wait for: the
+   * proposal was saved before the tap, and its merge ships that save.
    */
-  | { kind: "press"; requestId: string; tab: string; after: string | null }
+  | {
+      kind: "press";
+      requestId: string;
+      tab: string;
+      after: string | null;
+      merge?: string;
+    }
   /**
    * "Try again" on a failed publish: resume content's queue and press anew.
-   * No gate, as on a page that can build -- see `PublishJobs.tryAgain`.
+   * No gate, as on a page that can build -- see `PublishJobs.tryAgain`. A
+   * failed merge's try again (`merge`) presses that merge anew.
    */
   | {
       kind: "try-again";
@@ -92,19 +104,10 @@ export type HandoffIntent =
       tab: string;
       replaces: string;
       after: string | null;
+      merge?: string;
     }
   /** Update the site's dependencies: `runSiteUpdate`. */
-  | { kind: "update" }
-  /**
-   * Publish a proposal -- merge it into the site -- from a page that cannot
-   * build it: press the merge of `proposal` as `tab`, under `requestId`, and
-   * build the job it starts. The proposal was saved before the tap (see
-   * `useProposalsBar`), so there is nothing for the tab to wait for.
-   */
-  | { kind: "merge"; requestId: string; tab: string; proposal: string };
-
-/** Publish a proposal, from a builder tab. See `HandoffIntent`. */
-export type MergeIntent = Extract<HandoffIntent, { kind: "merge" }>;
+  | { kind: "update" };
 
 /** Site -> tab. */
 export type ToTab =
@@ -152,6 +155,8 @@ export type ToSite =
       /** The failed request a try again replaces. */
       replaces: string | null;
       building: boolean;
+      /** The proposal it merges, for a press of Publish in a proposal. */
+      merge?: string;
     }
   /**
    * The step the tab is on, and -- from a tab that sends it -- how far the
@@ -272,14 +277,14 @@ function asIntent(value: unknown): HandoffIntent | null {
   const tab = text("tab");
   if (requestId === null || tab === null) return null;
   const after = text("after");
-  if (value.kind === "press") return { kind: "press", requestId, tab, after };
-  const proposal = text("proposal");
-  if (value.kind === "merge" && proposal !== null) {
-    return { kind: "merge", requestId, tab, proposal };
+  const merge = text("merge");
+  const merging = merge !== null ? { merge } : {};
+  if (value.kind === "press") {
+    return { kind: "press", requestId, tab, after, ...merging };
   }
   const replaces = text("replaces");
   if (value.kind === "try-again" && replaces !== null) {
-    return { kind: "try-again", requestId, tab, replaces, after };
+    return { kind: "try-again", requestId, tab, replaces, after, ...merging };
   }
   return null;
 }

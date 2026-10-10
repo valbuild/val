@@ -27,6 +27,16 @@ import { callJson } from "./publishClient";
 export type StudioJobClient = {
   /** A press of Publish. Idempotent on `requestId`. */
   press(requestId: string, tab: string): Promise<PressResponse>;
+  /**
+   * Publish in a proposal: press the merge of `proposal`. Idempotent on
+   * `requestId`, as `press` is; the merge checks run first and may refuse it.
+   * From the press on it is a request like any other.
+   */
+  pressMerge(
+    proposal: string,
+    requestId: string,
+    tab: string,
+  ): Promise<PressResponse>;
   /** Try again: resume a paused queue and press anew. */
   tryAgain(requestId: string, tab: string): Promise<PressResponse>;
   /** Where a press is. */
@@ -79,6 +89,20 @@ export function createStudioJobClient(options: {
       parsePress(
         await proxy("/publish-requests", "POST", { requestId, tab }),
         "POST /v1/publish-requests",
+      ),
+    pressMerge: async (proposal, requestId, tab) =>
+      parsePress(
+        /*
+         * Through the proposals proxy, not the publish one: the merge is
+         * pressed by a person, who content records as having asked for it.
+         */
+        await callJson(
+          fetchImpl,
+          `${api}/proposals-api/${encodeURIComponent(proposal)}/merge`,
+          "POST",
+          { requestId, tab },
+        ),
+        "POST /v1/proposals/{name}/merge",
       ),
     tryAgain: async (requestId, tab) =>
       parsePress(
