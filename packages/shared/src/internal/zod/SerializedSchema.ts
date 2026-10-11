@@ -276,7 +276,7 @@ export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
           dir: z.string().optional(),
           remote: z.boolean().optional(),
           encode: ImageEncodeOption.optional(),
-          // A videoset's: see `VideoStreamOption` below for why it is spelled
+          // A videodir's: see `VideoStreamOption` below for why it is spelled
           // out rather than passed through.
           stream: VideoStreamOption.optional(),
           alt: SerializedSchema.optional(),
@@ -349,7 +349,7 @@ export const SerializedVideoSchema: z.ZodType<SerializedVideoSchemaT> =
     options: VideoOptions.optional(),
     opt: z.boolean(),
     remote: z.boolean().optional(),
-    // The `s.videoset()` a set-backed field picks from.
+    // The `s.videodir()` a set-backed field picks from.
     referencedModule: z.string().optional(),
   });
 

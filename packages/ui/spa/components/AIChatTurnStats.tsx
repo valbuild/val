@@ -112,7 +112,9 @@ function useCountUp(target: number, durationMs = 600): number {
   return shown;
 }
 
-const SPINNER_FRAMES = ["·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"];
+// Every frame must be a character with no emoji form. "✳" (U+2733) was one of
+// them, and iOS draws it as the green ✳️ emoji tile in the middle of the spin.
+const SPINNER_FRAMES = ["·", "✢", "✷", "✶", "✻", "✽", "✻", "✶", "✷", "✢"];
 
 function Spinner() {
   const [frame, setFrame] = useState(0);

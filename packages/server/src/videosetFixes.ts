@@ -1,5 +1,5 @@
 /**
- * The fixes of an `s.videoset()` — the video twin of an image gallery.
+ * The fixes of an `s.videodir()` — the video twin of an image gallery.
  *
  * A set is a record keyed by each video's file path (an HLS stream by its
  * master playlist), so most of this is the gallery fixes again with the key as
@@ -42,6 +42,7 @@ import {
 } from "@valbuild/core";
 import { isNotRoot, type JSONValue, type Patch } from "@valbuild/core/patch";
 import { traverseSchemaSource } from "@valbuild/shared/internal";
+import { collectionReferencePatches } from "./collectionReferences";
 import type { FixPatchRemainingError } from "./createFixPatch";
 import {
   extractVideoMetadataFromFile,
@@ -334,38 +335,18 @@ export async function filesNamedByVideoFields(
 /**
  * The patches that point every `s.video(set)` field at a set entry's new key.
  *
- * One `add` on each field's `path`, so the description, poster, times and
- * captions beside it are never rewritten. A field of another set, or of no
- * set, is left alone even when its path is the same string: it names its own
- * file.
+ * The same walk an image or file collection's rename uses
+ * (`collectionReferencePatches`): one `add` on each field's `path`, so the
+ * description, poster, times and captions beside it are never rewritten, and
+ * a field of another set, or of no set, is left alone even when its path is
+ * the same string — it names its own file.
  */
 export async function videosetReferencePatches(
   service: VideoFieldService,
   setModuleFilePath: ModuleFilePath,
   renamed: Record<string, string>,
 ): Promise<ModulePatch[]> {
-  const byModule = new Map<ModuleFilePath, Patch>();
-  for (const field of await videoFieldsOf(service)) {
-    if (field.schema.referencedModule !== setModuleFilePath) {
-      continue;
-    }
-    const value: unknown = field.source;
-    const current = isRecord(value) ? value.path : undefined;
-    if (typeof current !== "string" || !(current in renamed)) {
-      continue;
-    }
-    const patch = byModule.get(field.moduleFilePath) ?? [];
-    patch.push({
-      op: "add",
-      path: patchPathOf(field.sourcePath).concat("path"),
-      value: renamed[current],
-    });
-    byModule.set(field.moduleFilePath, patch);
-  }
-  return [...byModule].map(([moduleFilePath, patch]) => ({
-    moduleFilePath,
-    patch,
-  }));
+  return collectionReferencePatches(service, setModuleFilePath, renamed);
 }
 
 /** The record at `sourcePath` and its entries, or why it could not be read. */

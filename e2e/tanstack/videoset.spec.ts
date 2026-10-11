@@ -13,7 +13,7 @@ import {
 } from "./serverState";
 
 /**
- * `s.videoset()` and the `s.video(set)` field that picks from it, against the
+ * `s.videodir()` and the `s.video(set)` field that picks from it, against the
  * showcase's `videos.val.ts` and `video.val.ts`'s `fromSet`.
  *
  * The set streams its uploads, and the Chromium Playwright ships cannot

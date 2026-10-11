@@ -99,7 +99,7 @@ export function RecordFields({
   // BEFORE the media dispatch below, and that order is the point. A record
   // that has not been created renders nothing on either path — which reads as
   // "this record is empty", a different and writable state. A gallery is the
-  // case where that is not merely misleading: `s.imageset().nullable()` keeps
+  // case where that is not merely misleading: `s.imagedir().nullable()` keeps
   // its media options, so a null one reached `ModuleGallery`, looked like an
   // empty gallery, and offered an upload whose `add` patch targeted `null`.
   // See `FieldNull`.

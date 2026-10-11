@@ -1,6 +1,7 @@
 import {
   FileSource,
   GalleryFileSource,
+  galleryKeyOf,
   isRemoteMediaPath,
 } from "../source/media";
 export type { FileMetadata } from "../source/file";
@@ -18,9 +19,9 @@ import {
 } from "./validation/ValidationError";
 import { Internal, ValModule } from "..";
 import { ItemPreviewInput, PreviewItem } from "../preview";
-import { FilesetEntryMetadata } from "./fileset";
+import { FiledirEntryMetadata } from "./filedir";
 import { getSource } from "../module";
-import { mimeTypeMatchesAccept } from "../mimeType";
+import { canonicalFontMimeType, mimeTypeMatchesAccept } from "../mimeType";
 
 export type FileOptions = {
   accept?: string;
@@ -48,7 +49,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly moduleMetadata: Record<
       ModulePath,
-      Record<string, FilesetEntryMetadata>
+      Record<string, FiledirEntryMetadata>
     > = {},
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
@@ -198,10 +199,17 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
         ],
       } as ValidationErrors;
     }
+    // A field picked from a gallery holds the gallery's KEY, and whether that
+    // key is a local path or a remote ref is the gallery's to decide — and its
+    // to fix: uploading an entry renames its key, and the fields that hold it
+    // with it. So such a field only asks whether the gallery has it, below.
+    // Asking here as well reported every file picked from a `.remote()`
+    // gallery as one to download, because the field itself is never remote.
+    const galleryEntries = this.galleryEntries();
     // Remote-ness is a property of the path, not of a marker on the value:
     // anything outside /public is remote.
     const isRemotePath = isRemoteMediaPath(src.path);
-    if (this.isRemote && !isRemotePath) {
+    if (!galleryEntries && this.isRemote && !isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -213,7 +221,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
         ],
       } as ValidationErrors;
     }
-    if (this.isRemote && isRemotePath) {
+    if (!galleryEntries && this.isRemote && isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -225,7 +233,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
         ],
       } as ValidationErrors;
     }
-    if (!this.isRemote && isRemotePath) {
+    if (!galleryEntries && !this.isRemote && isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -238,7 +246,6 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       } as ValidationErrors;
     }
 
-    const galleryEntries = this.galleryEntries();
     if (galleryEntries) {
       if (src.mimeType !== undefined) {
         return {
@@ -251,7 +258,9 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
           ],
         } as ValidationErrors;
       }
-      if (!(src.path in galleryEntries)) {
+      // The same match reading the field makes (`fillFromGallery`): the key,
+      // or the local path inside a ref an upload through the field stored.
+      if (galleryKeyOf(src.path, (key) => key in galleryEntries) === null) {
         return {
           [path]: [
             ...customValidationErrors,
@@ -315,7 +324,9 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     // fix was offered -- and the `file:add-metadata` branch below could never be
     // reached for any file whose extension is recognized, which is all of them
     // that get this far.
-    if (mimeType && fileMimeType !== mimeType) {
+    // A legacy font name (`application/x-font-ttf`) is what the extension
+    // table itself used to say, so it is not a mismatch.
+    if (mimeType && fileMimeType !== canonicalFontMimeType(mimeType)) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -359,7 +370,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
    * The entries of the gallery this field points at, or null when it is a
    * standalone field.
    */
-  private galleryEntries(): Record<string, FilesetEntryMetadata> | null {
+  private galleryEntries(): Record<string, FiledirEntryMetadata> | null {
     const modulePaths = Object.keys(this.moduleMetadata);
     if (modulePaths.length === 0) {
       return null;
@@ -539,12 +550,12 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
  * field carries only the path.
  */
 export function file(
-  galleryModule: ValModule<Record<string, FilesetEntryMetadata>>,
+  galleryModule: ValModule<Record<string, FiledirEntryMetadata>>,
 ): FileSchema<GalleryFileSource>;
 /** A file of its own, carrying its own mime type. */
 export function file(options?: FileOptions): FileSchema<FileSource>;
 export function file(
-  options?: FileOptions | ValModule<Record<string, FilesetEntryMetadata>>,
+  options?: FileOptions | ValModule<Record<string, FiledirEntryMetadata>>,
 ): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
   return fileOf(false, options);
 }
@@ -555,28 +566,28 @@ export function file(
  * `initSchema`.
  */
 export function remoteFile(
-  galleryModule: ValModule<Record<string, FilesetEntryMetadata>>,
+  galleryModule: ValModule<Record<string, FiledirEntryMetadata>>,
 ): FileSchema<GalleryFileSource>;
 export function remoteFile(options?: FileOptions): FileSchema<FileSource>;
 export function remoteFile(
-  options?: FileOptions | ValModule<Record<string, FilesetEntryMetadata>>,
+  options?: FileOptions | ValModule<Record<string, FiledirEntryMetadata>>,
 ): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
   return fileOf(true, options);
 }
 
 function fileOf(
   remote: boolean,
-  options?: FileOptions | ValModule<Record<string, FilesetEntryMetadata>>,
+  options?: FileOptions | ValModule<Record<string, FiledirEntryMetadata>>,
 ): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
   const isModule =
     !!options &&
     !!Internal.getValPath(
-      options as ValModule<Record<string, FilesetEntryMetadata>>,
+      options as ValModule<Record<string, FiledirEntryMetadata>>,
     );
   if (isModule) {
-    const allModules: Record<string, Record<string, FilesetEntryMetadata>> = {};
+    const allModules: Record<string, Record<string, FiledirEntryMetadata>> = {};
     for (const valModule of [
-      options as ValModule<Record<string, FilesetEntryMetadata>>,
+      options as ValModule<Record<string, FiledirEntryMetadata>>,
     ]) {
       const modulePath = getValPath(valModule) as ModulePath | undefined;
       if (modulePath === undefined) {
@@ -586,7 +597,7 @@ function fileOf(
       }
       allModules[modulePath] = getSource(valModule) as Record<
         string,
-        FilesetEntryMetadata
+        FiledirEntryMetadata
       >;
     }
     return new FileSchema<GalleryFileSource>({}, false, remote, [], allModules);

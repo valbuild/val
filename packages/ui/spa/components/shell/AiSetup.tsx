@@ -11,7 +11,7 @@ import { useValBuildAccess } from "./useValBuildAccess";
  * each checked with the provider before it is saved (valbuild/home,
  * `web-components/src/ai-setup`).
  *
- * Mounted under the same rules as the project switcher and Share — a
+ * Mounted under the same rules as the project switcher and Members — a
  * connected project, and Val Build reachable (after `val login` locally) —
  * and otherwise nothing, since there is nowhere to set a key from. The
  * fallback is the project's AI tab in Val Build, by its stable link.

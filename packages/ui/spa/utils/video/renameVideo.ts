@@ -340,7 +340,7 @@ export type StreamEntryRenameResult =
   | { status: "error"; message: string };
 
 /**
- * The same move for a stream that is an ENTRY of an `s.videoset()`: the entry
+ * The same move for a stream that is an ENTRY of an `s.videodir()`: the entry
  * moves to its new key (its metadata and description with it), and every
  * `s.video(set)` field naming it is pointed at the new master.
  *

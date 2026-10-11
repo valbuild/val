@@ -85,8 +85,8 @@ export type ValConfig = {
      * Store every image, file and video on Val's remote content host instead
      * of in the repository.
      *
-     * `s.image()`, `s.file()`, `s.video()`, `s.imageset()`, `s.fileset()`,
-     * `s.videoset()` and `s.richtext({ img: true })` all behave as though
+     * `s.image()`, `s.file()`, `s.video()`, `s.imagedir()`, `s.filedir()`,
+     * `s.fontdir()`, `s.videodir()` and `s.richtext({ img: true })` all behave as though
      * `.remote()` had been written on them. Required for a project in the Val
      * app, which has no repository for the bytes to go into: there the Val
      * server refuses to start without it.

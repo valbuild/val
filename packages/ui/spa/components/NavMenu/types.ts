@@ -81,7 +81,7 @@ export type ExplorerItem = {
 };
 
 /**
- * A gallery module - `s.imageset()`, `s.fileset()` or `s.videoset()` - shown
+ * A gallery module - `s.imagedir()`, `s.filedir()` or `s.videodir()` - shown
  * under Media.
  *
  * These are records keyed by file path with a `mediaType` marker, so the useful
@@ -95,6 +95,8 @@ export type MediaModule = {
   dir: string;
   /** Whether this gallery holds images, videos or arbitrary files. */
   mediaType: MediaCollectionType;
+  /** A files gallery that takes only fonts (`s.fontdir()`). */
+  fonts?: boolean;
   /** Validation errors attributable to this module. */
   errors?: NavItemErrors;
 };
@@ -136,7 +138,7 @@ export type NavMenuData = {
   explorer?: ExplorerItem;
   /** External module (if external-url-router exists) */
   external?: ExternalModule;
-  /** `s.imageset()` / `s.fileset()` gallery modules, shown under Media. */
+  /** `s.imagedir()` / `s.filedir()` gallery modules, shown under Media. */
   media?: MediaModule[];
   /**
    * The project's `s.settings()` module, when it has exactly one valid one.

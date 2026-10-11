@@ -201,7 +201,7 @@ describe("dropping a file on an empty image field", () => {
 
 describe("a gallery-backed image field", () => {
   const GALLERY = "/content/media.val.ts";
-  const gallery = c.define(GALLERY, s.imageset({ dir: "/public/val" }), {});
+  const gallery = c.define(GALLERY, s.imagedir("/public/val"), {});
   const schema: SerializedSchema = s
     .image(gallery)
     .nullable()

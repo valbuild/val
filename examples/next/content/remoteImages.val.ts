@@ -17,6 +17,6 @@ import { s, c } from "../val.config";
  */
 export default c.define(
   "/content/remoteImages.val.ts",
-  s.imageset({ dir: "/public/remote-images" }).remote(),
+  s.imagedir("/public/remote-images").remote(),
   {},
 );

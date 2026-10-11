@@ -125,6 +125,52 @@ describe("runValidation", () => {
     });
   });
 
+  describe("a module where --fix repairs one error and not the other", () => {
+    const FILE = "content/basic-fixable-and-unfixable.val.ts";
+    const runOn = async (fix: boolean) => {
+      const events: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix,
+        valFiles: [FILE],
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        events.push(event);
+      }
+      return events;
+    };
+
+    test("is not reported valid after --fix, and counts only what is left", async () => {
+      const events = await runOn(true);
+
+      expect(events.filter((e) => e.type === "fix-applied")).toHaveLength(1);
+      expect(events.filter((e) => e.type === "validation-error")).toEqual([
+        expect.objectContaining({
+          sourcePath: `/${FILE}?p="title"`,
+        }),
+      ]);
+      // One fixed and one left must not add up to "valid".
+      expect(events.filter((e) => e.type === "file-valid")).toEqual([]);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "file-error-count",
+          file: `/${FILE}`,
+          errorCount: 1,
+        }),
+      );
+      expect(events.at(-1)).toEqual({ type: "summary-errors", count: 1 });
+    });
+
+    test("without --fix, reports both", async () => {
+      const events = await runOn(false);
+
+      expect(events.filter((e) => e.type === "file-valid")).toEqual([]);
+      expect(events.at(-1)).toEqual({ type: "summary-errors", count: 2 });
+    });
+  });
+
   test("handles module with both s.image and s.images", async () => {
     const events: ValidationEvent[] = [];
 

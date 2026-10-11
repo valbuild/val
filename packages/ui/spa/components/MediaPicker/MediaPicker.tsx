@@ -17,10 +17,11 @@ import {
   Search,
 } from "lucide-react";
 import { prettyModuleName } from "./GalleryUploadTarget";
-import { ModuleFilePath } from "@valbuild/core";
+import { Internal, ModuleFilePath } from "@valbuild/core";
 import { useModuleMediaEntries } from "./useModuleMediaEntries";
 import { servedPath } from "../../utils/mediaPath";
 import { MediaThumbnail, hotspotOf } from "../MediaThumbnail";
+import { FontSpecimen } from "../FontPreview";
 
 export interface GalleryEntry {
   /** The file path key (e.g. "/public/val/images/logo.png") */
@@ -40,7 +41,7 @@ export interface MediaPickerListProps {
   onSelect: (entry: GalleryEntry) => void;
   /** Whether this is for images (shows thumbnails) or files */
   isImage?: boolean;
-  /** Whether this picks from an `s.videoset()`: rows show the length. */
+  /** Whether this picks from an `s.videodir()`: rows show the length. */
   isVideo?: boolean;
   /** Converts a gallery file path to a displayable URL (e.g. for patch-state files) */
   getUrl?: (filePath: string) => string;
@@ -340,6 +341,22 @@ export function MediaPickerList({
                       loading="lazy"
                       className="h-8 w-8 shrink-0 rounded bg-bg-secondary"
                     />
+                  ) : !isImage &&
+                    !isVideo &&
+                    Internal.isFontMimeType(mimeType) ? (
+                    // Picking a font by its file name is picking blind: the
+                    // row is set in the font it names.
+                    <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-bg-secondary">
+                      <FontSpecimen
+                        url={
+                          getUrl
+                            ? getUrl(row.filePath)
+                            : servedPath(row.filePath)
+                        }
+                        variant="tile"
+                        tileFontSize="1rem"
+                      />
+                    </div>
                   ) : (
                     <div className="h-8 w-8 shrink-0 flex items-center justify-center rounded bg-bg-secondary">
                       {isImage ? (

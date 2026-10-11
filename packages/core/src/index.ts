@@ -34,12 +34,27 @@ export type {
   VideoStreamOption,
   VideoStreamOptions,
 } from "./schema/video";
-import { videosetEntryVideoSchema } from "./schema/videoset";
+import { videosetEntryVideoSchema } from "./schema/videodir";
 export type {
+  VideodirEntryMetadata,
+  VideodirOptions,
+  SerializedVideodirSchema,
   VideosetEntryMetadata,
   VideosetOptions,
   SerializedVideosetSchema,
-} from "./schema/videoset";
+} from "./schema/videodir";
+export type {
+  ImagedirEntryMetadata,
+  ImagedirOptions,
+  SerializedImagedirSchema,
+} from "./schema/imagedir";
+export type {
+  FiledirEntryMetadata,
+  FiledirOptions,
+  SerializedFiledirSchema,
+} from "./schema/filedir";
+export type { FontdirOptions } from "./schema/fontdir";
+export type { MediaDir } from "./schema/record";
 export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/media";
@@ -141,6 +156,9 @@ import {
   mimeTypeMatchesAccept,
   EXT_TO_MIME_TYPES,
   MIME_TYPES_TO_EXT,
+  FONT_MIME_TYPE_EXTENSIONS,
+  isFontMimeType,
+  sniffFontMimeType,
 } from "./mimeType";
 import { type ImageMetadata } from "./schema/image";
 import { type FileMetadata } from "./schema/file";
@@ -169,6 +187,7 @@ import {
   fillFromGallery,
   GALLERY_DEFAULT_GROUPS,
   galleryEntryOf,
+  galleryKeyOf,
   HLS_MIME_TYPE,
   isHlsVideo,
   isRemoteMediaPath,
@@ -195,6 +214,7 @@ export { type SerializedNumberSchema, NumberSchema } from "./schema/number";
 export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";
 export { type SerializedImageSchema, ImageSchema } from "./schema/image";
 export { type SerializedFileSchema, FileSchema } from "./schema/file";
+export { DEFAULT_FONT_ACCEPT, FONT_MIME_TYPES } from "./mimeType/font";
 export {
   type SerializedVideoSchema,
   VideoSchema,
@@ -421,6 +441,7 @@ const Internal = {
     fillFromGallery,
     galleriesOf,
     galleryEntryOf,
+    galleryKeyOf,
     GALLERY_DEFAULT_GROUPS,
     isHlsVideo,
     HLS_MIME_TYPE,
@@ -488,6 +509,9 @@ const Internal = {
   mimeTypeMatchesAccept,
   EXT_TO_MIME_TYPES,
   MIME_TYPES_TO_EXT,
+  FONT_MIME_TYPE_EXTENSIONS,
+  isFontMimeType,
+  sniffFontMimeType,
   ModuleFilePathSep,
   notFileOp: (op: Operation) => op.op !== "file",
   isFileOp: (

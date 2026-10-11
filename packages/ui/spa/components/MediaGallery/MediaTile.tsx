@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { FileText, Film, Loader2 } from "lucide-react";
+import { Internal } from "@valbuild/core";
 import { cn } from "../designSystem/cn";
 import { MediaThumbnail } from "../MediaThumbnail";
+import { FontSpecimen } from "../FontPreview";
 import { VideoPlayer } from "../fields/VideoPlayer";
 import { formatDuration, typeLabel } from "./format";
 import type { MediaItem, MediaKind, MediaUpload } from "./types";
@@ -164,6 +166,9 @@ function TilePicture({
         )}
       </>
     );
+  }
+  if (Internal.isFontMimeType(item.mimeType)) {
+    return <FontSpecimen url={item.url} variant="tile" />;
   }
   return (
     <span className="grid h-full w-full place-items-center">

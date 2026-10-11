@@ -1155,37 +1155,53 @@ export class PatchStore {
           this.ordered.includes(patchId) &&
           !this.pendingIds.has(patchId),
       );
-      if (gone.length > 0) {
-        if (baseMoved) {
-          /**
-           * The base moved, so these were PUBLISHED, not discarded — by another
-           * session, or by this one in a window this client did not see. Their
-           * effect is in the base now, so it has to stay on screen: `drop`
-           * rebuilds the module without them and every published field reverts.
-           */
-          this.forgetPublished(gone);
-          /*
-           * The SOURCE store keeps its copy in the chain, marked shipped.
-           *
-           * `baseMoved` is the stat's base sha, not the source store's base.
-           * That comes from the host's modules, which on a hosted project are
-           * the bundle this tab loaded, so it stays the pre-deploy text until
-           * a reload — and a reload starts from a chain the server no longer
-           * lists this patch in. Taking it out of the source chain before then
-           * leaves its effect in neither base nor chain: `peekBase` falls back
-           * to the pre-publish text, and the next rebuild of the module reverts
-           * the value on screen.
-           *
-           * Marked applied, because the server's `appliedPatches` may never
-           * have named it — somebody else's publish, deployed before this tab
-           * heard about it — and a record that reads as pending is left out of
-           * `peekBase`, which is the stale comparison this is all for.
-           * `markApplied` also brings a held one into view.
-           */
-          this.appliedSource?.markApplied(gone);
-        } else {
-          this.drop(gone);
-        }
+      /**
+       * Published, not discarded: every one of them when the base moved, and
+       * otherwise the ones THIS session published.
+       *
+       * A patch this session published is in a commit of ours, and nothing
+       * discards a committed patch. The base sha can lag it, though: at a
+       * proposal's address a save folds the patch into the address's snapshot
+       * at once, so the socket's next list leaves it out while the stat this
+       * tab holds still names the snapshot from before. Read as a discard,
+       * that took the saved value off the screen, and the next edit was made
+       * on top of content the proposal had already moved past.
+       */
+      const shipped = baseMoved
+        ? gone
+        : gone.filter((patchId) => this.publishedIds.has(patchId));
+      const discarded = baseMoved
+        ? []
+        : gone.filter((patchId) => !this.publishedIds.has(patchId));
+      if (shipped.length > 0) {
+        /**
+         * Their effect is in the base now (or will be once this tab reads it),
+         * so it has to stay on screen: `drop` rebuilds the module without them
+         * and every published field reverts.
+         */
+        this.forgetPublished(shipped);
+        /*
+         * The SOURCE store keeps its copy in the chain, marked shipped.
+         *
+         * `baseMoved` is the stat's base sha, not the source store's base.
+         * That comes from the host's modules, which on a hosted project are
+         * the bundle this tab loaded, so it stays the pre-deploy text until
+         * a reload — and a reload starts from a chain the server no longer
+         * lists this patch in. Taking it out of the source chain before then
+         * leaves its effect in neither base nor chain: `peekBase` falls back
+         * to the pre-publish text, and the next rebuild of the module reverts
+         * the value on screen.
+         *
+         * Marked applied, because the server's `appliedPatches` may never
+         * have named it — somebody else's publish, deployed before this tab
+         * heard about it — and a record that reads as pending is left out of
+         * `peekBase`, which is the stale comparison this is all for.
+         * `markApplied` also brings a held one into view.
+         */
+        this.appliedSource?.markApplied(shipped);
+      }
+      if (discarded.length > 0) {
+        this.drop(discarded);
       }
     } finally {
       for (const patchId of ask) {

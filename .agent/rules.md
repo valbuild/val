@@ -10,7 +10,7 @@ expensive to re-derive from the code:
 - [`architecture/stores.md`](../architecture/stores.md) — the Studio's client
   state in one page: marks vs demand, the two realms, `peek`/`get`, and why
   reference stability is load-bearing.
-- [`architecture/media.md`](../architecture/media.md) — `s.imageset()` / `s.fileset()`
+- [`architecture/media.md`](../architecture/media.md) — `s.imagedir()` / `s.filedir()` / `s.fontdir()`
   vs `s.image()` / `s.file()`, where uploaded bytes land, and how a file's URL is
   chosen (the rule that has been got wrong repeatedly). Also `s.video()`: the one
   media value that names several files, and HLS made in the browser.
@@ -479,6 +479,27 @@ switch, so `val validate` / the language server / `pnpm dev` read the same
 schemas the app does. See [architecture/media.md](../architecture/media.md).
 `files.directory` no longer exists: local files without a `dir` go to `/public/val`.
 
+### Media directories: `s.imagedir(dir, options)`
+
+A whole module of media is `s.imagedir()`, `s.filedir()`, `s.fontdir()` or
+`s.videodir()`, and the directory its uploads land in is the FIRST ARGUMENT:
+
+```typescript
+s.imagedir("/public/val/images", { accept: "image/webp", alt: s.string() });
+s.filedir("/public/val/docs", { accept: "application/pdf" });
+s.fontdir("/public/val/fonts");
+s.videodir("/public/val/videos", { stream: { type: "hls" } });
+```
+
+They were `s.imageset({ dir, ... })`, `s.fileset(...)`, `s.fontset(...)` and
+`s.videoset(...)`. Those names still work and are `@deprecated` — they build a
+byte-identical schema (`deprecatedSetNames.test.ts` pins that) — so write the
+`*dir` names in new code, docs and examples. Many internal identifiers and test
+names still say "set" (`videosetFixes.ts`, `handleVideosetUploadRemote`,
+`e2e/tanstack/videoset.spec.ts`); that is history, not a second concept. The serialized form
+is unchanged: still a record with `mediaType: "images" | "files" | "videos"` and
+a `dir`.
+
 ### Media is a plain object, not a constructor
 
 There is no `c.image` / `c.file` / `c.remote`. Media is written as an object with
@@ -585,9 +606,10 @@ language a URL is in; `.jsonValues()` with `c.json()`; `tanstackRouter` and
 `externalPageRouter`; and the settings sections `locales`, `theme`, `studio`
 (`commitMessage`) and `assistant`; and `s.video()` both as an mp4 and as an
 HLS stream (`stream: { type: "hls" }`), rendered with `ValVideo`, and
-`s.videoset()` with an `s.video(videosVal)` field that picks from it, the set's
+`s.videodir()` with an `s.video(videosVal)` field that picks from it, the set's
 entries holding default posters, times, focal point and captions that the field
-partly overrides, and an image gallery entry with a default focal point. What it does NOT cover, and why: `.remote()` on media (and
+partly overrides, and an image gallery entry with a default focal point; and `s.fontdir()` with an
+`s.font(fontsVal)` field whose font the showcase sets its sample in. What it does NOT cover, and why: `.remote()` on media (and
 `files: { remote: true }` in `val.config.ts`, which turns it on for every media
 schema) and `.external()` on a record, because both need credentials or an
 adapter a plain `pnpm dev` does not have — `examples/next` gates the remote one behind
@@ -650,7 +672,7 @@ is typed structurally (`SharpLike`), so this package typechecks in a project
 that has never heard of sharp; `sharpImageProcessor.test.ts` assigns the real
 library to that type, which is what stops it drifting.
 
-Remote images (`s.image().remote()`, `s.imageset({...}).remote()`) work too, and
+Remote images (`s.image().remote()`, `s.imagedir(dir, {...}).remote()`) work too, and
 the thing to know is that **nothing is uploaded to the content host when the
 image is added**. The bytes go into the patch store like any local pending file;
 the push to `remote.val.build` happens at publish, from
@@ -878,7 +900,7 @@ these bytes served from" and "what does the gallery know about this path".
 
 ### Re-encoding uploads (`encode`)
 
-`s.image({ encode: { type: "webp" } })` and `s.imageset({ encode })` convert an
+`s.image({ encode: { type: "webp" } })` and `s.imagedir(dir, { encode })` convert an
 upload to WebP before it is uploaded. **Off by default.**
 `quality` defaults to 0.8, `maxWidth`/`maxHeight` to 2560, and `encode: false`
 turns it off where a gallery turned it on.

@@ -2,9 +2,8 @@ import { c, s } from "../val.config";
 
 export default c.define(
   "/content/media.val.ts",
-  s.imageset({
+  s.imagedir("/public/val/images", {
     accept: "image/*",
-    dir: "/public/val/images",
     alt: s.string().minLength(4),
   }),
   {

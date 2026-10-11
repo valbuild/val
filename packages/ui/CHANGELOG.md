@@ -1,5 +1,67 @@
 # @valbuild/ui
 
+## 0.143.1
+
+### Patch Changes
+
+- [#820](https://github.com/valbuild/val/pull/820) [`49969c1`](https://github.com/valbuild/val/commit/49969c1e9f7c39f9cea1a97c91d59dbba6fe3f95) Thanks [@freekh](https://github.com/freekh)! - The progress spinner in the AI chat no longer flashes a green box on iPhone.
+
+  One of the spinner's frames was a character iOS draws as an emoji, a green square with a star in it. It has been replaced with a similar star that is always drawn as plain text.
+
+- [#823](https://github.com/valbuild/val/pull/823) [`ee8e2a2`](https://github.com/valbuild/val/commit/ee8e2a23272a512b43a03fb5f61fc0ddecd61dc4) Thanks [@freekh](https://github.com/freekh)! - New proposal always makes a new proposal. The Name field starts with a random two-word name you can keep or type over, and pressing Create twice, or again after a lost answer, still makes only one.
+
+- [#823](https://github.com/valbuild/val/pull/823) [`d6cc677`](https://github.com/valbuild/val/commit/d6cc6777cf9c2bbef3ba25e43a6227631523758e) Thanks [@freekh](https://github.com/freekh)! - Publishing a proposal now works on an iPhone.
+
+  An iPhone cannot run the bundler in the Studio page, so Publish in a proposal failed there with "The bundler needs a cross-origin isolated page", and left the proposal stuck while its merge waited for a tab that could build it. Publish in a proposal now does what the site's Publish already did: it opens a tab that can build, and that tab presses the merge, builds it and sees it go live. A proposal with unsaved changes is saved first, and Publish asks for a second tap to open that tab.
+
+  Any Studio tab that is handed a waiting merge can now also build it.
+
+- [#823](https://github.com/valbuild/val/pull/823) [`54aacab`](https://github.com/valbuild/val/commit/54aacab71893a95145183e4e9fefbfac945be24d) Thanks [@freekh](https://github.com/freekh)! - Publishing a proposal now goes through the same publish as the site: the status bar follows it, a failure offers Try again in the same place, and it is built in a new tab on devices that cannot build, exactly as a site publish is.
+
+- [#822](https://github.com/valbuild/val/pull/822) [`2577f4e`](https://github.com/valbuild/val/commit/2577f4e8ff19f5ea155040d4d9588b2dbc756ad9) Thanks [@freekh](https://github.com/freekh)! - The Studio's top bar no longer has a Share button. Members is the one people button now, on a phone and on a computer. To invite someone who is not in the organization yet, open Members and use "Invite to {org}".
+
+## 0.143.0
+
+### Minor Changes
+
+- [#813](https://github.com/valbuild/val/pull/813) [`f7c25bd`](https://github.com/valbuild/val/commit/f7c25bd4b44c288db8e5ab914e6d8a72c0216ba5) Thanks [@freekh](https://github.com/freekh)! - New: `s.font(fontsVal)`, a field that picks a font from an `s.fontset()`.
+
+  ```ts
+  s.object({
+    headingFont: s.font(fontsVal),
+    title: s.string(),
+  });
+  ```
+
+  It stores `{ path }` like `s.file(fontsVal)` does, and refuses a module that is not a font set. In the Studio, a font field is shown among its object's other fields as a small row — the letter "A" set in the chosen font, and the font's file name. Click it to open the field, which shows every font in the set to pick from, an upload button, and a full specimen of the chosen font. This applies to `s.file()` fields that point at a font set too.
+
+- [#813](https://github.com/valbuild/val/pull/813) [`729c4ed`](https://github.com/valbuild/val/commit/729c4edfa28f5a2942c435ccf225e65858b080cc) Thanks [@freekh](https://github.com/freekh)! - New: `s.fontset()`, a collection of fonts.
+
+  ```ts
+  const fontsVal = c.define(
+    "/content/fonts.val.ts",
+    s.fontset({ dir: "/public/val/fonts" }),
+    {},
+  );
+  // a field that picks one of them
+  s.object({ headingFont: s.file(fontsVal) });
+  ```
+
+  It is an `s.fileset()` whose `accept` defaults to the web font formats (`font/woff2`, `font/woff`, `font/ttf`, `font/otf`); pass `accept: "font/woff2"` to allow only WOFF2. Fonts are not converted on upload.
+
+  The Studio now previews fonts set in themselves — in the gallery, in the picker of a field that points at a font set, and in the field — wherever a file is a font, including fonts in an ordinary `s.fileset()`.
+
+  Font uploads are typed from their bytes, so a font is stored as `font/woff2`, `font/ttf` and so on even when the browser reports no type for it. Files ending in `.ttf`, `.otf` and `.woff` now map to the `font/` types rather than the older `application/x-font-*` names, which are still accepted where they are already stored.
+
+### Patch Changes
+
+- [#817](https://github.com/valbuild/val/pull/817) [`8cadf84`](https://github.com/valbuild/val/commit/8cadf840e8a47168172286ce6a9ac4b15dfe596c) Thanks [@freekh](https://github.com/freekh)! - Saving twice in a row in a proposal now works.
+
+  After a Save in a proposal, the Studio went back to showing the content from before that save, although the proposal had it. The next edit was then made on top of content the proposal had already moved past, and its save failed. Two changes fix it:
+
+  - A change this tab saved is no longer mistaken for one that was thrown away when it leaves the server's list of pending changes. It stays on screen.
+  - After a Save in a proposal, the Studio reads the proposal's new content straight away, instead of on its next periodic check, which could be twenty minutes away.
+
 ## 0.142.0
 
 ### Minor Changes

@@ -172,15 +172,15 @@ describe("Schema.render({ as: 'inline' })", () => {
       ).toThrow(/s\.router/);
     });
 
-    test("render on an imageset or fileset throws", () => {
+    test("render on an imagedir or filedir throws", () => {
       expect(() =>
-        s.imageset({ dir: "/public/val/images" }).render({ as: "inline" }),
-      ).toThrow(/s\.imageset/);
+        s.imagedir("/public/val/images").render({ as: "inline" }),
+      ).toThrow(/s\.imagedir/);
       expect(() =>
         s
-          .fileset({ accept: "application/pdf", dir: "/public/val/files" })
+          .filedir("/public/val/files", { accept: "application/pdf" })
           .render({ as: "inline" }),
-      ).toThrow(/s\.fileset/);
+      ).toThrow(/s\.filedir/);
     });
   });
 });

@@ -58,8 +58,27 @@ type MediaOptions = {
   stream?: VideoStreamOption;
 };
 
-/** What a media collection (`s.imageset`, `s.fileset`, `s.videoset`) holds. */
+/** What a media collection (`s.imagedir`, `s.filedir`, `s.videodir`) holds. */
 export type MediaCollectionType = "files" | "images" | "videos";
+
+/**
+ * Where a media collection keeps its files: the first argument of
+ * `s.imagedir()`, `s.filedir()`, `s.fontdir()` and `s.videodir()`.
+ *
+ * Required, and deliberately so: it decides where every uploaded file in the
+ * collection lands. It used to default to "/public/val", which meant a
+ * collection that had simply not said where it wanted its files silently
+ * shared a directory with every other one. It is the first argument rather
+ * than an option because it is the one thing every collection has to say.
+ */
+export type MediaDir = "/public" | `/public/${string}`;
+
+/** The factory that builds a media collection of each type, for messages. */
+const mediaDirFactory: Record<MediaCollectionType, string> = {
+  images: "imagedir",
+  files: "filedir",
+  videos: "videodir",
+};
 
 /**
  * The fix code a media collection of `type` reports for `check`.
@@ -107,7 +126,7 @@ function assertRenderable(
   }
   if (mediaOptions) {
     throw new Error(
-      `\`.render(...)\` is not supported on \`s.${mediaOptions.type === "images" ? "imageset" : "fileset"}(...)\`: media galleries have their own UI.`,
+      `\`.render(...)\` is not supported on \`s.${mediaDirFactory[mediaOptions.type]}(...)\`: media galleries have their own UI.`,
     );
   }
 }
@@ -1079,7 +1098,7 @@ export class RecordSchema<
    * Allow the files in this gallery to be stored on Val's remote content host
    * instead of in your repository.
    *
-   * For `s.imageset()` and `s.fileset()`, which are records of media. Remote is off
+   * For `s.imagedir()` and `s.filedir()`, which are records of media. Remote is off
    * until this is called.
    *
    * Each entry is then keyed by its URL on the content host rather than by a
@@ -1088,7 +1107,7 @@ export class RecordSchema<
    * upload it and rewrite the key.
    *
    * @example
-   * const schema = s.imageset({ dir: "/public/val/images" }).remote();
+   * const schema = s.imagedir("/public/val/images").remote();
    * export default c.define("/content/images.val.ts", schema, {
    *   "https://remote.val.build/file/p/my-project/b/01/v/1.0.0/h/8f2a1c/f/3b9d70/p/public/val/images/hero.webp":
    *     {
@@ -1125,7 +1144,7 @@ export class RecordSchema<
    * which lets the runtime, the Studio and validation work one entry at a time
    * so a record/router can scale to many thousands of entries.
    *
-   * Not supported on image/file galleries (`s.imageset()` / `s.fileset()`).
+   * Not supported on image/file galleries (`s.imagedir()` / `s.filedir()`).
    *
    * Only supported on a module's ROOT record/router — a `.jsonValues()` record
    * nested inside an object/array/record is rejected at startup with a module
@@ -1149,7 +1168,7 @@ export class RecordSchema<
   jsonValues(): RecordSchema<T, K, JsonValuesRecordSrc<T, K>> {
     if (this.mediaOptions) {
       throw new Error(
-        ".jsonValues() cannot be used with image/file galleries (s.imageset()/s.fileset())",
+        ".jsonValues() cannot be used with image/file galleries (s.imagedir()/s.filedir())",
       );
     }
     if (this.customValidateFunctions.length > 0) {
@@ -1196,7 +1215,7 @@ export class RecordSchema<
    * bucket — instead of in the module.
    *
    * Available on every record-derived schema, which is `s.record()`,
-   * `s.router()`, `s.imageset()` and `s.fileset()` alike: a router is a
+   * `s.router()`, `s.imagedir()` and `s.filedir()` alike: a router is a
    * `RecordSchema` with a `ValRouter`, a gallery one with media options, so all
    * four get external storage from this one method.
    *
@@ -1717,7 +1736,7 @@ export class RecordSchema<
    * draws each entry's own editor in place, labelled by its key, instead of a
    * preview row that navigates to it. It reaches the direct entries only.
    *
-   * Not for `s.router(...)`, `s.imageset(...)` or `s.fileset(...)`: pages and
+   * Not for `s.router(...)`, `s.imagedir(...)` or `s.filedir(...)`: pages and
    * media have UIs of their own, so this throws on them.
    *
    * Static configuration, not a callback — see `render.ts`.

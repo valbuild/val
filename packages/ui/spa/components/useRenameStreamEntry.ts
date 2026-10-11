@@ -14,7 +14,7 @@ import {
 import { fetchStreamFile } from "../utils/video/fetchStreamFile";
 
 /**
- * Rename an HLS stream that is an entry of the `s.videoset()` this hook is
+ * Rename an HLS stream that is an entry of the `s.videodir()` this hook is
  * mounted for, and point every `s.video(set)` field using it at the new name.
  *
  * The stream counterpart of `useRenameMediaFile`'s gallery entry, in the same

@@ -2,6 +2,7 @@ import { CustomValidateFunction, Schema, SchemaAssertResult } from ".";
 import {
   GalleryImageSource,
   ImageSource,
+  galleryKeyOf,
   isRemoteMediaPath,
 } from "../source/media";
 import { getValPath, ModulePath, SourcePath } from "../val";
@@ -11,7 +12,7 @@ import {
 } from "./validation/ValidationError";
 import { Internal, ValModule } from "..";
 import { ItemPreviewInput, PreviewItem } from "../preview";
-import { AltSource, ImagesetEntryMetadata } from "./imageset";
+import { AltSource, ImagedirEntryMetadata } from "./imagedir";
 import { getSource } from "../module";
 import { mimeTypeMatchesAccept } from "../mimeType";
 
@@ -90,7 +91,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly moduleMetadata: Record<
       ModulePath,
-      Record<string, ImagesetEntryMetadata<AltSource>>
+      Record<string, ImagedirEntryMetadata<AltSource>>
     > = {},
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
@@ -251,10 +252,17 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
         ],
       } as ValidationErrors;
     }
+    // A field picked from a gallery holds the gallery's KEY, and whether that
+    // key is a local path or a remote ref is the gallery's to decide — and its
+    // to fix: uploading an entry renames its key, and the fields that hold it
+    // with it. So such a field only asks whether the gallery has it, below.
+    // Asking here as well reported every image picked from a `.remote()`
+    // gallery as one to download, because the field itself is never remote.
+    const galleryEntries = this.galleryEntries();
     // Remote-ness is a property of the path, not of a marker on the value:
     // anything outside /public is remote.
     const isRemotePath = isRemoteMediaPath(src.path);
-    if (this.isRemote && !isRemotePath) {
+    if (!galleryEntries && this.isRemote && !isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -266,7 +274,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
         ],
       } as ValidationErrors;
     }
-    if (this.isRemote && isRemotePath) {
+    if (!galleryEntries && this.isRemote && isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -278,7 +286,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
         ],
       } as ValidationErrors;
     }
-    if (!this.isRemote && isRemotePath) {
+    if (!galleryEntries && !this.isRemote && isRemotePath) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -310,7 +318,6 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
       }
     }
 
-    const galleryEntries = this.galleryEntries();
     if (galleryEntries) {
       // The dimensions and mime type of a gallery image are stored once, in the
       // gallery. Repeating them on the field is how the two get to disagree.
@@ -328,7 +335,9 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
           ],
         } as ValidationErrors;
       }
-      if (!(src.path in galleryEntries)) {
+      // The same match reading the field makes (`fillFromGallery`): the key,
+      // or the local path inside a ref an upload through the field stored.
+      if (galleryKeyOf(src.path, (key) => key in galleryEntries) === null) {
         return {
           [path]: [
             ...customValidationErrors,
@@ -444,7 +453,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
    */
   private galleryEntries(): Record<
     string,
-    ImagesetEntryMetadata<AltSource>
+    ImagedirEntryMetadata<AltSource>
   > | null {
     const modulePaths = Object.keys(this.moduleMetadata);
     if (modulePaths.length === 0) {
@@ -634,7 +643,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
  * gallery, so the field carries only what a person typed.
  */
 export function image(
-  galleryModule: ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+  galleryModule: ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryImageOptions,
 ): ImageSchema<GalleryImageSource>;
 /** An image of its own, carrying its own dimensions and mime type. */
@@ -642,7 +651,7 @@ export function image(options?: ImageOptions): ImageSchema<ImageSource>;
 export function image(
   options?:
     | ImageOptions
-    | ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+    | ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryImageOptions,
 ): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
   return imageOf(false, options, galleryOptions);
@@ -654,14 +663,14 @@ export function image(
  * `initSchema`.
  */
 export function remoteImage(
-  galleryModule: ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+  galleryModule: ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryImageOptions,
 ): ImageSchema<GalleryImageSource>;
 export function remoteImage(options?: ImageOptions): ImageSchema<ImageSource>;
 export function remoteImage(
   options?:
     | ImageOptions
-    | ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+    | ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryImageOptions,
 ): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
   return imageOf(true, options, galleryOptions);
@@ -671,21 +680,21 @@ function imageOf(
   remote: boolean,
   options?:
     | ImageOptions
-    | ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+    | ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryImageOptions,
 ): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
   const isModule =
     !!options &&
     !!Internal.getValPath(
-      options as ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+      options as ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
     );
   if (isModule) {
     const allModules: Record<
       string,
-      Record<string, ImagesetEntryMetadata<AltSource>>
+      Record<string, ImagedirEntryMetadata<AltSource>>
     > = {};
     for (const valModule of [
-      options as ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+      options as ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
     ]) {
       const modulePath = getValPath(valModule) as ModulePath | undefined;
       if (modulePath === undefined) {
@@ -695,7 +704,7 @@ function imageOf(
       }
       allModules[modulePath] = getSource(valModule) as Record<
         string,
-        ImagesetEntryMetadata<AltSource>
+        ImagedirEntryMetadata<AltSource>
       >;
     }
     return new ImageSchema<GalleryImageSource>(

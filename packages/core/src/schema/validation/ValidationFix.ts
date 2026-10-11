@@ -25,7 +25,7 @@ export const ValidationFix = [
   // half on each side is not one that plays.
   "video:upload-remote",
   "video:download-remote",
-  // A `s.videoset()` entry without what is read from its bytes. The set's own
+  // A `s.videodir()` entry without what is read from its bytes. The set's own
   // twin of `video:add-metadata`: the file is the entry's KEY, not a `path`.
   "videos:add-metadata",
   "videos:check-remote",

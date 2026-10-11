@@ -18,7 +18,12 @@ import { isSettled } from "./publishJobs";
 import { randomUUID } from "../utils/randomUUID";
 import { PUBLISH_TAB_ID } from "./tabId";
 
-export type PrepareOptions = { tryAgainOf?: string; after?: string | null };
+export type PrepareOptions = {
+  tryAgainOf?: string;
+  after?: string | null;
+  /** Publish in a proposal: the tab presses this proposal's merge. */
+  merge?: string;
+};
 
 /** What the builder tab pressed for this page. See `ToSite`. */
 export type HandoffPressed = Extract<ToSite, { type: "pressed" }>;
@@ -215,6 +220,10 @@ export function useSiteHandoff(
       pressedFor.current = requestId;
       ownRequest.current = requestId;
       const after = prepareOptions?.after ?? null;
+      const merging =
+        prepareOptions?.merge !== undefined
+          ? { merge: prepareOptions.merge }
+          : {};
       const intent: HandoffIntent =
         prepareOptions?.tryAgainOf !== undefined
           ? {
@@ -223,8 +232,15 @@ export function useSiteHandoff(
               tab: PUBLISH_TAB_ID,
               replaces: prepareOptions.tryAgainOf,
               after,
+              ...merging,
             }
-          : { kind: "press", requestId, tab: PUBLISH_TAB_ID, after };
+          : {
+              kind: "press",
+              requestId,
+              tab: PUBLISH_TAB_ID,
+              after,
+              ...merging,
+            };
       const handoff = openHandoff({ intent });
       if (!handoff.stored) {
         /*
