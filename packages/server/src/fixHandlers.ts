@@ -40,6 +40,7 @@ import {
   SourcePath,
   ValidationFix,
 } from "@valbuild/core";
+import { collectionReferencePatches } from "./collectionReferences";
 import { extractJsonValuesEntry } from "./extractJsonValuesEntry";
 import {
   canReadVideoMetadata,
@@ -564,7 +565,24 @@ export async function handleRemoteGalleryFileUpload(
           },
         };
 
-  return uploadRemoteFileCore(ctx, fileRef, metadata, schema);
+  const uploaded = await uploadRemoteFileCore(ctx, fileRef, metadata, schema);
+  const ref = ctx.remoteFiles[ctx.sourcePath]?.ref;
+  if (!uploaded.success || !uploaded.shouldApplyPatch || ref === undefined) {
+    return uploaded;
+  }
+  // `createFixPatch` renames the entry's key to the ref. Every field picked
+  // from the gallery that holds the old key — and every rich text image from
+  // it — would then name an image the gallery no longer has, so they are
+  // pointed at the ref in the same run, as `videos:upload-remote` does.
+  const otherModulePatches = await collectionReferencePatches(
+    ctx.service,
+    ctx.moduleFilePath,
+    { [fileRef]: ref },
+  );
+  return {
+    ...uploaded,
+    ...(otherModulePatches.length > 0 ? { otherModulePatches } : {}),
+  };
 }
 
 export async function handleRemoteFileDownload(
@@ -584,9 +602,41 @@ export async function handleRemoteFileDownload(
   }
 }
 
+/**
+ * `image:check-remote` / `file:check-remote`: core's "Remote image was not
+ * checked." — emitted for EVERY remote value of an `s.image().remote()` /
+ * `s.file().remote()`, wrong or not, because core cannot read the bytes or the
+ * ref's validation hash. It is a request to look, not a finding, so there is
+ * nothing to report here: `createFixPatch` does the looking (`checkRemoteRef`)
+ * and returns an error only for a ref that is actually wrong, with a fix where
+ * the ref only needs rewriting.
+ *
+ * So these stay a hand-off. Reporting core's message here instead would put an
+ * error on every remote image in a project, which is what the language server
+ * learned to stop doing (`mediaChecks.ts`).
+ */
 export async function handleRemoteFileCheck(): Promise<FixHandlerResult> {
-  // Skip - no action needed
   return { success: true, shouldApplyPatch: true };
+}
+
+/**
+ * `images:check-remote` / `files:check-remote`: a gallery key that is wrong as
+ * a key — a remote URL in a gallery that is not `.remote()`, a ref that does
+ * not parse, one outside the gallery's directory (`validateMediaKey` in core).
+ *
+ * Unlike the singular codes, core emits these only when something IS wrong,
+ * and its message says what. There is nothing to look up and nothing to move,
+ * so it is reported as it is, for a person: only they know whether the key or
+ * the gallery's options are the mistake. It used to share the singular codes'
+ * handler, which hands off to `createFixPatch` — and that has no branch for a
+ * gallery key, so the error vanished and the module was reported valid.
+ *
+ * The same answer as `videos:check-remote`.
+ */
+export async function handleGalleryCheckRemote(
+  ctx: Pick<FixHandlerContext, "validationError">,
+): Promise<FixHandlerResult> {
+  return { success: false, errorMessage: ctx.validationError.message };
 }
 
 export async function handleUniqueFolderCheck(
@@ -806,9 +856,9 @@ export const currentFixHandlers: Record<
   "videos:check-unique-folder": handleUniqueFolderCheck,
   "videos:check-all-files": handleVideosetCheckAllFiles,
   "image:check-remote": handleRemoteFileCheck,
-  "images:check-remote": handleRemoteFileCheck,
+  "images:check-remote": handleGalleryCheckRemote,
   "file:check-remote": handleRemoteFileCheck,
-  "files:check-remote": handleRemoteFileCheck,
+  "files:check-remote": handleGalleryCheckRemote,
   "images:check-unique-folder": handleUniqueFolderCheck,
   "files:check-unique-folder": handleUniqueFolderCheck,
   "images:check-all-files": handleCheckAllFiles,

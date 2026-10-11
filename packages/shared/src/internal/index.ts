@@ -1,4 +1,5 @@
 export * from "./richtext/conversion";
+export * from "./richtext/richTextImages";
 export * from "./server/types";
 // One `/sources/~` read per request, shared by every `fetchVal` in it. Lives
 // here rather than in @valbuild/next and @valbuild/tanstack separately
