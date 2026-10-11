@@ -295,6 +295,55 @@ export default c.define(
     });
   });
 
+  test("a saved entry whose content is null is that content, not a deleted entry", async () => {
+    const NULLABLE = "/app/notes.val.ts" as ModuleFilePath;
+    const notesText = `import { c, s } from "../val.config";
+export default c.define(
+  "/app/notes.val.ts",
+  s.record(s.object({ title: s.string() }).nullable()).jsonValues(),
+  { a: c.json(() => import("./notes/a.val.json")) },
+);
+`;
+    const o = new ValOpsHttp(
+      "https://content.example",
+      "org/project",
+      null,
+      { apiKey: "test" },
+      {
+        config,
+        modules: [
+          {
+            def: async () => ({
+              default: c.define(
+                NULLABLE,
+                s
+                  .record(s.object({ title: s.string() }).nullable())
+                  .jsonValues(),
+                {
+                  a: c.json(() =>
+                    Promise.resolve({ default: { title: "from the bundle" } }),
+                  ),
+                },
+              ),
+            }),
+          },
+        ],
+      },
+      {
+        config,
+        projectSource: { "app/notes.val.ts": notesText },
+        proposal: {
+          ...saved,
+          modules: { [NULLABLE]: { a: { _type: "json" } } },
+          files: { "app/notes/a.val.json": "null" },
+        },
+      },
+    );
+    expect(
+      await o.getJsonEntry(NULLABLE, "a", { applyPatches: false }),
+    ).toEqual({ status: "success", content: null });
+  });
+
   test("the Studio there reads the saved entry, and the build's for the rest", async () => {
     const o = new ValOpsHttp(
       "https://content.example",

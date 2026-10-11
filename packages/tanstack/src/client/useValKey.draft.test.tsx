@@ -144,6 +144,13 @@ describe("useValKey at a proposal's address", () => {
     expect(shown()).toBe("saved A");
   });
 
+  it("renders nothing for a record the proposal saved as null", async () => {
+    await act(async () => {
+      render(snapshotTree({ [path]: null }));
+    });
+    expect(shown()).toBe("nothing");
+  });
+
   it("renders the build's entry where the proposal saved none", async () => {
     await act(async () => {
       render(snapshotTree({ [path]: { "/a": { _type: "json" } } }));

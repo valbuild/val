@@ -205,7 +205,10 @@ export function proposalSnapshotForReaders(
       if (isJsonValue(value)) filled[key] = value;
     }
     for (const [key, content] of entries) {
-      if (key in filled) filled[key] = content;
+      // Own keys only: an entry may be named `toString`.
+      if (Object.prototype.hasOwnProperty.call(filled, key)) {
+        filled[key] = content;
+      }
     }
     snapshot[moduleFilePath] = filled;
   }

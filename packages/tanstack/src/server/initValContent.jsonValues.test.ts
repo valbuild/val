@@ -229,6 +229,28 @@ describe("fetchValKey at a proposal's address", () => {
     expect(titleOf(await fetchValKey(withB, "/b"))).toBe("committed B");
   });
 
+  test("a record the proposal saved as null has no entries, not the build's", async () => {
+    const { server } = fakeValServer(neverAsked);
+    const fetchValKey = initFetchValKeyStega(
+      server,
+      async () => false,
+      cookies,
+      { [PAGES]: null },
+    );
+    expect(await fetchValKey(pagesVal, "/a")).toBeUndefined();
+  });
+
+  test("an entry named like an Object property is only there if the proposal has it", async () => {
+    const { server } = fakeValServer(neverAsked);
+    const fetchValKey = initFetchValKeyStega(
+      server,
+      async () => false,
+      cookies,
+      snapshot,
+    );
+    expect(await fetchValKey(pagesVal, "toString")).toBeUndefined();
+  });
+
   test("an editor's draft still wins over what the proposal saved", async () => {
     const { server } = fakeValServer((key) => ({
       status: 200,

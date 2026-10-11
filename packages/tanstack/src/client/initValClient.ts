@@ -192,19 +192,23 @@ function draftJsonEntry(
   | { status: "content"; content: unknown }
   | { status: "absent" }
   | { status: "unavailable" } {
+  if (draftSource === null) {
+    // A nullable record that is null in the draft view: it has no entries.
+    return { status: "absent" };
+  }
   if (
     draftSource === undefined ||
-    draftSource === null ||
     typeof draftSource !== "object" ||
     Array.isArray(draftSource)
   ) {
     return { status: "unavailable" };
   }
-  const entry = (draftSource as Record<string, unknown>)[key];
-  if (entry === undefined) {
+  // Own keys only: an entry may be named `toString`.
+  if (!Object.prototype.hasOwnProperty.call(draftSource, key)) {
     // The module IS in the draft view and this key is not: it was deleted.
     return { status: "absent" };
   }
+  const entry = (draftSource as Record<string, unknown>)[key];
   if (Internal.isJson(entry)) {
     // An un-loaded marker: the Studio has not fetched this entry's content, so
     // the draft view cannot answer. (The engine asks for entries that pending

@@ -689,15 +689,19 @@ export function snapshotJsonEntry(
   key: string,
 ): DraftJsonEntry {
   const source = snapshot?.[moduleFilePath];
+  if (source === null) {
+    // A nullable record the proposal saved as null: it has no entries.
+    return { status: "absent" };
+  }
   if (
     source === undefined ||
-    source === null ||
     typeof source !== "object" ||
     Array.isArray(source)
   ) {
     return { status: "unavailable" };
   }
-  if (!(key in source)) {
+  // Own keys only: an entry may be named `toString`.
+  if (!Object.prototype.hasOwnProperty.call(source, key)) {
     return { status: "absent" };
   }
   const entry: unknown = (source as Record<string, unknown>)[key];
