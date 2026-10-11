@@ -7,6 +7,7 @@ import { getValPath, ModuleFilePath, SourcePath } from "./val";
 import { getSource } from "./module";
 import { resolveSettingsModule } from "./settingsModule";
 import { viewCycleErrors } from "./schema/viewCycles";
+import { untypedLocaleRouteParamErrors } from "./schema/localeRouteParams";
 
 export type ExtractedModuleError = {
   message: string;
@@ -381,6 +382,14 @@ export async function extractValModules(
   // catches it either — a view stores a pointer, not content, so there is no
   // data cycle for a source walk to trip over.
   for (const error of viewCycleErrors(serializedSchemas)) {
+    moduleErrors.push(error);
+  }
+  // And one more: whether a route's language segment is described depends on
+  // whether the project HAS languages, which is in the settings module.
+  for (const error of untypedLocaleRouteParamErrors(
+    serializedSchemas,
+    sources,
+  )) {
     moduleErrors.push(error);
   }
   return {

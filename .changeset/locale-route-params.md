@@ -25,4 +25,6 @@ Routers can give each route parameter a schema, and a URL can say which language
 
   A router with a locale parameter makes each page a locale scope, so the Studio and validation know which language every page is in.
 
+- **A route's language segment can no longer be forgotten.** In a project that declares `locales.available`, a page route with a `locale` or `lang` segment (`{-$locale}`, `[lang]`) whose module gives that parameter no schema is reported, saying what to add. Any schema answers it, so a `$lang` that is not a language is silenced with its own, e.g. `{ lang: s.enum("typescript", "python") }`.
+
 - **TanStack optional segments (`{-$param}`)** are now understood: route validation, `useValRoute` and the Studio's new-page form accept keys with and without the segment.
