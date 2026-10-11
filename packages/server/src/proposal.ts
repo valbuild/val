@@ -146,10 +146,20 @@ export type ValContentVersion = {
  * Throws on one it cannot read rather than serving the bundle as though it
  * were the version: the site would show content older than what was
  * published, and nothing would say so.
+ *
+ * A version too large for one variable names others under `refs`: a module's
+ * Source (JSON) or a file's text, each in a variable of its own --
+ * `{ "refs": { "modules": { "/a.val.ts": "env://VAL_CONTENT_1" } } }`. Flat:
+ * a referenced variable holds the value itself and is never read for further
+ * references. Only `refs` is resolved, never a string inside Source, and only
+ * `VAL_CONTENT_<n>` is ever read: Source is text editors write, and a
+ * reference resolved in there would read any variable the isolate holds,
+ * `VAL_SECRET` included, into a page. The scheme leaves room for another
+ * place to read from; one this does not know is refused, not skipped.
  */
-export function contentFromEnv(env: {
-  VAL_CONTENT?: string | undefined;
-}): ValContentVersion | undefined {
+export function contentFromEnv(
+  env: Record<string, string | undefined>,
+): ValContentVersion | undefined {
   if (!env.VAL_CONTENT) {
     return undefined;
   }
@@ -199,8 +209,73 @@ export function contentFromEnv(env: {
       files[path] = text;
     }
   }
-  return { id, job, commit, modules: modulesIn, files };
+  const modules: Record<string, unknown> = { ...modulesIn };
+  const refs = parsed["refs"] ?? {};
+  if (!isObject(refs) || Array.isArray(refs)) {
+    throw new Error(`Val: content version ${id}: refs must be an object`);
+  }
+  const read = (kind: "modules" | "files", path: string, ref: unknown) => {
+    const where = `Val: content version ${id}: refs.${kind}["${path}"]`;
+    if (typeof ref !== "string") {
+      throw new Error(`${where} must be a string`);
+    }
+    if (!ref.startsWith(ENV_REF)) {
+      throw new Error(
+        `${where} is ${ref}: only ${ENV_REF}VAL_CONTENT_<n> is read`,
+      );
+    }
+    const name = ref.slice(ENV_REF.length);
+    if (!CONTENT_VARIABLE.test(name)) {
+      throw new Error(`${where} names ${name}: only VAL_CONTENT_<n> is read`);
+    }
+    const value = env[name];
+    if (value === undefined) {
+      throw new Error(`${where} names ${name}, which is not set`);
+    }
+    return { where, name, value };
+  };
+  const refModules = refs["modules"] ?? {};
+  const refFiles = refs["files"] ?? {};
+  if (
+    !isObject(refModules) ||
+    Array.isArray(refModules) ||
+    !isObject(refFiles) ||
+    Array.isArray(refFiles)
+  ) {
+    throw new Error(
+      `Val: content version ${id}: refs.modules and refs.files must be objects`,
+    );
+  }
+  for (const [path, ref] of Object.entries(refModules)) {
+    const { where, name, value } = read("modules", path, ref);
+    if (Object.prototype.hasOwnProperty.call(modules, path)) {
+      throw new Error(`${where}: ${path} is also in modules`);
+    }
+    try {
+      modules[path] = JSON.parse(value);
+    } catch (err) {
+      throw new Error(
+        `${where}: ${name} is not JSON (${
+          err instanceof Error ? err.message : String(err)
+        })`,
+        { cause: err },
+      );
+    }
+  }
+  for (const [path, ref] of Object.entries(refFiles)) {
+    const { where, value } = read("files", path, ref);
+    if (Object.prototype.hasOwnProperty.call(files, path)) {
+      throw new Error(`${where}: ${path} is also in files`);
+    }
+    files[path] = value;
+  }
+  return { id, job, commit, modules, files };
 }
+
+/** The one scheme a content version's `refs` may use, for now. */
+const ENV_REF = "env://";
+/** The only variables a reference may name. */
+const CONTENT_VARIABLE = /^VAL_CONTENT_[0-9]+$/;
 
 /**
  * The proposal's saved Source, as Source: every module whose value is JSON.

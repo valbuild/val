@@ -180,6 +180,13 @@ const CONTENT_BLOCK = `/*
  * and never says it applied the version, which is how the platform knows not
  * to serve this build a version it does not bundle. A version that does not
  * parse is thrown, not served as the bundle.
+ *
+ * A version too large for one variable names others under \`refs\`
+ * (\`"env://VAL_CONTENT_1"\`), each holding one module's Source or one file's
+ * text. Only \`refs\` is resolved, never a string inside Source, and only
+ * \`VAL_CONTENT_<n>\` is read: Source is text editors write, and resolving a
+ * reference in there would read \`VAL_SECRET\` into a page. The same rules as
+ * \`contentFromEnv\` in @valbuild/server.
  */
 const contentVersion = (() => {
   const handed = secret("VAL_CONTENT");
@@ -190,16 +197,50 @@ const contentVersion = (() => {
     commit?: string | null;
     modules?: Record<string, unknown>;
     files?: Record<string, string>;
+    refs?: {
+      modules?: Record<string, unknown>;
+      files?: Record<string, unknown>;
+    };
   } = JSON.parse(handed);
   if (typeof parsed.id !== "string") {
     throw new Error("Val: VAL_CONTENT has no id");
   }
+  const id = parsed.id;
+  const modules: Record<string, unknown> = { ...parsed.modules };
+  const files: Record<string, string> = { ...parsed.files };
+  const read = (kind: string, path: string, ref: unknown): string => {
+    const where = "Val: content version " + id + ": refs." + kind + "[" + path + "]";
+    if (typeof ref !== "string" || !ref.startsWith("env://")) {
+      throw new Error(where + " is " + String(ref) + ": only env://VAL_CONTENT_<n> is read");
+    }
+    const name = ref.slice("env://".length);
+    if (!/^VAL_CONTENT_[0-9]+$/.test(name)) {
+      throw new Error(where + " names " + name + ": only VAL_CONTENT_<n> is read");
+    }
+    const value = secret(name);
+    if (value === undefined) {
+      throw new Error(where + " names " + name + ", which is not set");
+    }
+    return value;
+  };
+  for (const [path, ref] of Object.entries(parsed.refs?.modules ?? {})) {
+    if (Object.prototype.hasOwnProperty.call(modules, path)) {
+      throw new Error("Val: content version " + id + ": " + path + " is in modules and refs.modules");
+    }
+    modules[path] = JSON.parse(read("modules", path, ref));
+  }
+  for (const [path, ref] of Object.entries(parsed.refs?.files ?? {})) {
+    if (Object.prototype.hasOwnProperty.call(files, path)) {
+      throw new Error("Val: content version " + id + ": " + path + " is in files and refs.files");
+    }
+    files[path] = read("files", path, ref);
+  }
   return {
-    id: parsed.id,
+    id,
     job: parsed.job ?? null,
     commit: parsed.commit ?? null,
-    modules: parsed.modules ?? {},
-    files: parsed.files ?? {},
+    modules,
+    files,
   };
 })();
 `;

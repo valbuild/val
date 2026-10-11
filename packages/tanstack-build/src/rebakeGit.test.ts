@@ -1,3 +1,4 @@
+import ts from "typescript";
 import {
   VAL_SERVER_PATH,
   bakedGit,
@@ -272,6 +273,85 @@ describe("serving a content version", () => {
       .replace(OPTION, "");
     const rebaked = rebakeGit({ ...files, [VAL_SERVER_PATH]: old }, null);
     expect(rebaked[VAL_SERVER_PATH]).toBe(source);
+  });
+
+  /**
+   * The block as the isolate runs it: compiled, and handed a `secret` that
+   * reads from `env` the way the generated one reads the platform's secrets.
+   */
+  const runBlock = (env: Record<string, string>): unknown => {
+    const source = wired()[VAL_SERVER_PATH];
+    const start = source.indexOf(CONTENT_START);
+    const end = source.indexOf("})();\n", start) + "})();\n".length;
+    expect(start).toBeGreaterThan(-1);
+    const js = ts.transpile(source.slice(start, end), {
+      target: ts.ScriptTarget.ES2022,
+    });
+    const run = new Function("secret", `${js}\nreturn contentVersion;`);
+    return run((name: string) => env[name]);
+  };
+  const ID = "e".repeat(64);
+
+  test("the block reads references to other variables, as @valbuild/server does", () => {
+    expect(
+      runBlock({
+        VAL_CONTENT: JSON.stringify({
+          id: ID,
+          job: "J-7",
+          commit: "c7",
+          modules: { "/a.val.ts": { title: "inline" } },
+          files: {},
+          refs: {
+            modules: { "/b.val.ts": "env://VAL_CONTENT_1" },
+            files: { "b.val.json": "env://VAL_CONTENT_2" },
+          },
+        }),
+        VAL_CONTENT_1: JSON.stringify({ title: "From a variable" }),
+        VAL_CONTENT_2: '{"title":"Hello"}',
+      }),
+    ).toEqual({
+      id: ID,
+      job: "J-7",
+      commit: "c7",
+      modules: {
+        "/a.val.ts": { title: "inline" },
+        "/b.val.ts": { title: "From a variable" },
+      },
+      files: { "b.val.json": '{"title":"Hello"}' },
+    });
+  });
+
+  test("the block reads no variable but VAL_CONTENT_<n>, and no scheme but env://", () => {
+    const naming = (ref: string) => ({
+      VAL_CONTENT: JSON.stringify({
+        id: ID,
+        refs: { modules: { "/a.val.ts": ref } },
+      }),
+      VAL_SECRET: JSON.stringify({ title: "a secret" }),
+    });
+    expect(() => runBlock(naming("env://VAL_SECRET"))).toThrow(
+      /VAL_CONTENT_<n>/,
+    );
+    expect(() => runBlock(naming("blob://" + "a".repeat(64)))).toThrow(
+      /blob:\/\//,
+    );
+    expect(() => runBlock(naming("env://VAL_CONTENT_9"))).toThrow(
+      /VAL_CONTENT_9/,
+    );
+  });
+
+  test("the block never resolves a reference inside Source", () => {
+    expect(
+      runBlock({
+        VAL_CONTENT: JSON.stringify({
+          id: ID,
+          modules: { "/a.val.ts": { title: "env://VAL_CONTENT_1" } },
+        }),
+        VAL_CONTENT_1: JSON.stringify("resolved"),
+      }),
+    ).toMatchObject({
+      modules: { "/a.val.ts": { title: "env://VAL_CONTENT_1" } },
+    });
   });
 
   test("an edited file it cannot place the block in is left as it was", () => {

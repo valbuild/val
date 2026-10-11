@@ -162,3 +162,124 @@ describe("contentFromEnv", () => {
     ).toThrow(/modules/);
   });
 });
+
+/*
+ * A version too large for one variable: the platform moves a module's Source,
+ * or a file's text, into a variable of its own and names it under `refs`.
+ * Out of band, never inside Source: content is text editors write, and a
+ * reference resolved in there would read any variable the isolate holds --
+ * `VAL_SECRET` included -- into a page. And only `VAL_CONTENT_<n>`, for the
+ * same reason.
+ */
+describe("contentFromEnv with references", () => {
+  const handed = (over: Record<string, unknown>) =>
+    JSON.stringify({ id: ID, job: "J-7", commit: "c7", ...over });
+
+  test("reads a module's Source and a file's text from the variables named", () => {
+    expect(
+      contentFromEnv({
+        VAL_CONTENT: handed({
+          modules: { [PAGE]: { title: "inline" } },
+          files: {},
+          refs: {
+            modules: { [FOOTER]: "env://VAL_CONTENT_1" },
+            files: { "app/x.val.json": "env://VAL_CONTENT_2" },
+          },
+        }),
+        VAL_CONTENT_1: JSON.stringify({ text: "From a variable" }),
+        VAL_CONTENT_2: '{"title":"Hello"}',
+      }),
+    ).toEqual({
+      id: ID,
+      job: "J-7",
+      commit: "c7",
+      modules: {
+        [PAGE]: { title: "inline" },
+        [FOOTER]: { text: "From a variable" },
+      },
+      files: { "app/x.val.json": '{"title":"Hello"}' },
+    });
+  });
+
+  test("never resolves a reference inside Source", () => {
+    expect(
+      contentFromEnv({
+        VAL_CONTENT: handed({
+          modules: { [PAGE]: { title: "env://VAL_CONTENT_1" } },
+          files: { "app/page.val.ts": "env://VAL_CONTENT_1" },
+        }),
+        VAL_CONTENT_1: JSON.stringify("resolved"),
+      }),
+    ).toEqual({
+      id: ID,
+      job: "J-7",
+      commit: "c7",
+      modules: { [PAGE]: { title: "env://VAL_CONTENT_1" } },
+      files: { "app/page.val.ts": "env://VAL_CONTENT_1" },
+    });
+  });
+
+  test("refuses to read any variable but VAL_CONTENT_<n>", () => {
+    for (const name of [
+      "VAL_SECRET",
+      "VAL_CONTENT",
+      "VAL_CONTENT_",
+      "VAL_CONTENT_1x",
+      "val_content_1",
+    ]) {
+      expect(() =>
+        contentFromEnv({
+          VAL_CONTENT: handed({
+            refs: { modules: { [PAGE]: `env://${name}` } },
+          }),
+          VAL_SECRET: JSON.stringify({ title: "a secret" }),
+          VAL_CONTENT_1x: "{}",
+          val_content_1: "{}",
+        }),
+      ).toThrow(/VAL_CONTENT_<n>/);
+    }
+  });
+
+  test("refuses a scheme it does not know, rather than skip the module", () => {
+    expect(() =>
+      contentFromEnv({
+        VAL_CONTENT: handed({
+          refs: { modules: { [PAGE]: "blob://" + "a".repeat(64) } },
+        }),
+      }),
+    ).toThrow(/blob:\/\//);
+  });
+
+  test("refuses a reference to a variable that is not there", () => {
+    expect(() =>
+      contentFromEnv({
+        VAL_CONTENT: handed({
+          refs: { files: { "app/x.val.json": "env://VAL_CONTENT_3" } },
+        }),
+      }),
+    ).toThrow(/VAL_CONTENT_3/);
+  });
+
+  test("refuses a referenced module that is not JSON", () => {
+    expect(() =>
+      contentFromEnv({
+        VAL_CONTENT: handed({
+          refs: { modules: { [PAGE]: "env://VAL_CONTENT_1" } },
+        }),
+        VAL_CONTENT_1: "{",
+      }),
+    ).toThrow(/VAL_CONTENT_1/);
+  });
+
+  test("refuses a path named both inline and by reference", () => {
+    expect(() =>
+      contentFromEnv({
+        VAL_CONTENT: handed({
+          modules: { [PAGE]: { title: "inline" } },
+          refs: { modules: { [PAGE]: "env://VAL_CONTENT_1" } },
+        }),
+        VAL_CONTENT_1: JSON.stringify({ title: "referenced" }),
+      }),
+    ).toThrow(new RegExp(PAGE));
+  });
+});
