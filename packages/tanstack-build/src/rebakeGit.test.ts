@@ -221,3 +221,70 @@ describe("serving a proposal's address", () => {
     );
   });
 });
+
+/**
+ * The site's content version (valbuild/home `docs/hosted-publishing.md`, step
+ * 2): the platform hands over what differs from the bundle as `VAL_CONTENT`.
+ * Every site published before it has a `val.server.ts` that does not read it,
+ * so it arrives by a rebake too, as the proposal block did.
+ */
+describe("serving a content version", () => {
+  const CONTENT_START = "const contentVersion = (() => {";
+  const OPTION =
+    "        ...(contentVersion !== undefined ? { contentVersion } : {}),\n";
+  /** A file as wired before content versions: the block and its option cut out. */
+  const wiredBefore = () => {
+    const files = wired();
+    const source = files[VAL_SERVER_PATH];
+    const start = source.indexOf("/*\n * THE CONTENT VERSION");
+    const end = source.indexOf("const valConfig = {");
+    expect(start).toBeGreaterThan(-1);
+    const old = (source.slice(0, start) + source.slice(end)).replace(
+      OPTION,
+      "",
+    );
+    expect(old).not.toContain(CONTENT_START);
+    return { ...files, [VAL_SERVER_PATH]: old };
+  };
+
+  test("a fresh file reads it and hands it to Val", () => {
+    const source = wired()[VAL_SERVER_PATH];
+    expect(source).toContain(CONTENT_START);
+    expect(source).toContain('secret("VAL_CONTENT")');
+    expect(source).toContain(OPTION);
+  });
+
+  test("a file wired before content versions gets exactly what a fresh one has, once", () => {
+    const rebaked = rebakeGit(wiredBefore(), null);
+    expect(rebaked[VAL_SERVER_PATH]).toBe(wired()[VAL_SERVER_PATH]);
+    expect(rebakeGit(rebaked, null)[VAL_SERVER_PATH]).toBe(
+      rebaked[VAL_SERVER_PATH],
+    );
+  });
+
+  test("...and so does one wired before proposals too", () => {
+    const files = wired();
+    const source = files[VAL_SERVER_PATH];
+    const start = source.indexOf("/*\n * THE PROPOSAL");
+    const end = source.indexOf("const valConfig = {");
+    const old = (source.slice(0, start) + source.slice(end))
+      .replace("        ...(proposal !== undefined ? { proposal } : {}),\n", "")
+      .replace(OPTION, "");
+    const rebaked = rebakeGit({ ...files, [VAL_SERVER_PATH]: old }, null);
+    expect(rebaked[VAL_SERVER_PATH]).toBe(source);
+  });
+
+  test("an edited file it cannot place the block in is left as it was", () => {
+    const before = wiredBefore();
+    const edited = {
+      ...before,
+      [VAL_SERVER_PATH]: before[VAL_SERVER_PATH].replace(
+        "        ...(proposal !== undefined ? { proposal } : {}),\n",
+        "",
+      ),
+    };
+    expect(rebakeGit(edited, null)[VAL_SERVER_PATH]).toBe(
+      edited[VAL_SERVER_PATH],
+    );
+  });
+});

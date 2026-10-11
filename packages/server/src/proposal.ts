@@ -116,6 +116,93 @@ export function proposalFromEnv(env: {
 }
 
 /**
+ * A content version: the site's content, served by a build that bundles an
+ * older one. valbuild/home `docs/hosted-publishing.md`, step 2.
+ *
+ * The platform hands over only what differs from the bundle -- the modules
+ * whose Source changed and the Val files whose text did -- the way it hands a
+ * proposal's address its saved content, and it is read the same way: the
+ * snapshot source provider, over the bundle. What differs is the position: a
+ * version names the publish that made it (`job`, or its `commit`), and that is
+ * where this server says it sits, never at the build it runs in.
+ */
+export type ValContentVersion = {
+  /** The version's id: the hash of its manifest, as the platform stores it. */
+  id: string;
+  /** The publish job that made it, when a job did. */
+  job: string | null;
+  /** Its place in the chain: the commit that publish minted. */
+  commit: string | null;
+  /** Source, by module file path, for the modules that differ from the bundle. */
+  modules: Record<string, unknown>;
+  /** Val file text, by path, for the files that differ from the bundle. */
+  files: Record<string, string>;
+};
+
+/**
+ * The content version a platform hands over in its runtime env
+ * (`VAL_CONTENT`), or `undefined` when it hands over none.
+ *
+ * Throws on one it cannot read rather than serving the bundle as though it
+ * were the version: the site would show content older than what was
+ * published, and nothing would say so.
+ */
+export function contentFromEnv(env: {
+  VAL_CONTENT?: string | undefined;
+}): ValContentVersion | undefined {
+  if (!env.VAL_CONTENT) {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(env.VAL_CONTENT);
+  } catch (err) {
+    throw new Error(
+      `Val: VAL_CONTENT is not JSON (${
+        err instanceof Error ? err.message : String(err)
+      })`,
+      { cause: err },
+    );
+  }
+  if (!isObject(parsed) || Array.isArray(parsed)) {
+    throw new Error("Val: VAL_CONTENT is not an object");
+  }
+  const id = parsed["id"];
+  if (typeof id !== "string" || id === "") {
+    throw new Error("Val: VAL_CONTENT has no id");
+  }
+  const job = parsed["job"] ?? null;
+  const commit = parsed["commit"] ?? null;
+  if (job !== null && typeof job !== "string") {
+    throw new Error(`Val: content version ${id}: job must be a string or null`);
+  }
+  if (commit !== null && typeof commit !== "string") {
+    throw new Error(
+      `Val: content version ${id}: commit must be a string or null`,
+    );
+  }
+  const modulesIn = parsed["modules"] ?? {};
+  const filesIn = parsed["files"] ?? {};
+  if (
+    !isObject(modulesIn) ||
+    Array.isArray(modulesIn) ||
+    !isObject(filesIn) ||
+    Array.isArray(filesIn)
+  ) {
+    throw new Error(
+      `Val: content version ${id}: modules and files must be objects`,
+    );
+  }
+  const files: Record<string, string> = {};
+  for (const [path, text] of Object.entries(filesIn)) {
+    if (typeof text === "string") {
+      files[path] = text;
+    }
+  }
+  return { id, job, commit, modules: modulesIn, files };
+}
+
+/**
  * The proposal's saved Source, as Source: every module whose value is JSON.
  * One place, so the server and the readers that render without it agree on
  * what the snapshot holds.

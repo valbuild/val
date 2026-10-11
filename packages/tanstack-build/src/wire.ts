@@ -161,11 +161,56 @@ const proposal = (() => {
   };
 })();
 `;
+/**
+ * THE CONTENT VERSION the site serves, when it differs from the one this build
+ * bundles (\`VAL_CONTENT\`). See valbuild/home \`docs/hosted-publishing.md\`,
+ * step 2. A constant for the same reason as {@link PROPOSAL_BLOCK}, and it
+ * arrives in files wired before it the same way: {@link rebakeContent}.
+ */
+const CONTENT_BLOCK = `/*
+ * THE CONTENT VERSION the site serves, when the platform says it differs from
+ * the one this build bundles (\`VAL_CONTENT\`: its id, the publish that made
+ * it, and the Source and Val files that differ). Val reads that Source instead
+ * of the bundle's and names that publish as its position. valbuild/home
+ * \`docs/hosted-publishing.md\`, step 2.
+ *
+ * Parsed here, like the proposal above, because this file is compiled against
+ * whatever @valbuild/tanstack the PROJECT installed. One from before content
+ * versions ignores the \`contentVersion\` key below and serves the bundle --
+ * and never says it applied the version, which is how the platform knows not
+ * to serve this build a version it does not bundle. A version that does not
+ * parse is thrown, not served as the bundle.
+ */
+const contentVersion = (() => {
+  const handed = secret("VAL_CONTENT");
+  if (!handed) return undefined;
+  const parsed: {
+    id?: unknown;
+    job?: string | null;
+    commit?: string | null;
+    modules?: Record<string, unknown>;
+    files?: Record<string, string>;
+  } = JSON.parse(handed);
+  if (typeof parsed.id !== "string") {
+    throw new Error("Val: VAL_CONTENT has no id");
+  }
+  return {
+    id: parsed.id,
+    job: parsed.job ?? null,
+    commit: parsed.commit ?? null,
+    modules: parsed.modules ?? {},
+    files: parsed.files ?? {},
+  };
+})();
+`;
 /** Where {@link PROPOSAL_BLOCK} goes: right after this line. */
 const SERVED_BUILD_LINE = 'const servedBuild = secret("VAL_BUILD");\n';
 /** And the option that hands it to Val, after the build's. */
 const PROPOSAL_OPTION =
   "        ...(proposal !== undefined ? { proposal } : {}),\n";
+/** And the content version's, after the proposal's. */
+const CONTENT_OPTION =
+  "        ...(contentVersion !== undefined ? { contentVersion } : {}),\n";
 const PUBLISH_BUILD_OPTION =
   "        ...(servedBuild !== undefined ? { publishBuild: servedBuild } : {}),\n";
 
@@ -297,7 +342,7 @@ const valProject = secret("VAL_PROJECT");
  * Ignored by a @valbuild/tanstack that predates it.
  */
 const servedBuild = secret("VAL_BUILD");
-${PROPOSAL_BLOCK}const valConfig = {
+${PROPOSAL_BLOCK}${CONTENT_BLOCK}const valConfig = {
   ...config,
   ...(valProject !== undefined ? { project: valProject } : {}),
 };
@@ -364,7 +409,7 @@ const http =
         projectSource: FILES,
         ...(BUILT_FOR_JOB !== null ? { publishJob: BUILT_FOR_JOB } : {}),
         ...(servedBuild !== undefined ? { publishBuild: servedBuild } : {}),
-${PROPOSAL_OPTION}      }
+${PROPOSAL_OPTION}${CONTENT_OPTION}      }
     : undefined;
 
 const { valApiHandler, draftMode } = initValServer(
@@ -609,6 +654,32 @@ function rebakeProposal(source: string): string {
     );
 }
 
+/**
+ * `source` able to serve a content version: {@link CONTENT_BLOCK} and its
+ * option added after the proposal's, to a file wired before they existed.
+ * Idempotent, and only where both places are exactly as generated -- a file
+ * somebody edited is left as it is, and serves the bundle's content.
+ */
+function rebakeContent(source: string): string {
+  if (source.includes("const contentVersion = (() => {")) return source;
+  const once = (needle: string) => {
+    const at = source.indexOf(needle);
+    return at !== -1 && source.indexOf(needle, at + 1) === -1;
+  };
+  if (!once(PROPOSAL_BLOCK) || !once(PROPOSAL_OPTION)) return source;
+  const withBlock = source.replace(
+    PROPOSAL_BLOCK,
+    () => PROPOSAL_BLOCK + CONTENT_BLOCK,
+  );
+  // The option once, whatever left it there: two would hand Val the same key twice.
+  return withBlock.includes(CONTENT_OPTION)
+    ? withBlock
+    : withBlock.replace(
+        PROPOSAL_OPTION,
+        () => PROPOSAL_OPTION + CONTENT_OPTION,
+      );
+}
+
 /** `source` with its job set, or `source` itself when it cannot carry one. */
 function rebakeJob(source: string, job: string | null): string {
   const line = `const BUILT_FOR_JOB = ${job === null ? "null" : JSON.stringify(job)};`;
@@ -702,7 +773,7 @@ export function rebakeGit(
   const withJob = job === undefined ? withGit : rebakeJob(withGit, job);
   return {
     ...files,
-    [VAL_SERVER]: rebakeProposal(withJob),
+    [VAL_SERVER]: rebakeContent(rebakeProposal(withJob)),
   };
 }
 
