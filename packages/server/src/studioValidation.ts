@@ -4,16 +4,30 @@ import {
   Internal,
   MediaSource,
   ModuleFilePath,
+  Source,
   SourcePath,
   ValidationError,
   ValidationFix,
 } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
 import { isStudioFix } from "@valbuild/shared/internal";
-import { createFixPatch, FixPatchRemainingError } from "./createFixPatch";
-import { extractVideoMetadata } from "./extractMetadata";
+import {
+  createFixPatch,
+  FixPatchRemainingError,
+  mediaDirEntryMismatches,
+} from "./createFixPatch";
+import {
+  extractFileMetadata,
+  extractImageMetadata,
+  extractVideoMetadata,
+} from "./extractMetadata";
 import type { FixFiles } from "./fixFiles";
-import type { HeadRemoteFile, RemoteHostProblem } from "./remoteFileCheck";
+import { galleryEntryOf } from "./galleryEntryKey";
+import {
+  checkRemoteFiles,
+  type HeadRemoteFile,
+  type RemoteHostProblem,
+} from "./remoteFileCheck";
 import {
   getFieldsForType,
   type PatchAnalysis,
@@ -113,7 +127,182 @@ export async function checkModuleForStudio(
   for (const [sourcePath, found] of Object.entries(remote.errors)) {
     add(sourcePath as SourcePath, found);
   }
-  return { status: "ok", errors, remoteHosts: remote.hosts };
+  const mediaDir = await checkMediaDirEntries(ops, input);
+  for (const [sourcePath, found] of Object.entries(mediaDir.errors)) {
+    add(sourcePath as SourcePath, found);
+  }
+  return {
+    status: "ok",
+    errors,
+    remoteHosts: [...remote.hosts, ...mediaDir.hosts],
+  };
+}
+
+/** A module that is an `s.imagedir()`, `s.filedir()` or `s.videodir()`. */
+type MediaDirModule = {
+  type: "images" | "files" | "videos";
+  dir: string;
+  entries: Record<string, unknown>;
+};
+
+function mediaDirOf(
+  input: Pick<StudioCheckInput, "moduleFilePath" | "schemas" | "sources">,
+): MediaDirModule | undefined {
+  const schema = input.schemas[input.moduleFilePath]?.["executeSerialize"]();
+  const source = input.sources[input.moduleFilePath];
+  if (
+    schema?.type !== "record" ||
+    !schema.mediaType ||
+    typeof schema.dir !== "string" ||
+    !isEntries(source)
+  ) {
+    return undefined;
+  }
+  return { type: schema.mediaType, dir: schema.dir, entries: source };
+}
+
+function isEntries(source: unknown): source is Record<string, unknown> {
+  return (
+    typeof source === "object" && source !== null && !Array.isArray(source)
+  );
+}
+
+/**
+ * A media directory's own entries against their files: what
+ * `*:check-all-files` asks, minus the listing of the directory on disk.
+ *
+ * Only what the directory TRACKS is checked. Listing the directory for files
+ * it does not track stays the CLI's: in a managed project nothing puts a file
+ * there but the directory itself, and in a connected one the files are in the
+ * repository, where `val validate` sees them. See
+ * `docs/plans/studio-validate.md`, "Media directories are checked by what
+ * they track".
+ *
+ * - **A local entry** is read through the ops, from the pending patch that
+ *   wrote it if there is one. Gone: the row's **Fix** removes the entry. Wrong
+ *   size or type: the row's **Fix** writes what the bytes say. Both are
+ *   `*:check-all-files`, built for that one entry (see `fixForStudio`).
+ * - **A video entry** is only asked whether its file is there, and gets no
+ *   fix: what a videodir records is read in the browser from the upload, and
+ *   is never compared with the file (`videosetCheckAllFilesPatch` says why).
+ * - **A remote entry** is asked of its host, as any remote file is, but only
+ *   whether the host has it (`existenceOnly`).
+ */
+async function checkMediaDirEntries(
+  ops: ValOps,
+  input: StudioCheckInput,
+  onlyKey?: string,
+): Promise<{
+  errors: Record<SourcePath, ValidationError[]>;
+  hosts: RemoteHostProblem[];
+}> {
+  const errors: Record<SourcePath, ValidationError[]> = {};
+  const mediaDir = mediaDirOf(input);
+  if (!mediaDir) {
+    return { errors, hosts: [] };
+  }
+  const files = opsFixFiles(ops, input.fileLastUpdatedByPatchId);
+  const remoteEntries: Record<SourcePath, MediaSource> = {};
+  const type = mediaDir.type;
+
+  const keys = Object.keys(mediaDir.entries)
+    .filter((key) => onlyKey === undefined || key === onlyKey)
+    .sort();
+  for (const key of keys) {
+    const entryPath = Internal.createValPathOfItem(input.moduleFilePath, key);
+    if (!entryPath) {
+      continue;
+    }
+    const entry = galleryEntryOf(key);
+    if (entry.remote) {
+      remoteEntries[entryPath] = { path: key };
+      continue;
+    }
+    if (type === "videos") {
+      // A video: there or not, and nothing else. See above.
+      const fromPatch = input.fileLastUpdatedByPatchId[entry.localPath] ?? null;
+      const reader = await ops.openBinaryFile(entry.localPath, fromPatch);
+      if (reader === null) {
+        errors[entryPath] = [
+          {
+            message:
+              "The file is gone, but the directory still lists it. Remove it from the directory, or put the file back.",
+            keyError: true,
+          },
+        ];
+      }
+      continue;
+    }
+    const checkFix: ValidationFix =
+      type === "images" ? "images:check-all-files" : "files:check-all-files";
+    let buffer: Buffer;
+    try {
+      buffer = await files.readFile(entry.localPath);
+    } catch {
+      errors[entryPath] = [
+        {
+          message:
+            "The file is gone, but the directory still lists it. Fix removes it from the directory.",
+          keyError: true,
+          fixes: [checkFix],
+        },
+      ];
+      continue;
+    }
+    const stored = mediaDir.entries[key];
+    if (typeof stored !== "object" || stored === null) {
+      // The record schema already reports an entry that is not an object.
+      continue;
+    }
+    const actual =
+      type === "images"
+        ? await extractImageMetadata(entry.localPath, buffer)
+        : await extractFileMetadata(entry.localPath, buffer);
+    const mismatches = mediaDirEntryMismatches(type, { ...stored }, actual);
+    if (mismatches.length > 0) {
+      errors[entryPath] = [
+        {
+          message: `Does not match the file: ${mismatches
+            .map(
+              ([field, recorded, read]) =>
+                `${field} ${String(recorded ?? "missing")} → ${String(read)}`,
+            )
+            .join(", ")}.`,
+          keyError: true,
+          fixes: [checkFix],
+        },
+      ];
+    }
+  }
+
+  if (Object.keys(remoteEntries).length === 0) {
+    return { errors, hosts: [] };
+  }
+  const sampleByHost = ops.sourceMode() === "managed";
+  const published = sampleByHost
+    ? (await ops.getSources()).sources[input.moduleFilePath]
+    : undefined;
+  const remote = await checkRemoteFiles({
+    remoteFiles: remoteEntries,
+    existenceOnly: true,
+    schemaAt: () => undefined,
+    // A directory's entry IS its key: published when the published directory
+    // has the same key.
+    isPublished: (_, ref) =>
+      typeof published === "object" &&
+      published !== null &&
+      !Array.isArray(published) &&
+      ref in published,
+    pendingBytes: ops.pendingBytesOf(input.fileLastUpdatedByPatchId),
+    sampleByHost,
+    head: input.head,
+  });
+  for (const [path, found] of Object.entries(remote.errors)) {
+    errors[path as SourcePath] = (errors[path as SourcePath] ?? []).concat(
+      found.map((error) => ({ ...error, keyError: true })),
+    );
+  }
+  return { errors, hosts: remote.hosts };
 }
 
 export type StudioFixResult =
@@ -180,7 +369,7 @@ export async function fixForStudio(
     found.sourcePath,
     found.error,
     {},
-    sources[moduleFilePath],
+    found.moduleSource ?? sources[moduleFilePath],
     schema["executeSerialize"](),
   );
   if (!res) {
@@ -200,7 +389,13 @@ async function findError(
   remoteFiles: Record<SourcePath, MediaSource>,
   input: StudioCheckInput & { sourcePath: SourcePath; fix: ValidationFix },
 ): Promise<
-  | { sourcePath: SourcePath; error: ValidationError; remoteHost?: string }
+  | {
+      sourcePath: SourcePath;
+      error: ValidationError;
+      remoteHost?: string;
+      /** What `createFixPatch` is to treat as the module, when not all of it. */
+      moduleSource?: Source;
+    }
   | undefined
 > {
   const { sourcePath, fix } = input;
@@ -209,6 +404,37 @@ async function findError(
   );
   if (reported) {
     return { sourcePath, error: reported };
+  }
+  if (fix === "images:check-all-files" || fix === "files:check-all-files") {
+    // One entry, checked again on its own: a row whose file someone has since
+    // put back, or whose entry someone already fixed, is "not found".
+    const mediaDir = mediaDirOf(input);
+    const [, modulePath] =
+      Internal.splitModuleFilePathAndModulePath(sourcePath);
+    const [key, ...rest] = modulePath
+      ? Internal.splitModulePath(modulePath)
+      : [];
+    if (!mediaDir || key === undefined || rest.length > 0) {
+      return undefined;
+    }
+    const checked = await checkMediaDirEntries(ops, input, key);
+    const error = checked.errors[sourcePath]?.find((candidate) =>
+      candidate.fixes?.includes(fix),
+    );
+    if (!error) {
+      return undefined;
+    }
+    return {
+      // `createFixPatch` fixes a directory at its root, every entry it is
+      // handed: so it is handed this one.
+      sourcePath: Internal.parentOfSourcePath(sourcePath),
+      error: {
+        message: error.message,
+        value: { dir: mediaDir.dir, type: mediaDir.type },
+        fixes: [fix],
+      },
+      moduleSource: { [key]: mediaDir.entries[key] },
+    };
   }
   if (fix === "image:check-remote" || fix === "file:check-remote") {
     // Every remote value is in `remoteFiles`, sound or not, so ask whether

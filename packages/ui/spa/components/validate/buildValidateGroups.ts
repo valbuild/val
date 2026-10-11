@@ -127,11 +127,15 @@ export function buildValidateGroups(
   };
   const groups: ValidateGroup[] = [...byModule.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([moduleFilePath, rows]) => ({
-      id: moduleFilePath,
-      title: titleOf(moduleFilePath),
-      rows: rows.map(withFixState),
-    }));
+    .map(([moduleFilePath, rows]) => {
+      const kind = kindOf(moduleFilePath, input.schemas);
+      return {
+        id: moduleFilePath,
+        title: titleOf(moduleFilePath),
+        ...(kind ? { kind } : {}),
+        rows: rows.map(withFixState),
+      };
+    });
   const hostRows = remoteHostRows(input.results);
   if (hostRows.length > 0) {
     for (const { row, target } of hostRows) {
@@ -360,12 +364,32 @@ function locationOf(
   }
   const segments = Internal.splitModulePath(modulePath as ModulePath);
   const moduleSchema = schemas?.[moduleFilePath];
-  const isRouterPageKey =
+  // A page of a router is named by its route, and an entry of a media
+  // directory by its file: both keys ARE the location, as written.
+  const isLocationKey =
     moduleSchema?.type === "record" &&
-    Boolean(moduleSchema.router) &&
+    (Boolean(moduleSchema.router) || Boolean(moduleSchema.mediaType)) &&
     segments.length === 1;
-  return isRouterPageKey ? segments[0] : prettifyModulePath(modulePath);
+  return isLocationKey ? segments[0] : prettifyModulePath(modulePath);
 }
+
+/** What kind of module a group is, when that helps: `imagedir`. */
+function kindOf(
+  moduleFilePath: ModuleFilePath,
+  schemas: Record<ModuleFilePath, SerializedSchema> | undefined,
+): string | undefined {
+  const schema = schemas?.[moduleFilePath];
+  if (schema?.type !== "record" || !schema.mediaType) {
+    return undefined;
+  }
+  return MEDIA_DIR_KIND[schema.mediaType];
+}
+
+const MEDIA_DIR_KIND = {
+  images: "imagedir",
+  files: "filedir",
+  videos: "videodir",
+} satisfies Record<string, string>;
 
 /** A module as the page names it: `Content / Blog`. */
 export function titleOf(moduleFilePath: ModuleFilePath): string {

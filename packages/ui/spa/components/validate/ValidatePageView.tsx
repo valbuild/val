@@ -189,10 +189,8 @@ export function ValidatePageView({
       )}
       {fullCheck.status === "done" && openRows.length === 0 && (
         <Banner tone="success" icon={<CheckCircle2 size={16} aria-hidden />}>
-          {/* Media directories join this sentence when the full check covers them:
-              step 5 of docs/plans/studio-validate.md. */}
-          Everything checks out: content, files and remote files. Ready to
-          publish.
+          Everything checks out: content, files, remote files and media
+          directories. Ready to publish.
         </Banner>
       )}
 
@@ -209,9 +207,9 @@ export function ValidatePageView({
 
       {fullCheck.status === "not-run" && (
         <div className="border-t border-dashed border-border-primary pt-4 text-sm text-fg-secondary">
-          Files and remote files have not been checked against what is recorded
-          about them. &ldquo;Check everything&rdquo; checks them on the server.
-          It can take a minute.
+          Files, remote files and media directories have not been checked
+          against what is recorded about them. &ldquo;Check everything&rdquo;
+          checks them on the server. It can take a minute.
         </div>
       )}
     </div>

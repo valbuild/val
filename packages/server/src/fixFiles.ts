@@ -19,8 +19,9 @@ import { extractVideoMetadataFromFile } from "./extractMetadata";
  * too. `diskFixFiles` is the one the CLI and the language server use, and does
  * exactly what `createFixPatch` did with `fs` before this existed.
  *
- * Not yet covered, and still read from `projectRoot` directly: the gallery
- * checks (`*:check-all-files`), which LIST a directory rather than read a file.
+ * Not yet covered, and still read from `projectRoot` directly: the CLI's
+ * listing of a media directory for files it does not track, and
+ * `videos:check-all-files` (`videosetCheckAllFilesPatch`), which lists one.
  * See `docs/plans/studio-validate.md`.
  */
 export type FixFiles = {

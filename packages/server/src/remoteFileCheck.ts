@@ -145,6 +145,13 @@ export type RemoteFilesCheckInput = {
    * `docs/plans/studio-validate.md`, "Remote refs in the full check".
    */
   sampleByHost: boolean;
+  /**
+   * Ask only whether the host serves each ref. For the keys of a media
+   * directory: what is recorded about the file is the entry, not a value at
+   * the path, and the ref's hash was made from a schema the directory
+   * synthesizes for it, so there is no schema here to judge it by.
+   */
+  existenceOnly?: boolean;
   head?: HeadRemoteFile;
 };
 
@@ -197,19 +204,25 @@ export async function checkRemoteFiles(
       });
       continue;
     }
-    const schema = input.schemaAt(sourcePath);
-    if (schema?.type !== "image" && schema?.type !== "file") {
-      continue;
-    }
-    if (isStale(parsed, schema, value)) {
-      addError(sourcePath, {
-        message: `The address of this ${schema.type} does not match what is recorded about it, so it may be served with the wrong size or type.`,
-        value,
-        fixes: [
-          schema.type === "image" ? "image:check-remote" : "file:check-remote",
-        ],
-      });
-      continue;
+    let noun = "file";
+    if (!input.existenceOnly) {
+      const schema = input.schemaAt(sourcePath);
+      if (schema?.type !== "image" && schema?.type !== "file") {
+        continue;
+      }
+      noun = schema.type;
+      if (isStale(parsed, schema, value)) {
+        addError(sourcePath, {
+          message: `The address of this ${schema.type} does not match what is recorded about it, so it may be served with the wrong size or type.`,
+          value,
+          fixes: [
+            schema.type === "image"
+              ? "image:check-remote"
+              : "file:check-remote",
+          ],
+        });
+        continue;
+      }
     }
     const pending = await input.pendingBytes(ref);
     if (pending === "present") {
@@ -217,7 +230,7 @@ export async function checkRemoteFiles(
     }
     if (pending === "missing") {
       addError(sourcePath, {
-        message: `This ${schema.type} is in your unpublished changes, but its file is not. Choose the ${schema.type} again.`,
+        message: `This ${noun} is in your unpublished changes, but its file is not. Choose the ${noun} again.`,
         value,
       });
       continue;

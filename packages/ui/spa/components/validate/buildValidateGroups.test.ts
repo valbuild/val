@@ -1,4 +1,9 @@
-import { ModuleFilePath, SourcePath, ValidationError } from "@valbuild/core";
+import {
+  initVal,
+  ModuleFilePath,
+  SourcePath,
+  ValidationError,
+} from "@valbuild/core";
 import {
   buildValidateGroups,
   openRowCount,
@@ -279,6 +284,38 @@ describe("buildValidateGroups", () => {
       });
       expect(res.groups.map((group) => group.id)).toEqual([MEDIA]);
       expect(res.groups[0].rows[0].action).toEqual({ kind: "fix" });
+    });
+  });
+
+  test("an entry of a media directory is located by its file, in a group that says what it is", () => {
+    const { s } = initVal();
+    const entry = at(MEDIA, '"/public/val/images/gone.png"');
+    const res = build({
+      schemas: {
+        [MEDIA]: s.imagedir("/public/val/images")["executeSerialize"](),
+      },
+      results: new Map<ModuleFilePath, ModuleCheckResult>([
+        [
+          MEDIA,
+          {
+            status: "ok",
+            errors: {
+              [entry]: [
+                {
+                  message: "The file is gone",
+                  keyError: true,
+                  fixes: ["images:check-all-files"],
+                },
+              ],
+            },
+          },
+        ],
+      ]),
+    });
+    expect(res.groups[0]).toMatchObject({ kind: "imagedir" });
+    expect(res.groups[0].rows[0]).toMatchObject({
+      location: "/public/val/images/gone.png",
+      action: { kind: "fix" },
     });
   });
 });

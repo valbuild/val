@@ -1,7 +1,7 @@
 # Full validation in the Studio
 
-> **Status: in progress.** Steps 1, 2, 3, 4 and 7 are done (see Order of
-> work); the rest is not built yet.
+> **Status: in progress.** Steps 1 to 5 and 7 are done (see Order of work);
+> step 6, the host rewrite, is not built yet.
 
 The Studio's errors page, grown so that it can also run the whole of
 `val validate` — sources, local files, remote files and media directories — and
@@ -389,8 +389,10 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
    a disk reader. A refactor with no visible change; the CLI's tests pin it.
    **Done** for image, file and video metadata and for downloading a remote
    file (`FixFiles` in `server/src/fixFiles.ts`; the CLI and the language
-   server get `diskFixFiles` by default). Still on disk: the media directory checks
-   (step 5), and `checkRemoteRef`'s download cache (step 4).
+   server get `diskFixFiles` by default). Steps 4 and 5 moved `checkRemoteRef`'s download and
+   the image and file directory checks behind it too; still on disk is only
+   what lists a directory (`videos:check-all-files`, and the CLI's search for
+   untracked files).
 2. **The two routes**, for source and local-file checks only. **Done**:
    `POST /validate` and `POST /validate/fix` (`server/src/studioValidation.ts`).
    The fix route finds the error again from its own reading of the module, and
@@ -401,7 +403,6 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
    answer both it and the top bar's count read, and `validateSession` keeps a
    run's results for the session. `/val/errors` is still parsed, as the same
    page. Two gaps, left for later steps:
-   - The banner leaves out "media directories" until step 5 makes it true.
    - Media inside a `.jsonValues()` entry is checked against its schema but
      not against its bytes: `validateSources` resolves an entry's errors
      through the project snapshot, which has no file reader, so the
@@ -438,7 +439,29 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
    Remote refs inside videos and media directories are not checked here.
 
 5. **The media directory checks over their own entries**, read through
-   `FixFiles`.
+   `FixFiles`. **Done**: `checkMediaDirEntries` in
+   `server/src/studioValidation.ts` reads each local entry of an
+   `s.imagedir()` / `s.filedir()` (and so `s.fontdir()`) through the ops, from
+   the pending patch that wrote it if there is one, and compares it with
+   `mediaDirEntryMismatches`, the comparison the CLI's `*:check-all-files`
+   fix now shares. That fix reads through `FixFiles` too, and the Studio's
+   **Fix** (`images:check-all-files` / `files:check-all-files`, now in
+   `STUDIO_FIXES`) runs it with the module narrowed to the one entry, so
+   fixing a row never reads the whole directory. A missing file's fix removes
+   the entry. Decisions made on the way:
+   - **A `s.videodir()` entry is only asked whether its file is there**, and
+     has no fix: what it records is read in the browser from the upload and
+     is never compared with the file (`videosetCheckAllFilesPatch` says
+     why), and removing an entry whose posters and captions may still be
+     in use is a person's decision. Its row says what to do instead.
+   - **A remote entry is asked of its host**, existence only
+     (`checkRemoteFiles`' `existenceOnly`): its ref's hash was made from a
+     schema the directory synthesizes, and a stale gallery ref is renamed
+     rather than rewritten, which no Studio fix does yet.
+   - **Every local entry's bytes are read.** That is the cost of comparing
+     metadata, and on a large directory in http mode it is the slowest part
+     of the full check. See Open questions.
+
 6. **The host rewrite** from the remote-files plan, which then needs nothing
    here but its own fix code.
 7. **`val validate` inside `val publish`** (cli), independent of the rest and
@@ -449,6 +472,11 @@ Each step is shown working in `examples/tanstack` (fs mode) and through the
 `chromium-http` project's mock content host (http mode) before the next.
 
 ## Open questions
+
+- **How large may a media directory be before its check needs a deadline?**
+  Every local entry's bytes are read to compare its metadata, one request per
+  file in http mode. The plan's `partial: true` is not built: a directory
+  that takes longer than a request may is not reported as partly checked.
 
 - **How long may `val validate` take inside `val publish`?** The remote
   checks download bytes where metadata has to be read. A CI run that doubles

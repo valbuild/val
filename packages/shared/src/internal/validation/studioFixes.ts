@@ -22,6 +22,11 @@ export const STUDIO_FIXES = [
   // on the host it was already on.
   "image:check-remote",
   "file:check-remote",
+  // One entry of an `s.imagedir()` / `s.filedir()`: removed when its file is
+  // gone, rewritten from its bytes when they disagree. Built for that entry
+  // alone, never the whole directory (`fixForStudio`).
+  "images:check-all-files",
+  "files:check-all-files",
 ] as const satisfies readonly ValidationFix[];
 
 export type StudioFix = (typeof STUDIO_FIXES)[number];

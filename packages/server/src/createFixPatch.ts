@@ -18,7 +18,6 @@ import {
   Patch,
   sourceToPatchPath,
 } from "@valbuild/core/patch";
-import fs from "fs";
 import {
   extractFileMetadata,
   extractImageMetadata,
@@ -530,10 +529,9 @@ export async function createFixPatch(
           // image as unreadable, and with `--fix` REMOVED it from the gallery.
           continue;
         }
-        const filename = path.join(config.projectRoot, entry.localPath);
         let buffer: Buffer;
         try {
-          buffer = fs.readFileSync(filename);
+          buffer = await files.readFile(entry.localPath);
         } catch {
           if (apply) {
             const removePath = sourceToPatchPath(sourcePath).concat([entryKey]);
@@ -543,19 +541,21 @@ export async function createFixPatch(
           } else {
             remainingErrors.push({
               ...validationError,
-              message: `Could not read file: ${filename} - file might not exist or can not be accessed`,
+              message: `Could not read file: ${path.join(config.projectRoot, entry.localPath)} - file might not exist or can not be accessed`,
               fixes: undefined,
             });
           }
           continue;
         }
         if (fix === "images:check-all-files") {
-          const actualMetadata = await extractImageMetadata(filename, buffer);
+          const actualMetadata = await extractImageMetadata(
+            entry.localPath,
+            buffer,
+          );
           const stored = storedEntry as Record<string, unknown>;
           const metadataIsCorrect =
-            stored.width === actualMetadata.width &&
-            stored.height === actualMetadata.height &&
-            stored.mimeType === actualMetadata.mimeType;
+            mediaDirEntryMismatches("images", stored, actualMetadata).length ===
+            0;
           if (!metadataIsCorrect) {
             if (apply) {
               patch.push({
@@ -581,9 +581,14 @@ export async function createFixPatch(
             }
           }
         } else if (fix === "files:check-all-files") {
-          const actualMetadata = await extractFileMetadata(filename, buffer);
+          const actualMetadata = await extractFileMetadata(
+            entry.localPath,
+            buffer,
+          );
           const stored = storedEntry as Record<string, unknown>;
-          const metadataIsCorrect = stored.mimeType === actualMetadata.mimeType;
+          const metadataIsCorrect =
+            mediaDirEntryMismatches("files", stored, actualMetadata).length ===
+            0;
           if (!metadataIsCorrect) {
             if (apply) {
               patch.push({
@@ -875,4 +880,23 @@ export async function getFileMetadata(
     throw Error("Cannot fix file without a file reference");
   }
   return extractFileMetadata(fileRef, await files.readFile(fileRef));
+}
+
+/**
+ * What an image or file directory's entry records that its bytes disagree
+ * with, as `[field, recorded, actual]`. The one comparison: the CLI's
+ * `*:check-all-files` fix and the Studio's full check both ask it.
+ */
+export function mediaDirEntryMismatches(
+  type: "images" | "files",
+  stored: Record<string, unknown>,
+  actual: { width?: number; height?: number; mimeType?: string },
+): [field: string, recorded: unknown, actual: unknown][] {
+  const fields =
+    type === "images"
+      ? (["width", "height", "mimeType"] as const)
+      : (["mimeType"] as const);
+  return fields
+    .filter((field) => stored[field] !== actual[field])
+    .map((field) => [field, stored[field], actual[field]]);
 }

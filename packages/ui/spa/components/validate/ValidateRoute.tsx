@@ -393,12 +393,15 @@ function progressOf(run: CheckRun): number {
 
 /**
  * What a fix wrote, in a line: `width 1, height 1`. A fix that replaces a
- * whole media value is summed up by what it recorded about the file; its
- * address is not something a person reads.
+ * whole media value is summed up by what it read from the file.
  */
 function summaryOf(patch: Patch): string {
   return patch
     .flatMap((op) => {
+      if (op.op === "remove" && op.path.length > 0) {
+        // An entry of a media directory whose file is gone.
+        return [`removed ${op.path[op.path.length - 1]}`];
+      }
       if ((op.op !== "add" && op.op !== "replace") || op.path.length === 0) {
         return [];
       }
@@ -411,8 +414,11 @@ function summaryOf(patch: Patch): string {
         value !== null &&
         !Array.isArray(value)
       ) {
+        // `path` is an address, and `alt` is the editor's: a fix carries it
+        // over, it never changes it.
         return Object.entries(value).flatMap(([key, field]) =>
           key !== "path" &&
+          key !== "alt" &&
           (typeof field === "string" || typeof field === "number")
             ? [`${key} ${field}`]
             : [],

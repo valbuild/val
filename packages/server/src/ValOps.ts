@@ -1595,19 +1595,29 @@ export abstract class ValOps {
           published.path === ref
         );
       },
-      pendingBytes: async (ref) => {
-        const fromPatch = fileLastUpdatedByPatchId[ref];
-        if (!fromPatch) {
-          return "not-pending";
-        }
-        const bytes = await this.getBase64EncodedBinaryFileFromPatch(
-          ref,
-          fromPatch.patchId,
-          fromPatch.remote,
-        );
-        return bytes === null ? "missing" : "present";
-      },
+      pendingBytes: this.pendingBytesOf(fileLastUpdatedByPatchId),
     });
+  }
+
+  /**
+   * Is a remote file's bytes in a pending patch? `not-pending` when no patch
+   * wrote it; `missing` when one did and its bytes are not there.
+   */
+  pendingBytesOf(
+    fileLastUpdatedByPatchId: PatchAnalysis["fileLastUpdatedByPatchId"],
+  ): (ref: string) => Promise<"present" | "missing" | "not-pending"> {
+    return async (ref) => {
+      const fromPatch = fileLastUpdatedByPatchId[ref];
+      if (!fromPatch) {
+        return "not-pending";
+      }
+      const bytes = await this.getBase64EncodedBinaryFileFromPatch(
+        ref,
+        fromPatch.patchId,
+        fromPatch.remote,
+      );
+      return bytes === null ? "missing" : "present";
+    };
   }
 
   // #region validateFiles
