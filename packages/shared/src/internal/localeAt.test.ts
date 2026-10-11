@@ -7,7 +7,7 @@ import {
   type SourcePath,
   type ValModule,
 } from "@valbuild/core";
-import { localeAt } from "./localeAt";
+import { localeAt, localeMeantBy } from "./localeAt";
 import type { SchemaSourceSnapshot } from "./resolveSchemaSourceFixes";
 
 const { s, c } = initVal();
@@ -311,5 +311,20 @@ describe("localeAt with locales the URL names", () => {
     expect(localeAt(AT('/content/page.val.ts?p="title"'), snapshot)).toBe(
       "nb-NO",
     );
+  });
+
+  test("a code spelled like an Object.prototype member means no language", () => {
+    expect(
+      localeMeantBy(
+        {
+          type: "enum",
+          values: ["en", "toString"],
+          locales: { en: "en-US" },
+          opt: false,
+        },
+        "toString",
+        ["en-US"],
+      ),
+    ).toBe(null);
   });
 });

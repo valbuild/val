@@ -1453,6 +1453,20 @@ export class RecordSchema<
         );
         continue;
       }
+      if (schema instanceof EnumSchema) {
+        // The mapping's own problems — a tag that is not canonical, a language
+        // spelled twice — are the schema's, so they are reported here, once,
+        // and before there is a page to report them on.
+        for (const mappingError of schema["localeMappingErrors"]()) {
+          error = this.appendValidationError(
+            error,
+            path,
+            `'${name}': ${mappingError.message}`,
+            src,
+            true,
+          );
+        }
+      }
       if (
         !segment.optional &&
         schema instanceof EnumSchema &&

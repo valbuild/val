@@ -167,9 +167,13 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
         path,
       });
     // The custom validators always report, whatever the structural answer is.
+    // What is wrong with the mapping itself is a property of the schema, not
+    // of the value: a field reports it where it is, and a router reports it
+    // ONCE, at its root, whether or not it has a page yet — so it is not
+    // repeated here for every key.
     const errors: ValidationError[] = [
       ...customValidationErrors,
-      ...this.localeMappingErrors(),
+      ...(as === "field" ? this.localeMappingErrors() : []),
     ];
     if (as === "field" && this.nullLocale !== null) {
       errors.push({
@@ -212,12 +216,30 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
         value: src,
       });
     } else if (this.localeMap !== null) {
-      const tag = this.localeMap[unknownSrc];
-      if (typeof tag === "string") {
+      const tag = this.localeTagOf(unknownSrc);
+      if (tag !== null) {
         errors.push(this.checkLocale(path, tag));
       }
     }
     return errors.length > 0 ? { [path]: errors } : false;
+  }
+
+  /**
+   * The tag `value` is mapped to, or `null` where the mapping does not name it.
+   *
+   * An OWN property, not `in`: a mapping that came back from JSON is a plain
+   * object, which inherits `toString` and its siblings — and an enum value may
+   * be spelled like one of them, which would read as mapped when it is not.
+   */
+  private localeTagOf(value: string): string | null {
+    if (
+      this.localeMap === null ||
+      !Object.prototype.hasOwnProperty.call(this.localeMap, value)
+    ) {
+      return null;
+    }
+    const tag = this.localeMap[value];
+    return typeof tag === "string" ? tag : null;
   }
 
   /**
@@ -260,7 +282,7 @@ export class EnumSchema<Src extends string | null> extends Schema<Src> {
     const errors: ValidationError[] = [];
     const mapped = Object.entries(this.localeMap);
     for (const value of this.values) {
-      if (!(value in this.localeMap)) {
+      if (this.localeTagOf(value) === null) {
         errors.push({
           message: `.locales() does not say which language "${value}" is`,
           schemaError: true,

@@ -26,7 +26,7 @@ import { StringSchema } from "./string";
 import { DiscriminatedUnionSchema } from "./discriminatedUnion";
 import { EnumSchema } from "./enum";
 import { ValRouter } from "../router";
-import { routePatternOf } from "../getSourcePathFromRoute";
+import { isPageRouter, routePatternOf } from "../getSourcePathFromRoute";
 
 export function deserializeSchema(
   serialized: SerializedSchema,
@@ -391,6 +391,14 @@ function deserializeSchemaImpl(
 function routerForParams(routerId: string | undefined): ValRouter | null {
   if (routerId === undefined) {
     return null;
+  }
+  // Only a page router gets `getRoutePattern`. `routePatternOf` answers `null`
+  // for any other — an external router, or an id this build does not know —
+  // and `[]` is not that: it is the ROOT route, so coalescing one into the
+  // other would turn "this router has no parameters" into "every key must be
+  // /", and validate differently after a round trip than before it.
+  if (!isPageRouter(routerId)) {
+    return { getRouterId: () => routerId, validate: () => [] };
   }
   return {
     getRouterId: () => routerId,

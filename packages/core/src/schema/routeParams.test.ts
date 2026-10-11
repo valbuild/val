@@ -227,6 +227,49 @@ describe("s.router(router, params, item)", () => {
   });
 });
 
+describe("route parameters, as Copilot's review found them", () => {
+  test("a mapping's own problems are reported once, before there is a page", () => {
+    const badTag = s.router(
+      tanstackRouter,
+      { locale: s.enum("nb").nullable().locales({ nb: "nb_no" }) },
+      page,
+    );
+    const empty = badTag["executeValidate"](MODULE, {});
+    expect(
+      errorsAt(empty, MODULE)
+        .filter((each) => each.schemaError)
+        .map((each) => each.message),
+    ).toEqual([
+      "'locale': 'nb_no' is not a language tag. Language then region, separated by a hyphen — 'nb-NO', not 'nb_NO'",
+    ]);
+    // With pages it is still reported once, at the router — not again on
+    // every key whose locale it is.
+    const withPages = badTag["executeValidate"](MODULE, {
+      "/nb/blog/a": { title: "A" },
+      "/nb/blog/b": { title: "B" },
+    });
+    const mentions = Object.values(withPages || {})
+      .flat()
+      .filter((each) => each.message.includes("nb_no"));
+    expect(mentions).toHaveLength(1);
+  });
+
+  test("a router that is not a page router validates the same after a round trip", () => {
+    const external = s.router(
+      { getRouterId: () => "external-url-router", validate: () => [] },
+      { locale: urlLocale },
+      page,
+    );
+    const source = { "https://example.com/a": { title: "A" } };
+    const before = external["executeValidate"](MODULE, source);
+    const after = deserializeSchema(external["executeSerialize"]())[
+      "executeValidate"
+    ](MODULE, source);
+    expect(after).toEqual(before);
+    expect(errorsAt(before, MODULE)[0].schemaError).toBe(true);
+  });
+});
+
 describe("s.enum(...).locales(...)", () => {
   const PATH = '/content.val.ts?p="language"' as SourcePath;
 
@@ -280,6 +323,24 @@ describe("s.enum(...).locales(...)", () => {
     expect(messages).toContain(
       "'en-US' is in .locales() twice. Each language has one spelling, so a page has one URL per language.",
     );
+  });
+
+  test("a value spelled like an Object.prototype member is not mapped by inheritance", () => {
+    const fromJson = deserializeSchema({
+      type: "enum",
+      values: ["en", "toString"],
+      locales: { en: "en-US" },
+      opt: false,
+    });
+    const errors = errorsAt(
+      fromJson["executeValidate"](PATH, "toString"),
+      PATH,
+    );
+    expect(errors.map((each) => each.message)).toContain(
+      '.locales() does not say which language "toString" is',
+    );
+    // And no locale check is made for a language nobody mapped it to.
+    expect(errors.some((each) => each.fixes)).toBe(false);
   });
 
   test("a mapping that misses or invents a value is a schema error", () => {

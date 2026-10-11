@@ -51,13 +51,7 @@ export function localeAt(
     return null;
   }
   const segments = modulePath ? Internal.splitModulePath(modulePath) : [];
-  return walk(
-    schema,
-    source,
-    segments,
-    available,
-    moduleFilePath as ModuleFilePath,
-  );
+  return walk(schema, source, segments, available, moduleFilePath);
 }
 
 /**
@@ -81,7 +75,14 @@ export function localeMeantBy(
     return value === null ? null : localeOfValue(value, available);
   }
   if (schema.type === "enum" && schema.locales !== undefined) {
-    const tag = value === null ? schema.nullLocale : schema.locales[value];
+    // An own property: a plain object inherits `toString` and the rest, and
+    // an enum value is allowed to be spelled like one.
+    const tag =
+      value === null
+        ? schema.nullLocale
+        : Object.prototype.hasOwnProperty.call(schema.locales, value)
+          ? schema.locales[value]
+          : undefined;
     return tag === undefined ? null : localeOfValue(tag, available);
   }
   return null;
