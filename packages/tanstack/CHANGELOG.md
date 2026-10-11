@@ -1,5 +1,15 @@
 # @valbuild/tanstack
 
+## 0.144.1
+
+### Patch Changes
+
+- [#824](https://github.com/valbuild/val/pull/824) [`a641bb0`](https://github.com/valbuild/val/commit/a641bb0286756339252c53e9230d766c23fcccc6) Thanks [@freekh](https://github.com/freekh)! - `.jsonValues()` entries saved in a proposal now show at the proposal's address. Before, the page kept showing the entry as it was when the site was last built, and the Studio there showed every entry of a saved `.jsonValues()` module as empty.
+- Updated dependencies [[`a641bb0`](https://github.com/valbuild/val/commit/a641bb0286756339252c53e9230d766c23fcccc6)]:
+  - @valbuild/server@0.144.1
+  - @valbuild/language-server@0.144.1
+  - @valbuild/mcp@0.144.1
+
 ## 0.144.0
 
 ### Patch Changes
