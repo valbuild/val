@@ -22,9 +22,24 @@ describe("the GitHub repository origin points at", () => {
     ).toEqual({ owner: "acme", repo: "site" });
   });
 
+  test("the ssh:// form, and https with a user in it", () => {
+    expect(
+      gitHubOwnerAndRepo("origin\tssh://git@github.com/acme/site.git (fetch)"),
+    ).toEqual({ owner: "acme", repo: "site" });
+    expect(
+      gitHubOwnerAndRepo("origin\thttps://me@github.com/acme/site.git (fetch)"),
+    ).toEqual({ owner: "acme", repo: "site" });
+  });
+
   test("none when origin is not on GitHub, or there is no origin", () => {
     expect(
       gitHubOwnerAndRepo("origin\tgit@gitlab.com:acme/site.git (fetch)\n"),
+    ).toBeNull();
+    expect(
+      gitHubOwnerAndRepo("origin\tgit@notgithub.com:acme/site.git (fetch)\n"),
+    ).toBeNull();
+    expect(
+      gitHubOwnerAndRepo("origin\t/srv/mirrors/github.com/acme/site (fetch)\n"),
     ).toBeNull();
     expect(gitHubOwnerAndRepo("")).toBeNull();
   });

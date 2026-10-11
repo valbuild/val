@@ -930,6 +930,8 @@ async function plan(
     }
   }
 
+  plan.gitRemote = analysis.gitRemote ?? false;
+
   return plan;
 }
 
