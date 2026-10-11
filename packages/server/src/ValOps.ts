@@ -380,22 +380,37 @@ export abstract class ValOps {
        */
       const siteLayer = this.options?.siteSnapshotSources;
       const snapshotLayer = this.options?.snapshotSources;
-      if (snapshotLayer) {
-        const site: Sources = {};
+      /*
+       * The bundle's own Source for every module either layer replaces: a
+       * replaced `.jsonValues()` module's markers came as JSON, and an entry
+       * neither layer saved is read through the bundle's marker, which still
+       * has its `import()`.
+       */
+      if (siteLayer || snapshotLayer) {
         const bundle: Sources = {};
-        for (const moduleFilePath of Object.keys(snapshotLayer)) {
+        for (const moduleFilePath of Object.keys({
+          ...siteLayer,
+          ...snapshotLayer,
+        })) {
           const path = moduleFilePath as ModuleFilePath;
           const bundled = extracted.sources[path];
           if (bundled !== undefined) {
             bundle[path] = bundled;
           }
-          const source = siteLayer?.[path] ?? bundled;
+        }
+        this.bundleSourcesBeforeSnapshot = bundle;
+      }
+      // What a proposal is compared against: the site, only where there is a proposal.
+      if (snapshotLayer) {
+        const site: Sources = {};
+        for (const moduleFilePath of Object.keys(snapshotLayer)) {
+          const path = moduleFilePath as ModuleFilePath;
+          const source = siteLayer?.[path] ?? extracted.sources[path];
           if (source !== undefined) {
             site[path] = source;
           }
         }
         this.siteSourcesBeforeSnapshot = site;
-        this.bundleSourcesBeforeSnapshot = bundle;
       }
       if (siteLayer || snapshotLayer) {
         this.promoteCommittedSources({ ...siteLayer, ...snapshotLayer });

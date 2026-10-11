@@ -355,6 +355,20 @@ describe("serving a content version", () => {
     expect(() => runBlock({ VAL_CONTENT: "[]" })).toThrow(/VAL_CONTENT/);
   });
 
+  test("the block refuses a path named both inline and by reference, whatever its inline value", () => {
+    expect(() =>
+      runBlock({
+        VAL_CONTENT: JSON.stringify({
+          id: ID,
+          job: "J-7",
+          files: { "a.val.json": 3 },
+          refs: { files: { "a.val.json": "env://VAL_CONTENT_1" } },
+        }),
+        VAL_CONTENT_1: "{}",
+      }),
+    ).toThrow(/a\.val\.json/);
+  });
+
   test("the block keeps only text for a file, as @valbuild/server does", () => {
     expect(
       runBlock({

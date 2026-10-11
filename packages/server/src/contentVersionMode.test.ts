@@ -344,6 +344,18 @@ describe("contentFromEnv with references", () => {
     ).toThrow(/VAL_CONTENT_1/);
   });
 
+  test("refuses a file named both inline and by reference, whatever its inline value", () => {
+    expect(() =>
+      contentFromEnv({
+        VAL_CONTENT: handed({
+          files: { "app/x.val.json": 3 },
+          refs: { files: { "app/x.val.json": "env://VAL_CONTENT_1" } },
+        }),
+        VAL_CONTENT_1: "{}",
+      }),
+    ).toThrow(/app\/x\.val\.json/);
+  });
+
   test("refuses a path named both inline and by reference", () => {
     expect(() =>
       contentFromEnv({

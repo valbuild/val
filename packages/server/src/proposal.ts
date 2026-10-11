@@ -264,7 +264,9 @@ export function contentFromEnv(
   }
   for (const [path, ref] of Object.entries(refFiles)) {
     const { where, value } = read("files", path, ref);
-    if (Object.prototype.hasOwnProperty.call(files, path)) {
+    // The handed object, not `files`: an inline value that is not text was
+    // dropped from `files`, and is still a second naming of the path.
+    if (Object.prototype.hasOwnProperty.call(filesIn, path)) {
       throw new Error(`${where}: ${path} is also in files`);
     }
     files[path] = value;

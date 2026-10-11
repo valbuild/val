@@ -215,8 +215,9 @@ const contentVersion = (() => {
   const job = nullableString("job");
   const commit = nullableString("commit");
   const modules: Record<string, unknown> = { ...record(parsed.modules, "modules") };
+  const filesIn = record(parsed.files, "files");
   const files: Record<string, string> = {};
-  for (const [path, text] of Object.entries(record(parsed.files, "files"))) {
+  for (const [path, text] of Object.entries(filesIn)) {
     if (typeof text === "string") files[path] = text;
   }
   const refs = record(parsed.refs, "refs");
@@ -242,7 +243,7 @@ const contentVersion = (() => {
     modules[path] = JSON.parse(read("modules", path, ref));
   }
   for (const [path, ref] of Object.entries(record(refs.files, "refs.files"))) {
-    if (Object.prototype.hasOwnProperty.call(files, path)) {
+    if (Object.prototype.hasOwnProperty.call(filesIn, path)) {
       throw new Error(where + ": " + path + " is in files and refs.files");
     }
     files[path] = read("files", path, ref);
