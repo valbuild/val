@@ -80,14 +80,55 @@ function isBackedBy(schema: unknown, collection: ModuleFilePath): boolean {
 }
 
 /**
- * Every value in the project that names an entry of `collection`.
+ * The references already found, per service and collection.
  *
- * Validated reads for the modules backed by it, because only those come back
- * with their `.jsonValues()` entries loaded — an unvalidated read hands back
- * each entry as a marker, and a field inside one would be invisible. Every
- * other module is read once, unvalidated, to find out it is not one of them.
+ * `val validate --fix` renames a key once per local entry, so a gallery of N
+ * local entries would otherwise walk the project N times — validating every
+ * module that uses the gallery each time. Caching per `Service` is exact, not
+ * an approximation: a `Service` answers `get` from the snapshot it was created
+ * with (`patch` writes to disk and changes nothing it returns), so the walk
+ * would find the same references every time. A new `Service` — the language
+ * server makes one after every edit — starts with nothing cached.
  */
-export async function collectionReferencesOf(
+const referencesByService = new WeakMap<
+  CollectionReferenceService,
+  Map<ModuleFilePath, Promise<CollectionReference[]>>
+>();
+
+/**
+ * Every value in the project that names an entry of `collection`, as the
+ * service's snapshot has it. Found once per service; see
+ * {@link referencesByService}.
+ */
+export function collectionReferencesOf(
+  service: CollectionReferenceService,
+  collection: ModuleFilePath,
+): Promise<CollectionReference[]> {
+  let byCollection = referencesByService.get(service);
+  if (!byCollection) {
+    byCollection = new Map();
+    referencesByService.set(service, byCollection);
+  }
+  let references = byCollection.get(collection);
+  if (!references) {
+    references = findCollectionReferences(service, collection);
+    // A walk that failed is not an answer; the next caller tries again.
+    references.catch(() => byCollection.delete(collection));
+    byCollection.set(collection, references);
+  }
+  return references;
+}
+
+/**
+ * The walk itself.
+ *
+ * Validated reads for the modules backed by the collection, because only
+ * those come back with their `.jsonValues()` entries loaded — an unvalidated
+ * read hands back each entry as a marker, and a field inside one would be
+ * invisible. Every other module is read once, unvalidated, to find out it is
+ * not one of them.
+ */
+async function findCollectionReferences(
   service: CollectionReferenceService,
   collection: ModuleFilePath,
 ): Promise<CollectionReference[]> {

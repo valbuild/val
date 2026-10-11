@@ -127,7 +127,7 @@ function setup() {
     [FILES]: filesVal,
     [PAGE]: pageVal,
   };
-  return { pageVal, service: serviceOf(modules) };
+  return { pageVal, modules, service: serviceOf(modules) };
 }
 
 type DefinedModule = Parameters<typeof Internal.getSource>[0];
@@ -249,6 +249,51 @@ describe("collectionReferencePatches", () => {
         "/public/val/images/nobody_00000.png": NEW_IMAGE,
       }),
     ).toEqual([]);
+  });
+});
+
+describe("one scan per Service", () => {
+  /**
+   * `val validate --fix` runs the upload handler once per local entry, so a
+   * gallery of N local entries asked for N project-wide scans, each validating
+   * every module that uses the gallery. A `Service` answers `get` from the
+   * snapshot it was made from, so the references it holds cannot change
+   * during its life: the scan is done once and reused.
+   */
+  test("a second rename against the same service does not scan the project again", async () => {
+    const { modules } = setup();
+    const validatedReads: ModuleFilePath[] = [];
+    const service: CollectionReferenceService = {
+      getModuleFilePaths: () => Object.keys(modules) as ModuleFilePath[],
+      get: async (moduleFilePath, _modulePath, options) => {
+        if (options?.validate) {
+          validatedReads.push(moduleFilePath);
+        }
+        return contentOf(moduleFilePath, modules[moduleFilePath]);
+      },
+    };
+
+    const first = await collectionReferencePatches(service, IMAGES, {
+      [OLD_IMAGE]: NEW_IMAGE,
+    });
+    const second = await collectionReferencePatches(service, IMAGES, {
+      "/public/val/images/other_00000.png": NEW_IMAGE,
+    });
+    const files = await collectionReferencePatches(service, FILES, {
+      [OLD_FILE]: NEW_FILE,
+    });
+
+    expect(first).not.toEqual([]);
+    expect(second).toEqual([]);
+    expect(files).toEqual([
+      {
+        moduleFilePath: PAGE,
+        patch: [{ op: "add", path: ["attachment", "path"], value: NEW_FILE }],
+      },
+    ]);
+    // Once for the images gallery and once for the files one: a scan is per
+    // collection, and the page is the one module that uses either.
+    expect(validatedReads).toEqual([PAGE, PAGE]);
   });
 });
 
