@@ -321,6 +321,44 @@ function isMediaSchema(
 }
 
 /**
+ * The key of a gallery (an `s.imageset()`, `s.fileset()` or `s.videoset()`)
+ * that a field's `path` names, or `null` when it names none.
+ *
+ * Usually the path IS the key. It is not for an image uploaded THROUGH an
+ * `s.image(remoteGallery)` field in the Studio, which stores the remote ref in
+ * the field and keys the entry by the local path inside it — so a path that is
+ * not a key falls back to that embedded path. Exact first, because a gallery
+ * can hold both shapes for one file, and the field then names the entry that
+ * IS its path.
+ *
+ * One implementation of the question, asked by everything that has to agree on
+ * the answer: reading a field (`galleryEntryOf`), validating it (`ImageSchema`
+ * and `FileSchema` ask whether the gallery has it), the Studio's reference
+ * scans and renames, and `val validate --fix` when it renames a key and has to
+ * find the fields that hold it.
+ *
+ * The embedded path is tried with its leading slash (how a key is written) and
+ * without (how `splitRemoteRef` returns it).
+ */
+export function galleryKeyOf(
+  path: string,
+  isKey: (key: string) => boolean,
+): string | null {
+  if (isKey(path)) {
+    return path;
+  }
+  const split = splitRemoteRef(path);
+  if (split.status === "success") {
+    for (const embedded of [`/${split.filePath}`, split.filePath]) {
+      if (isKey(embedded)) {
+        return embedded;
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * What a gallery entry holds as a DEFAULT for the fields picked from it, in
  * the groups a field overrides together.
  *
@@ -346,7 +384,9 @@ const GALLERY_FILE_FACTS = ["width", "height", "mimeType", "duration"];
  * gallery-backed or the gallery has no such entry.
  *
  * The double lookup is load-bearing: a remote gallery keys its entries by the
- * remote URL while the file itself stays on disk under its local path.
+ * remote URL while the file itself stays on disk under its local path, and an
+ * upload through the field does it the other way round (see
+ * {@link galleryKeyOf}).
  */
 export function galleryEntryOf(
   src: { readonly path: string },
@@ -360,16 +400,7 @@ export function galleryEntryOf(
   if (!isPlainObject(moduleSource)) {
     return null;
   }
-  let key: string | null = src.path in moduleSource ? src.path : null;
-  if (key === null) {
-    const splitRemoteRefRes = splitRemoteRef(src.path);
-    if (
-      splitRemoteRefRes.status === "success" &&
-      splitRemoteRefRes.filePath in moduleSource
-    ) {
-      key = splitRemoteRefRes.filePath;
-    }
-  }
+  const key = galleryKeyOf(src.path, (candidate) => candidate in moduleSource);
   if (key === null) {
     return null;
   }

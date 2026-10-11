@@ -1,5 +1,7 @@
 import { createRequestPublish } from "../publish/requestPublish";
 import { createStudioJobClient } from "../publish/jobClient";
+import { randomUUID } from "../utils/randomUUID";
+import { isTransientPublishError } from "../publish/publishClient";
 import {
   createPublishJobs,
   isSettled,
@@ -57,7 +59,7 @@ import {
 import { isJsonArray } from "../utils/isJsonArray";
 import { readableProfilesError } from "../utils/readableProfilesError";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
-import { newestUnpublished } from "../publish/pressForPage";
+import { newestUnpublished, pressedAlready } from "../publish/pressForPage";
 import type { ChainProgress } from "../utils/describePendingChangesStall";
 import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
@@ -1109,6 +1111,8 @@ export function ValProvider({
        */
       takesQueuedWork: () =>
         handsOffPublish &&
+        // A proposal's address may reach its own merge's job, and no other.
+        !atProposalRef.current &&
         (connectedJobsRef.current ||
           canBuildHere() ||
           handoffRef.current.active()),
@@ -1132,6 +1136,7 @@ export function ValProvider({
       job: null,
       patchIds: pressed.patchIds,
       ...(pressed.replaces !== null ? { replaces: pressed.replaces } : {}),
+      ...(pressed.merge !== undefined ? { merge: pressed.merge } : {}),
     });
   onPublishSettled.current = (request) => {
     const status = request.status;
@@ -1236,6 +1241,10 @@ export function ValProvider({
                   handoffRef.current.prepare(true, {
                     tryAgainOf: request.requestId,
                     after,
+                    // A merge's try again presses the merge: see `tryAgain`.
+                    ...(request.merge !== undefined
+                      ? { merge: request.merge }
+                      : {}),
                   })
                 ) {
                   return;
@@ -1305,15 +1314,23 @@ export function ValProvider({
    */
   const connectedJobsRef = useRef(false);
   connectedJobsRef.current = publishesAsJobs && statSourceMode === "connected";
+  const atProposalRef = useRef(false);
+  atProposalRef.current = proposal !== null;
+  /*
+   * At a proposal's address too, where saves are commits rather than jobs:
+   * Publish there merges the proposal, which IS a job, and this tracker
+   * follows it to Live. It takes no queued work there (see above).
+   */
+  const followsJobs = publishesAsJobs || proposal !== null;
   useEffect(() => {
-    if (!publishesAsJobs) return;
+    if (!followsJobs) return;
     publishJobs.start();
     const off = subscribePublishJobs(() => publishJobs.nudge());
     return () => {
       off();
       publishJobs.stop();
     };
-  }, [publishesAsJobs, publishJobs, subscribePublishJobs]);
+  }, [followsJobs, publishJobs, subscribePublishJobs]);
   const [observedPublishJobs, setObservedPublishJobs] = useState<
     readonly ObservedJob[]
   >([]);
@@ -2907,6 +2924,39 @@ type PagePublishResult =
   | { status: "error"; message: string }
   | { status: "handed-off" };
 /**
+ * How Publish in a proposal was pressed: see `publishProposal`. Followed
+ * either way with `useProposalPublish`.
+ */
+export type ProposalPublishPress =
+  | { status: "requested" }
+  | { status: "handed-off" }
+  | { status: "error"; message: string };
+
+/**
+ * The newest publish of `proposal` this tab follows -- pressed here, by the
+ * builder tab it opened, or a Try again of either -- and how far this tab has
+ * got with building it. `null` before any.
+ */
+export function useProposalPublish(proposal: string | null): {
+  request: TrackedPublish;
+  /** Its job is being built in this tab, at this phase. */
+  building: boolean;
+} | null {
+  const { publishJobsState } = useContext(ValContext);
+  return useMemo(() => {
+    if (proposal === null) return null;
+    const request = [...publishJobsState.requests]
+      .reverse()
+      .find((tracked) => tracked.merge === proposal);
+    if (request === undefined) return null;
+    const running = publishJobsState.running;
+    return {
+      request,
+      building: running !== null && running.jobId === request.jobId,
+    };
+  }, [proposal, publishJobsState]);
+}
+/**
  * Responsible for publishing and also managing publishing state
  */
 export function usePublishSummary() {
@@ -3141,6 +3191,111 @@ export function usePublishSummary() {
       refreshStat,
     ],
   );
+  /**
+   * Publish in a proposal: merge it into the site, as a publish request like
+   * any other -- pressed, built by this tab or the builder tab a page that
+   * cannot build opens, followed to Live by the same tracker, and announced
+   * the same way. Only the press is the merge's own, and that it has no gate
+   * here: it ships the proposal's last save, which the caller makes first,
+   * and content's merge checks decide whether it may.
+   *
+   * Call it in the press, before anything awaits, for the same reason as
+   * `preparePublish`. `handed-off`: a builder tab presses it; follow it with
+   * `useProposalPublish`, which finds it once the tab says what it pressed.
+   */
+  const publishProposal = useCallback(
+    async (proposalName: string): Promise<ProposalPublishPress> => {
+      /*
+       * Built in a tab, always: a merge is a managed publish, whatever this
+       * address's own saves are -- they are commits, and build nothing, so
+       * `buildsInTab` is false here.
+       */
+      if (handoff.prepare(true, { merge: proposalName })) {
+        return { status: "handed-off" };
+      }
+      const lock = beginSiteOperation("publish");
+      if (!lock.ok) {
+        return { status: "error", message: busyMessage(lock.busy) };
+      }
+      try {
+        if (studioIsDeployer && (await siteMovedSinceLoad())) {
+          markStudioOutOfDate();
+          return { status: "error", message: STUDIO_OUT_OF_DATE_MESSAGE };
+        }
+        const requestId = randomUUID();
+        const client = createStudioJobClient({ api: "/api/val" });
+        try {
+          const pressed = await client.pressMerge(
+            proposalName,
+            requestId,
+            PUBLISH_TAB_ID,
+          );
+          publishJobs.track({
+            requestId,
+            request: pressed.request,
+            job: pressed.job,
+            merge: proposalName,
+          });
+          return { status: "requested" };
+        } catch (error) {
+          /*
+           * No answer is not a no: content may have taken the press and lost
+           * only the reply, and the merge is then under way with nobody
+           * following it. It says whether it did; followed if so, and its
+           * job claimed by pressing it again (see `PublishJobs`).
+           */
+          const landed = isTransientPublishError(error)
+            ? await pressedAlready({ client, requestId })
+            : null;
+          if (landed !== null) {
+            publishJobs.track({
+              requestId,
+              request: landed,
+              job: null,
+              merge: proposalName,
+            });
+            return { status: "requested" };
+          }
+          return {
+            status: "error",
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
+      } finally {
+        lock.release();
+      }
+    },
+    [handoff, studioIsDeployer, publishJobs],
+  );
+  /**
+   * Try again on a failed publish of a proposal, from its dialog: what the
+   * failure's own "Try again" does -- the tracker's try again, which presses
+   * the merge anew and replaces the failed request -- and that failure's
+   * notice goes, since the dialog is where it is answered. In the press, as
+   * `publishProposal`.
+   */
+  const retryProposalPublish = useCallback(
+    async (
+      proposalName: string,
+      failedRequestId: string,
+    ): Promise<ProposalPublishPress> => {
+      toast.dismiss(`publish:${failedRequestId}`);
+      // In a tab, always: see `publishProposal`.
+      if (
+        handoff.prepare(true, {
+          tryAgainOf: failedRequestId,
+          merge: proposalName,
+        })
+      ) {
+        return { status: "handed-off" };
+      }
+      const done = await publishJobs.tryAgain(failedRequestId);
+      return done.ok
+        ? { status: "requested" }
+        : { status: "error", message: done.message };
+    },
+    [handoff, publishJobs],
+  );
   const setSummary = useCallback(
     (
       summary:
@@ -3172,6 +3327,8 @@ export function usePublishSummary() {
   );
   return {
     publish,
+    publishProposal,
+    retryProposalPublish,
     /**
      * The engine kept a `publishDisabled` flag that it set on entering publish
      * and cleared on the way out, and a caller could not tell why it was set.

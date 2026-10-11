@@ -54,7 +54,7 @@ describe("the proposals client", () => {
     expect(listed.siteUrl).toBe("https://site");
     expect(listed.proposals[0]!.changes).toBe(3);
     await client.get(NAME);
-    await client.create({ displayName: "Spring" });
+    await client.create({ displayName: "Spring", requestId: "press-1" });
     await client.rename(NAME, "Summer");
     await client.close(NAME);
     await client.reopen(NAME);
@@ -68,7 +68,10 @@ describe("the proposals client", () => {
       `POST /api/val/proposals-api/${NAME}/reopen`,
       `POST /api/val/proposals-api/${NAME}/setup/retry`,
     ]);
-    expect(sent[2]!.body).toEqual({ displayName: "Spring" });
+    expect(sent[2]!.body).toEqual({
+      displayName: "Spring",
+      requestId: "press-1",
+    });
     expect(sent[3]!.body).toEqual({ displayName: "Summer" });
   });
 
@@ -94,7 +97,7 @@ describe("the proposals client", () => {
       },
     ]);
     const error = await createProposalsClient({ api: "", fetchImpl })
-      .create({ displayName: "Again" })
+      .create({ displayName: "Again", requestId: "press-2" })
       .then(
         () => null,
         (e: unknown) => e,

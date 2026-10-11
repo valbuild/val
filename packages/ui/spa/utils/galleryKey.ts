@@ -7,7 +7,7 @@ import { Internal } from "@valbuild/core";
  * `s.image(remoteGallery)` field, which stores the remote ref in the field and
  * keys the entry by the local path inside it — so a path that is not a key
  * falls back to that embedded path, the same order `fillFromGallery` resolves
- * it in.
+ * it in — both are `Internal.media.galleryKeyOf`.
  *
  * The key set is required, not optional, because the fallback is ambiguous
  * without it: a gallery can hold BOTH shapes, a full-ref key and the local
@@ -22,16 +22,8 @@ export function galleryKeyOf(
   path: string,
   galleryKeys: ReadonlySet<string>,
 ): string {
-  if (galleryKeys.has(path)) {
-    return path;
-  }
-  const split = Internal.remote.splitRemoteRef(path);
-  if (split.status === "success") {
-    for (const embedded of [`/${split.filePath}`, split.filePath]) {
-      if (galleryKeys.has(embedded)) {
-        return embedded;
-      }
-    }
-  }
-  return path;
+  // Core's, which validation and `val validate --fix` ask too.
+  return (
+    Internal.media.galleryKeyOf(path, (key) => galleryKeys.has(key)) ?? path
+  );
 }

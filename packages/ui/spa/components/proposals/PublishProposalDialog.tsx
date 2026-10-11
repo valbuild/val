@@ -41,6 +41,8 @@ export type PublishProposalState =
       changes: number;
       /** Of them, not saved yet: Publish saves them first. */
       unsaved: number;
+      /** What happened since the dialog opened, said above the checks. */
+      note?: string;
     }
   | {
       kind: "publishing";
@@ -151,6 +153,11 @@ export function PublishProposalDialog({
 
           {state.kind === "ready" && (
             <>
+              {state.note !== undefined && (
+                <p role="status" className="text-xs text-fg-primary">
+                  {state.note}
+                </p>
+              )}
               <div className="flex items-center justify-between gap-2 text-xs text-fg-primary">
                 <span>
                   {changesLabel(state.changes)}

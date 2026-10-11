@@ -19,6 +19,7 @@ export function CloseProposalDialog({
   displayName,
   changes,
   onConfirm,
+  merging = false,
   closing = false,
   error = null,
   portalContainer,
@@ -28,6 +29,8 @@ export function CloseProposalDialog({
   displayName: string;
   changes: number;
   onConfirm: () => void;
+  /** Being published: closing stops that first. */
+  merging?: boolean;
   closing?: boolean;
   error?: string | null;
   portalContainer?: HTMLElement | null;
@@ -47,6 +50,8 @@ export function CloseProposalDialog({
               ? "It has no changes."
               : `Its ${changesLabel(changes)} will not be published.`}{" "}
             You can reopen it from All proposals › Closed.
+            {merging &&
+              " It is being published: that is stopped first, and nothing reaches the site."}
           </DialogDescription>
           {error !== null && (
             <div

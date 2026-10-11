@@ -1,5 +1,25 @@
 # @valbuild/ui
 
+## 0.143.1
+
+### Patch Changes
+
+- [#820](https://github.com/valbuild/val/pull/820) [`49969c1`](https://github.com/valbuild/val/commit/49969c1e9f7c39f9cea1a97c91d59dbba6fe3f95) Thanks [@freekh](https://github.com/freekh)! - The progress spinner in the AI chat no longer flashes a green box on iPhone.
+
+  One of the spinner's frames was a character iOS draws as an emoji, a green square with a star in it. It has been replaced with a similar star that is always drawn as plain text.
+
+- [#823](https://github.com/valbuild/val/pull/823) [`ee8e2a2`](https://github.com/valbuild/val/commit/ee8e2a23272a512b43a03fb5f61fc0ddecd61dc4) Thanks [@freekh](https://github.com/freekh)! - New proposal always makes a new proposal. The Name field starts with a random two-word name you can keep or type over, and pressing Create twice, or again after a lost answer, still makes only one.
+
+- [#823](https://github.com/valbuild/val/pull/823) [`d6cc677`](https://github.com/valbuild/val/commit/d6cc6777cf9c2bbef3ba25e43a6227631523758e) Thanks [@freekh](https://github.com/freekh)! - Publishing a proposal now works on an iPhone.
+
+  An iPhone cannot run the bundler in the Studio page, so Publish in a proposal failed there with "The bundler needs a cross-origin isolated page", and left the proposal stuck while its merge waited for a tab that could build it. Publish in a proposal now does what the site's Publish already did: it opens a tab that can build, and that tab presses the merge, builds it and sees it go live. A proposal with unsaved changes is saved first, and Publish asks for a second tap to open that tab.
+
+  Any Studio tab that is handed a waiting merge can now also build it.
+
+- [#823](https://github.com/valbuild/val/pull/823) [`54aacab`](https://github.com/valbuild/val/commit/54aacab71893a95145183e4e9fefbfac945be24d) Thanks [@freekh](https://github.com/freekh)! - Publishing a proposal now goes through the same publish as the site: the status bar follows it, a failure offers Try again in the same place, and it is built in a new tab on devices that cannot build, exactly as a site publish is.
+
+- [#822](https://github.com/valbuild/val/pull/822) [`2577f4e`](https://github.com/valbuild/val/commit/2577f4e8ff19f5ea155040d4d9588b2dbc756ad9) Thanks [@freekh](https://github.com/freekh)! - The Studio's top bar no longer has a Share button. Members is the one people button now, on a phone and on a computer. To invite someone who is not in the organization yet, open Members and use "Invite to {org}".
+
 ## 0.143.0
 
 ### Minor Changes
