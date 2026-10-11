@@ -23,9 +23,10 @@ import { build } from "rolldown";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import type { BuildTarget } from "../contract";
 import { nodeShims } from "./nodeShims";
+import { ASSET_BASE } from "../assets";
 import { parseAstAsync } from "rolldown/parseAst";
 
 /**
@@ -911,10 +912,40 @@ async function auditBaseExports(
   );
 }
 
-/** Bare specifiers that point at a stylesheet rather than a module. */
+/**
+ * A stylesheet's bare `@import`s -- `@import "@fontsource-variable/inter";` --
+ * which name a package's stylesheet whether or not they end in `.css`.
+ *
+ * Not `tailwindcss`, which Tailwind resolves from its own inlined sheets, and
+ * not a URL. Comments are stripped first, so an `@import` in a comment does not
+ * pull a package in.
+ */
+function cssImportSpecifiersOf(css: string) {
+  const found: Array<string> = [];
+  const code = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const match of code.matchAll(
+    /@import\s+(?:url\(\s*)?(["'])([^"']+)\1/g,
+  )) {
+    const specifier = match[2]!;
+    if (/^[./]/.test(specifier)) continue;
+    if (/^tailwindcss(\/|$)/.test(specifier)) continue;
+    if (/^([a-z]+:)?\/\//i.test(specifier)) continue;
+    found.push(specifier);
+  }
+  return found;
+}
+
+/**
+ * Bare specifiers that point at a stylesheet rather than a module: a `.css`
+ * file a module imports, or anything a stylesheet `@import`s.
+ */
 export function cssSpecifiersOf(files: Record<string, string>) {
   const found = new Set<string>();
   for (const [path, code] of Object.entries(files)) {
+    if (/\.css$/.test(path)) {
+      for (const specifier of cssImportSpecifiersOf(code)) found.add(specifier);
+      continue;
+    }
     if (!/\.(tsx?|jsx?|mjs|cjs)$/.test(path)) continue;
     for (const match of code.matchAll(
       /(?:from|import)\s*["']([^"'.][^"']*\.css)["']/g,
@@ -990,6 +1021,14 @@ export function layerDepsOf(
     }
     specifiers.add(specifier);
   }
+  // A package a STYLESHEET imports -- a font, typically -- is a stylesheet
+  // and its files, with no JS entry to build. Left in, it is built as code,
+  // fails, and is reported as skipped on every publish.
+  for (const specifier of cssSpecifiersOf(files)) {
+    const pkg = packageOf(specifier);
+    if (declared.has(pkg) && ![...specifiers].some((s) => packageOf(s) === pkg))
+      cssOnly.add(pkg);
+  }
 
   // A declared dependency nothing imports still gets an entry, so that a
   // project can add one and import it from the studio without a CI round-trip.
@@ -1031,20 +1070,89 @@ const STUB_DIR = ".platform-vendor-stubs";
 export async function collectDependencyCss(
   dir: string,
   specifiers: Array<string>,
+  /**
+   * Where the files a stylesheet points at with `url(...)` go, base64, keyed
+   * by the content-addressed name the rewritten `url()` now uses. Pass it to
+   * the build as `dependencyAssets`, which publishes them under `/_app/a/`.
+   *
+   * Without it the stylesheets are carried as they are, and a relative `url()`
+   * in one -- every font package's -- points at nothing once it is served.
+   */
+  assets?: Record<string, string>,
 ) {
   if (specifiers.length === 0) return {};
   const require = createRequire(join(resolve(dir), "package.json"));
 
   const css: Record<string, string> = {};
   for (const specifier of specifiers) {
+    let file: string;
     try {
-      css[specifier] = await readFile(require.resolve(specifier), "utf8");
+      file = require.resolve(specifier);
     } catch {
       // Left out rather than fatal: the builder reports the unresolved import
       // itself, naming the specifier, which is the better error.
+      continue;
     }
+    if (!file.endsWith(".css")) continue;
+    css[specifier] = await readDependencyStylesheet(file, assets, new Set());
   }
   return css;
+}
+
+/** `url(...)` with a relative target, quoted or not. */
+const RELATIVE_URL = /url\(\s*(["']?)(?![a-z]+:|\/|#)([^"')]+)\1\s*\)/gi;
+
+/**
+ * A dependency's stylesheet, made self-contained.
+ *
+ * Its own relative `@import`s are inlined -- they point into the package, which
+ * the browser build will never see -- and, given `assets`, every relative
+ * `url()` is read, published as a content-addressed asset and pointed at it.
+ * Names follow `resolveAsset`'s: the first 16 hex of the base64's SHA-256, and
+ * the file's own extension.
+ */
+async function readDependencyStylesheet(
+  file: string,
+  assets: Record<string, string> | undefined,
+  seen: Set<string>,
+): Promise<string> {
+  seen.add(file);
+  const base = dirname(file);
+  let css = await readFile(file, "utf8");
+
+  const imports = [
+    ...css.matchAll(/@import\s+(?:url\(\s*)?(["'])(\.{1,2}\/[^"']+)\1[^;]*;/g),
+  ];
+  for (const match of imports) {
+    const target = join(base, match[2]!);
+    const inlined = seen.has(target)
+      ? ""
+      : await readDependencyStylesheet(target, assets, seen).catch(() => null);
+    // A missing file stays an import, so the builder names it.
+    if (inlined !== null) css = css.replace(match[0], inlined);
+  }
+
+  if (!assets) return css;
+  const rewrites = new Map<string, string>();
+  for (const match of css.matchAll(RELATIVE_URL)) {
+    const reference = match[2]!.trim();
+    if (rewrites.has(reference)) continue;
+    const path = join(base, reference.split(/[?#]/)[0]!);
+    let base64: string;
+    try {
+      base64 = (await readFile(path)).toString("base64");
+    } catch {
+      continue; // left as written: a 404 in the browser, and no worse than before
+    }
+    const hash = createHash("sha256").update(base64).digest("hex").slice(0, 16);
+    const name = `${hash}${extname(path).toLowerCase()}`;
+    assets[name] = base64;
+    rewrites.set(reference, `${ASSET_BASE}${name}`);
+  }
+  return css.replace(RELATIVE_URL, (whole, _quote, reference: string) => {
+    const url = rewrites.get(reference.trim());
+    return url ? `url(${url})` : whole;
+  });
 }
 
 export async function buildVendorLayer(
