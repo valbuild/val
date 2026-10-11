@@ -339,6 +339,7 @@ describe("files", () => {
           return png;
         },
         readVideoMetadata: unused,
+        readRemoteFile: unused,
         saveRemoteFile: unused,
       }),
       true,
@@ -373,6 +374,7 @@ describe("files", () => {
             duration: 12.5,
           };
         },
+        readRemoteFile: unused,
         saveRemoteFile: unused,
       }),
       true,
@@ -402,6 +404,7 @@ describe("files", () => {
       config({
         readFile: unused,
         readVideoMetadata: unused,
+        readRemoteFile: unused,
         saveRemoteFile: async (url, filePath) => {
           saved.push({ url, filePath });
           return { status: "success" };
@@ -439,6 +442,7 @@ describe("files", () => {
         config({
           readFile: () => Promise.reject(new Error("ENOENT")),
           readVideoMetadata: unused,
+          readRemoteFile: unused,
           saveRemoteFile: unused,
         }),
         true,

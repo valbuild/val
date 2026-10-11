@@ -64,6 +64,11 @@ import {
   type CurrentJsonEntries,
 } from "./patch/jsonValuesPatch";
 import { validateJsonValuesEntries } from "./validateJsonValues";
+import {
+  checkRemoteFiles,
+  type HeadRemoteFile,
+  type RemoteFilesCheck,
+} from "./remoteFileCheck";
 import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
@@ -1489,13 +1494,76 @@ export abstract class ValOps {
     return { errors, files, remoteFiles };
   }
 
+  /**
+   * The remote values `validateSources` set aside, checked: is each ref
+   * sound, and does its host serve it. See `checkRemoteFiles`.
+   *
+   * `fileLastUpdatedByPatchId` names the refs whose bytes are still in a
+   * pending patch, which the host will not have until publish.
+   */
   async validateRemoteFiles(
     schemas: Schemas,
     sources: Sources,
     remoteFiles: Record<SourcePath, MediaSource>,
-  ): Promise<Record<SourcePath, ValidationError[]>> {
-    // TODO: Implement
-    return {};
+    fileLastUpdatedByPatchId: PatchAnalysis["fileLastUpdatedByPatchId"] = {},
+    head?: HeadRemoteFile,
+  ): Promise<RemoteFilesCheck> {
+    const sampleByHost = this.sourceMode() === "managed";
+    // Only a managed project vouches for one published ref with another, so
+    // only it needs to know which refs are published.
+    const baseSources = sampleByHost
+      ? (await this.getSources()).sources
+      : undefined;
+    const valueAt = (
+      sourcePath: SourcePath,
+      from: Sources,
+    ): { source: unknown; schema: SerializedSchema } | undefined => {
+      const [moduleFilePath, modulePath] =
+        Internal.splitModuleFilePathAndModulePath(sourcePath);
+      const schema = schemas[moduleFilePath];
+      if (!schema || from[moduleFilePath] === undefined) {
+        return undefined;
+      }
+      try {
+        return Internal.resolvePath(
+          modulePath,
+          from[moduleFilePath],
+          schema["executeSerialize"](),
+        );
+      } catch {
+        return undefined;
+      }
+    };
+    return checkRemoteFiles({
+      remoteFiles,
+      sampleByHost,
+      head,
+      schemaAt: (sourcePath) => valueAt(sourcePath, sources)?.schema,
+      isPublished: (sourcePath, ref) => {
+        if (!baseSources) {
+          return false;
+        }
+        const published = valueAt(sourcePath, baseSources)?.source;
+        return (
+          typeof published === "object" &&
+          published !== null &&
+          "path" in published &&
+          published.path === ref
+        );
+      },
+      pendingBytes: async (ref) => {
+        const fromPatch = fileLastUpdatedByPatchId[ref];
+        if (!fromPatch) {
+          return "not-pending";
+        }
+        const bytes = await this.getBase64EncodedBinaryFileFromPatch(
+          ref,
+          fromPatch.patchId,
+          fromPatch.remote,
+        );
+        return bytes === null ? "missing" : "present";
+      },
+    });
   }
 
   // #region validateFiles

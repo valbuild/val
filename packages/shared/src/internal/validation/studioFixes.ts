@@ -18,6 +18,10 @@ export const STUDIO_FIXES = [
   "video:add-metadata",
   "videos:add-metadata",
   "view:check-module",
+  // A stale remote ref: re-read through `FixFiles.readRemoteFile`, rewritten
+  // on the host it was already on.
+  "image:check-remote",
+  "file:check-remote",
 ] as const satisfies readonly ValidationFix[];
 
 export type StudioFix = (typeof STUDIO_FIXES)[number];

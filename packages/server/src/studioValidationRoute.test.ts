@@ -108,6 +108,7 @@ describe("/validate and /validate/fix", () => {
           expect.objectContaining({ fixes: ["image:check-metadata"] }),
         ],
       },
+      remoteHosts: [],
     });
   });
 
@@ -138,6 +139,7 @@ describe("/validate and /validate/fix", () => {
         [`${PAGE}?p="hero"."height"`]: expect.anything(),
         [`${PAGE}?p="hero"."width"`]: expect.anything(),
       },
+      remoteHosts: [],
     });
   });
 

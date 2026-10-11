@@ -1555,6 +1555,24 @@ export const Api = {
             errors: z.record(z.string(), z.array(ValidationError)),
             /** Set when the module's source could not be read at all. */
             invalidSource: z.string().optional(),
+            /**
+             * Hosts that did not serve this module's remote files: one entry
+             * per host, however many files it holds. Optional so a server
+             * from before remote checks still parses.
+             */
+            remoteHosts: z
+              .array(
+                z.object({
+                  host: z.string(),
+                  status: z.union([
+                    z.literal("missing"),
+                    z.literal("unreachable"),
+                  ]),
+                  details: z.string(),
+                  sourcePaths: z.array(SourcePath),
+                }),
+              )
+              .optional(),
           }),
         }),
       ]),

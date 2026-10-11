@@ -1,7 +1,7 @@
 # Full validation in the Studio
 
-> **Status: plan.** Steps 1, 2 and 7 are done (see Order of work); the rest is
-> not built yet.
+> **Status: in progress.** Steps 1, 2, 3, 4 and 7 are done (see Order of
+> work); the rest is not built yet.
 
 The Studio's errors page, grown so that it can also run the whole of
 `val validate` — sources, local files, remote files and media sets — and
@@ -401,15 +401,42 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
    answer both it and the top bar's count read, and `validateSession` keeps a
    run's results for the session. `/val/errors` is still parsed, as the same
    page. Two gaps, left for later steps:
-   - The banner says "content and files" until steps 4 and 5 make "remote
-     files" and "media sets" true.
+   - The banner leaves out "media sets" until step 5 makes it true.
    - Media inside a `.jsonValues()` entry is checked against its schema but
      not against its bytes: `validateSources` resolves an entry's errors
      through the project snapshot, which has no file reader, so the
      "not checked against the file" errors are dropped there rather than
      reported as unfixable. Comparing them needs the entry's media handed to
      `validateFiles`, the same thing step 5 needs for sets.
-4. **`validateRemoteFiles`** and the remote fixes.
+4. **`validateRemoteFiles`** and the remote fixes. **Done**: `checkRemoteFiles`
+   (`server/src/remoteFileCheck.ts`) asks, cheapest first, whether a ref
+   parses, whether it agrees with what is recorded about it, and whether its
+   host serves it (a HEAD). Decisions made on the way:
+   - **A stale ref is judged by its own core version.** The CLI's
+     `checkRemoteRef` re-derives every ref after a Val upgrade; listing every
+     remote image after each upgrade would bury the rows that matter. A ref
+     whose recorded size, type or schema options changed is still stale, and
+     its **Fix** (`image:check-remote` / `file:check-remote`, now in
+     `STUDIO_FIXES`) re-reads the bytes through `FixFiles.readRemoteFile` and
+     keeps the ref on the host it was on.
+   - **A host that fails is one row**, in a "Remote files" group at the top of
+     the page, with **Try again**. It is reported after the first timeout, not
+     one per image, and Try again takes only that host's files from the
+     re-check, so rows fixed since keep their **Undo**.
+   - **A "found" is remembered for five minutes**, not for the life of the
+     server: a host that went down after it was first asked has to show up.
+   - **A ref whose bytes are in a pending patch is not asked about**: the host
+     does not have it until publish. The check is that the patch still has
+     the bytes.
+   - Managed projects ask one published ref per host (`sourceMode()`); every
+     other mode asks every ref.
+
+   Not yet: **Try again / Remove** for a pending ref whose bytes are gone
+   (there is nothing to retry with until the Studio uploads on add, per the
+   remote-files plan), so it is shown with **Open**; and `*:upload-remote` /
+   `*:download-remote`, which still show the `val validate --fix` command.
+   Remote refs inside videos and media sets are not checked here.
+
 5. **The set checks over the set's own entries**, read through `FixFiles`.
 6. **The host rewrite** from the remote-files plan, which then needs nothing
    here but its own fix code.

@@ -2,6 +2,7 @@ import {
   DEFAULT_VAL_REMOTE_HOST,
   FileSource,
   Internal,
+  MediaSource,
   ModuleFilePath,
   SourcePath,
   ValidationError,
@@ -12,6 +13,7 @@ import { isStudioFix } from "@valbuild/shared/internal";
 import { createFixPatch, FixPatchRemainingError } from "./createFixPatch";
 import { extractVideoMetadata } from "./extractMetadata";
 import type { FixFiles } from "./fixFiles";
+import type { HeadRemoteFile, RemoteHostProblem } from "./remoteFileCheck";
 import {
   getFieldsForType,
   type PatchAnalysis,
@@ -33,10 +35,17 @@ export type StudioCheckInput = {
   schemas: Schemas;
   sources: Sources;
   fileLastUpdatedByPatchId: PatchAnalysis["fileLastUpdatedByPatchId"];
+  /** How a remote host is asked about a ref. Tests replace it. */
+  head?: HeadRemoteFile;
 };
 
 export type StudioModuleCheck =
-  | { status: "ok"; errors: Record<SourcePath, ValidationError[]> }
+  | {
+      status: "ok";
+      errors: Record<SourcePath, ValidationError[]>;
+      /** Hosts that did not serve this module's remote files. */
+      remoteHosts: RemoteHostProblem[];
+    }
   | { status: "unknown-module" }
   | { status: "invalid-source"; message: string };
 
@@ -48,8 +57,11 @@ export type StudioModuleCheck =
  * the errors the gate hides because "the server repairs them on save" are the
  * ones this check exists to show, since nothing repairs them in http mode.
  *
- * Not yet here: remote files (`validateRemoteFiles` is a stub) and the media
- * sets' own entries. Those are steps 4 and 5 of the plan.
+ * Remote files are checked too: a stale ref is an error with a fix, and a
+ * host that does not serve them is reported once, as a host, rather than as
+ * an error on every image it holds (`checkRemoteFiles`).
+ *
+ * Not yet here: the media sets' own entries, step 5 of the plan.
  */
 export async function checkModuleForStudio(
   ops: ValOps,
@@ -91,7 +103,17 @@ export async function checkModuleForStudio(
   for (const [sourcePath, found] of Object.entries(fileErrors)) {
     add(sourcePath as SourcePath, found);
   }
-  return { status: "ok", errors };
+  const remote = await ops.validateRemoteFiles(
+    schemas,
+    sources,
+    validation.remoteFiles,
+    input.fileLastUpdatedByPatchId,
+    input.head,
+  );
+  for (const [sourcePath, found] of Object.entries(remote.errors)) {
+    add(sourcePath as SourcePath, found);
+  }
+  return { status: "ok", errors, remoteHosts: remote.hosts };
 }
 
 export type StudioFixResult =
@@ -137,6 +159,7 @@ export async function fixForStudio(
     ops,
     validation.errors[moduleFilePath]?.validations ?? {},
     validation.files,
+    validation.remoteFiles,
     input,
   );
   if (!found) {
@@ -148,7 +171,9 @@ export async function fixForStudio(
       // `files`. An empty root means a fix that slipped past that fails to
       // find its file rather than reading one off this server's disk.
       projectRoot: "",
-      remoteHost: DEFAULT_VAL_REMOTE_HOST,
+      // A re-derived ref stays on the host it was on. Moving refs to another
+      // host is its own fix (step 6 of the plan), not a side effect of this.
+      remoteHost: found.remoteHost ?? DEFAULT_VAL_REMOTE_HOST,
       files: opsFixFiles(ops, input.fileLastUpdatedByPatchId),
     },
     true,
@@ -172,14 +197,42 @@ async function findError(
   ops: ValOps,
   validations: Record<SourcePath, ValidationError[]>,
   files: Record<SourcePath, FileSource>,
+  remoteFiles: Record<SourcePath, MediaSource>,
   input: StudioCheckInput & { sourcePath: SourcePath; fix: ValidationFix },
-): Promise<{ sourcePath: SourcePath; error: ValidationError } | undefined> {
+): Promise<
+  | { sourcePath: SourcePath; error: ValidationError; remoteHost?: string }
+  | undefined
+> {
   const { sourcePath, fix } = input;
   const reported = validations[sourcePath]?.find((error) =>
     error.fixes?.includes(fix),
   );
   if (reported) {
     return { sourcePath, error: reported };
+  }
+  if (fix === "image:check-remote" || fix === "file:check-remote") {
+    // Every remote value is in `remoteFiles`, sound or not, so ask whether
+    // this one is stale before rewriting it: a ref someone already fixed is
+    // "not found", not a download and an identical ref.
+    const value = remoteFiles[sourcePath];
+    if (!value) {
+      return undefined;
+    }
+    const checked = await ops.validateRemoteFiles(
+      input.schemas,
+      input.sources,
+      { [sourcePath]: value },
+      input.fileLastUpdatedByPatchId,
+      input.head,
+    );
+    const stale = checked.errors[sourcePath]?.find((error) =>
+      error.fixes?.includes(fix),
+    );
+    const parsed = Internal.remote.splitRemoteRef(value.path);
+    if (!stale || parsed.status === "error") {
+      return undefined;
+    }
+    return { sourcePath, error: stale, remoteHost: parsed.remoteHost };
   }
   if (fix !== "image:check-metadata" && fix !== "file:check-metadata") {
     return undefined;
@@ -277,6 +330,7 @@ export function opsFixFiles(
     readFile,
     readVideoMetadata: async (filePath) =>
       extractVideoMetadata(filePath, await readFile(filePath)),
+    readRemoteFile: readRemoteFileOverHttp,
     saveRemoteFile: async () => ({
       status: "error",
       error:
@@ -284,3 +338,30 @@ export function opsFixFiles(
     }),
   };
 }
+
+/**
+ * A remote file's bytes, downloaded and kept nowhere: this server may have no
+ * disk to keep them on (http mode, a Worker on the platform).
+ */
+const readRemoteFileOverHttp: FixFiles["readRemoteFile"] = async (ref) => {
+  try {
+    const res = await fetch(ref, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) {
+      return {
+        status: "error",
+        error: `The file could not be downloaded from its address: HTTP ${res.status}.`,
+      };
+    }
+    const fileBuffer = Buffer.from(await res.arrayBuffer());
+    return {
+      status: "success",
+      fileBuffer,
+      fileHash: Internal.remote.getFileHash(fileBuffer),
+    };
+  } catch (err) {
+    return {
+      status: "error",
+      error: `The file could not be downloaded from its address: ${err instanceof Error ? err.message : "unknown error"}.`,
+    };
+  }
+};

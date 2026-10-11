@@ -67,6 +67,16 @@ const FULL_CHECK: ValidateGroup[] = [
           "HEAD https://www.acme.no/_val/file/p/3f9a2c1/…/hero_3fa9c.jpg\n→ getaddrinfo ENOTFOUND www.acme.no\nFallback https://3f9a2c1.valstart.dev/_val/file/p/3f9a2c1/…/hero_3fa9c.jpg\n→ 200, hash matches",
         action: { kind: "fix" },
       },
+      {
+        id: "host-cdn",
+        location: "cdn.acme.no",
+        message:
+          "cdn.acme.no could not be reached, so 12 remote files in 3 modules could not be checked.",
+        tone: "error",
+        details:
+          "HEAD https://cdn.acme.no/file/p/3f9a2c1/…/team_8a1f3.jpg\n→ No answer within 8 s",
+        action: { kind: "try-again" },
+      },
     ],
   },
   {

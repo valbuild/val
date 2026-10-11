@@ -1471,6 +1471,7 @@ export const ValServer = (
               json: {
                 moduleFilePath: req.body.moduleFilePath,
                 errors: res.errors,
+                remoteHosts: res.remoteHosts,
               },
             };
         }
@@ -2579,12 +2580,9 @@ export const ValServer = (
               sourcesRes.sources,
               sourcesValidation.files,
             );
-            // TODO : actually do something with this
-            await serverOps.validateRemoteFiles(
-              schemas,
-              sourcesRes.sources,
-              sourcesValidation.remoteFiles,
-            );
+            // Remote files are not checked here: their check asks each host
+            // over the network, so it is the Studio's full check that runs it,
+            // one module at a time (`/validate`).
           }
         }
 

@@ -1,6 +1,14 @@
-import type { ModuleFilePath, PatchId } from "@valbuild/core";
+import type {
+  ModuleFilePath,
+  PatchId,
+  SourcePath,
+  ValidationError,
+} from "@valbuild/core";
 import { useSyncExternalStore } from "react";
-import type { ModuleCheckResult } from "./buildValidateGroups";
+import type {
+  ModuleCheckResult,
+  RemoteHostProblem,
+} from "./buildValidateGroups";
 import type { FixState } from "./ValidatePageView";
 
 /**
@@ -88,6 +96,53 @@ export class ValidateSession {
       run:
         run.status === "running" ? { ...run, checked: run.checked + 1 } : run,
     });
+  }
+
+  /**
+   * A module checked again for **Try again** on `host`: only the files that
+   * host failed for are taken from the new result -- whether the host is back,
+   * and what it now says about each of them. The rest of the module keeps the
+   * run's answer, so a row fixed since keeps its **Undo**. A run in progress
+   * does not count this as progress.
+   */
+  retryHost(
+    moduleFilePath: ModuleFilePath,
+    host: string,
+    result: ModuleCheckResult,
+  ) {
+    const before = this.state.results.get(moduleFilePath);
+    const results = new Map(this.state.results);
+    if (before?.status !== "ok" || result.status !== "ok") {
+      results.set(moduleFilePath, result);
+      this.set({ results });
+      return;
+    }
+    const onHost = (problem: RemoteHostProblem) => problem.host === host;
+    const asked = new Set<string>(
+      (before.remoteHosts ?? [])
+        .filter(onHost)
+        .flatMap((problem) => problem.sourcePaths),
+    );
+    const errors: Record<SourcePath, ValidationError[]> = {};
+    for (const [path, found] of Object.entries(before.errors)) {
+      if (!asked.has(path)) {
+        errors[path as SourcePath] = found;
+      }
+    }
+    for (const [path, found] of Object.entries(result.errors)) {
+      if (asked.has(path)) {
+        errors[path as SourcePath] = found;
+      }
+    }
+    results.set(moduleFilePath, {
+      status: "ok",
+      errors,
+      remoteHosts: [
+        ...(before.remoteHosts ?? []).filter((problem) => !onHost(problem)),
+        ...(result.remoteHosts ?? []).filter(onHost),
+      ],
+    });
+    this.set({ results });
   }
 
   /** A module that has nothing to report, counted all the same. */

@@ -122,7 +122,7 @@ describe("the Studio's full check", () => {
       moduleFilePath: PAGE,
       ...(await sourcesOf(ops)),
     });
-    expect(res).toEqual({ status: "ok", errors: {} });
+    expect(res).toEqual({ status: "ok", errors: {}, remoteHosts: [] });
   });
 
   test("only the module asked about is checked", async () => {
@@ -144,7 +144,7 @@ describe("the Studio's full check", () => {
       moduleFilePath: OTHER,
       ...(await sourcesOf(ops)),
     });
-    expect(page).toEqual({ status: "ok", errors: {} });
+    expect(page).toEqual({ status: "ok", errors: {}, remoteHosts: [] });
     expect(other.status).toBe("ok");
     if (other.status !== "ok") return;
     expect(Object.keys(other.errors)).toEqual([OTHER]);
@@ -242,6 +242,7 @@ describe("the Studio's full check", () => {
             }),
           ],
         },
+        remoteHosts: [],
       });
       if (check.status === "ok") {
         const docPath = `${PAGE}?p="doc"` as SourcePath;

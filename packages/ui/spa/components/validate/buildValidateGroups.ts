@@ -12,9 +12,22 @@ import { prettifyFilename } from "../../utils/prettifyFilename";
 import { prettifyModulePath } from "../../utils/prettifyText";
 import type { FixState, ValidateGroup, ValidateRow } from "./ValidatePageView";
 
+/** A host that did not serve a module's remote files, as `/validate` says. */
+export type RemoteHostProblem = {
+  host: string;
+  status: "missing" | "unreachable";
+  details: string;
+  sourcePaths: SourcePath[];
+};
+
 /** What `/validate` answered for one module. */
 export type ModuleCheckResult =
-  | { status: "ok"; errors: Record<SourcePath, ValidationError[]> }
+  | {
+      status: "ok";
+      errors: Record<SourcePath, ValidationError[]>;
+      /** Absent from a server that predates remote checks. */
+      remoteHosts?: RemoteHostProblem[];
+    }
   | { status: "invalid-source"; message: string };
 
 /** What a row is about, so a press on it can be acted on. */
@@ -22,6 +35,8 @@ export type RowTarget =
   | { kind: "own"; sourcePath: SourcePath }
   /** The module as a whole: its content could not be read at all. */
   | { kind: "module"; moduleFilePath: ModuleFilePath }
+  /** A remote host, and the modules whose files it holds. */
+  | { kind: "host"; host: string; moduleFilePaths: ModuleFilePath[] }
   | {
       kind: "full";
       moduleFilePath: ModuleFilePath;
@@ -106,17 +121,101 @@ export function buildValidateGroups(
     }
   }
 
+  const withFixState = (row: ValidateRow): ValidateRow => {
+    const fixState = input.fixes[row.id];
+    return fixState ? { ...row, fixState } : row;
+  };
   const groups: ValidateGroup[] = [...byModule.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([moduleFilePath, rows]) => ({
       id: moduleFilePath,
       title: titleOf(moduleFilePath),
-      rows: rows.map((row) => {
-        const fixState = input.fixes[row.id];
-        return fixState ? { ...row, fixState } : row;
-      }),
+      rows: rows.map(withFixState),
     }));
+  const hostRows = remoteHostRows(input.results);
+  if (hostRows.length > 0) {
+    for (const { row, target } of hostRows) {
+      targets.set(row.id, target);
+    }
+    // First: a host is the one problem that can take every image on the site
+    // down at once.
+    groups.unshift({
+      id: REMOTE_GROUP_ID,
+      title: "Remote files",
+      remote: true,
+      rows: hostRows.map(({ row }) => withFixState(row)),
+    });
+  }
   return { groups, targets };
+}
+
+export const REMOTE_GROUP_ID = "remote";
+
+/**
+ * One row per host that failed, however many modules reported it: a host is
+ * down for every file on it at once, and a row per image would say the same
+ * thing forty times.
+ */
+function remoteHostRows(
+  results: ReadonlyMap<ModuleFilePath, ModuleCheckResult>,
+): { row: ValidateRow; target: RowTarget }[] {
+  const byHost = new Map<
+    string,
+    {
+      problem: RemoteHostProblem;
+      modules: Set<ModuleFilePath>;
+      files: number;
+    }
+  >();
+  for (const [moduleFilePath, result] of results) {
+    if (result.status !== "ok") {
+      continue;
+    }
+    for (const problem of result.remoteHosts ?? []) {
+      const key = `${problem.host} ${problem.status}`;
+      const seen = byHost.get(key) ?? {
+        problem,
+        modules: new Set<ModuleFilePath>(),
+        files: 0,
+      };
+      seen.modules.add(moduleFilePath);
+      seen.files += problem.sourcePaths.length;
+      byHost.set(key, seen);
+    }
+  }
+  return [...byHost.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, { problem, modules, files }]) => {
+      const name = hostNameOf(problem.host);
+      const used = `${files} remote ${files === 1 ? "file" : "files"} in ${modules.size} ${modules.size === 1 ? "module" : "modules"}`;
+      return {
+        target: {
+          kind: "host",
+          host: problem.host,
+          moduleFilePaths: [...modules].sort(),
+        },
+        row: {
+          id: `remote:${key}`,
+          location: name,
+          message:
+            problem.status === "unreachable"
+              ? `${name} could not be reached, so ${used} could not be checked.`
+              : `${name} does not have the files it is asked for. ${used} use this address.`,
+          tone: "error",
+          details: problem.details,
+          action: { kind: "try-again" },
+        },
+      };
+    });
+}
+
+/** `www.acme.no`, from `https://www.acme.no`: how a person names a host. */
+function hostNameOf(host: string): string {
+  try {
+    return new URL(host).host;
+  } catch {
+    return host;
+  }
 }
 
 /** Rows that still need something: what the top bar counts. */

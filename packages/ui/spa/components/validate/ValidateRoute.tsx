@@ -47,15 +47,22 @@ export function ValidateRoute() {
 
   /*
    * Which of the Studio's own errors this page lists: the ones it was opened
-   * with ("Fix N" passes them), or every one there was when it opened. A
-   * snapshot, so a row someone fixes in place stays and reads "Fixed." rather
-   * than vanishing from under them -- the errors page always worked this way.
+   * with ("Fix N" passes them), and every path that has had an error since.
+   * It only grows, so a row someone fixes in place stays and reads "Fixed."
+   * rather than vanishing from under them -- the errors page always worked
+   * this way. Growing rather than a snapshot because the Studio's errors
+   * arrive after the page does: a snapshot taken on the first render missed
+   * every one of them, and the top bar counted errors the page did not list.
    */
-  const [ownPaths] = useState<SourcePath[]>(() =>
-    navigation.errorFields.length > 0
-      ? navigation.errorFields
-      : pathsWithErrors(ownErrors),
+  const [ownPaths, setOwnPaths] = useState<SourcePath[]>(() =>
+    union(navigation.errorFields, pathsWithErrors(ownErrors)),
   );
+  useEffect(() => {
+    setOwnPaths((seen) => {
+      const next = union(seen, pathsWithErrors(ownErrors));
+      return next.length === seen.length ? seen : next;
+    });
+  }, [ownErrors]);
 
   const schemaData = schemas.status === "success" ? schemas.data : undefined;
   const { groups, targets } = useMemo(
@@ -84,6 +91,45 @@ export function ValidateRoute() {
       .filter((patchId) => !store.isPending(patchId));
   }, [val]);
 
+  /** One module, as `/validate` answers for it. */
+  const checkModule = useCallback(
+    async (
+      moduleFilePath: ModuleFilePath,
+      patchIds: PatchId[] | undefined,
+    ): Promise<ModuleCheckOutcome> => {
+      const res = await client("/validate", "POST", {
+        body: { moduleFilePath, ...(patchIds ? { patchIds } : {}) },
+      });
+      if (res.status === 200) {
+        return {
+          status: "checked",
+          result:
+            res.json.invalidSource !== undefined
+              ? { status: "invalid-source", message: res.json.invalidSource }
+              : {
+                  status: "ok",
+                  errors: res.json.errors,
+                  remoteHosts: res.json.remoteHosts ?? [],
+                },
+        };
+      }
+      if (res.status === 404) {
+        return { status: "gone" };
+      }
+      if (res.status === 401) {
+        return { status: "signed-out" };
+      }
+      return {
+        status: "failed",
+        details:
+          res.status === null
+            ? "The server could not be reached."
+            : `POST /validate → ${res.status}${"json" in res && res.json && "message" in res.json ? `: ${res.json.message}` : ""}`,
+      };
+    },
+    [client],
+  );
+
   const checkEverything = useCallback(async () => {
     if (!schemaData) {
       return;
@@ -95,36 +141,61 @@ export function ValidateRoute() {
       if (validateSession.shouldStop) {
         break;
       }
-      const res = await client("/validate", "POST", {
-        body: { moduleFilePath, ...(patchIds ? { patchIds } : {}) },
-      });
-      if (res.status === 200) {
-        const result: ModuleCheckResult =
-          res.json.invalidSource !== undefined
-            ? { status: "invalid-source", message: res.json.invalidSource }
-            : { status: "ok", errors: res.json.errors };
-        validateSession.recordModule(moduleFilePath, result);
-      } else if (res.status === 404) {
+      const outcome = await checkModule(moduleFilePath, patchIds);
+      if (outcome.status === "checked") {
+        validateSession.recordModule(moduleFilePath, outcome.result);
+      } else if (outcome.status === "gone") {
         // Gone since the schemas were read: nothing to check.
         validateSession.skipModule();
-      } else if (res.status === 401) {
-        validateSession.fail(
-          "Your session has ended, so the check stopped. Sign in again, then check again.",
-        );
+      } else if (outcome.status === "signed-out") {
+        validateSession.fail(SIGNED_OUT);
         return;
       } else {
         const checked = progressOf(validateSession.getSnapshot().run);
         validateSession.fail(
           `The check stopped after ${checked} of ${order.length} files: Val could not check ${moduleFilePath}.`,
-          res.status === null
-            ? "The server could not be reached."
-            : `POST /validate → ${res.status}${"json" in res && res.json && "message" in res.json ? `: ${res.json.message}` : ""}`,
+          outcome.details,
         );
         return;
       }
     }
     validateSession.finish(Date.now());
-  }, [client, schemaData, shownPatchIds]);
+  }, [checkModule, schemaData, shownPatchIds]);
+
+  /**
+   * **Try again** on a host: the modules it holds files of are checked again,
+   * and only what that host's files answered is taken from it. The rest of
+   * each module stays as the run found it -- including a row fixed since,
+   * which would otherwise vanish with its **Undo**.
+   */
+  const recheck = useCallback(
+    async (
+      rowId: string,
+      host: string,
+      moduleFilePaths: readonly ModuleFilePath[],
+    ) => {
+      validateSession.setFix(rowId, { status: "fixing" });
+      const patchIds = shownPatchIds();
+      for (const moduleFilePath of moduleFilePaths) {
+        const outcome = await checkModule(moduleFilePath, patchIds);
+        if (outcome.status === "checked") {
+          validateSession.retryHost(moduleFilePath, host, outcome.result);
+        } else if (outcome.status !== "gone") {
+          validateSession.setFix(rowId, {
+            status: "failed",
+            message:
+              outcome.status === "signed-out"
+                ? SIGNED_OUT
+                : `Val could not check ${moduleFilePath} again. ${outcome.details}`,
+          });
+          return;
+        }
+      }
+      // Answered: the row is either gone, or back with the host's new answer.
+      validateSession.setFix(rowId, undefined);
+    },
+    [checkModule, shownPatchIds],
+  );
 
   const fix = useCallback(
     async (rowId: string) => {
@@ -188,8 +259,13 @@ export function ValidateRoute() {
         case "open":
           if (target?.kind === "module") {
             navigation.navigate(target.moduleFilePath);
-          } else if (target) {
+          } else if (target?.kind === "own" || target?.kind === "full") {
             navigation.navigate(target.sourcePath);
+          }
+          return;
+        case "try-again":
+          if (target?.kind === "host") {
+            void recheck(rowId, target.host, target.moduleFilePaths);
           }
           return;
         case "review":
@@ -212,15 +288,14 @@ export function ValidateRoute() {
           }
           return;
         }
-        // Not produced yet: their checks are steps 4 and 5 of the plan.
+        // Not produced yet: the set checks are step 5 of the plan.
         case "remove-from-set":
-        case "try-again":
         case "remove":
         case "check-module":
           return;
       }
     },
-    [deletePatches, fix, groups, navigation, session.fixes, targets],
+    [deletePatches, fix, groups, navigation, recheck, session.fixes, targets],
   );
 
   const fixAll = useCallback(
@@ -287,6 +362,13 @@ function OwnFieldBody({ sourcePath }: { sourcePath: SourcePath }) {
   );
 }
 
+function union(
+  first: readonly SourcePath[],
+  second: readonly SourcePath[],
+): SourcePath[] {
+  return [...first, ...second.filter((path) => !first.includes(path))];
+}
+
 function pathsWithErrors(
   errors: Record<SourcePath, ValidationError[] | undefined>,
 ): SourcePath[] {
@@ -295,26 +377,50 @@ function pathsWithErrors(
   );
 }
 
+type ModuleCheckOutcome =
+  | { status: "checked"; result: ModuleCheckResult }
+  /** Not in the project any more. */
+  | { status: "gone" }
+  | { status: "signed-out" }
+  | { status: "failed"; details: string };
+
+const SIGNED_OUT =
+  "Your session has ended, so the check stopped. Sign in again, then check again.";
+
 function progressOf(run: CheckRun): number {
   return run.status === "running" ? run.checked : 0;
 }
 
-/** What a fix wrote, in a line: `width 1, height 1`. */
+/**
+ * What a fix wrote, in a line: `width 1, height 1`. A fix that replaces a
+ * whole media value is summed up by what it recorded about the file; its
+ * address is not something a person reads.
+ */
 function summaryOf(patch: Patch): string {
   return patch
-    .flatMap((op) =>
-      (op.op === "add" || op.op === "replace") && op.path.length > 0
-        ? [`${op.path[op.path.length - 1]} ${formatValue(op.value)}`]
-        : [],
-    )
+    .flatMap((op) => {
+      if ((op.op !== "add" && op.op !== "replace") || op.path.length === 0) {
+        return [];
+      }
+      const value = op.value;
+      if (typeof value === "string" || typeof value === "number") {
+        return [`${op.path[op.path.length - 1]} ${value}`];
+      }
+      if (
+        typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value)
+      ) {
+        return Object.entries(value).flatMap(([key, field]) =>
+          key !== "path" &&
+          (typeof field === "string" || typeof field === "number")
+            ? [`${key} ${field}`]
+            : [],
+        );
+      }
+      return [];
+    })
     .join(", ");
-}
-
-function formatValue(value: unknown): string {
-  if (typeof value === "string" || typeof value === "number") {
-    return String(value);
-  }
-  return JSON.stringify(value);
 }
 
 /** How long ago, in words; re-read every half minute while it is shown. */

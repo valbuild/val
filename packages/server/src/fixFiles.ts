@@ -1,7 +1,11 @@
 import { VideoMetadata } from "@valbuild/core";
 import fs from "fs";
 import path from "path";
-import { downloadFileFromRemote } from "./checkRemoteRef";
+import {
+  downloadFileFromRemote,
+  getFileBufferFromRemote,
+  type ReadRemoteFile,
+} from "./checkRemoteRef";
 import { extractVideoMetadataFromFile } from "./extractMetadata";
 
 /**
@@ -16,9 +20,8 @@ import { extractVideoMetadataFromFile } from "./extractMetadata";
  * exactly what `createFixPatch` did with `fs` before this existed.
  *
  * Not yet covered, and still read from `projectRoot` directly: the gallery
- * checks (`*:check-all-files`), which LIST a directory rather than read a file,
- * and `checkRemoteRef`'s download cache under `.val/remote-file-cache`. See
- * `docs/plans/studio-validate.md`.
+ * checks (`*:check-all-files`), which LIST a directory rather than read a file.
+ * See `docs/plans/studio-validate.md`.
  */
 export type FixFiles = {
   /** A project file's bytes. Rejects when it cannot be read. */
@@ -29,6 +32,11 @@ export type FixFiles = {
    * only the headers.
    */
   readVideoMetadata(filePath: string): Promise<VideoMetadata>;
+  /**
+   * A remote file's bytes, for re-deriving a stale ref (`*:check-remote`).
+   * Nothing is stored in the project.
+   */
+  readRemoteFile: ReadRemoteFile;
   /** Downloads `url` and stores it in the project at `filePath`. */
   saveRemoteFile(
     url: string,
@@ -43,6 +51,10 @@ export function diskFixFiles(projectRoot: string): FixFiles {
     readFile: (filePath) => fs.promises.readFile(absolute(filePath)),
     readVideoMetadata: (filePath) =>
       extractVideoMetadataFromFile(absolute(filePath)),
+    // Kept under `.val/remote-file-cache`, so the next run does not download
+    // it again.
+    readRemoteFile: (ref, fileExt, fileHash) =>
+      getFileBufferFromRemote(ref, fileExt, fileHash, projectRoot),
     saveRemoteFile: async (url, filePath) => {
       const target = absolute(filePath);
       await fs.promises.mkdir(path.dirname(target), { recursive: true });

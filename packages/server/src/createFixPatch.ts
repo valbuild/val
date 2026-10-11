@@ -655,6 +655,7 @@ export async function createFixPatch(
           config.projectRoot,
           schemaAtPath,
           v.metadata,
+          files.readRemoteFile,
         );
         if (res.status === "success") {
           // do nothing

@@ -73,6 +73,8 @@ export type RowAction =
   | { kind: "open" }
   | { kind: "remove-from-set" }
   | { kind: "try-again-or-remove" }
+  /** Asks again: for a host that did not answer, which may answer now. */
+  | { kind: "try-again" }
   | { kind: "check-module" }
   | { kind: "command"; command: string };
 
@@ -187,9 +189,10 @@ export function ValidatePageView({
       )}
       {fullCheck.status === "done" && openRows.length === 0 && (
         <Banner tone="success" icon={<CheckCircle2 size={16} aria-hidden />}>
-          {/* Remote files and media sets join this sentence when the full
-              check covers them: steps 4 and 5 of docs/plans/studio-validate.md. */}
-          Everything checks out: content and files. Ready to publish.
+          {/* Media sets join this sentence when the full check covers them:
+              step 5 of docs/plans/studio-validate.md. */}
+          Everything checks out: content, files and remote files. Ready to
+          publish.
         </Banner>
       )}
 
@@ -206,9 +209,9 @@ export function ValidatePageView({
 
       {fullCheck.status === "not-run" && (
         <div className="border-t border-dashed border-border-primary pt-4 text-sm text-fg-secondary">
-          Files have not been checked against what is recorded about them.
-          &ldquo;Check everything&rdquo; checks them on the server. It can take
-          a minute.
+          Files and remote files have not been checked against what is recorded
+          about them. &ldquo;Check everything&rdquo; checks them on the server.
+          It can take a minute.
         </div>
       )}
     </div>
@@ -552,6 +555,19 @@ function RowButtons({
             Remove
           </Button>
         </div>
+      );
+    case "try-again":
+      return (
+        <Button
+          variant="secondary"
+          size="xs"
+          onClick={() => onAction("try-again")}
+          disabled={fixing}
+          className="shrink-0"
+        >
+          {fixing && <Loader2 size={13} className="animate-spin" aria-hidden />}
+          Try again
+        </Button>
       );
     case "check-module":
       return (

@@ -19,6 +19,13 @@ export async function checkRemoteRef(
   projectRoot: string,
   schema: SerializedImageSchema | SerializedFileSchema,
   metadata: Record<string, unknown> | undefined,
+  /**
+   * Where the bytes come from when the ref has to be re-derived. Defaults to
+   * a download cached under `projectRoot`; the Studio passes one that keeps
+   * nothing on disk (`FixFiles.readRemoteFile`).
+   */
+  readRemote: ReadRemoteFile = (ref, fileExt, fileHash) =>
+    getFileBufferFromRemote(ref, fileExt, fileHash, projectRoot),
 ): Promise<
   | { status: "success" }
   | {
@@ -88,11 +95,10 @@ export async function checkRemoteRef(
     };
   }
   // Validation hash does not match, so we need to re-validate the remote content
-  const fileBufferRes = await getFileBufferFromRemote(
+  const fileBufferRes = await readRemote(
     ref,
     fileExt,
     remoteRefDataRes.fileHash,
-    projectRoot,
   );
 
   // We could not download the remote file for some reason (for example, the file hash is wrong)
@@ -125,7 +131,7 @@ export async function checkRemoteRef(
   } catch (err) {
     return {
       status: "error",
-      error: `Failed to extract metadata from remote file: ${err instanceof Error ? err.message : "Unknown error"}. Cached file: ${fileBufferRes.cachedFilePath}`,
+      error: `Failed to extract metadata from remote file: ${err instanceof Error ? err.message : "Unknown error"}${fileBufferRes.cachedFilePath ? `. Cached file: ${fileBufferRes.cachedFilePath}` : ""}`,
     };
   }
   const updatedMetadata = {
@@ -185,23 +191,34 @@ export function getCachedRemoteFilePath(
   return remoteFilePath;
 }
 
-async function getFileBufferFromRemote(
+/**
+ * A remote file's bytes, and the hash they actually have — which is the one a
+ * re-derived ref is made from, whatever hash the old ref claimed.
+ */
+export type ReadRemoteFile = (
   ref: string,
   fileExt: string,
-  currentFileHash: string,
-  projectRoot: string,
-): Promise<
+  expectedFileHash: string,
+) => Promise<
   | {
       status: "success";
       fileBuffer: Buffer;
       fileHash: string;
-      cachedFilePath: string;
+      /** Where a download was kept, when it was kept: for error messages. */
+      cachedFilePath?: string;
     }
   | {
       status: "error";
       error: string;
     }
-> {
+>;
+
+export async function getFileBufferFromRemote(
+  ref: string,
+  fileExt: string,
+  currentFileHash: string,
+  projectRoot: string,
+): ReturnType<ReadRemoteFile> {
   const remoteFileCacheDir = getCachedRemoteFileDir(projectRoot);
   const remoteFilePath = getCachedRemoteFilePath(
     fileExt,

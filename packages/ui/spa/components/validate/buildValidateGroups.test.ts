@@ -2,6 +2,7 @@ import { ModuleFilePath, SourcePath, ValidationError } from "@valbuild/core";
 import {
   buildValidateGroups,
   openRowCount,
+  REMOTE_GROUP_ID,
   type ModuleCheckResult,
 } from "./buildValidateGroups";
 
@@ -205,5 +206,79 @@ describe("buildValidateGroups", () => {
       "Too long",
       "B",
     ]);
+  });
+
+  describe("remote files", () => {
+    const HOST = "https://files.example.com";
+    const down = (sourcePaths: SourcePath[]) => ({
+      host: HOST,
+      status: "unreachable" as const,
+      details: "HEAD … → ECONNREFUSED",
+      sourcePaths,
+    });
+
+    test("a host that is down is one row for every module it holds files of, first on the page", () => {
+      const res = build({
+        results: new Map<ModuleFilePath, ModuleCheckResult>([
+          [
+            BLOG,
+            {
+              status: "ok",
+              errors: {},
+              remoteHosts: [down([at(BLOG, '"a"'), at(BLOG, '"b"')])],
+            },
+          ],
+          [
+            MEDIA,
+            {
+              status: "ok",
+              errors: { [at(MEDIA, '"x"')]: [{ message: "Required" }] },
+              remoteHosts: [down([at(MEDIA, '"c"')])],
+            },
+          ],
+        ]),
+      });
+      // BLOG has nothing wrong but its host, so it has no group of its own.
+      expect(res.groups.map((group) => group.id)).toEqual([
+        REMOTE_GROUP_ID,
+        MEDIA,
+      ]);
+      const [hostRow] = res.groups[0].rows;
+      expect(res.groups[0].rows).toHaveLength(1);
+      expect(hostRow).toMatchObject({
+        location: "files.example.com",
+        message:
+          "files.example.com could not be reached, so 3 remote files in 2 modules could not be checked.",
+        details: "HEAD … → ECONNREFUSED",
+        action: { kind: "try-again" },
+      });
+      expect(res.targets.get(hostRow.id)).toEqual({
+        kind: "host",
+        host: HOST,
+        moduleFilePaths: [BLOG, MEDIA],
+      });
+      // The host is something to deal with; so is the module's own error.
+      expect(openRowCount(res.groups)).toBe(2);
+    });
+
+    test("a stale remote ref can be fixed here", () => {
+      const hero = at(MEDIA, '"hero"');
+      const res = build({
+        results: new Map<ModuleFilePath, ModuleCheckResult>([
+          [
+            MEDIA,
+            {
+              status: "ok",
+              errors: {
+                [hero]: [{ message: "Stale", fixes: ["image:check-remote"] }],
+              },
+              remoteHosts: [],
+            },
+          ],
+        ]),
+      });
+      expect(res.groups.map((group) => group.id)).toEqual([MEDIA]);
+      expect(res.groups[0].rows[0].action).toEqual({ kind: "fix" });
+    });
   });
 });
