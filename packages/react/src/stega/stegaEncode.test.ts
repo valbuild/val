@@ -641,18 +641,14 @@ describe("media is resolved from the schema, not from the value", () => {
   });
 
   test("a gallery-backed image gets its dimensions and alt from the gallery", () => {
-    const gallery = c.define(
-      "/gallery.val.ts",
-      s.imageset({ dir: "/public/img" }),
-      {
-        "/public/img/hero.png": {
-          width: 8,
-          height: 8,
-          mimeType: "image/png",
-          alt: "The gallery's alt",
-        },
+    const gallery = c.define("/gallery.val.ts", s.imagedir("/public/img"), {
+      "/public/img/hero.png": {
+        width: 8,
+        height: 8,
+        mimeType: "image/png",
+        alt: "The gallery's alt",
       },
-    );
+    });
     const schema = s.object({ hero: s.image(gallery) });
     const valModule = c.define("/gallery-field.val.ts", schema, {
       hero: { path: "/public/img/hero.png" },
@@ -670,18 +666,14 @@ describe("media is resolved from the schema, not from the value", () => {
   });
 
   test("a per-image alt beats the gallery's", () => {
-    const gallery = c.define(
-      "/gallery2.val.ts",
-      s.imageset({ dir: "/public/img" }),
-      {
-        "/public/img/hero.png": {
-          width: 8,
-          height: 8,
-          mimeType: "image/png",
-          alt: "The gallery's alt",
-        },
+    const gallery = c.define("/gallery2.val.ts", s.imagedir("/public/img"), {
+      "/public/img/hero.png": {
+        width: 8,
+        height: 8,
+        mimeType: "image/png",
+        alt: "The gallery's alt",
       },
-    );
+    });
     const schema = s.object({ hero: s.image(gallery) });
     const valModule = c.define("/gallery-field2.val.ts", schema, {
       hero: { path: "/public/img/hero.png", alt: "This one only" },
@@ -698,7 +690,7 @@ describe("media is resolved from the schema, not from the value", () => {
   test("outside draft mode, a gallery-backed value is filled from the published gallery", () => {
     const videos = c.define(
       "/published-videos.val.ts",
-      s.videoset({ dir: "/public/val/videos" }),
+      s.videodir("/public/val/videos"),
       {
         "/public/val/videos/intro.mp4": {
           mimeType: "video/mp4",
@@ -714,7 +706,7 @@ describe("media is resolved from the schema, not from the value", () => {
     );
     const gallery = c.define(
       "/published-gallery.val.ts",
-      s.imageset({ dir: "/public/img" }),
+      s.imagedir("/public/img"),
       {
         "/public/img/hero.png": {
           width: 8,

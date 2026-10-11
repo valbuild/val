@@ -41,7 +41,7 @@ export interface MediaPickerListProps {
   onSelect: (entry: GalleryEntry) => void;
   /** Whether this is for images (shows thumbnails) or files */
   isImage?: boolean;
-  /** Whether this picks from an `s.videoset()`: rows show the length. */
+  /** Whether this picks from an `s.videodir()`: rows show the length. */
   isVideo?: boolean;
   /** Converts a gallery file path to a displayable URL (e.g. for patch-state files) */
   getUrl?: (filePath: string) => string;

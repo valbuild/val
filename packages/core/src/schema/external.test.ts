@@ -75,14 +75,8 @@ describe("s.record().external()", () => {
   test("is available on every record-derived schema", () => {
     // A router is a RecordSchema with a ValRouter, a gallery one with media
     // options — so all of them get external storage from the one method.
-    const images = s.imageset({
-      accept: "image/*",
-      dir: "/public/val/gallery",
-    });
-    const files = s.fileset({
-      accept: "application/pdf",
-      dir: "/public/val/docs",
-    });
+    const images = s.imagedir("/public/val/gallery", { accept: "image/*" });
+    const files = s.filedir("/public/val/docs", { accept: "application/pdf" });
 
     expect(
       s.record(s.string()).external("a")["executeSerialize"](),
@@ -189,10 +183,7 @@ describe("hasMediaSchema", () => {
     // The case a walk over the item TYPE would miss: `item` is width/height/
     // mimeType metadata and the file is named by the record's key. Getting this
     // wrong once already committed remote refs with no bytes behind them.
-    const gallery = s.imageset({
-      accept: "image/*",
-      dir: "/public/val/g",
-    });
+    const gallery = s.imagedir("/public/val/g", { accept: "image/*" });
     expect(hasMediaSchema(gallery["executeSerialize"]())).toBe(true);
   });
 

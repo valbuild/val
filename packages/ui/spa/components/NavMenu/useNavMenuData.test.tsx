@@ -69,10 +69,10 @@ function mount(schemas: Record<string, SerializedSchema>) {
 
 const settings = s.settings()["executeSerialize"]();
 const photos = s
-  .imageset({ accept: "image/*", dir: "/public/val/photos" })
+  .imagedir("/public/val/photos", { accept: "image/*" })
   ["executeSerialize"]();
 const docs = s
-  .fileset({ accept: "*/*", dir: "/public/val/docs" })
+  .filedir("/public/val/docs", { accept: "*/*" })
   ["executeSerialize"]();
 
 /**

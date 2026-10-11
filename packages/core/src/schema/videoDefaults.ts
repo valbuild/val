@@ -5,7 +5,7 @@ import type { ValidationError } from "./validation/ValidationError";
 /**
  * The checks of what one page chose about a video — its times, focal point,
  * poster and captions — shared by the two places those choices are made: a
- * field (`s.video()`) and the entry of a set (`s.videoset()`), which holds the
+ * field (`s.video()`) and the entry of a set (`s.videodir()`), which holds the
  * same choices as the defaults every field picked from it starts from.
  */
 

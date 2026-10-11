@@ -15,7 +15,7 @@ import {
 } from "./runValidation";
 
 /**
- * `val validate` over a project with an `s.videoset()`, end to end: module
+ * `val validate` over a project with an `s.videodir()`, end to end: module
  * loading, the fix handlers, the patches and the `.val.ts` rewrite.
  *
  * The project is written here rather than kept as a fixture because its whole
@@ -55,7 +55,7 @@ export default modules(config, [
 
 export default c.define(
   "/content/videos.val.ts",
-  s.videoset({ dir: "/public/val/videos" }),
+  s.videodir("/public/val/videos"),
   {
     "/public/val/videos/clip_abcde.mp4": { alt: "A clip" },
     "/public/val/videos/intro_05198/master.m3u8": {
@@ -72,7 +72,7 @@ export default c.define(
 
 export default c.define(
   "/content/videos-remote.val.ts",
-  s.videoset({ dir: "/public/val/remote-videos" }).remote(),
+  s.videodir("/public/val/remote-videos").remote(),
   {
     "/public/val/remote-videos/clip_fghij.mp4": {
       mimeType: "video/mp4",
@@ -155,7 +155,7 @@ async function sourceOf(root: string, moduleFilePath: string) {
   }
 }
 
-describe("val validate with an s.videoset()", () => {
+describe("val validate with an s.videodir()", () => {
   let root: string;
 
   beforeEach(() => {

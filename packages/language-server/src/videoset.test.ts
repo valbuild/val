@@ -22,7 +22,7 @@ import { createGalleryMembershipActions } from "./galleryFixes";
 import type { ValModuleContent } from "./ValProject";
 
 /**
- * The editor's side of `s.videoset()`: the same fixes `val validate` runs,
+ * The editor's side of `s.videodir()`: the same fixes `val validate` runs,
  * offered where the problem is.
  */
 
@@ -92,7 +92,7 @@ describe("videos:add-metadata in the editor", () => {
 
 export default c.define(
   "/content/videos.val.ts",
-  s.videoset({ dir: "/public/val/videos" }),
+  s.videodir("/public/val/videos"),
   {
     "/public/val/videos/clip_abcde.mp4": { alt: "Mine" },
   },
@@ -102,9 +102,9 @@ export default c.define(
   function setContent(): ValModuleContent {
     // The source as `TEXT` declares it. Built through a deserialized schema:
     // the entry type requires the metadata this test is about adding.
-    const schema = Internal.getSchema(
-      c.define(SET, s.videoset({ dir: DIR }), {}),
-    )?.["executeSerialize"]();
+    const schema = Internal.getSchema(c.define(SET, s.videodir(DIR), {}))?.[
+      "executeSerialize"
+    ]();
     if (!schema) throw new Error("no schema");
     const source = { [`${DIR}/clip_abcde.mp4`]: { alt: "Mine" } };
     const validation = deserializeSchema(schema)["executeValidate"](
@@ -174,7 +174,7 @@ export default c.define(
 });
 
 describe("a set-backed video field naming a video the set does not have", () => {
-  const videosVal = c.define(SET, s.videoset({ dir: DIR }), {
+  const videosVal = c.define(SET, s.videodir(DIR), {
     [`${DIR}/other_11111.mp4`]: {
       mimeType: "video/mp4",
       width: 64,
@@ -210,7 +210,7 @@ describe("a set-backed video field naming a video the set does not have", () => 
     fs.mkdirSync(path.dirname(setFile), { recursive: true });
     fs.writeFileSync(
       setFile,
-      `export default c.define("/content/videos.val.ts", s.videoset({ dir: "${DIR}" }), {});\n`,
+      `export default c.define("/content/videos.val.ts", s.videodir("${DIR}"), {});\n`,
     );
     const actions = await createGalleryMembershipActions({
       document: TextDocument.create("file:///page.val.ts", "typescript", 1, ""),

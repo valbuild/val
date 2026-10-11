@@ -1,7 +1,7 @@
 import { s, c } from "../../val.config";
 
 /**
- * `s.fileset()`: the same collection as `s.imageset()`, for files that are not
+ * `s.filedir()`: the same collection as `s.imagedir()`, for files that are not
  * images — so the entry holds a mime type and nothing else, and the Studio
  * renders the gallery without the image preview.
  *
@@ -11,10 +11,7 @@ import { s, c } from "../../val.config";
  */
 export default c.define(
   "/src/content/downloads.val.ts",
-  s.fileset({
-    accept: "application/pdf,text/plain",
-    dir: "/public/val/downloads",
-  }),
+  s.filedir("/public/val/downloads", { accept: "application/pdf,text/plain" }),
   {
     "/public/val/downloads/handbook_c3161.pdf": {
       mimeType: "application/pdf",

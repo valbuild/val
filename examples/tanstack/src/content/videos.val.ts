@@ -1,7 +1,7 @@
 import { s, c } from "../../val.config";
 
 /**
- * `s.videoset()`: a COLLECTION of videos, the video twin of `s.imageset()`
+ * `s.videodir()`: a COLLECTION of videos, the video twin of `s.imagedir()`
  * (`gallery.val.ts`).
  *
  * An entry holds what is true of the FILE — what it is, how big, how long —
@@ -20,8 +20,7 @@ import { s, c } from "../../val.config";
  */
 export default c.define(
   "/src/content/videos.val.ts",
-  s.videoset({
-    dir: "/public/val/videoset",
+  s.videodir("/public/val/videoset", {
     accept: "video/*",
     stream: { type: "hls", renditions: [720, 480] },
     alt: s.string().nullable().describe("What happens in the video"),

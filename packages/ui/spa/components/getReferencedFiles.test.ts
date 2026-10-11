@@ -14,7 +14,7 @@ describe("getReferencedFiles", () => {
   test("find a set-backed video field naming an entry of the set", () => {
     const videosModule = c.define(
       "/videos.val.ts",
-      s.videoset({ dir: "/public/val/videos" }),
+      s.videodir("/public/val/videos"),
       {
         "/public/val/videos/intro_51df2.mp4": {
           mimeType: "video/mp4",
@@ -62,7 +62,7 @@ describe("getReferencedFiles", () => {
   test("find image field referencing module", () => {
     const imagesModule = c.define(
       "/images.val.ts",
-      s.imageset({ accept: "image/*", dir: "/public/val" }),
+      s.imagedir("/public/val", { accept: "image/*" }),
       {
         "/public/val/img.png": {
           width: 100,
@@ -91,7 +91,7 @@ describe("getReferencedFiles", () => {
   test("filter by fileRef (match)", () => {
     const imagesModule = c.define(
       "/images.val.ts",
-      s.imageset({ accept: "image/*", dir: "/public/val" }),
+      s.imagedir("/public/val", { accept: "image/*" }),
       {
         "/public/val/img.png": {
           width: 100,
@@ -121,7 +121,7 @@ describe("getReferencedFiles", () => {
   test("filter by fileRef (no match)", () => {
     const imagesModule = c.define(
       "/images.val.ts",
-      s.imageset({ accept: "image/*", dir: "/public/val" }),
+      s.imagedir("/public/val", { accept: "image/*" }),
       {
         "/public/val/img.png": {
           width: 100,
@@ -151,12 +151,12 @@ describe("getReferencedFiles", () => {
   test("no match when different module", () => {
     const imagesModule1 = c.define(
       "/images1.val.ts",
-      s.imageset({ accept: "image/*", dir: "/public/val" }),
+      s.imagedir("/public/val", { accept: "image/*" }),
       {},
     );
     const imagesModule2 = c.define(
       "/images2.val.ts",
-      s.imageset({ accept: "image/*", dir: "/public/val" }),
+      s.imagedir("/public/val", { accept: "image/*" }),
       {},
     );
     const pageModule = c.define(
@@ -182,7 +182,7 @@ describe("getReferencedFiles", () => {
   test("find file field referencing module", () => {
     const filesModule = c.define(
       "/files.val.ts",
-      s.fileset({ accept: "*/*", dir: "/public/val" }),
+      s.filedir("/public/val", { accept: "*/*" }),
       {
         "/public/val/doc.pdf": {
           mimeType: "application/pdf",
@@ -208,7 +208,7 @@ describe("getReferencedFiles", () => {
   test("find nested image field", () => {
     const imagesModule = c.define(
       "/images.val.ts",
-      s.imageset({ accept: "image/*", dir: "/public/val" }),
+      s.imagedir("/public/val", { accept: "image/*" }),
       {
         "/public/val/img.png": {
           width: 100,
@@ -251,7 +251,7 @@ describe("getReferencedFiles", () => {
   test("finds gallery images inside rich text, however deep", () => {
     const imagesModule = c.define(
       "/images.val.ts",
-      s.imageset({ accept: "image/*", dir: "/public/val" }),
+      s.imagedir("/public/val", { accept: "image/*" }),
       {
         "/public/val/img.png": {
           width: 100,
@@ -322,7 +322,7 @@ describe("getReferencedFiles", () => {
   test("ignores rich text whose images are not from the gallery", () => {
     const imagesModule = c.define(
       "/images.val.ts",
-      s.imageset({ accept: "image/*", dir: "/public/val" }),
+      s.imagedir("/public/val", { accept: "image/*" }),
       {},
     );
     const pageModule = c.define(
@@ -372,7 +372,7 @@ describe("getReferencedFiles", () => {
     };
     const imagesModule = c.define(
       "/images.val.ts",
-      s.imageset({ accept: "image/*", dir: "/public/val" }).remote(),
+      s.imagedir("/public/val", { accept: "image/*" }).remote(),
       { "/public/val/img.png": entry, [ref]: entry },
     );
     const pageModule = c.define(
@@ -403,7 +403,7 @@ describe("getReferencedFiles", () => {
     });
     const imagesModule = c.define(
       "/images.val.ts",
-      s.imageset({ accept: "image/*", dir: "/public/val" }).remote(),
+      s.imagedir("/public/val", { accept: "image/*" }).remote(),
       {
         "/public/val/img.png": {
           width: 100,

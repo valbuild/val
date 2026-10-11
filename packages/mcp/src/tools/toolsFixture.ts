@@ -96,7 +96,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${GALLERY_PATH}",
-  s.imageset({ dir: "/public/val/test" }),
+  s.imagedir("/public/val/test"),
   {}
 );
 `;
@@ -106,8 +106,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${ENCODED_GALLERY_PATH}",
-  s.imageset({
-    dir: "/public/val/encoded",
+  s.imagedir("/public/val/encoded", {
     encode: { type: "webp", maxWidth: 8, maxHeight: 8 },
   }),
   {}
@@ -129,8 +128,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${CONVERTING_GALLERY_PATH}",
-  s.imageset({
-    dir: "/public/val/converting",
+  s.imagedir("/public/val/converting", {
     accept: "image/webp",
     encode: { type: "webp" },
   }),
@@ -143,7 +141,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${STRICT_GALLERY_PATH}",
-  s.imageset({ dir: "/public/val/strict", accept: "image/png" }),
+  s.imagedir("/public/val/strict", { accept: "image/png" }),
   {}
 );
 `;
@@ -151,7 +149,7 @@ export default c.define(
 /**
  * A gallery that insists on alt text.
  *
- * `s.imageset()` defaults `alt` to a nullable string, so an entry with none
+ * `s.imagedir()` defaults `alt` to a nullable string, so an entry with none
  * stores `null` and is valid. Passing an alt schema of your own — as the
  * example app does — makes it required, and an upload with no `alt` cannot
  * satisfy it however the entry is written. Here because that is a difference
@@ -162,8 +160,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${ALT_GALLERY_PATH}",
-  s.imageset({
-    dir: "/public/val/described",
+  s.imagedir("/public/val/described", {
     alt: s.string().minLength(4),
   }),
   {}
@@ -179,7 +176,7 @@ export default c.define(
  *
  * It is `.remote()` and not `{ remote: true }`, and the difference is not
  * cosmetic here: this fixture is a STRING compiled at runtime, so nothing
- * typechecks it. `s.imageset({ remote: true })` therefore compiles, silently
+ * typechecks it. `s.imagedir(dir, { remote: true })` therefore compiles, silently
  * drops the unknown key, and builds a LOCAL gallery — which is what every
  * assertion in `remoteImages.test.ts` was failing on.
  */
@@ -188,7 +185,7 @@ import { s, c } from "val.config";
 
 export default c.define(
   "${REMOTE_GALLERY_PATH}",
-  s.imageset({ dir: "/public/val/remote" }).remote(),
+  s.imagedir("/public/val/remote").remote(),
   {}
 );
 `;

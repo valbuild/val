@@ -329,7 +329,7 @@ export class PatchSets {
             // see `ImageField`'s alt write and
             // `ModuleGallery.handleAltTextChange`, which both say so.
             //
-            // That last one is why this branch exists. `s.imageset()`
+            // That last one is why this branch exists. `s.imagedir()`
             // serializes as a record whose ITEM is an object, so editing the
             // alt text of a gallery entry resolves `object` here, hit the throw
             // below, and terminated the whole media module into one patch set —

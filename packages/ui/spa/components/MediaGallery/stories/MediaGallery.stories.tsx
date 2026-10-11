@@ -9,7 +9,7 @@ import { MediaGallery } from "../MediaGallery";
 import type { MediaGalleryProps, MediaItem } from "../types";
 
 /**
- * The gallery for `s.videoset()`, `s.imageset()` and `s.fileset()`: one
+ * The gallery for `s.videodir()`, `s.imagedir()` and `s.filedir()`: one
  * layout for all three, a grid with the open entry in a panel beside it.
  *
  * The media is real (`.storybook/static/media`), so the player plays, the HLS

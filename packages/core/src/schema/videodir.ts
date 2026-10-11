@@ -1,10 +1,10 @@
 import { Schema } from ".";
-import type { SerializedRecordSchema } from "./record";
+import type { MediaDir, SerializedRecordSchema } from "./record";
 import { RecordSchema } from "./record";
 import { ObjectSchema } from "./object";
 import { StringSchema, string } from "./string";
 import { NumberSchema } from "./number";
-import type { AltSchema, AltSource, AltSourceOf } from "./imageset";
+import type { AltSchema, AltSource, AltSourceOf } from "./imagedir";
 import type { SerializedVideoSchema, VideoStreamOption } from "./video";
 import { DEFAULT_VIDEO_ACCEPT } from "./video";
 import type {
@@ -14,15 +14,30 @@ import type {
 } from "../source/media";
 
 /**
- * Options for s.videoset()
+ * Options for `s.videodir(dir, options)`: everything but the directory, which
+ * is the first argument.
+ */
+export type VideodirOptions<
+  Accept extends `video/${string}`,
+  Alt extends AltSchema = StringSchema<string | null>,
+> = VideodirOptionsBase<Accept> & VideodirAltOption<Alt>;
+
+/**
+ * Options for the deprecated `s.videoset(options)`, which took the directory
+ * as `dir`.
+ *
+ * @deprecated Use `s.videodir(dir, options)` and `VideodirOptions`.
  */
 export type VideosetOptions<
   Accept extends `video/${string}`,
   Alt extends AltSchema = StringSchema<string | null>,
-> = VideosetOptionsBase<Accept> & VideosetAltOption<Alt>;
+> = VideodirOptions<Accept, Alt> & {
+  /** The directory where videos are stored. Must start with "/public". */
+  dir: MediaDir;
+};
 
-/** See `ImagesetAltOption`: `alt` is optional only when it is the default. */
-type VideosetAltOption<Alt extends AltSchema> = [
+/** See `ImagedirAltOption`: `alt` is optional only when it is the default. */
+type VideodirAltOption<Alt extends AltSchema> = [
   StringSchema<string | null>,
 ] extends [Alt]
   ? {
@@ -39,7 +54,15 @@ type VideosetAltOption<Alt extends AltSchema> = [
       alt: Alt;
     };
 
-type VideosetOptionsBase<Accept extends `video/${string}`> = {
+/** See `ImagedirOptionsArg`: the options are optional only when `alt` is. */
+type VideodirOptionsArg<
+  Accept extends `video/${string}`,
+  Alt extends AltSchema,
+> = [StringSchema<string | null>] extends [Alt]
+  ? [options?: VideodirOptions<Accept, Alt>]
+  : [options: VideodirOptions<Accept, Alt>];
+
+type VideodirOptionsBase<Accept extends `video/${string}`> = {
   /**
    * What may be UPLOADED, in `<input accept>` syntax. Must be a video type.
    * Not checked against an HLS stream: see `VideoOptions.accept`.
@@ -47,17 +70,10 @@ type VideosetOptionsBase<Accept extends `video/${string}`> = {
    */
   accept?: Accept;
   /**
-   * The directory where videos are stored. Must start with "/public".
-   *
-   * Required for the same reason it is on `s.imageset()`: it decides where
-   * every upload in the set lands, and a default is a directory shared with
-   * every other set that did not say.
-   */
-  dir: "/public" | `/public/${string}`;
-  /**
    * Turn every upload into an HLS stream, in the browser. See
-   * `VideoStreamOptions`. A field backed by this set (`s.video(videosVal)`)
-   * inherits it, as it inherits `accept` and `dir`.
+   * `VideoStreamOptions`. A field backed by this directory
+   * (`s.video(videosVal)`) inherits it, as it inherits `accept` and the
+   * directory.
    */
   stream?: VideoStreamOption;
 };
@@ -77,7 +93,7 @@ type VideosetOptionsBase<Accept extends `video/${string}`> = {
  * The poster is also the set's thumbnail of the entry: there is no separate
  * still for the gallery, because two stills of one video would disagree.
  */
-export type VideosetEntryMetadata<Alt extends AltSource = string | null> = {
+export type VideodirEntryMetadata<Alt extends AltSource = string | null> = {
   mimeType: string;
   width: number;
   height: number;
@@ -96,16 +112,23 @@ export type VideosetEntryMetadata<Alt extends AltSource = string | null> = {
   captions?: readonly VideoCaptionSource[];
 };
 
-export type SerializedVideosetSchema = SerializedRecordSchema;
+/** @deprecated Use `VideodirEntryMetadata`. */
+export type VideosetEntryMetadata<Alt extends AltSource = string | null> =
+  VideodirEntryMetadata<Alt>;
 
-type VideosetItemProps<Alt extends AltSchema> = {
+export type SerializedVideodirSchema = SerializedRecordSchema;
+
+/** @deprecated Use `SerializedVideodirSchema`. */
+export type SerializedVideosetSchema = SerializedVideodirSchema;
+
+type VideodirItemProps<Alt extends AltSchema> = {
   mimeType: StringSchema<string>;
   width: NumberSchema<number>;
   height: NumberSchema<number>;
   duration: NumberSchema<number>;
   alt: Alt;
 };
-type VideosetItemSrc<Alt extends AltSchema> = {
+type VideodirItemSrc<Alt extends AltSchema> = {
   mimeType: string;
   width: number;
   height: number;
@@ -113,19 +136,24 @@ type VideosetItemSrc<Alt extends AltSchema> = {
   alt: AltSourceOf<Alt>;
 };
 
+type VideodirSchema<Alt extends AltSchema> = RecordSchema<
+  ObjectSchema<VideodirItemProps<Alt>, VideodirItemSrc<Alt>>,
+  Schema<string>,
+  Record<string, VideodirEntryMetadata<AltSourceOf<Alt>>>
+>;
+
 /**
- * Define a collection of videos — the video twin of `s.imageset()`.
+ * Define a directory of videos — the video twin of `s.imagedir()`.
  *
  * A field picks from it with `s.video(videosVal)`. An entry may hold the
  * description, poster, start and end, focal point and captions as defaults,
  * and a field overrides any of them by setting its own. Uploading in such a
- * field adds to the set. Call `.remote()` on the result
- * to store the set on Val Remote.
+ * field adds to the directory. Call `.remote()` on the result to store the
+ * videos on Val Remote.
  *
  * @example
  * ```typescript
- * const schema = s.videoset({
- *   dir: "/public/val/videos",
+ * const schema = s.videodir("/public/val/videos", {
  *   stream: { type: "hls" },
  * });
  * export default c.define("/content/videos.val.ts", schema, {
@@ -140,22 +168,58 @@ type VideosetItemSrc<Alt extends AltSchema> = {
  * });
  * ```
  */
+export const videodir = <
+  Accept extends `video/${string}`,
+  Alt extends AltSchema = StringSchema<string | null>,
+>(
+  dir: MediaDir,
+  ...[options]: VideodirOptionsArg<Accept, Alt>
+): VideodirSchema<Alt> => videodirOf<Accept, Alt>(dir, options);
+
+/**
+ * `s.videodir()` with `.remote()` applied: what `s.videodir` is under
+ * `files: { remote: true }`.
+ */
+export const remoteVideodir = <
+  Accept extends `video/${string}`,
+  Alt extends AltSchema = StringSchema<string | null>,
+>(
+  dir: MediaDir,
+  ...[options]: VideodirOptionsArg<Accept, Alt>
+): VideodirSchema<Alt> => videodirOf<Accept, Alt>(dir, options).remote();
+
+/**
+ * Define a collection of videos.
+ *
+ * @deprecated Use `s.videodir(dir, options)`: the directory moved out of the
+ * options and into the first argument, and nothing else changed.
+ *
+ * @example
+ * ```typescript
+ * // was: s.videoset({ dir: "/public/val/videos", stream: { type: "hls" } })
+ * const schema = s.videodir("/public/val/videos", { stream: { type: "hls" } });
+ * ```
+ */
 export const videoset = <
   Accept extends `video/${string}`,
   Alt extends AltSchema = StringSchema<string | null>,
 >(
   options: VideosetOptions<Accept, Alt>,
-): RecordSchema<
-  ObjectSchema<VideosetItemProps<Alt>, VideosetItemSrc<Alt>>,
-  Schema<string>,
-  Record<string, VideosetEntryMetadata<AltSourceOf<Alt>>>
-> => {
-  // The same assertion as in `imageset()`, and sound for the same reason:
-  // `VideosetAltOption` makes `alt` required unless `Alt` is the default.
-  const altSchema = (options.alt ?? string().nullable()) as Alt;
+): VideodirSchema<Alt> => videodirOf<Accept, Alt>(options.dir, options);
+
+function videodirOf<
+  Accept extends `video/${string}`,
+  Alt extends AltSchema = StringSchema<string | null>,
+>(
+  dir: MediaDir,
+  options: VideodirOptions<Accept, Alt> | undefined,
+): VideodirSchema<Alt> {
+  // The same assertion as in `imagedir()`, and sound for the same reason:
+  // `VideodirAltOption` makes `alt` required unless `Alt` is the default.
+  const altSchema = (options?.alt ?? string().nullable()) as Alt;
   const itemSchema = new ObjectSchema<
-    VideosetItemProps<Alt>,
-    VideosetItemSrc<Alt>
+    VideodirItemProps<Alt>,
+    VideodirItemSrc<Alt>
   >(
     {
       mimeType: new StringSchema<string>({}, false),
@@ -168,13 +232,13 @@ export const videoset = <
   );
   return new RecordSchema(itemSchema, false, [], null, null, {
     type: "videos",
-    accept: options.accept ?? DEFAULT_VIDEO_ACCEPT,
-    dir: options.dir,
+    accept: options?.accept ?? DEFAULT_VIDEO_ACCEPT,
+    dir,
     remote: false,
     altSchema,
-    stream: options.stream,
+    stream: options?.stream,
   });
-};
+}
 
 /**
  * The video schema a set's entry is hashed against, for a remote ref.

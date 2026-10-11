@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-/** What a gallery holds: `s.imageset()`, `s.videoset()` or `s.fileset()`. */
+/** What a gallery holds: `s.imagedir()`, `s.videodir()` or `s.filedir()`. */
 export type MediaKind = "images" | "videos" | "files";
 
 /**

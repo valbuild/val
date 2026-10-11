@@ -11,7 +11,7 @@ import { ScrollArea } from "../designSystem/scroll-area";
 import { ErrorBadge } from "./ErrorBadge";
 
 export type MediaSectionProps = {
-  /** The `s.imageset()` / `s.fileset()` gallery modules. */
+  /** The `s.imagedir()` / `s.filedir()` gallery modules. */
   media: MediaModule[];
   /** Current navigation source path. */
   currentPath?: string;
@@ -22,7 +22,7 @@ export type MediaSectionProps = {
 };
 
 /**
- * Media: the project's `s.imageset()` and `s.fileset()` galleries.
+ * Media: the project's `s.imagedir()` and `s.filedir()` galleries.
  *
  * A gallery is a record keyed by file path, so the unit an editor thinks in is
  * the DIRECTORY it is constrained to - not the `.val.ts` that declares it. Rows

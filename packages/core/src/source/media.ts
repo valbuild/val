@@ -94,7 +94,7 @@ export type VideoCaptionSource = {
  * What a video FIELD authors, on top of the file it names: the description,
  * the crop, the poster, the trim and the caption tracks.
  *
- * This is the whole value of a field picked from an `s.videoset()`
+ * This is the whole value of a field picked from an `s.videodir()`
  * (`s.video(videosetVal)`) — the mime type, size and length live in the set,
  * keyed by `path`, and repeating them here is how two copies of one fact get
  * to disagree. The poster, captions and times stay with the FIELD: one video
@@ -126,7 +126,7 @@ export type GalleryVideoSource = {
 /**
  * What one page chooses about a video — as opposed to what is true of the
  * file. A field (`s.video()`) carries these for itself; the entry of a set
- * (`s.videoset()`) carries them as DEFAULTS, which every field picked from the
+ * (`s.videodir()`) carries them as DEFAULTS, which every field picked from the
  * set starts from and may override key by key. See {@link fillFromGallery}.
  */
 export type VideoDefaults = Pick<
@@ -321,7 +321,7 @@ function isMediaSchema(
 }
 
 /**
- * The key of a gallery (an `s.imageset()`, `s.fileset()` or `s.videoset()`)
+ * The key of a gallery (an `s.imagedir()`, `s.filedir()` or `s.videodir()`)
  * that a field's `path` names, or `null` when it names none.
  *
  * Usually the path IS the key. It is not for an image uploaded THROUGH an

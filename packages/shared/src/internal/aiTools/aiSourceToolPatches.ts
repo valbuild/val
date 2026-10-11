@@ -38,7 +38,7 @@ const GALLERY_REDIRECT: Extract<OpDecision, { kind: "wrong-tool" }> = {
   kind: "wrong-tool",
   suggestedTool: "add_session_image_to_gallery",
   reason:
-    "Destination is a media gallery (s.imageset() / s.fileset()). Gallery entries are keyed by file path and carry a file on disk, so they cannot be created with a plain patch. Use add_session_image_to_gallery.",
+    "Destination is a media gallery (s.imagedir() / s.filedir()). Gallery entries are keyed by file path and carry a file on disk, so they cannot be created with a plain patch. Use add_session_image_to_gallery.",
 };
 
 /**
@@ -49,10 +49,10 @@ const GALLERY_REDIRECT: Extract<OpDecision, { kind: "wrong-tool" }> = {
 const VIDEOSET_REFUSAL: Extract<OpDecision, { kind: "error" }> = {
   kind: "error",
   message:
-    "Destination is a video set (s.videoset()). Its entries are keyed by file path and carry video files, so they cannot be created with a plain patch, and no tool here uploads a video: add it in Val Studio.",
+    "Destination is a video set (s.videodir()). Its entries are keyed by file path and carry video files, so they cannot be created with a plain patch, and no tool here uploads a video: add it in Val Studio.",
 };
 
-/** An `s.imageset()` / `s.fileset()` / `s.videoset()` record: a gallery, not an ordinary record. */
+/** An `s.imagedir()` / `s.filedir()` / `s.videodir()` record: a gallery, not an ordinary record. */
 function isGallery(schema: SerializedSchema): boolean {
   return schema.type === "record" && schema.mediaType !== undefined;
 }

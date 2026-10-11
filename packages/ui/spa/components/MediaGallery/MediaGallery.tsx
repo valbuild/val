@@ -16,7 +16,7 @@ const NOUN: Record<MediaKind, { one: string; many: string }> = {
 };
 
 /**
- * A gallery — `s.imageset()`, `s.videoset()`, `s.fileset()` — as one layout:
+ * A gallery — `s.imagedir()`, `s.videodir()`, `s.filedir()` — as one layout:
  * a grid (or list) of entries, and the open entry in a panel beside it.
  *
  * Purely presentational: every entry arrives resolved and every change goes

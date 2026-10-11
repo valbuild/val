@@ -148,12 +148,12 @@ function expectNothingDropped(schema: Schema<SelectorSource>) {
 describe("SerializedSchema keeps every field the schema wrote", () => {
   const gallery = c.define(
     "/test/gallery.val.ts",
-    s.imageset({ dir: "/public/val" }),
+    s.imagedir("/public/val"),
     {},
   );
   const filesGallery = c.define(
     "/test/files-gallery.val.ts",
-    s.fileset({ accept: "application/pdf", dir: "/public/val/files" }),
+    s.filedir("/public/val/files", { accept: "application/pdf" }),
     {},
   );
   const cases: [string, Schema<SelectorSource>][] = [
@@ -382,7 +382,7 @@ describe("SerializedSchema keeps every field the schema wrote", () => {
   test("a gallery-backed file keeps its gallery", () => {
     const files = c.define(
       "/test/backing-files.val.ts",
-      s.fileset({ accept: "application/pdf", dir: "/public/val/files" }),
+      s.filedir("/public/val/files", { accept: "application/pdf" }),
       {},
     );
     const parsed = SerializedSchema.safeParse(serialize(s.file(files)));
@@ -395,7 +395,7 @@ describe("SerializedSchema keeps every field the schema wrote", () => {
   test("a gallery-backed image keeps its gallery", () => {
     const gallery = c.define(
       "/test/backing-gallery.val.ts",
-      s.imageset({ dir: "/public/val" }),
+      s.imagedir("/public/val"),
       {},
     );
     const parsed = SerializedSchema.safeParse(serialize(s.image(gallery)));

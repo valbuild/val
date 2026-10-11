@@ -1,9 +1,9 @@
 import { SourcePath } from "../val";
 import {
-  imageset,
-  ImagesetEntryMetadata,
-  SerializedImagesetSchema,
-} from "./imageset";
+  imagedir,
+  ImagedirEntryMetadata,
+  SerializedImagedirSchema,
+} from "./imagedir";
 import { initVal } from "../initVal";
 import { record } from "./record";
 import { string } from "./string";
@@ -33,11 +33,8 @@ function filterCheckErrors(
 describe("ImagesSchema", () => {
   describe("assert", () => {
     test("should return success if src is a valid images object", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/public/val/test.webp": {
           width: 800,
           height: 600,
@@ -52,17 +49,13 @@ describe("ImagesSchema", () => {
     });
 
     test("should return error if src is null (non-nullable)", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      });
+      const schema = imagedir("/public/val", { accept: "image/webp" });
       const result = schema["executeAssert"]("path" as SourcePath, null);
       expect(result.success).toEqual(false);
     });
 
     test("should return success if src is null (nullable)", () => {
-      const schema = imageset({
-        dir: "/public/val",
+      const schema = imagedir("/public/val", {
         accept: "image/webp",
       }).nullable();
       expect(schema["executeAssert"]("path" as SourcePath, null)).toEqual({
@@ -72,19 +65,13 @@ describe("ImagesSchema", () => {
     });
 
     test("should return error if src is not an object", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      });
+      const schema = imagedir("/public/val", { accept: "image/webp" });
       const result = schema["executeAssert"]("path" as SourcePath, "test");
       expect(result.success).toEqual(false);
     });
 
     test("should return error if src is an array", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      });
+      const schema = imagedir("/public/val", { accept: "image/webp" });
       const result = schema["executeAssert"]("path" as SourcePath, []);
       expect(result.success).toEqual(false);
     });
@@ -92,11 +79,8 @@ describe("ImagesSchema", () => {
 
   describe("validate", () => {
     test("should validate directory prefix", () => {
-      const schema = imageset({
-        accept: "image/webp",
-        dir: "/public/val/images",
-      });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val/images", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/public/val/wrong/test.webp": {
           width: 800,
           height: 600,
@@ -117,11 +101,8 @@ describe("ImagesSchema", () => {
     });
 
     test("should accept valid directory prefix", () => {
-      const schema = imageset({
-        accept: "image/webp",
-        dir: "/public/val/images",
-      });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val/images", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/public/val/images/test.webp": {
           width: 800,
           height: 600,
@@ -142,11 +123,8 @@ describe("ImagesSchema", () => {
     });
 
     test("should validate mimeType against accept pattern", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/public/val/test.png": {
           width: 800,
           height: 600,
@@ -167,8 +145,8 @@ describe("ImagesSchema", () => {
     });
 
     test("should accept wildcard mimeType patterns", () => {
-      const schema = imageset({ dir: "/public/val", accept: "image/*" });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val", { accept: "image/*" });
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/public/val/test.png": {
           width: 800,
           height: 600,
@@ -188,10 +166,7 @@ describe("ImagesSchema", () => {
     });
 
     test("should validate required width and height", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      });
+      const schema = imagedir("/public/val", { accept: "image/webp" });
       const src = {
         "/public/val/test.webp": {
           mimeType: "image/webp",
@@ -200,20 +175,19 @@ describe("ImagesSchema", () => {
       };
       const result = schema["executeValidate"](
         "path" as SourcePath,
-        src as unknown as Record<string, ImagesetEntryMetadata>,
+        src as unknown as Record<string, ImagedirEntryMetadata>,
       );
       expect(result).toBeTruthy();
     });
 
     test("should validate alt with custom alt schema", () => {
-      const schema = imageset({
-        dir: "/public/val",
+      const schema = imagedir("/public/val", {
         accept: "image/webp",
         alt: string().minLength(10),
       });
-      // `ImagesetEntryMetadata<string>`, not the default: this schema's alt is
+      // `ImagedirEntryMetadata<string>`, not the default: this schema's alt is
       // a required string, so an entry cannot carry null.
-      const src: Record<string, ImagesetEntryMetadata<string>> = {
+      const src: Record<string, ImagedirEntryMetadata<string>> = {
         "/public/val/test.webp": {
           width: 800,
           height: 600,
@@ -226,12 +200,11 @@ describe("ImagesSchema", () => {
     });
 
     test("should allow null alt when using nullable alt schema", () => {
-      const schema = imageset({
-        dir: "/public/val",
+      const schema = imagedir("/public/val", {
         accept: "image/webp",
         alt: string().nullable(),
       });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/public/val/test.webp": {
           width: 800,
           height: 600,
@@ -252,11 +225,8 @@ describe("ImagesSchema", () => {
     });
 
     test("should use default directory /public/val", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/public/val/test.webp": {
           width: 800,
           height: 600,
@@ -277,10 +247,7 @@ describe("ImagesSchema", () => {
     });
 
     test("should validate hotspot if present", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      });
+      const schema = imagedir("/public/val", { accept: "image/webp" });
       const src = {
         "/public/val/test.webp": {
           width: 800,
@@ -292,7 +259,7 @@ describe("ImagesSchema", () => {
       };
       const result = schema["executeValidate"](
         "path" as SourcePath,
-        src as unknown as Record<string, ImagesetEntryMetadata>,
+        src as unknown as Record<string, ImagedirEntryMetadata>,
       );
       expect(result).toBeTruthy();
     });
@@ -300,13 +267,10 @@ describe("ImagesSchema", () => {
 
   describe("serialization", () => {
     test("should serialize with correct type", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      });
+      const schema = imagedir("/public/val", { accept: "image/webp" });
       const serialized = schema["executeSerialize"]();
       expect(serialized.type).toBe("record");
-      expect((serialized as SerializedImagesetSchema).mediaType).toBe("images");
+      expect((serialized as SerializedImagedirSchema).mediaType).toBe("images");
       expect(serialized.accept).toBe("image/webp");
       expect(serialized.dir).toBe("/public/val");
       expect(serialized.opt).toBe(false);
@@ -314,26 +278,19 @@ describe("ImagesSchema", () => {
     });
 
     test("should serialize with custom directory", () => {
-      const schema = imageset({
-        accept: "image/png",
-        dir: "/public/val/custom",
-      });
+      const schema = imagedir("/public/val/custom", { accept: "image/png" });
       const serialized = schema["executeSerialize"]();
       expect(serialized.dir).toBe("/public/val/custom");
     });
 
     test("should serialize remote flag", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      }).remote();
+      const schema = imagedir("/public/val", { accept: "image/webp" }).remote();
       const serialized = schema["executeSerialize"]();
       expect(serialized.remote).toBe(true);
     });
 
     test("should serialize nullable flag", () => {
-      const schema = imageset({
-        dir: "/public/val",
+      const schema = imagedir("/public/val", {
         accept: "image/webp",
       }).nullable();
       const serialized = schema["executeSerialize"]();
@@ -347,40 +304,32 @@ describe("ImagesSchema", () => {
      */
     test("should serialize the encode option so a backed field can inherit it", () => {
       expect(
-        imageset({
-          dir: "/public/val",
-          encode: { type: "webp", maxWidth: 1200 },
-        })["executeSerialize"]().encode,
+        imagedir("/public/val", { encode: { type: "webp", maxWidth: 1200 } })[
+          "executeSerialize"
+        ]().encode,
       ).toEqual({ type: "webp", maxWidth: 1200 });
       expect(
-        imageset({ dir: "/public/val", encode: false })["executeSerialize"]()
-          .encode,
+        imagedir("/public/val", { encode: false })["executeSerialize"]().encode,
       ).toBe(false);
     });
 
     test("should not invent an encode option when the schema said nothing", () => {
       expect(
-        imageset({ dir: "/public/val" })["executeSerialize"]().encode,
+        imagedir("/public/val")["executeSerialize"]().encode,
       ).toBeUndefined();
     });
   });
 
   describe("remote", () => {
     test("should create remote variant", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      });
+      const schema = imagedir("/public/val", { accept: "image/webp" });
       const remoteSchema = schema.remote();
       expect(remoteSchema["executeSerialize"]().remote).toBe(true);
     });
 
     test("should reject remote URLs when remote is not enabled", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
         "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/image.webp":
           {
             width: 800,
@@ -399,11 +348,8 @@ describe("ImagesSchema", () => {
     });
 
     test("should accept remote URLs when remote is enabled", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      }).remote();
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val", { accept: "image/webp" }).remote();
+      const src: Record<string, ImagedirEntryMetadata> = {
         "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/image.webp":
           {
             width: 800,
@@ -417,11 +363,10 @@ describe("ImagesSchema", () => {
     });
 
     test("should flag local paths as upload-remote when remote is enabled", () => {
-      const schema = imageset({
+      const schema = imagedir("/public/val/images", {
         accept: "image/webp",
-        dir: "/public/val/images",
       }).remote();
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/public/val/images/local.webp": {
           width: 800,
           height: 600,
@@ -442,11 +387,10 @@ describe("ImagesSchema", () => {
     });
 
     test("should flag only local paths when mixing remote and local", () => {
-      const schema = imageset({
+      const schema = imagedir("/public/val/images", {
         accept: "image/webp",
-        dir: "/public/val/images",
       }).remote();
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/public/val/images/local.webp": {
           width: 800,
           height: 600,
@@ -474,11 +418,8 @@ describe("ImagesSchema", () => {
     });
 
     test("should reject invalid remote URLs", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      }).remote();
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val", { accept: "image/webp" }).remote();
+      const src: Record<string, ImagedirEntryMetadata> = {
         "not-a-valid-url": {
           width: 800,
           height: 600,
@@ -496,11 +437,10 @@ describe("ImagesSchema", () => {
     });
 
     test("should reject paths outside directory when remote is enabled but path is not a URL", () => {
-      const schema = imageset({
+      const schema = imagedir("/public/val/images", {
         accept: "image/webp",
-        dir: "/public/val/images",
       }).remote();
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/public/other/image.webp": {
           width: 800,
           height: 600,
@@ -518,11 +458,8 @@ describe("ImagesSchema", () => {
     });
 
     test("should accept http URLs when remote is enabled", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      }).remote();
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val", { accept: "image/webp" }).remote();
+      const src: Record<string, ImagedirEntryMetadata> = {
         "http://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/image.webp":
           {
             width: 800,
@@ -536,11 +473,8 @@ describe("ImagesSchema", () => {
     });
 
     test("should reject non-Val remote URLs", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      }).remote();
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val", { accept: "image/webp" }).remote();
+      const src: Record<string, ImagedirEntryMetadata> = {
         "https://example.com/image.webp": {
           width: 800,
           height: 600,
@@ -558,11 +492,10 @@ describe("ImagesSchema", () => {
     });
 
     test("should reject remote URLs with wrong directory in path", () => {
-      const schema = imageset({
+      const schema = imagedir("/public/val/images", {
         accept: "image/webp",
-        dir: "/public/val/images",
       }).remote();
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const src: Record<string, ImagedirEntryMetadata> = {
         // Remote URL with public/val/other instead of public/val/images
         "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/other/image.webp":
           {
@@ -593,7 +526,7 @@ describe("ImagesSchema", () => {
     const REF =
       "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/images/remote.webp";
     const LOCAL = "/public/val/images/local.webp";
-    const ENTRY: ImagesetEntryMetadata = {
+    const ENTRY: ImagedirEntryMetadata = {
       width: 800,
       height: 600,
       mimeType: "image/webp",
@@ -602,7 +535,7 @@ describe("ImagesSchema", () => {
 
     function fieldOf(remote: boolean) {
       const { s, c } = initVal();
-      const schema = s.imageset({ dir: "/public/val/images" });
+      const schema = s.imagedir("/public/val/images");
       const gallery = c.define(
         "/content/gallery.val.ts",
         remote ? schema.remote() : schema,
@@ -659,7 +592,7 @@ describe("ImagesSchema", () => {
       const { s, c } = initVal({ files: { remote: true } });
       const gallery = c.define(
         "/content/gallery.val.ts",
-        s.imageset({ dir: "/public/val/images" }),
+        s.imagedir("/public/val/images"),
         { [REF]: ENTRY, [LOCAL]: ENTRY },
       );
       const field = s.image(gallery);
@@ -683,11 +616,8 @@ describe("ImagesSchema", () => {
 
   describe("directory validation", () => {
     test("should reject paths with wrong prefix", () => {
-      const schema = imageset({
-        accept: "image/webp",
-        dir: "/public/val/images",
-      });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val/images", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/wrong/path/image.webp": {
           width: 800,
           height: 600,
@@ -705,11 +635,8 @@ describe("ImagesSchema", () => {
     });
 
     test("should accept paths with exact directory match", () => {
-      const schema = imageset({
-        accept: "image/webp",
-        dir: "/public",
-      });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/public/image.webp": {
           width: 800,
           height: 600,
@@ -733,11 +660,8 @@ describe("ImagesSchema", () => {
       // Key errors (wrong directory) and entry errors (bad metadata) are both
       // reported at the entry's path, so merging must concatenate them rather
       // than let one overwrite the other.
-      const schema = imageset({
-        accept: "image/webp",
-        dir: "/public/val/images",
-      });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val/images", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/wrong/path/image.webp": {
           width: 0,
           height: 600,
@@ -759,11 +683,8 @@ describe("ImagesSchema", () => {
     });
 
     test("should accept paths in subdirectories", () => {
-      const schema = imageset({
-        accept: "image/webp",
-        dir: "/public/val",
-      });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/public/val/nested/deep/image.webp": {
           width: 800,
           height: 600,
@@ -786,9 +707,9 @@ describe("ImagesSchema", () => {
 
   describe("defaults", () => {
     test("should default accept to image/* when options are omitted", () => {
-      const schema = imageset({ dir: "/public/val" });
+      const schema = imagedir("/public/val");
       const serialized = schema["executeSerialize"]();
-      expect((serialized as SerializedImagesetSchema).mediaType).toBe("images");
+      expect((serialized as SerializedImagedirSchema).mediaType).toBe("images");
       expect(serialized.accept).toBe("image/*");
       expect(serialized.dir).toBe("/public/val");
       expect(serialized.remote).toBe(false);
@@ -796,27 +717,25 @@ describe("ImagesSchema", () => {
     });
 
     test("should default accept to image/* when options are empty", () => {
-      const serialized = imageset({ dir: "/public/val" })["executeSerialize"]();
+      const serialized = imagedir("/public/val")["executeSerialize"]();
       expect(serialized.accept).toBe("image/*");
       expect(serialized.dir).toBe("/public/val");
     });
 
     test("should default accept to image/* when only directory is given", () => {
-      const serialized = imageset({ dir: "/public/images" })[
-        "executeSerialize"
-      ]();
+      const serialized = imagedir("/public/images")["executeSerialize"]();
       expect(serialized.accept).toBe("image/*");
       expect(serialized.dir).toBe("/public/images");
     });
 
     test("should default alt to a nullable string when options are omitted", () => {
-      const serialized = imageset({ dir: "/public/val" })["executeSerialize"]();
+      const serialized = imagedir("/public/val")["executeSerialize"]();
       expect(serialized.alt).toMatchObject({ type: "string", opt: true });
     });
 
     test("should accept any image mime type when options are omitted", () => {
-      const schema = imageset({ dir: "/public/val" });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val");
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/public/val/test.png": {
           width: 800,
           height: 600,
@@ -830,7 +749,7 @@ describe("ImagesSchema", () => {
     });
 
     test("should reject non-image mime types when options are omitted", () => {
-      const schema = imageset({ dir: "/public/val" });
+      const schema = imagedir("/public/val");
       const src = {
         "/public/val/test.pdf": {
           width: 800,
@@ -841,7 +760,7 @@ describe("ImagesSchema", () => {
       };
       const result = schema["executeValidate"](
         "path" as SourcePath,
-        src as unknown as Record<string, ImagesetEntryMetadata>,
+        src as unknown as Record<string, ImagedirEntryMetadata>,
       );
       expect(result).toBeTruthy();
       const errors = Object.values(result as object).flat();
@@ -852,8 +771,8 @@ describe("ImagesSchema", () => {
     });
 
     test("should use the default /public/val directory when options are omitted", () => {
-      const schema = imageset({ dir: "/public/val" });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val");
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/public/other/test.png": {
           width: 800,
           height: 600,
@@ -871,8 +790,8 @@ describe("ImagesSchema", () => {
     });
 
     test("should not allow remote refs when options are omitted", () => {
-      const schema = imageset({ dir: "/public/val" });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val");
+      const src: Record<string, ImagedirEntryMetadata> = {
         "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/image.webp":
           {
             width: 800,
@@ -893,16 +812,15 @@ describe("ImagesSchema", () => {
 
   describe("custom validation", () => {
     test("should support custom validation function", () => {
-      const schema = imageset({
-        dir: "/public/val",
-        accept: "image/webp",
-      }).validate((src) => {
-        if (Object.keys(src ?? {}).length === 0) {
-          return "At least one image is required";
-        }
-        return false;
-      });
-      const src: Record<string, ImagesetEntryMetadata> = {};
+      const schema = imagedir("/public/val", { accept: "image/webp" }).validate(
+        (src) => {
+          if (Object.keys(src ?? {}).length === 0) {
+            return "At least one image is required";
+          }
+          return false;
+        },
+      );
+      const src: Record<string, ImagedirEntryMetadata> = {};
       const result = schema["executeValidate"]("path" as SourcePath, src);
       expect(result).toBeTruthy();
       const errors = Object.values(result as object).flat();
@@ -915,8 +833,7 @@ describe("ImagesSchema", () => {
 
   describe("the entry type follows the alt schema", () => {
     test("a locale record alt accepts a record of locales, and validates it", () => {
-      const schema = imageset({
-        dir: "/public/val",
+      const schema = imagedir("/public/val", {
         accept: "image/webp",
         alt: record(string()),
       });
@@ -925,7 +842,7 @@ describe("ImagesSchema", () => {
       // with no assertion, it would not compile if alt were still string | null.
       const src: Record<
         string,
-        ImagesetEntryMetadata<Record<string, string>>
+        ImagedirEntryMetadata<Record<string, string>>
       > = {
         "/public/val/test.webp": {
           width: 800,
@@ -941,14 +858,13 @@ describe("ImagesSchema", () => {
     });
 
     test("a locale record alt still validates the strings inside it", () => {
-      const schema = imageset({
-        dir: "/public/val",
+      const schema = imagedir("/public/val", {
         accept: "image/webp",
         alt: record(string().minLength(10)),
       });
       const src: Record<
         string,
-        ImagesetEntryMetadata<Record<string, string>>
+        ImagedirEntryMetadata<Record<string, string>>
       > = {
         "/public/val/test.webp": {
           width: 800,
@@ -967,8 +883,7 @@ describe("ImagesSchema", () => {
     });
 
     test("a required alt rejects null, which the old entry type let through", () => {
-      const schema = imageset({
-        dir: "/public/val",
+      const schema = imagedir("/public/val", {
         accept: "image/webp",
         alt: string(),
       });
@@ -983,7 +898,7 @@ describe("ImagesSchema", () => {
           mimeType: "image/webp",
           alt: null,
         },
-      } as unknown as Record<string, ImagesetEntryMetadata<string>>;
+      } as unknown as Record<string, ImagedirEntryMetadata<string>>;
       const result = filterCheckErrors(
         schema["executeValidate"]("path" as SourcePath, src),
       );
@@ -1001,7 +916,7 @@ describe("ImagesSchema", () => {
       // would have left the locale form unusable with fields.
       const gallery = c.define(
         "/content/localeGallery.val.ts",
-        s.imageset({ dir: "/public/val/locale", alt: s.record(s.string()) }),
+        s.imagedir("/public/val/locale", { alt: s.record(s.string()) }),
         {
           "/public/val/locale/hero.png": {
             width: 10,
@@ -1017,8 +932,8 @@ describe("ImagesSchema", () => {
     });
 
     test("alt defaults to a nullable string when the option is omitted", () => {
-      const schema = imageset({ dir: "/public/val", accept: "image/webp" });
-      const src: Record<string, ImagesetEntryMetadata> = {
+      const schema = imagedir("/public/val", { accept: "image/webp" });
+      const src: Record<string, ImagedirEntryMetadata> = {
         "/public/val/test.webp": {
           width: 800,
           height: 600,

@@ -2,7 +2,7 @@
  * The fields that name an entry of a media collection by its key, and the
  * patches that point them at a new key.
  *
- * A collection — `s.imageset()`, `s.fileset()`, `s.videoset()` — is a record
+ * A collection — `s.imagedir()`, `s.filedir()`, `s.videodir()` — is a record
  * keyed by each entry's file path, and a field picked from it
  * (`s.image(imagesVal)`, `s.file(filesVal)`, `s.video(videosVal)`) stores that
  * key as its `path`. So when `--fix` renames a key — moving an entry of a
