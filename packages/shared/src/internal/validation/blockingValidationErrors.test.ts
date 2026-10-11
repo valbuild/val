@@ -228,7 +228,7 @@ describe("filterBlockingValidationErrors", () => {
     // A ref key in a gallery that is not `.remote()`.
     const localGallery = c.define(
       "/content/local.val.ts",
-      s.imageset({ dir: "/public/val/images" }),
+      s.imagedir("/public/val/images"),
       { [REF]: entry },
     );
     // A remote image of its own: core marks it "not checked", which the
