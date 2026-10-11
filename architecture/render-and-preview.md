@@ -120,7 +120,7 @@ navigate from. The add buttons ask it of the list they add to. All three read
 the same function, so a row you edit in place cannot have an "add" that
 navigates away from it.
 
-`s.router(...)`, `s.imageset(...)` and `s.fileset(...)` are records, and refuse
+`s.router(...)`, `s.imagedir(...)` and `s.filedir(...)` are records, and refuse
 a render at definition time: pages and media have UIs of their own that a
 render would not reach, and an accepted-but-ignored setting is worse than an
 error.

@@ -16,8 +16,8 @@ import { record } from "./schema/record";
 import { file, remoteFile } from "./schema/file";
 import { font, remoteFont } from "./schema/font";
 import { video, remoteVideo } from "./schema/video";
-import { fileset } from "./schema/fileset";
-import { fontset } from "./schema/fontset";
+import { filedir, fileset } from "./schema/filedir";
+import { fontdir, fontset } from "./schema/fontdir";
 import { date } from "./schema/date";
 import { datetime } from "./schema/datetime";
 import { code } from "./schema/code";
@@ -25,8 +25,8 @@ import { color } from "./schema/color";
 import { locale } from "./schema/locale";
 import { route } from "./schema/route";
 import { router } from "./schema/router";
-import { imageset } from "./schema/imageset";
-import { videoset } from "./schema/videoset";
+import { imagedir, imageset, remoteImagedir } from "./schema/imagedir";
+import { videodir, videoset, remoteVideodir } from "./schema/videodir";
 import { settings } from "./schema/settings";
 // import { i18n, I18n } from "./schema/future/i18n";
 // import { oneOf } from "./schema/future/oneOf";
@@ -157,7 +157,7 @@ export type InitSchema = {
    *
    * @example
    * // Backed by a gallery: width, height and mimeType live there.
-   * import galleryVal from "./gallery.val"; // an s.imageset() module
+   * import galleryVal from "./gallery.val"; // an s.imagedir() module
    * const schema = s.image(galleryVal);
    * export default c.define("/example.val.ts", schema, {
    *   path: "/public/val/example.png",
@@ -226,13 +226,13 @@ export type InitSchema = {
    */
   readonly file: typeof file;
   /**
-   * A font picked from an `s.fontset()`: `s.file(fontsVal)` for fonts, which
+   * A font picked from an `s.fontdir()`: `s.file(fontsVal)` for fonts, which
    * refuses a module that is not a font set. The Studio shows it in its parent
    * as the font's "A" and file name, and opens it on the set to pick from.
    *
    * @example
    * ```typescript
-   * import fontsVal from "./fonts.val"; // an s.fontset() module
+   * import fontsVal from "./fonts.val"; // an s.fontdir() module
    * const schema = s.object({ headingFont: s.font(fontsVal) });
    * // source: { headingFont: { path: "/public/val/fonts/inter_a1b2c.woff2" } }
    * ```
@@ -265,7 +265,7 @@ export type InitSchema = {
    *
    * @example
    * // Picked from a set: mimeType, width, height and duration live there.
-   * import videosVal from "./videos.val"; // an s.videoset() module
+   * import videosVal from "./videos.val"; // an s.videodir() module
    * const schema = s.video(videosVal);
    * export default c.define("/example.val.ts", schema, {
    *   path: "/public/val/videos/intro_51df2.mp4",
@@ -381,13 +381,16 @@ export type InitSchema = {
    */
   readonly router: typeof router;
   /**
-   * Define a collection of images.
+   * Define a directory of images: a whole module of images, keyed by file
+   * path, that fields pick from with `s.image(galleryVal)`.
+   *
+   * The first argument is the directory uploads land in, and must start with
+   * `/public`.
    *
    * @example
    * ```typescript
-   * const schema = s.imageset({
+   * const schema = s.imagedir("/public/val/images", {
    *   accept: "image/webp",
-   *   dir: "/public/val/images",
    *   alt: s.string().minLength(4),
    * });
    * export default c.define("/content/images.val.ts", schema, {
@@ -400,15 +403,18 @@ export type InitSchema = {
    * });
    * ```
    */
-  readonly imageset: typeof imageset;
+  readonly imagedir: typeof imagedir;
   /**
-   * Define a collection of files.
+   * Define a directory of files: a whole module of files, keyed by file path,
+   * that fields pick from with `s.file(filesVal)`.
+   *
+   * The first argument is the directory uploads land in, and must start with
+   * `/public`.
    *
    * @example
    * ```typescript
-   * const schema = s.fileset({
+   * const schema = s.filedir("/public/val/documents", {
    *   accept: "application/pdf",
-   *   dir: "/public/val/documents",
    * });
    * export default c.define("/content/documents.val.ts", schema, {
    *   "/public/val/documents/report.pdf": {
@@ -417,15 +423,15 @@ export type InitSchema = {
    * });
    * ```
    */
-  readonly fileset: typeof fileset;
+  readonly filedir: typeof filedir;
   /**
-   * Define a collection of fonts: an `s.fileset()` that accepts the web font
+   * Define a directory of fonts: an `s.filedir()` that accepts the web font
    * formats, and whose files the Studio previews as type. A field picks from
-   * it with `s.file(fontsVal)`.
+   * it with `s.font(fontsVal)`.
    *
    * @example
    * ```typescript
-   * const schema = s.fontset({ dir: "/public/val/fonts" });
+   * const schema = s.fontdir("/public/val/fonts");
    * export default c.define("/content/fonts.val.ts", schema, {
    *   "/public/val/fonts/inter_a1b2c.woff2": {
    *     mimeType: "font/woff2",
@@ -433,15 +439,14 @@ export type InitSchema = {
    * });
    * ```
    */
-  readonly fontset: typeof fontset;
+  readonly fontdir: typeof fontdir;
   /**
-   * Define a collection of videos. A field picks from it with
+   * Define a directory of videos. A field picks from it with
    * `s.video(videosVal)`.
    *
    * @example
    * ```typescript
-   * const schema = s.videoset({
-   *   dir: "/public/val/videos",
+   * const schema = s.videodir("/public/val/videos", {
    *   stream: { type: "hls" },
    * });
    * export default c.define("/content/videos.val.ts", schema, {
@@ -453,6 +458,60 @@ export type InitSchema = {
    *     alt: "The team, introducing itself",
    *   },
    * });
+   * ```
+   */
+  readonly videodir: typeof videodir;
+  /**
+   * Define a collection of images.
+   *
+   * @deprecated Use `s.imagedir(dir, options)`: the directory moved out of the
+   * options and into the first argument.
+   *
+   * @example
+   * ```typescript
+   * // was: s.imageset({ dir: "/public/val/images", accept: "image/webp" })
+   * const schema = s.imagedir("/public/val/images", { accept: "image/webp" });
+   * ```
+   */
+  readonly imageset: typeof imageset;
+  /**
+   * Define a collection of files.
+   *
+   * @deprecated Use `s.filedir(dir, options)`: the directory moved out of the
+   * options and into the first argument.
+   *
+   * @example
+   * ```typescript
+   * // was: s.fileset({ dir: "/public/val/documents", accept: "application/pdf" })
+   * const schema = s.filedir("/public/val/documents", {
+   *   accept: "application/pdf",
+   * });
+   * ```
+   */
+  readonly fileset: typeof fileset;
+  /**
+   * Define a collection of fonts.
+   *
+   * @deprecated Use `s.fontdir(dir, options)`: the directory moved out of the
+   * options and into the first argument.
+   *
+   * @example
+   * ```typescript
+   * // was: s.fontset({ dir: "/public/val/fonts" })
+   * const schema = s.fontdir("/public/val/fonts");
+   * ```
+   */
+  readonly fontset: typeof fontset;
+  /**
+   * Define a collection of videos.
+   *
+   * @deprecated Use `s.videodir(dir, options)`: the directory moved out of the
+   * options and into the first argument.
+   *
+   * @example
+   * ```typescript
+   * // was: s.videoset({ dir: "/public/val/videos", stream: { type: "hls" } })
+   * const schema = s.videodir("/public/val/videos", { stream: { type: "hls" } });
    * ```
    */
   readonly videoset: typeof videoset;
@@ -489,8 +548,8 @@ export type InitSchemaOptions = {
   /**
    * Every media schema is remote: `files.remote` in `val.config.ts`.
    *
-   * `s.image()`, `s.file()`, `s.video()`, `s.imageset()`, `s.fileset()`,
-   * `s.fontset()` and `s.videoset()` come back with `.remote()` already applied, and so does the
+   * `s.image()`, `s.file()`, `s.video()`, `s.imagedir()`, `s.filedir()`,
+   * `s.fontdir()` and `s.videodir()` (and their deprecated `*set` names) come back with `.remote()` already applied, and so does the
    * image `s.richtext({ img: true })` builds for itself. Nothing downstream
    * needs to know: the Studio, the MCP tools, validation and publishing all
    * read `remote` off the schema, exactly as they do for a `.remote()` written
@@ -511,6 +570,12 @@ export function initSchema(options?: InitSchemaOptions): InitSchema {
           font: remoteFont,
           video: remoteVideo,
           richtext: remoteRichtext,
+          imagedir: remoteImagedir,
+          filedir: ((dir, options) =>
+            filedir(dir, options).remote()) satisfies typeof filedir,
+          fontdir: ((dir, options) =>
+            fontdir(dir, options).remote()) satisfies typeof fontdir,
+          videodir: remoteVideodir,
           imageset: ((options) =>
             imageset(options).remote()) satisfies typeof imageset,
           fileset: ((options) =>
@@ -526,6 +591,10 @@ export function initSchema(options?: InitSchemaOptions): InitSchema {
           font,
           video,
           richtext,
+          imagedir,
+          filedir,
+          fontdir,
+          videodir,
           imageset,
           fileset,
           fontset,
@@ -551,6 +620,8 @@ export function initSchema(options?: InitSchemaOptions): InitSchema {
     file: media.file,
     font: media.font,
     video: media.video,
+    filedir: media.filedir,
+    fontdir: media.fontdir,
     fileset: media.fileset,
     fontset: media.fontset,
     date,
@@ -560,6 +631,8 @@ export function initSchema(options?: InitSchemaOptions): InitSchema {
     locale,
     route,
     router,
+    imagedir: media.imagedir,
+    videodir: media.videodir,
     imageset: media.imageset,
     videoset: media.videoset,
     settings,

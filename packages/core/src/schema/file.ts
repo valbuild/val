@@ -18,7 +18,7 @@ import {
 } from "./validation/ValidationError";
 import { Internal, ValModule } from "..";
 import { ItemPreviewInput, PreviewItem } from "../preview";
-import { FilesetEntryMetadata } from "./fileset";
+import { FiledirEntryMetadata } from "./filedir";
 import { getSource } from "../module";
 import { canonicalFontMimeType, mimeTypeMatchesAccept } from "../mimeType";
 
@@ -48,7 +48,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly moduleMetadata: Record<
       ModulePath,
-      Record<string, FilesetEntryMetadata>
+      Record<string, FiledirEntryMetadata>
     > = {},
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
@@ -361,7 +361,7 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
    * The entries of the gallery this field points at, or null when it is a
    * standalone field.
    */
-  private galleryEntries(): Record<string, FilesetEntryMetadata> | null {
+  private galleryEntries(): Record<string, FiledirEntryMetadata> | null {
     const modulePaths = Object.keys(this.moduleMetadata);
     if (modulePaths.length === 0) {
       return null;
@@ -541,12 +541,12 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
  * field carries only the path.
  */
 export function file(
-  galleryModule: ValModule<Record<string, FilesetEntryMetadata>>,
+  galleryModule: ValModule<Record<string, FiledirEntryMetadata>>,
 ): FileSchema<GalleryFileSource>;
 /** A file of its own, carrying its own mime type. */
 export function file(options?: FileOptions): FileSchema<FileSource>;
 export function file(
-  options?: FileOptions | ValModule<Record<string, FilesetEntryMetadata>>,
+  options?: FileOptions | ValModule<Record<string, FiledirEntryMetadata>>,
 ): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
   return fileOf(false, options);
 }
@@ -557,28 +557,28 @@ export function file(
  * `initSchema`.
  */
 export function remoteFile(
-  galleryModule: ValModule<Record<string, FilesetEntryMetadata>>,
+  galleryModule: ValModule<Record<string, FiledirEntryMetadata>>,
 ): FileSchema<GalleryFileSource>;
 export function remoteFile(options?: FileOptions): FileSchema<FileSource>;
 export function remoteFile(
-  options?: FileOptions | ValModule<Record<string, FilesetEntryMetadata>>,
+  options?: FileOptions | ValModule<Record<string, FiledirEntryMetadata>>,
 ): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
   return fileOf(true, options);
 }
 
 function fileOf(
   remote: boolean,
-  options?: FileOptions | ValModule<Record<string, FilesetEntryMetadata>>,
+  options?: FileOptions | ValModule<Record<string, FiledirEntryMetadata>>,
 ): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
   const isModule =
     !!options &&
     !!Internal.getValPath(
-      options as ValModule<Record<string, FilesetEntryMetadata>>,
+      options as ValModule<Record<string, FiledirEntryMetadata>>,
     );
   if (isModule) {
-    const allModules: Record<string, Record<string, FilesetEntryMetadata>> = {};
+    const allModules: Record<string, Record<string, FiledirEntryMetadata>> = {};
     for (const valModule of [
-      options as ValModule<Record<string, FilesetEntryMetadata>>,
+      options as ValModule<Record<string, FiledirEntryMetadata>>,
     ]) {
       const modulePath = getValPath(valModule) as ModulePath | undefined;
       if (modulePath === undefined) {
@@ -588,7 +588,7 @@ function fileOf(
       }
       allModules[modulePath] = getSource(valModule) as Record<
         string,
-        FilesetEntryMetadata
+        FiledirEntryMetadata
       >;
     }
     return new FileSchema<GalleryFileSource>({}, false, remote, [], allModules);

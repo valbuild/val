@@ -70,7 +70,7 @@ export function ModuleGallery({
   path: SourcePath;
   showChildPath?: SourcePath;
   /**
-   * `s.imageset().readonly()` — look, do not touch.
+   * `s.imagedir().readonly()` — look, do not touch.
    *
    * The gallery had no notion of it at all, so a readonly module still offered
    * upload, delete and alt text, and every one of them wrote a patch. The three

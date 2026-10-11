@@ -9,7 +9,7 @@
  * asks the BYTES ({@link sniffFontMimeType}) rather than trusting the picker.
  */
 
-/** The formats `s.fontset()` accepts unless told otherwise, best first. */
+/** The formats `s.fontdir()` accepts unless told otherwise, best first. */
 export const FONT_MIME_TYPES = [
   "font/woff2",
   "font/woff",
@@ -17,7 +17,7 @@ export const FONT_MIME_TYPES = [
   "font/otf",
 ] as const;
 
-/** `s.fontset()`'s `accept` when none is given. */
+/** `s.fontdir()`'s `accept` when none is given. */
 export const DEFAULT_FONT_ACCEPT = FONT_MIME_TYPES.join(",");
 
 /**

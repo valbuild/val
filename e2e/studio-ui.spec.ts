@@ -360,7 +360,7 @@ async function typeAndSave(
 }
 
 /**
- * A media gallery (`s.imageset()`) upload, driven the way an editor does it.
+ * A media gallery (`s.imagedir()`) upload, driven the way an editor does it.
  *
  * `studio.spec.ts` covers the same module at the STORE level — it builds the
  * gallery patch by hand and checks the server serves the bytes back, which is

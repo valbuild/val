@@ -81,7 +81,7 @@ gallery reads as unused.** `listUnusedFiles` collects the paths it considers
 in use by walking what `service.get(..., { validate: true })` reports and
 picking the errors whose value looks like a file ref — a single `s.image()` /
 `s.file()` field always reports a `check-metadata` fix, so its file is found,
-while an `s.imageset()` / `s.fileset()` ENTRY reports nothing when it is
+while an `s.imagedir()` / `s.filedir()` ENTRY reports nothing when it is
 correct and its file is not. `examples/next` hides this by accident: its
 gallery's one entry declares 800x600 for a 944x944 image, and that error is
 the only reason the file counts as used. `examples/tanstack`, whose content
@@ -278,7 +278,7 @@ hidden item quite happily; `e2e/keyof-create.spec.ts` is what caught it.
 `@valbuild/core`, and only that.** There used to be two — the server's, gating
 whether `/save` demands remote credentials, and the Studio's
 `findRequiredRemoteFiles`, gating the `/remote/settings` fetch — and they
-disagreed about `s.imageset({ ... }).remote()`. A media collection serializes as a
+disagreed about `s.imagedir(dir, { ... }).remote()`. A media collection serializes as a
 `record` of metadata with the file named by the KEY, so a walk that only recurses
 into `item` finds no image schema and says no; that was the server's answer. If
 you add a schema type, teach that one function about it: the `never` assignment in

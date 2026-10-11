@@ -71,8 +71,8 @@ import type {
  * and copying the rule without its premise left every folder and gallery
  * unmarked.
  *
- * A gallery is split by what it holds: `Images` for an `s.imageset()` and
- * `Files` for an `s.fileset()`, because the two are different modules and the
+ * A gallery is split by what it holds: `Images` for an `s.imagedir()` and
+ * `Files` for an `s.filedir()`, because the two are different modules and the
  * row is the only place that says which. Their entries follow `MediaPanel` —
  * an image icon for an image, `FileText` for anything else.
  */

@@ -34,12 +34,27 @@ export type {
   VideoStreamOption,
   VideoStreamOptions,
 } from "./schema/video";
-import { videosetEntryVideoSchema } from "./schema/videoset";
+import { videosetEntryVideoSchema } from "./schema/videodir";
 export type {
+  VideodirEntryMetadata,
+  VideodirOptions,
+  SerializedVideodirSchema,
   VideosetEntryMetadata,
   VideosetOptions,
   SerializedVideosetSchema,
-} from "./schema/videoset";
+} from "./schema/videodir";
+export type {
+  ImagedirEntryMetadata,
+  ImagedirOptions,
+  SerializedImagedirSchema,
+} from "./schema/imagedir";
+export type {
+  FiledirEntryMetadata,
+  FiledirOptions,
+  SerializedFiledirSchema,
+} from "./schema/filedir";
+export type { FontdirOptions } from "./schema/fontdir";
+export type { MediaDir } from "./schema/record";
 export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/media";

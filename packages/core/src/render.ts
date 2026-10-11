@@ -76,7 +76,7 @@ import type { SerializedSchema } from "./schema";
  * `s.array(s.object({ tags: s.array(s.string()) })).render({ as: "inline" })`
  * the objects are inline and `tags` keeps its own default.
  *
- * Not available on `s.router(...)`, `s.imageset(...)` or `s.fileset(...)`:
+ * Not available on `s.router(...)`, `s.imagedir(...)` or `s.filedir(...)`:
  * pages and media have UIs of their own, and `RecordSchema.render` throws there.
  *
  * On `s.keyOf(...)` the same value means something else: the selected entry's

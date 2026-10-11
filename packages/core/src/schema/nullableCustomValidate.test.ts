@@ -89,15 +89,15 @@ const nullableAfterValidate: Record<
     .validate(() => MESSAGE)
     .nullable(),
   font: s
-    .font(define("/fonts.val.ts", s.fontset({ dir: "/public/val/fonts" }), {}))
+    .font(define("/fonts.val.ts", s.fontdir("/public/val/fonts"), {}))
     .validate(() => MESSAGE)
     .nullable(),
-  fileset: s
-    .fileset({ accept: "application/pdf", dir: "/public/val/files" })
+  filedir: s
+    .filedir("/public/val/files", { accept: "application/pdf" })
     .validate(() => MESSAGE)
     .nullable(),
-  fontset: s
-    .fontset({ dir: "/public/val/fonts" })
+  fontdir: s
+    .fontdir("/public/val/fonts")
     .validate(() => MESSAGE)
     .nullable(),
   date: s
@@ -126,6 +126,23 @@ const nullableAfterValidate: Record<
     .nullable(),
   router: s
     .router(nextAppRouter, s.object({ title: s.string() }))
+    .validate(() => MESSAGE)
+    .nullable(),
+  imagedir: s
+    .imagedir("/public/val/images")
+    .validate(() => MESSAGE)
+    .nullable(),
+  videodir: s
+    .videodir("/public/val/videos")
+    .validate(() => MESSAGE)
+    .nullable(),
+  // The deprecated names, until they are removed.
+  fileset: s
+    .fileset({ dir: "/public/val/files", accept: "application/pdf" })
+    .validate(() => MESSAGE)
+    .nullable(),
+  fontset: s
+    .fontset({ dir: "/public/val/fonts" })
     .validate(() => MESSAGE)
     .nullable(),
   imageset: s

@@ -1,18 +1,18 @@
-# Media: `s.imageset()`, `s.fileset()`, `s.fontset()`, `s.videoset()`, `s.image()`, `s.file()`, `s.video()`
+# Media: `s.imagedir()`, `s.filedir()`, `s.fontdir()`, `s.videodir()`, `s.image()`, `s.file()`, `s.video()`
 
 ## The four names are two pairs on different axes
 
-`s.imageset()` / `s.fileset()` are **whole-module collections**. `s.image()` /
+`s.imagedir()` / `s.filedir()` are **whole-module collections**. `s.image()` /
 `s.file()` are **fields**. They are not variants of each other.
 
 |       | collection (is the module)                    | field (lives at a path)                                         |
 | ----- | --------------------------------------------- | --------------------------------------------------------------- |
-| image | `s.imageset({ dir, accept?, alt? })`          | `s.image({ dir, accept })` or `s.image(galleryModule)`          |
-| file  | `s.fileset({ dir, accept })`                  | `s.file({ accept })` or `s.file(collectionModule)`              |
-| video | `s.videoset({ dir, accept?, alt?, stream? })` | `s.video({ dir, accept, stream })` or `s.video(videosetModule)` |
+| image | `s.imagedir(dir, { accept?, alt? })`          | `s.image({ dir, accept })` or `s.image(galleryModule)`          |
+| file  | `s.filedir(dir, { accept })`                  | `s.file({ accept })` or `s.file(collectionModule)`              |
+| video | `s.videodir(dir, { accept?, alt?, stream? })` | `s.video({ dir, accept, stream })` or `s.video(videosetModule)` |
 
-Remote is a **method, not an option**, everywhere: `s.imageset({...}).remote()`,
-`s.fileset({...}).remote()`, `s.image().remote()`, `s.file().remote()`. It used to
+Remote is a **method, not an option**, everywhere: `s.imagedir(dir, {...}).remote()`,
+`s.filedir(dir, {...}).remote()`, `s.image().remote()`, `s.file().remote()`. It used to
 be `{ remote: true }` on the two collections and a `.remote()` on the two fields,
 which meant the same fact was spelled two ways depending on which of the four you
 were looking at.
@@ -47,15 +47,17 @@ which meant a gallery that had simply not said where it wanted its files shared 
 directory with every other one — and `images:check-unique-folder` (below) then
 failed on a collision the author never chose.
 
-This is why `s.imageset(galleryModule)` does not typecheck: `s.imageset()` _defines_ a
+This is why `s.imagedir(galleryModule)` does not typecheck: `s.imagedir()` _defines_ a
 collection, it does not reference one. A field backed by a gallery is
 `s.image(galleryModule)`.
 
 ### What to call one
 
-The schema is `s.imageset()` / `s.fileset()`, so **imageset** and **fileset** are
-the names to use in new code and new prose. Two older words are still in the
-tree and mean the same thing: **gallery** (the UI components — `ModuleGallery`,
+The schema is `s.imagedir()` / `s.filedir()`, so **imagedir** and **filedir** are
+the names to use in new code and new prose. Three older words are still in the
+tree and mean the same thing: **imageset** / **fileset** / **videoset** /
+**fontset** (the factories' names until they were renamed to `*dir` — still
+exported, deprecated, and still in many identifiers and test names), **gallery** (the UI components — `ModuleGallery`,
 `FileGallery` — and most existing comments) and **collection** (older prose,
 including parts of this file). The serialized `mediaType` is still `"images"` /
 `"files"`, because it is a wire value inside stored patches and renaming it
@@ -71,7 +73,7 @@ path**, whose values are metadata — `{width, height, mimeType, alt}` for image
 ```ts
 export default c.define(
   "/content/gallery.val.ts",
-  s.imageset({ dir: "/public/img" }),
+  s.imagedir("/public/img"),
   {},
 );
 ```
@@ -164,7 +166,7 @@ always produce the same ref.
 
 ## Re-encoding, and why it is a one-line seam
 
-`s.image({ encode })` / `s.imageset({ encode })` convert an upload to WebP in the
+`s.image({ encode })` / `s.imagedir(dir, { encode })` convert an upload to WebP in the
 **browser**, before it is uploaded. Off unless asked for; `{type: "webp"}` is
 the whole opt-in, with `quality` (0.8), `maxWidth` and `maxHeight` (2560)
 defaulted. A field inherits its gallery's setting the way it inherits `accept`
@@ -390,16 +392,16 @@ Collections carry checks a field does not:
 - `images:check-all-files` — the directory may hold files the gallery does not track.
 
 Both carry `fixes`, so `filterBlockingValidationErrors` keeps them out of the
-publish gate. A **required alt** (`s.imageset({ alt: s.string().minLength(4) })`) is
+publish gate. A **required alt** (`s.imagedir(dir, { alt: s.string().minLength(4) })`) is
 blocking, and upload sets `alt: null` — so such a gallery is unpublishable until
 someone types alt text. Correct, but it means uploading alone never reaches a
 publishable state there.
 
-## Fonts: `s.fontset()`
+## Fonts: `s.fontdir()`
 
-`s.fontset({ dir, accept? })` IS an `s.fileset()` — it serializes byte for byte
+`s.fontdir(dir, { accept? })` IS an `s.filedir()` — it serializes byte for byte
 as one (`mediaType: "files"`), so every check, fix, rename, delete and the
-`s.file(fontsVal)` field that picks from it are the fileset's, untouched. What
+`s.file(fontsVal)` field that picks from it are the filedir's, untouched. What
 it adds is a default `accept` (`font/woff2,font/woff,font/ttf,font/otf`) and a
 refusal of an `accept` that names anything but fonts.
 
@@ -415,7 +417,7 @@ room for it. "In its parent" is `useIsListedField`, which `Field` provides.
 **What makes a font a font is its mime type, not the set.** The Studio draws a
 specimen of any file whose type is a font (`Internal.isFontMimeType`) — in a
 gallery tile, the open entry, the picker of `s.file(fontsVal)`, and the field
-once a font is chosen — so a font in a plain fileset previews too. A
+once a font is chosen — so a font in a plain filedir previews too. A
 set-backed field has no `mimeType` of its own, so the field asks the
 extension. The Media nav calls a set "Fonts" when its `accept` is all fonts
 (`isFontAccept`), the one place the set rather than the file is asked.
@@ -443,12 +445,12 @@ has) could be written without one, but it is the older and larger format, so
 nothing is converted. A project that wants only WOFF2 says so with
 `accept: "font/woff2"`.
 
-## Video: `s.video()` and `s.videoset()`
+## Video: `s.video()` and `s.videodir()`
 
 A video is a third kind of media, and the one media value that names several
 files. It comes in both shapes the others do: a field of its own
 (`s.video()`), or a field that picks from a collection (`s.video(videosVal)`
-over an `s.videoset()`) — see "A set of videos" below.
+over an `s.videodir()`) — see "A set of videos" below.
 
 ```ts
 { path: "/public/val/intro_3b9d7.mp4", mimeType: "video/mp4",   // or an HLS master playlist
@@ -583,12 +585,12 @@ relabelled: a draft is found by the ref it was uploaded under, so inner refs
 with old labels would send the draft endpoint to the wrong patch. Old local
 files are deleted, as for any rename. Poster and captions keep their names.
 
-### A set of videos: `s.videoset()`
+### A set of videos: `s.videodir()`
 
 ```ts
 const videosVal = c.define(
   "/content/videos.val.ts",
-  s.videoset({ dir: "/public/val/videos", stream: { type: "hls" } }),
+  s.videodir("/public/val/videos", { stream: { type: "hls" } }),
   {
     "/public/val/videos/intro_51df2.mp4": {
       mimeType: "video/mp4",
@@ -680,8 +682,8 @@ false })` is the one override, as `encode` is for an image.
 `examples/next/content/` has one module per shape, each gallery shipping one
 _committed_ entry so "can I see what is already there" is covered by the repo:
 
-- `mediaFixtures.val.ts` — `s.imageset({ dir: "/public/test/subdir" })`
-- `fileGallery.val.ts` — `s.fileset({ dir: "/public/test/files" })`
+- `mediaFixtures.val.ts` — `s.imagedir("/public/test/subdir")`
+- `fileGallery.val.ts` — `s.filedir("/public/test/files")`
 - `mediaFields.val.ts` — `s.image()`, `s.image({ dir })`,
   `s.image(gallery)`, `s.file()`, rich text whose images come from the gallery,
   and the same inside a union. Also the fixture

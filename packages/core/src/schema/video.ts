@@ -14,8 +14,8 @@ import { getValPath, SourcePath } from "../val";
 import type { ValModule } from "../module";
 import { getSource } from "../module";
 import { GetSchema } from "../selector";
-import type { AltSource } from "./imageset";
-import type { VideosetEntryMetadata } from "./videoset";
+import type { AltSource } from "./imagedir";
+import type { VideodirEntryMetadata } from "./videodir";
 import {
   ValidationError,
   ValidationErrors,
@@ -94,7 +94,7 @@ export type VideoGallery = {
    * set, not its contents, so whether the set has the entry is a question
    * for the set's own module — which the Studio validates anyway.
    */
-  entries: Record<string, VideosetEntryMetadata<AltSource>> | null;
+  entries: Record<string, VideodirEntryMetadata<AltSource>> | null;
   remote: boolean;
 };
 
@@ -108,7 +108,7 @@ export type SerializedVideoSchema = {
   opt: boolean;
   remote?: boolean;
   customValidate?: boolean;
-  /** The `s.videoset()` module this field picks from, if it is set-backed. */
+  /** The `s.videodir()` module this field picks from, if it is set-backed. */
   referencedModule?: string;
   readonly?: boolean;
   hidden?: boolean;
@@ -684,7 +684,7 @@ function ownMetadataOf(
  */
 function validateMixedTimes(
   src: GalleryVideoSource,
-  entry: VideosetEntryMetadata<AltSource> | null,
+  entry: VideodirEntryMetadata<AltSource> | null,
 ): ValidationError[] {
   if (
     entry === null ||
@@ -738,12 +738,12 @@ function stripQuery(path: string): string {
 }
 
 /**
- * A video picked from a set (`s.videoset()`). What is true of the file —
+ * A video picked from a set (`s.videodir()`). What is true of the file —
  * its type, size and length — lives in the set; the field carries what one
  * page chose about it.
  */
 export function video(
-  videosetModule: ValModule<Record<string, VideosetEntryMetadata<AltSource>>>,
+  videosetModule: ValModule<Record<string, VideodirEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryVideoOptions,
 ): VideoSchema<GalleryVideoSource>;
 /**
@@ -754,7 +754,7 @@ export function video(options?: VideoOptions): VideoSchema<VideoSource>;
 export function video(
   options?:
     | VideoOptions
-    | ValModule<Record<string, VideosetEntryMetadata<AltSource>>>,
+    | ValModule<Record<string, VideodirEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryVideoOptions,
 ): VideoSchema<VideoSource> | VideoSchema<GalleryVideoSource> {
   return videoOf(options, galleryOptions);
@@ -766,14 +766,14 @@ export function video(
  * `initSchema`.
  */
 export function remoteVideo(
-  videosetModule: ValModule<Record<string, VideosetEntryMetadata<AltSource>>>,
+  videosetModule: ValModule<Record<string, VideodirEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryVideoOptions,
 ): VideoSchema<GalleryVideoSource>;
 export function remoteVideo(options?: VideoOptions): VideoSchema<VideoSource>;
 export function remoteVideo(
   options?:
     | VideoOptions
-    | ValModule<Record<string, VideosetEntryMetadata<AltSource>>>,
+    | ValModule<Record<string, VideodirEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryVideoOptions,
 ): VideoSchema<VideoSource> | VideoSchema<GalleryVideoSource> {
   return videoOf(options, galleryOptions).remote();
@@ -782,7 +782,7 @@ export function remoteVideo(
 function videoOf(
   options?:
     | VideoOptions
-    | ValModule<Record<string, VideosetEntryMetadata<AltSource>>>,
+    | ValModule<Record<string, VideodirEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryVideoOptions,
 ): VideoSchema<VideoSource> | VideoSchema<GalleryVideoSource> {
   if (options === undefined || !isVideosetModule(options)) {
@@ -797,7 +797,7 @@ function videoOf(
   const setSchema = options[GetSchema]?.["executeSerialize"]();
   if (setSchema?.type !== "record" || setSchema.mediaType !== "videos") {
     throw new Error(
-      `s.video(${modulePath}): the module must be an s.videoset(). Got ${setSchema?.type === "record" ? `a record of ${setSchema.mediaType ?? "values"}` : (setSchema?.type ?? "no schema")}.`,
+      `s.video(${modulePath}): the module must be an s.videodir(). Got ${setSchema?.type === "record" ? `a record of ${setSchema.mediaType ?? "values"}` : (setSchema?.type ?? "no schema")}.`,
     );
   }
   return new VideoSchema<GalleryVideoSource>(
@@ -823,7 +823,7 @@ function videoOf(
 function isVideosetModule(
   value:
     | VideoOptions
-    | ValModule<Record<string, VideosetEntryMetadata<AltSource>>>,
-): value is ValModule<Record<string, VideosetEntryMetadata<AltSource>>> {
+    | ValModule<Record<string, VideodirEntryMetadata<AltSource>>>,
+): value is ValModule<Record<string, VideodirEntryMetadata<AltSource>>> {
   return GetSchema in value;
 }

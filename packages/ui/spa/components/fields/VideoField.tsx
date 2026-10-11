@@ -90,7 +90,7 @@ export function VideoField({
     addModuleFilePatch,
   } = useValField(path, type);
   /**
-   * The `s.videoset()` this field picks from, if it does. Read before the
+   * The `s.videodir()` this field picks from, if it does. Read before the
    * early returns below so the hooks run in the same order every render.
    */
   const referencedModule =

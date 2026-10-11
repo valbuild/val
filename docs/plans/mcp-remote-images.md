@@ -222,7 +222,7 @@ For a **gallery** it is not. A gallery entry's schema is an `ObjectSchema`
 (width/height/mimeType/alt), and the validator compares against a _synthesized_
 `SerializedImageSchema` carrying the `accept` and `dir` of the **record
 that holds the entry** — resolved from the entry's parent path, not from the
-module root, because a nested gallery (`s.object({ gallery: s.imageset(…) })`)
+module root, because a nested gallery (`s.object({ gallery: s.imagedir(…) })`)
 would otherwise synthesize empty options. `handleRemoteGalleryFileUpload`
 (`fixHandlers.ts:520`) does this and its comment names the failure exactly:
 
@@ -283,7 +283,7 @@ Assuming Option 2.
 
 7. **Verify against a real project.** The one thing tests cannot cover is
    whether the ref validates and the bytes publish. `examples/next` has
-   `content/remoteImages.val.ts` (`s.imageset({...}).remote()`) — upload through
+   `content/remoteImages.val.ts` (`s.imagedir(dir, {...}).remote()`) — upload through
    MCP, then publish, then `val validate` and confirm the ref resolves.
 
 ---

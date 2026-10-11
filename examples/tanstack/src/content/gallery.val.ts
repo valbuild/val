@@ -1,7 +1,7 @@
 import { s, c } from "../../val.config";
 
 /**
- * `s.imageset()`: a COLLECTION of images, keyed by the path the bytes live at.
+ * `s.imagedir()`: a COLLECTION of images, keyed by the path the bytes live at.
  *
  * The difference from `s.image()` is who owns the metadata. Here the width,
  * height and mime type are the collection's — one entry per file — so a field
@@ -19,9 +19,8 @@ import { s, c } from "../../val.config";
  */
 export default c.define(
   "/src/content/gallery.val.ts",
-  s.imageset({
+  s.imagedir("/public/val/gallery", {
     accept: "image/*",
-    dir: "/public/val/gallery",
     alt: s.string().minLength(3).describe("What the image shows"),
   }),
   {

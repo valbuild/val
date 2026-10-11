@@ -665,8 +665,8 @@ const blocksSchema = s
 ```
 
 It reaches the direct items only: a list nested inside an inline item keeps its
-own default until it says otherwise. `s.router(...)`, `s.imageset(...)` and
-`s.fileset(...)` do not take a render — pages and media have their own UI — and
+own default until it says otherwise. `s.router(...)`, `s.imagedir(...)` and
+`s.filedir(...)` do not take a render — pages and media have their own UI — and
 throw if given one.
 
 `s.keyOf(...).render({ as: "inline" })` is the one other render, and it means

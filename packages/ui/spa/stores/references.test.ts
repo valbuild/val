@@ -618,7 +618,7 @@ describe("finding who references a gallery file", () => {
     const { c, s } = initVal();
     return c.define(
       "/gallery.val.ts",
-      s.imageset({ accept: "image/*", dir: "/public/val" }),
+      s.imagedir("/public/val", { accept: "image/*" }),
       {
         "/public/val/a.png": {
           width: 1,
