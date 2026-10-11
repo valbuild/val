@@ -1314,6 +1314,19 @@ export abstract class ValOps {
         }
       }
     }
+    const addModuleError = (
+      path: ModuleFilePath,
+      sourcePath: SourcePath,
+      validationError: ValidationError,
+    ) => {
+      if (!errors[path]) {
+        errors[path] = { validations: {} };
+      }
+      if (!errors[path].validations[sourcePath]) {
+        errors[path].validations[sourcePath] = [];
+      }
+      errors[path].validations[sourcePath].push(validationError);
+    };
     const modulePathsToValidate: readonly string[] | undefined =
       onlyModules ?? (patchesByModule && Object.keys(patchesByModule));
     for (const [pathS, schema] of entries) {
@@ -1349,13 +1362,32 @@ export abstract class ValOps {
         jsonValuesErrors,
       )) {
         const sourcePath = sourcePathS as SourcePath;
-        if (!errors[path]) {
-          errors[path] = { validations: {} };
+        for (const entryError of entryErrors) {
+          // An entry's errors get the same project-wide resolution as every
+          // other module's. Added raw, every keyOf and route in a
+          // `.jsonValues()` record was reported as unresolved -- 240 of them in
+          // `examples/next`'s kb.val.ts, none real.
+          if (isSchemaSourceFixError(entryError)) {
+            const resolved = resolveSchemaSourceFixForError(
+              entryError,
+              snapshot,
+            );
+            if (!resolved || resolved.status !== "remaining") {
+              continue;
+            }
+            addModuleError(path, sourcePath, resolved.error);
+            continue;
+          }
+          // "Not yet compared with its bytes" is a request, not an error, and
+          // for an entry it cannot be answered here: `validateFiles` resolves a
+          // file's schema through the module's source, which for a
+          // `.jsonValues()` record holds markers rather than the entry. The
+          // publish gate ignores it anyway (`partitionValidationErrors`).
+          if (isOnlyFileCheckValidationError(entryError)) {
+            continue;
+          }
+          addModuleError(path, sourcePath, entryError);
         }
-        if (!errors[path].validations[sourcePath]) {
-          errors[path].validations[sourcePath] = [];
-        }
-        errors[path].validations[sourcePath].push(...entryErrors);
       }
       if (res === false) {
         continue;
@@ -1566,7 +1598,9 @@ export abstract class ValOps {
       if (metadataErrors && metadataErrors.length > 0) {
         return {
           [sourcePath]: metadataErrors.map((e) => ({
-            message: e.message,
+            // Which file: "File not found" on its own names nothing, and the
+            // row it is shown on is the field, not the file.
+            message: `${e.message}: ${filePath}`,
             value: { filePath, patchId: fileData?.patchId ?? null },
           })),
         };

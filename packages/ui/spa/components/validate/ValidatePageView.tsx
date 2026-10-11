@@ -10,7 +10,7 @@ import {
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import classNames from "classnames";
 import { Button } from "../designSystem/button";
 
@@ -58,6 +58,12 @@ export type ValidateRow = {
   /** For support: shown under "Details", never instead of the message. */
   details?: string;
   action: RowAction;
+  /**
+   * What the row shows under its message: the field itself, so an error in
+   * the content can be fixed where it is listed, as the errors page always
+   * let you. Absent in Storybook and for errors that have no field to edit.
+   */
+  body?: ReactNode;
   /** What has happened to the row's fix, once one was asked for. */
   fixState?: FixState;
 };
@@ -83,6 +89,8 @@ export type RowActionName =
 
 export type FixState =
   | { status: "fixing" }
+  /** Fixed in place, by editing the field the row shows. */
+  | { status: "resolved" }
   | { status: "fixed"; summary: string }
   | { status: "failed"; message: string };
 
@@ -108,7 +116,7 @@ export function ValidatePageView({
   onRowAction,
 }: ValidatePageViewProps) {
   const rows = groups.flatMap((group) => group.rows);
-  const openRows = rows.filter((row) => row.fixState?.status !== "fixed");
+  const openRows = rows.filter((row) => !isDone(row));
   const fixableCount = openRows.filter((row) => row.tone === "fixable").length;
   // What "Fix everything" does: rows with a **Fix** button, and no others.
   // "Remove from set" deletes an entry, which nobody should do in bulk without
@@ -117,7 +125,7 @@ export function ValidatePageView({
     (row) => row.tone === "fixable" && row.action.kind === "fix",
   ).length;
   const fileCount = groups.filter((group) =>
-    group.rows.some((row) => row.fixState?.status !== "fixed"),
+    group.rows.some((row) => !isDone(row)),
   ).length;
 
   return (
@@ -179,8 +187,9 @@ export function ValidatePageView({
       )}
       {fullCheck.status === "done" && openRows.length === 0 && (
         <Banner tone="success" icon={<CheckCircle2 size={16} aria-hidden />}>
-          Everything checks out: content, files and remote files. Ready to
-          publish.
+          {/* Remote files and media sets join this sentence when the full
+              check covers them: steps 4 and 5 of docs/plans/studio-validate.md. */}
+          Everything checks out: content and files. Ready to publish.
         </Banner>
       )}
 
@@ -197,8 +206,9 @@ export function ValidatePageView({
 
       {fullCheck.status === "not-run" && (
         <div className="border-t border-dashed border-border-primary pt-4 text-sm text-fg-secondary">
-          Files, remote files and media sets have not been checked. &ldquo;Check
-          everything&rdquo; checks them on the server. It can take a minute.
+          Files have not been checked against what is recorded about them.
+          &ldquo;Check everything&rdquo; checks them on the server. It can take
+          a minute.
         </div>
       )}
     </div>
@@ -322,7 +332,7 @@ function Group({
   onFixGroup: () => void;
   onRowAction: (rowId: string, action: RowActionName) => void;
 }) {
-  const open = group.rows.filter((row) => row.fixState?.status !== "fixed");
+  const open = group.rows.filter((row) => !isDone(row));
   const fixable = open.filter(
     (row) => row.tone === "fixable" && row.action.kind === "fix",
   );
@@ -390,7 +400,7 @@ function Row({
   onAction: (action: RowActionName) => void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const fixed = row.fixState?.status === "fixed";
+  const fixed = isDone(row);
   return (
     <li
       className={classNames("flex flex-col gap-2 px-4 py-3", {
@@ -475,6 +485,7 @@ function Row({
               )}
             </div>
           )}
+          {row.body && <div className="pt-1">{row.body}</div>}
           <FixFeedback state={row.fixState} onAction={onAction} />
         </div>
         {!fixed && <RowButtons row={row} onAction={onAction} />}
@@ -567,6 +578,14 @@ function FixFeedback({
 }) {
   if (!state || state.status === "fixing") {
     return null;
+  }
+  if (state.status === "resolved") {
+    return (
+      <div className="flex items-center gap-1.5 text-sm text-fg-brand-primary">
+        <CheckCircle2 size={13} aria-hidden />
+        <span>Fixed.</span>
+      </div>
+    );
   }
   if (state.status === "fixed") {
     return (
@@ -689,5 +708,12 @@ function CountPill({
     >
       {children}
     </span>
+  );
+}
+
+/** A row that no longer needs anything: fixed here, or fixed in place. */
+function isDone(row: ValidateRow): boolean {
+  return (
+    row.fixState?.status === "fixed" || row.fixState?.status === "resolved"
   );
 }

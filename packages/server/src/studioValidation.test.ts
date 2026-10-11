@@ -287,3 +287,82 @@ describe("the Studio's full check", () => {
     });
   });
 });
+
+/**
+ * A `.jsonValues()` record's entries get the same project-wide resolution as
+ * every other module. Their errors used to be added raw, so every keyOf and
+ * route in such a record read as unresolved -- 240 bogus errors in
+ * `examples/next`'s kb.val.ts -- and every image in an entry as "not checked
+ * against the file".
+ */
+describe("the full check on a .jsonValues() record", () => {
+  const { s, c, config } = initVal();
+  const AUTHORS = "/content/authors.val.ts" as ModuleFilePath;
+  const POSTS = "/content/posts.val.ts" as ModuleFilePath;
+  let root: string;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "val-studio-jsonvalues-"));
+    for (const module of [AUTHORS, POSTS]) {
+      fs.mkdirSync(path.dirname(path.join(root, module)), { recursive: true });
+      fs.writeFileSync(path.join(root, module), "");
+    }
+  });
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  test("a valid keyOf in an entry is not an error, and a wrong one is", async () => {
+    const authorsVal = c.define(AUTHORS, s.record(s.string()), {
+      kari: "Kari",
+    });
+    const valModules: ValModules = {
+      config,
+      modules: [
+        { def: () => Promise.resolve({ default: authorsVal }) },
+        {
+          def: () =>
+            Promise.resolve({
+              default: c.define(
+                POSTS,
+                s
+                  .record(
+                    s.object({
+                      title: s.string(),
+                      author: s.keyOf(authorsVal),
+                    }),
+                  )
+                  .jsonValues(),
+                {
+                  "/a": c.json(() =>
+                    Promise.resolve({
+                      default: { title: "A", author: "kari" },
+                    }),
+                  ),
+                  "/b": c.json(() =>
+                    Promise.resolve({
+                      default: { title: "B", author: "nobody" },
+                    }),
+                  ),
+                },
+              ),
+            }),
+        },
+      ],
+    };
+    const ops = new ValOpsFS("http://localhost:4000", root, valModules, {
+      config,
+    });
+    const res = await checkModuleForStudio(ops, {
+      moduleFilePath: POSTS,
+      schemas: await ops.getSchemas(),
+      sources: (await ops.getSources()).sources,
+      fileLastUpdatedByPatchId: {},
+    });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    const paths = Object.keys(res.errors);
+    expect(paths.some((p) => p.includes('"/a"'))).toBe(false);
+    expect(paths.some((p) => p.includes('"/b"'))).toBe(true);
+  });
+});

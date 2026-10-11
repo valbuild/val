@@ -396,7 +396,19 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
    The fix route finds the error again from its own reading of the module, and
    builds only the codes in `STUDIO_FIXES` (`shared/…/validation/studioFixes.ts`).
 3. **`/val/errors` grown into `/val/validate`, and the top bar button.**
-   Useful from here for local metadata.
+   Useful from here for local metadata. **Done**: `ValidateRoute.tsx` is the
+   connected page over `ValidatePageView`, `buildValidateGroups` is the one
+   answer both it and the top bar's count read, and `validateSession` keeps a
+   run's results for the session. `/val/errors` is still parsed, as the same
+   page. Two gaps, left for later steps:
+   - The banner says "content and files" until steps 4 and 5 make "remote
+     files" and "media sets" true.
+   - Media inside a `.jsonValues()` entry is checked against its schema but
+     not against its bytes: `validateSources` resolves an entry's errors
+     through the project snapshot, which has no file reader, so the
+     "not checked against the file" errors are dropped there rather than
+     reported as unfixable. Comparing them needs the entry's media handed to
+     `validateFiles`, the same thing step 5 needs for sets.
 4. **`validateRemoteFiles`** and the remote fixes.
 5. **The set checks over the set's own entries**, read through `FixFiles`.
 6. **The host rewrite** from the remote-files plan, which then needs nothing
