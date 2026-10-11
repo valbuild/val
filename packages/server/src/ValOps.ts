@@ -159,7 +159,22 @@ export type ValOpsOptions = {
    * the next save's prepare -- starts from it, and the SHAs describe it.
    */
   snapshotSources?: Sources;
+  /**
+   * The `.jsonValues()` entries the same snapshot saved, by module and key:
+   * their content is in their own files, not in {@link snapshotSources}, which
+   * holds markers. The baseline those entries are read from, as a save in
+   * this instance would leave them (`proposalJsonEntries` in `./proposal`).
+   */
+  snapshotJsonEntries?: Map<ModuleFilePath, Map<string, JSONValue>>;
 };
+/**
+ * What a save told this instance a `.jsonValues()` entry holds: its content --
+ * JSON `null` included -- or that it was deleted. See `adoptedJsonEntries`.
+ */
+type AdoptedJsonEntry =
+  | { kind: "content"; content: JSONValue }
+  | { kind: "deleted" };
+
 // #region ValOps
 export abstract class ValOps {
   /** Sources from val modules, immutable (without patches or anything)  */
@@ -208,7 +223,9 @@ export abstract class ValOps {
    * unlike a module source there is nothing to re-extract, because the memo was
    * never holding the content in the first place.
    *
-   * `null` for an entry the commit deleted.
+   * `deleted` for an entry the commit deleted: tagged, not `null`, because an
+   * entry's content may itself be JSON `null` (a nullable item), and a saved
+   * `null` read back as "deleted" would report the entry missing.
    *
    * Never cleared: it describes what is on disk. A host rebuild makes a new
    * instance, which is the right reset. Bounded by the project's entry count,
@@ -216,7 +233,7 @@ export abstract class ValOps {
    */
   private adoptedJsonEntries = new Map<
     ModuleFilePath,
-    Map<string, JSONValue | null>
+    Map<string, AdoptedJsonEntry>
   >();
 
   constructor(
@@ -232,6 +249,14 @@ export abstract class ValOps {
     this.modulesErrors = null;
     this.shaEntries = null;
     this.shaModuleErrors = null;
+    for (const [moduleFilePath, entries] of options?.snapshotJsonEntries ??
+      []) {
+      const adopted = new Map<string, AdoptedJsonEntry>();
+      for (const [entryKey, content] of entries) {
+        adopted.set(entryKey, { kind: "content", content });
+      }
+      this.adoptedJsonEntries.set(moduleFilePath, adopted);
+    }
   }
 
   // #region stat
@@ -453,9 +478,13 @@ export abstract class ValOps {
       }
       const adopted =
         this.adoptedJsonEntries.get(moduleFilePath) ??
-        new Map<string, JSONValue | null>();
+        new Map<string, AdoptedJsonEntry>();
       for (const [entryKey, content] of Object.entries(entries)) {
-        adopted.set(entryKey, content);
+        // A commit's `null` is a deleted entry: see `patchedJsonEntries`.
+        adopted.set(
+          entryKey,
+          content === null ? { kind: "deleted" } : { kind: "content", content },
+        );
       }
       this.adoptedJsonEntries.set(moduleFilePath, adopted);
     }
@@ -759,15 +788,30 @@ export abstract class ValOps {
            * The BASELINE only. Pending patches replay over it below exactly as
            * they do over the thunk's answer.
            */
-          const adopted = this.adoptedJsonEntries.get(moduleFilePath);
-          if (adopted !== undefined && adopted.has(entryKey)) {
-            const content = adopted.get(entryKey);
+          const adopted = this.adoptedJsonEntries
+            .get(moduleFilePath)
+            ?.get(entryKey);
+          if (adopted !== undefined) {
             return {
               entryKey,
-              baseContent: content === null ? undefined : content,
+              baseContent:
+                adopted.kind === "deleted" ? undefined : adopted.content,
             };
           }
-          const thunk = Internal.getJsonImport(marker);
+          /*
+           * A snapshot's marker came as JSON, with no import behind it: the
+           * entry the proposal did not save is the build's, behind the marker
+           * the module evaluated to.
+           */
+          const siteMarker =
+            this.siteSourcesBeforeSnapshot?.[moduleFilePath]?.[
+              entryKey as keyof Sources[ModuleFilePath]
+            ];
+          const thunk =
+            Internal.getJsonImport(marker) ??
+            (Internal.isJson(siteMarker)
+              ? Internal.getJsonImport(siteMarker)
+              : undefined);
           if (!thunk) {
             return { entryKey, baseContent: null };
           }
