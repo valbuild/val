@@ -27,6 +27,9 @@ export const STUDIO_FIXES = [
   // alone, never the whole directory (`fixForStudio`).
   "images:check-all-files",
   "files:check-all-files",
+  // A platform ref on a host that no longer serves its project, pointed at
+  // the project's own `valstart.dev` address. Derived from the ref alone.
+  "remote:rewrite-host",
 ] as const satisfies readonly ValidationFix[];
 
 export type StudioFix = (typeof STUDIO_FIXES)[number];

@@ -75,6 +75,7 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("jsonValues:extract-entry"),
   z.literal("view:check-module"),
   z.literal("external:upload"),
+  z.literal("remote:rewrite-host"),
 ]);
 const ValidationError = z.object({
   message: z.string(),

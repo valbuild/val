@@ -25,8 +25,8 @@ import type { FixFiles } from "./fixFiles";
 import { galleryEntryOf } from "./galleryEntryKey";
 import {
   checkRemoteFiles,
-  type HeadRemoteFile,
   type RemoteHostProblem,
+  type RemoteNetwork,
 } from "./remoteFileCheck";
 import {
   getFieldsForType,
@@ -49,8 +49,8 @@ export type StudioCheckInput = {
   schemas: Schemas;
   sources: Sources;
   fileLastUpdatedByPatchId: PatchAnalysis["fileLastUpdatedByPatchId"];
-  /** How a remote host is asked about a ref. Tests replace it. */
-  head?: HeadRemoteFile;
+  /** How remote hosts are asked about refs. Tests replace it. */
+  network?: RemoteNetwork;
 };
 
 export type StudioModuleCheck =
@@ -122,7 +122,7 @@ export async function checkModuleForStudio(
     sources,
     validation.remoteFiles,
     input.fileLastUpdatedByPatchId,
-    input.head,
+    input.network,
   );
   for (const [sourcePath, found] of Object.entries(remote.errors)) {
     add(sourcePath as SourcePath, found);
@@ -295,7 +295,7 @@ async function checkMediaDirEntries(
       ref in published,
     pendingBytes: ops.pendingBytesOf(input.fileLastUpdatedByPatchId),
     sampleByHost,
-    head: input.head,
+    ...input.network,
   });
   for (const [path, found] of Object.entries(remote.errors)) {
     errors[path as SourcePath] = (errors[path as SourcePath] ?? []).concat(
@@ -364,6 +364,7 @@ export async function fixForStudio(
       // host is its own fix (step 6 of the plan), not a side effect of this.
       remoteHost: found.remoteHost ?? DEFAULT_VAL_REMOTE_HOST,
       files: opsFixFiles(ops, input.fileLastUpdatedByPatchId),
+      askHostProject: input.network?.askHostProject,
     },
     true,
     found.sourcePath,
@@ -436,10 +437,14 @@ async function findError(
       moduleSource: { [key]: mediaDir.entries[key] },
     };
   }
-  if (fix === "image:check-remote" || fix === "file:check-remote") {
-    // Every remote value is in `remoteFiles`, sound or not, so ask whether
-    // this one is stale before rewriting it: a ref someone already fixed is
-    // "not found", not a download and an identical ref.
+  if (
+    fix === "image:check-remote" ||
+    fix === "file:check-remote" ||
+    fix === "remote:rewrite-host"
+  ) {
+    // Every remote value is in `remoteFiles`, sound or not, so check it again
+    // before rewriting it: a ref someone already fixed, or whose host serves
+    // the project again, is "not found", not a download and an identical ref.
     const value = remoteFiles[sourcePath];
     if (!value) {
       return undefined;
@@ -449,16 +454,16 @@ async function findError(
       input.sources,
       { [sourcePath]: value },
       input.fileLastUpdatedByPatchId,
-      input.head,
+      input.network,
     );
-    const stale = checked.errors[sourcePath]?.find((error) =>
+    const found = checked.errors[sourcePath]?.find((error) =>
       error.fixes?.includes(fix),
     );
     const parsed = Internal.remote.splitRemoteRef(value.path);
-    if (!stale || parsed.status === "error") {
+    if (!found || parsed.status === "error") {
       return undefined;
     }
-    return { sourcePath, error: stale, remoteHost: parsed.remoteHost };
+    return { sourcePath, error: found, remoteHost: parsed.remoteHost };
   }
   if (fix !== "image:check-metadata" && fix !== "file:check-metadata") {
     return undefined;

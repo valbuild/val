@@ -112,6 +112,12 @@ function isSkippableFixCode(fix: ValidationFix): boolean {
       // under `val external upload` and never under a blanket `--fix`. Surfacing
       // it is the whole point: someone has to decide.
       return false;
+    case "remote:rewrite-host":
+      // Reported only by the server's full check (the Studio's Validate page,
+      // `val validate`), which asks the ref's host -- never by a schema, so
+      // the Studio's own validator never holds one. Were it to, a person has
+      // to see it: the host is gone, and nothing on save repoints the ref.
+      return false;
     default: {
       // Exhaustiveness check: a new ValidationFix code must add a case above.
       const exhaustive: never = fix;

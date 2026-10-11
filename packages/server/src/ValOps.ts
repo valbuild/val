@@ -66,8 +66,8 @@ import {
 import { validateJsonValuesEntries } from "./validateJsonValues";
 import {
   checkRemoteFiles,
-  type HeadRemoteFile,
   type RemoteFilesCheck,
+  type RemoteNetwork,
 } from "./remoteFileCheck";
 import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
@@ -1589,7 +1589,7 @@ export abstract class ValOps {
     sources: Sources,
     remoteFiles: Record<SourcePath, MediaSource>,
     fileLastUpdatedByPatchId: PatchAnalysis["fileLastUpdatedByPatchId"] = {},
-    head?: HeadRemoteFile,
+    network: RemoteNetwork = {},
   ): Promise<RemoteFilesCheck> {
     const sampleByHost = this.sourceMode() === "managed";
     // Only a managed project vouches for one published ref with another, so
@@ -1620,7 +1620,7 @@ export abstract class ValOps {
     return checkRemoteFiles({
       remoteFiles,
       sampleByHost,
-      head,
+      ...network,
       schemaAt: (sourcePath) => valueAt(sourcePath, sources)?.schema,
       isPublished: (sourcePath, ref) => {
         if (!baseSources) {

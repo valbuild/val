@@ -1,5 +1,12 @@
+/**
+ * The host part may carry a `/_val` prefix: a ref served by the platform
+ * loader names `https://www.acme.no/_val/file/…`, because a customer's site
+ * can have a `/file/…` route of its own. The prefix is part of `remoteHost`,
+ * so `createRemoteRef(remoteHost, …)` writes it back unchanged. See valbuild/home
+ * `docs/remote-files-on-platform.md`, "The ref".
+ */
 const RegEx =
-  /^(https?:\/\/[^/]+)\/file\/p\/([^/]+)\/b\/([^/]+)\/v\/([^/]+)\/h\/([^/]+)\/f\/([^/]+)\/p\/(.+)$/;
+  /^(https?:\/\/[^/]+(?:\/_val)?)\/file\/p\/([^/]+)\/b\/([^/]+)\/v\/([^/]+)\/h\/([^/]+)\/f\/([^/]+)\/p\/(.+)$/;
 
 export function splitRemoteRef(ref: string):
   | {

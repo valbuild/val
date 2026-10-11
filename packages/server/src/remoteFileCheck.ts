@@ -8,6 +8,7 @@ import {
   ValidationError,
 } from "@valbuild/core";
 import { getFileExt } from "./getFileExt";
+import { movedRemoteHost, type AskHostProject } from "./remoteHostCheck";
 
 /**
  * Does the host a remote ref names still serve it?
@@ -22,6 +23,16 @@ export type RemoteFileAnswer =
   | { status: "unreachable"; reason: string };
 
 export type HeadRemoteFile = (url: string) => Promise<RemoteFileAnswer>;
+
+/**
+ * How the remote check reaches the network: what it asks a host about a file,
+ * and which project a platform host serves. Both default to the real thing;
+ * tests replace them.
+ */
+export type RemoteNetwork = {
+  head?: HeadRemoteFile;
+  askHostProject?: AskHostProject;
+};
 
 const HEAD_TIMEOUT_MS = 8_000;
 
@@ -153,6 +164,8 @@ export type RemoteFilesCheckInput = {
    */
   existenceOnly?: boolean;
   head?: HeadRemoteFile;
+  /** How a platform ref's host is asked which project it serves. */
+  askHostProject?: AskHostProject;
 };
 
 const textEncoder = new TextEncoder();
@@ -160,7 +173,7 @@ const textEncoder = new TextEncoder();
 /**
  * The remote half of the Studio's full check, for one module's remote values.
  *
- * Three questions, cheapest first, and a ref stops at the first one it fails:
+ * Four questions, cheapest first, and a ref stops at the first one it fails:
  *
  * 1. **Is it a ref at all?** `splitRemoteRef` parses it.
  * 2. **Does the ref agree with what is recorded about it?** A ref carries a
@@ -171,9 +184,16 @@ const textEncoder = new TextEncoder();
  *    the CLI also re-derives every ref after a Val upgrade, and listing every
  *    remote image in the project after each upgrade would bury the rows that
  *    matter. Nothing here downloads.
- * 3. **Does the host serve it?** A HEAD. Not asked for a ref whose bytes are
- *    in a pending patch, which the host will not have until publish: there
- *    the question is whether the patch still has them.
+ * 3. **Does its host still serve its project?** Only for a platform ref
+ *    (`…/_val/file/…`) that is not on the project's own `valstart.dev`
+ *    address: one `GET <host>/_val/project` per host. A host that dropped the
+ *    project gets a **Fix** (`remote:rewrite-host`) that points the ref at
+ *    `<public id>.valstart.dev`. See `remoteHostCheck.ts`.
+ * 4. **Does the host have it?** A HEAD.
+ *
+ * Neither host question is asked of a ref whose bytes are in a pending patch,
+ * which the host will not have until publish: there the question is whether
+ * the patch still has them.
  */
 export async function checkRemoteFiles(
   input: RemoteFilesCheckInput,
@@ -233,6 +253,28 @@ export async function checkRemoteFiles(
         message: `This ${noun} is in your unpublished changes, but its file is not. Choose the ${noun} again.`,
         value,
       });
+      continue;
+    }
+    // Asked after the pending check: a ref whose bytes are still in a patch
+    // is the key those bytes are stored under, and repointing it would cut
+    // it off from them.
+    const moved = await movedRemoteHost(ref, input.askHostProject);
+    if (moved) {
+      addError(
+        sourcePath,
+        input.existenceOnly
+          ? {
+              // A directory's key: the fields picking from it hold the same
+              // ref, and would have to follow. Not built yet.
+              message: `${moved.why}. Pointing a file in a media directory at ${moved.to} is not something the Studio can do yet.`,
+              value,
+            }
+          : {
+              message: `${moved.why}. Fix points it at ${moved.to}, which always serves it.`,
+              value,
+              fixes: ["remote:rewrite-host"],
+            },
+      );
       continue;
     }
     if (wasFound(ref)) {

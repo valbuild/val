@@ -26,6 +26,13 @@ import {
 import { galleryEntryOf } from "./galleryEntryKey";
 import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
 import path from "path";
+import {
+  fallbackRemoteHost,
+  movedRemoteHost,
+  needsHostCheck,
+  rewriteRefHost,
+  type AskHostProject,
+} from "./remoteHostCheck";
 import { checkRemoteRef } from "./checkRemoteRef";
 import { diskFixFiles, FixFiles } from "./fixFiles";
 import { rewriteVideoPathsPatch } from "./videoRemote";
@@ -105,6 +112,11 @@ export async function createFixPatch(
      * the disk under `projectRoot`; see {@link FixFiles}.
      */
     files?: FixFiles;
+    /**
+     * How a platform ref's host is asked which project it serves. Defaults
+     * to `GET <host>/_val/project`; tests replace it.
+     */
+    askHostProject?: AskHostProject;
   },
   apply: boolean,
   sourcePath: SourcePath,
@@ -654,6 +666,26 @@ export async function createFixPatch(
       );
 
       if (schemaAtPath.type === "image" || schemaAtPath.type === "file") {
+        // First, whether the ref's host still serves its project at all: a
+        // ref on a domain the project dropped is pointed at the project's own
+        // address, not re-derived from bytes nobody can download from there.
+        const moved = await movedRemoteHost(v.path, config.askHostProject);
+        if (moved) {
+          if (apply) {
+            patch.push({
+              op: "replace",
+              path: sourceToPatchPath(sourcePath).concat(["path"]),
+              value: moved.ref,
+            });
+          } else {
+            remainingErrors.push({
+              ...validationError,
+              message: `${moved.why}. Run 'val validate --fix' to point it at ${moved.to}, which always serves it.`,
+              fixes: ["remote:rewrite-host"],
+            });
+          }
+          continue;
+        }
         const res = await checkRemoteRef(
           config.remoteHost,
           v.path,
@@ -703,6 +735,45 @@ export async function createFixPatch(
           fixes: undefined,
         });
       }
+    } else if (fix === "remote:rewrite-host") {
+      // The new ref is derived from the old one alone, so nothing the error
+      // carries is trusted: the value is read from the module, and only a
+      // platform ref that is not already on the project's own address moves.
+      const [, modulePath] =
+        Internal.splitModuleFilePathAndModulePath(sourcePath);
+      const current =
+        moduleSource !== undefined && moduleSchema !== undefined
+          ? Internal.resolvePath(modulePath, moduleSource, moduleSchema).source
+          : undefined;
+      const ref =
+        typeof current === "object" &&
+        current !== null &&
+        "path" in current &&
+        typeof current.path === "string"
+          ? current.path
+          : undefined;
+      const parsed =
+        ref === undefined ? undefined : Internal.remote.splitRemoteRef(ref);
+      const rewritten =
+        ref !== undefined &&
+        parsed?.status === "success" &&
+        needsHostCheck(parsed.remoteHost, parsed.projectId)
+          ? rewriteRefHost(ref, fallbackRemoteHost(parsed.projectId))
+          : null;
+      if (rewritten === null) {
+        remainingErrors.push({
+          ...validationError,
+          message:
+            "Cannot point this at the project's own address: it is not a platform ref on another host",
+          fixes: undefined,
+        });
+        continue;
+      }
+      patch.push({
+        op: "replace",
+        path: sourceToPatchPath(sourcePath).concat(["path"]),
+        value: rewritten,
+      });
     } else if (fix === "view:check-module") {
       // The schema is the authority: it names the module, and there is exactly
       // one valid pointer. So this is written rather than reported — nobody has

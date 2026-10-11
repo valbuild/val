@@ -58,16 +58,6 @@ const FULL_CHECK: ValidateGroup[] = [
     remote: true,
     rows: [
       {
-        id: "host-acme",
-        location: "www.acme.no",
-        message:
-          "Images on www.acme.no cannot be reached. 38 images in 6 files use this address. They are still served at 3f9a2c1.valstart.dev. Fix points them at www.acme-group.no.",
-        tone: "fixable",
-        details:
-          "HEAD https://www.acme.no/_val/file/p/3f9a2c1/…/hero_3fa9c.jpg\n→ getaddrinfo ENOTFOUND www.acme.no\nFallback https://3f9a2c1.valstart.dev/_val/file/p/3f9a2c1/…/hero_3fa9c.jpg\n→ 200, hash matches",
-        action: { kind: "fix" },
-      },
-      {
         id: "host-cdn",
         location: "cdn.acme.no",
         message:
@@ -80,6 +70,20 @@ const FULL_CHECK: ValidateGroup[] = [
     ],
   },
   {
+    id: "/content/team.val.ts",
+    title: "content / team.val.ts",
+    rows: [
+      {
+        id: "team-hero",
+        location: "hero · image",
+        message:
+          "www.acme.no no longer serves this project, so this file is not shown from there. Fix points it at 3f9a2c1.valstart.dev, which always serves it.",
+        tone: "fixable",
+        action: { kind: "fix" },
+      },
+    ],
+  },
+  {
     id: "/content/media.val.ts",
     title: "content / media.val.ts",
     kind: "imagedir",
@@ -87,9 +91,10 @@ const FULL_CHECK: ValidateGroup[] = [
       {
         id: "set-team",
         location: "/public/val/team_8a1f3.jpg",
-        message: "The file is gone, but the set still lists it.",
+        message:
+          "The file is gone, but the directory still lists it. Fix removes it from the directory.",
         tone: "fixable",
-        action: { kind: "remove-from-set" },
+        action: { kind: "fix" },
       },
       {
         id: "set-office",

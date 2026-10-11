@@ -51,6 +51,12 @@ export const ValidationFix = [
   // authority, so there is exactly one correct value and it can be written
   // without asking anyone.
   "view:check-module",
+  // A platform ref whose host no longer serves the project it names (a custom
+  // domain the project dropped). Points the ref at `<public id>.valstart.dev`,
+  // which always does; nothing is uploaded, because the bytes never moved.
+  // Reported by the server's remote check, never by a schema: only the host
+  // can say whether it still serves the project.
+  "remote:rewrite-host",
 ] as const;
 
 export type ValidationFix = (typeof ValidationFix)[number];

@@ -1,7 +1,9 @@
 # Full validation in the Studio
 
-> **Status: in progress.** Steps 1 to 5 and 7 are done (see Order of work);
-> step 6, the host rewrite, is not built yet.
+> **Status: built.** Every step in Order of work is done. What is left is
+> listed under each step, and in valbuild/home
+> `docs/remote-files-on-platform.md`, whose loader route and uploads are what
+> give step 6 refs to find.
 
 The Studio's errors page, grown so that it can also run the whole of
 `val validate` — sources, local files, remote files and media directories — and
@@ -463,7 +465,37 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
      of the full check. See Open questions.
 
 6. **The host rewrite** from the remote-files plan, which then needs nothing
-   here but its own fix code.
+   here but its own fix code. **Done**: `remote:rewrite-host`, through all
+   seven places in `.claude/CLAUDE.md`. Decisions made on the way:
+   - **The host is asked, not content.** A platform ref
+     (`https://<host>/_val/file/p/<id>/…`) is checked with
+     `GET <host>/_val/project`, which the platform loader answers with the
+     project the address serves (valbuild/home
+     `platform/packages/loader/src/valProject.ts`). That covers DNS, the
+     certificate and the loader's mapping at once, needs no credential, works
+     in the CLI and every server mode, and answers for a ref that names
+     another project (a project seeded from a template). The answer is
+     remembered for five minutes, per host.
+   - **The fix points the ref at `<id>.valstart.dev/_val`**, which decision 4
+     of the remote-files plan makes permanent, and changes nothing else in it.
+     Not at the project's primary custom domain: nothing hands that out yet
+     (`remoteHost` in settings is step 3 of the remote-files plan), and the
+     fallback is always right.
+   - **`val validate` finds it too.** `createFixPatch`'s `image:check-remote`
+     branch, which the CLI runs for every remote value, asks the host first;
+     `--fix` rewrites the host there. The language server reports it without
+     a lightbulb, as it reports every remote finding.
+   - **One row per ref**, not the sketch's one row per host: each fix is a
+     patch on one module, and **Fix everything** covers the rest.
+   - `splitRemoteRef` accepts the `/_val` prefix, as part of the host.
+
+   Not yet: a ref that is a media directory's KEY is reported without a fix,
+   because every field that picked it holds the same ref and would have to
+   follow; the fallback download (a ref whose host is gone cannot be
+   re-derived from its bytes until downloads try `valstart.dev` too); and the
+   visitor safety net in `mediaUrl`. Both of the last two are step 5 of the
+   remote-files plan.
+
 7. **`val validate` inside `val publish`** (cli), independent of the rest and
    can land first. **Done**: `validateOnce` in `cli/src/validate.ts` is the
    one pass both commands run, and `--skip-validation` is the way past it.

@@ -1,4 +1,5 @@
 import {
+  Internal,
   ModuleFilePath,
   PatchId,
   SourcePath,
@@ -406,8 +407,18 @@ function summaryOf(patch: Patch): string {
         return [];
       }
       const value = op.value;
+      const field = op.path[op.path.length - 1];
+      if (field === "path" && typeof value === "string") {
+        // A ref pointed at another host: the host is the news, not the URL.
+        const ref = Internal.remote.splitRemoteRef(value);
+        return [
+          ref.status === "success"
+            ? `address on ${hostOf(ref.remoteHost)}`
+            : `address ${value}`,
+        ];
+      }
       if (typeof value === "string" || typeof value === "number") {
-        return [`${op.path[op.path.length - 1]} ${value}`];
+        return [`${field} ${value}`];
       }
       if (
         typeof value === "object" &&
@@ -441,6 +452,15 @@ function useNow(active: boolean): number {
     return () => clearInterval(timer);
   }, [active]);
   return now;
+}
+
+/** `3f9a2c1.valstart.dev`, from `https://3f9a2c1.valstart.dev/_val`. */
+function hostOf(remoteHost: string): string {
+  try {
+    return new URL(remoteHost).host;
+  } catch {
+    return remoteHost;
+  }
 }
 
 function agoOf(at: number, now: number): string {
