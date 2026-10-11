@@ -279,9 +279,13 @@ export async function buildArtifacts(options: {
       }
     })();
     const deps = node.layerDepsOf(manifest, sources);
+    // The files those stylesheets point at -- a font package's `.woff2`s --
+    // published with the site under the names their `url()`s now use.
+    const dependencyAssets: Record<string, string> = {};
     const css = await node.collectDependencyCss(
       root,
       node.cssSpecifiersOf(sources),
+      dependencyAssets,
     );
     const layer = await node.buildVendorLayer(root, deps, css, {
       base: target.base,
@@ -319,6 +323,7 @@ export async function buildArtifacts(options: {
       env: publicEnv(options.env ?? process.env),
       publicFiles: readPublicFiles(root),
       assets,
+      dependencyAssets,
       // The project's own files, without the generated tree or the
       // stylesheets: what the next publish -- the Studio's included -- starts
       // from. See `withoutStylesheets`.

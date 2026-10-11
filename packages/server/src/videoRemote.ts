@@ -138,7 +138,7 @@ export function metadataOf(
  * Places a video's local files on Val Remote, each once, and remembers where.
  *
  * The one implementation of "upload a video" for every fix that does it: a
- * video field (`video:upload-remote`), and an entry of an `s.videoset()`
+ * video field (`video:upload-remote`), and an entry of an `s.videodir()`
  * (`videos:upload-remote`). What differs between the two is which files go up
  * and what their refs are hashed against, so those are the arguments.
  *
@@ -286,7 +286,7 @@ function resolveVideo(ctx: FixHandlerContext):
  * The paths of a video FIELD that its fix moves.
  *
  * All of them for a video of its own. For a field picked from an
- * `s.videoset()` (`referencedModule`), only the poster and the captions: the
+ * `s.videodir()` (`referencedModule`), only the poster and the captions: the
  * video file is the set's — its key there — and moving it from here would
  * leave the field naming a file the set does not have. The set's own fix
  * (`videos:upload-remote`) moves it, and rewrites the fields that name it.

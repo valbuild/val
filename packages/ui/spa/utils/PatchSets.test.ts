@@ -1253,7 +1253,7 @@ describe("PatchSet", () => {
   /**
    * The case that was reported: typing alt text on a gallery entry.
    *
-   * `s.imageset()` serializes as a record whose ITEM is an object of metadata —
+   * `s.imagedir()` serializes as a record whose ITEM is an object of metadata —
    * the file is named by the record's KEY — so the alt write in
    * `ModuleGallery.handleAltTextChange` resolves an `object` parent. Every
    * keystroke logged "Could not resolve path while creating patch set" and
@@ -1264,9 +1264,8 @@ describe("PatchSet", () => {
     const entry = "/public/val/images/screenshot_7c28e.png";
     const patchSet = testPatchSet(
       "/content/media.val.ts" as ModuleFilePath,
-      s.imageset({
+      s.imagedir("/public/val/images", {
         accept: "image/*",
-        dir: "/public/val/images",
         alt: s.string().minLength(4),
       }),
       [
@@ -1311,9 +1310,8 @@ describe("PatchSet", () => {
     const b = "/public/val/images/b_22222.png";
     const patchSet = testPatchSet(
       "/content/media.val.ts" as ModuleFilePath,
-      s.imageset({
+      s.imagedir("/public/val/images", {
         accept: "image/*",
-        dir: "/public/val/images",
         alt: s.string().minLength(4),
       }),
       [

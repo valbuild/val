@@ -17,7 +17,7 @@ import { object } from "./object";
 import { record } from "./record";
 import { router } from "./router";
 import { string } from "./string";
-import { imageset } from "./imageset";
+import { imagedir } from "./imagedir";
 import { nextAppRouter } from "../router";
 import { initVal } from "../initVal";
 
@@ -88,9 +88,7 @@ describe("c.json + .jsonValues()", () => {
   });
 
   test(".jsonValues() throws on image galleries", () => {
-    expect(() => imageset({ dir: "/public/val" }).jsonValues()).toThrow(
-      /jsonValues/,
-    );
+    expect(() => imagedir("/public/val").jsonValues()).toThrow(/jsonValues/);
   });
 
   describe("validation", () => {

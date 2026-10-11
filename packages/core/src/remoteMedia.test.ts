@@ -15,28 +15,28 @@ function mediaSchemasOf(remote: boolean) {
   const { s, c } = initVal(remote ? { files: { remote: true } } : undefined);
   const images = c.define(
     "/content/images.val.ts",
-    s.imageset({ dir: "/public/val/images" }),
+    s.imagedir("/public/val/images"),
     {},
   );
   const files = c.define(
     "/content/files.val.ts",
-    s.fileset({ accept: "application/pdf", dir: "/public/val/files" }),
+    s.filedir("/public/val/files", { accept: "application/pdf" }),
     {},
   );
   const videos = c.define(
     "/content/videos.val.ts",
-    s.videoset({ dir: "/public/val/videos" }),
+    s.videodir("/public/val/videos"),
     {},
   );
   const schemas: Record<string, { serialize: () => SerializedSchema }> = {
     image: forSerialize(s.image()),
     file: forSerialize(s.file()),
     video: forSerialize(s.video()),
-    imageset: forSerialize(s.imageset({ dir: "/public/val/images" })),
+    imageset: forSerialize(s.imagedir("/public/val/images")),
     fileset: forSerialize(
-      s.fileset({ accept: "application/pdf", dir: "/public/val/files" }),
+      s.filedir("/public/val/files", { accept: "application/pdf" }),
     ),
-    videoset: forSerialize(s.videoset({ dir: "/public/val/videos" })),
+    videoset: forSerialize(s.videodir("/public/val/videos")),
     "image(gallery)": forSerialize(s.image(images)),
     "file(gallery)": forSerialize(s.file(files)),
     "video(gallery)": forSerialize(s.video(videos)),

@@ -56,7 +56,7 @@ export async function listUnusedFiles({ root }: { root?: string }) {
         },
       );
     }
-    // A media collection (`s.imageset()`, `s.fileset()`, `s.videoset()`) is
+    // A media collection (`s.imagedir()`, `s.filedir()`, `s.videodir()`) is
     // keyed by its files, and an entry that is fine reports no error either —
     // so, as for a video, they are found by walking the source. A video set's
     // stream holds every playlist and segment its master names, and an entry

@@ -12,7 +12,7 @@ import {
 } from "./validation/ValidationError";
 import { Internal, ValModule } from "..";
 import { ItemPreviewInput, PreviewItem } from "../preview";
-import { AltSource, ImagesetEntryMetadata } from "./imageset";
+import { AltSource, ImagedirEntryMetadata } from "./imagedir";
 import { getSource } from "../module";
 import { mimeTypeMatchesAccept } from "../mimeType";
 
@@ -91,7 +91,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
     private readonly moduleMetadata: Record<
       ModulePath,
-      Record<string, ImagesetEntryMetadata<AltSource>>
+      Record<string, ImagedirEntryMetadata<AltSource>>
     > = {},
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
@@ -453,7 +453,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
    */
   private galleryEntries(): Record<
     string,
-    ImagesetEntryMetadata<AltSource>
+    ImagedirEntryMetadata<AltSource>
   > | null {
     const modulePaths = Object.keys(this.moduleMetadata);
     if (modulePaths.length === 0) {
@@ -643,7 +643,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
  * gallery, so the field carries only what a person typed.
  */
 export function image(
-  galleryModule: ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+  galleryModule: ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryImageOptions,
 ): ImageSchema<GalleryImageSource>;
 /** An image of its own, carrying its own dimensions and mime type. */
@@ -651,7 +651,7 @@ export function image(options?: ImageOptions): ImageSchema<ImageSource>;
 export function image(
   options?:
     | ImageOptions
-    | ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+    | ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryImageOptions,
 ): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
   return imageOf(false, options, galleryOptions);
@@ -663,14 +663,14 @@ export function image(
  * `initSchema`.
  */
 export function remoteImage(
-  galleryModule: ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+  galleryModule: ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryImageOptions,
 ): ImageSchema<GalleryImageSource>;
 export function remoteImage(options?: ImageOptions): ImageSchema<ImageSource>;
 export function remoteImage(
   options?:
     | ImageOptions
-    | ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+    | ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryImageOptions,
 ): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
   return imageOf(true, options, galleryOptions);
@@ -680,21 +680,21 @@ function imageOf(
   remote: boolean,
   options?:
     | ImageOptions
-    | ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+    | ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
   galleryOptions?: GalleryImageOptions,
 ): ImageSchema<ImageSource> | ImageSchema<GalleryImageSource> {
   const isModule =
     !!options &&
     !!Internal.getValPath(
-      options as ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+      options as ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
     );
   if (isModule) {
     const allModules: Record<
       string,
-      Record<string, ImagesetEntryMetadata<AltSource>>
+      Record<string, ImagedirEntryMetadata<AltSource>>
     > = {};
     for (const valModule of [
-      options as ValModule<Record<string, ImagesetEntryMetadata<AltSource>>>,
+      options as ValModule<Record<string, ImagedirEntryMetadata<AltSource>>>,
     ]) {
       const modulePath = getValPath(valModule) as ModulePath | undefined;
       if (modulePath === undefined) {
@@ -704,7 +704,7 @@ function imageOf(
       }
       allModules[modulePath] = getSource(valModule) as Record<
         string,
-        ImagesetEntryMetadata<AltSource>
+        ImagedirEntryMetadata<AltSource>
       >;
     }
     return new ImageSchema<GalleryImageSource>(

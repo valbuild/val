@@ -45,9 +45,9 @@ function fixesOf(result: false | Record<string, ValidationError[]>) {
   );
 }
 
-describe("s.videoset()", () => {
+describe("s.videodir()", () => {
   test("a set of an mp4 and an HLS stream is valid", () => {
-    const schema = s.videoset({ dir: "/public/val/videos" });
+    const schema = s.videodir("/public/val/videos");
     expect(
       errorsOf(
         schema["executeValidate"](path, {
@@ -59,7 +59,7 @@ describe("s.videoset()", () => {
   });
 
   test("the folder checks are reported for the CLI", () => {
-    const schema = s.videoset({ dir: "/public/val/videos" });
+    const schema = s.videodir("/public/val/videos");
     const fixes = Object.values(schema["executeValidate"](path, {}) || {})
       .flat()
       .flatMap((e) => e.fixes ?? []);
@@ -73,7 +73,7 @@ describe("s.videoset()", () => {
     // Deserialized, as the Studio has it: the source is hand-written JSON,
     // which the entry type never saw.
     const schema = deserializeSchema(
-      s.videoset({ dir: "/public/val/videos" })["executeSerialize"](),
+      s.videodir("/public/val/videos")["executeSerialize"](),
     );
     expect(
       fixesOf(
@@ -85,7 +85,7 @@ describe("s.videoset()", () => {
   });
 
   test("metadata present and wrong is an error", () => {
-    const schema = s.videoset({ dir: "/public/val/videos" });
+    const schema = s.videodir("/public/val/videos");
     const errors = errorsOf(
       schema["executeValidate"](path, {
         "/public/val/videos/clip.mp4": { ...MP4, duration: -1 },
@@ -99,10 +99,7 @@ describe("s.videoset()", () => {
   });
 
   test("accept is checked for files, and not for streams", () => {
-    const schema = s.videoset({
-      dir: "/public/val/videos",
-      accept: "video/webm",
-    });
+    const schema = s.videodir("/public/val/videos", { accept: "video/webm" });
     const errors = errorsOf(
       schema["executeValidate"](path, {
         "/public/val/videos/clip.mp4": MP4,
@@ -115,7 +112,7 @@ describe("s.videoset()", () => {
   });
 
   test("a stream must be keyed by its master playlist", () => {
-    const schema = s.videoset({ dir: "/public/val/videos" });
+    const schema = s.videodir("/public/val/videos");
     const errors = errorsOf(
       schema["executeValidate"](path, {
         "/public/val/videos/intro_05198/segments-1.mp4": HLS,
@@ -125,7 +122,7 @@ describe("s.videoset()", () => {
   });
 
   test("a key outside the directory is an error", () => {
-    const schema = s.videoset({ dir: "/public/val/videos" });
+    const schema = s.videodir("/public/val/videos");
     expect(
       Object.keys(
         errorsOf(
@@ -136,7 +133,7 @@ describe("s.videoset()", () => {
   });
 
   test("remote: a local entry is to be uploaded, a remote one is accepted", () => {
-    const schema = s.videoset({ dir: "/public/val/videos" }).remote();
+    const schema = s.videodir("/public/val/videos").remote();
     expect(
       fixesOf(
         schema["executeValidate"](path, {
@@ -149,7 +146,7 @@ describe("s.videoset()", () => {
 
   test("remote: missing metadata on a remote entry is a fix too, read over HTTP", () => {
     const schema = deserializeSchema(
-      s.videoset({ dir: "/public/val/videos" }).remote()["executeSerialize"](),
+      s.videodir("/public/val/videos").remote()["executeSerialize"](),
     );
     expect(
       fixesOf(schema["executeValidate"](path, { [REMOTE]: { alt: null } })),
@@ -157,14 +154,14 @@ describe("s.videoset()", () => {
   });
 
   test("not remote: a remote entry is refused", () => {
-    const schema = s.videoset({ dir: "/public/val/videos" });
+    const schema = s.videodir("/public/val/videos");
     expect(fixesOf(schema["executeValidate"](path, { [REMOTE]: MP4 }))).toEqual(
       ["videos:check-remote"],
     );
   });
 
   test("an entry's defaults are checked as a field's own would be", () => {
-    const schema = s.videoset({ dir: "/public/val/videos" });
+    const schema = s.videodir("/public/val/videos");
     const result = errorsOf(
       schema["executeValidate"](path, {
         "/public/val/videos/intro_51df2.mp4": {
@@ -197,7 +194,7 @@ describe("s.videoset()", () => {
     // what the compiler rejects in a `.val.ts`.
     const schema = deserializeSchema(
       s
-        .videoset({ dir: "/public/val/videos", alt: s.string() })
+        .videodir("/public/val/videos", { alt: s.string() })
         ["executeSerialize"](),
     );
     const result = errorsOf(
@@ -211,7 +208,7 @@ describe("s.videoset()", () => {
   });
 
   test("remote: an entry's local poster is to be uploaded with it", () => {
-    const schema = s.videoset({ dir: "/public/val/videos" }).remote();
+    const schema = s.videodir("/public/val/videos").remote();
     expect(
       fixesOf(
         schema["executeValidate"](path, {
@@ -226,7 +223,7 @@ describe("s.videoset()", () => {
 
   test("serializes what a backed field and the Studio need", () => {
     const serialized = s
-      .videoset({ dir: "/public/val/videos", stream: { type: "hls" } })
+      .videodir("/public/val/videos", { stream: { type: "hls" } })
       ["executeSerialize"]();
     expect(serialized).toMatchObject({
       type: "record",
@@ -240,7 +237,7 @@ describe("s.videoset()", () => {
 
   test("survives a round trip through deserialization", () => {
     const serialized = s
-      .videoset({ dir: "/public/val/videos", stream: { type: "hls" } })
+      .videodir("/public/val/videos", { stream: { type: "hls" } })
       .remote()
       ["executeSerialize"]();
     expect(deserializeSchema(serialized)["executeSerialize"]()).toEqual(
@@ -252,7 +249,7 @@ describe("s.videoset()", () => {
 describe("s.video(videoset)", () => {
   const videosVal = c.define(
     "/videos.val.ts",
-    s.videoset({ dir: "/public/val/videos" }),
+    s.videodir("/public/val/videos"),
     {
       "/public/val/videos/intro_51df2.mp4": MP4,
     },
@@ -307,7 +304,7 @@ describe("s.video(videoset)", () => {
   test("a start of the field's own against the set's end is checked as a pair", () => {
     const trimmedVal = c.define(
       "/trimmed.val.ts",
-      s.videoset({ dir: "/public/val/videos" }),
+      s.videodir("/public/val/videos"),
       {
         "/public/val/videos/intro_51df2.mp4": { ...MP4, endTime: 4 },
       },
@@ -331,7 +328,7 @@ describe("s.video(videoset)", () => {
   test("serializes the set it picks from, and its remote flag", () => {
     const remoteVal = c.define(
       "/remote-videos.val.ts",
-      s.videoset({ dir: "/public/val/videos" }).remote(),
+      s.videodir("/public/val/videos").remote(),
       {},
     );
     expect(s.video(videosVal)["executeSerialize"]()).toMatchObject({
@@ -348,7 +345,7 @@ describe("s.video(videoset)", () => {
   test("a remote set's field keeps its poster on the content host too", () => {
     const remoteVal = c.define(
       "/remote-videos.val.ts",
-      s.videoset({ dir: "/public/val/videos" }).remote(),
+      s.videodir("/public/val/videos").remote(),
       { [REMOTE]: MP4 },
     );
     const errors = s.video(remoteVal)["executeValidate"](fieldPath, {
@@ -390,6 +387,6 @@ describe("s.video(videoset)", () => {
       ),
       {},
     );
-    expect(() => s.video(lookalikeVal)).toThrow(/must be an s.videoset\(\)/);
+    expect(() => s.video(lookalikeVal)).toThrow(/must be an s.videodir\(\)/);
   });
 });

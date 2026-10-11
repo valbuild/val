@@ -16,7 +16,7 @@ import type { SerializedModuleContent } from "./SerializedModuleContent";
 
 /**
  * Renaming a key of a media collection — which is what `--fix` does when it
- * moves an `s.imageset().remote()` entry to Val Remote — has to rename it
+ * moves an `s.imagedir().remote()` entry to Val Remote — has to rename it
  * everywhere it is named, or every field that held it names an image the
  * gallery no longer has.
  */
@@ -60,18 +60,18 @@ function remoteRefOf(filePath: string, hashDigit = "a"): string {
 function setup() {
   const imagesVal = c.define(
     IMAGES,
-    s.imageset({ dir: "/public/val/images" }).remote(),
+    s.imagedir("/public/val/images").remote(),
     { [OLD_IMAGE]: IMAGE_ENTRY, [KEYED_REF]: IMAGE_ENTRY },
   );
   // Another gallery holding the same key: ITS fields name ITS image.
   const otherImagesVal = c.define(
     OTHER_IMAGES,
-    s.imageset({ dir: "/public/val/images" }),
+    s.imagedir("/public/val/images"),
     { [OLD_IMAGE]: IMAGE_ENTRY },
   );
   const filesVal = c.define(
     FILES,
-    s.fileset({ dir: "/public/val/files", accept: "application/pdf" }).remote(),
+    s.filedir("/public/val/files", { accept: "application/pdf" }).remote(),
     { [OLD_FILE]: { mimeType: "application/pdf" } },
   );
   const pageVal = c.define(
@@ -301,11 +301,9 @@ describe("images:check-remote / files:check-remote", () => {
   test("are reported as core says them, not handed to createFixPatch and dropped", async () => {
     // What `validateMediaKey` emits for a ref in a gallery that is not
     // `.remote()`: a finding, not a "go and look".
-    const imagesVal = c.define(
-      IMAGES,
-      s.imageset({ dir: "/public/val/images" }),
-      { [NEW_IMAGE]: IMAGE_ENTRY },
-    );
+    const imagesVal = c.define(IMAGES, s.imagedir("/public/val/images"), {
+      [NEW_IMAGE]: IMAGE_ENTRY,
+    });
     const errors = Internal.getSchema(imagesVal)?.["executeValidate"](
       IMAGES as string as SourcePath,
       Internal.getSource(imagesVal),

@@ -36,14 +36,8 @@ const nestedModule = serialize(
       byKey: s.record(item),
       body: s.richtext({ h1: true }),
       hero: s.image(),
-      gallery: s.imageset({
-        dir: "/public/val/images",
-        accept: "image/png",
-      }),
-      docs: s.fileset({
-        dir: "/public/val/docs",
-        accept: "application/pdf",
-      }),
+      gallery: s.imagedir("/public/val/images", { accept: "image/png" }),
+      docs: s.filedir("/public/val/docs", { accept: "application/pdf" }),
     }),
     {
       title: "Page",
@@ -309,19 +303,15 @@ describe("describeContainerAtPath", () => {
 
 describe("a video set is not an image gallery", () => {
   const videosModule = serialize(
-    c.define(
-      "/content/videos.val.ts",
-      s.videoset({ dir: "/public/val/videos" }),
-      {
-        "/public/val/videos/a.mp4": {
-          mimeType: "video/mp4",
-          width: 64,
-          height: 48,
-          duration: 1,
-          alt: null,
-        },
+    c.define("/content/videos.val.ts", s.videodir("/public/val/videos"), {
+      "/public/val/videos/a.mp4": {
+        mimeType: "video/mp4",
+        width: 64,
+        height: 48,
+        duration: 1,
+        alt: null,
       },
-    ),
+    }),
   );
 
   /**

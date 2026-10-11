@@ -1,5 +1,5 @@
 /**
- * The fixes of an `s.videoset()` — the video twin of an image gallery.
+ * The fixes of an `s.videodir()` — the video twin of an image gallery.
  *
  * A set is a record keyed by each video's file path (an HLS stream by its
  * master playlist), so most of this is the gallery fixes again with the key as

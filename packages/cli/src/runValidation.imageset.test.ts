@@ -15,8 +15,8 @@ import {
 } from "./runValidation";
 
 /**
- * `val validate` over a project with `s.imageset().remote()` and
- * `s.fileset().remote()` collections, and a page that picks from them — as a
+ * `val validate` over a project with `s.imagedir().remote()` and
+ * `s.filedir().remote()` collections, and a page that picks from them — as a
  * field, and as an image inside rich text. End to end: module loading, the fix
  * handlers, the patches and the `.val.ts` rewrite.
  */
@@ -58,7 +58,7 @@ export default modules(config, [
 
 export default c.define(
   "/content/images.val.ts",
-  s.imageset({ dir: "/public/val/images" }).remote(),
+  s.imagedir("/public/val/images").remote(),
   {
     "${LOGO}": { width: 8, height: 8, mimeType: "image/png", alt: "Logo" },
   },
@@ -68,7 +68,7 @@ export default c.define(
 
 export default c.define(
   "/content/files.val.ts",
-  s.fileset({ dir: "/public/val/files", accept: "application/pdf" }).remote(),
+  s.filedir("/public/val/files", { accept: "application/pdf" }).remote(),
   {
     "${DOC}": { mimeType: "application/pdf" },
   },
@@ -118,7 +118,7 @@ export default c.define(
 
 export default c.define(
   "/content/local-images.val.ts",
-  s.imageset({ dir: "/public/val/local" }),
+  s.imagedir("/public/val/local"),
   {
     "https://remote.val.build/file/p/pubproj/b/01/v/0.0.0/h/${"a".repeat(64)}/f/${"b".repeat(12)}/p/public/val/local/x_00000.png":
       { width: 8, height: 8, mimeType: "image/png", alt: null },

@@ -4,7 +4,7 @@ import { clearPatchChain, openStudio } from "../studio";
 import { serverSource } from "./serverState";
 
 /**
- * `s.fontset()`, against the showcase's `fonts.val.ts` and the
+ * `s.fontdir()`, against the showcase's `fonts.val.ts` and the
  * `s.font(fontsVal)` field `media.val.ts` holds.
  *
  * What is asserted is that a face was LOADED, not that an element names one:

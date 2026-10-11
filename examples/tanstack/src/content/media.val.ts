@@ -6,7 +6,7 @@ import fontsVal from "./fonts.val";
 /**
  * Single media FIELDS, which are the other half of the media story.
  *
- * A collection (`s.imageset()` / `s.fileset()`, see `gallery.val.ts` and
+ * A collection (`s.imagedir()` / `s.filedir()`, see `gallery.val.ts` and
  * `downloads.val.ts`) is a library of files. A FIELD is one slot in a piece of
  * content that happens to hold a file. The rule for choosing:
  *

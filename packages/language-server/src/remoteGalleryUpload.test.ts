@@ -15,7 +15,7 @@ import {
 } from "./__testHelpers__/lspClient";
 
 /**
- * Uploading an entry of an `s.imageset().remote()` from the editor renames the
+ * Uploading an entry of an `s.imagedir().remote()` from the editor renames the
  * entry's key to its ref — and has to rename it everywhere it is named, in the
  * same edit, or the page's image field and the image in its rich text name an
  * image the gallery no longer has.
@@ -59,7 +59,7 @@ export default modules(config, [
 
 export default c.define(
   "/content/images.val.ts",
-  s.imageset({ dir: "/public/val/images" }).remote(),
+  s.imagedir("/public/val/images").remote(),
   {
     "${LOGO}": { width: 8, height: 8, mimeType: "image/png", alt: "Logo" },
   },

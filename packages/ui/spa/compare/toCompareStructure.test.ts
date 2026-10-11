@@ -252,9 +252,7 @@ describe("locateSourcePath", () => {
     const patchSets = new PatchSets();
     patchSets.insert(
       GALLERY,
-      s
-        .imageset({ accept: "image/*", dir: "/public/val" })
-        ["executeSerialize"](),
+      s.imagedir("/public/val", { accept: "image/*" })["executeSerialize"](),
       [{ op: "replace", path: [REF, "alt"], value: "A cat" }],
       "p1" as PatchId,
       "2026-10-01T10:00:00Z",

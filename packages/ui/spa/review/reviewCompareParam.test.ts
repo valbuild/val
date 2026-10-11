@@ -18,7 +18,7 @@ import {
 const { s } = initVal();
 
 const GALLERY = "/content/media.val.ts" as ModuleFilePath;
-const gallery = s.imageset({ accept: "image/*", dir: "/public/val" });
+const gallery = s.imagedir("/public/val", { accept: "image/*" });
 const A = "/public/val/a_12345.png";
 const B = "/public/val/b_67890.png";
 

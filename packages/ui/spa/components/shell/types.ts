@@ -161,7 +161,7 @@ export type ShellSettings = {
   hasDraft?: boolean;
 };
 
-/** A media gallery (an `s.imageset()` / `s.fileset()` module). */
+/** A media gallery (an `s.imagedir()` / `s.filedir()` module). */
 export type ShellMediaGallery = {
   id: string;
   name: string;
@@ -174,7 +174,7 @@ export type ShellMediaGallery = {
   moduleFilePath: string;
   itemCount: number;
   mediaType: MediaCollectionType;
-  /** A files gallery that takes only fonts (`s.fontset()`). */
+  /** A files gallery that takes only fonts (`s.fontdir()`). */
   fonts?: boolean;
   /**
    * The files in the gallery.
@@ -324,7 +324,7 @@ export type DeploymentProgress =
  * A destination: what the left rail switches between.
  *
  * Its own type because a project does not necessarily have all of them — a site
- * with no `s.router` has no Pages, a project with no `s.imageset()`/`s.fileset()`
+ * with no `s.router` has no Pages, a project with no `s.imagedir()`/`s.filedir()`
  * has no Media, a project with no `s.settings()` module has no Settings — and
  * several pieces of the shell have to agree on which are on offer: the rail,
  * the mobile switcher, the quick actions, and whichever panel a fresh session

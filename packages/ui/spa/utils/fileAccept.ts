@@ -48,9 +48,9 @@ export function fileMatchesAccept(
 }
 
 /**
- * Whether a gallery takes only fonts — an `s.fontset()`, or an `s.fileset()`
- * written to be one. Read off `accept`, because a fontset serializes as the
- * fileset it is and there is nothing else to read it off.
+ * Whether a gallery takes only fonts — an `s.fontdir()`, or an `s.filedir()`
+ * written to be one. Read off `accept`, because a fontdir serializes as the
+ * filedir it is and there is nothing else to read it off.
  */
 export function isFontAccept(accept: string | undefined): boolean {
   return (

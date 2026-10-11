@@ -64,9 +64,9 @@ export type CompareNavKind =
   | "page"
   | "folder"
   | "module"
-  /** An `s.imageset()` gallery — one row per module, never a directory tree. */
+  /** An `s.imagedir()` gallery — one row per module, never a directory tree. */
   | "media-dir"
-  /** An `s.fileset()` gallery, which takes a different icon from an imageset. */
+  /** An `s.filedir()` gallery, which takes a different icon from an imagedir. */
   | "media-fileset"
   | "media-file"
   /** A gallery entry that is not an image, which takes a different icon. */

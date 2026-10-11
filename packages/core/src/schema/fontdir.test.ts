@@ -24,11 +24,9 @@ function messages(
     .map((e) => e.message);
 }
 
-describe("s.fontset()", () => {
-  test("is a fileset that accepts the web font formats", () => {
-    const serialized = s
-      .fontset({ dir: "/public/val/fonts" })
-      ["executeSerialize"]();
+describe("s.fontdir()", () => {
+  test("is a filedir that accepts the web font formats", () => {
+    const serialized = s.fontdir("/public/val/fonts")["executeSerialize"]();
     expect(serialized).toMatchObject({
       type: "record",
       mediaType: "files",
@@ -39,12 +37,10 @@ describe("s.fontset()", () => {
     expect(DEFAULT_FONT_ACCEPT).toBe("font/woff2,font/woff,font/ttf,font/otf");
   });
 
-  test("serializes exactly as the fileset it is", () => {
-    expect(
-      s.fontset({ dir: "/public/val/fonts" })["executeSerialize"](),
-    ).toEqual(
+  test("serializes exactly as the filedir it is", () => {
+    expect(s.fontdir("/public/val/fonts")["executeSerialize"]()).toEqual(
       s
-        .fileset({ dir: "/public/val/fonts", accept: DEFAULT_FONT_ACCEPT })
+        .filedir("/public/val/fonts", { accept: DEFAULT_FONT_ACCEPT })
         ["executeSerialize"](),
     );
   });
@@ -52,32 +48,32 @@ describe("s.fontset()", () => {
   test("a narrower accept is kept", () => {
     expect(
       s
-        .fontset({ dir: "/public/val/fonts", accept: "font/woff2" })
+        .fontdir("/public/val/fonts", { accept: "font/woff2" })
         ["executeSerialize"](),
     ).toMatchObject({ accept: "font/woff2" });
   });
 
   test("an accept that is not fonts is refused", () => {
     expect(() =>
-      s.fontset({ dir: "/public/val/fonts", accept: "font/woff2, image/png" }),
+      s.fontdir("/public/val/fonts", { accept: "font/woff2, image/png" }),
     ).toThrow(/image\/png/);
   });
 
   test(".remote() makes it remote", () => {
     expect(
-      s.fontset({ dir: "/public/val/fonts" }).remote()["executeSerialize"](),
+      s.fontdir("/public/val/fonts").remote()["executeSerialize"](),
     ).toMatchObject({ remote: true });
   });
 
   test("files: { remote: true } makes it remote", () => {
     const remote = initVal({ files: { remote: true } });
     expect(
-      remote.s.fontset({ dir: "/public/val/fonts" })["executeSerialize"](),
+      remote.s.fontdir("/public/val/fonts")["executeSerialize"](),
     ).toMatchObject({ remote: true });
   });
 
   test("validates every web font format, and refuses what it does not accept", () => {
-    const schema = s.fontset({ dir: "/public/val/fonts" });
+    const schema = s.fontdir("/public/val/fonts");
     const ok = schema["executeValidate"]("/fonts.val.ts" as SourcePath, {
       "/public/val/fonts/inter_a1b2c.woff2": { mimeType: "font/woff2" },
       "/public/val/fonts/inter_a1b2c.woff": { mimeType: "font/woff" },
@@ -97,7 +93,7 @@ describe("s.fontset()", () => {
   test("a field picks from it with s.file(fontsVal)", () => {
     const fontsVal = c.define(
       "/content/fonts.val.ts",
-      s.fontset({ dir: "/public/val/fonts" }),
+      s.fontdir("/public/val/fonts"),
       { "/public/val/fonts/inter_a1b2c.woff2": { mimeType: "font/woff2" } },
     );
     const schema = s.object({ heading: s.file(fontsVal) });
@@ -157,7 +153,7 @@ describe("s.fontset()", () => {
   test("s.font(fontsVal) is the s.file(fontsVal) field, serialized byte for byte", () => {
     const fontsVal = c.define(
       "/content/fonts-for-font.val.ts",
-      s.fontset({ dir: "/public/val/fonts" }),
+      s.fontdir("/public/val/fonts"),
       { "/public/val/fonts/inter_a1b2c.woff2": { mimeType: "font/woff2" } },
     );
     expect(s.font(fontsVal)["executeSerialize"]()).toEqual(
@@ -175,17 +171,17 @@ describe("s.fontset()", () => {
   test("s.font() refuses a set that is not a font set", () => {
     const pdfsVal = c.define(
       "/content/pdfs-for-font.val.ts",
-      s.fileset({ dir: "/public/val/pdfs", accept: "application/pdf" }),
+      s.filedir("/public/val/pdfs", { accept: "application/pdf" }),
       {},
     );
-    expect(() => s.font(pdfsVal)).toThrow(/must be an s\.fontset\(\)/);
+    expect(() => s.font(pdfsVal)).toThrow(/must be an s\.fontdir\(\)/);
   });
 
   test("s.font() is remote under files: { remote: true }", () => {
     const remote = initVal({ files: { remote: true } });
     const fontsVal = remote.c.define(
       "/content/remote-fonts.val.ts",
-      remote.s.fontset({ dir: "/public/val/fonts" }),
+      remote.s.fontdir("/public/val/fonts"),
       {},
     );
     expect(remote.s.font(fontsVal)["executeSerialize"]()).toMatchObject({

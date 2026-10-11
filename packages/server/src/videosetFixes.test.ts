@@ -36,7 +36,7 @@ import {
 import { handleVideoUploadRemote } from "./videoRemote";
 
 /**
- * The fixes of an `s.videoset()`.
+ * The fixes of an `s.videodir()`.
  *
  * What makes a set of videos more than an image gallery with another mime
  * type is that an entry can be a whole directory (an HLS stream, keyed by its
@@ -250,7 +250,7 @@ describe("videos:add-metadata", () => {
     // Deserialized, as `val validate` has it: the source is hand-written
     // JSON, which the entry type never saw, carrying an authored `alt` and
     // nothing else.
-    const serialized = s.videoset({ dir: DIR })["executeSerialize"]();
+    const serialized = s.videodir(DIR)["executeSerialize"]();
     const schema = deserializeSchema(serialized);
     const source = { [`${DIR}/clip_abcde.mp4`]: { alt: "Mine" } };
     const entryPath = entryPathOf(`${DIR}/clip_abcde.mp4`);
@@ -321,7 +321,7 @@ describe("videos:check-all-files", () => {
     const files = streamFiles("intro_05198");
     delete files[`${DIR}/intro_05198/segments-2.mp4`];
     writeFiles(root, files);
-    const videosVal = c.define(SET_PATH, s.videoset({ dir: DIR }), {
+    const videosVal = c.define(SET_PATH, s.videodir(DIR), {
       [`${DIR}/intro_05198/master.m3u8`]: HLS_ENTRY,
     });
     const service = serviceOf({ [SET_PATH]: videosVal });
@@ -347,7 +347,7 @@ describe("videos:check-all-files", () => {
       [`${DIR}/new-clip_22222.mp4`]: fs.readFileSync(TINY_MP4),
       [`${DIR}/intro-poster_33333.webp`]: "poster",
     });
-    const schema = s.videoset({ dir: DIR });
+    const schema = s.videodir(DIR);
     const source: JSONValue = {
       [`${DIR}/intro_05198/master.m3u8`]: HLS_ENTRY,
       [`${DIR}/clip_abcde.mp4`]: MP4_ENTRY,
@@ -410,7 +410,7 @@ describe("videos:check-all-files", () => {
       [`${DIR}/clip-poster_33333.webp`]: "poster",
       [`${DIR}/clip-en_44444.vtt`]: "WEBVTT\n",
     });
-    const videosVal = c.define(SET_PATH, s.videoset({ dir: DIR }), {
+    const videosVal = c.define(SET_PATH, s.videodir(DIR), {
       [`${DIR}/clip_abcde.mp4`]: MP4_ENTRY,
     });
     const pageVal = c.define(
@@ -483,14 +483,14 @@ describe("moving a set's video to Val Remote", () => {
     const patFile = getPersonalAccessTokenPath(root);
     fs.mkdirSync(path.dirname(patFile), { recursive: true });
     fs.writeFileSync(patFile, JSON.stringify({ pat: "test-pat" }));
-    const videosVal = c.define(SET_PATH, s.videoset({ dir: DIR }).remote(), {
+    const videosVal = c.define(SET_PATH, s.videodir(DIR).remote(), {
       [STREAM_KEY]: HLS_ENTRY,
     });
     // Another set with the same key string: its fields name ITS file, and
     // must be left alone.
     const otherVal = c.define(
       OTHER_SET_PATH,
-      s.videoset({ dir: "/public/val/other" }),
+      s.videodir("/public/val/other"),
       {},
     );
     const pageVal = c.define(
@@ -646,7 +646,7 @@ describe("moving a set's video to Val Remote", () => {
       height: 360,
     };
     const captions = [{ path: `${DIR}/intro-en_44444.vtt`, srclang: "en" }];
-    const videosVal = c.define(SET_PATH, s.videoset({ dir: DIR }).remote(), {
+    const videosVal = c.define(SET_PATH, s.videodir(DIR).remote(), {
       [STREAM_KEY]: { ...HLS_ENTRY, poster, posterTime: 1, captions },
     });
     const stored = new Map<string, Buffer>();
@@ -704,7 +704,7 @@ describe("moving a set's video to Val Remote", () => {
     const REMOTE_KEY =
       "https://remote.val.build/file/p/pub123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/videos/intro_05198/master.m3u8";
     const poster = { path: `${DIR}/intro-poster_33333.webp` };
-    const videosVal = c.define(SET_PATH, s.videoset({ dir: DIR }).remote(), {
+    const videosVal = c.define(SET_PATH, s.videodir(DIR).remote(), {
       [REMOTE_KEY]: { ...HLS_ENTRY, poster, posterTime: 1 },
     });
     const entryPath = entryPathOf(REMOTE_KEY);
@@ -793,7 +793,7 @@ describe("moving a set's video to Val Remote", () => {
 
 describe("videosetReferencePatches", () => {
   test("nothing to rewrite when no field names the key", async () => {
-    const videosVal = c.define(SET_PATH, s.videoset({ dir: DIR }), {});
+    const videosVal = c.define(SET_PATH, s.videodir(DIR), {});
     expect(
       await videosetReferencePatches(
         serviceOf({ [SET_PATH]: videosVal }),
@@ -807,7 +807,7 @@ describe("videosetReferencePatches", () => {
 describe("videosetEntryVideoSchema", () => {
   test("is the set's accept and dir, and never its stream option", () => {
     const record = s
-      .videoset({ dir: DIR, accept: "video/mp4", stream: { type: "hls" } })
+      .videodir(DIR, { accept: "video/mp4", stream: { type: "hls" } })
       .remote()
       ["executeSerialize"]();
     if (record.type !== "record") throw new Error("expected a record");
@@ -832,10 +832,7 @@ function baseContext(
     sourcePath: SET_PATH as string as SourcePath,
     validationError: { message: "" },
     // An empty set; a test about a module passes its own.
-    valModule: contentOf(
-      SET_PATH,
-      c.define(SET_PATH, s.videoset({ dir: DIR }), {}),
-    ),
+    valModule: contentOf(SET_PATH, c.define(SET_PATH, s.videodir(DIR), {})),
     projectRoot,
     fix: true,
     // The walks ask only `getModuleFilePaths` and `get`; a test that does not

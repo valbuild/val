@@ -110,17 +110,17 @@ const authorsVal = c.define("/authors.val.ts", s.record(s.string()), {
 });
 const galleryVal = c.define(
   "/gallery.val.ts",
-  s.imageset({ dir: "/public/val/images" }),
+  s.imagedir("/public/val/images"),
   {},
 );
 const videosVal = c.define(
   "/videos.val.ts",
-  s.videoset({ dir: "/public/val/videos" }),
+  s.videodir("/public/val/videos"),
   {},
 );
 const fontsVal = c.define(
   "/fonts.val.ts",
-  s.fontset({ dir: "/public/val/fonts" }),
+  s.fontdir("/public/val/fonts"),
   {},
 );
 
@@ -155,10 +155,14 @@ export const probes = {
   locale: s.locale(),
   route: s.route(),
   router: s.router(nextAppRouter, s.object({ title: s.string() })),
-  imageset: s.imageset({ dir: "/public/val/images" }),
-  fileset: s.fileset({ accept: "*/*", dir: "/public/val/files" }),
-  fontset: s.fontset({ dir: "/public/val/fonts" }),
+  imagedir: s.imagedir("/public/val/images"),
+  filedir: s.filedir("/public/val/files", { accept: "*/*" }),
+  fontdir: s.fontdir("/public/val/fonts"),
   font: s.font(fontsVal),
+  videodir: s.videodir("/public/val/videos"),
+  imageset: s.imageset({ dir: "/public/val/images" }),
+  fileset: s.fileset({ dir: "/public/val/files", accept: "*/*" }),
+  fontset: s.fontset({ dir: "/public/val/fonts" }),
   videoset: s.videoset({ dir: "/public/val/videos" }),
   settings: s.settings(),
 };
@@ -419,7 +423,7 @@ export default c.define("/other.val.ts", s.record(s.string()), {
     `import { s, c } from "./val.config";
 export default c.define(
   "/gallery.val.ts",
-  s.imageset({ dir: "/public/val/images" }),
+  s.imagedir("/public/val/images"),
   {},
 );
 `,
@@ -429,7 +433,7 @@ export default c.define(
     `import { s, c } from "./val.config";
 export default c.define(
   "/videos.val.ts",
-  s.videoset({ dir: "/public/val/videos" }),
+  s.videodir("/public/val/videos"),
   {
     "/public/val/videos/intro_51df2.mp4": {
       mimeType: "video/mp4",
@@ -447,7 +451,7 @@ export default c.define(
     `import { s, c } from "./val.config";
 export default c.define(
   "/fonts.val.ts",
-  s.fontset({ dir: "/public/val/fonts" }),
+  s.fontdir("/public/val/fonts"),
   {
     "/public/val/fonts/inter_a1b2c.woff2": { mimeType: "font/woff2" },
   },

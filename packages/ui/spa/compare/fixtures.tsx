@@ -462,7 +462,7 @@ const routesPane: ComparePane = {
 
 const mediaPane: ComparePane = {
   description: unnamed("/public/val/images"),
-  path: "s.imageset() gallery",
+  path: "s.imagedir() gallery",
   note: "2 changes",
   change: "changed",
   groups: [
@@ -678,7 +678,7 @@ export const compareModel: CompareModel = {
         },
         {
           /*
-           * An `s.fileset()` beside the imageset, so both media icons are on
+           * An `s.filedir()` beside the imagedir, so both media icons are on
            * screen: `MediaPanel` draws a thumbnail for an image and `FileText`
            * for anything else, and a gallery of PDFs is the ordinary case for
            * the second one.

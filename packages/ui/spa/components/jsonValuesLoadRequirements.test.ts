@@ -212,7 +212,7 @@ describe("jsonValuesLoadRequirements", () => {
   });
 
   test("file refs match the referenced gallery module", () => {
-    const gallery = c.define(GALLERY, s.imageset({ dir: "/public/val" }), {});
+    const gallery = c.define(GALLERY, s.imagedir("/public/val"), {});
     const schemas = getSchemas([
       gallery,
       c.define(
@@ -232,7 +232,7 @@ describe("jsonValuesLoadRequirements", () => {
   });
 
   test("rich text with gallery images counts as a file ref", () => {
-    const gallery = c.define(GALLERY, s.imageset({ dir: "/public/val" }), {});
+    const gallery = c.define(GALLERY, s.imagedir("/public/val"), {});
     const fromGallery = getSchemas([
       gallery,
       c.define(

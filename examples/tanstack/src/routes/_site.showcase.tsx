@@ -70,7 +70,7 @@ function Showcase() {
       </section>
 
       <section>
-        <h2>s.imageset()</h2>
+        <h2>s.imagedir()</h2>
         <p>{page.notes.gallery}</p>
         {/*
          * A gallery entry's KEY is the file path, and a bare path is all
@@ -90,7 +90,7 @@ function Showcase() {
       </section>
 
       <section>
-        <h2>s.fileset()</h2>
+        <h2>s.filedir()</h2>
         <p>{page.notes.downloads}</p>
         <ul>
           {Object.entries(downloads).map(([path, entry]) => (
@@ -103,7 +103,7 @@ function Showcase() {
       </section>
 
       <section>
-        <h2>s.fontset()</h2>
+        <h2>s.fontdir()</h2>
         <p>{page.notes.fonts}</p>
         {/*
          * A font is used through `@font-face`, which wants the URL and nothing
@@ -173,7 +173,7 @@ function Showcase() {
             style={{ maxWidth: "24rem", width: "100%", height: "auto" }}
           />
         )}
-        {/* From `s.videoset()`: the reader fills in the set's metadata. */}
+        {/* From `s.videodir()`: the reader fills in the set's metadata. */}
         {video.fromSet && (
           <ValVideo
             src={video.fromSet}

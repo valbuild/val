@@ -228,7 +228,7 @@ export function createVideoPatch(
 }
 
 /**
- * The same upload into a field that picks from an `s.videoset()`: the field's
+ * The same upload into a field that picks from an `s.videodir()`: the field's
  * value names the video and carries what is the field's own — description,
  * focal point, poster, captions — and `entry` is what the SET gets, written
  * once the bytes are up. The bytes are filed at the field, so the field
@@ -338,7 +338,7 @@ function buildVideoPatch(
   return { patch, value, entry };
 }
 
-/** What an `s.videoset()` entry is keyed by, and what it holds. */
+/** What an `s.videodir()` entry is keyed by, and what it holds. */
 export type VideosetEntry = {
   key: string;
   value: { mimeType: string; width: number; height: number; duration: number };
@@ -383,7 +383,7 @@ function placeVideo(
 }
 
 /**
- * The patch that adds an upload to an `s.videoset()`: the entry, keyed by
+ * The patch that adds an upload to an `s.videodir()`: the entry, keyed by
  * the video's path (an HLS stream's by its master playlist), and one `file`
  * op per file, filed AT the entry — where the server stamps the `patch_id`
  * the set's own previews are served by.

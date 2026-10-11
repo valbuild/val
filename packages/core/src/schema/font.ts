@@ -3,11 +3,11 @@ import { isFontMimeType } from "../mimeType/font";
 import { getSchema } from "../selector";
 import { getValPath } from "../val";
 import { file, FileSchema, remoteFile } from "./file";
-import { FilesetEntryMetadata } from "./fileset";
+import { FiledirEntryMetadata } from "./filedir";
 import { GalleryFileSource } from "../source/media";
 
 /**
- * A font picked from an `s.fontset()`.
+ * A font picked from an `s.fontdir()`.
  *
  * The same field `s.file(fontsVal)` is — it stores `{ path }` and serializes
  * identically — with one thing more: it refuses a set that is not a font set,
@@ -16,7 +16,7 @@ import { GalleryFileSource } from "../source/media";
  * opened) it does for any file field backed by a font set.
  */
 export function font(
-  fontsetModule: ValModule<Record<string, FilesetEntryMetadata>>,
+  fontsetModule: ValModule<Record<string, FiledirEntryMetadata>>,
 ): FileSchema<GalleryFileSource> {
   assertFontset(fontsetModule);
   return file(fontsetModule);
@@ -24,14 +24,14 @@ export function font(
 
 /** `s.font()` with `.remote()` applied: see `files.remote` in `initSchema`. */
 export function remoteFont(
-  fontsetModule: ValModule<Record<string, FilesetEntryMetadata>>,
+  fontsetModule: ValModule<Record<string, FiledirEntryMetadata>>,
 ): FileSchema<GalleryFileSource> {
   assertFontset(fontsetModule);
   return remoteFile(fontsetModule);
 }
 
 function assertFontset(
-  fontsetModule: ValModule<Record<string, FilesetEntryMetadata>>,
+  fontsetModule: ValModule<Record<string, FiledirEntryMetadata>>,
 ): void {
   const modulePath = getValPath(fontsetModule);
   const serialized = getSchema(fontsetModule)?.["executeSerialize"]();
@@ -43,7 +43,7 @@ function assertFontset(
     !!accept && accept.split(",").every((type) => isFontMimeType(type.trim()));
   if (!isFontset) {
     throw new Error(
-      `s.font(${modulePath ?? "?"}): the module must be an s.fontset(). Use s.file() to pick from a set of other files.`,
+      `s.font(${modulePath ?? "?"}): the module must be an s.fontdir(). Use s.file() to pick from a set of other files.`,
     );
   }
 }

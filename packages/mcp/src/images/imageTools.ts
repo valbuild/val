@@ -121,7 +121,7 @@ export function createValImageTools(
         name: "upload_image",
         title: "Upload an image",
         description:
-          "Upload an image file and put it in an image field, or add it to an image gallery module (one declared with s.imageset()). Give it either imageFilePath — a path to a file on the machine this app runs on — or imageBase64. The image is re-encoded first if the schema asks for that. Works for remotely stored images too (s.image().remote()), which need the project to be connected to Val Build.",
+          "Upload an image file and put it in an image field, or add it to an image gallery module (one declared with s.imagedir()). Give it either imageFilePath — a path to a file on the machine this app runs on — or imageBase64. The image is re-encoded first if the schema asks for that. Works for remotely stored images too (s.image().remote()), which need the project to be connected to Val Build.",
         inputSchema: z.object({
           moduleFilePath: ModuleFilePathSchema,
           path: z
@@ -385,7 +385,7 @@ function resolveTarget(
       // stops a caller from retrying with the same module and a field path.
       const what =
         moduleSchema.type === "record" && moduleSchema.mediaType === "videos"
-          ? "a video set (s.videoset())"
+          ? "a video set (s.videodir())"
           : `a ${moduleSchema.type}`;
       return {
         status: "error",
@@ -509,8 +509,8 @@ function galleryEntryImageSchema(
 /**
  * Does this gallery insist on alt text?
  *
- * `s.imageset()` gives `alt` a nullable string by default, and an entry written
- * without one stores `null`. A gallery that passed its own — `s.imageset({ alt:
+ * `s.imagedir()` gives `alt` a nullable string by default, and an entry written
+ * without one stores `null`. A gallery that passed its own — `s.imagedir(dir, { alt:
  * s.string().minLength(4) })`, which the example app does — has made it
  * required, and an upload with no `alt` cannot satisfy it however it is
  * written. Asked here so the caller is told what to pass, rather than shown a

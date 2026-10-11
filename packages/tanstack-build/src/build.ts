@@ -297,6 +297,13 @@ export interface BuildInput {
    */
   assets?: Record<string, string>;
   /**
+   * Files the dependencies' stylesheets point at -- a font package's `.woff2`s
+   * -- base64, keyed by the content-addressed name their `url()` was rewritten
+   * to. Read in CI by `collectDependencyCss`, and published as they are: the
+   * stylesheet already names them, so there is nothing to resolve or inline.
+   */
+  dependencyAssets?: Record<string, string>;
+  /**
    * What `platform:project-source` resolves to, when the app imports it.
    *
    * Defaults to {@link files}. Passed separately because `files` may carry
@@ -922,6 +929,7 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
     assetUrls.set(path, resolved.url);
     if (resolved.file) assetFiles[resolved.file.name] = resolved.file.base64;
   }
+  Object.assign(assetFiles, input.dependencyAssets);
 
   // Collected once rather than per target: the stylesheet is the same either
   // way, and only the client ever uses it. Whether a build produced one is

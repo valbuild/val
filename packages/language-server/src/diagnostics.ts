@@ -544,8 +544,8 @@ function longestResolvedPrefixRange(
 /**
  * Gallery checks core emits unconditionally.
  *
- * `RecordSchema.validate` attaches these to every `s.imageset()` / `s.fileset()`
- * / `s.videoset()` module whether or not anything is actually wrong (see
+ * `RecordSchema.validate` attaches these to every `s.imagedir()` / `s.filedir()`
+ * / `s.videodir()` module whether or not anything is actually wrong (see
  * `packages/core/src/schema/record.ts`): they are placeholders asking someone to
  * go and look. `val validate` looks by running the matching fix handler, which
  * reports success when the directory is unique and every file is accounted for.
@@ -707,7 +707,7 @@ function dropDeferredPlaceholders(
  *
  * `ImageSchema.validate` reports this (`packages/core/src/schema/image.ts`:
  * "The gallery does not have an image at '…'"), and `VideoSchema.validate` the
- * same for a field picked from an `s.videoset()` ("The set does not have a
+ * same for a field picked from an `s.videodir()` ("The set does not have a
  * video at '…'"), but neither attaches a `ValidationFix`,
  * because the remedy is not a change to this module: either the gallery gains an
  * entry, or the file moves into the gallery's directory. Both are edits to

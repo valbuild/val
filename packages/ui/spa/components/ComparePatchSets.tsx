@@ -1437,7 +1437,7 @@ function hasAnyChange(node: ChangeTreeNode): boolean {
 /**
  * Fold every change inside a media entry into the entry's own row.
  *
- * `s.imageset()` / `s.fileset()` modules are records keyed by file ref, so an alt
+ * `s.imagedir()` / `s.filedir()` modules are records keyed by file ref, so an alt
  * text or hotspot edit produces a patch on `<ref>."alt"`, not on `<ref>`.
  * Rendering that descendant as a row of its own gives a media card for a file
  * named "alt" - `MediaEntryDiff` reads the thumbnail URL, the filename and the

@@ -23,7 +23,7 @@ describe("buildRemoveImageGalleryEntryPatch", () => {
     const { schema, source } = serialize(
       c.define(
         "/content/media.val.ts",
-        s.imageset({ dir: "/public/val/images", accept: "image/png" }),
+        s.imagedir("/public/val/images", { accept: "image/png" }),
         {
           "/public/val/images/foo.png": {
             width: 100,
@@ -57,7 +57,7 @@ describe("buildRemoveImageGalleryEntryPatch", () => {
     const { schema, source } = serialize(
       c.define(
         "/content/media.val.ts",
-        s.imageset({ dir: "/public/val/images", accept: "image/png" }),
+        s.imagedir("/public/val/images", { accept: "image/png" }),
         {
           "/public/val/images/foo.png": {
             width: 1,
@@ -85,7 +85,7 @@ describe("buildImageGalleryPatch", () => {
     const { schema } = serialize(
       c.define(
         "/content/media.val.ts",
-        s.imageset({ dir: "/public/val/images", accept: "image/png" }),
+        s.imagedir("/public/val/images", { accept: "image/png" }),
         {},
       ),
     );
@@ -135,11 +135,7 @@ describe("buildImageGalleryPatch", () => {
 describe("a video set", () => {
   test("is named as what it is, not as a gallery of the wrong shape", () => {
     const { schema, source } = serialize(
-      c.define(
-        "/content/videos.val.ts",
-        s.videoset({ dir: "/public/val/videos" }),
-        {},
-      ),
+      c.define("/content/videos.val.ts", s.videodir("/public/val/videos"), {}),
     );
     const result = buildRemoveImageGalleryEntryPatch(
       { filePath: "/public/val/videos/a.mp4" },
@@ -148,7 +144,7 @@ describe("a video set", () => {
     );
     expect(result).toEqual({
       kind: "error",
-      message: expect.stringContaining("video set (s.videoset())"),
+      message: expect.stringContaining("video set (s.videodir())"),
     });
   });
 });

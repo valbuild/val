@@ -370,7 +370,7 @@ function ShellHarness({
    */
   const [autoSave, setAutoSave] = useState(false);
   const full = empty ? emptyShellData : mockShellData;
-  // A project of nothing but content files: no `s.router`, no `s.imageset()`.
+  // A project of nothing but content files: no `s.router`, no `s.imagedir()`.
   // The shell answers by showing one destination instead of three.
   const base: ShellData = withoutRouters
     ? { ...full, hasRouters: false, pages: [], externalPages: [], media: [] }
@@ -770,7 +770,7 @@ export const LightMode: Story = {
  * A brand new project: the router is there, nothing has been made yet.
  *
  * Only Pages is on the rail. Media and Data are not empty here so much as
- * absent — an `s.imageset()` module with no files still lists as a gallery, so a
+ * absent — an `s.imagedir()` module with no files still lists as a gallery, so a
  * project with no galleries at all has nothing for Media to be about.
  */
 export const EmptyProject: Story = {

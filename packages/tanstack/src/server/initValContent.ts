@@ -25,7 +25,7 @@ import {
 import {
   createValServer,
   ValServer,
-  proposalSnapshot,
+  proposalSnapshotForReaders,
   type ValPatchStore,
 } from "@valbuild/server";
 import { VERSION } from "../version";
@@ -578,8 +578,11 @@ const initFetchValRouteStega =
           url,
         );
       }
-      const content = await resolveDraftOrCommittedEntry(draft, () =>
-        loadJsonEntryContent(source, url),
+      const content = await resolveDraftOrCommittedEntry(
+        draft.status === "unavailable" && path
+          ? snapshotJsonEntry(snapshot, path as unknown as ModuleFilePath, url)
+          : draft,
+        () => loadJsonEntryContent(source, url),
       );
       if (content === undefined) {
         return null as RouteValueOf<T>;
@@ -670,6 +673,44 @@ export type DraftJsonEntry =
  * ask). Returning `undefined` means "render nothing"; both callers turn that into
  * a null/undefined result.
  */
+/**
+ * What a proposal's snapshot says about one `.jsonValues()` entry: its saved
+ * content, `absent` when the proposal removed it, or `unavailable` -- not at
+ * a proposal, or an entry the proposal did not save, which is the build's.
+ *
+ * The snapshot carries saved entries as content in place of their markers
+ * (`proposalSnapshotForReaders` in @valbuild/server). The same rule as the
+ * browser's `draftJsonEntry`, so the server's render and the hydrated page
+ * agree.
+ */
+export function snapshotJsonEntry(
+  snapshot: Snapshot | undefined,
+  moduleFilePath: ModuleFilePath,
+  key: string,
+): DraftJsonEntry {
+  const source = snapshot?.[moduleFilePath];
+  if (source === null) {
+    // A nullable record the proposal saved as null: it has no entries.
+    return { status: "absent" };
+  }
+  if (
+    source === undefined ||
+    typeof source !== "object" ||
+    Array.isArray(source)
+  ) {
+    return { status: "unavailable" };
+  }
+  // Own keys only: an entry may be named `toString`.
+  if (!Object.prototype.hasOwnProperty.call(source, key)) {
+    return { status: "absent" };
+  }
+  const entry: unknown = (source as Record<string, unknown>)[key];
+  if (Internal.isJson(entry)) {
+    return { status: "unavailable" };
+  }
+  return { status: "content", content: entry };
+}
+
 export async function resolveDraftOrCommittedEntry(
   draft: DraftJsonEntry,
   loadCommitted: () => Promise<unknown | undefined>,
@@ -759,6 +800,8 @@ export const initFetchValKeyStega =
     getCookies: () => Promise<{
       get(name: string): { name: string; value: string } | undefined;
     }>,
+    /** A proposal's saved Source; see `ValDraft.snapshot`. */
+    snapshot?: Snapshot,
   ) =>
   async <T extends ResolvableModule>(
     selector: T,
@@ -787,8 +830,11 @@ export const initFetchValKeyStega =
         key,
       );
     }
-    const content = await resolveDraftOrCommittedEntry(draft, () =>
-      loadJsonEntryContent(source, key),
+    const content = await resolveDraftOrCommittedEntry(
+      draft.status === "unavailable" && moduleFilePath
+        ? snapshotJsonEntry(snapshot, moduleFilePath, key)
+        : draft,
+      () => loadJsonEntryContent(source, key),
     );
     if (content === undefined) {
       // deleted in the draft state, a missing key, or a transport marker with no
@@ -992,7 +1038,7 @@ export function initValContent(
   const draftSourcesScope = createTanStackRequestScope();
   const snapshot: Snapshot | undefined =
     opts?.http?.proposal !== undefined
-      ? proposalSnapshot(opts.http.proposal)
+      ? proposalSnapshotForReaders(opts.http.proposal, opts.http.projectSource)
       : undefined;
   const draftMode = opts?.draftMode ?? valDraftMode();
   const isEnabled = () => draftMode.isEnabled();
@@ -1047,6 +1093,7 @@ export function initValContent(
       valServerPromise,
       isEnabled,
       requestCookies,
+      snapshot,
     ),
     fetchValRouteStega: initFetchValRouteStega(
       config,

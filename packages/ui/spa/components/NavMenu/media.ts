@@ -7,7 +7,7 @@ import { MediaModule, NavItemErrors } from "./types";
 import { isFontAccept } from "../../utils/fileAccept";
 
 /**
- * Whether a module is an `s.imageset()` / `s.fileset()` / `s.videoset()`
+ * Whether a module is an `s.imagedir()` / `s.filedir()` / `s.videodir()`
  * gallery.
  *
  * All are records with a `mediaType` marker on the SERIALIZED schema, so this
