@@ -38,9 +38,19 @@ describe("what the readers render over the bundle", () => {
     });
   });
 
-  test("at a proposal's address, the proposal's: the address is the proposal's", () => {
-    expect(snapshotForReaders({ proposal, contentVersion: version })).toEqual({
+  test("at a proposal's address, the proposal's saves over the version", () => {
+    const FOOTER = "/app/footer.val.ts" as ModuleFilePath;
+    expect(
+      snapshotForReaders({
+        proposal,
+        contentVersion: {
+          ...version,
+          modules: { ...version.modules, [FOOTER]: { text: "Published" } },
+        },
+      }),
+    ).toEqual({
       [PAGE]: { title: "Saved in the proposal" },
+      [FOOTER]: { text: "Published" },
     });
   });
 
@@ -60,8 +70,13 @@ describe("saying the version was applied", () => {
     expect(Reflect.get(globalThis, CONTENT_APPLIED_GLOBAL)).toBe(version.id);
   });
 
-  test("not at a proposal's address, where the version is not what is shown", () => {
+  test("at a proposal's address too, where the version is under the proposal's saves", () => {
     markContentApplied({ proposal, contentVersion: version });
+    expect(Reflect.get(globalThis, CONTENT_APPLIED_GLOBAL)).toBe(version.id);
+  });
+
+  test("not when there is no version", () => {
+    markContentApplied({ proposal });
     expect(Reflect.get(globalThis, CONTENT_APPLIED_GLOBAL)).toBeUndefined();
   });
 });

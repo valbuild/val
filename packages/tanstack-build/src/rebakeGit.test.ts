@@ -325,6 +325,7 @@ describe("serving a content version", () => {
     const naming = (ref: string) => ({
       VAL_CONTENT: JSON.stringify({
         id: ID,
+        job: "J-7",
         refs: { modules: { "/a.val.ts": ref } },
       }),
       VAL_SECRET: JSON.stringify({ title: "a secret" }),
@@ -340,11 +341,38 @@ describe("serving a content version", () => {
     );
   });
 
+  test("the block refuses what @valbuild/server refuses, rather than reshape it", () => {
+    const refused = (over: Record<string, unknown>) => () =>
+      runBlock({
+        VAL_CONTENT: JSON.stringify({ id: ID, job: "J-7", ...over }),
+      });
+    expect(refused({ modules: [] })).toThrow(/modules/);
+    expect(refused({ files: "text" })).toThrow(/files/);
+    expect(refused({ job: 7 })).toThrow(/job/);
+    expect(refused({ commit: {} })).toThrow(/commit/);
+    expect(refused({ job: null, commit: null })).toThrow(/job or a commit/);
+    expect(refused({ refs: [] })).toThrow(/refs/);
+    expect(() => runBlock({ VAL_CONTENT: "[]" })).toThrow(/VAL_CONTENT/);
+  });
+
+  test("the block keeps only text for a file, as @valbuild/server does", () => {
+    expect(
+      runBlock({
+        VAL_CONTENT: JSON.stringify({
+          id: ID,
+          job: "J-7",
+          files: { "a.val.ts": "text", "b.val.json": 3 },
+        }),
+      }),
+    ).toMatchObject({ files: { "a.val.ts": "text" } });
+  });
+
   test("the block never resolves a reference inside Source", () => {
     expect(
       runBlock({
         VAL_CONTENT: JSON.stringify({
           id: ID,
+          job: "J-7",
           modules: { "/a.val.ts": { title: "env://VAL_CONTENT_1" } },
         }),
         VAL_CONTENT_1: JSON.stringify("resolved"),

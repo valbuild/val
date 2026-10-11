@@ -739,6 +739,9 @@ function asJobResult(value: unknown): StudioJobResult | null {
         status: "handed-off",
         jobId: value.jobId,
         built: !("built" in value) || value.built !== false,
+        ...("contentOnly" in value && value.contentOnly === true
+          ? { contentOnly: true }
+          : {}),
       };
     case "lost":
       return { status: "lost", jobId: value.jobId };

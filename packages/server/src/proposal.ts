@@ -269,6 +269,14 @@ export function contentFromEnv(
     }
     files[path] = value;
   }
+  if (job === null && commit === null) {
+    // Placed nowhere, Val would place it at the build it runs in -- the one
+    // position a version must never take: its own changes would be replayed
+    // over a snapshot that already holds them.
+    throw new Error(
+      `Val: content version ${id} must name a job or a commit, or it would be placed at the build it runs in`,
+    );
+  }
   return { id, job, commit, modules, files };
 }
 
@@ -276,6 +284,28 @@ export function contentFromEnv(
 const ENV_REF = "env://";
 /** The only variables a reference may name. */
 const CONTENT_VARIABLE = /^VAL_CONTENT_[0-9]+$/;
+
+/**
+ * What a server or reader renders over the bundle: a proposal's saves over the
+ * content version the site serves, either alone, or nothing.
+ *
+ * Layered rather than chosen. At a proposal's address the platform hands both
+ * when the base the proposal was opened from serves content its build does not
+ * bundle (a content-only publish), and the proposal saves only the modules it
+ * changed: choosing the proposal alone would show every other module as the
+ * build bundles it -- older than the site it was opened from.
+ */
+export function layeredSnapshot(
+  proposal: Pick<ValProposal, "modules" | "files"> | undefined,
+  contentVersion: Pick<ValContentVersion, "modules" | "files"> | undefined,
+): Pick<ValProposal, "modules" | "files"> | undefined {
+  if (proposal === undefined) return contentVersion;
+  if (contentVersion === undefined) return proposal;
+  return {
+    modules: { ...contentVersion.modules, ...proposal.modules },
+    files: { ...contentVersion.files, ...proposal.files },
+  };
+}
 
 /**
  * The proposal's saved Source, as Source: every module whose value is JSON.

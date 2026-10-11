@@ -25,6 +25,7 @@ import {
 import {
   createValServer,
   ValServer,
+  layeredSnapshot,
   proposalSnapshotForReaders,
   type ValPatchStore,
 } from "@valbuild/server";
@@ -295,15 +296,16 @@ export const initFetchValStega =
 type Snapshot = Record<ModuleFilePath, Json>;
 
 /**
- * What the readers render over the bundle: a proposal's saves at its address,
- * otherwise the content version the site serves, otherwise nothing.
+ * What the readers render over the bundle: a proposal's saves over the
+ * content version the site serves (`layeredSnapshot` in @valbuild/server),
+ * either alone, or nothing.
  */
 export function snapshotForReaders(
   http:
     | Pick<ValHttpMode, "proposal" | "contentVersion" | "projectSource">
     | undefined,
 ): Snapshot | undefined {
-  const source = http?.proposal ?? http?.contentVersion;
+  const source = layeredSnapshot(http?.proposal, http?.contentVersion);
   return source !== undefined
     ? proposalSnapshotForReaders(source, http?.projectSource)
     : undefined;
@@ -318,11 +320,14 @@ export function snapshotForReaders(
  */
 export const CONTENT_APPLIED_GLOBAL = "__VAL_CONTENT_APPLIED";
 
-/** Name the content version this isolate renders, when it renders one. */
+/**
+ * Name the content version this isolate renders, when it renders one -- at a
+ * proposal's address too, where it is under the proposal's saves.
+ */
 export function markContentApplied(
   http: Pick<ValHttpMode, "proposal" | "contentVersion"> | undefined,
 ): void {
-  if (http?.proposal !== undefined || http?.contentVersion === undefined) {
+  if (http?.contentVersion === undefined) {
     return;
   }
   Reflect.set(globalThis, CONTENT_APPLIED_GLOBAL, http.contentVersion.id);

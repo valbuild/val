@@ -31,6 +31,7 @@ export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
 export {
   contentFromEnv,
   proposalFromEnv,
+  layeredSnapshot,
   proposalSnapshot,
   proposalSnapshotForReaders,
 } from "./proposal";

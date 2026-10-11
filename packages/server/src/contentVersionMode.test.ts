@@ -113,6 +113,71 @@ describe("a server given a content version", () => {
     expect(overlay.searchParams.has("build")).toBe(false);
   });
 
+  test("at a proposal's address, the proposal's saves go over the version, and the rest is the version's", async () => {
+    const both = new ValOpsHttp(
+      "https://content.example",
+      "org/project",
+      null,
+      { apiKey: "test" },
+      { config, modules },
+      {
+        config,
+        publishJob: "J-1",
+        publishBuild: "base-build",
+        contentVersion: version({
+          modules: {
+            [PAGE]: { title: "Published since the build" },
+            [FOOTER]: { text: "Footer published since the build" },
+          },
+        }),
+        proposal: {
+          name: "0123456789abcdef0123",
+          branch: "val/p/0123456789abcdef0123",
+          commit: "save-1",
+          modules: { [PAGE]: { title: "Saved in the proposal" } },
+          files: {},
+        },
+      },
+    );
+    const sources = await both.getBaseSources();
+    expect(sources[PAGE]).toEqual({ title: "Saved in the proposal" });
+    expect(sources[FOOTER]).toEqual({
+      text: "Footer published since the build",
+    });
+  });
+
+  test("is not a proposal: nothing is compared against a site", async () => {
+    expect(await ops(version()).siteSourcesUnderSnapshot()).toBeNull();
+  });
+
+  test("at a proposal's address, the site a proposal is compared against is the version's, not the bundle's", async () => {
+    const both = new ValOpsHttp(
+      "https://content.example",
+      "org/project",
+      null,
+      { apiKey: "test" },
+      { config, modules },
+      {
+        config,
+        contentVersion: version(),
+        proposal: {
+          name: "0123456789abcdef0123",
+          branch: "val/p/0123456789abcdef0123",
+          commit: "save-1",
+          modules: {
+            [PAGE]: { title: "Saved in the proposal" },
+            [FOOTER]: { text: "Footer saved in the proposal" },
+          },
+          files: {},
+        },
+      },
+    );
+    expect(await both.siteSourcesUnderSnapshot()).toEqual({
+      [PAGE]: { title: "Published since the build" },
+      [FOOTER]: { text: "Footer from the bundle" },
+    });
+  });
+
   test("without one, the build is named as before", async () => {
     await ops(undefined)
       .fetchPatchesInternal({ excludePatchOps: true })
@@ -160,6 +225,14 @@ describe("contentFromEnv", () => {
         VAL_CONTENT: JSON.stringify({ id: ID, modules: [], files: {} }),
       }),
     ).toThrow(/modules/);
+  });
+
+  test("refuses a version that names neither its job nor its commit: it would be placed at the build", () => {
+    expect(() =>
+      contentFromEnv({
+        VAL_CONTENT: JSON.stringify({ id: ID, modules: {}, files: {} }),
+      }),
+    ).toThrow(/job or a commit/);
   });
 });
 

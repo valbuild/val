@@ -1,5 +1,6 @@
 import {
   proposalJsonEntries,
+  layeredSnapshot,
   proposalSnapshot,
   type ValContentVersion,
   type ValProposal,
@@ -608,17 +609,28 @@ export class ValOpsHttp extends ValOps {
     },
   ) {
     /*
-     * What replaces the bundle's Source: a proposal's saves at its address, or
-     * the content version the site serves. Never both -- a proposal's address
-     * is the proposal's.
+     * What replaces the bundle's Source: the content version the site serves,
+     * and a proposal's saves over it at its address. Two layers rather than
+     * one, because the version is the SITE -- what a proposal is compared
+     * against -- and the proposal is what is being proposed.
      */
-    const snapshot = options?.proposal ?? options?.contentVersion;
+    const snapshot = layeredSnapshot(
+      options?.proposal,
+      options?.contentVersion,
+    );
     super(
       valModules,
       options && snapshot
         ? {
             ...options,
-            snapshotSources: proposalSnapshot(snapshot),
+            ...(options.proposal !== undefined
+              ? { snapshotSources: proposalSnapshot(options.proposal) }
+              : {}),
+            ...(options.contentVersion !== undefined
+              ? {
+                  siteSnapshotSources: proposalSnapshot(options.contentVersion),
+                }
+              : {}),
             snapshotJsonEntries: proposalJsonEntries(
               snapshot,
               options.projectSource,

@@ -191,57 +191,66 @@ const CONTENT_BLOCK = `/*
 const contentVersion = (() => {
   const handed = secret("VAL_CONTENT");
   if (!handed) return undefined;
-  const parsed: {
-    id?: unknown;
-    job?: string | null;
-    commit?: string | null;
-    modules?: Record<string, unknown>;
-    files?: Record<string, string>;
-    refs?: {
-      modules?: Record<string, unknown>;
-      files?: Record<string, unknown>;
-    };
-  } = JSON.parse(handed);
-  if (typeof parsed.id !== "string") {
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+  const parsed: unknown = JSON.parse(handed);
+  if (!isRecord(parsed)) throw new Error("Val: VAL_CONTENT is not an object");
+  const id = parsed.id;
+  if (typeof id !== "string" || id === "") {
     throw new Error("Val: VAL_CONTENT has no id");
   }
-  const id = parsed.id;
-  const modules: Record<string, unknown> = { ...parsed.modules };
-  const files: Record<string, string> = { ...parsed.files };
-  const read = (kind: string, path: string, ref: unknown): string => {
-    const where = "Val: content version " + id + ": refs." + kind + "[" + path + "]";
-    if (typeof ref !== "string" || !ref.startsWith("env://")) {
-      throw new Error(where + " is " + String(ref) + ": only env://VAL_CONTENT_<n> is read");
-    }
-    const name = ref.slice("env://".length);
-    if (!/^VAL_CONTENT_[0-9]+$/.test(name)) {
-      throw new Error(where + " names " + name + ": only VAL_CONTENT_<n> is read");
-    }
-    const value = secret(name);
-    if (value === undefined) {
-      throw new Error(where + " names " + name + ", which is not set");
+  const where = "Val: content version " + id;
+  const nullableString = (key: string): string | null => {
+    const value = parsed[key] ?? null;
+    if (value !== null && typeof value !== "string") {
+      throw new Error(where + ": " + key + " must be a string or null");
     }
     return value;
   };
-  for (const [path, ref] of Object.entries(parsed.refs?.modules ?? {})) {
+  const record = (value: unknown, name: string): Record<string, unknown> => {
+    const found = value ?? {};
+    if (!isRecord(found)) throw new Error(where + ": " + name + " must be an object");
+    return found;
+  };
+  const job = nullableString("job");
+  const commit = nullableString("commit");
+  const modules: Record<string, unknown> = { ...record(parsed.modules, "modules") };
+  const files: Record<string, string> = {};
+  for (const [path, text] of Object.entries(record(parsed.files, "files"))) {
+    if (typeof text === "string") files[path] = text;
+  }
+  const refs = record(parsed.refs, "refs");
+  const read = (kind: string, path: string, ref: unknown): string => {
+    const at = where + ": refs." + kind + "[" + path + "]";
+    if (typeof ref !== "string" || !ref.startsWith("env://")) {
+      throw new Error(at + " is " + String(ref) + ": only env://VAL_CONTENT_<n> is read");
+    }
+    const name = ref.slice("env://".length);
+    if (!/^VAL_CONTENT_[0-9]+$/.test(name)) {
+      throw new Error(at + " names " + name + ": only VAL_CONTENT_<n> is read");
+    }
+    const value = secret(name);
+    if (value === undefined) {
+      throw new Error(at + " names " + name + ", which is not set");
+    }
+    return value;
+  };
+  for (const [path, ref] of Object.entries(record(refs.modules, "refs.modules"))) {
     if (Object.prototype.hasOwnProperty.call(modules, path)) {
-      throw new Error("Val: content version " + id + ": " + path + " is in modules and refs.modules");
+      throw new Error(where + ": " + path + " is in modules and refs.modules");
     }
     modules[path] = JSON.parse(read("modules", path, ref));
   }
-  for (const [path, ref] of Object.entries(parsed.refs?.files ?? {})) {
+  for (const [path, ref] of Object.entries(record(refs.files, "refs.files"))) {
     if (Object.prototype.hasOwnProperty.call(files, path)) {
-      throw new Error("Val: content version " + id + ": " + path + " is in files and refs.files");
+      throw new Error(where + ": " + path + " is in files and refs.files");
     }
     files[path] = read("files", path, ref);
   }
-  return {
-    id,
-    job: parsed.job ?? null,
-    commit: parsed.commit ?? null,
-    modules,
-    files,
-  };
+  if (job === null && commit === null) {
+    throw new Error(where + " must name a job or a commit, or it would be placed at the build it runs in");
+  }
+  return { id, job, commit, modules, files };
 })();
 `;
 /** Where {@link PROPOSAL_BLOCK} goes: right after this line. */
