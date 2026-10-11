@@ -1,4 +1,8 @@
-import { proposalSnapshot, type ValProposal } from "./proposal";
+import {
+  proposalJsonEntries,
+  proposalSnapshot,
+  type ValProposal,
+} from "./proposal";
 import {
   type PatchId,
   type ModuleFilePath,
@@ -601,7 +605,14 @@ export class ValOpsHttp extends ValOps {
     super(
       valModules,
       options?.proposal
-        ? { ...options, snapshotSources: proposalSnapshot(options.proposal) }
+        ? {
+            ...options,
+            snapshotSources: proposalSnapshot(options.proposal),
+            snapshotJsonEntries: proposalJsonEntries(
+              options.proposal,
+              options.projectSource,
+            ),
+          }
         : options,
     );
     this.authHeaders =

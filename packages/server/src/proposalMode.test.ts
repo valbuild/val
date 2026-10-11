@@ -4,6 +4,7 @@ import type { AuthorId, PreparedCommit } from "./ValOps";
 import {
   proposalFromEnv,
   proposalSnapshot,
+  proposalSnapshotForReaders,
   type ValProposal,
 } from "./proposal";
 
@@ -216,6 +217,101 @@ describe("the snapshot", () => {
   test("is not the site's: a server with no proposal reads the bundle", async () => {
     const sources = await ops(undefined).getBaseSources();
     expect(sources[PAGE]).toEqual({ title: "From the bundle" });
+  });
+});
+
+/*
+ * A `.jsonValues()` module keeps each entry's content in its own `*.val.json`
+ * file, and its Source holds only a marker per entry. A save in a proposal
+ * writes the entry's file, which reaches this server as saved text
+ * (`files`), not as Source: the snapshot has to carry it, or the proposal's
+ * address shows the build's entries -- and the Studio there, none at all.
+ */
+describe("a .jsonValues() module saved in the proposal", () => {
+  const KB = "/app/kb.val.ts" as ModuleFilePath;
+  const kbText = `import { c, s } from "../val.config";
+export default c.define(
+  "/app/kb.val.ts",
+  s.record(s.object({ title: s.string() })).jsonValues(),
+  {
+    a: c.json(() => import("./kb/a.val.json")),
+    b: c.json(() => import("./kb/b.val.json")),
+  },
+);
+`;
+  const kbModules = [
+    {
+      def: async () => ({
+        default: c.define(
+          KB,
+          s.record(s.object({ title: s.string() })).jsonValues(),
+          {
+            a: c.json(() =>
+              Promise.resolve({ default: { title: "a from the bundle" } }),
+            ),
+            b: c.json(() =>
+              Promise.resolve({ default: { title: "b from the bundle" } }),
+            ),
+          },
+        ),
+      }),
+    },
+  ];
+  // As content hands it over: entry `a` was saved, `b` was not.
+  const saved: ValProposal = {
+    name: NAME,
+    branch: `val/p/${NAME}`,
+    commit: "save-1",
+    modules: { [KB]: { a: { _type: "json" }, b: { _type: "json" } } },
+    files: {
+      "app/kb/a.val.json": JSON.stringify({ title: "a saved in the proposal" }),
+    },
+  };
+  const projectSource = { "app/kb.val.ts": kbText };
+
+  test("Val's own server keeps the markers: its patching works on them", () => {
+    expect(proposalSnapshot(saved)[KB]).toEqual({
+      a: { _type: "json" },
+      b: { _type: "json" },
+    });
+  });
+
+  test("the snapshot carries a saved entry's content, and leaves the others to the build", () => {
+    const snapshot = proposalSnapshotForReaders(saved, projectSource);
+    expect(snapshot[KB]).toEqual({
+      a: { title: "a saved in the proposal" },
+      b: { _type: "json" },
+    });
+  });
+
+  test("and finds the entries from the module's saved text when the save rewrote it too", () => {
+    const snapshot = proposalSnapshotForReaders({
+      ...saved,
+      files: { ...saved.files, "app/kb.val.ts": kbText },
+    });
+    expect(snapshot[KB]).toEqual({
+      a: { title: "a saved in the proposal" },
+      b: { _type: "json" },
+    });
+  });
+
+  test("the Studio there reads the saved entry, and the build's for the rest", async () => {
+    const o = new ValOpsHttp(
+      "https://content.example",
+      "org/project",
+      null,
+      { apiKey: "test" },
+      { config, modules: kbModules },
+      { config, projectSource, proposal: saved },
+    );
+    expect(await o.getJsonEntry(KB, "a", { applyPatches: false })).toEqual({
+      status: "success",
+      content: { title: "a saved in the proposal" },
+    });
+    expect(await o.getJsonEntry(KB, "b", { applyPatches: false })).toEqual({
+      status: "success",
+      content: { title: "b from the bundle" },
+    });
   });
 });
 

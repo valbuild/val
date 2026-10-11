@@ -4,7 +4,7 @@
 import "./__suspense-test-setup__"; // must come first — polyfills TextEncoder for @valbuild/shared
 import React from "react";
 import { act, render, screen } from "@testing-library/react";
-import { initVal, ModuleFilePath } from "@valbuild/core";
+import { initVal, type Json, ModuleFilePath } from "@valbuild/core";
 import { raw } from "@valbuild/react/stega";
 import { initValClient } from "./initValClient";
 import { ValExternalStore, ValOverlayProvider } from "../ValOverlayContext";
@@ -113,6 +113,40 @@ describe("useValKey draft state", () => {
       // The Studio has not loaded this entry's content yet, so the draft view
       // cannot answer — better the published content than a blank page.
       store.update(path, { "/a": { _type: "json" } });
+    });
+    expect(shown()).toBe("published A");
+  });
+});
+
+/*
+ * At a proposal's address the server sends its snapshot with the entries the
+ * proposal saved filled in (`proposalSnapshotForReaders` in
+ * @valbuild/server). A reviewer who is not editing sees those -- the same
+ * entries the server rendered, so hydration changes nothing.
+ */
+describe("useValKey at a proposal's address", () => {
+  const snapshotTree = (snapshot: Record<ModuleFilePath, Json>) =>
+    React.createElement(ValOverlayProvider, {
+      store: new ValExternalStore(),
+      suspend: false,
+      draftMode: false,
+      snapshot,
+      children: React.createElement(React.Suspense, {
+        fallback: React.createElement("span", { "data-testid": "fallback" }),
+        children: React.createElement(Show, { entryKey: "/a" }),
+      }),
+    });
+
+  it("renders the entry the proposal saved, not the build's", async () => {
+    await act(async () => {
+      render(snapshotTree({ [path]: { "/a": { title: "saved A" } } }));
+    });
+    expect(shown()).toBe("saved A");
+  });
+
+  it("renders the build's entry where the proposal saved none", async () => {
+    await act(async () => {
+      render(snapshotTree({ [path]: { "/a": { _type: "json" } } }));
     });
     expect(shown()).toBe("published A");
   });

@@ -175,3 +175,71 @@ describe("resolveDraftOrCommittedEntry", () => {
     ).toBeUndefined();
   });
 });
+
+/*
+ * At a proposal's address the snapshot carries the entries the proposal
+ * saved, as content in place of their markers (`proposalSnapshot` in
+ * @valbuild/server). A reviewer who is not editing must be shown those, not
+ * the build's -- the proposal is what they are looking at.
+ */
+describe("fetchValKey at a proposal's address", () => {
+  const snapshot = {
+    [PAGES]: {
+      "/a": { title: "A saved in the proposal" },
+      "/b": { _type: "json" },
+    },
+  };
+  const neverAsked = () => {
+    throw new Error("a reviewer who is not editing reads no draft");
+  };
+
+  test("gives the entry the proposal saved, not the build's", async () => {
+    const { server } = fakeValServer(neverAsked);
+    const fetchValKey = initFetchValKeyStega(
+      server,
+      async () => false,
+      cookies,
+      snapshot,
+    );
+    expect(titleOf(await fetchValKey(pagesVal, "/a"))).toBe(
+      "A saved in the proposal",
+    );
+  });
+
+  test("an entry the proposal did not save is the build's", async () => {
+    const { server } = fakeValServer(neverAsked);
+    const withB = c.define(
+      PAGES,
+      s.record(s.object({ title: s.string() })).jsonValues(),
+      {
+        "/a": c.json(() =>
+          Promise.resolve({ default: { title: "committed A" } }),
+        ),
+        "/b": c.json(() =>
+          Promise.resolve({ default: { title: "committed B" } }),
+        ),
+      },
+    );
+    const fetchValKey = initFetchValKeyStega(
+      server,
+      async () => false,
+      cookies,
+      snapshot,
+    );
+    expect(titleOf(await fetchValKey(withB, "/b"))).toBe("committed B");
+  });
+
+  test("an editor's draft still wins over what the proposal saved", async () => {
+    const { server } = fakeValServer((key) => ({
+      status: 200,
+      json: { path: PAGES, key, content: { title: "draft A" } },
+    }));
+    const fetchValKey = initFetchValKeyStega(
+      server,
+      async () => true,
+      cookies,
+      snapshot,
+    );
+    expect(titleOf(await fetchValKey(pagesVal, "/a"))).toBe("draft A");
+  });
+});

@@ -159,6 +159,13 @@ export type ValOpsOptions = {
    * the next save's prepare -- starts from it, and the SHAs describe it.
    */
   snapshotSources?: Sources;
+  /**
+   * The `.jsonValues()` entries the same snapshot saved, by module and key:
+   * their content is in their own files, not in {@link snapshotSources}, which
+   * holds markers. The baseline those entries are read from, as a save in
+   * this instance would leave them (`proposalJsonEntries` in `./proposal`).
+   */
+  snapshotJsonEntries?: Map<ModuleFilePath, Map<string, JSONValue>>;
 };
 // #region ValOps
 export abstract class ValOps {
@@ -232,6 +239,10 @@ export abstract class ValOps {
     this.modulesErrors = null;
     this.shaEntries = null;
     this.shaModuleErrors = null;
+    for (const [moduleFilePath, entries] of options?.snapshotJsonEntries ??
+      []) {
+      this.adoptedJsonEntries.set(moduleFilePath, new Map(entries));
+    }
   }
 
   // #region stat
@@ -767,7 +778,20 @@ export abstract class ValOps {
               baseContent: content === null ? undefined : content,
             };
           }
-          const thunk = Internal.getJsonImport(marker);
+          /*
+           * A snapshot's marker came as JSON, with no import behind it: the
+           * entry the proposal did not save is the build's, behind the marker
+           * the module evaluated to.
+           */
+          const siteMarker =
+            this.siteSourcesBeforeSnapshot?.[moduleFilePath]?.[
+              entryKey as keyof Sources[ModuleFilePath]
+            ];
+          const thunk =
+            Internal.getJsonImport(marker) ??
+            (Internal.isJson(siteMarker)
+              ? Internal.getJsonImport(siteMarker)
+              : undefined);
           if (!thunk) {
             return { entryKey, baseContent: null };
           }
