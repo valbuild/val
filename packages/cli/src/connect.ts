@@ -125,20 +125,20 @@ async function tryGetProject(projectRoot: string): Promise<{
   return null;
 }
 
+/**
+ * The GitHub repository a remote URL names: `git@github.com:acme/site.git`,
+ * `ssh://git@github.com/acme/site.git` or `https://[user@]github.com/acme/site`.
+ * Null for any other host.
+ */
 export function getGitHubOwnerAndRepo(
   gitRemote: string,
 ): { owner: string; repo: string } | null {
-  const sshMatch = gitRemote.match(/git@github\.com:(.+?)\/(.+?)(\.git)?$/);
-  if (sshMatch) {
-    return { owner: sshMatch[1], repo: sshMatch[2] };
-  }
-  const httpsMatch = gitRemote.match(
-    /https:\/\/github\.com\/(.+?)\/(.+?)(\.git)?$/,
-  );
-  if (httpsMatch) {
-    return { owner: httpsMatch[1], repo: httpsMatch[2] };
-  }
-  return null;
+  const match = gitRemote
+    .trim()
+    .match(
+      /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/(?:[^@/\s]+@)?github\.com\/)([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/,
+    );
+  return match ? { owner: match[1], repo: match[2] } : null;
 }
 
 async function tryGetGitRemote(root: string): Promise<string | null> {

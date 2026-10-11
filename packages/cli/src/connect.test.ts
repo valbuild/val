@@ -32,6 +32,13 @@ describe("val connect", () => {
       owner: "acme",
       repo: "site",
     });
+    expect(getGitHubOwnerAndRepo("ssh://git@github.com/acme/site.git")).toEqual(
+      { owner: "acme", repo: "site" },
+    );
+    expect(
+      getGitHubOwnerAndRepo("https://me@github.com/acme/site.git"),
+    ).toEqual({ owner: "acme", repo: "site" });
     expect(getGitHubOwnerAndRepo("git@gitlab.com:acme/site.git")).toBeNull();
+    expect(getGitHubOwnerAndRepo("git@notgithub.com:acme/site.git")).toBeNull();
   });
 });
