@@ -7,15 +7,17 @@ import { boolean } from "./schema/boolean";
 import { union } from "./schema/union";
 import { discriminatedUnion } from "./schema/discriminatedUnion";
 import { enumSchema } from "./schema/enum";
-import { richtext } from "./schema/richtext";
-import { image } from "./schema/image";
+import { richtext, remoteRichtext } from "./schema/richtext";
+import { image, remoteImage } from "./schema/image";
 import { literal } from "./schema/literal";
 import { keyOf } from "./schema/keyOf";
 import { view } from "./schema/view";
 import { record } from "./schema/record";
-import { file } from "./schema/file";
-import { video } from "./schema/video";
+import { file, remoteFile } from "./schema/file";
+import { font, remoteFont } from "./schema/font";
+import { video, remoteVideo } from "./schema/video";
 import { fileset } from "./schema/fileset";
+import { fontset } from "./schema/fontset";
 import { date } from "./schema/date";
 import { datetime } from "./schema/datetime";
 import { code } from "./schema/code";
@@ -224,6 +226,19 @@ export type InitSchema = {
    */
   readonly file: typeof file;
   /**
+   * A font picked from an `s.fontset()`: `s.file(fontsVal)` for fonts, which
+   * refuses a module that is not a font set. The Studio shows it in its parent
+   * as the font's "A" and file name, and opens it on the set to pick from.
+   *
+   * @example
+   * ```typescript
+   * import fontsVal from "./fonts.val"; // an s.fontset() module
+   * const schema = s.object({ headingFont: s.font(fontsVal) });
+   * // source: { headingFont: { path: "/public/val/fonts/inter_a1b2c.woff2" } }
+   * ```
+   */
+  readonly font: typeof font;
+  /**
    * Define a video.
    *
    * A video is an object with a `path` and a `mimeType`: an `.mp4` / `.webm`
@@ -404,6 +419,22 @@ export type InitSchema = {
    */
   readonly fileset: typeof fileset;
   /**
+   * Define a collection of fonts: an `s.fileset()` that accepts the web font
+   * formats, and whose files the Studio previews as type. A field picks from
+   * it with `s.file(fontsVal)`.
+   *
+   * @example
+   * ```typescript
+   * const schema = s.fontset({ dir: "/public/val/fonts" });
+   * export default c.define("/content/fonts.val.ts", schema, {
+   *   "/public/val/fonts/inter_a1b2c.woff2": {
+   *     mimeType: "font/woff2",
+   *   },
+   * });
+   * ```
+   */
+  readonly fontset: typeof fontset;
+  /**
    * Define a collection of videos. A field picks from it with
    * `s.video(videosVal)`.
    *
@@ -454,7 +485,52 @@ export type InitSchema = {
 // export type InitSchemaLocalized<Locales extends readonly string[]> = {
 //   readonly i18n: I18n<Locales>;
 // };
-export function initSchema() {
+export type InitSchemaOptions = {
+  /**
+   * Every media schema is remote: `files.remote` in `val.config.ts`.
+   *
+   * `s.image()`, `s.file()`, `s.video()`, `s.imageset()`, `s.fileset()`,
+   * `s.fontset()` and `s.videoset()` come back with `.remote()` already applied, and so does the
+   * image `s.richtext({ img: true })` builds for itself. Nothing downstream
+   * needs to know: the Studio, the MCP tools, validation and publishing all
+   * read `remote` off the schema, exactly as they do for a `.remote()` written
+   * by hand.
+   *
+   * It is the factories that change, not the schemas, so a schema built here
+   * is indistinguishable from one written with `.remote()`.
+   */
+  remote?: boolean;
+};
+
+export function initSchema(options?: InitSchemaOptions): InitSchema {
+  const media =
+    options?.remote === true
+      ? {
+          image: remoteImage,
+          file: remoteFile,
+          font: remoteFont,
+          video: remoteVideo,
+          richtext: remoteRichtext,
+          imageset: ((options) =>
+            imageset(options).remote()) satisfies typeof imageset,
+          fileset: ((options) =>
+            fileset(options).remote()) satisfies typeof fileset,
+          fontset: ((options) =>
+            fontset(options).remote()) satisfies typeof fontset,
+          videoset: ((options) =>
+            videoset(options).remote()) satisfies typeof videoset,
+        }
+      : {
+          image,
+          file,
+          font,
+          video,
+          richtext,
+          imageset,
+          fileset,
+          fontset,
+          videoset,
+        };
   // locales: F.Narrow<Locales>
   return {
     string,
@@ -466,15 +542,17 @@ export function initSchema() {
     enum: enumSchema,
     union,
     // oneOf,
-    richtext,
-    image,
+    richtext: media.richtext,
+    image: media.image,
     literal,
     keyOf,
     view,
     record,
-    file,
-    video,
-    fileset,
+    file: media.file,
+    font: media.font,
+    video: media.video,
+    fileset: media.fileset,
+    fontset: media.fontset,
     date,
     datetime,
     color,
@@ -482,8 +560,8 @@ export function initSchema() {
     locale,
     route,
     router,
-    imageset,
-    videoset,
+    imageset: media.imageset,
+    videoset: media.videoset,
     settings,
     // i18n: i18n(locales),
   };

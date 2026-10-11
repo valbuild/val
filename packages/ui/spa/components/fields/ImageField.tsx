@@ -1,4 +1,5 @@
 import { Internal, Json, ModuleFilePath, SourcePath } from "@valbuild/core";
+import { getRemoteFilesError } from "./remoteFilesError";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -39,6 +40,7 @@ import { useMediaUrl } from "../../utils/mediaUrl";
 import { isJsonArray } from "../../utils/isJsonArray";
 import { HotspotMarker } from "./HotspotMarker";
 import { FocalPointPicker } from "./FocalPointPicker";
+import { InheritedNote, type Inheritance } from "./InheritedNote";
 import { Dialog, DialogContent, DialogTitle } from "../designSystem/dialog";
 
 export function ImageField({
@@ -282,10 +284,15 @@ export function ImageField({
   if (source === undefined) {
     return <FieldNotFound path={path} type={type} />;
   }
+  /*
+   * Not until a bucket is picked, either: that is an effect after
+   * `/remote/settings` answers, and `remoteData` is null until it has run --
+   * so an upload in between built a LOCAL ref for a remote field.
+   */
   const remoteFileUploadDisabled =
     schemaAtPath.data.type === "image" &&
     schemaAtPath.data.remote &&
-    remoteFiles.status !== "ready";
+    (remoteFiles.status !== "ready" || !currentRemoteFileBucket);
   const missingModules =
     referencedModule && referencedModuleSchema === undefined
       ? [referencedModule]
@@ -340,6 +347,14 @@ export function ImageField({
    * for whatever writes here next.
    */
   const altText = typeof source?.alt === "string" ? source.alt : "";
+  /** Drop the field's own value, so its gallery's shows through again. */
+  const removeKey = (key: "alt" | "hotspot") => {
+    if (!source || source[key] === undefined) return;
+    const keyPath = patchPath.concat([key]);
+    if (array.isNonEmpty(keyPath)) {
+      addPatch([{ op: "remove", path: keyPath }], "object");
+    }
+  };
   const setAltText = (alt: string) => {
     if (!source) return;
     // Always "add", never "replace", even when alt is already there: "add" on
@@ -538,6 +553,26 @@ export function ImageField({
   const hotspotPath = Internal.createValPathOfItem(path, "hotspot");
   const render = (entry: ImageMetadataLike | undefined) => {
     const { mimeType, fileDetail, renderedAlt } = metadataOf(entry);
+    /**
+     * A gallery-backed field shows its gallery entry's description and focal
+     * point until it sets its own — per key, the merge `fillFromGallery`
+     * gives the page. `undefined` entry values mean "the gallery has none".
+     */
+    const galleryAlt = referencedModule ? entry?.alt : undefined;
+    const galleryHotspot = referencedModule ? entry?.hotspot : undefined;
+    const altInheritance: Inheritance =
+      galleryAlt === undefined
+        ? "own"
+        : typeof source?.alt === "string"
+          ? "overridden"
+          : "inherited";
+    const hotspotInheritance: Inheritance =
+      galleryHotspot === undefined
+        ? "own"
+        : hotspot
+          ? "overridden"
+          : "inherited";
+    const shownHotspot = hotspot ?? galleryHotspot;
     return (
       <div id={path}>
         {missingModules.length > 0 && (
@@ -603,14 +638,14 @@ export function ImageField({
             name={fileName}
             detail={[
               fileDetail,
-              hotspot
-                ? `focal point ${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
+              shownHotspot
+                ? `focal point ${Math.round(shownHotspot.x * 100)}%, ${Math.round(shownHotspot.y * 100)}%`
                 : null,
             ]
               .filter(Boolean)
               .join(" · ")}
             mimeType={mimeType}
-            hotspot={hotspot}
+            hotspot={shownHotspot}
             onOpenPreview={url ? () => setPreviewOpen(true) : undefined}
             uploading={loading}
             progressPercentage={progressPercentage}
@@ -636,10 +671,24 @@ export function ImageField({
            * referenced module. It is not any more — a field's own `directory`
            * option sets it too — so the question is asked directly.
            */}
-          {source && !referencedModule && (
+          {/*
+           * A gallery-backed field shows its gallery's description, and can
+           * override it: the gallery holds the text an editor typed once for
+           * a file used in several places, and a page that needs to say
+           * something else about it says it here.
+           */}
+          {source && (
             <Section
               label="Description"
               hint="What the image shows, for people who cannot see it."
+              aside={
+                <InheritedNote
+                  inheritance={altInheritance}
+                  disabled={disabled || loading}
+                  onOverride={() => setAltText(galleryAlt ?? "")}
+                  onUseInherited={() => removeKey("alt")}
+                />
+              }
             >
               <span id={altPath} className="sr-only">
                 Description
@@ -652,8 +701,10 @@ export function ImageField({
                * normal error path rather than through a badge invented here.
                */}
               <Input
-                value={altText}
-                disabled={disabled || loading}
+                value={
+                  altInheritance === "inherited" ? (galleryAlt ?? "") : altText
+                }
+                disabled={disabled || loading || altInheritance === "inherited"}
                 onChange={(ev) => setAltText(ev.target.value)}
               />
             </Section>
@@ -662,23 +713,45 @@ export function ImageField({
             <Section
               label="Focal point"
               hint="Click or drag on the image to say what must stay in frame when the page crops it."
+              aside={
+                <InheritedNote
+                  inheritance={hotspotInheritance}
+                  disabled={disabled || loading}
+                  onOverride={() =>
+                    galleryHotspot &&
+                    addPatch(
+                      [
+                        {
+                          op: "add",
+                          path: patchPath.concat(["hotspot"]),
+                          value: galleryHotspot,
+                        },
+                      ],
+                      "object",
+                    )
+                  }
+                  onUseInherited={() => removeKey("hotspot")}
+                />
+              }
               collapsible
               summary={
-                hotspot
-                  ? `${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
+                shownHotspot
+                  ? `${Math.round(shownHotspot.x * 100)}%, ${Math.round(shownHotspot.y * 100)}%`
                   : "Not set"
               }
             >
               <FocalPointPicker
                 url={url}
                 checkerboard={mayBeTransparent(mimeType)}
-                hotspot={hotspot}
+                hotspot={shownHotspot}
                 alt={renderedAlt}
                 // Not while an upload is in flight, for the same reason as
                 // Remove: the upload writes its whole-image `replace` only
                 // once the bytes are up, so a focal point set in between is
                 // written first and then overwritten — it moves, then vanishes.
-                readonly={readonly || loading}
+                readonly={
+                  readonly || loading || hotspotInheritance === "inherited"
+                }
                 id={hotspotPath}
                 onChange={(hotspot) => {
                   addPatch(
@@ -783,7 +856,7 @@ export function ImageField({
                     mayBeTransparent(mimeType) && "val-checkerboard",
                   )}
                 />
-                {hotspot && <HotspotMarker hotspot={hotspot} />}
+                {shownHotspot && <HotspotMarker hotspot={shownHotspot} />}
               </div>
               <div className="flex min-w-0 items-baseline gap-2 border-t border-border-secondary px-4 py-2.5 pr-10">
                 <p className="truncate text-xs font-medium text-fg-primary">
@@ -792,8 +865,8 @@ export function ImageField({
                 <p className="shrink-0 text-[0.6875rem] text-fg-secondary-alt">
                   {[
                     fileDetail,
-                    hotspot
-                      ? `Focal point ${Math.round(hotspot.x * 100)}%, ${Math.round(hotspot.y * 100)}%`
+                    shownHotspot
+                      ? `Focal point ${Math.round(shownHotspot.x * 100)}%, ${Math.round(shownHotspot.y * 100)}%`
                       : null,
                   ]
                     .filter(Boolean)
@@ -823,6 +896,8 @@ type ImageMetadataLike = {
   height?: number;
   mimeType?: string;
   alt?: string;
+  /** The gallery's default focal point. */
+  hotspot?: { x: number; y: number };
 };
 
 /**
@@ -923,52 +998,21 @@ function metadataFrom(data: Json): ImageMetadataLike | undefined {
   if (typeof data !== "object" || data === null || isJsonArray(data)) {
     return undefined;
   }
-  const { width, height, mimeType, alt } = data;
+  const { width, height, mimeType, alt, hotspot } = data;
   return {
     width: typeof width === "number" ? width : undefined,
     height: typeof height === "number" ? height : undefined,
     mimeType: typeof mimeType === "string" ? mimeType : undefined,
     alt: typeof alt === "string" ? alt : undefined,
+    hotspot:
+      typeof hotspot === "object" &&
+      hotspot !== null &&
+      !isJsonArray(hotspot) &&
+      typeof hotspot.x === "number" &&
+      typeof hotspot.y === "number"
+        ? { x: hotspot.x, y: hotspot.y }
+        : undefined,
   };
-}
-
-export function getRemoteFilesError(
-  reason:
-    | "unknown-error"
-    | "project-not-configured"
-    | "api-key-missing"
-    | "pat-error"
-    | "error-could-not-get-settings"
-    | "no-internet-connection"
-    | "unauthorized-personal-access-token-error"
-    | "unauthorized",
-) {
-  switch (reason) {
-    case "api-key-missing":
-      // Not "production mode": every server that is not local dev answers this,
-      // and a PAT cannot substitute for it -- a PAT is read from a file in a
-      // working directory, which such a server does not have. Saying so stops
-      // the reader hunting for the directory to run `val login` in.
-      return "To upload remote files and images, this server needs the VAL_API_KEY env set. A personal access token cannot be used here: it is read from a file in a working directory, and this server has none. Contact a developer to fix this issue.";
-    case "error-could-not-get-settings":
-      return `Could not get settings from the Val remote server. This means that updating or changing certain types of files and images might not work. Check your internet connection and try again. (Error code: ${reason})`;
-    case "no-internet-connection":
-      return "Cannot upload remote files and images, since this requires an internet connection";
-    case "pat-error":
-      return "Val is running in development mode. To upload remote files and images, you must either login (by running `npx -p @valbuild/cli val login`) or set the VAL_API_KEY env";
-    case "project-not-configured":
-      return "Project is not configured. To upload remote files and images, the val.config must contain a project id that is obtained from https://admin.val.build. Contact a developer to fix this issue.";
-    case "unauthorized":
-      return "Cannot upload remote files and images since you are unauthorized";
-    case "unauthorized-personal-access-token-error":
-      return "Cannot upload remote files and images since the personal access token is unauthorized. Try to login again by running `npx -p @valbuild/cli val login`";
-    case "unknown-error":
-      return "Unknown error";
-    default: {
-      const exhaustiveCheck: never = reason;
-      return exhaustiveCheck;
-    }
-  }
 }
 
 /**

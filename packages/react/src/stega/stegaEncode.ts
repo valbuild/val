@@ -514,6 +514,14 @@ export function stegaEncode(
   },
 ): any {
   const viewModules = new Map<string, unknown>();
+  /**
+   * The published entries of the galleries the module's fields pick from, for
+   * when there is no draft source to fill a gallery-backed value from — every
+   * read outside draft mode. See `Internal.media.galleriesOf`.
+   */
+  const galleries = new Map<string, unknown>();
+  const getGallery = (modulePath: string): unknown =>
+    opts.getModule?.(modulePath) ?? galleries.get(modulePath);
   // Handed a view handle rather than a module: resolve it and encode what it
   // points at. This is what makes `useVal(page.header)` read the header.
   const resolved = Internal.viewHandleModule(input);
@@ -627,14 +635,14 @@ export function stegaEncode(
       typeof sourceOrSelector === "object"
     ) {
       // A set-backed video gets its mimeType, size and length from the set
-      // first: `Video` promises a `mimeType`, and the field has none.
-      const src = opts.getModule
-        ? Internal.media.fillFromGallery(
-            sourceOrSelector,
-            recOpts.schema,
-            opts.getModule,
-          )
-        : sourceOrSelector;
+      // first — `Video` promises a `mimeType`, and the field has none — and
+      // every choice it did not make itself: the set's poster, times,
+      // description, focal point and captions.
+      const src = Internal.media.fillFromGallery(
+        sourceOrSelector,
+        recOpts.schema,
+        getGallery,
+      );
       return Internal.resolveVideo(src, (video: GalleryVideoSource) =>
         rec(Internal.mediaUrl(video), recOpts),
       );
@@ -645,13 +653,11 @@ export function stegaEncode(
       sourceOrSelector &&
       typeof sourceOrSelector === "object"
     ) {
-      const src = opts.getModule
-        ? Internal.media.fillFromGallery(
-            sourceOrSelector,
-            recOpts.schema,
-            opts.getModule,
-          )
-        : sourceOrSelector;
+      const src = Internal.media.fillFromGallery(
+        sourceOrSelector,
+        recOpts.schema,
+        getGallery,
+      );
       // `url` carries the edit tag, so a click on an image reaches its field.
       // `path` must stay raw: it is what the URL was derived from.
       return {
@@ -674,6 +680,9 @@ export function stegaEncode(
         // its own module, and its parent's views must stay resolvable.
         for (const [path, valModule] of Internal.viewModulesOf(newSchema)) {
           viewModules.set(path, valModule);
+        }
+        for (const [path, entries] of Internal.media.galleriesOf(newSchema)) {
+          galleries.set(path, entries);
         }
         return rec(
           opts.getModule && opts.getModule(selectorPath) !== undefined

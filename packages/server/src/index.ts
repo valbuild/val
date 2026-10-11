@@ -28,6 +28,8 @@ export type {
   Returns,
 } from "./externalRecords";
 export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
+export { proposalFromEnv, proposalSnapshot } from "./proposal";
+export type { ValProposal } from "./proposal";
 // Exported for a host that has to build the same config the API router builds:
 // two copies of this decision drift, and a registry that thinks it is in fs mode
 // while the Studio thinks it is in proxy mode reads different content from the
@@ -39,6 +41,9 @@ export { initHandlerOptions, createValOps } from "./valServerConfig";
 // routes get — two copies of this would let the MCP endpoint decide it cannot
 // upload remotely while the Studio in the same process can.
 export { resolveRemoteFileAuth } from "./valServerConfig";
+// The Val app's refusal of a project whose media is not remote, for `val
+// publish` to give before a build goes out rather than after.
+export { APP_MODE_REQUIRES_REMOTE_FILES } from "./valServerConfig";
 export type {
   RemoteFileAuth,
   ResolveRemoteFileAuthResult,

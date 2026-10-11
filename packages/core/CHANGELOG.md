@@ -1,5 +1,138 @@
 # @valbuild/core
 
+## 0.143.0
+
+### Minor Changes
+
+- [#813](https://github.com/valbuild/val/pull/813) [`f7c25bd`](https://github.com/valbuild/val/commit/f7c25bd4b44c288db8e5ab914e6d8a72c0216ba5) Thanks [@freekh](https://github.com/freekh)! - New: `s.font(fontsVal)`, a field that picks a font from an `s.fontset()`.
+
+  ```ts
+  s.object({
+    headingFont: s.font(fontsVal),
+    title: s.string(),
+  });
+  ```
+
+  It stores `{ path }` like `s.file(fontsVal)` does, and refuses a module that is not a font set. In the Studio, a font field is shown among its object's other fields as a small row — the letter "A" set in the chosen font, and the font's file name. Click it to open the field, which shows every font in the set to pick from, an upload button, and a full specimen of the chosen font. This applies to `s.file()` fields that point at a font set too.
+
+- [#813](https://github.com/valbuild/val/pull/813) [`729c4ed`](https://github.com/valbuild/val/commit/729c4edfa28f5a2942c435ccf225e65858b080cc) Thanks [@freekh](https://github.com/freekh)! - New: `s.fontset()`, a collection of fonts.
+
+  ```ts
+  const fontsVal = c.define(
+    "/content/fonts.val.ts",
+    s.fontset({ dir: "/public/val/fonts" }),
+    {},
+  );
+  // a field that picks one of them
+  s.object({ headingFont: s.file(fontsVal) });
+  ```
+
+  It is an `s.fileset()` whose `accept` defaults to the web font formats (`font/woff2`, `font/woff`, `font/ttf`, `font/otf`); pass `accept: "font/woff2"` to allow only WOFF2. Fonts are not converted on upload.
+
+  The Studio now previews fonts set in themselves — in the gallery, in the picker of a field that points at a font set, and in the field — wherever a file is a font, including fonts in an ordinary `s.fileset()`.
+
+  Font uploads are typed from their bytes, so a font is stored as `font/woff2`, `font/ttf` and so on even when the browser reports no type for it. Files ending in `.ttf`, `.otf` and `.woff` now map to the `font/` types rather than the older `application/x-font-*` names, which are still accepted where they are already stored.
+
+## 0.141.0
+
+### Minor Changes
+
+- [#802](https://github.com/valbuild/val/pull/802) [`199e214`](https://github.com/valbuild/val/commit/199e21471d98806fb34c579cb876560078c928b9) Thanks [@freekh](https://github.com/freekh)! - New: `files: { remote: true }` in `val.config.ts` stores every image, file and video on Val's remote content host.
+
+  ```ts
+  const { s, c, val, config } = initVal({
+    project: "myorg/myproject",
+    files: { remote: true },
+  });
+  ```
+
+  With it, `s.image()`, `s.file()`, `s.video()`, `s.imageset()`, `s.fileset()`, `s.videoset()` and `s.richtext({ img: true })` behave as though `.remote()` had been written on them. Images already in the project are reported as `image:upload-remote` until they are uploaded; `npx val validate --fix` does that.
+
+  **Required in the Val app.** A project running there (`VAL_ENV=app`) refuses to start without it, with an error that says what to add, and `val publish` refuses before it builds.
+
+  **Breaking:** `files.directory` has been removed from `val.config.ts`. Local files that have no `dir` of their own are stored in `/public/val`, which was the default.
+
+- [#779](https://github.com/valbuild/val/pull/779) [`ba3f330`](https://github.com/valbuild/val/commit/ba3f3300a3dd8649e154097cdfca3b64db209d89) Thanks [@freekh](https://github.com/freekh)! - New: `s.video()`, for mp4/WebM files and HLS streams.
+
+  ```ts
+  const schema = s.object({
+    intro: s.video({ stream: { type: "hls" } }),
+  });
+  ```
+
+  - **Upload and play in the Studio.** A video field shows a player, the file's size and length, and progress while it uploads.
+  - **HLS streaming without a video service.** With `stream: { type: "hls" }`, the Studio converts an upload to an HLS stream in the editor's browser before it uploads it. It makes one H.264 rendition per height (1080p, 720p and 480p by default, and never larger than the upload) and stores them as a folder of files next to your other uploads. Nothing is installed in your app for this: the converter ships inside the Studio and is only downloaded when someone uploads to a streaming field. A browser that can't convert (no WebCodecs, or a non-https address) uploads the original file and says so.
+  - **Poster:** pause on a frame and choose "Use current frame". The frame is saved as an image, and `posterTime` records where it was taken.
+  - **Start and end:** play part of a video without cutting the file.
+  - **Focal point:** marks what must stay in frame when the page crops the video.
+  - **Description:** text for people who can't see the video.
+  - **Captions:** one WebVTT file per language. `.srt` files are converted on upload.
+  - **`<ValVideo>`** in `@valbuild/next` and `@valbuild/tanstack` renders all of the above and is click-to-edit. For HLS in browsers that can't play it natively, pass `hls={() => import("hls.js")}`. It is only loaded when it's needed.
+  - **Rename** a video in the Studio. An HLS stream is renamed as a whole: every playlist and segment moves to the new folder.
+  - `npx val validate --fix` fills in `mimeType`, `width`, `height` and `duration` for a hand-written `.mp4`, `.mov`, `.webm`, `.mkv` or HLS video, on disk or on Val Remote. A remote video is not downloaded: only its headers are read, usually in one to three small requests.
+  - `.remote()` works for videos. `npx val validate --fix` moves a video to Val Remote, or back into the project, together with its poster, captions and every file of an HLS stream.
+
+  A video value always has a `mimeType`: it is how a page knows whether it has an `.mp4` or an `.m3u8`.
+
+  New: `s.videoset()`, a collection of videos, like `s.imageset()` for images.
+
+  ```ts
+  const videosVal = c.define(
+    "/content/videos.val.ts",
+    s.videoset({ dir: "/public/val/videos", stream: { type: "hls" } }),
+    {},
+  );
+  const schema = s.object({ intro: s.video(videosVal) });
+  ```
+
+  - **Upload once, set it up once, use anywhere.** A set's entry holds what is true of the file (its type, size and length) and, as defaults, a description, poster, start and end, focal point and captions. A field that picks from the set (`s.video(videosVal)`) gets all of those, and can override any of them on its own. For example, the same clip can open one page at 0:02 and every other page where the set says.
+  - **Media in the Studio.** A set is listed under Media and opens as a gallery of videos, with each video's poster as its thumbnail. Hovering a video previews it, and the selected video plays in a real player (HLS streams too) beside the poster, times, focal point and captions you edit for it. You can upload into the set (with `stream`, uploads become HLS streams, and each upload gets a poster), rename a video, and delete a video that nothing uses. Renaming a video updates every field that uses it. An HLS stream is one entry, and renaming or deleting it moves or removes all of its files.
+  - **Picking.** A set-backed field picks from the set, or uploads into it. Each value the set provides is marked "From gallery · Override", and once overridden, "Overridden · Use gallery's".
+  - `useVal` and `fetchVal` fill in what the set holds (`mimeType`, `width`, `height`, `duration`, and every default the field does not override), so `<ValVideo>` works the same either way.
+  - `.remote()` works for sets. `npx val validate --fix` fills in missing metadata for an entry, adds untracked videos found in the set's directory, and moves a set's videos to Val Remote.
+
+  Image and file galleries use the same new gallery layout: a grid or list of entries, with the selected one open in a panel beside it.
+
+  - An `s.imageset()` entry can hold a default focal point, as well as its description. An `s.image(galleryVal)` field shows both, and can override either.
+  - Fixed: outside draft mode, `useVal` and `fetchVal` now fill a gallery-backed image or file from its gallery (dimensions, mime type, description). Before, a published page got only the `path`.
+
+## 0.139.1
+
+### Patch Changes
+
+- [#780](https://github.com/valbuild/val/pull/780) [`db13bed`](https://github.com/valbuild/val/commit/db13bed902f9f9147feb5be07ce47fe8b5b143f9) Thanks [@freekh](https://github.com/freekh)! - When a new version of your site with a changed schema is deployed while Val Studio is open, the Studio now asks you to reload before you keep editing, instead of carrying on with the old schema.
+
+## 0.139.0
+
+### Minor Changes
+
+- [#776](https://github.com/valbuild/val/pull/776) [`3eb5031`](https://github.com/valbuild/val/commit/3eb503167ae466ee586303c95efcc14665129481) Thanks [@freekh](https://github.com/freekh)! - **Breaking:** `.render({ as: "inline" })` now goes on the list, not on its items.
+
+  You now write `s.array(item).render({ as: "inline" })` and `s.record(item).render({ as: "inline" })`. Each item is then edited in its own row instead of in a preview row you click into. The list decides. The item schema stays reusable, and a page builder made of tagged blocks needs nothing on each block:
+
+  ```ts
+  // before
+  s.array(
+    s.discriminatedUnion(
+      "type",
+      hero.render({ as: "inline" }),
+      text.render({ as: "inline" }),
+    ),
+  );
+
+  // after
+  s.array(s.discriminatedUnion("type", hero, text)).render({ as: "inline" });
+  ```
+
+  What changed:
+
+  - Only `s.array()`, `s.record()` and `s.keyOf()` have `.render(...)` now. On every other schema the method is gone, so the old placement shows up as a type error. Move the render out one level.
+  - The render only affects the list's own items. A list nested inside one of those items keeps its default unless it has its own `.render`.
+  - `s.router()`, `s.imageset()` and `s.fileset()` throw if you give them a render, because pages and media have their own editors.
+  - `s.keyOf(...).render({ as: "inline" })` means the same as before: the selected entry's content is shown below the dropdown.
+
+  **Watch for one case that still compiles:** an array or record that is itself the item of another list. `s.record(s.array(s.string()).render({ as: "inline" }))` used to show the record's arrays inline. Now it shows each array's strings inline. To keep the old layout, write `s.record(s.array(s.string())).render({ as: "inline" })`.
+
 ## 0.138.2
 
 ### Patch Changes

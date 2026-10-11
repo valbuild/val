@@ -367,7 +367,7 @@ function AddArrayButton({
         );
         // An inline item is edited in place in the list, so adding one should
         // not navigate away from it. Everything else opens as its own page.
-        if (!isInlineRender(schema.item)) {
+        if (!isInlineRender(schema)) {
           navigate(
             Internal.joinModuleFilePathAndModulePath(
               moduleFilePath,

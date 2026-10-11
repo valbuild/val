@@ -3,28 +3,27 @@ import { c, nextAppRouter, s } from "_/val.config";
 const genericPageSchema = s.object({
   title: s.string(),
   url: s.route(),
-  sections: s.array(
-    s.discriminatedUnion(
-      "type",
-      s
-        .object({
+  sections: s
+    .array(
+      s.discriminatedUnion(
+        "type",
+        s.object({
           type: s.literal("text"),
           text: s.richtext(),
-        })
-        .render({ as: "inline" }),
-      s
-        .object({
-          type: s.literal("code"),
-          code: s.code({ language: "typescript" }),
-        })
-        .render({ as: "inline" })
-        // Both, on purpose: the render decides that the block is EDITED in the
-        // list row, the preview decides what it is CALLED everywhere it is only
-        // referred to — a search hit, a reference, this row's own collapsed
-        // header. See architecture/render-and-preview.md.
-        .preview(({ val }) => ({ title: val.code })),
-    ),
-  ),
+        }),
+        s
+          .object({
+            type: s.literal("code"),
+            code: s.code({ language: "typescript" }),
+          })
+          // Both, on purpose: the list's render decides that each block is
+          // EDITED in its row, the preview decides what it is CALLED everywhere
+          // it is only referred to — a search hit, a reference, this row's own
+          // collapsed header. See architecture/render-and-preview.md.
+          .preview(({ val }) => ({ title: val.code })),
+      ),
+    )
+    .render({ as: "inline" }),
 });
 
 export default c.define(

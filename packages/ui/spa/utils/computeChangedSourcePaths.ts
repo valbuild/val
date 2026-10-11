@@ -89,7 +89,7 @@ function determineChangeType(patchSet: PatchSetMetadata): ChangeType | null {
   return "field-change";
 }
 
-function makeSourcePath(
+export function makeSourcePath(
   moduleFilePath: ModuleFilePath,
   patchPath: string[],
 ): SourcePath {
@@ -129,7 +129,7 @@ function buildPatchesByAuthorIds(
   return result;
 }
 
-function insertIntoTree(
+export function insertIntoTree(
   root: ChangeTreeNode,
   moduleFilePath: ModuleFilePath,
   patchPath: string[],

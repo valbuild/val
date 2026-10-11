@@ -59,6 +59,88 @@ test("the page plays a set-backed video, with what the set knows about it", asyn
   );
 });
 
+test("the page takes the set's defaults where the field has none of its own", async ({
+  page,
+}) => {
+  await page.goto("/showcase");
+  const video = page.getByTestId("video-from-set");
+  // The field's own description wins…
+  await expect(video).toHaveAttribute(
+    "aria-label",
+    "The test pattern, from 0:01",
+  );
+  // …and the poster and the captions are the set entry's.
+  await expect(video).toHaveAttribute(
+    "poster",
+    /\/val\/videoset\/intro-poster_a627f\.webp/,
+  );
+  await expect(video.locator("track")).toHaveAttribute(
+    "src",
+    /\/val\/videoset\/intro-en_150f1\.vtt/,
+  );
+});
+
+test("a field overrides one of the set's defaults, and goes back to it", async ({
+  page,
+  request,
+}) => {
+  await openStudio(page, `/val/~${PAGE}?p=%22fromSet%22`);
+  const studio = page.locator("#val-shadow-root");
+  const poster = studio.locator("section").filter({
+    has: page.getByRole("heading", { name: "Poster", exact: true }),
+  });
+  await expect(poster.getByText("From gallery")).toBeVisible({
+    timeout: 30_000,
+  });
+  await poster.getByRole("button", { name: "Override" }).click();
+  // The set's poster, now the field's own: the pair, never half of it.
+  await expect
+    .poll(() => fromSet(request), { timeout: 30_000 })
+    .toMatchObject({
+      poster: { path: "/public/val/videoset/intro-poster_a627f.webp" },
+      posterTime: 1,
+    });
+
+  await poster.getByRole("button", { name: "Use gallery's" }).click();
+  await expect
+    .poll(() => fromSet(request), { timeout: 30_000 })
+    .not.toHaveProperty("poster");
+  expect(await fromSet(request)).not.toHaveProperty("posterTime");
+});
+
+test("the gallery edits an entry's defaults, with the video playing beside them", async ({
+  page,
+  request,
+}) => {
+  const key = "/public/val/videoset/intro_51df2.mp4";
+  await openStudio(
+    page,
+    `/val/~${SET}?p=${encodeURIComponent(JSON.stringify(key))}`,
+  );
+  const studio = page.locator("#val-shadow-root");
+  const panel = studio.getByRole("complementary", {
+    name: "intro_51df2.mp4 details",
+  });
+  await expect(panel.locator("video")).toBeVisible({ timeout: 30_000 });
+  await expect(
+    panel.getByRole("heading", { name: "Captions", exact: true }),
+  ).toBeVisible();
+  await panel
+    .getByPlaceholder("What happens in the video...")
+    .fill("The test pattern, for every page");
+  await expect
+    .poll(
+      async () => {
+        const entry = await serverField(request, SET, key);
+        return typeof entry === "object" && entry !== null
+          ? Reflect.get(entry, "alt")
+          : undefined;
+      },
+      { timeout: 30_000 },
+    )
+    .toBe("The test pattern, for every page");
+});
+
 test("the set is listed under Media and opens as a gallery of videos", async ({
   page,
 }) => {
@@ -166,6 +248,45 @@ test("an upload in a set-backed field goes into the set, and the field names it"
   await expect(studio.getByText(/^320×180 · /)).toBeVisible({
     timeout: 30_000,
   });
+});
+
+test("the gallery fills the window: the page does not scroll, the panel does", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const key = "/public/val/videoset/intro_51df2.mp4";
+  await openStudio(
+    page,
+    `/val/~${SET}?p=${encodeURIComponent(JSON.stringify(key))}`,
+  );
+  const studio = page.locator("#val-shadow-root");
+  const panel = studio.getByRole("complementary", {
+    name: "intro_51df2.mp4 details",
+  });
+  // Rendered in full: the references list is what used to scroll things.
+  await expect(panel.getByText("Used in")).toBeVisible({ timeout: 30_000 });
+  await expect(panel.getByRole("button", { name: /fromSet/ })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const area = document
+          .getElementById("val-shadow-root")
+          ?.shadowRoot?.getElementById("val-content-area");
+        return area ? area.scrollHeight - area.clientHeight : null;
+      }),
+    )
+    .toBe(0);
+  // The panel's own content is longer than the panel, and opens at its top.
+  const scrolling = await panel.evaluate((aside) => {
+    const body = aside.querySelector(":scope > .overflow-y-auto");
+    return body
+      ? {
+          top: body.scrollTop,
+          overflows: body.scrollHeight > body.clientHeight,
+        }
+      : null;
+  });
+  expect(scrolling).toEqual({ top: 0, overflows: true });
 });
 
 test.describe("renaming a video of the set", () => {

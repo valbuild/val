@@ -1,5 +1,5 @@
 import { ChevronRight } from "lucide-react";
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import {
   Command,
@@ -243,24 +243,7 @@ function ReferenceRowView({
   /** Absent in the pure component, which is fed by stories and tests. */
   description?: Description;
 }) {
-  const hasPatchPath = item.patchPath.length > 0;
-  const moduleFilePathLabel = prettifyModuleFilePath(item.moduleFilePath);
-  const pathLabel = hasPatchPath ? (
-    <ReferenceLabel
-      patchPath={item.patchPath}
-      isRouter={item.isRouter ?? false}
-    />
-  ) : (
-    moduleFilePathLabel
-  );
-  // A name only when someone wrote one: a `describePath` fallback here would be
-  // the path a second time, on two lines. The pure component gets its preview
-  // put on the item by its caller instead.
-  const name =
-    description?.origin.title === "preview"
-      ? description.title
-      : item.preview?.title;
-  const named = name !== undefined && name !== "";
+  const { name, named, pathLabel } = rowLabelsOf(item, description);
   return (
     <CommandItem
       /*
@@ -293,6 +276,115 @@ function ReferenceRowView({
         imageSize="sm"
       />
     </CommandItem>
+  );
+}
+
+/** What a reference row says: the value's name if it has one, and its path. */
+function rowLabelsOf(
+  item: ReferencesListItem,
+  description: Description | undefined,
+): { name: string | undefined; named: boolean; pathLabel: ReactNode } {
+  const hasPatchPath = item.patchPath.length > 0;
+  const pathLabel = hasPatchPath ? (
+    <ReferenceLabel
+      patchPath={item.patchPath}
+      isRouter={item.isRouter ?? false}
+    />
+  ) : (
+    prettifyModuleFilePath(item.moduleFilePath)
+  );
+  // A name only when someone wrote one: a `describePath` fallback here would be
+  // the path a second time, on two lines. The pure component gets its preview
+  // put on the item by its caller instead.
+  const name =
+    description?.origin.title === "preview"
+      ? description.title
+      : item.preview?.title;
+  return { name, named: name !== undefined && name !== "", pathLabel };
+}
+
+/**
+ * The places a value is used, as plain links — for where the list is part of
+ * a page rather than a menu of its own.
+ *
+ * Not {@link ConnectedReferencesList}: that is a `cmdk` menu, which highlights
+ * its first row on mount and `scrollIntoView`s it — and `scrollIntoView`
+ * scrolls every scrollable ancestor, so a list sitting in a panel dragged the
+ * panel (and before that the whole page) down to itself the moment it
+ * rendered. A list this short has nothing to filter anyway.
+ */
+export function ConnectedReferenceLinks({
+  refs,
+  currentPath,
+  onSelect,
+}: Omit<ConnectedReferencesListProps, "searchPlaceholder">) {
+  const schemasRes = useSchemas();
+  const schemas = schemasRes.status === "success" ? schemasRes.data : undefined;
+  const allSources = useAllSources();
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {refs.map((ref) => {
+        const item = buildBaseItem(ref);
+        const schema = schemas?.[item.moduleFilePath];
+        return (
+          <li key={ref}>
+            <ReferenceLink
+              item={{
+                ...item,
+                isRouter: schema?.type === "record" && Boolean(schema.router),
+              }}
+              isCurrent={currentPath === ref}
+              onSelect={() =>
+                onSelect(getNavPathFromAll(ref, allSources, schemas) ?? ref, {
+                  scrollToPath: ref,
+                })
+              }
+            />
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function ReferenceLink({
+  item,
+  isCurrent,
+  onSelect,
+}: {
+  item: ReferencesListItem;
+  isCurrent: boolean;
+  onSelect: () => void;
+}) {
+  const description = useDescription(item.path);
+  const { name, named, pathLabel } = rowLabelsOf(item, description);
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      title={item.path}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[0.8125rem] hover:bg-bg-secondary",
+        isCurrent
+          ? "border-border-brand-primary bg-bg-float-raised"
+          : "border-border-float",
+      )}
+    >
+      <DropdownPreviewRow
+        title={named ? name : pathLabel}
+        subtitle={
+          named ? (
+            pathLabel
+          ) : (
+            <span className="text-fg-secondary-alt">
+              {prettifyModuleFilePath(item.moduleFilePath)}
+            </span>
+          )
+        }
+        image={description?.image ?? item.preview?.image ?? null}
+        imageSize="sm"
+      />
+    </button>
   );
 }
 

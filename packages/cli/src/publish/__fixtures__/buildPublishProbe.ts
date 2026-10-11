@@ -69,7 +69,7 @@ export const Route = createFileRoute("/build/")({
 `,
   "src/styles.css": `h1 { color: rebeccapurple; }\n`,
   // A Val project, so the publish wires it -- and wires it at a branch.
-  "val.config.ts": `export const config = { project: "acme/site" };\n`,
+  "val.config.ts": `export const config = { project: "acme/site", files: { remote: true } };\n`,
   "val.modules.ts": `export default { modules: [] };\n`,
   "public/robots.txt": "User-agent: *\n",
 };

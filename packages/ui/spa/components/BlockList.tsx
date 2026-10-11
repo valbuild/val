@@ -64,14 +64,14 @@ import { LocaleFiltered } from "./LocaleFilterProvider";
  * A rebuilt sortable list for arrays, dense enough that a page-builder tree —
  * lists of inline objects nested three levels deep — fits on a laptop screen.
  *
- * `ArrayFields` renders this whenever the list's ITEM schema is inline (see
- * `isInlineRender`) and `SortableList` otherwise, so a list of preview rows is
- * untouched by any of this.
+ * `ArrayFields` renders this whenever the list declares
+ * `.render({ as: "inline" })` (see `isInlineRender`) and `SortableList`
+ * otherwise, so a list of preview rows is untouched by any of this.
  *
  * What it does differently from `SortableList`:
- * - An item whose schema declares `.render({ as: "inline" })` is EDITED IN
- *   PLACE inside its (sortable) row; anything else stays a clickable preview
- *   row. The decision reads straight off the serialized item schema.
+ * - Each item is EDITED IN PLACE inside its (sortable) row, because the list
+ *   said so. The decision reads straight off the serialized ARRAY schema —
+ *   the item has no say.
  * - Object items get a compact header (grip, index, summary, collapse) and lay
  *   their fields out tightly; nested inline lists recurse with a thin
  *   indentation rail instead of another card-in-card.
@@ -203,6 +203,7 @@ export function BlockList({
         index={index}
         path={item.path}
         itemSchema={schema.item}
+        isInline={isInlineRender(schema)}
         depth={depth}
         readonly={readonly}
         onNavigate={(p) => navigate(p)}
@@ -304,6 +305,7 @@ function BlockRow({
   index,
   path,
   itemSchema,
+  isInline,
   depth,
   readonly,
   onNavigate,
@@ -314,6 +316,8 @@ function BlockRow({
   index: number;
   path: SourcePath;
   itemSchema: SerializedSchema;
+  /** The LIST's render, not the item's: see `isInlineRender`. */
+  isInline: boolean;
   depth: number;
   readonly?: boolean;
   onNavigate: (path: SourcePath) => void;
@@ -325,7 +329,6 @@ function BlockRow({
   const [collapsed, setCollapsed] = useState(false);
   const validationErrors = useValidationErrors(path);
   const style = { transform: CSS.Transform.toString(transform), transition };
-  const isInline = isInlineRender(itemSchema);
   // An inline object gets a header row (index, summary, collapse) above its
   // fields; an inline leaf is a single line with the editor in it.
   //
@@ -543,7 +546,7 @@ function InlineObjectBody({
         const fieldPath = sourcePathOfItem(path, key);
         const fieldReadonly =
           readonly === true || fieldSchema.readonly === true;
-        if (fieldSchema.type === "array" && isInlineRender(fieldSchema.item)) {
+        if (fieldSchema.type === "array" && isInlineRender(fieldSchema)) {
           const hidden = hiddenLists[key] === true;
           return (
             <div key={key} className="flex flex-col gap-1">

@@ -1,11 +1,10 @@
 /** @jest-environment jsdom */
 import { render, screen } from "@testing-library/react";
-import {
-  DEPLOYMENTS_AUTO_CLOSE_MS,
-  DeploymentRows,
-  DeploymentsStatus,
-} from "./Deployments";
+import { DeploymentRows, DeploymentsStatus } from "./Deployments";
 import { ShellDeployment } from "./types";
+import { TooltipProvider } from "../designSystem/tooltip";
+import { StatusBar } from "./StatusBar";
+import type { PublishIndicator } from "../../publish/publishIndicatorView";
 
 /**
  * The rows of the deploy feed, which are a feed and not an inbox.
@@ -89,52 +88,94 @@ describe("a managed project's row", () => {
 });
 
 /**
- * The list the status bar opened closes itself once everything is live, and
- * reads "live" by the same rule as the summary beside it. A managed row the
- * site does not serve was superseded, so it does not hold the list open.
+ * The status bar item is the publish indicator: it spins while the site is on
+ * its way to what was published, and says so in one of three words.
  */
-describe("the deploy list's auto-close", () => {
-  test("a managed project's superseded row does not hold it open", () => {
-    jest.useFakeTimers();
-    try {
-      const onOpenChange = jest.fn();
-      render(
+describe("the publish indicator", () => {
+  test("spins while every visitor has yet to get the change", () => {
+    render(
+      <TooltipProvider>
         <DeploymentsStatus
-          deployments={[
-            deployment({ commitSha: "new" }),
-            deployment({ commitSha: "old", state: "pending", isLive: false }),
-          ]}
-          open
-          onOpenChange={onOpenChange}
-          autoClose
+          deployments={[deployment({ commitSha: "new" })]}
+          open={false}
+          onOpenChange={jest.fn()}
+          indicator={{ kind: "reaching", mine: true, everywhereAt: 0 }}
           studioIsDeployer
-        />,
-      );
-      jest.advanceTimersByTime(DEPLOYMENTS_AUTO_CLOSE_MS);
-      expect(onOpenChange).toHaveBeenCalledWith(false);
-    } finally {
-      jest.useRealTimers();
-    }
+        />
+      </TooltipProvider>,
+    );
+    expect(
+      screen.queryByRole("button", {
+        name: /^Deployments: Reaching visitors \d+%$/,
+      }),
+    ).not.toBeNull();
+    const progress = screen.getByRole("progressbar", {
+      name: "Reaching visitors",
+    });
+    expect(Number(progress.getAttribute("aria-valuenow"))).toBeGreaterThan(87);
   });
 
-  test("a connected project's build in progress does", () => {
-    jest.useFakeTimers();
-    try {
-      const onOpenChange = jest.fn();
-      render(
+  test("rests at Live, without one, by the feed's own summary", () => {
+    render(
+      <TooltipProvider>
         <DeploymentsStatus
-          deployments={[
-            deployment({ commitSha: "new", state: "pending", isLive: false }),
-          ]}
-          open
-          onOpenChange={onOpenChange}
-          autoClose
-        />,
-      );
-      jest.advanceTimersByTime(DEPLOYMENTS_AUTO_CLOSE_MS);
-      expect(onOpenChange).not.toHaveBeenCalled();
-    } finally {
-      jest.useRealTimers();
-    }
+          deployments={[deployment({ commitSha: "new" })]}
+          open={false}
+          onOpenChange={jest.fn()}
+        />
+      </TooltipProvider>,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Deployments: Live" }),
+    ).not.toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+});
+
+/**
+ * A project with no deploy feed still sees its own publish: the indicator
+ * shows while something is under way or failed, and stays out of the way
+ * otherwise.
+ */
+describe("the status bar with no deploy feed", () => {
+  const bar = (indicator: PublishIndicator) => (
+    <TooltipProvider>
+      <StatusBar
+        breakpoint="desktop"
+        saveState="saved"
+        mode="http"
+        autoSave={false}
+        onAutoSaveChange={jest.fn()}
+        publishIndicator={indicator}
+      />
+    </TooltipProvider>
+  );
+
+  test("shows a publish under way", () => {
+    render(
+      bar({ kind: "publishing", mine: true, step: "Building", percent: 12 }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Deployments: Publishing 12%" }),
+    ).not.toBeNull();
+    expect(
+      screen
+        .getByRole("progressbar", { name: "Publishing" })
+        .getAttribute("aria-valuenow"),
+    ).toBe("12");
+  });
+
+  test("another editor's publish is an indeterminate progressbar", () => {
+    render(bar({ kind: "publishing", mine: false, step: null, percent: null }));
+    expect(
+      screen
+        .getByRole("progressbar", { name: "Publishing" })
+        .hasAttribute("aria-valuenow"),
+    ).toBe(false);
+  });
+
+  test("shows nothing at rest", () => {
+    render(bar({ kind: "none" }));
+    expect(screen.queryByRole("button", { name: /^Deployments:/ })).toBeNull();
   });
 });

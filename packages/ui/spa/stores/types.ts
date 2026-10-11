@@ -8,6 +8,7 @@ import type {
 } from "@valbuild/core";
 import type { ParentRef, Patch } from "@valbuild/core/patch";
 import type { SyncState } from "./PatchSync";
+import type { PatchGroupT } from "@valbuild/shared/internal";
 
 /**
  * A patch as it exists once its data is known: the ops plus the module they
@@ -230,6 +231,12 @@ export type SystemEvent =
       path: SourcePath;
       moduleFilePath: ModuleFilePath;
     }
+  /**
+   * `/stat` named a schema other than the last one it named. On RECEIVE, not
+   * adoption: a stat held back while another build's base is fetched still
+   * says which schema that build runs. See `SchemaFreshnessWatch`.
+   */
+  | { type: "stat:schema"; schemaSha: string }
   /** `/stat` announced the ordered patch-id list. Data not fetched yet. */
   | {
       type: "stat:receive";
@@ -242,6 +249,13 @@ export type SystemEvent =
        * un-apply every record on the next stat. See `PatchStore.receiveApplied`.
        */
       appliedPatches?: PatchId[];
+      /**
+       * Who holds what, read with `patches`. See `StatSnapshot.patchGroups`.
+       * Absent where the server does not say.
+       */
+      patchGroups?: PatchGroupT[];
+      /** The chain version all of the above was read at, where reported. */
+      headVersion?: number;
     }
   /** Patch *data* has arrived for these ids and is now readable. */
   | { type: "patch:receive"; patches: PatchId[] }

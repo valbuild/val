@@ -38,6 +38,7 @@ import {
 import { TSOps, insertValJsonEntry, removeValJsonEntry } from "./patch/ts/ops";
 import { analyzeValModule } from "./patch/ts/valModule";
 import type { HistoryError } from "./history/HistoryError";
+import type { PatchGroupT } from "@valbuild/shared/internal";
 import type {
   AffectedFile,
   StoredModuleVersion,
@@ -57,6 +58,7 @@ import {
   findNestedJsonValuesRecords,
   getNewJsonEntryPaths,
   isJsonValuesRootOp,
+  wholeEntryKey,
   rebaseContentOp,
   resolveExistingJsonPath,
   type CurrentJsonEntries,
@@ -149,6 +151,14 @@ export type ValOpsOptions = {
   disableFilePolling?: boolean;
   disableFileWatcher?: boolean;
   config: ValConfig;
+  /**
+   * Source that replaces what the modules evaluate to, for the modules it
+   * names: a proposal's saves (`ValProposal` in `./proposal`), the third
+   * source provider beside committed and draft. Applied once, as the modules
+   * are first read, so every read after it -- the tree, validation, previews,
+   * the next save's prepare -- starts from it, and the SHAs describe it.
+   */
+  snapshotSources?: Sources;
 };
 // #region ValOps
 export abstract class ValOps {
@@ -181,6 +191,12 @@ export abstract class ValOps {
    * hash. Re-folding with the wrong list changes the base SHA for no reason.
    */
   private shaModuleErrors: ExtractedModuleError[] | null;
+  /**
+   * The SITE's Source for the modules a proposal's snapshot replaced: what the
+   * bundle evaluated to before the snapshot went over it. Kept for
+   * {@link siteSourcesUnderSnapshot}, and only where there is a snapshot.
+   */
+  private siteSourcesBeforeSnapshot: Sources | null = null;
   /**
    * What a save has told us each `.jsonValues()` entry now holds.
    *
@@ -316,12 +332,31 @@ export abstract class ValOps {
       this.modulesErrors = moduleErrors;
       this.shaEntries = extracted.shaEntries;
       this.shaModuleErrors = extracted.moduleErrors;
+      /*
+       * The snapshot, over what the modules evaluated to. Through the same
+       * door a save uses, so the SHAs move with it: they describe the Source
+       * being served, and a base SHA that still described the bundle would
+       * say the snapshot's content was the bundle's.
+       */
+      if (this.options?.snapshotSources) {
+        const site: Sources = {};
+        for (const moduleFilePath of Object.keys(
+          this.options.snapshotSources,
+        )) {
+          const source = extracted.sources[moduleFilePath as ModuleFilePath];
+          if (source !== undefined) {
+            site[moduleFilePath as ModuleFilePath] = source;
+          }
+        }
+        this.siteSourcesBeforeSnapshot = site;
+        this.promoteCommittedSources(this.options.snapshotSources);
+      }
       return {
         baseSha: this.baseSha,
         schemaSha: this.schemaSha,
         sourcesSha: this.sourcesSha,
         configSha: this.configSha,
-        sources: extracted.sources,
+        sources: this.sources,
         schemas: extracted.schemas,
         moduleErrors,
       };
@@ -335,6 +370,18 @@ export abstract class ValOps {
       schemas: this.schemas,
       moduleErrors: this.modulesErrors,
     };
+  }
+
+  /**
+   * In a proposal: the SITE's Source for every module the proposal has saved,
+   * as the build it is based on evaluated it -- what the proposal is compared
+   * against, and what merging it changes. Every other module is the same in
+   * both, so it is not sent. `null` anywhere that is not a proposal.
+   */
+  async siteSourcesUnderSnapshot(): Promise<Sources | null> {
+    if (!this.options?.snapshotSources) return null;
+    await this.initSources();
+    return this.siteSourcesBeforeSnapshot;
   }
 
   /**
@@ -646,6 +693,7 @@ export abstract class ValOps {
         patchOps.patches,
         moduleFilePath,
         opts?.patchIds,
+        patchOps.commits,
       ).map((p) => ({ patchId: p.patchId, patch: p.patch }));
       try {
         serializedSchema = schemas[moduleFilePath]?.["executeSerialize"]();
@@ -665,62 +713,87 @@ export abstract class ValOps {
           inline?: true;
         }
       | { entryKey: string; message: string };
-    const resolved = await Promise.all(
-      requestedKeys.map(async (entryKey): Promise<ResolvedEntry> => {
-        const marker = record[entryKey];
-        if (marker !== undefined && !Internal.isJson(marker)) {
-          // Not a jsonValues entry — return the inlined value as-is (defensive).
-          // `inline` skips patch replay: entry patches are expressed against a
-          // jsonValues entry, and this value is part of the module source proper.
-          return { entryKey, baseContent: marker as JSONValue, inline: true };
+    /*
+     * The entries a whole-entry `move` or `copy` reads from. A renamed or
+     * duplicated entry's content is theirs, so they are loaded beside the
+     * ones asked for, and not reported.
+     */
+    const sourceKeys = new Set<string>();
+    for (const { patch } of modulePatches) {
+      for (const op of patch) {
+        if (op.op === "move" || op.op === "copy") {
+          const fromKey = wholeEntryKey(serializedSchema, op.from);
+          if (fromKey !== undefined && !requestedKeys.includes(fromKey)) {
+            sourceKeys.add(fromKey);
+          }
         }
-        if (marker === undefined) {
-          return { entryKey, baseContent: undefined };
-        }
-        /**
-         * What a save told us this entry holds, ahead of the thunk.
-         *
-         * The thunk resolves from the module registry, so after `/save` rewrites
-         * a `*.val.json` it keeps answering with the content from before — and
-         * there is nothing to re-extract, because the committed content was
-         * never in the memoised source to begin with. See
-         * {@link adoptedJsonEntries}.
-         *
-         * `null` means the commit deleted the entry, which is reported the same
-         * way an absent key is. (Nearly unreachable — a `remove` also drops the
-         * thunk from the `.val.ts`, so the key is gone from `record` once the
-         * source is adopted — but the map says it, so this says it too.)
-         *
-         * The BASELINE only. Pending patches replay over it below exactly as
-         * they do over the thunk's answer.
-         */
-        const adopted = this.adoptedJsonEntries.get(moduleFilePath);
-        if (adopted !== undefined && adopted.has(entryKey)) {
-          const content = adopted.get(entryKey);
-          return {
-            entryKey,
-            baseContent: content === null ? undefined : content,
-          };
-        }
-        const thunk = Internal.getJsonImport(marker);
-        if (!thunk) {
-          return { entryKey, baseContent: null };
-        }
-        try {
-          return {
-            entryKey,
-            baseContent: ((await thunk()).default ?? null) as JSONValue,
-          };
-        } catch (e) {
-          return {
-            entryKey,
-            message: `Failed to load JSON entry '${entryKey}': ${
-              e instanceof Error ? e.message : String(e)
-            }`,
-          };
-        }
-      }),
+      }
+    }
+    const loaded = await Promise.all(
+      [...requestedKeys, ...sourceKeys].map(
+        async (entryKey): Promise<ResolvedEntry> => {
+          const marker = record[entryKey];
+          if (marker !== undefined && !Internal.isJson(marker)) {
+            // Not a jsonValues entry — return the inlined value as-is (defensive).
+            // `inline` skips patch replay: entry patches are expressed against a
+            // jsonValues entry, and this value is part of the module source proper.
+            return { entryKey, baseContent: marker as JSONValue, inline: true };
+          }
+          if (marker === undefined) {
+            return { entryKey, baseContent: undefined };
+          }
+          /**
+           * What a save told us this entry holds, ahead of the thunk.
+           *
+           * The thunk resolves from the module registry, so after `/save` rewrites
+           * a `*.val.json` it keeps answering with the content from before — and
+           * there is nothing to re-extract, because the committed content was
+           * never in the memoised source to begin with. See
+           * {@link adoptedJsonEntries}.
+           *
+           * `null` means the commit deleted the entry, which is reported the same
+           * way an absent key is. (Nearly unreachable — a `remove` also drops the
+           * thunk from the `.val.ts`, so the key is gone from `record` once the
+           * source is adopted — but the map says it, so this says it too.)
+           *
+           * The BASELINE only. Pending patches replay over it below exactly as
+           * they do over the thunk's answer.
+           */
+          const adopted = this.adoptedJsonEntries.get(moduleFilePath);
+          if (adopted !== undefined && adopted.has(entryKey)) {
+            const content = adopted.get(entryKey);
+            return {
+              entryKey,
+              baseContent: content === null ? undefined : content,
+            };
+          }
+          const thunk = Internal.getJsonImport(marker);
+          if (!thunk) {
+            return { entryKey, baseContent: null };
+          }
+          try {
+            return {
+              entryKey,
+              baseContent: ((await thunk()).default ?? null) as JSONValue,
+            };
+          } catch (e) {
+            return {
+              entryKey,
+              message: `Failed to load JSON entry '${entryKey}': ${
+                e instanceof Error ? e.message : String(e)
+              }`,
+            };
+          }
+        },
+      ),
     );
+    const resolved = loaded.slice(0, requestedKeys.length);
+    const bases = new Map<string, { content: JSONValue | undefined }>();
+    for (const entry of loaded) {
+      if (!("message" in entry) && !("inline" in entry)) {
+        bases.set(entry.entryKey, { content: entry.baseContent });
+      }
+    }
     for (const result of resolved) {
       const { entryKey } = result;
       if ("message" in result) {
@@ -741,6 +814,7 @@ export abstract class ValOps {
         entryKey,
         baseContent,
         patches: modulePatches,
+        baseContentOf: (key) => bases.get(key),
       });
       if (res.kind === "error") {
         errors.push({ key: entryKey, message: res.message });
@@ -2576,6 +2650,35 @@ export abstract class ValOps {
   }
 
   /**
+   * The proposal this server runs at the address of, or `null` on the site --
+   * and always in `fs` and memory mode, which have no proposals. See
+   * `ValProposal`.
+   */
+  currentProposal(): { name: string; branch: string } | null {
+    return null;
+  }
+
+  /**
+   * The content service's proposals API, for the Studio's switcher, list and
+   * dialogs. Refused here for the reason {@link publishApi} is: there is no
+   * content service to forward to. `profileId` is the person asking.
+   */
+  async proposalsApi(
+    _path: string,
+    _init: { method: string; body?: string },
+    _profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    return {
+      status: 501,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message:
+          "This Val server has no content service, so it has no proposals.",
+      }),
+    };
+  }
+
+  /**
    * Whether a commit here produces `.val.ts` TEXT as well as data.
    *
    * True everywhere there is somewhere to put it: a working tree in `fs` mode,
@@ -3100,8 +3203,10 @@ export type PatchReadError =
  * 1. this module's, since the chain is branch-wide;
  * 2. this caller's, when they asked to be scoped. `undefined` is "everything",
  *    which is what every unscoped caller gets and must keep getting;
- * 3. not already applied — a fact about this path rather than about scoping,
- *    and true with or without a scope.
+ * 3. a patch published after this build is kept whatever the scope: it is
+ *    nobody's to hold back, and this build does not have it. One already in
+ *    the build is dropped. `draftOverlay` decides which is which, from
+ *    `commits`.
  *
  * Filtered here rather than by asking `fetchPatches` for a list, and that is
  * load-bearing: both implementations read an empty `patchIds` as "no filter"
@@ -3121,14 +3226,63 @@ export function scopedModulePatches<
   patches: T[],
   moduleFilePath: ModuleFilePath,
   patchIds: PatchId[] | undefined,
+  /** The commits content says came after this build: see `draftOverlay`. */
+  commits?: Pick<ValCommit, "commitSha">[],
 ): T[] {
   const scope = patchIds && new Set(patchIds);
-  return patches.filter(
-    (patch) =>
-      patch.path === moduleFilePath &&
-      !patch.appliedAt &&
-      (scope === undefined || scope.has(patch.patchId)),
+  return draftOverlay(
+    patches.filter(
+      (patch) =>
+        patch.path === moduleFilePath &&
+        (patch.appliedAt !== null ||
+          scope === undefined ||
+          scope.has(patch.patchId)),
+    ),
+    commits,
   );
+}
+
+/**
+ * The patches a DRAFT applies on top of this build's own source: the pending
+ * ones, and the ones published AFTER this build, in chain order -- with
+ * `appliedAt` cleared on the latter, because this build has none of them.
+ *
+ * Content places every caller at its own build (`getApplicablePatchesAndCommits`
+ * in valbuild/home: "the earliest the caller has not seen") and returns the
+ * commits after it as `commits`. A patch applied at one of those was
+ * published after this build and is not in it, so a draft has to apply it --
+ * skipping it showed the build's old value from the publish until the next
+ * build went live. `/sources/~` already applies them (`getSources` walks every
+ * patch it is given); the `.jsonValues()` entry path skipped them.
+ *
+ * A patch applied at a commit NOT in that list is already in this build --
+ * content returns one only because it was asked for by id -- and is dropped:
+ * applying it again would apply it twice. Without `commits` (a store that
+ * does not report them) every applied patch is dropped, as before. Only
+ * `ValOpsHttp` ever reports `appliedAt`; `fs` and memory stores report `null`.
+ *
+ * Chain order, not published-first, because that is the order the Studio
+ * applies them in, and a draft page starts from the server's answer and is
+ * then kept up to date by the Studio's: the two must agree.
+ *
+ * For the reads that render a draft only. What to COMMIT still keys on
+ * `appliedAt`: a published patch must never be published again.
+ */
+export function draftOverlay<
+  T extends { appliedAt: { commitSha: CommitSha } | null },
+>(patches: T[], commits: Pick<ValCommit, "commitSha">[] | undefined): T[] {
+  const afterThisBuild = new Set<string>(
+    (commits ?? []).map((commit) => commit.commitSha),
+  );
+  const overlay: T[] = [];
+  for (const patch of patches) {
+    if (patch.appliedAt === null) {
+      overlay.push(patch);
+    } else if (afterThisBuild.has(patch.appliedAt.commitSha)) {
+      overlay.push({ ...patch, appliedAt: null });
+    }
+  }
+  return overlay;
 }
 
 export type OrderedPatches = {
@@ -3166,6 +3320,22 @@ export type OrderedPatches = {
    * reasons.
    */
   headVersion?: number;
+  /**
+   * Every group on the branch and which of these patches each holds, read in
+   * the same transaction as the list and {@link headVersion}.
+   *
+   * Absent where the content service has no groups, or predates sending them
+   * here. Only `ValOpsHttp` fills it.
+   */
+  patchGroups?: PatchGroupT[];
+  /**
+   * Of these patches, the ones a publish job that is still running holds. A
+   * Studio does not offer Publish over them, on any tab or device. Reported
+   * whole on every answer, so a job that ends without sealing gives them back.
+   * Absent where publishing is not done in jobs, and from an older content
+   * service. Only `ValOpsHttp` fills it.
+   */
+  publishingPatches?: PatchId[];
   error?: GenericErrorMessage;
   errors?: PatchReadError[];
   unauthorized?: boolean;
@@ -3182,6 +3352,10 @@ export type OrderedPatchesMetadata = {
   headPatchId?: OrderedPatches["headPatchId"];
   /** See {@link OrderedPatches.headVersion}. */
   headVersion?: OrderedPatches["headVersion"];
+  /** See {@link OrderedPatches.patchGroups}. */
+  patchGroups?: OrderedPatches["patchGroups"];
+  /** See {@link OrderedPatches.publishingPatches}. */
+  publishingPatches?: OrderedPatches["publishingPatches"];
   error?: GenericErrorMessage;
   errors?: OrderedPatches["errors"];
   unauthorized?: boolean;

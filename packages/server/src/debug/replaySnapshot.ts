@@ -67,7 +67,7 @@ export async function replaySnapshot(
     valModules,
     // The snapshot's own val.config, as evaluated by loadValModules - no need to
     // re-read it, and this way the replay uses exactly the config the snapshot
-    // carries (files.directory in particular).
+    // carries.
     { config: valModules.config },
   );
   const patchesRes = await serverOps.fetchPatches({

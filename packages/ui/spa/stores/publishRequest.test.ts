@@ -110,3 +110,43 @@ test("a system that cannot request says so rather than committing", async () => 
   expect(commits).toEqual([]);
   system.dispose();
 });
+
+test("a request names the changes the gate checked, so the button can stop offering them", async () => {
+  const { system } = makeSystem(async () => ({
+    status: "requested",
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: null,
+  }));
+  const first = await edit(system, "first value");
+  const second = await edit(system, "second value");
+  const res = await system.publish([first, second], "summary", {
+    request: true,
+  });
+  expect(res).toMatchObject({
+    status: "requested",
+    patchIds: [first, second],
+  });
+  system.dispose();
+});
+
+test("a press made for another tab carries that tab's request id and tab", async () => {
+  const pressedAs: unknown[] = [];
+  const { system } = makeSystem(async (pressAs) => {
+    pressedAs.push(pressAs);
+    return {
+      status: "requested",
+      requestId: pressAs?.requestId ?? "minted",
+      request: { kind: "publishing" },
+      job: null,
+    };
+  });
+  const patchId = await edit(system, "pressed by the builder tab");
+  const res = await system.publish([patchId], "", {
+    request: true,
+    pressAs: { requestId: "page-r1", tab: "page-tab" },
+  });
+  expect(res).toMatchObject({ status: "requested", requestId: "page-r1" });
+  expect(pressedAs).toEqual([{ requestId: "page-r1", tab: "page-tab" }]);
+  system.dispose();
+});

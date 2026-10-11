@@ -3,24 +3,23 @@ import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { clearPatchChain, openStudio } from "./studio";
 
 /**
- * `.render({ as: "inline" })` on the items of an array, end to end.
+ * `.render({ as: "inline" })` on an array, end to end.
  *
  * The spec `studio-ui.spec.ts` says the generic page's inline rows deserve: it
  * is the only thing covering them, and it covers the two rules that made them
  * do nothing at all.
  *
- * The first is that an inline item is EDITED IN ITS ROW, and counts as inline
- * even when the render is declared on the VARIANTS of a discriminated union rather
- * than on the union itself — which is how a page-builder list is written
- * (`s.array(s.discriminatedUnion("type", block, block))`). Declared that way it used to fall
- * all the way back to preview rows, so the list looked exactly the same with
- * the render as without it.
+ * The first is that the items of an inline list are EDITED IN THEIR ROWS, and
+ * that it is the LIST that says so — the page-builder shape
+ * `s.array(s.discriminatedUnion("type", block, block)).render({ as: "inline" })`,
+ * where neither the union nor its blocks carry a render of their own. When the
+ * render lived on the items, a union declared that way fell all the way back to
+ * preview rows, so the list looked exactly the same with the render as without.
  *
- * The second is precedence: the `code` block in this fixture declares BOTH
- * `.render({ as: "inline" })` and a `.preview(...)`. The render decides the
- * field — the row is an editor, not a preview card — and the preview is left to
- * describe the value where it is only referred to, which in this list is the
- * row's own collapsible header.
+ * The second is precedence: the list is inline AND the `code` block declares a
+ * `.preview(...)`. The render decides the field — the row is an editor, not a
+ * preview card — and the preview is left to describe the value where it is only
+ * referred to, which in this list is the row's own collapsible header.
  *
  * Every assertion here reads a boundary (see `e2e/README.md`): the DOM, the
  * browser's own URL, or the patches the SERVER holds. Whether an edit reached
@@ -82,9 +81,9 @@ test.describe("an array of inline items", () => {
     const studio = await openPage(page);
 
     // The editors are HERE, in the list, rather than behind a row that
-    // navigates to them: this is the whole of what inline means. Both blocks
-    // declare the render on the union's variants, and neither is a `string` —
-    // the type that used to be inlined implicitly.
+    // navigates to them: this is the whole of what inline means. The render is
+    // on the list, not on either block, and neither block is a `string` — the
+    // type that used to be inlined implicitly.
     // The rich text editor is a contenteditable that exposes no role of its
     // own; the code editor is a textbox, so it is asked for by role.
     const richText = rows(studio).first().locator("[contenteditable='true']");

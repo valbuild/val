@@ -479,6 +479,11 @@ export class PatchStore {
         this.lastBaseSha = baseSha;
       }
       this.receiveApplied(event.appliedPatches);
+      // Before the ids: a record the fetch below brings in is applied, or held,
+      // against the groups as THIS stat describes them.
+      if (event.patchGroups !== undefined) {
+        this.receiveStatGroups(event.patchGroups, event.headVersion);
+      }
       void this.onStatPatchIds(event.patches, baseMoved);
     });
     const offApply = source.events.on("source:patch-apply", (event) => {
@@ -695,6 +700,10 @@ export class PatchStore {
       });
     }
     if (
+      // Once a stat carries the groups, they come from there and nowhere else:
+      // this annotation is read separately from the chain and carries no
+      // version, so it can be older than what a stat has already said.
+      !this.statCarriesGroups &&
       res.patchGroups !== undefined &&
       !sameGroups(this.patchGroups, res.patchGroups)
     ) {
@@ -1000,6 +1009,25 @@ export class PatchStore {
   }
 
   /**
+   * Where the server says one patch is, read without touching this store.
+   *
+   * For a tab that was told to expect a patch it has not got: a fresh tab's
+   * chain never lists one that has SHIPPED, so "not in my chain" cannot tell
+   * "not saved yet" from "already published" -- this can. `unknown` when the
+   * server could not be asked, which is evidence of nothing.
+   */
+  async serverStateOf(
+    patchId: PatchId,
+  ): Promise<"shipped" | "pending" | "absent" | "unknown"> {
+    const res = await this.fetchPatches([patchId]).catch((): null => null);
+    if (res === null || res.error !== undefined) return "unknown";
+    if (res.errors?.[patchId] !== undefined) return "unknown";
+    const record = res.patches.find((r) => r.patchId === patchId);
+    if (record === undefined) return "absent";
+    return record.appliedAt != null ? "shipped" : "pending";
+  }
+
+  /**
    * Ask the server where {@link omittedUnplaced} patches stand. A record back
    * with `appliedAt` has shipped; no record and no error means it is gone; a
    * record without `appliedAt` is still pending and stays in the chain.
@@ -1127,37 +1155,53 @@ export class PatchStore {
           this.ordered.includes(patchId) &&
           !this.pendingIds.has(patchId),
       );
-      if (gone.length > 0) {
-        if (baseMoved) {
-          /**
-           * The base moved, so these were PUBLISHED, not discarded — by another
-           * session, or by this one in a window this client did not see. Their
-           * effect is in the base now, so it has to stay on screen: `drop`
-           * rebuilds the module without them and every published field reverts.
-           */
-          this.forgetPublished(gone);
-          /*
-           * The SOURCE store keeps its copy in the chain, marked shipped.
-           *
-           * `baseMoved` is the stat's base sha, not the source store's base.
-           * That comes from the host's modules, which on a hosted project are
-           * the bundle this tab loaded, so it stays the pre-deploy text until
-           * a reload — and a reload starts from a chain the server no longer
-           * lists this patch in. Taking it out of the source chain before then
-           * leaves its effect in neither base nor chain: `peekBase` falls back
-           * to the pre-publish text, and the next rebuild of the module reverts
-           * the value on screen.
-           *
-           * Marked applied, because the server's `appliedPatches` may never
-           * have named it — somebody else's publish, deployed before this tab
-           * heard about it — and a record that reads as pending is left out of
-           * `peekBase`, which is the stale comparison this is all for.
-           * `markApplied` also brings a held one into view.
-           */
-          this.appliedSource?.markApplied(gone);
-        } else {
-          this.drop(gone);
-        }
+      /**
+       * Published, not discarded: every one of them when the base moved, and
+       * otherwise the ones THIS session published.
+       *
+       * A patch this session published is in a commit of ours, and nothing
+       * discards a committed patch. The base sha can lag it, though: at a
+       * proposal's address a save folds the patch into the address's snapshot
+       * at once, so the socket's next list leaves it out while the stat this
+       * tab holds still names the snapshot from before. Read as a discard,
+       * that took the saved value off the screen, and the next edit was made
+       * on top of content the proposal had already moved past.
+       */
+      const shipped = baseMoved
+        ? gone
+        : gone.filter((patchId) => this.publishedIds.has(patchId));
+      const discarded = baseMoved
+        ? []
+        : gone.filter((patchId) => !this.publishedIds.has(patchId));
+      if (shipped.length > 0) {
+        /**
+         * Their effect is in the base now (or will be once this tab reads it),
+         * so it has to stay on screen: `drop` rebuilds the module without them
+         * and every published field reverts.
+         */
+        this.forgetPublished(shipped);
+        /*
+         * The SOURCE store keeps its copy in the chain, marked shipped.
+         *
+         * `baseMoved` is the stat's base sha, not the source store's base.
+         * That comes from the host's modules, which on a hosted project are
+         * the bundle this tab loaded, so it stays the pre-deploy text until
+         * a reload — and a reload starts from a chain the server no longer
+         * lists this patch in. Taking it out of the source chain before then
+         * leaves its effect in neither base nor chain: `peekBase` falls back
+         * to the pre-publish text, and the next rebuild of the module reverts
+         * the value on screen.
+         *
+         * Marked applied, because the server's `appliedPatches` may never
+         * have named it — somebody else's publish, deployed before this tab
+         * heard about it — and a record that reads as pending is left out of
+         * `peekBase`, which is the stale comparison this is all for.
+         * `markApplied` also brings a held one into view.
+         */
+        this.appliedSource?.markApplied(shipped);
+      }
+      if (discarded.length > 0) {
+        this.drop(discarded);
       }
     } finally {
       for (const patchId of ask) {
@@ -1880,6 +1924,61 @@ export class PatchStore {
    */
   groups(): PatchGroupT[] | undefined {
     return this.patchGroups;
+  }
+
+  /**
+   * The chain version {@link groups} was read at, or `undefined` when it was
+   * not read from a stat — an older server's annotation, which carries none.
+   *
+   * What the system compares its own unconfirmed group changes against: one
+   * the server answered at version `v` is shown as this client made it until
+   * the groups are at least `v`, and then the groups say it.
+   */
+  groupsReadAt(): number | undefined {
+    return this.groupsVersionRead;
+  }
+
+  /** See {@link groupsReadAt}. */
+  private groupsVersionRead: number | undefined = undefined;
+  /** See {@link receiveStatGroups}. */
+  private statCarriesGroups = false;
+
+  /**
+   * The groups as a stat reports them: every group on the branch and which of
+   * the listed patches each holds, at the version the list was read at.
+   *
+   * The server's account, taken whole on every stat. That is what makes a
+   * stage, an unstage or a write in another browser reach this one: the
+   * content service announces each of them, every client re-stats, and here
+   * it is.
+   *
+   * An EMPTY list does not turn groups on. "This branch has no groups yet" is
+   * how every project looks before its first write, and the annotation on
+   * `GET /patches` has always left groups off in that state — so the
+   * deployment is latched as having groups by the first non-empty answer, as
+   * it always was.
+   */
+  receiveStatGroups(groups: PatchGroupT[], version: number | undefined): void {
+    this.statCarriesGroups = true;
+    let changed = false;
+    if (
+      !(groups.length === 0 && this.patchGroups === undefined) &&
+      !sameGroups(this.patchGroups, groups)
+    ) {
+      this.patchGroups = groups;
+      changed = true;
+    }
+    if (groups.length > 0 && !this.patchGroupsSeen) {
+      this.patchGroupsSeen = true;
+      changed = true;
+    }
+    if (version !== undefined && version !== this.groupsVersionRead) {
+      // A reader comparing against the version has to be woken even when the
+      // groups did not move: what it was waiting for may now be covered.
+      this.groupsVersionRead = version;
+      changed = true;
+    }
+    if (changed) this.bumpGroups();
   }
 
   /**

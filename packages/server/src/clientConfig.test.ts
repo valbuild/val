@@ -53,6 +53,32 @@ describe("clientConfig", () => {
     expect(res.gitBranch).toBeUndefined();
   });
 
+  test("fills in the resolved project when val.config names none", () => {
+    // `VAL_PROJECT` instead of `project` in val.config. The Studio only offers
+    // the assistant to a config with a project, so leaving it out would hide
+    // the assistant from a project the server is serving.
+    const res = clientConfig({ mode: "fs", project: "org/app", config: {} });
+
+    expect(res.project).toBe("org/app");
+  });
+
+  test("val.config's project wins over the environment's", () => {
+    const res = clientConfig({
+      mode: "http",
+      project: "org/from-env",
+      git: { branch: "main" },
+      config: { project: "org/app" },
+    });
+
+    expect(res.project).toBe("org/app");
+  });
+
+  test("a project with none configured anywhere stays without one", () => {
+    const res = clientConfig({ mode: "fs", config: {} });
+
+    expect(res.project).toBeUndefined();
+  });
+
   test("does not mutate the config it was given", () => {
     // The same object is handed to every `/stat`, so a mutation here would
     // outlive the request that caused it.

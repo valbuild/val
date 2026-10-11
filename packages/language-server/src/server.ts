@@ -2,7 +2,6 @@ import fs from "fs";
 import path from "path";
 import ts from "typescript";
 import { Internal, type ModuleFilePath } from "@valbuild/core";
-import { findAndEvalValConfigFile } from "@valbuild/server";
 import {
   CodeActionKind,
   DidChangeWatchedFilesNotification,
@@ -53,11 +52,7 @@ import {
   canRenameFiles as clientCanRenameFiles,
   createGalleryMembershipActions,
 } from "./galleryFixes";
-import {
-  createPublicValFiles,
-  DEFAULT_FILES_DIRECTORY,
-  type PublicValFiles,
-} from "./publicValFiles";
+import { createPublicValFiles, type PublicValFiles } from "./publicValFiles";
 import { isModuleRegistered } from "./valModulesRegistry";
 import {
   isValJsonEntryUri,
@@ -490,28 +485,6 @@ export function createValLanguageServer(connection: Connection): {
     const commands: string[] = valCommandNames();
 
     publicFiles = createPublicValFiles({ valRoot: options.valRoot });
-    // A project can point `files.directory` somewhere other than /public/val, and
-    // media-path completions would list nothing if we assumed the default.
-    // Reading val.config is async and `initialize` is not, so the default stands
-    // until the real value arrives — completions cannot be requested before
-    // `initialize` returns anyway.
-    void findAndEvalValConfigFile(options.valRoot)
-      .then((config) => {
-        const directory = config?.files?.directory;
-        if (directory && directory !== DEFAULT_FILES_DIRECTORY) {
-          publicFiles = createPublicValFiles({
-            valRoot: options.valRoot,
-            directory,
-          });
-        }
-      })
-      .catch((e: unknown) => {
-        // A broken or unreadable val.config is reported per module by the
-        // service; here it only means "keep the default directory".
-        connection.console.warn(
-          `Val: could not read val.config: ${e instanceof Error ? e.message : String(e)}`,
-        );
-      });
     project = createValProject({
       valRoot: options.valRoot,
       open: {

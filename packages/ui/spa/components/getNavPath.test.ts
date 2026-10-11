@@ -13,33 +13,31 @@ const module = c.define(
   "/app/test.val.ts",
   s.object({
     arrayOfStrings: s.array(s.string()),
-    arrayOfInlineStrings: s.array(s.string().render({ as: "inline" })),
-    arrayOfInlineObjects: s.array(
-      s
-        .object({
+    arrayOfInlineStrings: s.array(s.string()).render({ as: "inline" }),
+    arrayOfInlineObjects: s
+      .array(
+        s.object({
           title: s.string(),
-          sections: s.array(
-            s.object({ heading: s.string() }).render({ as: "inline" }),
-          ),
-        })
-        .render({ as: "inline" }),
-    ),
-    recordOfInlineObjects: s.record(
-      s.object({ title: s.string() }).render({ as: "inline" }),
-    ),
-    // A page builder: the render is on the BLOCKS, and the union between them
-    // carries none of its own. See `isInlineRender`.
-    blocks: s.array(
-      s.discriminatedUnion(
-        "type",
-        s
-          .object({ type: s.literal("text"), text: s.string() })
-          .render({ as: "inline" }),
-        s
-          .object({ type: s.literal("code"), code: s.string() })
-          .render({ as: "inline" }),
-      ),
-    ),
+          sections: s
+            .array(s.object({ heading: s.string() }))
+            .render({ as: "inline" }),
+        }),
+      )
+      .render({ as: "inline" }),
+    recordOfInlineObjects: s
+      .record(s.object({ title: s.string() }))
+      .render({ as: "inline" }),
+    // A page builder: the render is on the LIST, and neither the union nor its
+    // blocks carry one. See `isInlineRender`.
+    blocks: s
+      .array(
+        s.discriminatedUnion(
+          "type",
+          s.object({ type: s.literal("text"), text: s.string() }),
+          s.object({ type: s.literal("code"), code: s.string() }),
+        ),
+      )
+      .render({ as: "inline" }),
     objectOfRecord: s.object({
       recordA: s.record(
         s.object({

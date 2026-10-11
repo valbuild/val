@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { StudioDeployState } from "../../publish/useStudioDeploy";
+import type { PublishIndicator } from "../../publish/publishIndicatorView";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
@@ -46,8 +46,8 @@ import { AccountPanel } from "./AccountPanel";
 import { NoSettingsModule, SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
-import { isDeploymentNews, MobileDeployments } from "./Deployments";
-import { PublishState, TopBar } from "./TopBar";
+import { PublishState, TopBar, type TopBarProposals } from "./TopBar";
+import { ProposalSaveButton } from "../proposals/ProposalBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
 import { StudioTour } from "./StudioTour";
@@ -181,8 +181,11 @@ export type ShellProps = {
    */
   reviewCount?: number;
   publishState?: PublishState;
-  /** The step that build is on, for the status bar. */
-  deployState?: StudioDeployState;
+  /**
+   * Whether the site is still on its way to what was published, by anyone:
+   * the status bar's indicator. See `publishIndicator`.
+   */
+  publishIndicator?: PublishIndicator;
   /** Show placeholder rows in the nav panels instead of content. */
   isLoading?: boolean;
   /** Show a load failure in the nav panels instead of content. */
@@ -331,6 +334,14 @@ export type ShellProps = {
    */
   editorOverride?: ReactNode;
   /**
+   * Something the studio has to tell the editor before they start, above the
+   * editor column: `RemoteFilesCard`, today. In the column rather than over the
+   * chrome, so it never covers the top bar or Publish.
+   */
+  notice?: ReactNode;
+  /** Its folded form, in the status bar. See `StatusBarProps.notice`. */
+  statusNotice?: ReactNode;
+  /**
    * The past, beside the editor.
    *
    * A render prop rather than a node, because the shell is what knows the
@@ -376,6 +387,11 @@ export type ShellProps = {
    * affordance.
    */
   aiEnabled?: boolean;
+  /**
+   * Proposals, for a project that has them: the switcher in the top bar, and
+   * in a proposal the controls in Publish's place. See `TopBarProposals`.
+   */
+  proposals?: TopBarProposals;
   /**
    * The assistant, rendered inside the assistant panel.
    *
@@ -497,7 +513,7 @@ export function Shell({
   pendingChanges = 12,
   reviewCount,
   publishState = "idle",
-  deployState,
+  publishIndicator,
   isLoading = false,
   loadError,
   initialDeploymentsOpen = false,
@@ -524,6 +540,8 @@ export function Shell({
   renderSettings,
   renderExternalPages,
   editorOverride,
+  notice,
+  statusNotice,
   renderHistory,
   onPublish,
   publishSlot,
@@ -532,6 +550,7 @@ export function Shell({
   onSignOut,
   accountError,
   aiEnabled = false,
+  proposals,
   aiSlot,
   historyEnabled = false,
   historyActive = false,
@@ -654,13 +673,6 @@ export function Shell({
   const [deploymentsOpen, setDeploymentsOpen] = useState(
     initialDeploymentsOpen,
   );
-  // Whether the list on screen is one that opened itself. Only that one closes
-  // itself again; a list you opened stays until you close it.
-  const [deploymentsAutoOpened, setDeploymentsAutoOpened] = useState(false);
-  const setDeploymentsOpenByUser = useCallback((open: boolean) => {
-    setDeploymentsOpen(open);
-    setDeploymentsAutoOpened(false);
-  }, []);
   /*
    * The feed as it comes, unfiltered.
    *
@@ -669,36 +681,14 @@ export function Shell({
    * accumulated every deployment a session had ever seen - and the feed is the
    * last few publishes now, oldest falling off the end on their own. See
    * `mergeCommitsAndDeployments` and `toDeployments`.
+   *
+   * It never opens itself. It used to, when a commit it had not seen arrived,
+   * which made it a second announcement of every publish beside the toast and
+   * the summary. The status bar's indicator spins while a publish is on its
+   * way; the list is where you look for the detail.
    */
   const deployments = data.deployments;
   const studioIsDeployer = data.studioIsDeployer ?? false;
-
-  // A publish is the one thing here that finishes somewhere else, so the list
-  // opens itself when a commit Val has not seen before shows up. The first
-  // feed after mount is history rather than news: opening on it would pop a
-  // panel at someone who has not published anything. So is a commit that has
-  // been serving the site for a while - see `isDeploymentNews`.
-  const seenCommits = useRef<ReadonlySet<string> | null>(null);
-  useEffect(() => {
-    if (data.deployments === undefined) {
-      return;
-    }
-    const commits = new Set(data.deployments.map((d) => d.commitSha));
-    const seen = seenCommits.current;
-    seenCommits.current = commits;
-    if (seen === null) {
-      return;
-    }
-    const now = Date.now();
-    if (
-      data.deployments.some(
-        (d) => !seen.has(d.commitSha) && isDeploymentNews(d, now),
-      )
-    ) {
-      setDeploymentsOpen(true);
-      setDeploymentsAutoOpened(true);
-    }
-  }, [data.deployments]);
   const openSearch = useCallback(() => setIsSearchOpen(true), []);
   useGlobalSearchShortcut(openSearch);
   const searchResults = useMemo(() => collectSearchResults(data), [data]);
@@ -1021,7 +1011,7 @@ export function Shell({
    * navigation and its real pending-changes gate, not a second rendering of it
    * that would drift.
    */
-  const editorColumn = editorOverride ? (
+  const editorBody = editorOverride ? (
     editorOverride
   ) : selection === null ? (
     <EmptyEditorState
@@ -1058,6 +1048,14 @@ export function Shell({
         />
       )}
     </PendingChangesGate>
+  );
+  const editorColumn = (
+    <>
+      {notice === undefined || notice === null ? null : (
+        <div className="mb-6">{notice}</div>
+      )}
+      {editorBody}
+    </>
   );
 
   return (
@@ -1119,6 +1117,8 @@ export function Shell({
           breakpoint={breakpoint}
           projectName={data.projectName}
           projectHref={data.admin?.project}
+          webComponentsUrl={data.webComponentsUrl}
+          studioMode={data.studioMode}
           logo={data.logo}
           openPanel={openPanel}
           onTogglePanel={togglePanel}
@@ -1142,6 +1142,7 @@ export function Shell({
           accountError={breakpoint === "desktop" ? undefined : accountError}
           isLoading={isLoading}
           aiEnabled={aiEnabled}
+          proposals={proposals}
           historyEnabled={historyEnabled}
           historyActive={historyActive}
           onOpenHistory={onOpenHistory}
@@ -1163,22 +1164,6 @@ export function Shell({
 
         {breakpoint === "mobile" ? (
           <>
-            {/*
-             * The phone's answer to "did that publish go out?". The bottom bar
-             * takes the row the status bar would have had, so the list is
-             * anchored above it and behaves as the announcement it is - see
-             * `MobileDeployments`. Same `mode === "http"` gate as the status
-             * bar: there is nothing to deploy to in dev.
-             */}
-            {mode === "http" && deployments !== undefined && (
-              <MobileDeployments
-                deployments={deployments}
-                studioIsDeployer={studioIsDeployer}
-                open={deploymentsOpen}
-                onOpenChange={setDeploymentsOpenByUser}
-                autoClose={deploymentsAutoOpened}
-              />
-            )}
             <MobileBottomBar
               locales={locales}
               locale={locale}
@@ -1204,7 +1189,22 @@ export function Shell({
               // out has to be somewhere the menu can offer it too.
               onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
               onPublish={onPublish ?? (() => undefined)}
-              publishSlot={publishSlot}
+              /*
+               * In a proposal the phone's one action is Save: Publish (the
+               * proposal's, which merges it) is the first thing in its menu
+               * in the top bar. See `TopBar`.
+               */
+              publishSlot={
+                proposals?.location.kind === "proposal" ? (
+                  <ProposalSaveButton
+                    location={proposals.location}
+                    onSave={proposals.onSave}
+                    className="h-9 min-w-[5.5rem]"
+                  />
+                ) : (
+                  publishSlot
+                )
+              }
               onOpenStatus={() => setOpenPanel("account")}
               onOpenQuickActions={() => setOpenPanel("utility")}
               /*
@@ -1229,10 +1229,10 @@ export function Shell({
             branch={data.branch}
             deployments={deployments}
             studioIsDeployer={studioIsDeployer}
-            deployState={deployState}
+            publishIndicator={publishIndicator}
             deploymentsOpen={deploymentsOpen}
-            onDeploymentsOpenChange={setDeploymentsOpenByUser}
-            deploymentsAutoOpened={deploymentsAutoOpened}
+            onDeploymentsOpenChange={setDeploymentsOpen}
+            notice={statusNotice}
           />
         )}
 
@@ -1336,6 +1336,14 @@ export function Shell({
         {openPanel === "account" && (
           <AccountPanel
             breakpoint={breakpoint}
+            // The status bar is not shown on a phone; this sheet is. Acting
+            // on the notice closes the sheet, so what it brings back (the card
+            // above the editor) is in view rather than underneath.
+            notice={
+              breakpoint === "mobile" && statusNotice ? (
+                <div onClick={closePanel}>{statusNotice}</div>
+              ) : undefined
+            }
             mode={mode}
             user={data.user}
             accountError={accountError}

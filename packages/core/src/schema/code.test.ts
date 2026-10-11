@@ -106,7 +106,6 @@ describe("CodeSchema", () => {
       base.readonly(),
       base.hidden(),
       base.describe("Some description"),
-      base.render({ as: "inline" }),
       base.preview(({ val }) => ({ title: val })),
     ]) {
       expect(schema["executeSerialize"]()).toMatchObject({
@@ -119,7 +118,7 @@ describe("CodeSchema", () => {
     for (const base of [
       code(),
       code({ language: "typescript" }),
-      code({ language: "json" }).render({ as: "inline" }),
+      code({ language: "json" }),
       code().nullable().readonly().hidden().describe("desc"),
     ]) {
       const serialized = base["executeSerialize"]();

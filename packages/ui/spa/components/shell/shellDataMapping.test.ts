@@ -4,6 +4,7 @@ import {
   hostLabel,
   toActivity,
   toAdminLinks,
+  toWebComponentsUrl,
   toDataModules,
   toExternalPages,
   toShellPages,
@@ -682,6 +683,7 @@ describe("toAdminLinks", () => {
     expect(toAdminLinks({ project: "acme/marketing-site", appHost })).toEqual({
       project: "https://admin.val.build/~/acme/marketing-site",
       members: "https://admin.val.build/manage-members/acme",
+      ai: "https://admin.val.build/manage-ai/acme/marketing-site",
     });
   });
 
@@ -710,6 +712,46 @@ describe("toAdminLinks", () => {
     ).toEqual({
       project: "https://admin.val.build/~/acme/marketing-site",
       members: "https://admin.val.build/manage-members/acme",
+      ai: "https://admin.val.build/manage-ai/acme/marketing-site",
     });
+  });
+});
+
+describe("toWebComponentsUrl", () => {
+  const appHost = "https://admin.val.build";
+  const contentHost = "https://content.val.build";
+
+  test("is /wc/v1 on the content server, for a connected project", () => {
+    expect(
+      toWebComponentsUrl({
+        project: "acme/marketing-site",
+        appHost,
+        contentHost,
+      }),
+    ).toBe("https://content.val.build/wc/v1");
+    expect(
+      toWebComponentsUrl({
+        project: "acme/marketing-site",
+        appHost,
+        contentHost: `${contentHost}/`,
+      }),
+    ).toBe("https://content.val.build/wc/v1");
+  });
+
+  test("is absent wherever toAdminLinks is: nothing of Val Build to show", () => {
+    expect(toWebComponentsUrl({ appHost, contentHost })).toBeUndefined();
+    expect(
+      toWebComponentsUrl({ project: "marketing-site", appHost, contentHost }),
+    ).toBeUndefined();
+    expect(
+      toWebComponentsUrl({ project: "acme/marketing-site", contentHost }),
+    ).toBeUndefined();
+    expect(toWebComponentsUrl(undefined)).toBeUndefined();
+  });
+
+  test("is absent without a content server to load from", () => {
+    expect(
+      toWebComponentsUrl({ project: "acme/marketing-site", appHost }),
+    ).toBeUndefined();
   });
 });

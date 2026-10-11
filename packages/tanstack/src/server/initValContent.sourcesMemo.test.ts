@@ -199,3 +199,38 @@ describe("fetchVal draft sources are read once per request", () => {
     expect(calls[0].session).toBe("session-alice");
   });
 });
+
+describe("at a proposal's address, fetchVal reads the proposal's saves", () => {
+  const snapshot = { [GREETING]: { text: "saved in the proposal" } };
+
+  test("a visitor's render: the snapshot for what it saved, the bundle for the rest, and no draft read", async () => {
+    const { server, calls } = fakeValServer();
+    const fetchVal = initFetchValStega(
+      { project: "test" },
+      "/api/val",
+      server,
+      async () => false,
+      headers,
+      cookiesFor("session-alice"),
+      oneRequestScope(),
+      snapshot,
+    );
+    expect(textOf(await fetchVal(greeting))).toBe("saved in the proposal");
+    expect(textOf(await fetchVal(farewell))).toBe("published bye");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("a site with no proposal is unchanged", async () => {
+    const { server } = fakeValServer();
+    const fetchVal = initFetchValStega(
+      { project: "test" },
+      "/api/val",
+      server,
+      async () => false,
+      headers,
+      cookiesFor("session-alice"),
+      oneRequestScope(),
+    );
+    expect(textOf(await fetchVal(greeting))).toBe("published hello");
+  });
+});

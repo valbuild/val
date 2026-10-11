@@ -1,5 +1,268 @@
 # @valbuild/ui
 
+## 0.143.0
+
+### Minor Changes
+
+- [#813](https://github.com/valbuild/val/pull/813) [`f7c25bd`](https://github.com/valbuild/val/commit/f7c25bd4b44c288db8e5ab914e6d8a72c0216ba5) Thanks [@freekh](https://github.com/freekh)! - New: `s.font(fontsVal)`, a field that picks a font from an `s.fontset()`.
+
+  ```ts
+  s.object({
+    headingFont: s.font(fontsVal),
+    title: s.string(),
+  });
+  ```
+
+  It stores `{ path }` like `s.file(fontsVal)` does, and refuses a module that is not a font set. In the Studio, a font field is shown among its object's other fields as a small row — the letter "A" set in the chosen font, and the font's file name. Click it to open the field, which shows every font in the set to pick from, an upload button, and a full specimen of the chosen font. This applies to `s.file()` fields that point at a font set too.
+
+- [#813](https://github.com/valbuild/val/pull/813) [`729c4ed`](https://github.com/valbuild/val/commit/729c4edfa28f5a2942c435ccf225e65858b080cc) Thanks [@freekh](https://github.com/freekh)! - New: `s.fontset()`, a collection of fonts.
+
+  ```ts
+  const fontsVal = c.define(
+    "/content/fonts.val.ts",
+    s.fontset({ dir: "/public/val/fonts" }),
+    {},
+  );
+  // a field that picks one of them
+  s.object({ headingFont: s.file(fontsVal) });
+  ```
+
+  It is an `s.fileset()` whose `accept` defaults to the web font formats (`font/woff2`, `font/woff`, `font/ttf`, `font/otf`); pass `accept: "font/woff2"` to allow only WOFF2. Fonts are not converted on upload.
+
+  The Studio now previews fonts set in themselves — in the gallery, in the picker of a field that points at a font set, and in the field — wherever a file is a font, including fonts in an ordinary `s.fileset()`.
+
+  Font uploads are typed from their bytes, so a font is stored as `font/woff2`, `font/ttf` and so on even when the browser reports no type for it. Files ending in `.ttf`, `.otf` and `.woff` now map to the `font/` types rather than the older `application/x-font-*` names, which are still accepted where they are already stored.
+
+### Patch Changes
+
+- [#817](https://github.com/valbuild/val/pull/817) [`8cadf84`](https://github.com/valbuild/val/commit/8cadf840e8a47168172286ce6a9ac4b15dfe596c) Thanks [@freekh](https://github.com/freekh)! - Saving twice in a row in a proposal now works.
+
+  After a Save in a proposal, the Studio went back to showing the content from before that save, although the proposal had it. The next edit was then made on top of content the proposal had already moved past, and its save failed. Two changes fix it:
+
+  - A change this tab saved is no longer mistaken for one that was thrown away when it leaves the server's list of pending changes. It stays on screen.
+  - After a Save in a proposal, the Studio reads the proposal's new content straight away, instead of on its next periodic check, which could be twenty minutes away.
+
+## 0.142.0
+
+### Minor Changes
+
+- [#806](https://github.com/valbuild/val/pull/806) [`f14e0aa`](https://github.com/valbuild/val/commit/f14e0aabedba07b832b1453d49635af5d2fbc019) Thanks [@freekh](https://github.com/freekh)! - New: a **Members** button in the Studio's top bar, beside Share, for projects connected to Val Build.
+
+  It lists who can open the project: the organization's owners, and the people chosen for it. Owners and developers can add someone from the organization or remove them, and owners see what each seat costs. "Invite to {org}" in the same panel brings in someone new. Share still lists the organization's members and invites.
+
+  An invite created from a Studio's Share panel now also lets the person open that project. Before, they only joined the organization, which no longer opens its projects.
+
+- [#812](https://github.com/valbuild/val/pull/812) [`521fe94`](https://github.com/valbuild/val/commit/521fe9400c0b660aa5b3642942cd0cc26622f193) Thanks [@freekh](https://github.com/freekh)! - New: when a project's organization on Val Build is read-only, the Studio says so above the editor before anyone starts typing. An organization becomes read-only when its trial has ended, or when a payment failed and the grace period has run out.
+
+  The site keeps running, but nothing can be saved or published until the plan is fixed. An owner gets a button to Billing (**Start Pro** or **Update payment**). Everyone else sees who the owners are and gets a button to email them.
+
+### Patch Changes
+
+- [#814](https://github.com/valbuild/val/pull/814) [`1671bce`](https://github.com/valbuild/val/commit/1671bce6f0b65dac77e51655f24ef825f4671ebb) Thanks [@freekh](https://github.com/freekh)! - Publishing from an iPhone no longer gets stuck on "Starting the publish".
+
+  On a phone, Publish opens a builder tab to build the site, and iOS pauses the page you pressed Publish on as soon as that tab opens. That page used to be the one that started the publish, so the builder tab could wait for it indefinitely. It happened most often when you pressed Publish right after making a change, while that change was still being saved. The builder tab now starts the publish itself, waits for your last change to be saved first, and the page you came from picks it up when you go back to it. "Try again" on a failed publish and "Update site" work the same way.
+
+  If something does go wrong, the builder tab now says what happened and what to do instead of spinning: a publish that could not reach Val is retried, and one that cannot go ahead says why.
+
+  Reloading the builder tab, going back to it or opening its link again now shows how that publish went instead of starting it again.
+
+- [#805](https://github.com/valbuild/val/pull/805) [`bb63738`](https://github.com/valbuild/val/commit/bb63738aabed1cf1287611ecaab7c35fc4b08a12) Thanks [@freekh](https://github.com/freekh)! - Publish in a proposal: merging it into the site. The dialog shows whether it can go now, and names who to ask when it cannot; Publish saves anything unsaved, builds the site with the proposal in this tab, and content checks it renders and makes it live as one change. A merged proposal is finished: its Studio says so above the editor, and anything written in it while it merged is moved to a new proposal, which the Studio offers to open. Review in a proposal now compares it with the site, saved and unsaved changes alike.
+
+- [#805](https://github.com/valbuild/val/pull/805) [`3d2b9e8`](https://github.com/valbuild/val/commit/3d2b9e8c11aa6a4449527e2a1bbb363566797a14) Thanks [@freekh](https://github.com/freekh)! - Proposals in the Studio, for projects on the Val platform that have them turned on: a switcher in the top bar to move between the site and its proposals, New proposal, Rename, Close and All proposals (with Reopen), and — inside a proposal — Save where Publish is, in the proposal's colour. Nothing is shown for a project without proposals. At a proposal's address the server now refuses to publish to the site, so a Save there can never start a site build.
+
+- [#815](https://github.com/valbuild/val/pull/815) [`a3236a5`](https://github.com/valbuild/val/commit/a3236a5f2c41b92422b40340dba060b53218c6ab) Thanks [@freekh](https://github.com/freekh)! - Fixed: a project that is not connected to Val Build yet (no `project` in `val.config`) no longer gets errors from the Studio on every page load. The Studio used to ask for the assistant, its conversations and the project's members anyway, and got `401` and `500` answers that showed up in the browser console and as an issue badge in the Next.js dev overlay. It now asks only once there is a project to ask about, and the assistant is hidden until there is. The chat used to say "Login to use AI chat" in that state, which no login could fix.
+
+  A project named only in the `VAL_PROJECT` environment variable counts as connected, as it always did on the server.
+
+## 0.141.1
+
+### Patch Changes
+
+- [#809](https://github.com/valbuild/val/pull/809) [`6faacda`](https://github.com/valbuild/val/commit/6faacda398fc92bec187b7afe07a53228a6f2a3b) Thanks [@freekh](https://github.com/freekh)! - After a publish fails, the Studio no longer looks as though it is still publishing.
+
+  - The status bar shows "Not published" as soon as your publish fails. It used to show "Reaching visitors" for up to a minute when the publish before it had gone live less than a minute earlier.
+  - The Publish button is offered again for the changes that did not go out. It used to read "Publishing" beside the "Could not publish" message until the Studio next heard from the content service, which could take up to twenty minutes.
+
+- [#808](https://github.com/valbuild/val/pull/808) [`14b18d7`](https://github.com/valbuild/val/commit/14b18d7cb145cec1bc1cd832b9ca857ff4b45adc) Thanks [@freekh](https://github.com/freekh)! - A project with `files: { remote: true }` can save text edits without remote-file credentials: in local development without `val login` or a project id, and on a server without `VAL_API_KEY`.
+
+  Before, a save asked for remote credentials whenever any schema in the project was remote. With `files: { remote: true }` that is every media schema, so every save was refused, even a typo fix. Now it asks only when the change being saved contains a remote file.
+
+  When uploads are unavailable, the Studio now shows a card above the editor. It says what is wrong and gives the fix: a link to admin.val.build or the `val login` command to copy. When the cause is missing setup (no project id, not logged in, no API key) it also says that text edits still save and publish. Dismissing it leaves an "Uploads off" item in the status bar, or in the account sheet on a phone, that brings it back. This replaces the red bar that covered the top of the Studio, the Publish button included, and the login dialog that opened on every load.
+
+## 0.141.0
+
+### Minor Changes
+
+- [#802](https://github.com/valbuild/val/pull/802) [`199e214`](https://github.com/valbuild/val/commit/199e21471d98806fb34c579cb876560078c928b9) Thanks [@freekh](https://github.com/freekh)! - New: `files: { remote: true }` in `val.config.ts` stores every image, file and video on Val's remote content host.
+
+  ```ts
+  const { s, c, val, config } = initVal({
+    project: "myorg/myproject",
+    files: { remote: true },
+  });
+  ```
+
+  With it, `s.image()`, `s.file()`, `s.video()`, `s.imageset()`, `s.fileset()`, `s.videoset()` and `s.richtext({ img: true })` behave as though `.remote()` had been written on them. Images already in the project are reported as `image:upload-remote` until they are uploaded; `npx val validate --fix` does that.
+
+  **Required in the Val app.** A project running there (`VAL_ENV=app`) refuses to start without it, with an error that says what to add, and `val publish` refuses before it builds.
+
+  **Breaking:** `files.directory` has been removed from `val.config.ts`. Local files that have no `dir` of their own are stored in `/public/val`, which was the default.
+
+- [#779](https://github.com/valbuild/val/pull/779) [`ba3f330`](https://github.com/valbuild/val/commit/ba3f3300a3dd8649e154097cdfca3b64db209d89) Thanks [@freekh](https://github.com/freekh)! - New: `s.video()`, for mp4/WebM files and HLS streams.
+
+  ```ts
+  const schema = s.object({
+    intro: s.video({ stream: { type: "hls" } }),
+  });
+  ```
+
+  - **Upload and play in the Studio.** A video field shows a player, the file's size and length, and progress while it uploads.
+  - **HLS streaming without a video service.** With `stream: { type: "hls" }`, the Studio converts an upload to an HLS stream in the editor's browser before it uploads it. It makes one H.264 rendition per height (1080p, 720p and 480p by default, and never larger than the upload) and stores them as a folder of files next to your other uploads. Nothing is installed in your app for this: the converter ships inside the Studio and is only downloaded when someone uploads to a streaming field. A browser that can't convert (no WebCodecs, or a non-https address) uploads the original file and says so.
+  - **Poster:** pause on a frame and choose "Use current frame". The frame is saved as an image, and `posterTime` records where it was taken.
+  - **Start and end:** play part of a video without cutting the file.
+  - **Focal point:** marks what must stay in frame when the page crops the video.
+  - **Description:** text for people who can't see the video.
+  - **Captions:** one WebVTT file per language. `.srt` files are converted on upload.
+  - **`<ValVideo>`** in `@valbuild/next` and `@valbuild/tanstack` renders all of the above and is click-to-edit. For HLS in browsers that can't play it natively, pass `hls={() => import("hls.js")}`. It is only loaded when it's needed.
+  - **Rename** a video in the Studio. An HLS stream is renamed as a whole: every playlist and segment moves to the new folder.
+  - `npx val validate --fix` fills in `mimeType`, `width`, `height` and `duration` for a hand-written `.mp4`, `.mov`, `.webm`, `.mkv` or HLS video, on disk or on Val Remote. A remote video is not downloaded: only its headers are read, usually in one to three small requests.
+  - `.remote()` works for videos. `npx val validate --fix` moves a video to Val Remote, or back into the project, together with its poster, captions and every file of an HLS stream.
+
+  A video value always has a `mimeType`: it is how a page knows whether it has an `.mp4` or an `.m3u8`.
+
+  New: `s.videoset()`, a collection of videos, like `s.imageset()` for images.
+
+  ```ts
+  const videosVal = c.define(
+    "/content/videos.val.ts",
+    s.videoset({ dir: "/public/val/videos", stream: { type: "hls" } }),
+    {},
+  );
+  const schema = s.object({ intro: s.video(videosVal) });
+  ```
+
+  - **Upload once, set it up once, use anywhere.** A set's entry holds what is true of the file (its type, size and length) and, as defaults, a description, poster, start and end, focal point and captions. A field that picks from the set (`s.video(videosVal)`) gets all of those, and can override any of them on its own. For example, the same clip can open one page at 0:02 and every other page where the set says.
+  - **Media in the Studio.** A set is listed under Media and opens as a gallery of videos, with each video's poster as its thumbnail. Hovering a video previews it, and the selected video plays in a real player (HLS streams too) beside the poster, times, focal point and captions you edit for it. You can upload into the set (with `stream`, uploads become HLS streams, and each upload gets a poster), rename a video, and delete a video that nothing uses. Renaming a video updates every field that uses it. An HLS stream is one entry, and renaming or deleting it moves or removes all of its files.
+  - **Picking.** A set-backed field picks from the set, or uploads into it. Each value the set provides is marked "From gallery · Override", and once overridden, "Overridden · Use gallery's".
+  - `useVal` and `fetchVal` fill in what the set holds (`mimeType`, `width`, `height`, `duration`, and every default the field does not override), so `<ValVideo>` works the same either way.
+  - `.remote()` works for sets. `npx val validate --fix` fills in missing metadata for an entry, adds untracked videos found in the set's directory, and moves a set's videos to Val Remote.
+
+  Image and file galleries use the same new gallery layout: a grid or list of entries, with the selected one open in a panel beside it.
+
+  - An `s.imageset()` entry can hold a default focal point, as well as its description. An `s.image(galleryVal)` field shows both, and can override either.
+  - Fixed: outside draft mode, `useVal` and `fetchVal` now fill a gallery-backed image or file from its gallery (dimensions, mime type, description). Before, a published page got only the `path`.
+
+### Patch Changes
+
+- [#801](https://github.com/valbuild/val/pull/801) [`9cbe428`](https://github.com/valbuild/val/commit/9cbe42895d006d55c3d993dc27f0779808b85306) Thanks [@freekh](https://github.com/freekh)! - Emptying a field in the preview's "On this page" list no longer removes it from the list while you are editing it.
+
+  The list shows what the page renders, and a field you empty often renders nothing: an empty rich text, an image set to none, or a link whose label was cleared. The row you were typing in used to vanish, taking your cursor with it, and clearing a link's label also removed its URL from the list. Now a field you have worked on stays where it was, marked "Not on page", until you reload the page with the canvas's reload button or go to another page. A field you delete from the content, such as a removed list item, still goes away at once.
+
+- [#804](https://github.com/valbuild/val/pull/804) [`fb5f097`](https://github.com/valbuild/val/commit/fb5f09721ac07f4d90b8502fdbee3fb3884d9688) Thanks [@freekh](https://github.com/freekh)! - A remote image, file or video field no longer uploads a file as local when it is picked right after the Studio opens. The field stays disabled until the Studio has chosen a remote bucket, as remote galleries already did. Before that, a file picked in that moment was given a local path and uploaded as a local file, even though the field was remote.
+
+- [#798](https://github.com/valbuild/val/pull/798) [`6473a2e`](https://github.com/valbuild/val/commit/6473a2efe874f1749b27ed6f8ac4e0d19805edb1) Thanks [@freekh](https://github.com/freekh)! - Pressing Save or Publish while your last edit is still on its way to the server no longer fails with "Cannot publish: your latest changes could not be saved". Before, the Studio gave that edit 5 seconds to arrive. A save that was only slow was then refused as if it had failed, even though the change reached the server a moment later and the status bar said "All changes saved".
+
+  This happened most often in local development, when you saved twice in a row: saving rewrites your `.val.ts` files, the dev server recompiles, and the next save waits for that rebuild.
+
+  The Studio now waits for a save that is still in progress. It stops waiting, and tells you, when the save keeps failing, or when the server has not answered at all after 60 seconds.
+
+## 0.140.2
+
+### Patch Changes
+
+- [#792](https://github.com/valbuild/val/pull/792) [`df1e5f5`](https://github.com/valbuild/val/commit/df1e5f5f94391f25c71839cc476a51198b90db4d) Thanks [@freekh](https://github.com/freekh)! - The Publish button no longer turns green while a publish is still running, in any tab or on any device. Before, the changes being published still counted as unpublished until the publish went live. So from about 64% on the progress, Publish lit up over them again: in the tab that pressed it, in every other open Studio, and on another device.
+
+  The button now reads "Publishing" for those changes until the publish is live, and you can press it again only for changes made since. If a publish fails, its changes become publishable again straight away.
+
+  Val Build's content service now reports which changes a running publish holds, and the Studio reads that from `/stat` and the live connection. A content service that doesn't report it keeps the previous behaviour, except in the tab that pressed Publish.
+
+## 0.140.0
+
+### Minor Changes
+
+- [#769](https://github.com/valbuild/val/pull/769) [`cb93874`](https://github.com/valbuild/val/commit/cb938748aec15fd0ac3814c1696a2dd78ad63c27) Thanks [@freekh](https://github.com/freekh)! - The project name in the Studio's top bar is now a project switcher, for projects connected to Val Build. It shows the project you are in, the projects you pinned and the five you opened most recently, and searches every project in your organisations. Choosing one opens its Studio.
+
+  The top bar also gets a **Share** button (an icon on a phone). It shows who is in the project's organisation. Owners can create invite links for a role (each works once and expires after 7 days), see and revoke pending links, and change members' roles. Everyone else can see the members and which owners to ask.
+
+  The assistant can be set up from the Studio too. Settings › Assistant shows the AI key this project runs on and whether it works. From there you can add a key, update it, remove it, or choose one that already exists: the organisation's, your own, or another project's. The assistant's empty state offers the same when no key is set up. Every key is checked with the provider before it is saved, and once a key is saved the assistant turns on without a reload.
+
+  The panels are served by Val's content server (`content.val.build/wc/v1/project-switcher.js`, `members.js` and `ai-setup.js`), beside the API they read and write, so they can improve without a Val release. The Studio draws the project name and the Share button itself, and loads the switcher and Share panels only when the button is first hovered or clicked, so opening the Studio fetches nothing extra. If a panel cannot load, for example offline or under a strict Content Security Policy, the click opens the same page in Val Build instead, and the AI setup is a link to the project's AI keys there. If your app sets a CSP, allow `script-src https://content.val.build` to get them.
+
+  They reach Val Build through a new route on your app's Val server, `/api/val/admin/proxy/*`, which adds the editor's existing Val Build session. That route forwards only to the Studio API on Val's content server (`/v1/studio/*` on `VAL_CONTENT_URL`, `https://content.val.build` by default), and only with the `x-val-studio` header that a cross-site request cannot send.
+
+  In local development they appear once you have run `val login`, and use that login. Without one the Studio keeps the plain project name, as before; it does not load them just to say you are not logged in.
+
+## 0.139.2
+
+### Patch Changes
+
+- [#789](https://github.com/valbuild/val/pull/789) [`4d9e12c`](https://github.com/valbuild/val/commit/4d9e12c5286f981c7a8a7820db1bf580e327d2ea) Thanks [@freekh](https://github.com/freekh)! - A change you publish no longer disappears from your open Studio while the site is building.
+
+  Before, when a publish was made for you on the server (or from another of your tabs or browsers), an open Studio could go back to showing the value from before the publish, and offer to publish again, until the page was reloaded. It now keeps showing the published value until the new build is live, the same as a reload does.
+
+- [#787](https://github.com/valbuild/val/pull/787) [`1c3eb3a`](https://github.com/valbuild/val/commit/1c3eb3af91f6dfeff94a95d80d5291a1acf1baf2) Thanks [@freekh](https://github.com/freekh)! - Staging or unstaging a change while the Studio is still saving an edit no longer gets undone by that save.
+
+  Saving an edit also adds it — and whatever it was written on top of — to your staged changes, and the server applies a save and a stage/unstage in whatever order they arrive. Unstage something while an edit on top of it was still being saved, and the save could land second and quietly stage it again; or the edit could end up staged without the change beneath it, which a reload then showed. Now a stage or unstage made during a save is sent once the save has been answered, an unstage takes with it any just-saved edit that depends on what it removes, and what is staged after a reload is what you last chose.
+
+## 0.139.1
+
+### Patch Changes
+
+- [#785](https://github.com/valbuild/val/pull/785) [`238057d`](https://github.com/valbuild/val/commit/238057d2f17a6bdd22d0bd4316dd8e3a8843a85d) Thanks [@freekh](https://github.com/freekh)! - Publishing has one indicator in the Studio's status bar, and it spins until every visitor sees the change.
+
+  - **Publishing 42% → Reaching visitors 94% → Live**, with a progress bar. Live is not the end: each edge may serve the previous version for up to a minute after the site switches, so the indicator keeps spinning, and the bar keeps filling, until that has passed. When it stops, every visitor sees the change. The step ("Building", "Uploading 3 of 7") is on hover.
+  - **It spins for anyone's publish**, not only yours: another editor's publish shows here too.
+  - **One "Published" toast**, for the person who published, when every visitor sees the change, instead of at the moment the site switched.
+  - **The Deployments list no longer opens by itself.** Click the indicator to see it.
+  - **Safari:** the Studio no longer shows a second progress card while the builder tab works. The builder tab now reports its percentage, so the Studio's bar matches it, and the card only appears when the tab was blocked or failed.
+
+- [#777](https://github.com/valbuild/val/pull/777) [`8f08418`](https://github.com/valbuild/val/commit/8f0841882d13c991d31dfbb03dd4873c9ab636b4) Thanks [@freekh](https://github.com/freekh)! - Changes you make in one browser or tab now show up in your other open Studios without a reload, and are included when you publish from them.
+
+  Before, a Studio that was already open kept showing the old value for a change you had made somewhere else, and publishing from it left that change out, until the page was reloaded. A change you have unstaged in a Studio stays unstaged there.
+
+- [#785](https://github.com/valbuild/val/pull/785) [`238057d`](https://github.com/valbuild/val/commit/238057d2f17a6bdd22d0bd4316dd8e3a8843a85d) Thanks [@freekh](https://github.com/freekh)! - The publishing percentage no longer falls back after the upload. A publish built in the Studio tab used to climb to about 60%, drop to 8% while the tab handed the build over, and then jump to 64%. It now goes straight from the upload to the site check.
+
+- [#780](https://github.com/valbuild/val/pull/780) [`db13bed`](https://github.com/valbuild/val/commit/db13bed902f9f9147feb5be07ce47fe8b5b143f9) Thanks [@freekh](https://github.com/freekh)! - When a new version of your site with a changed schema is deployed while Val Studio is open, the Studio now asks you to reload before you keep editing, instead of carrying on with the old schema.
+
+- [#781](https://github.com/valbuild/val/pull/781) [`5ea70ce`](https://github.com/valbuild/val/commit/5ea70cefde3c74961cfa76b4a5f4c333b850b60a) Thanks [@freekh](https://github.com/freekh)! - Every open Studio now shows the same changes, staged the same way, as a reload would.
+
+  - Staging or unstaging a change in one browser or tab now shows up in your other open Studios right away, without a reload, and publishing from any of them ships the same set.
+  - A change you stage before you have made any edit of your own is saved straight away, instead of being kept in the tab until your first edit and lost if you reloaded first.
+  - If staging a change fails, the Studio now goes back to showing what is actually saved, instead of keeping the failed change on screen until a reload.
+
+  This needs the Val Build content service released alongside this version.
+
+## 0.139.0
+
+### Minor Changes
+
+- [#776](https://github.com/valbuild/val/pull/776) [`3eb5031`](https://github.com/valbuild/val/commit/3eb503167ae466ee586303c95efcc14665129481) Thanks [@freekh](https://github.com/freekh)! - **Breaking:** `.render({ as: "inline" })` now goes on the list, not on its items.
+
+  You now write `s.array(item).render({ as: "inline" })` and `s.record(item).render({ as: "inline" })`. Each item is then edited in its own row instead of in a preview row you click into. The list decides. The item schema stays reusable, and a page builder made of tagged blocks needs nothing on each block:
+
+  ```ts
+  // before
+  s.array(
+    s.discriminatedUnion(
+      "type",
+      hero.render({ as: "inline" }),
+      text.render({ as: "inline" }),
+    ),
+  );
+
+  // after
+  s.array(s.discriminatedUnion("type", hero, text)).render({ as: "inline" });
+  ```
+
+  What changed:
+
+  - Only `s.array()`, `s.record()` and `s.keyOf()` have `.render(...)` now. On every other schema the method is gone, so the old placement shows up as a type error. Move the render out one level.
+  - The render only affects the list's own items. A list nested inside one of those items keeps its default unless it has its own `.render`.
+  - `s.router()`, `s.imageset()` and `s.fileset()` throw if you give them a render, because pages and media have their own editors.
+  - `s.keyOf(...).render({ as: "inline" })` means the same as before: the selected entry's content is shown below the dropdown.
+
+  **Watch for one case that still compiles:** an array or record that is itself the item of another list. `s.record(s.array(s.string()).render({ as: "inline" }))` used to show the record's arrays inline. Now it shows each array's strings inline. To keep the old layout, write `s.record(s.array(s.string())).render({ as: "inline" })`.
+
 ## 0.138.6
 
 ### Patch Changes

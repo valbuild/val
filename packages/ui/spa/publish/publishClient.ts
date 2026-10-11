@@ -77,6 +77,23 @@ export class StudioPublishError extends Error {
   }
 }
 
+/**
+ * Was this a failure that asking again could get past?
+ *
+ * No answer at all (the request never got through) and the answers that mean
+ * "not now" -- a timeout, too many requests, a server or gateway error. Every
+ * other status is content answering, and the same request gets the same
+ * answer.
+ */
+export function isTransientPublishError(error: unknown): boolean {
+  if (!(error instanceof StudioPublishError)) return true;
+  return (
+    error.statusCode >= 500 ||
+    error.statusCode === 408 ||
+    error.statusCode === 429
+  );
+}
+
 export type StudioPublishClient = {
   /**
    * What to build against, and what to build -- the two reads a publish makes

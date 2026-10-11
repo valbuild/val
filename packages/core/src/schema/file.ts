@@ -19,10 +19,9 @@ import {
 } from "./validation/ValidationError";
 import { Internal, ValModule } from "..";
 import { ItemPreviewInput, PreviewItem } from "../preview";
-import { FieldRender } from "../render";
 import { FilesetEntryMetadata } from "./fileset";
 import { getSource } from "../module";
-import { mimeTypeMatchesAccept } from "../mimeType";
+import { canonicalFontMimeType, mimeTypeMatchesAccept } from "../mimeType";
 
 export type FileOptions = {
   accept?: string;
@@ -30,8 +29,6 @@ export type FileOptions = {
 
 export type SerializedFileSchema = {
   type: "file";
-  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
-  render?: FieldRender;
   /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
   preview?: true;
   options?: FileOptions;
@@ -57,7 +54,6 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     private readonly isReadonly: boolean = false,
     private readonly isHidden: boolean = false,
     private readonly description?: string,
-    private readonly renderInput: FieldRender | null = null,
     private readonly previewInput: ItemPreviewInput<Src> | null = null,
   ) {
     super();
@@ -93,7 +89,6 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       description ?? undefined,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -128,7 +123,6 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -169,7 +163,6 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -331,7 +324,9 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
     // fix was offered -- and the `file:add-metadata` branch below could never be
     // reached for any file whose extension is recognized, which is all of them
     // that get this far.
-    if (mimeType && fileMimeType !== mimeType) {
+    // A legacy font name (`application/x-font-ttf`) is what the extension
+    // table itself used to say, so it is not a mismatch.
+    if (mimeType && fileMimeType !== canonicalFontMimeType(mimeType)) {
       return {
         [path]: [
           ...customValidationErrors,
@@ -445,7 +440,6 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -460,7 +454,6 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -475,7 +468,6 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       this.isReadonly,
       isHidden,
       this.description,
-      this.renderInput,
       this.previewInput,
     );
   }
@@ -488,34 +480,6 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       src,
       this.customValidateFunctions,
       { path },
-    );
-  }
-
-  /**
-   * How this field is laid out in the editor when it is the item of an array
-   * or record: `{ as: "inline" }` renders the field itself inside each row,
-   * instead of a preview row that navigates to it.
-   *
-   * Static configuration, not a callback — see `render.ts`.
-   *
-   * @example
-   * const schema = s.array(s.file().render({ as: "inline" }));
-   * export default c.define("/example.val.ts", schema, [
-   *   { path: "/public/val/example.pdf", mimeType: "application/pdf" },
-   * ]);
-   */
-  render(input: FieldRender): FileSchema<Src> {
-    return new FileSchema(
-      this.options,
-      this.opt,
-      this.isRemote,
-      this.customValidateFunctions,
-      this.moduleMetadata,
-      this.isReadonly,
-      this.isHidden,
-      this.description,
-      input,
-      this.previewInput,
     );
   }
 
@@ -542,7 +506,6 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       this.isReadonly,
       this.isHidden,
       this.description,
-      this.renderInput,
       select,
     );
   }
@@ -566,7 +529,6 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
       : [];
     return {
       type: "file",
-      render: this.renderInput ?? undefined,
       preview: this.previewInput ? true : undefined,
       options: this.options,
       opt: this.opt,
@@ -595,6 +557,28 @@ export function file(options?: FileOptions): FileSchema<FileSource>;
 export function file(
   options?: FileOptions | ValModule<Record<string, FilesetEntryMetadata>>,
 ): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
+  return fileOf(false, options);
+}
+
+/**
+ * `s.file()` for a project whose media is all remote (`files.remote` in
+ * `val.config.ts`): the same schema, with `.remote()` already applied. See
+ * `initSchema`.
+ */
+export function remoteFile(
+  galleryModule: ValModule<Record<string, FilesetEntryMetadata>>,
+): FileSchema<GalleryFileSource>;
+export function remoteFile(options?: FileOptions): FileSchema<FileSource>;
+export function remoteFile(
+  options?: FileOptions | ValModule<Record<string, FilesetEntryMetadata>>,
+): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
+  return fileOf(true, options);
+}
+
+function fileOf(
+  remote: boolean,
+  options?: FileOptions | ValModule<Record<string, FilesetEntryMetadata>>,
+): FileSchema<FileSource> | FileSchema<GalleryFileSource> {
   const isModule =
     !!options &&
     !!Internal.getValPath(
@@ -616,7 +600,7 @@ export function file(
         FilesetEntryMetadata
       >;
     }
-    return new FileSchema<GalleryFileSource>({}, false, false, [], allModules);
+    return new FileSchema<GalleryFileSource>({}, false, remote, [], allModules);
   }
-  return new FileSchema(options as FileOptions);
+  return new FileSchema(options as FileOptions, false, remote);
 }

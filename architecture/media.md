@@ -1,4 +1,4 @@
-# Media: `s.imageset()`, `s.fileset()`, `s.videoset()`, `s.image()`, `s.file()`, `s.video()`
+# Media: `s.imageset()`, `s.fileset()`, `s.fontset()`, `s.videoset()`, `s.image()`, `s.file()`, `s.video()`
 
 ## The four names are two pairs on different axes
 
@@ -16,6 +16,31 @@ Remote is a **method, not an option**, everywhere: `s.imageset({...}).remote()`,
 be `{ remote: true }` on the two collections and a `.remote()` on the two fields,
 which meant the same fact was spelled two ways depending on which of the four you
 were looking at.
+
+### `files: { remote: true }`: every one of them remote, for a whole project
+
+`initVal({ files: { remote: true } })` makes `s.image()`, `s.file()`,
+`s.video()`, the three sets and `s.richtext({ img: true })` come back with
+`.remote()` already on them (`initSchema`). The FACTORIES change, not the
+schemas: what comes out serializes byte-identically to a hand-written
+`.remote()`, so the Studio, the MCP tools, validation and publishing need to know
+nothing about the setting. A local path in such a project is the ordinary
+`image:upload-remote` error, and `val validate --fix` is the ordinary fix.
+
+The Val app REQUIRES it: with `VAL_ENV=app` the server refuses to start without
+it (`APP_MODE_REQUIRES_REMOTE_FILES` in `valServerConfig.ts`), and `val publish`
+refuses before it builds. The app has no repository for an upload to land in.
+
+It lives in `val.config.ts` rather than being switched on by the environment,
+and that is the point of it. The schemas are built when `val.config.ts` and the
+modules are evaluated — by the app, but also by `val validate`, the language
+server and `pnpm dev`. A switch only the app could see would leave all of those
+reading the media as local: every remote image an error, and `--fix` downloading
+it back into the repository. Do not "simplify" it into an env check.
+
+There is no config-wide files directory any more. `files.directory` was removed
+because nobody set it and the schemas carry their own `dir`; a local file a
+publish commits with no `dir` of its own goes to `/public/val`.
 
 A collection's `directory` is **required**. It used to default to `/public/val`,
 which meant a gallery that had simply not said where it wanted its files shared a
@@ -77,10 +102,30 @@ A **gallery-backed** field (`s.image(galleryModule)`, and `s.file(collectionModu
 for the file pair) carries neither: the gallery has them, keyed by path, and
 repeating them is how two copies of one fact get to disagree. `s.image(galleryVal)` refuses them at author time, and
 validation refuses a path the gallery does not track. `fillFromGallery` supplies
-them at resolve time — including `alt`, but only when the field has none, so a
-per-image override wins. A gallery whose `alt` is a locale record holds an object
-rather than a string; the field's own override is still a string, and making that
-locale-shaped is a separate change.
+them at resolve time.
+
+**A gallery entry also holds DEFAULTS, and a field overrides them key by key.**
+What a page chooses about a file — an image's `alt` and `hotspot`; a video's
+`alt`, `hotspot`, `poster` + `posterTime`, `startTime`, `endTime` and
+`captions` — can be set once on the gallery entry, and every field picked from
+the gallery starts from it. A field that sets a key of its own wins for that
+key only (`GALLERY_DEFAULT_GROUPS`): a field with its own `startTime` still
+gets the gallery's `endTime`. Two groupings are deliberate: `poster` and
+`posterTime` are one pair (the poster IS the frame at that time, so half from
+each would describe a frame nobody chose), and `captions` is one list. A file
+entry has none: `s.file()` has nothing authored to default.
+
+`fillFromGallery` is the one merge, for the readers (`stegaEncode`) and the
+Studio (`effectiveChoices` in `VideoChoices.tsx` runs the same groups), so a
+page and the Studio cannot disagree about which poster a video has. Outside
+draft mode a reader has no module sources to look in, so it reads the
+gallery's PUBLISHED entries off the field's schema instance
+(`Internal.media.galleriesOf`) — before that, a published page got a
+gallery-backed value with nothing of the gallery's on it.
+
+A gallery whose `alt` is a locale record holds an object rather than a string;
+that is left in the gallery rather than copied into a field typed `string`,
+and making the override locale-shaped is a separate change.
 
 **An entry's `alt` type comes from the `alt` schema**, not from a fixed
 `string | null`: `s.string()` gives `string`, `s.record(s.string())` gives
@@ -350,6 +395,54 @@ blocking, and upload sets `alt: null` — so such a gallery is unpublishable unt
 someone types alt text. Correct, but it means uploading alone never reaches a
 publishable state there.
 
+## Fonts: `s.fontset()`
+
+`s.fontset({ dir, accept? })` IS an `s.fileset()` — it serializes byte for byte
+as one (`mediaType: "files"`), so every check, fix, rename, delete and the
+`s.file(fontsVal)` field that picks from it are the fileset's, untouched. What
+it adds is a default `accept` (`font/woff2,font/woff,font/ttf,font/otf`) and a
+refusal of an `accept` that names anything but fonts.
+
+**`s.font(fontsVal)` is the field.** It is `s.file(fontsVal)` — same source,
+same serialization — that refuses, at definition, a module that is not a font
+set. In the Studio a font field (either spelling, since the two cannot be told
+apart once serialized: the set's `accept` is what is read) is a ROW in its
+parent — the font's "A" and its file name — and opens on the whole set as a
+grid to pick from, with the specimen of the chosen one below. A row because
+the choice needs the set in front of you, and a parent's field list has no
+room for it. "In its parent" is `useIsListedField`, which `Field` provides.
+
+**What makes a font a font is its mime type, not the set.** The Studio draws a
+specimen of any file whose type is a font (`Internal.isFontMimeType`) — in a
+gallery tile, the open entry, the picker of `s.file(fontsVal)`, and the field
+once a font is chosen — so a font in a plain fileset previews too. A
+set-backed field has no `mimeType` of its own, so the field asks the
+extension. The Media nav calls a set "Fonts" when its `accept` is all fonts
+(`isFontAccept`), the one place the set rather than the file is asked.
+
+The specimen loads the file with `FontFace` under a family of our own and adds
+it to `document.fonts`: an `@font-face` written inside the Studio's shadow root
+is ignored by browsers, while the document's font set reaches every tree. A
+remote font needs CORS for this, which the content host sends.
+
+**Types come from the bytes.** Pickers type fonts unreliably — `.woff2` is
+`font/woff2`, an empty type (read as `application/octet-stream`) or a pre-RFC
+8081 `application/x-font-*`, by platform. The type decides the stored
+`mimeType` and the filename's extension (`createFilename`), so `readFile`
+retypes a font's data URL from its signature (`sniffFontMimeType`: `wOF2`,
+`wOFF`, `OTTO`, `0x00010000`/`true`, `ttcf`) before anything is hashed. The
+file input's `accept` also lists the extensions (`inputAccept`), and a drop is
+matched by extension when the browser gave no usable type. The extension table
+itself was moved to the `font/` types; a stored legacy name is still accepted
+as matching its extension (`canonicalFontMimeType`).
+
+**There is no conversion to WOFF2.** WOFF2 is Brotli-compressed, and of the
+browsers only Safari offers Brotli in `CompressionStream`; anywhere else it
+needs a WASM encoder, which is a dependency. WOFF (zlib, which every browser
+has) could be written without one, but it is the older and larger format, so
+nothing is converted. A project that wants only WOFF2 says so with
+`accept: "font/woff2"`.
+
 ## Video: `s.video()` and `s.videoset()`
 
 A video is a third kind of media, and the one media value that names several
@@ -517,13 +610,30 @@ const page = s.object({ intro: s.video(videosVal) });
 // page source: { intro: { path: "/public/val/videos/intro_51df2.mp4", startTime: 2 } }
 ```
 
-The split between the entry and the field is **what is true of the FILE versus
-what one page chose about it**. The entry has the type, size, length and a
-description; the field has its own description, poster, start and end, focal
-point and captions — so one clip can open one page at 0:02 and another at
-0:10, each with its own poster, without being uploaded twice. Core refuses a
-set-backed field that repeats `mimeType` / `width` / `height` / `duration`,
-the same rule as an image and its gallery.
+The entry holds **what is true of the FILE** — type, size, length, the set's
+alone — and, as defaults, **what a page chooses about it**: description,
+poster, start and end, focal point, captions. A field overrides any of those
+key by key (see "The shape" above), so one clip can open one page at 0:02 and
+every other page where the set says, without being uploaded twice. Core
+refuses a set-backed field that repeats `mimeType` / `width` / `height` /
+`duration`, the same rule as an image and its gallery; it checks an entry's
+defaults with the same checks as a field's own (`videoDefaults.ts`), and a
+field's own start against the set's end (or the reverse) as the pair the page
+will play.
+
+**The entry's poster is the gallery's thumbnail.** There is no second still:
+two pictures of one video would disagree. An upload into the set takes the
+poster from the picked file before it goes anywhere (the same frame a field
+upload takes), and an entry without one — uploaded before posters were stored
+— gets one the first time it is opened in the gallery, if the gallery can be
+written to. A stream needs it most: a tile can seek in a file to show a frame,
+and cannot in a stream.
+
+The Studio edits both sides with the same controls (`VideoChoices`): the
+gallery's panel edits the entry's defaults, and a set-backed field shows the
+set's value with "From gallery · Override" until it has its own, then
+"Overridden · Use gallery's". An image field picked from a gallery does the
+same for its description and focal point.
 
 - **A stream is ONE entry, keyed by its master playlist.** The playlists and
   segments beside it belong to it: the gallery names it by its directory (as
@@ -541,9 +651,16 @@ false })` is the one override, as `encode` is for an image.
   (`createSetBackedVideoPatch`). Uploading in the set itself files them at the
   entry (`createVideosetEntryPatch`). Both go through `prepareVideoUpload`, the
   one place a picked file is read and — when asked — converted.
-- **Poster and captions stay the field's files**, and live where the set's
-  videos do: for a remote set, a local poster is `video:upload-remote` on the
-  field, which moves the poster and captions and never the video.
+- **A field's poster and captions are the field's files**, and live where the
+  set's videos do: for a remote set, a local poster is `video:upload-remote`
+  on the field, which moves the poster and captions and never the video.
+- **An entry's poster and captions are the entry's files.** `check-all-files`
+  counts them as tracked, `list-unused-files` as used, a gallery delete
+  removes them, and `videos:upload-remote` moves them with the video — or
+  alone, for an entry whose key is already remote (the error then carries the
+  key, and the entry is rewritten under it). `--fix` does not MAKE a missing
+  poster: that needs a video decoder, and the CLI has none; the Studio makes
+  it in the browser.
 - **A deserialized set-backed schema** (what the Studio validates with) knows
   which set it points at but not its entries, so it does not claim an entry is
   missing — the set's own module is validated anyway.

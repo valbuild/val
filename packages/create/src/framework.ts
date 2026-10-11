@@ -1,3 +1,4 @@
+import type { CatalogTemplate } from "./catalog";
 import type { Features } from "./features";
 
 /**
@@ -12,62 +13,24 @@ import type { Features } from "./features";
 export type Framework = "nextjs" | "tanstack";
 
 /**
- * The optional parts of the template a given starter actually ships.
+ * The frameworks, in the order the picker offers them.
  *
- * Not a statement about the framework package: `@valbuild/tanstack/server`
- * exports `initValMcp` just as `@valbuild/next/server` does. It is a statement
- * about the STARTER, and it exists so the prompts cannot offer a feature that
- * the downloaded repository has no files for — which would produce a project
- * whose success message points a coding agent at an endpoint that is not there.
+ * TanStack Start first, and the default: it is Val's primary platform, the one
+ * that gets a feature first. Which TEMPLATES exist for each is not decided
+ * here but by the catalog (`catalog.ts`); this is only what a flag can name.
  */
-export type FeatureSupport = {
-  /** Serves Val's content tools at `/api/mcp`. */
-  mcp: boolean;
+export const FRAMEWORKS: Framework[] = ["tanstack", "nextjs"];
+
+export const FRAMEWORK_NAMES: Record<Framework, string> = {
+  tanstack: "TanStack Start",
+  nextjs: "Next.js",
 };
 
-export type Template = {
-  framework: Framework;
-  /** Shown in the picker, and in any message that names the starter. */
-  name: string;
-  description: string;
-  repo: string;
-  supports: FeatureSupport;
-};
-
-export const TEMPLATES: Record<Framework, Template> = {
-  nextjs: {
-    framework: "nextjs",
-    name: "Next.js",
-    description: "App Router, TypeScript, Tailwind CSS, and examples",
-    repo: "valbuild/template-nextjs-starter",
-    supports: { mcp: true },
-  },
-  tanstack: {
-    framework: "tanstack",
-    name: "TanStack Start",
-    description: "React, TypeScript, Tailwind CSS, and examples",
-    repo: "valbuild/template-tanstack-starter",
-    // The starter has no `api/mcp` route or `src/val/mcp.ts` yet. Flip this to
-    // `true` in the same change that adds them, and `applyFeatures` will need
-    // this framework's paths — the ones it removes today are Next's.
-    supports: { mcp: false },
-  },
-};
+export const DEFAULT_FRAMEWORK: Framework = "tanstack";
 
 function isFramework(value: string): value is Framework {
-  return Object.prototype.hasOwnProperty.call(TEMPLATES, value);
+  return FRAMEWORKS.some((framework) => framework === value);
 }
-
-/**
- * Every framework we have a starter for, derived from the templates so the two
- * cannot drift: a `Framework` added to the union without a template is a type
- * error, and one added with a template shows up in the picker, the help text
- * and the error messages for free.
- */
-export const FRAMEWORKS: Framework[] =
-  Object.keys(TEMPLATES).filter(isFramework);
-
-export const DEFAULT_FRAMEWORK: Framework = "nextjs";
 
 /**
  * What people type when they mean one of these.
@@ -158,7 +121,108 @@ export function parseFrameworkArgs(args: string[]): FrameworkArgs {
 }
 
 /**
- * Turn off whatever the chosen starter has no files for.
+ * Read `--template <id>` (or `--template=<id>`) out of `args`.
+ *
+ * Kept as the text that was given: what it names depends on the catalog, which
+ * is not fetched yet when the arguments are parsed. See `resolveTemplateArg`.
+ */
+export function parseTemplateArgs(args: string[]): {
+  template: string | null;
+  /** `--template` with nothing after it. */
+  invalidFlag: string | null;
+  rest: string[];
+} {
+  let template: string | null = null;
+  let invalidFlag: string | null = null;
+  const rest: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--template") {
+      const value = args[i + 1];
+      if (value === undefined || value.startsWith("--")) {
+        invalidFlag = invalidFlag ?? arg;
+        continue;
+      }
+      template = value;
+      i++;
+      continue;
+    }
+    const valueMatch = /^--template=(.*)$/.exec(arg);
+    if (valueMatch) {
+      if (valueMatch[1] === "") {
+        invalidFlag = invalidFlag ?? arg;
+      } else {
+        template = valueMatch[1];
+      }
+      continue;
+    }
+    rest.push(arg);
+  }
+  return { template, invalidFlag, rest };
+}
+
+export type TemplateArg =
+  /** Names one template. */
+  | { status: "ok"; template: CatalogTemplate }
+  /** A name like `full`, which needs the framework before it names one. */
+  | { status: "needs-framework"; name: string }
+  | { status: "error"; message: string };
+
+/**
+ * What `--template` names, once the catalog is known.
+ *
+ * An id names one template outright, and with it the framework — so
+ * `--template tanstack-full` needs no `--framework`, and contradicts a
+ * `--framework nextjs` given beside it. A template's name (`full`, `Minimal`)
+ * names one per framework, so it waits for the framework to be known.
+ */
+export function resolveTemplateArg(
+  value: string,
+  templates: CatalogTemplate[],
+  framework: Framework | null,
+): TemplateArg {
+  const wanted = value.trim().toLowerCase();
+  const byId = templates.find((template) => template.id === wanted);
+  if (byId) {
+    if (framework !== null && byId.framework !== framework) {
+      return {
+        status: "error",
+        message: `--template ${value} is a ${FRAMEWORK_NAMES[byId.framework]} template, and --framework asked for ${FRAMEWORK_NAMES[framework]}.`,
+      };
+    }
+    return { status: "ok", template: byId };
+  }
+  const named = templates.filter(
+    (template) => template.name.toLowerCase() === wanted,
+  );
+  if (named.length === 0) {
+    return {
+      status: "error",
+      message: `There is no template called "${value}". Templates: ${templates
+        .map((template) => template.id)
+        .join(", ")}.`,
+    };
+  }
+  if (framework === null) {
+    return { status: "needs-framework", name: wanted };
+  }
+  const forFramework = named.find(
+    (template) => template.framework === framework,
+  );
+  if (!forFramework) {
+    return {
+      status: "error",
+      message: `There is no ${FRAMEWORK_NAMES[framework]} template called "${value}". ${FRAMEWORK_NAMES[framework]} templates: ${templates
+        .filter((template) => template.framework === framework)
+        .map((template) => template.id)
+        .join(", ")}.`,
+    };
+  }
+  return { status: "ok", template: forFramework };
+}
+
+/**
+ * Turn off whatever the chosen template has no files for.
  *
  * Resolved rather than refused, for the reason `reconcile` gives about
  * `--image-uploads`: the answer is not ambiguous. A flag that asked for MCP is
@@ -167,13 +231,24 @@ export function parseFrameworkArgs(args: string[]): FrameworkArgs {
  */
 export function dropUnsupportedFeatures(
   features: Features,
-  template: Template,
+  template: CatalogTemplate,
 ): { features: Features; warning: string | null } {
-  if (template.supports.mcp || !(features.mcp || features.imageUploads)) {
-    return { features, warning: null };
+  const hasMcp = template.features.mcp !== undefined;
+  const hasImageUploads = template.features.imageUploads !== undefined;
+  const mcp = features.mcp && hasMcp;
+  const imageUploads = features.imageUploads && mcp && hasImageUploads;
+  const name = `${FRAMEWORK_NAMES[template.framework]} ${template.name}`;
+  if ((features.mcp || features.imageUploads) && !hasMcp) {
+    return {
+      features: { mcp: false, imageUploads: false },
+      warning: `The ${name} template does not ship an MCP endpoint, so MCP and image uploads are off for this project.`,
+    };
   }
-  return {
-    features: { mcp: false, imageUploads: false },
-    warning: `The ${template.name} starter does not ship an MCP endpoint yet, so MCP and image uploads are off for this project.`,
-  };
+  if (features.imageUploads && mcp && !hasImageUploads) {
+    return {
+      features: { mcp, imageUploads: false },
+      warning: `The ${name} template does not ship image uploads, so they are off for this project.`,
+    };
+  }
+  return { features: { mcp, imageUploads }, warning: null };
 }

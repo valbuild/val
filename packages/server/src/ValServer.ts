@@ -1,4 +1,9 @@
+import type { ValProposal } from "./proposal";
 /* eslint-disable @typescript-eslint/no-unused-vars */
+import {
+  commitCarriesFiles,
+  commitCarriesRemoteFiles,
+} from "./commitCarriesRemoteFiles";
 import {
   ValModules,
   PatchId,
@@ -24,6 +29,7 @@ import {
   VAL_ENABLE_COOKIE_NAME,
   VAL_SESSION_COOKIE,
   VAL_STATE_COOKIE,
+  VAL_STUDIO_HEADER,
   ValCookies,
   ValServerError,
   ValServerErrorStatus,
@@ -53,6 +59,7 @@ import {
   AuthorId,
   BaseSha,
   CommitSha,
+  draftOverlay,
   formatPatchSourceError,
   OrderedPatches,
   SchemaSha,
@@ -73,8 +80,14 @@ import { getModuleAtCommit } from "./history/getModuleAtCommit";
 import { getJsonEntryAtCommit } from "./history/getJsonEntryAtCommit";
 import { getSettings } from "./getSettings";
 import {
+  forwardToStudioApi,
+  type AdminProxyResult,
+  type ValBuildCredential,
+} from "./adminProxy";
+import {
   createValOps,
   resolveRemoteFileAuth,
+  readValLoginToken,
   type RemoteFileAuth,
 } from "./valServerConfig";
 import path from "path";
@@ -226,6 +239,8 @@ export type ValServerConfig = ValServerOptions &
         publishJob?: string;
         /** See `publishBuild` on {@link ValApiOptions}. */
         publishBuild?: string;
+        /** See `proposal` on {@link ValApiOptions}. */
+        proposal?: ValProposal;
         config: ValConfig;
       }
     /**
@@ -250,6 +265,14 @@ export type ValServerConfig = ValServerOptions &
   );
 
 export type ValServer = ServerOf<Api>;
+
+/**
+ * Where a local file a publish commits is written. Fixed: it was configurable
+ * (`files.directory` in val.config.ts), nobody configured it, and the schemas
+ * have their own `dir` for any collection that wants somewhere else.
+ */
+const FILES_DIRECTORY = "/public/val";
+
 export const ValServer = (
   valModules: ValModules,
   options: ValServerConfig,
@@ -373,6 +396,135 @@ export const ValServer = (
         console.debug("Failed to get user from code: ", err);
         return null;
       });
+  };
+
+  /**
+   * `/admin/proxy/*`, for Val Build's web components in the Studio: forwarded
+   * to the Studio API on the content server. See `adminProxy.ts` for what is
+   * forwarded and why.
+   *
+   * Three refusals before anything leaves this server, and the `code`s are
+   * the ones the components act on:
+   * - no `x-val-studio` header: 403, since a cross-site request cannot set it;
+   * - no Val Build behind this Studio (no `valBuildUrl`, or fs mode without
+   *   a `val login`): 404 `not-connected`, which the component shows as such
+   *   rather than as an outage — though `/admin/status` keeps the Studio from
+   *   mounting it at all in that case;
+   * - a deployed Studio without a valid session: 401 `unauthenticated`, which
+   *   the component answers by asking the Studio to sign in.
+   */
+  const adminProxy = async (
+    method: "GET" | "POST" | "PUT" | "DELETE",
+    req: {
+      path: string;
+      rawQuery: string;
+      body: unknown;
+      headers: Partial<Record<typeof VAL_STUDIO_HEADER, string>>;
+      cookies: Partial<Record<typeof VAL_SESSION_COOKIE, string>>;
+    },
+  ): Promise<AdminProxyResult> => {
+    if (req.headers[VAL_STUDIO_HEADER] !== "1") {
+      return {
+        status: 403,
+        json: {
+          code: "forbidden",
+          message: `Requests to the Val Build proxy need the ${VAL_STUDIO_HEADER} header.`,
+        },
+      };
+    }
+    const credential = await getValBuildCredential(req.cookies);
+    if (credential.status !== "ok" || !options.valBuildUrl) {
+      if (!serverOps.requiresAuth || !options.valBuildUrl) {
+        return {
+          status: 404,
+          json: {
+            code: "not-connected",
+            message: "This Studio is not connected to Val Build.",
+          },
+        };
+      }
+      return {
+        status: 401,
+        json: {
+          code: "unauthenticated",
+          message:
+            credential.status === "invalid"
+              ? credential.message
+              : "Sign in to Val Build.",
+        },
+      };
+    }
+    // To the content server, which serves the Studio API: Val Build's sign-in
+    // (`valBuildUrl`) is what makes the credential, the content server is
+    // what the components' data comes from.
+    return forwardToStudioApi({
+      method,
+      path: req.path,
+      rawQuery: req.rawQuery,
+      body: req.body,
+      credential: credential.credential,
+      contentUrl: options.valContentUrl,
+    });
+  };
+
+  /**
+   * What this Studio can act on Val Build with, for the editor in front of it:
+   *
+   * - the session's token, in a deployed Studio (and in a local one where
+   *   someone signed in through the Studio anyway);
+   * - otherwise, in fs mode, the developer's own `val login` token from
+   *   `.val/pat.json` — the same file `val validate --fix` reads.
+   *
+   * An api key is never one of them: it is the project, not a person, and
+   * these requests are answered with a person's projects.
+   */
+  const getValBuildCredential = async (
+    cookies: Partial<Record<typeof VAL_SESSION_COOKIE, string>>,
+  ): Promise<
+    | { status: "ok"; credential: ValBuildCredential }
+    | { status: "none" }
+    | { status: "invalid"; message: string }
+  > => {
+    const session = getSessionToken(cookies);
+    if (session.status === "ok") {
+      return { status: "ok", credential: { bearer: session.token } };
+    }
+    if (options.mode === "fs") {
+      const pat = await readValLoginToken(options);
+      if (pat !== null) {
+        return { status: "ok", credential: { pat } };
+      }
+      return { status: "none" };
+    }
+    return session;
+  };
+
+  /** The editor's Val Build token, from inside their session cookie. */
+  const getSessionToken = (
+    cookies: Partial<Record<typeof VAL_SESSION_COOKIE, string>>,
+  ):
+    | { status: "ok"; token: string }
+    | { status: "none" }
+    | { status: "invalid"; message: string } => {
+    const cookie = cookies[VAL_SESSION_COOKIE];
+    if (typeof cookie !== "string" || !options.valSecret) {
+      return { status: "none" };
+    }
+    const verified = verifyJwt(cookie, options.valSecret);
+    if (!verified.success) {
+      return {
+        status: "invalid",
+        message: sessionErrorMessage(verified.reason),
+      };
+    }
+    const payload = IntegratedServerJwtPayload.safeParse(verified.data);
+    if (!payload.success) {
+      return {
+        status: "invalid",
+        message: "Session invalid. You will need to login again.",
+      };
+    }
+    return { status: "ok", token: payload.data.token };
   };
 
   const getAuth = (
@@ -539,6 +691,37 @@ export const ValServer = (
             answer.body.trim() === ""
               ? `The publish API answered ${answer.status} with no body.`
               : `The publish API answered ${answer.status}: ${answer.body.slice(0, 300)}`,
+        },
+      };
+    }
+  };
+
+  /** The person a session names, or `null` for an anonymous one. */
+  const profileOf = (auth: ReturnType<typeof getAuth>): string | null =>
+    "id" in auth && auth.id ? auth.id : null;
+
+  /** One proposals-API call, carried as `proxyPublishApi` carries one. */
+  const proxyProposalsApi = async (
+    path: string | undefined,
+    method: "GET" | "POST" | "PATCH",
+    profileId: string | null,
+    body?: string,
+  ): Promise<{ status: number; json: unknown }> => {
+    const answer = await serverOps.proposalsApi(
+      path ?? "",
+      { method, ...(body === undefined ? {} : { body }) },
+      profileId,
+    );
+    try {
+      return { status: answer.status, json: JSON.parse(answer.body) };
+    } catch {
+      return {
+        status: answer.status,
+        json: {
+          message:
+            answer.body.trim() === ""
+              ? `The proposals API answered ${answer.status} with no body.`
+              : `The proposals API answered ${answer.status}: ${answer.body.slice(0, 300)}`,
         },
       };
     }
@@ -1021,6 +1204,8 @@ export const ValServer = (
          * shows one story to a project that lives by the other.
          */
         const sourceMode = serverOps.sourceMode();
+        // Spread like the two above: absent is "on the site".
+        const proposal = serverOps.currentProposal();
         return {
           status: 200,
           json: {
@@ -1030,6 +1215,7 @@ export const ValServer = (
             ...(publishRefusal ? { publishRefusal } : {}),
             ...(sourceMode ? { sourceMode } : {}),
             ...(sourceMode ? { publishJobs: serverOps.publishesAsJobs() } : {}),
+            ...(proposal ? { proposal } : {}),
             // Not `options.config` verbatim: in proxy mode the branch the
             // server resolved is filled in where the file did not name one.
             // See `clientConfig`.
@@ -1071,6 +1257,61 @@ export const ValServer = (
           "POST",
           req.body === undefined ? undefined : JSON.stringify(req.body),
         );
+      },
+    },
+    /**
+     * The content service's proposals API, reached through this deployment --
+     * the switcher, the list and the dialogs. The session is checked and its
+     * profile sent along, because a proposal is changed by a person; see
+     * `ValOpsHttp.proposalsApi` for what may be reached.
+     */
+    "/proposals-api": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyProposalsApi(req.path, "GET", profileOf(auth));
+      },
+      POST: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyProposalsApi(
+          req.path,
+          "POST",
+          profileOf(auth),
+          JSON.stringify(req.body ?? {}),
+        );
+      },
+      PATCH: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        return proxyProposalsApi(
+          req.path,
+          "PATCH",
+          profileOf(auth),
+          JSON.stringify(req.body ?? {}),
+        );
+      },
+    },
+    "/proposal-site-sources": {
+      GET: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const modules = await serverOps.siteSourcesUnderSnapshot();
+        if (modules === null) {
+          return {
+            status: 404,
+            json: { message: "This is not a proposal's address." },
+          };
+        }
+        return { status: 200, json: { modules } };
       },
     },
     "/upload/patches": {
@@ -1285,18 +1526,30 @@ export const ValServer = (
         if (serverOps.patchesAreLocal) {
           return {
             status: 200,
-            json: { patchGroupId, patchIds: [...patchIds, ...withPatchIds] },
+            json: {
+              patchGroupId: patchGroupId ?? null,
+              patchIds: [...patchIds, ...withPatchIds],
+            },
           };
         }
         if (!("id" in auth) || !auth.id) {
           return { status: 401, json: { message: "Unauthorized" } };
         }
-        const refusal = await refuseUnlessOwn(serverOps, patchGroupId, auth.id);
-        if (refusal !== null) {
-          return {
-            status: refusal.status,
-            json: { message: refusal.message },
-          };
+        // A named group is checked here as well as by the content API. No name
+        // is the caller's own open group, which the content API resolves from
+        // the profile it is sent — there is nothing here to check it against.
+        if (patchGroupId !== undefined) {
+          const refusal = await refuseUnlessOwn(
+            serverOps,
+            patchGroupId,
+            auth.id,
+          );
+          if (refusal !== null) {
+            return {
+              status: refusal.status,
+              json: { message: refusal.message },
+            };
+          }
         }
         const res = await serverOps.stagePatches(
           patchGroupId,
@@ -1311,7 +1564,16 @@ export const ValServer = (
         if (res.error) {
           return { status: res.status, json: { message: res.error.message } };
         }
-        return { status: 200, json: { patchGroupId, patchIds: res.patchIds } };
+        return {
+          status: 200,
+          json: {
+            patchGroupId: res.patchGroupId,
+            patchIds: res.patchIds,
+            ...(res.headVersion !== undefined
+              ? { headVersion: res.headVersion }
+              : {}),
+          },
+        };
       },
       DELETE: async (
         req,
@@ -1325,18 +1587,30 @@ export const ValServer = (
         if (serverOps.patchesAreLocal) {
           return {
             status: 200,
-            json: { patchGroupId, patchIds: [...patchIds, ...withPatchIds] },
+            json: {
+              patchGroupId: patchGroupId ?? null,
+              patchIds: [...patchIds, ...withPatchIds],
+            },
           };
         }
         if (!("id" in auth) || !auth.id) {
           return { status: 401, json: { message: "Unauthorized" } };
         }
-        const refusal = await refuseUnlessOwn(serverOps, patchGroupId, auth.id);
-        if (refusal !== null) {
-          return {
-            status: refusal.status,
-            json: { message: refusal.message },
-          };
+        // A named group is checked here as well as by the content API. No name
+        // is the caller's own open group, which the content API resolves from
+        // the profile it is sent — there is nothing here to check it against.
+        if (patchGroupId !== undefined) {
+          const refusal = await refuseUnlessOwn(
+            serverOps,
+            patchGroupId,
+            auth.id,
+          );
+          if (refusal !== null) {
+            return {
+              status: refusal.status,
+              json: { message: refusal.message },
+            };
+          }
         }
         const res = await serverOps.unstagePatches(
           patchGroupId,
@@ -1347,7 +1621,16 @@ export const ValServer = (
         if (res.error) {
           return { status: res.status, json: { message: res.error.message } };
         }
-        return { status: 200, json: { patchGroupId, patchIds: res.patchIds } };
+        return {
+          status: 200,
+          json: {
+            patchGroupId: res.patchGroupId,
+            patchIds: res.patchIds,
+            ...(res.headVersion !== undefined
+              ? { headVersion: res.headVersion }
+              : {}),
+          },
+        };
       },
     },
 
@@ -1985,9 +2268,27 @@ export const ValServer = (
               patchIds: undefined,
               excludePatchOps: false,
             });
+            /*
+             * Membership from THIS response when it carries one, not from the
+             * group list `resolveOwnPatchScope` read.
+             *
+             * That list is a separate request, remembered for a second
+             * (`ValOpsHttp.getPatchGroups`), so it can be older than the chain
+             * fetched here: an editor who saved and reloaded at once was
+             * rendered without the patch they had just written, because the
+             * list still had their group without it. The content service reads
+             * the chain and each patch's groups in one transaction, and
+             * `fetchPatches` folds that onto `patchGroups` -- so the patches
+             * and who owns them come from the same moment.
+             */
+            const own = ownPatchScopeFor(
+              all,
+              ("id" in auth && auth.id) || undefined,
+              ownPatchIds,
+            );
             patchOps = {
               ...all,
-              patches: scopedPatches(all.patches, ownPatchIds),
+              patches: scopedPatches(all.patches, own),
             };
           } else if (
             requestedPatchIds !== undefined &&
@@ -2035,6 +2336,20 @@ export const ValServer = (
             },
           };
         }
+        /*
+         * What this build's draft applies: the pending patches and the ones
+         * published AFTER this build, which it does not have -- see
+         * `draftOverlay`. `getSources` already applied both, but
+         * `analyzePatches` skips every patch with `appliedAt`, so a module
+         * changed only by a post-build publish was reported with no
+         * `patches`, and a reader that sends only changed modules (TanStack's
+         * `fetchValDraft`) left it out: the page was rendered with this
+         * build's older value. Chain order, which is what the Studio applies.
+         */
+        patchOps = {
+          ...patchOps,
+          patches: draftOverlay(patchOps.patches, patchOps.commits),
+        };
         const patchAnalysis = serverOps.analyzePatches(patchOps.patches);
         const schemasRes = await serverOps.getSchemas();
         let sourcesRes = await serverOps.getSources();
@@ -2294,7 +2609,7 @@ export const ValServer = (
               : null;
           const sent = await serverOps.prepareJob(jobId, {
             tab,
-            filesDirectory: options.config.files?.directory || "/public/val",
+            filesDirectory: FILES_DIRECTORY,
             ...split.archive,
             ...(commit !== undefined ? { gitCommit: commit } : {}),
             ...(deploymentFiles !== null ? { deploymentFiles } : {}),
@@ -2315,7 +2630,7 @@ export const ValServer = (
         const { split } = built;
         const sent = await serverOps.prepareJob(jobId, {
           tab,
-          filesDirectory: options.config.files?.directory || "/public/val",
+          filesDirectory: FILES_DIRECTORY,
           ...split.archive,
         });
         return jobPrepareAnswer(sent, {
@@ -2326,6 +2641,32 @@ export const ValServer = (
           buildable: true,
         });
       },
+    },
+    "/admin/status": {
+      GET: async (req) => {
+        const credential = await getValBuildCredential(req.cookies);
+        return {
+          status: 200,
+          json: {
+            connected:
+              Boolean(options.valBuildUrl) && credential.status === "ok",
+            /*
+             * How an editor signs in to Val Build here, which only the server
+             * knows. NOT the stat `mode`: that says whether patches are local,
+             * and a deployed memory-mode host reports `fs` while having no
+             * working directory to run `val login` in. Only a developer's own
+             * checkout (fs mode) signs in with `val login`.
+             */
+            signIn: options.mode === "fs" ? "val-login" : "studio",
+          },
+        };
+      },
+    },
+    "/admin/proxy": {
+      GET: (req) => adminProxy("GET", req),
+      POST: (req) => adminProxy("POST", req),
+      PUT: (req) => adminProxy("PUT", req),
+      DELETE: (req) => adminProxy("DELETE", req),
     },
     "/profiles": {
       GET: async (req) => {
@@ -2659,9 +3000,16 @@ export const ValServer = (
            * tree; a store with no working tree does only the push.
            */
           if (serverOps instanceof ValOpsMemory) {
-            const isRemoteRequired = getIsRemoteRequired(
-              await serverOps.getSchemas(),
-            );
+            /*
+             * A commit with no files uploads nothing and needs no credentials;
+             * see `commitCarriesRemoteFiles`. One with a LOCAL file still goes
+             * through `uploadRemoteFiles` where the project is remote, because
+             * that is where a local file is refused rather than dropped.
+             */
+            const isRemoteRequired =
+              commitCarriesRemoteFiles(preparedCommit) ||
+              (commitCarriesFiles(preparedCommit) &&
+                getIsRemoteRequired(await serverOps.getSchemas()));
             if (isRemoteRequired) {
               const authRes = await getRemoteFileAuth();
               if (authRes.status !== 200) {
@@ -2691,9 +3039,9 @@ export const ValServer = (
             }
           }
           if (serverOps instanceof ValOpsFS) {
-            const isRemoteRequired = getIsRemoteRequired(
-              await serverOps.getSchemas(),
-            );
+            // Credentials when THIS save uploads a remote file, not whenever
+            // the project has a remote schema. See `commitCarriesRemoteFiles`.
+            const isRemoteRequired = commitCarriesRemoteFiles(preparedCommit);
             let mode: "skip-remote" | "upload-remote";
             let remoteFileAuthRes:
               | undefined
@@ -2861,7 +3209,7 @@ export const ValServer = (
                 preparedCommit,
                 message,
                 auth.id as AuthorId,
-                options.config.files?.directory || "/public/val",
+                FILES_DIRECTORY,
                 undefined,
                 /*
                  * Forwarded verbatim, and only the client can decide it: the
@@ -4101,6 +4449,36 @@ export function boundUnstageClosure(
  * `undefined` means "apply everything", which is what every caller that does
  * not ask for scoping gets and must keep getting.
  */
+/** The patches in this author's OPEN groups: what a scoped draft shows. */
+export function ownPatchIdsIn(
+  patchGroups: PatchGroupT[],
+  authorId: string,
+): PatchId[] {
+  return patchGroups
+    .filter(
+      (group) => group.publishedAt === null && group.authorId === authorId,
+    )
+    .flatMap((group) => group.patchIds);
+}
+
+/**
+ * Whose pending patches a scoped draft shows, taken from the SAME response as
+ * the patches when it says, and from the list read beforehand only when not.
+ *
+ * See the call in `/sources/~`: the list read beforehand can be older than the
+ * chain, and the response's membership cannot be.
+ */
+export function ownPatchScopeFor(
+  fetched: { patchGroups?: PatchGroupT[] },
+  authorId: string | undefined,
+  remembered: PatchId[] | undefined,
+): PatchId[] | undefined {
+  if (fetched.patchGroups === undefined || authorId === undefined) {
+    return remembered;
+  }
+  return ownPatchIdsIn(fetched.patchGroups, authorId);
+}
+
 export async function resolveOwnPatchScope(
   /*
    * `ValOps`, not the two concrete stores: the one thing this needs is whether
@@ -4166,12 +4544,7 @@ export async function resolveOwnPatchScope(
          * nothing, and base is the honest answer. Distinct from the
          * case above, which is why the two are not one expression.
          */
-        ownPatchIds = groupsRes.patchGroups
-          .filter(
-            (group) =>
-              group.publishedAt === null && group.authorId === opts.authorId,
-          )
-          .flatMap((group) => group.patchIds);
+        ownPatchIds = ownPatchIdsIn(groupsRes.patchGroups, opts.authorId);
         /*
          * Scoping applies to PENDING work only. Anything already
          * committed is part of everyone's view.

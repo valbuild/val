@@ -30,6 +30,9 @@ export default c.define(
       height: 180,
       mimeType: "image/png",
       alt: "A flat blue swatch",
+      // The default focal point of every field using this image: a field
+      // with a focal point of its own overrides it.
+      hotspot: { x: 0.3, y: 0.4 },
     },
     "/public/val/gallery/accent-amber_37f8b.png": {
       width: 320,

@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import {
   contextAs,
   mock,
@@ -9,6 +9,7 @@ import {
   USERS,
   writePatch,
 } from "./httpMode";
+import { actOnFirstRow, openReview, rowsIn } from "./staging";
 
 /**
  * Independent publish, against a content service that actually has groups.
@@ -248,82 +249,6 @@ test.describe("patch groups in http mode", () => {
 });
 
 /**
- * Reach the review screen the way an editor does.
- *
- * `page.goto("/val/compare")` looks equivalent and is not: it reloads the SPA,
- * throwing away the intake and the pending edit the view exists to show. Review
- * is the route in, and it only appears once there is something to review — so
- * clicking it is also the wait for the edit having landed.
- *
- * The name is matched WITHOUT requiring a count, unlike the `fs` suite's
- * version. Review's badge is `hasNetChanges ? pendingChanges : 0`, and a held
- * patch makes the scoped source equal base — so once everything is unstaged the
- * button is still there and still works, but it reads "Review changes" rather
- * than "Review 1 change". Requiring the digits made this test unable to reach
- * the one screen a held change can be put back from.
- */
-async function openReview(page: Page, studio: Locator): Promise<void> {
-  const review = studio.getByRole("button", {
-    name: /^Review( \d+)? changes?$/,
-  });
-  await expect(review).toBeVisible({ timeout: 30_000 });
-  await review.click();
-}
-
-/**
- * The rows of one half of the review page.
- *
- * SCOPED, and that is the whole point of this helper. The page lists staged
- * rows above unstaged ones, so "the first checkbox" is whichever half happens
- * to be non-empty — and pressing Stage on an already-staged row is a no-op
- * that leaves the assertion to fail three steps later, naming the group rather
- * than the click. The old per-row buttons could not be got wrong this way: a
- * Stage button only existed on a row that was unstaged.
- */
-function rowsIn(studio: Locator, section: "Staged" | "Unstaged"): Locator {
-  /*
-   * By the info button's label, through CSS `:has()`.
-   *
-   * Not `filter({ has: getByRole("heading") })`: an inner locator built from
-   * the shadow-root handle does not re-root onto the section, so it matched
-   * nothing and the failure read as "no staging control" over a screenshot
-   * plainly showing one. And not `:has-text("Staged")` either — that matches
-   * "Unstaged" as a substring, which is the same bug the other way round. An
-   * attribute selector is exact.
-   */
-  return studio
-    .locator(`section:has([aria-label="What ${section.toLowerCase()} means"])`)
-    .getByRole("checkbox");
-}
-
-/**
- * Act on one change, through the controls an editor actually has.
- *
- * The review page separates SELECTING from ACTING — a tick box per row, and
- * one button for whatever is ticked — because one control cannot answer both
- * "is this going out" and "am I about to change that". So this is two
- * gestures, and it has to be: a test that reached past the selection would be
- * asserting on a button the user cannot press without first choosing what it
- * applies to.
- */
-async function actOnFirstRow(
-  studio: Locator,
-  action: "Stage" | "Unstage",
-  absentMessage: string,
-): Promise<void> {
-  // Stage acts on an UNSTAGED row and vice versa.
-  const row = rowsIn(
-    studio,
-    action === "Stage" ? "Unstaged" : "Staged",
-  ).first();
-  await expect(row, absentMessage).toBeVisible({ timeout: 30_000 });
-  await row.click();
-  const button = studio.getByRole("button", { name: action, exact: true });
-  await expect(button).toBeEnabled({ timeout: 30_000 });
-  await button.click();
-}
-
-/**
  * The staging CONTROLS, which until now existed only in stories.
  *
  * Everything above drives the scope through the system. This drives the button,
@@ -505,27 +430,38 @@ test.describe("the staging controls", () => {
     );
 
     /*
-     * Nowhere to send it yet, so Bob's group must be untouched — and no group
-     * of Alice's may have been invented to hold it.
+     * Bob's group is untouched, and the stage is on the server AT ONCE: sent
+     * to `~`, which the content service reads as Alice's open group and creates
+     * for it. It used to be held in this tab until her next write created the
+     * group — and a reload or her other browser never saw it.
      */
+    await expect
+      .poll(
+        async () => {
+          const state = await mock.state();
+          return state.patchGroups
+            .filter(
+              (group) =>
+                group.authorId === USERS.ada.profileId &&
+                group.publishedAt === null,
+            )
+            .map((group) => group.patchIds);
+        },
+        { message: "the stage did not reach the content service at once" },
+      )
+      .toEqual([[bobPatch]]);
     const during = await mock.state();
     expect(
-      during.patchGroups.find((group) => group.patchIds.includes(bobPatch))
-        ?.authorId,
-    ).toBe(USERS.linus.profileId);
-    expect(
-      during.patchGroups.filter(
+      during.patchGroups.find(
         (group) =>
-          group.authorId === USERS.ada.profileId && group.publishedAt === null,
+          group.authorId === USERS.linus.profileId &&
+          group.patchIds.includes(bobPatch),
       ),
-      "an open group appeared for Alice before she wrote anything",
-    ).toHaveLength(0);
+      "Bob's own group lost his change",
+    ).toBeDefined();
 
     /*
-     * Alice types again. That creates her next group, and the held stage goes
-     * out with it — which is why the queue lives on the system: this write
-     * happens after she has navigated off the review screen that took the
-     * click.
+     * Alice types again. Her write joins the group the stage created.
      */
     const alicePatch = await writePatch(page, AUTHORS, [
       { op: "replace", path: ["teddy", "name"], value: "Alice, again" },
@@ -544,10 +480,218 @@ test.describe("the staging controls", () => {
         },
         {
           message:
-            "the post-publish write joined no group, or the held stage never went out",
+            "the post-publish write did not join the group the stage created",
         },
       )
       .toEqual([alicePatch, bobPatch].sort());
+  });
+
+  /**
+   * An unstage clicked while a save is on the wire.
+   *
+   * A save moves membership too — the server puts the write in its author's
+   * group — and the server applies a save and an unstage in the order they
+   * ARRIVE. The second write here sits on the first (same field, same patch
+   * set), and the user unstages the first while the second's `PUT /patches`
+   * is held. Sent at once, the unstage landed first and the save then put the
+   * second write back on its own: a group holding an edit without the one it
+   * was written on, which a reload shows and the click never meant. Now the
+   * unstage waits for the save's answer, and the server ends with nothing.
+   *
+   * Deterministic because the save is held by the test, not raced: the
+   * unstage cannot be sent before it is released, and the order is read off
+   * the requests themselves.
+   */
+  test("an unstage clicked while a save is in flight is sent after it", async ({
+    page,
+  }) => {
+    await openHttpStudio(page);
+    const first = await writePatch(page, AUTHORS, [
+      { op: "replace", path: ["teddy", "name"], value: "Ada, first" },
+    ]);
+    const patchGroupId = (await mock.state()).patchGroups[0]?.patchGroupId;
+    expect(patchGroupId, "the write created no group").toBeTruthy();
+
+    const studio = page.locator("#val-shadow-root");
+    await openReview(page, studio);
+    await expect(rowsIn(studio, "Staged").first()).toBeVisible({
+      timeout: 30_000,
+    });
+
+    const order: string[] = [];
+    let release: (() => void) | null = null;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const isSave = (url: URL) => url.pathname.endsWith("/api/val/patches");
+    await page.route(isSave, async (route) => {
+      if (route.request().method() !== "PUT") {
+        await route.fallback();
+        return;
+      }
+      order.push("save sent");
+      await released;
+      const response = await route.fetch();
+      order.push("save answered");
+      await route.fulfill({ response });
+    });
+    page.on("request", (request) => {
+      if (
+        request.method() === "DELETE" &&
+        new URL(request.url()).pathname.endsWith("/patch-groups/~/patches")
+      ) {
+        order.push("unstage sent");
+      }
+    });
+
+    // The second write. Not flushed here: its save is the one being held.
+    const second = await page.evaluate(
+      async ({ mfp, ops }) => {
+        const bag = window as unknown as {
+          __VAL_STORES__: {
+            system: {
+              patchStore: {
+                createPatch(
+                  moduleFilePath: string,
+                  patch: unknown[],
+                ): Promise<{ status: string; record?: { patchId: string } }>;
+              };
+            };
+          };
+        };
+        const res = await bag.__VAL_STORES__.system.patchStore.createPatch(
+          mfp,
+          ops,
+        );
+        if (res.record === undefined) {
+          throw new Error(`createPatch failed: ${JSON.stringify(res)}`);
+        }
+        return res.record.patchId;
+      },
+      {
+        mfp: AUTHORS,
+        ops: [{ op: "replace", path: ["teddy", "name"], value: "Ada, second" }],
+      },
+    );
+    await expect.poll(() => order).toEqual(["save sent"]);
+
+    await actOnFirstRow(
+      studio,
+      "Unstage",
+      "the review screen offered no staging control while a save was held",
+    );
+    // The click has landed on screen...
+    await expect.poll(() => scope(page)).not.toContain(first);
+    // ...and gone nowhere else: it is waiting for the save. Given a moment to
+    // be sent, so that a client that does not wait fails here rather than by
+    // luck further down.
+    await page.waitForTimeout(1_000);
+    expect(order).toEqual(["save sent"]);
+
+    if (release === null) throw new Error("the save was never held");
+    const letGo: () => void = release;
+    letGo();
+
+    await expect
+      .poll(
+        async () =>
+          (await mock.state()).patchGroups.find(
+            (group) => group.patchGroupId === patchGroupId,
+          )?.patchIds,
+        { message: "the save put back what the unstage took out" },
+      )
+      .toEqual([]);
+    expect(order).toEqual(["save sent", "save answered", "unstage sent"]);
+    // Both writes are still in the chain — held, not discarded.
+    const chain = (await mock.state()).patches.map((patch) => patch.patchId);
+    expect(chain).toEqual(expect.arrayContaining([first, second]));
+
+    // And a reload shows what this tab did.
+    await page.unroute(isSave);
+    await openHttpStudio(page);
+    await expect.poll(() => scope(page)).toEqual([]);
+    await expect
+      .poll(() => peek(page, TEDDY))
+      .toMatchObject({ status: "ready", data: "Theodor René Carlsen" });
+  });
+});
+
+/**
+ * The same user, two browsers.
+ *
+ * The content service puts a write in its author's open group wherever it was
+ * typed, and the other Studio hears of it the ordinary way: the socket says the
+ * chain moved, `/stat` names an id it does not have, and the fetch brings the
+ * record with the group annotation listing it. The scope there had been seeded
+ * once and grew only on that tab's own writes, so the patch was held as
+ * unstaged — the value did not change until a reload, and a publish from that
+ * Studio left it out while closing the group that held it.
+ */
+test.describe("another browser of the same user", () => {
+  test("a change made in one browser appears in the other without a reload, and publishes from it", async ({
+    page,
+    browser,
+  }) => {
+    // Ada's first browser writes first, so an open group exists before the
+    // second one loads — the shape it had in production.
+    await openHttpStudio(page);
+    const first = await writePatch(page, AUTHORS, [
+      { op: "replace", path: ["teddy", "name"], value: "from browser one" },
+    ]);
+
+    const other = await contextAs(browser, "ada");
+    const second = await other.newPage();
+    try {
+      await openHttpStudio(second);
+      await expect
+        .poll(() => scope(second), {
+          message: "the second browser never scoped itself to Ada's group",
+        })
+        .toContain(first);
+      await expect
+        .poll(() => peek(second, TEDDY))
+        .toMatchObject({ status: "ready", data: "from browser one" });
+      /*
+       * Reopened, because `next dev` can full-reload the first page while it
+       * compiles for the second, and a reloaded page has no stores for
+       * `writePatch` to reach for a moment. Nothing about the bug depends on
+       * the first browser's page being the original one.
+       */
+      await openHttpStudio(page);
+
+      // Now a change the second browser has never seen.
+      const later = await writePatch(page, AUTHORS, [
+        { op: "replace", path: ["freekh", "name"], value: "typed elsewhere" },
+      ]);
+      const state = await mock.state();
+      expect(state.patchGroups).toHaveLength(1);
+      expect(state.patchGroups[0].patchIds).toEqual([first, later]);
+
+      await expect
+        .poll(() => peek(second, FREEKH), {
+          message:
+            "the change made in the first browser never appeared in the second",
+        })
+        .toMatchObject({ status: "ready", data: "typed elsewhere" });
+      expect(await scope(second)).toContain(later);
+
+      // And what the second browser shows is what it publishes.
+      const published = await publishAll(second, "Ada publishes both");
+      expect(published, JSON.stringify(published)).toMatchObject({
+        status: "published",
+      });
+      const after = await mock.state();
+      for (const patchId of [first, later]) {
+        expect(
+          after.patches.find((patch) => patch.patchId === patchId)?.applied,
+          `${patchId} was left out of the publish`,
+        ).not.toBeNull();
+      }
+      const committed = await mock.committedSource(AUTHORS);
+      expect(committed).toContain("typed elsewhere");
+    } finally {
+      await other.close();
+    }
   });
 });
 

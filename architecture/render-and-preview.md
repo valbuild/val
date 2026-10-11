@@ -6,11 +6,12 @@ prevent — it has already been undone once, when the two shared a pipeline.
 
 ## The rule
 
-- **`render` is how the FIELD ITSELF is laid out, and applies only when you
-  are looking at the field.** `.render({ as: "inline" })` on an array/record
-  item edits the item inside the (sortable) list row instead of behind a
-  clickable row. That is the whole of what a render says — see "What a render
-  is not" below.
+- **`render` is how a field is laid out, and applies only when you are looking
+  at the field.** `.render({ as: "inline" })` on an ARRAY or RECORD edits each
+  of its items inside its (sortable) list row instead of behind a clickable
+  row. The list decides; the item has no say. That is the whole of what a
+  render says — see "What a render is not" below. (`s.keyOf(...)` also takes
+  one, meaning something of its own: see "Where it is declared".)
 - **`preview` is how the VALUE is shown wherever a preview of it is needed** —
   a list row you click through to, a reference (`keyOf`) dropdown, a search
   hit, the references view. A preview is needed exactly where the value is
@@ -44,9 +45,9 @@ is, and being a type is what lets it opt out of stega encoding: invisible
 characters woven into source code are corruption, not an edit tag
 (`stegaEncode`'s `isCodeSchema`).
 
-What is left is one question — is this item edited in its list row — which is
-why `FieldRender` is a single variant and `isInlineRender` can answer it from
-the serialized schema alone. A render that could also mean "textarea" was a
+What is left is one question — does this list edit its items in their rows —
+which is why `FieldRender` is a single variant and `isInlineRender` can answer
+it from the serialized schema alone. A render that could also mean "textarea" was a
 union whose only common trait was that it lived in the same field.
 
 ## Where they meet: a list row, and the render wins
@@ -56,7 +57,7 @@ is normally shown rather than opened. The rule is that **`inline` wins
 outright**:
 
 ```ts
-s.array(s.object({ ... }).render({ as: "inline" }).preview(previewFun));
+s.array(s.object({ ... }).preview(previewFun)).render({ as: "inline" });
 ```
 
 Looking at that array field, you see the object's own fields, laid out in the
@@ -72,47 +73,64 @@ Nothing about the preview is wasted by inlining, in other words: it is still
 the answer to "what is this value called", it is just no longer asked "how is
 this value edited".
 
-`ArrayFields` reads this off the item schema and picks the list: an inline item
-gets `BlockList` (dense rows, each an editor, collapsible, nested lists behind a
-rail) and everything else gets `SortableList` (preview rows you click through
-to). `RecordFields` asks the same question of its entries, and lays an inline
-one out in place — under its key, since a record's rows are labelled by key and
-have no order to drag.
+`ArrayFields` reads this off the array's own schema and picks the list: an
+inline array gets `BlockList` (dense rows, each an editor, collapsible, nested
+lists behind a rail) and everything else gets `SortableList` (preview rows you
+click through to). `RecordFields` asks the same question of the record, and
+lays its entries out in place — under their keys, since a record's rows are
+labelled by key and have no order to drag.
 
-### On a discriminated union, the variants may declare it
+### The container declares it, never the item
 
 `isInlineRender` (`core/src/render.ts`) is the one implementation of the
-question, and it delegates through a discriminated union: the union is inline
-when the union itself declares it, or when ANY of its variants does.
+question, and it takes the CONTAINER: it is true for an array or record that
+declares `.render({ as: "inline" })`, and false for anything else.
 
 ```ts
 s.array(
   s.discriminatedUnion(
     "type",
-    s
-      .object({ type: s.literal("text"), text: s.richtext() })
-      .render({ as: "inline" }),
-    s
-      .object({ type: s.literal("code"), code: s.string() })
-      .render({ as: "inline" }),
+    s.object({ type: s.literal("text"), text: s.richtext() }),
+    s.object({ type: s.literal("code"), code: s.string() }),
   ),
-);
+).render({ as: "inline" });
 ```
 
-That is how a page-builder list is written — the render belongs on the blocks,
-one per block type, because the union is a dispatch rather than something the
-author thinks of as the field. Read strictly off the array's item schema, the
-answer for that shape is `false`, and the list drew preview rows: it looked
-identical with the render and without it.
+That is how a page-builder list is written. It used to be the other way round
+— the render went on the ITEM — and three things were wrong with that, all of
+them gone now:
 
-`some` rather than `every` because the row draws the union's own editor (the
-tag selector, then the matched variant's fields), which copes with every
-variant either way — so a variant added later without a render must not
-silently turn the whole list back into preview rows.
+- **A union had nowhere natural to put it.** The union is a dispatch, not
+  something an author thinks of as the field, so the render went on the blocks,
+  and `isInlineRender` had to look through the union and accept ANY variant's
+  render. One block type declaring it decided the whole list.
+- **An item could not be reused** in one list that wants forms and another
+  that wants preview rows, since the layout was baked into the item.
+- **A schema that was not an item carried a setting that did nothing**, on
+  every one of the eighteen schema types.
 
-This is the only place a render is read from anywhere but the schema it was
-declared on, and it stays static: the answer is a function of the serialized
-schema alone, never of the value a row happens to hold.
+It reaches ONE level down. In
+`s.array(s.object({ tags: s.array(s.string()) })).render({ as: "inline" })`
+the objects are inline and `tags` keeps its own default — a nested list says
+so for itself.
+
+The nav-stop rule (`getNavPath`) asks it of the PARENT: an item of an inline
+list is not a place navigation can stop, because the list has no row to
+navigate from. The add buttons ask it of the list they add to. All three read
+the same function, so a row you edit in place cannot have an "add" that
+navigates away from it.
+
+`s.router(...)`, `s.imageset(...)` and `s.fileset(...)` are records, and refuse
+a render at definition time: pages and media have UIs of their own that a
+render would not reach, and an accepted-but-ignored setting is worse than an
+error.
+
+`s.keyOf(...)` takes a render too, and it means something else: the selected
+entry's CONTENT is shown below the selector. That is the reference field's own
+layout, not a list's, so `isInlineRender` answers `false` for it.
+
+It stays static: the answer is a function of the serialized schema alone,
+never of the value a row happens to hold.
 
 ## Where each is declared
 
@@ -155,8 +173,8 @@ branch each row took — callers must not add their own padding on top.
 
 Neither of those is what an INLINE row draws: an inline row draws the field.
 The preview reaches it only as the one line of text in its header (see "Where
-they meet" above), so a preview declared next to an inline render buys a title
-to collapse to rather than a card.
+they meet" above), so a preview on the item of an inline list buys a title to
+collapse to rather than a card.
 
 `PreviewItem.image` has three states and they are all load-bearing: an
 `ImageSource` draws the thumbnail, `null` means the preview declares an image

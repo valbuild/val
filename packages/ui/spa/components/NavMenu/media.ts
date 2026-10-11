@@ -4,6 +4,7 @@ import {
   SerializedSchema,
 } from "@valbuild/core";
 import { MediaModule, NavItemErrors } from "./types";
+import { isFontAccept } from "../../utils/fileAccept";
 
 /**
  * Whether a module is an `s.imageset()` / `s.fileset()` / `s.videoset()`
@@ -48,6 +49,9 @@ export function collectMediaModules(
       // the module path so the row has something to identify it by.
       dir: schema.dir ?? moduleFilePath,
       mediaType: schema.mediaType,
+      ...(schema.mediaType === "files" && isFontAccept(schema.accept)
+        ? { fonts: true }
+        : {}),
       errors: collectErrors(moduleFilePath),
     });
   }

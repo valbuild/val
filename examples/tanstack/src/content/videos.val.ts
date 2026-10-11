@@ -4,11 +4,15 @@ import { s, c } from "../../val.config";
  * `s.videoset()`: a COLLECTION of videos, the video twin of `s.imageset()`
  * (`gallery.val.ts`).
  *
- * An entry holds only what is true of the FILE: what it is, how big, how long,
- * and a description. A field that picks from the set (`s.video(videosVal)`,
- * see `video.val.ts`) carries what one page chose about the video — its own
- * poster, start and end, focal point and captions — so the same clip can open
- * one page at 0:02 and another at 0:10 without being uploaded twice.
+ * An entry holds what is true of the FILE — what it is, how big, how long —
+ * and, as DEFAULTS, what a page chooses about it: the description, poster,
+ * start and end, focal point and captions. A field that picks from the set
+ * (`s.video(videosVal)`, see `video.val.ts`) starts from those and overrides
+ * any of them key by key, so the same clip can open one page at 0:01 and
+ * every other page where the set says, without being uploaded twice.
+ *
+ * The poster is also the gallery's thumbnail of the entry — the one picture a
+ * stream has, since a tile cannot seek in one.
  *
  * An HLS stream is one entry, keyed by its master playlist: the playlists and
  * segments beside it belong to it. With `stream` set, the Studio converts every
@@ -29,6 +33,22 @@ export default c.define(
       height: 360,
       duration: 4,
       alt: "A colour test pattern with a moving gradient",
+      poster: {
+        path: "/public/val/videoset/intro-poster_a627f.webp",
+        width: 640,
+        height: 360,
+        mimeType: "image/webp",
+      },
+      posterTime: 1,
+      endTime: 3.5,
+      hotspot: { x: 0.3, y: 0.6 },
+      captions: [
+        {
+          path: "/public/val/videoset/intro-en_150f1.vtt",
+          srclang: "en",
+          label: "English",
+        },
+      ],
     },
     "/public/val/videoset/intro_05198/master.m3u8": {
       mimeType: "application/vnd.apple.mpegurl",
@@ -36,6 +56,13 @@ export default c.define(
       height: 360,
       duration: 4,
       alt: "The same test pattern, as a stream",
+      poster: {
+        path: "/public/val/videoset/intro-stream-poster_a627f.webp",
+        width: 640,
+        height: 360,
+        mimeType: "image/webp",
+      },
+      posterTime: 1,
     },
   },
 );

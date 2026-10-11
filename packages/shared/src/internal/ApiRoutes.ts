@@ -33,7 +33,7 @@ const ValConfig = z.object({
   root: z.string().optional(),
   files: z
     .object({
-      directory: z.string(), // TODO: validate that it is prefixed by /public/
+      remote: z.boolean().optional(),
     })
     .optional(),
   gitCommit: z.string().optional(),
@@ -96,6 +96,43 @@ const notFoundResponse = z.object({
 const GenericError = z.object({ message: z.string() });
 
 /**
+ * The header a request to `/admin/proxy` must carry. A cross-site form or
+ * `<img>` cannot set a custom header, so without it the proxy cannot be driven
+ * with the editor's cookie from another site.
+ */
+export const VAL_STUDIO_HEADER = "x-val-studio";
+
+/**
+ * What Val Build answered, mapped onto the statuses this server speaks: a
+ * `code` in the JSON is what the web components act on, so it is passed
+ * through untouched.
+ */
+const AdminProxyResponse = z.object({
+  status: z.union([
+    z.literal(200),
+    z.literal(400),
+    z.literal(401),
+    z.literal(403),
+    z.literal(404),
+    z.literal(500),
+  ]),
+  json: z.unknown(),
+});
+
+function adminProxyEndpoint() {
+  return {
+    req: {
+      path: z.string(),
+      rawQuery: z.string(),
+      headers: { [VAL_STUDIO_HEADER]: z.string().optional() },
+      cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      body: z.unknown(),
+    },
+    res: AdminProxyResponse,
+  };
+}
+
+/**
  * What answered when one URL was opened.
  *
  * The one place the Studio's `ExternalUrlProbeResult` and the server's
@@ -132,6 +169,14 @@ const ExternalUrlProbeResult = z.union([
 const PublishRefusal = z.object({
   code: z.literal("no-base"),
   message: z.string(),
+});
+
+/** See `proposal` on `/stat`. */
+const StatProposal = z.object({
+  /** Twenty hex characters, the hash of what it was made from. */
+  name: z.string(),
+  /** `val/p/<name>`. */
+  branch: z.string(),
 });
 
 /**
@@ -619,6 +664,12 @@ export const Api = {
                * client that ignores this behaves exactly as it did before.
                */
               appliedPatches: z.array(PatchId).optional(),
+              /*
+               * Of `patches`, the ones a publish that is still running holds.
+               * The Studio does not offer Publish over these. Whole on every
+               * answer: a job that ends without sealing gives them back.
+               */
+              publishingPatches: z.array(PatchId).optional(),
               /**
                * The newest commit, which is the PUBLISH head.
                *
@@ -677,6 +728,12 @@ export const Api = {
                */
               publishJobs: z.boolean().optional(),
               publishRefusal: PublishRefusal.optional(),
+              /**
+               * The proposal this server runs at the address of, or absent
+               * on the site. What the Studio's switcher says it is in, and
+               * where its Save goes (valbuild/home `docs/proposals.md`).
+               */
+              proposal: StatProposal.optional(),
             }),
             z.object({
               type: z.literal("use-websocket"),
@@ -711,6 +768,12 @@ export const Api = {
                * client that ignores this behaves exactly as it did before.
                */
               appliedPatches: z.array(PatchId).optional(),
+              /*
+               * Of `patches`, the ones a publish that is still running holds.
+               * The Studio does not offer Publish over these. Whole on every
+               * answer: a job that ends without sealing gives them back.
+               */
+              publishingPatches: z.array(PatchId).optional(),
               /**
                * The newest commit, which is the PUBLISH head.
                *
@@ -734,6 +797,14 @@ export const Api = {
                * highest version. Optional, for the same reason `headPatchId` is.
                */
               headVersion: z.number().optional(),
+              /**
+               * Every group on the branch and which listed patches it holds,
+               * read with the list and `headVersion`. What a Studio's view of
+               * the groups is taken from, so a stage or an unstage made in
+               * another browser reaches it with the next stat. Absent where
+               * the content service has no groups.
+               */
+              patchGroups: z.array(PatchGroup).optional(),
               commits: z.array(ValCommit),
               /**
                * The publishes the content service knows about.
@@ -784,6 +855,12 @@ export const Api = {
                */
               publishJobs: z.boolean().optional(),
               publishRefusal: PublishRefusal.optional(),
+              /**
+               * The proposal this server runs at the address of, or absent
+               * on the site. What the Studio's switcher says it is in, and
+               * where its Save goes (valbuild/home `docs/proposals.md`).
+               */
+              proposal: StatProposal.optional(),
             }),
           ]),
         }),
@@ -858,6 +935,45 @@ export const Api = {
        * `{ message }` rather than throwing, because a publish failing is
        * something the editor has to be told about in words.
        */
+      res: z.object({ status: z.number(), json: z.unknown() }),
+    },
+  },
+  /**
+   * The content service's proposals API, reached through this deployment:
+   * list, open, read, rename, close, reopen and retry a setup
+   * (valbuild/home `docs/proposals.md`, Flow B).
+   *
+   * The same arrangement as `/publish-api`, for the same reasons: the browser
+   * holds a session for this origin and no credential content accepts, so
+   * this server checks the session, sends the project's key with the person's
+   * profile id beside it -- a proposal is opened, renamed and closed by
+   * somebody -- and carries content's status and body back unread. The sub-path
+   * is content's, after `/proposals`; `ValOpsHttp.proposalsApi` holds the
+   * allow list. A save is not here: it is `/save`, which a proposal's server
+   * sends to the proposal's own route.
+   */
+  "/proposals-api": {
+    GET: {
+      req: {
+        path: z.string().optional(),
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.object({ status: z.number(), json: z.unknown() }),
+    },
+    POST: {
+      req: {
+        path: z.string().optional(),
+        body: z.unknown().optional(),
+        cookies: { val_session: z.string().optional() },
+      },
+      res: z.object({ status: z.number(), json: z.unknown() }),
+    },
+    PATCH: {
+      req: {
+        path: z.string().optional(),
+        body: z.unknown().optional(),
+        cookies: { val_session: z.string().optional() },
+      },
       res: z.object({ status: z.number(), json: z.unknown() }),
     },
   },
@@ -1162,7 +1278,12 @@ export const Api = {
       req: {
         body: z
           .object({
-            patchGroupId: z.string(),
+            /**
+             * The group to stage into. Absent means the caller's open group on
+             * the branch, created if there is none — which is what the Studio
+             * sends, so a stage never has to wait for a group to exist.
+             */
+            patchGroupId: z.string().optional(),
             /** What the user asked to stage. */
             patchIds: z.array(PatchId),
             /*
@@ -1206,8 +1327,15 @@ export const Api = {
         z.object({
           status: z.literal(200),
           json: z.object({
-            patchGroupId: z.string(),
+            /** `null` for an unstage when the caller has no open group. */
+            patchGroupId: z.string().nullable(),
             patchIds: z.array(PatchId),
+            /**
+             * The chain version the change committed at. The client keeps its
+             * own view of the change until a stat at least this new shows it.
+             * Absent from a content service that predates it.
+             */
+            headVersion: z.number().optional(),
           }),
         }),
       ]),
@@ -1216,7 +1344,8 @@ export const Api = {
       req: {
         body: z
           .object({
-            patchGroupId: z.string(),
+            /** See the PUT. Absent with no open group is a no-op. */
+            patchGroupId: z.string().optional(),
             /** What the user asked to unstage. */
             patchIds: z.array(PatchId),
             /** What has to go with it: everything built on top of it. */
@@ -1248,8 +1377,15 @@ export const Api = {
         z.object({
           status: z.literal(200),
           json: z.object({
-            patchGroupId: z.string(),
+            /** `null` for an unstage when the caller has no open group. */
+            patchGroupId: z.string().nullable(),
             patchIds: z.array(PatchId),
+            /**
+             * The chain version the change committed at. The client keeps its
+             * own view of the change until a stat at least this new shows it.
+             * Absent from a content service that predates it.
+             */
+            headVersion: z.number().optional(),
           }),
         }),
       ]),
@@ -1429,6 +1565,36 @@ export const Api = {
              * which only answered buildable jobs.
              */
             buildable: z.boolean().optional(),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * In a proposal: the SITE's Source for every module the proposal has saved,
+   * as the build it is based on has it. What Compare with the site diffs the
+   * proposal against -- saved and unsaved alike -- because the Studio's own
+   * base Source there is the proposal's last save. 404 anywhere that is not a
+   * proposal's address. valbuild/home `docs/proposals.md`.
+   */
+  "/proposal-site-sources": {
+    GET: {
+      req: {
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(404),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            /** By module file path. A module absent here is the same in both. */
+            modules: z.record(z.string(), z.unknown()),
           }),
         }),
       ]),
@@ -2293,6 +2459,50 @@ export const Api = {
       ]),
     },
   },
+  /*
+   * Val Build, on the editor's behalf, for the web components the Studio
+   * mounts from admin.val.build (`<val-project-switcher>` and the ones after
+   * it). `/admin/proxy/projects/overview?current=…` is
+   * `{valBuildUrl}/api/studio/v1/projects/overview?current=…`, with the
+   * editor's token from the session cookie: the component cannot send that
+   * token itself, because it is in an httpOnly cookie only this server reads.
+   *
+   * A pipe, deliberately: the path, the query and the JSON body go through as
+   * they are, so a new component or endpoint on Val Build needs no Val
+   * release. What it does NOT pass through is anything that would let it be
+   * aimed elsewhere — see `adminProxy.ts`.
+   */
+  /*
+   * Whether this Studio has a Val Build credential for the editor: a session,
+   * or in local development a `val login`. The Studio asks before it loads a
+   * web component, so a developer who never logged in sees the plain project
+   * name rather than a component explaining that they are not logged in.
+   */
+  "/admin/status": {
+    GET: {
+      req: {
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.object({
+        status: z.literal(200),
+        json: z.object({
+          connected: z.boolean(),
+          /**
+           * `val-login` on a developer's own checkout, `studio` anywhere the
+           * Studio's sign-in is the way in. Optional: an older server does
+           * not send it.
+           */
+          signIn: z.enum(["val-login", "studio"]).optional(),
+        }),
+      }),
+    },
+  },
+  "/admin/proxy": {
+    GET: adminProxyEndpoint(),
+    POST: adminProxyEndpoint(),
+    PUT: adminProxyEndpoint(),
+    DELETE: adminProxyEndpoint(),
+  },
 } satisfies ApiGuard;
 
 // Types and helper types:
@@ -2341,8 +2551,16 @@ export type ApiEndpoint = {
       z.ZodSchema<ValidQueryParamTypes, string[] | undefined>
     >;
     cookies?: Record<string, z.ZodSchema<string | undefined>>;
-    /** Request headers, by LOWER-CASE name. Server side only. */
+    /**
+     * Request headers, by lower-case name, parsed the way `cookies` are.
+     * Absent ones are `undefined`.
+     */
     headers?: Record<string, z.ZodSchema<string | undefined>>;
+    /**
+     * The query string exactly as sent (`?a=1&b=2`, or `""`), for a route that
+     * forwards it rather than reading it. `query` is for routes that read it.
+     */
+    rawQuery?: z.ZodString;
   };
   res: z.ZodSchema<
     | {
@@ -2413,6 +2631,9 @@ export type ServerOf<Api extends ApiGuard> = {
                     Api[Route][Method]["req"]["headers"][key]
                   >;
                 }
+              : undefined;
+            rawQuery: Api[Route][Method]["req"]["rawQuery"] extends z.ZodString
+              ? string
               : undefined;
           }>,
         ) => Promise<z.infer<Api[Route][Method]["res"]>>

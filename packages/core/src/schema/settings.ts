@@ -1,6 +1,5 @@
 import { AssertError, Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { PreviewScope, ReifiedPreview, mergePreviewInto } from "../preview";
-import { FieldRender } from "../render";
 import { SelectorSource } from "../selector";
 import {
   createValPathOfItem,
@@ -45,19 +44,16 @@ export type SerializedSettingsSchema = {
   /**
    * Present in the shape, never set by `s.settings()`.
    *
-   * `render` and `preview` say how a value is drawn where it is an ITEM of an
-   * array or a record, and `customValidate` marks a user's `validate` closure. A
-   * settings module is not an item, and `s.settings()` takes no arguments to
-   * declare any of the three with — so nothing writes them.
+   * `preview` says how a value is drawn where it is an ITEM of an array or a
+   * record, and `customValidate` marks a user's `validate` closure. A settings
+   * module is not an item, and `s.settings()` takes no arguments to declare
+   * either with — so nothing writes them.
    *
-   * They are declared anyway, and with their real types rather than `never`, for
-   * two reasons: reading `schema.render` off a `SerializedSchema` has to stay
-   * legal (`isInlineRender` does exactly that), and a `?: never` member is typed
-   * `undefined`, which makes the whole `SerializedSchema` union stop being
-   * assignable to `Json` — and serialized schemas travel to the Studio and to
-   * the MCP tools as JSON.
+   * They are declared anyway, and with their real types rather than `never`,
+   * because a `?: never` member is typed `undefined`, which makes the whole
+   * `SerializedSchema` union stop being assignable to `Json` — and serialized
+   * schemas travel to the Studio and to the MCP tools as JSON.
    */
-  render?: FieldRender;
   preview?: true;
   customValidate?: boolean;
   readonly?: boolean;

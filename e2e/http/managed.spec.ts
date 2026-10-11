@@ -158,7 +158,9 @@ test.describe("a publish nobody else will finish", () => {
         },
       )
       // Not "Building", which is what the same feed says for a connected
-      // project from the same rows -- see `deployments.spec.ts`.
-      .toBe("Live");
+      // project from the same rows -- see `deployments.spec.ts`. For the
+      // first minute after the seal it is "Reaching visitors", while the
+      // edges catch up (`EDGE_CACHE_MS`), and then "Live".
+      .toMatch(/^(Reaching visitors \d+%|Live)$/);
   });
 });

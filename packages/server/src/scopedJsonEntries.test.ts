@@ -84,3 +84,50 @@ test("an applied patch is skipped even when the scope names it", () => {
     ids(scopedModulePatches(chain, MODULE, ["shipped" as PatchId])),
   ).toEqual([]);
 });
+
+describe("with the commits content says came after this build", () => {
+  /*
+   * Content places every reader at its own build and returns the commits
+   * after it. A patch applied at one of those was published after this build:
+   * the build does not have it, so the draft must apply it -- whatever the
+   * scope, because published work is nobody's to hold back. Skipping it showed
+   * the old value from the publish until the next build went live.
+   */
+  const LATER = { commitSha: "later" as CommitSha };
+  const commits = [{ commitSha: LATER.commitSha }];
+
+  test("a patch published after this build is applied, in chain order", () => {
+    const chain = [
+      patch("theirs-pending"),
+      patch("shipped-later", { appliedAt: LATER }),
+      patch("mine"),
+    ];
+    expect(
+      ids(scopedModulePatches(chain, MODULE, ["mine" as PatchId], commits)),
+    ).toEqual(["shipped-later", "mine"]);
+  });
+
+  test("and it is applied as pending: the build has none of it", () => {
+    const chain = [patch("shipped-later", { appliedAt: LATER })];
+    expect(
+      scopedModulePatches(chain, MODULE, undefined, commits).map(
+        (p) => p.appliedAt,
+      ),
+    ).toEqual([null]);
+  });
+
+  test("one applied at a commit this build already has is not applied twice", () => {
+    // Content returns it only because it was named by id.
+    const chain = [patch("shipped", { appliedAt: APPLIED }), patch("mine")];
+    expect(
+      ids(
+        scopedModulePatches(
+          chain,
+          MODULE,
+          ["shipped" as PatchId, "mine" as PatchId],
+          commits,
+        ),
+      ),
+    ).toEqual(["mine"]);
+  });
+});

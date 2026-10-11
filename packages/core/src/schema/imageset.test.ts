@@ -651,6 +651,26 @@ describe("ImagesSchema", () => {
       expect(result).toBe(false);
     });
 
+    test("with files: { remote: true } the field is .remote() too, and still defers to the gallery", () => {
+      // Every media factory comes back remote, s.image(gallery) included. A
+      // field holding the gallery's local key must not be told to upload
+      // itself: the entry is the gallery's to upload, and the fix renames the
+      // field with it.
+      const { s, c } = initVal({ files: { remote: true } });
+      const gallery = c.define(
+        "/content/gallery.val.ts",
+        s.imageset({ dir: "/public/val/images" }),
+        { [REF]: ENTRY, [LOCAL]: ENTRY },
+      );
+      const field = s.image(gallery);
+      expect(field["executeSerialize"]().remote).toBe(true);
+      for (const path of [REF, LOCAL]) {
+        expect(field["executeValidate"]("path" as SourcePath, { path })).toBe(
+          false,
+        );
+      }
+    });
+
     test("the gallery's own key errors are where a misplaced ref is reported", () => {
       // The same ref in a gallery that is not `.remote()`: the field is fine,
       // the gallery's key is not.

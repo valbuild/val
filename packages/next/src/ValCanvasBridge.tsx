@@ -125,8 +125,20 @@ export function ValCanvasBridge({
           measured = parent;
         }
       }
+      /**
+       * Skipped only when it has no box at all — `display: none`, or inside
+       * something that is — and NOT when the box is merely empty.
+       *
+       * A field emptied in the Studio is still on the page: an inline element
+       * whose only text is the invisible edit tag measures 0×0, and it is the
+       * field being edited. Dropping it took the field out of the Studio's
+       * "On this page" column mid-edit, and with it every other path on the
+       * same element: clearing a link's label also removed its `href`. What the
+       * column needs to know is whether the content is on the page, and an
+       * empty box answers yes.
+       */
+      if (measured.getClientRects().length === 0) return;
       const rect = measured.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) return;
       elements.push({
         // Split by the same helper the rest of Val uses, so the studio gets
         // the paths back in exactly the form it holds them in.

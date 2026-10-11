@@ -224,6 +224,18 @@
     --bg-float-raised: var(--colors-gray-light-mode-gray-150);
     --border-float: var(--colors-gray-light-mode-gray-300);
 
+    /*
+     * A proposal. Not a brand colour and not a status: a PLACE, so a
+     * screenshot says it was taken in a proposal rather than on the site.
+     * Violet, because nothing else in the studio is.
+     */
+    --bg-proposal: #6d28d9;
+    --bg-proposal-hover: #5b21b6;
+    --bg-proposal-soft: #f3efff;
+    --fg-proposal: #6d28d9;
+    --fg-on-proposal: #ffffff;
+    --border-proposal: #a78bfa;
+
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-light-mode-gray-150);
     --fg-disabled: var(--colors-gray-light-mode-gray-400);
@@ -312,6 +324,13 @@
     --bg-float: var(--colors-gray-dark-mode-gray-900);
     --bg-float-raised: var(--colors-gray-dark-mode-gray-800);
     --border-float: var(--colors-gray-dark-mode-gray-700);
+
+    --bg-proposal: #7c3aed;
+    --bg-proposal-hover: #8b5cf6;
+    --bg-proposal-soft: rgba(139, 92, 246, 0.16);
+    --fg-proposal: #c4b5fd;
+    --fg-on-proposal: #ffffff;
+    --border-proposal: #7c3aed;
 
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-dark-mode-gray-800);

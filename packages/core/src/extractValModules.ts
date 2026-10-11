@@ -189,6 +189,33 @@ export function computeSourcesSha(
   return sourcesSha;
 }
 
+/**
+ * The `schemaSha` fold on its own: path and serialized schema, in `val.modules`
+ * order.
+ *
+ * Separate for the same reason as {@link computeSourcesSha}: the Studio folds
+ * the schemas of the bundle it is running and compares the answer with the
+ * `schemaSha` on `/stat`, which is how it learns that a new schema has been
+ * deployed under it. One implementation, so that comparison is between two
+ * runs of the same code.
+ */
+export function computeSchemaSha(
+  entries: readonly { path: string; serializedSchema: unknown }[],
+): string {
+  let schemaSha = "";
+  for (const { path, serializedSchema } of entries) {
+    // The PATH is part of the schema set, not just the schema: renaming a
+    // module while leaving its schema byte-identical still changes which paths
+    // exist, and an open client keyed its schema cache by the old path. Hashing
+    // the schema alone left this SHA unchanged, so with no commitSha to fall
+    // back on the client never refetched /schema.
+    schemaSha = hash(
+      schemaSha + JSON.stringify({ path, schema: serializedSchema }),
+    );
+  }
+  return schemaSha;
+}
+
 export function computeValModuleShas(
   config: ValModules["config"],
   entries: readonly ValModuleShaEntry[],
@@ -205,7 +232,7 @@ export function computeValModuleShas(
   // `gitCommit: process.env.VERCEL_GIT_COMMIT_SHA` / `gitBranch`, which are
   // server-only env vars and therefore `undefined` in the browser. Seeding with
   // them made the two sides disagree on every production load.
-  let schemaSha = "";
+  const schemaSha = computeSchemaSha(entries);
   for (const entry of entries) {
     const { path, source, serializedSchema } = entry;
     baseSha = hash(
@@ -216,14 +243,6 @@ export function computeValModuleShas(
           source,
           modulesErrors: moduleErrors.slice(0, entry.moduleErrorsAt),
         }),
-    );
-    // The PATH is part of the schema set, not just the schema: renaming a
-    // module while leaving its schema byte-identical still changes which paths
-    // exist, and an open client keyed its schema cache by the old path. Hashing
-    // the schema alone left this SHA unchanged, so with no commitSha to fall
-    // back on the client never refetched /schema.
-    schemaSha = hash(
-      schemaSha + JSON.stringify({ path, schema: serializedSchema }),
     );
   }
   return { baseSha, schemaSha, sourcesSha, configSha };

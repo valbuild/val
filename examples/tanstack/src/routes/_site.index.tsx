@@ -1,9 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { lazy, Suspense } from "react";
 import { ValImage, ValRichText } from "@valbuild/tanstack";
 import { useVal, useValRoute } from "../val/client";
 import pageVal, { type Content } from "./_site.index.val";
 import { NotFound } from "../components/NotFound";
 import siteVal from "../content/site.val";
+
+/** See the component: a lazy child handed Val content as a prop. */
+const Tagline = lazy(() => import("../components/Tagline"));
 
 export const Route = createFileRoute("/_site/")({
   component: Home,
@@ -46,7 +50,9 @@ function Home() {
   return (
     <main>
       <h1>{page.hero.title}</h1>
-      <p>{site.tagline}</p>
+      <Suspense fallback={<p />}>
+        <Tagline text={site.tagline} />
+      </Suspense>
       <ValImage src={page.hero.image} style={{ maxWidth: "16rem" }} />
       <ValRichText content={page.hero.lead} />
       <p>

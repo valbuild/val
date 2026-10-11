@@ -5,22 +5,26 @@ import {
   useCommittedPatches,
   useCurrentPatchIds,
   useCurrentProfile,
+  useCurrentProposal,
   useDeployments,
   useStudioDeployState,
   usePatchSets,
   useProfilesByAuthorId,
   useShallowModulesAtPaths,
   useStudioIsDeployer,
+  useValMode,
 } from "../ValProvider";
 import { useAllValidationErrors } from "../ValErrorProvider";
 import { useFilePatchIds, useValConfig } from "../ValFieldProvider";
 import { useCreatableRouters } from "../useCreateRouteEntry";
 import { ShellData, ShellMediaGallery } from "./types";
+import { useValBuildAccess } from "./useValBuildAccess";
 import { useThemeSettings } from "../../hooks/useThemeSettings";
 import { useDeploymentStaleTick } from "../../hooks/useDeploymentStaleTick";
 import {
   toActivity,
   toAdminLinks,
+  toWebComponentsUrl,
   toDataModules,
   toDeployments,
   withStudioPublish,
@@ -65,6 +69,13 @@ export function useShellData(): ShellDataState {
    * and must not disagree about them.
    */
   const studioIsDeployer = useStudioIsDeployer();
+  /*
+   * Val Build's web components only where there is a Val Build credential for
+   * them to use, and the way they ask an editor to sign in. See
+   * `useValBuildAccess`.
+   */
+  const mode = useValMode();
+  const valBuild = useValBuildAccess(mode);
   const profilesByAuthorId = useProfilesByAuthorId();
   /*
    * The external router's own scheme policy.
@@ -128,6 +139,11 @@ export function useShellData(): ShellDataState {
    */
   const themeSettings = useThemeSettings();
   const filePatchIds = useFilePatchIds();
+  /*
+   * In a proposal the branch is the proposal's: its changes and saves are on
+   * it, never on the site's, and the status bar should not say otherwise.
+   */
+  const proposalBranch = useCurrentProposal()?.branch ?? null;
 
   return useMemo((): ShellDataState => {
     if (navMenu.status === "loading") {
@@ -153,7 +169,11 @@ export function useShellData(): ShellDataState {
         projectName: config?.project ?? "Val",
         logo: toShellLogo(themeSettings.logo, filePatchIds, config?.project),
         admin: toAdminLinks(config),
-        branch: config?.gitBranch,
+        webComponentsUrl: valBuild.connected
+          ? toWebComponentsUrl(config)
+          : undefined,
+        studioMode: valBuild.studioMode,
+        branch: proposalBranch ?? config?.gitBranch,
         hasRouters: navData?.hasRouters ?? false,
         pages: navData?.sitemap
           ? toShellPages(navData.sitemap, modulesWithDrafts)
@@ -173,6 +193,7 @@ export function useShellData(): ShellDataState {
             dir: entry.dir,
             moduleFilePath: entry.moduleFilePath,
             mediaType: entry.mediaType,
+            ...(entry.fonts ? { fonts: true } : {}),
             itemCount: countKeys(mediaRecords[index]),
             files: toMediaFiles(mediaRecords[index]),
           }),
@@ -237,5 +258,9 @@ export function useShellData(): ShellDataState {
     committedPatchIds,
     shellDeployments,
     studioIsDeployer,
+    valBuild.connected,
+    valBuild.studioMode,
+    mode,
+    proposalBranch,
   ]);
 }

@@ -9,17 +9,12 @@ import { createService, filesOfVideo } from "@valbuild/server";
 import { traverseSchemaSource } from "@valbuild/shared/internal";
 import { glob } from "fast-glob";
 import path from "path";
-import { findAndEvalValConfigFile } from "./utils/evalValConfigFile";
 
 export async function listUnusedFiles({ root }: { root?: string }) {
   const projectRoot = root ? path.resolve(root) : process.cwd();
 
-  const valConfigFile = await findAndEvalValConfigFile(projectRoot);
-  // Strip the leading "/" so it is relative to the project root (e.g. "public/val").
-  const managedDir = (valConfigFile?.files?.directory ?? "/public/val").replace(
-    /^\//,
-    "",
-  );
+  // Relative to the project root.
+  const managedDir = "public/val";
 
   const service = await createService(projectRoot);
   const registered = new Set<ModuleFilePath>(service.getModuleFilePaths());
@@ -64,7 +59,8 @@ export async function listUnusedFiles({ root }: { root?: string }) {
     // A media collection (`s.imageset()`, `s.fileset()`, `s.videoset()`) is
     // keyed by its files, and an entry that is fine reports no error either —
     // so, as for a video, they are found by walking the source. A video set's
-    // stream holds every playlist and segment its master names.
+    // stream holds every playlist and segment its master names, and an entry
+    // its default poster and captions.
     if (valModule.source !== undefined && valModule.schema) {
       forEachMediaCollection(
         valModule.source,
@@ -73,14 +69,9 @@ export async function listUnusedFiles({ root }: { root?: string }) {
           for (const [key, entry] of Object.entries(entries)) {
             const refs =
               mediaType === "videos"
-                ? filesOfVideo(
-                    {
-                      path: key,
-                      mimeType:
-                        isObject(entry) && typeof entry.mimeType === "string"
-                          ? entry.mimeType
-                          : undefined,
-                    },
+                ? // The entry's poster and captions are its own files too.
+                  filesOfVideo(
+                    isObject(entry) ? { ...entry, path: key } : { path: key },
                     { projectRoot },
                   )
                 : [key];

@@ -2,6 +2,7 @@ import { Patch } from "@valbuild/core/patch";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import {
   newestCommitSha,
+  PatchGroup,
   ValClient,
   ValCommit,
   ValDeployment,
@@ -58,6 +59,22 @@ const WebSocketServerMessage = z.union([
     headPatchId: PatchId.nullable().optional(),
     /** The chain version of that head. See `headVersion` on {@link StatData}. */
     headVersion: z.number().optional(),
+    /**
+     * Who holds what, read with `patches` and `headVersion`. Absent from a
+     * content service that predates sending it.
+     */
+    patchGroups: z.array(PatchGroup).optional(),
+    /**
+     * Of `patches`, the ones already published, read with them. Absent from a
+     * content service that predates sending it. See {@link chainOfMessage}.
+     */
+    appliedPatches: z.array(PatchId).optional(),
+    /**
+     * Of `patches`, the ones a running publish holds, read with them. Absent
+     * from a content service that predates sending it. See `publishingPatches`
+     * on {@link StatData}.
+     */
+    publishingPatches: z.array(PatchId).optional(),
   }),
   z.object({
     type: z.literal("deployment"),
@@ -70,17 +87,22 @@ const WebSocketServerMessage = z.union([
   /*
    * A publish job moved (valbuild/home, docs/app-mode.md, "Publishing is a
    * queued job"). A NUDGE, not the state: the Studio re-reads the requests it
-   * pressed, which is where Live is decided. Only the id is read, so the rest
-   * of what content sends may change without this parse failing.
+   * pressed, which is where Live is decided. Only the id and the status are
+   * read -- the status so a publish another editor pressed shows here too --
+   * and the status is optional, so the rest of what content sends may change
+   * without this parse failing.
    */
   z.object({
     type: z.literal("publish-job"),
-    job: z.object({ id: z.string() }),
+    job: z.object({ id: z.string(), status: z.string().optional() }),
   }),
   z.object({
     type: z.literal("subscribed"),
   }),
 ]);
+
+/** A publish job moved: which, and its status if content said. */
+export type PublishJobNudge = { id: string; status: string | null };
 
 export const StatData = z.object({
   type: z.union([
@@ -128,7 +150,7 @@ export const StatData = z.object({
       .optional(),
     files: z
       .object({
-        directory: z.string(),
+        remote: z.boolean().optional(),
       })
       .optional(),
   }),
@@ -159,6 +181,8 @@ export const StatData = z.object({
     .optional(),
   /** See `publishJobs` in `ApiRoutes`. */
   publishJobs: z.boolean().optional(),
+  /** The proposal this server runs at the address of. See `proposal` in `ApiRoutes`. */
+  proposal: z.object({ name: z.string(), branch: z.string() }).optional(),
   /**
    * FS mode only: fingerprint of the `.jsonValues()` entry files on disk. No
    * other sha here can see an entry edit, because a jsonValues module's source is
@@ -190,6 +214,16 @@ export const StatData = z.object({
    */
   appliedPatches: z.array(PatchId).optional(),
   /**
+   * Of `patches`, the ones a publish that is still running holds -- on this
+   * tab, another tab or another device. Publish is not offered over them.
+   *
+   * Unlike `appliedPatches` this is not one-way: a job that fails, is
+   * cancelled or is interrupted gives its changes back, so every answer
+   * replaces it whole. Absent where publishing is not done in jobs, and from a
+   * content service that predates it -- which is "not reported", not "none".
+   */
+  publishingPatches: z.array(PatchId).optional(),
+  /**
    * The head of the PATCH CHAIN, which a new patch names as its parent — see
    * `chainHeadOf`. `http` only; absent is "not reported", not `null`.
    */
@@ -200,6 +234,11 @@ export const StatData = z.object({
    * reported".
    */
   headVersion: z.number().optional(),
+  /**
+   * Every group on the branch and what each holds, read with `patches` and
+   * `headVersion`. `http` only, and absent where there are no groups.
+   */
+  patchGroups: z.array(PatchGroup).optional(),
   /**
    * The newest commit, which is the PUBLISH head.
    *
@@ -271,17 +310,32 @@ export function useStatus(client: ValClient) {
   >();
 
   const statIdRef = useRef(0);
+  /**
+   * How many socket `patches` messages have been taken. A `/stat` answer
+   * requested before the latest of them is older than it -- see
+   * {@link holdsOfAnswer}.
+   */
+  const socketPatchesRef = useRef(0);
+  /** See {@link ContentHolds}, and {@link HeardHolds} for the time. */
+  const [heard, setHeard] = useState<HeardHolds | undefined>();
+  const setHolds = useCallback<SetHolds>((update, at) => {
+    setHeard((prev) => {
+      const holds = update(prev?.holds);
+      // The same holds are no news: they keep the time they were said at.
+      return holds === prev?.holds ? prev : { holds, at };
+    });
+  }, []);
   /** Who hears a `publish-job` nudge. See `subscribePublishJobs`. */
-  const publishJobListeners = useRef(new Set<(jobId: string) => void>());
-  const onPublishJob = useCallback((jobId: string) => {
-    for (const listener of publishJobListeners.current) listener(jobId);
+  const publishJobListeners = useRef(new Set<(job: PublishJobNudge) => void>());
+  const onPublishJob = useCallback((job: PublishJobNudge) => {
+    for (const listener of publishJobListeners.current) listener(job);
   }, []);
   /**
    * Hear every `publish-job` nudge the socket delivers. A stable function, so
    * a subscriber's effect runs once.
    */
   const subscribePublishJobs = useCallback(
-    (listener: (jobId: string) => void) => {
+    (listener: (job: PublishJobNudge) => void) => {
       publishJobListeners.current.add(listener);
       return () => {
         publishJobListeners.current.delete(listener);
@@ -289,6 +343,34 @@ export function useStatus(client: ValClient) {
     },
     [],
   );
+  /**
+   * A `/stat` asked for now rather than when the wait runs out. See `refresh`.
+   */
+  const refreshRef = useRef(false);
+  /**
+   * Ask `/stat` now: for when this tab knows the server's answer has moved.
+   *
+   * A save at a proposal's address does that. It folds the saved changes into
+   * the address's snapshot, so the base the server answers with moves at
+   * once -- and with a socket connected the next `/stat` was twenty minutes
+   * away. Until then the Studio held the base from before the save: the socket's
+   * next list of changes left the saved one out, and the next edit was made on
+   * content the proposal had already moved past.
+   *
+   * A `/stat` already in flight is not interrupted: it may have been answered
+   * from before the save, so the ask is taken when it lands, and another goes
+   * out at once.
+   */
+  const refresh = useCallback(() => {
+    refreshRef.current = true;
+    // A new object, so the effect below runs again and sees the ask.
+    setStat((prev) =>
+      prev.status === "updated-request-again" ||
+      prev.status === "ws-message-received"
+        ? { ...prev }
+        : prev,
+    );
+  }, []);
   useEffect(() => {
     if (
       stat.status === "updated-request-again" ||
@@ -301,11 +383,15 @@ export function useStatus(client: ValClient) {
       // Never wait longer than a publish that has not reached the site yet can
       // afford: `/stat` is the only thing that reports which commit the site
       // actually serves.
-      const wait = Math.min(
-        stat.wait,
-        awaitingDeploymentInterval(stat.data, Date.now()),
-      );
+      const wait =
+        refreshRef.current && stat.status !== "error"
+          ? 0
+          : Math.min(
+              stat.wait,
+              awaitingDeploymentInterval(stat.data, Date.now()),
+            );
       if (wait === 0) {
+        refreshRef.current = false;
         console.debug(
           "Executing stat immediately",
           stat.status,
@@ -318,6 +404,8 @@ export function useStatus(client: ValClient) {
           webSocketRef,
           connectionIdRef,
           statIdRef,
+          socketPatchesRef,
+          setHolds,
           stat,
           setStat,
           setAuthenticationLoadingIfNotAuthenticated,
@@ -340,6 +428,8 @@ export function useStatus(client: ValClient) {
             webSocketRef,
             connectionIdRef,
             statIdRef,
+            socketPatchesRef,
+            setHolds,
             stat,
             setStat,
             setAuthenticationLoadingIfNotAuthenticated,
@@ -364,6 +454,8 @@ export function useStatus(client: ValClient) {
         webSocketRef,
         connectionIdRef,
         statIdRef,
+        socketPatchesRef,
+        setHolds,
         stat,
         setStat,
         setAuthenticationLoadingIfNotAuthenticated,
@@ -382,7 +474,131 @@ export function useStatus(client: ValClient) {
     setIsAuthenticated,
     serviceUnavailable,
     subscribePublishJobs,
+    heard?.holds,
+    heard?.at,
+    refresh,
   ] as const;
+}
+
+type PatchesMessage = Extract<
+  z.infer<typeof WebSocketServerMessage>,
+  { type: "patches" }
+>;
+
+/**
+ * What a `patches` message replaces in the stat: the chain, read at one moment.
+ *
+ * The client takes this message as its new chain without asking `/stat`
+ * again, so everything that describes the chain comes from the message, never
+ * from the stat before it:
+ *
+ * - the head and its version: a head older than the list it came with is a
+ *   parent the server will refuse;
+ * - the groups: read at that version. A message without them clears the old
+ *   ones rather than keeping them -- the old groups beside the new version
+ *   would say a stage or unstage the server has made is not there, and the
+ *   scope would follow that;
+ * - which of the patches are already published. This one was kept from the
+ *   previous stat, and a publish is exactly the change that moves both at
+ *   once: it takes the patches out of every group and marks them applied. With
+ *   the new groups and the old applied list, the publisher's patches looked
+ *   like pending ones that had left their group -- unstaged -- so the
+ *   published change vanished from the Studio until a reload, which reads both
+ *   from one `/stat`. The `/stat` poll is twenty minutes apart once a socket is
+ *   up, so nothing else corrected it.
+ *
+ * Applied is one-way, so a content service that does not send the list (one
+ * that predates it) keeps the previous one: incomplete, never wrong.
+ */
+export function chainOfMessage(
+  prev: Pick<StatData, "appliedPatches" | "publishingPatches">,
+  message: PatchesMessage,
+): Pick<
+  StatData,
+  | "patches"
+  | "headPatchId"
+  | "headVersion"
+  | "patchGroups"
+  | "appliedPatches"
+  | "publishingPatches"
+> {
+  return {
+    patches: message.patches,
+    headPatchId: message.headPatchId,
+    headVersion: message.headVersion,
+    patchGroups: message.patchGroups,
+    appliedPatches: message.appliedPatches ?? prev.appliedPatches,
+    /*
+     * Replaced, never accumulated: a job that ends without sealing gives its
+     * changes back, and the message is the whole set at that moment. Kept
+     * from before only when the message does not carry it at all.
+     */
+    publishingPatches: message.publishingPatches ?? prev.publishingPatches,
+  };
+}
+
+/**
+ * What content says a running publish holds, with the chain it said it
+ * against: `heldByContent` reads the three together, so they are always taken
+ * from one answer or one socket message, never mixed.
+ *
+ * Kept APART from the stat the stores adopt. A `/stat` answer requested before
+ * a socket message is older than it for the holds -- but it can also come from
+ * a newer BUILD than the socket describes, so the stat itself is taken whole:
+ * the chain pairs with the build metadata it was read with, or `BaseAlignment`
+ * replays published patches onto the new base. Only these holds prefer the
+ * socket.
+ */
+export type ContentHolds = Pick<
+  StatData,
+  "patches" | "appliedPatches" | "publishingPatches"
+>;
+
+/**
+ * The holds, and when content said them: the time a `/stat` request went out
+ * (its answer can be no older), or the time a socket message arrived. A
+ * press of this tab's that failed after that gives its changes back over
+ * them -- see `reportedAt` on `publishingPatchIds`.
+ */
+type HeardHolds = { holds: ContentHolds; at: number };
+
+type SetHolds = (
+  update: (prev: ContentHolds | undefined) => ContentHolds,
+  at: number,
+) => void;
+
+/** The holds after a socket `patches` message. See {@link chainOfMessage}. */
+export function holdsOfMessage(
+  prev: ContentHolds | undefined,
+  message: PatchesMessage,
+): ContentHolds {
+  return {
+    patches: message.patches,
+    appliedPatches: message.appliedPatches ?? prev?.appliedPatches,
+    publishingPatches: message.publishingPatches ?? prev?.publishingPatches,
+  };
+}
+
+/**
+ * The holds after a `/stat` answer: the answer's, unless a socket message
+ * arrived after the request went out. Socket messages do not move
+ * `statIdRef`, so an answer requested before a publish started elsewhere was
+ * taken after the socket had said which changes that publish holds -- and
+ * Publish was offered over them until the next update. The socket's view is
+ * never left stale by keeping it: every later change to the chain or to a
+ * publish sends another message.
+ */
+export function holdsOfAnswer(
+  prev: ContentHolds | undefined,
+  answer: ContentHolds,
+  socketSpokeSince: boolean,
+): ContentHolds {
+  if (socketSpokeSince && prev !== undefined) return prev;
+  return {
+    patches: answer.patches,
+    appliedPatches: answer.appliedPatches,
+    publishingPatches: answer.publishingPatches,
+  };
 }
 
 /** How long the Studio leaves between `/stat` calls once a socket is up. */
@@ -454,14 +670,18 @@ async function execStat(
   webSocketRef: React.MutableRefObject<WebSocket | null>,
   connectionIdRef: React.MutableRefObject<string>,
   statIdRef: React.MutableRefObject<number>,
+  socketPatchesRef: React.MutableRefObject<number>,
+  setHolds: SetHolds,
   stat: StatState,
   setStat: Dispatch<SetStateAction<StatState>>,
   setAuthenticationLoadingIfNotAuthenticated: () => void,
   setIsAuthenticated: Dispatch<SetStateAction<AuthenticationState>>,
   setServiceUnavailable: Dispatch<SetStateAction<boolean | undefined>>,
-  onPublishJob: (jobId: string) => void,
+  onPublishJob: (job: PublishJobNudge) => void,
 ) {
   const id = ++statIdRef.current;
+  const socketPatchesAtRequest = socketPatchesRef.current;
+  const requestedAt = Date.now();
   let body = null;
   if ("data" in stat && stat.data) {
     body = {
@@ -491,6 +711,13 @@ async function execStat(
         setStat((prev) => ({
           status: "error",
           error: "Service unavailable",
+          /*
+           * The last answer stands, as it does for every other error
+           * (`createError`): an outage is not news that a publish ended, and
+           * dropping the data released every change content had said a
+           * running publish holds.
+           */
+          data: "data" in prev ? prev.data : undefined,
           retries: ("retries" in prev ? prev.retries : 0) + 1,
           waitStart: Date.now(),
           wait: 5000,
@@ -514,14 +741,35 @@ async function execStat(
             waitStart: Date.now(),
             wait: webSocketRef.current ? WebSocketStatInterval : 0, // why 0 wait unless websocket? If websocket is not used, we are long polling so no point in waiting
           });
+          const answer = res.json;
+          setHolds(
+            (prev) =>
+              holdsOfAnswer(
+                prev,
+                answer,
+                socketPatchesRef.current !== socketPatchesAtRequest,
+              ),
+            requestedAt,
+          );
         } else if (res.json.type === "use-websocket") {
+          const answer = res.json;
+          // Whole: see `ContentHolds` for why only the holds prefer the socket.
           setStat((prev) => ({
             ...prev,
             status: "updated-request-again",
-            data: res.json,
+            data: answer,
             waitStart: Date.now(),
             wait: WebSocketStatInterval,
           }));
+          setHolds(
+            (prev) =>
+              holdsOfAnswer(
+                prev,
+                answer,
+                socketPatchesRef.current !== socketPatchesAtRequest,
+              ),
+            requestedAt,
+          );
           if (webSocketRef.current) {
             console.debug("Closing existing WebSocket");
             webSocketRef.current.close();
@@ -553,18 +801,15 @@ async function execStat(
               }
               const message = messageRes.data;
               if (message.type === "patches") {
+                socketPatchesRef.current++;
+                setHolds((prev) => holdsOfMessage(prev, message), Date.now());
                 setStat((prev) => {
                   if ("data" in prev && prev.data) {
                     return {
                       status: "ws-message-received",
                       data: {
                         ...prev.data,
-                        patches: message.patches,
-                        // Replaced together with the list, never kept from
-                        // the previous stat: a head older than the list it
-                        // came with is a parent the server will refuse.
-                        headPatchId: message.headPatchId,
-                        headVersion: message.headVersion,
+                        ...chainOfMessage(prev.data, message),
                       },
                       waitStart:
                         "waitStart" in prev ? prev.waitStart : Date.now(),
@@ -582,7 +827,10 @@ async function execStat(
                   return prev;
                 });
               } else if (message.type === "publish-job") {
-                onPublishJob(message.job.id);
+                onPublishJob({
+                  id: message.job.id,
+                  status: message.job.status ?? null,
+                });
               } else if (message.type === "subscribed") {
                 console.debug("Subscribed!");
               } else if (message.type === "commit") {

@@ -134,11 +134,11 @@ export function RecordFields({
   const keyDecidesLocale = schema.key?.type === "locale";
 
   // Entries are rendered in place either because the caller asked for it
-  // (`inline` prop) or because the item schema opted in with
+  // (`inline` prop) or because the record itself declares
   // `.render({ as: "inline" })` — the record counterpart of the inline rows in
   // `SortableList`. Records are unordered, so there is nothing to sort; the key
   // is the row's label.
-  if (inline || isInlineRender(schema.item)) {
+  if (inline || isInlineRender(schema)) {
     return (
       <div id={path}>
         <div className={`flex flex-col ${compact ? "gap-3" : "gap-4"}`}>

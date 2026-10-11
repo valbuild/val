@@ -39,7 +39,7 @@ function setup(
   },
 ) {
   // `initVal()` with no argument returns `config: undefined`, and the publish
-  // path reads `options.config.files?.directory`.
+  // path reads `options.config`.
   const { c, s, config } = initVal({ project: "acme/site" });
   const route = "/api/val";
   const commitCalls: string[] = [];

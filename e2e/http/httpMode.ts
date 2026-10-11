@@ -249,6 +249,21 @@ export type MockState = {
   deployments: MockDeployment[];
   repoOverlay: string[];
   remoteFiles: string[];
+  /** Publish jobs, when {@link mock.enablePublishJobs} is on. */
+  publishJobs: {
+    id: string;
+    step: "prepare" | "build" | "upload" | null;
+    done: "sealed" | "failed" | "cancelled" | null;
+    patches: string[];
+    requestIds: string[];
+    /** What the job's prepare named, by path or ref. Null before it ran. */
+    binaryFiles: Record<string, { patchId: string; remote?: boolean }> | null;
+  }[];
+  publishRequests: {
+    requestId: string;
+    status: { kind: string; commit?: string; message?: string };
+    jobId: string | null;
+  }[];
   /**
    * The shas of commits the mock recorded an archive for — what history can
    * read in full. A commit made through `mock.pushCommit` is never in here.
@@ -405,6 +420,17 @@ export const mock = {
    */
   async enablePatchGroups(enabled = true): Promise<void> {
     await control("patch-groups", { method: "POST", body: { enabled } });
+  },
+
+  /**
+   * Make this project publish as jobs: a press of Publish is a request, the
+   * Val server prepares the job, and the content service seals it.
+   *
+   * Off by default -- see the mock's `State.publishJobsEnabled`. Say it before
+   * the Studio opens: the Studio reads it from `/stat`.
+   */
+  async enablePublishJobs(enabled = true): Promise<void> {
+    await control("publish-jobs", { method: "POST", body: { enabled } });
   },
 
   /** The text a commit wrote for one module, or null if no commit touched it. */
@@ -571,6 +597,31 @@ export async function writePatch(
         throw new Error(`createPatch failed: ${JSON.stringify(res)}`);
       }
       await system.patchSync.flush();
+      return res.record.patchId;
+    },
+    { mfp: moduleFilePath, ops: patch },
+  );
+}
+
+/**
+ * Make one edit and do NOT wait for the server to have it: what a field's
+ * blur does as Publish is tapped. The store saves it on its own schedule.
+ */
+export async function createUnsavedPatch(
+  page: Page,
+  moduleFilePath: string,
+  patch: unknown[],
+): Promise<string> {
+  return page.evaluate(
+    async ({ mfp, ops }) => {
+      const bag = window as unknown as { __VAL_STORES__: StoreBag };
+      const res = await bag.__VAL_STORES__.system.patchStore.createPatch(
+        mfp,
+        ops,
+      );
+      if (!("record" in res)) {
+        throw new Error(`createPatch failed: ${JSON.stringify(res)}`);
+      }
       return res.record.patchId;
     },
     { mfp: moduleFilePath, ops: patch },

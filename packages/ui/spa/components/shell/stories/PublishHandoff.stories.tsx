@@ -14,12 +14,9 @@ import {
   type PublishPageResult,
   type PublishStep,
 } from "../PublishHandoff";
-import { StatusBar } from "../StatusBar";
-import type { ShellDeployment } from "../types";
 import { HostPage } from "./HostPage";
 import { OverlayCard, OverlayMenuButton } from "../OverlayMenu";
 import { PublishSummaryView } from "../../PublishSummaryView";
-import type { StudioDeployState } from "../../../publish/useStudioDeploy";
 
 /**
  * Publishing from the overlay, which cannot build: the site commits, and a
@@ -30,7 +27,8 @@ import type { StudioDeployState } from "../../../publish/useStudioDeploy";
  *   in flight for as long as the tab is working. The message is asked for as it
  *   is today; confirming it is what opens the tab.
  * - **Studio tab** — the page the overlay opened, for one commit.
- * - **Status bar** — the same progress inside the Studio itself.
+ *
+ * The Studio's own status bar is in `Shell/PublishIndicator`.
  */
 const meta: Meta = {
   title: "Shell/PublishHandoff",
@@ -224,7 +222,7 @@ function StudioTab({
   return (
     <div data-mode={theme} style={{ height: "100svh" }}>
       <StudioPublishPage
-        commit="188fa4a3c1e2d9b0"
+        jobId="j_7c41e09a"
         steps={steps}
         elapsedMs={elapsedMs}
         result={result}
@@ -321,186 +319,6 @@ export const StudioTabLiveLight: TabStory = {
       steps={stepsAt(7, [900, 200, 6_200, 3_100, 18_000, 2_400, 11_200])}
       elapsedMs={42_000}
       result={{ kind: "live", ms: 42_000, closingInS: 5 }}
-    />
-  ),
-};
-
-/**
- * The status bar inside the Studio: "All changes saved", the publish while it
- * runs ("Publishing 42%" and a bar, gone when it is done), and the deploy
- * summary, which says "Live" once it is. The list behind the summary has the
- * breakdown of this tab's own publish.
- */
-function StudioStatusBar({
-  deployState,
-  deployments,
-  open = false,
-  theme = "dark",
-}: {
-  deployState: StudioDeployState;
-  deployments: ShellDeployment[];
-  open?: boolean;
-  theme?: Theme;
-}) {
-  return (
-    <div
-      data-mode={theme}
-      className="relative bg-bg-primary"
-      style={{ height: "100svh" }}
-    >
-      <StatusBar
-        breakpoint="desktop"
-        saveState="saved"
-        mode="http"
-        autoSave={false}
-        onAutoSaveChange={() => undefined}
-        branch="main"
-        deployments={deployments}
-        studioIsDeployer
-        deployState={deployState}
-        deploymentsOpen={open}
-        onDeploymentsOpenChange={() => undefined}
-      />
-    </div>
-  );
-}
-
-const earlier: ShellDeployment = {
-  commitSha: "a1b2c3d4e5f6",
-  state: "success",
-  message: "Update the opening hours",
-  author: "Fredrik",
-  timestamp: "2 hours ago",
-  updatedAt: "2026-09-24T12:00:00Z",
-  isLive: false,
-};
-
-const running = (percent: number, step: string): ShellDeployment => ({
-  commitSha: "188fa4a3c1e2",
-  state: "created",
-  message: "Update the product 1 description",
-  author: "Fredrik",
-  timestamp: "just now",
-  updatedAt: "2026-09-24T15:00:00Z",
-  isLive: false,
-  publish: { kind: "running", percent, step },
-});
-
-const live: ShellDeployment = {
-  commitSha: "188fa4a3c1e2",
-  state: "created",
-  message: "Update the product 1 description",
-  author: "Fredrik",
-  timestamp: "just now",
-  updatedAt: "2026-09-24T15:00:00Z",
-  isLive: true,
-  publish: {
-    kind: "done",
-    ms: 29_000,
-    steps: [
-      { label: "Loading the builder", ms: 900 },
-      { label: "Reading the site", ms: 300 },
-      { label: "Building", ms: 6_200 },
-      { label: "Uploading", ms: 2_100 },
-      { label: "Checking the site renders", ms: 11_800 },
-      { label: "Going live", ms: 1_900 },
-      { label: "Waiting for the site to show it", ms: 5_800 },
-    ],
-  },
-};
-
-const runningState = (
-  phase: StudioDeployState extends infer S
-    ? S extends { status: "running"; phase: infer P }
-      ? P
-      : never
-    : never,
-): StudioDeployState => ({
-  status: "running",
-  phase,
-  startedAt: Date.now() - 12_000,
-  phaseStartedAt: Date.now() - 4_000,
-  commit: null,
-});
-
-type BarStory = StoryObj<typeof StudioStatusBar>;
-
-/** Publishing: the percentage and a bar, beside the summary. */
-export const StatusBarPublishing: BarStory = {
-  render: () => (
-    <StudioStatusBar
-      deployState={runningState({ kind: "building" })}
-      deployments={[running(12, "Building"), earlier]}
-    />
-  ),
-};
-
-export const StatusBarUploading: BarStory = {
-  render: () => (
-    <StudioStatusBar
-      deployState={runningState({ kind: "uploading", done: 2, total: 5 })}
-      deployments={[running(50, "Uploading 2 of 5"), earlier]}
-    />
-  ),
-};
-
-/** Done: the percentage is gone, and the summary says Live. */
-export const StatusBarLive: BarStory = {
-  render: () => (
-    <StudioStatusBar
-      deployState={{
-        status: "done",
-        result: { status: "live", url: null },
-        ms: 29_000,
-        steps: [],
-        commit: "188fa4a3c1e2",
-      }}
-      deployments={[live, earlier]}
-    />
-  ),
-};
-
-/** The list, while it runs: the row has the step and the percentage. */
-export const StatusBarListPublishing: BarStory = {
-  render: () => (
-    <StudioStatusBar
-      open
-      deployState={runningState({ kind: "verifying" })}
-      deployments={[running(64, "Checking the site renders"), earlier]}
-    />
-  ),
-};
-
-/** The list, once it is live: how long it took, and each step's time. */
-export const StatusBarListLive: BarStory = {
-  render: () => (
-    <StudioStatusBar
-      open
-      deployState={{
-        status: "done",
-        result: { status: "live", url: null },
-        ms: 29_000,
-        steps: [],
-        commit: "188fa4a3c1e2",
-      }}
-      deployments={[live, earlier]}
-    />
-  ),
-};
-
-export const StatusBarListLiveLight: BarStory = {
-  render: () => (
-    <StudioStatusBar
-      open
-      theme="light"
-      deployState={{
-        status: "done",
-        result: { status: "live", url: null },
-        ms: 29_000,
-        steps: [],
-        commit: "188fa4a3c1e2",
-      }}
-      deployments={[live, earlier]}
     />
   ),
 };

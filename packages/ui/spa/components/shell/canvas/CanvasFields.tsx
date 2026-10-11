@@ -37,6 +37,7 @@ const SETTLE_MS = 1200;
  */
 export function CanvasFields({
   paths,
+  offPagePaths,
   changedOnly,
   onChangedOnlyChange,
   pickToReveal,
@@ -45,6 +46,12 @@ export function CanvasFields({
   onSelect,
 }: {
   paths: readonly SourcePath[];
+  /**
+   * Those of `paths` the page is not showing: fields the editor worked on and
+   * then emptied, kept so the one being typed in does not vanish under them.
+   * See `useRetainedCanvasPaths`.
+   */
+  offPagePaths?: ReadonlySet<SourcePath>;
   /** List only the fields with an unpublished change. */
   changedOnly: boolean;
   onChangedOnlyChange: (changedOnly: boolean) => void;
@@ -233,6 +240,7 @@ export function CanvasFields({
                     path={path}
                     selected={selectedPath === path}
                     changed={changedPaths.has(path)}
+                    offPage={offPagePaths?.has(path) ?? false}
                     onSelect={onSelect}
                   />
                 ))}
@@ -257,12 +265,19 @@ function CanvasFieldRow({
   path,
   selected,
   changed,
+  offPage,
   onSelect,
 }: {
   path: SourcePath;
   selected: boolean;
   /** Has an unpublished change. Marked so the column can be scanned for them. */
   changed: boolean;
+  /**
+   * Listed, but not on the page. Said so, because otherwise it looks broken:
+   * picking it outlines nothing on the page, and nothing there can be clicked
+   * to reach it.
+   */
+  offPage: boolean;
   onSelect?: (path: SourcePath) => void;
 }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -306,6 +321,15 @@ function CanvasFieldRow({
             className="h-1.5 w-1.5 shrink-0 rounded-full bg-bg-brand-primary"
           >
             <span className="sr-only">Changed</span>
+          </span>
+        )}
+        {offPage && (
+          <span
+            data-canvas-field-off-page
+            title="The page does not show this field, usually because it is empty. It stays listed until you reload the page."
+            className="ml-auto shrink-0 text-[0.625rem] text-fg-secondary-alt"
+          >
+            Not on page
           </span>
         )}
       </div>

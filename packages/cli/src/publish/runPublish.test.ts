@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import zlib from "zlib";
 import { startFakeContentService } from "./fakeContent";
+import { APP_MODE_REQUIRES_REMOTE_FILES } from "@valbuild/server";
 import { runPublish } from "./runPublish";
 
 /**
@@ -59,6 +60,78 @@ const apiCalls = (calls: Array<{ method: string; path: string }>) =>
     .map(({ method, path: p }) => `${method} ${p}`);
 
 describe("val publish", () => {
+  test("refuses a project whose media is not remote, before building", async () => {
+    // The Val app has no repository for an upload to go into, so its deployed
+    // server refuses such a project -- and finding that out after the build
+    // has gone out is the worst place to find it.
+    const fake = await startFakeContentService({ token: TOKEN });
+    const root = makeArtifacts();
+    fs.writeFileSync(
+      path.join(root, "val.config.ts"),
+      `export const config = { project: "acme/site" };\n`,
+    );
+    try {
+      const result = await run(root, fake.url);
+      expect(result).toEqual({
+        status: "error",
+        message: APP_MODE_REQUIRES_REMOTE_FILES,
+      });
+      expect(apiCalls(fake.calls)).toEqual([]);
+    } finally {
+      await fake.close();
+    }
+  });
+
+  test.each([
+    [
+      // `initVal()` exports no config at all: the commonest way to lose the
+      // setting, and the one a lenient read would wave through.
+      "a config that cannot be read",
+      { "val.config.ts": "export const config = undefined;\n" },
+      "could not be read",
+    ],
+    ["no config at all", {}, "There is no val.config.ts"],
+  ])(
+    "refuses to build a checkout with %s",
+    async (_, files: Record<string, string>, reason) => {
+      const fake = await startFakeContentService({ token: TOKEN });
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "val-publish-cfg-"));
+      fs.writeFileSync(path.join(root, "package.json"), "{}\n");
+      for (const [name, contents] of Object.entries(files)) {
+        fs.writeFileSync(path.join(root, name), contents);
+      }
+      try {
+        const result = await run(root, fake.url);
+        expect(result.status).toBe("error");
+        expect(result).toMatchObject({
+          message: expect.stringContaining(APP_MODE_REQUIRES_REMOTE_FILES),
+        });
+        expect(result).toMatchObject({
+          message: expect.stringContaining(reason),
+        });
+        // Refused before anything was asked of content, let alone built.
+        expect(fake.calls).toEqual([]);
+      } finally {
+        await fake.close();
+      }
+    },
+  );
+
+  test("...and publishes it once it says files: { remote: true }", async () => {
+    const fake = await startFakeContentService({ token: TOKEN });
+    const root = makeArtifacts();
+    fs.writeFileSync(
+      path.join(root, "val.config.ts"),
+      `export const config = { project: "acme/site", files: { remote: true } };\n`,
+    );
+    try {
+      const result = await run(root, fake.url);
+      expect(result).toMatchObject({ status: "live" });
+    } finally {
+      await fake.close();
+    }
+  });
+
   test("declares, uploads, confirms, verifies and promotes", async () => {
     const fake = await startFakeContentService({ token: TOKEN });
     const root = makeArtifacts();

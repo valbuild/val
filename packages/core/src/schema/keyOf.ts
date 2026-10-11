@@ -21,7 +21,10 @@ import { RecordSchema } from "./record";
 
 export type SerializedKeyOfSchema = {
   type: "keyOf";
-  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  /**
+   * `{ as: "inline" }` shows the selected entry's content below the selector.
+   * About this field alone; no list reads it. See `render.ts`.
+   */
   render?: FieldRender;
   /** Set when this schema declares a `preview`. The closure itself cannot serialize. */
   preview?: true;
@@ -396,16 +399,21 @@ export class KeyOfSchema<
   }
 
   /**
-   * How this field is laid out in the editor when it is the item of an array
-   * or record: `{ as: "inline" }` renders the field itself inside each row,
-   * instead of a preview row that navigates to it.
+   * How this reference is laid out in the editor: `{ as: "inline" }` shows the
+   * selected entry's content below the selector, so it can be read (and
+   * reached) without leaving the field.
+   *
+   * This is about the keyOf field alone. Whether a LIST of references draws
+   * its rows inline is the list's own `.render(...)` — see `render.ts`.
    *
    * Static configuration, not a callback — see `render.ts`.
    *
    * @example
    * import authorsVal from "./authors.val"; // a record module
-   * const schema = s.array(s.keyOf(authorsVal).render({ as: "inline" }));
-   * export default c.define("/example.val.ts", schema, ["ada"]);
+   * const schema = s.object({
+   *   author: s.keyOf(authorsVal).render({ as: "inline" }),
+   * });
+   * export default c.define("/example.val.ts", schema, { author: "ada" });
    */
   render(input: FieldRender): KeyOfSchema<Sel, Src> {
     return new KeyOfSchema(

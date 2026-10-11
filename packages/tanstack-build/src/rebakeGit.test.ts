@@ -168,3 +168,56 @@ describe("which build is running", () => {
     expect(rebaked).toContain("{ publishBuild: servedBuild }");
   });
 });
+
+/**
+ * A proposal's address runs the proposal's BASE build, which is whatever the
+ * site served when the proposal was opened -- and a site's `val.server.ts` was
+ * wired when it was first published, then only ever rebaked line by line. So
+ * the code that reads the proposal has to arrive by a rebake too, or no
+ * project published before it could ever serve a proposal.
+ */
+describe("serving a proposal's address", () => {
+  const PROPOSAL_START = "const proposal = (() => {";
+  /** A file as wired before proposals: the block and its option cut out. */
+  const wiredBefore = () => {
+    const files = wired();
+    const source = files[VAL_SERVER_PATH];
+    const start = source.indexOf("/*\n * THE PROPOSAL");
+    const end = source.indexOf("const valConfig = {");
+    const old = (source.slice(0, start) + source.slice(end)).replace(
+      "        ...(proposal !== undefined ? { proposal } : {}),\n",
+      "",
+    );
+    expect(old).not.toContain(PROPOSAL_START);
+    return { ...files, [VAL_SERVER_PATH]: old };
+  };
+
+  test("a fresh file reads it and hands it to Val", () => {
+    const source = wired()[VAL_SERVER_PATH];
+    expect(source).toContain(PROPOSAL_START);
+    expect(source).toContain('secret("VAL_OVERLAY")');
+    expect(source).toContain("...(proposal !== undefined ? { proposal } : {})");
+  });
+
+  test("a file wired before proposals gets exactly what a fresh one has, once", () => {
+    const rebaked = rebakeGit(wiredBefore(), null);
+    expect(rebaked[VAL_SERVER_PATH]).toBe(wired()[VAL_SERVER_PATH]);
+    expect(rebakeGit(rebaked, null)[VAL_SERVER_PATH]).toBe(
+      rebaked[VAL_SERVER_PATH],
+    );
+  });
+
+  test("an edited file it cannot place the block in is left as it was", () => {
+    const before = wiredBefore();
+    const edited = {
+      ...before,
+      [VAL_SERVER_PATH]: before[VAL_SERVER_PATH].replace(
+        'const servedBuild = secret("VAL_BUILD");',
+        'const servedBuild = secret("SOMETHING_ELSE");',
+      ),
+    };
+    expect(rebakeGit(edited, null)[VAL_SERVER_PATH]).toBe(
+      edited[VAL_SERVER_PATH],
+    );
+  });
+});

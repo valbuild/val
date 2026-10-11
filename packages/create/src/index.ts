@@ -10,11 +10,22 @@ import { pruneTemplateRepoFiles } from "./templateRepoFiles";
 import {
   DEFAULT_FRAMEWORK,
   dropUnsupportedFeatures,
+  FRAMEWORK_NAMES,
   FRAMEWORKS,
   parseFrameworkArgs,
-  TEMPLATES,
-  type Template,
+  parseTemplateArgs,
+  resolveTemplateArg,
+  type Framework,
+  type TemplateArg,
 } from "./framework";
+import {
+  type CatalogTemplate,
+  fetchCatalog,
+  TEMPLATES_REPO,
+  templateSource,
+  templatesRef,
+  templateUrl,
+} from "./catalog";
 import {
   foreignLockFiles,
   PACKAGE_MANAGER_COMMANDS,
@@ -43,7 +54,8 @@ ${chalk.bold("Options:")}
   --framework <${FRAMEWORKS.join(
     "|",
   )}> Which framework to build on (asked if not given)
-  --nextjs, --tanstack Same, as a shorthand
+  --tanstack, --nextjs Same, as a shorthand
+  --template <id> Which template: ${chalk.cyan("full")} or ${chalk.cyan("minimal")}, or an id like ${chalk.cyan("tanstack-full")} (asked if not given)
   --use-npm, --use-pnpm, --use-yarn, --use-bun Use this package manager instead of the one that ran this command
   --package-manager <${PACKAGE_MANAGERS.join(
     "|",
@@ -53,6 +65,9 @@ ${chalk.bold("Options:")}
 
 ${chalk.dim(
   "By default the package manager that ran this command is used, so `pnpm create @valbuild` installs with pnpm.",
+)}
+${chalk.dim(
+  `Templates come from https://github.com/${TEMPLATES_REPO}. Set VAL_TEMPLATES_REF to a branch to try one before it lands.`,
 )}
 `);
 }
@@ -71,6 +86,7 @@ process.on("SIGINT", handleExit);
 // Timeline stepper logic
 const timelineSteps = [
   "Choose framework",
+  "Choose template",
   "Enter project name",
   "Choose features",
   "Download template",
@@ -166,11 +182,11 @@ ${chalk.green("Happy coding! 🚀")}
  */
 async function chooseFeatures(
   given: Partial<Features>,
-  template: Template,
+  template: CatalogTemplate,
 ): Promise<Features> {
-  if (!template.supports.mcp) {
+  if (template.features.mcp === undefined) {
     // Nothing to ask: neither question has anything to turn on in this
-    // starter. A flag that asked anyway is reported rather than ignored.
+    // template. A flag that asked anyway is reported rather than ignored.
     const narrowed = dropUnsupportedFeatures(
       { mcp: given.mcp ?? false, imageUploads: given.imageUploads ?? false },
       template,
@@ -192,42 +208,103 @@ async function chooseFeatures(
     ? // Not asked when there is no endpoint to serve it on. A flag that asked
       // for it anyway is not ignored — `reconcile` says so below.
       (given.imageUploads ?? false)
-    : (given.imageUploads ??
-      (await confirm({
-        message: chalk.bold(
-          `Let them upload images too? ${chalk.dim(
-            "(adds sharp, a native image library, to your dependencies)",
-          )}`,
-        ),
-        default: true,
-      })));
+    : template.features.imageUploads === undefined
+      ? // Nothing to turn on in this template; `dropUnsupportedFeatures`
+        // below reports a flag that asked anyway.
+        (given.imageUploads ?? false)
+      : (given.imageUploads ??
+        (await confirm({
+          message: chalk.bold(
+            `Let them upload images too? ${chalk.dim(
+              "(adds sharp, a native image library, to your dependencies)",
+            )}`,
+          ),
+          default: true,
+        })));
   const reconciled = reconcile({ mcp, imageUploads });
   if (reconciled.warning !== null) {
     console.log(chalk.yellow(reconciled.warning));
   }
-  return reconciled.features;
+  const narrowed = dropUnsupportedFeatures(reconciled.features, template);
+  if (narrowed.warning !== null) {
+    console.log(chalk.yellow(narrowed.warning));
+  }
+  return narrowed.features;
 }
 
 /**
- * Which starter to download, asked unless a flag already said.
+ * Which framework to build on, asked unless a flag already said.
  *
- * First, because everything after it depends on the answer: the repository to
- * clone, and which of the optional features that repository has any files for.
+ * First, because everything after it depends on the answer: which templates
+ * there are to pick from, and which of the optional features they have files
+ * for. Only frameworks the catalog has a template for are offered.
  */
-async function chooseFramework(given: Template | null): Promise<Template> {
+async function chooseFramework(
+  given: Framework | null,
+  templates: CatalogTemplate[],
+): Promise<Framework> {
   if (given) {
     return given;
   }
+  const offered = FRAMEWORKS.filter((framework) =>
+    templates.some((template) => template.framework === framework),
+  );
   return await select({
     message: chalk.bold("Which framework?"),
-    choices: FRAMEWORKS.map((framework) => ({
-      name: TEMPLATES[framework].name,
-      value: TEMPLATES[framework],
-      description: TEMPLATES[framework].description,
+    choices: offered.map((framework) => ({
+      name: FRAMEWORK_NAMES[framework],
+      value: framework,
     })),
-    default: TEMPLATES[DEFAULT_FRAMEWORK],
+    default: offered.includes(DEFAULT_FRAMEWORK)
+      ? DEFAULT_FRAMEWORK
+      : offered[0],
   });
 }
+
+/**
+ * Which of that framework's templates, asked unless `--template` said.
+ *
+ * In the catalog's order, which is the order the templates repository chose,
+ * and the first is the default.
+ */
+async function chooseTemplate(
+  framework: Framework,
+  templates: CatalogTemplate[],
+  given: TemplateArg | null,
+): Promise<CatalogTemplate> {
+  if (given !== null) {
+    const resolved =
+      given.status === "needs-framework"
+        ? resolveTemplateArg(given.name, templates, framework)
+        : given;
+    if (resolved.status === "ok") {
+      return resolved.template;
+    }
+    if (resolved.status === "error") {
+      throw new CreateError(resolved.message);
+    }
+  }
+  const offered = templates.filter(
+    (template) => template.framework === framework,
+  );
+  if (offered.length === 0) {
+    throw new CreateError(
+      `There is no ${FRAMEWORK_NAMES[framework]} template to create a project from.`,
+    );
+  }
+  return await select({
+    message: chalk.bold("Which template?"),
+    choices: offered.map((template) => ({
+      name: template.name,
+      value: template,
+      description: template.description,
+    })),
+    default: offered[0],
+  });
+}
+
+/** A mistake in what was asked for: printed as it is, with no stack. */
+class CreateError extends Error {}
 
 /** True, or the reason this is not a usable project name. */
 function validateProjectName(value: string): true | string {
@@ -350,9 +427,21 @@ async function main() {
     const packageManager = resolved.packageManager;
     const commands = PACKAGE_MANAGER_COMMANDS[packageManager];
 
-    // Which starter to download, if a flag said. Taken out of `args` before
-    // the project name for the same reason the others are.
-    const frameworkArgs = parseFrameworkArgs(resolved.rest);
+    // Which template, if a flag said. First, because its value is a bare word
+    // (`--template full`) that would otherwise be read as the project name.
+    const templateArgs = parseTemplateArgs(resolved.rest);
+    if (templateArgs.invalidFlag !== null) {
+      console.error(
+        chalk.red(
+          `❌ Error: ${templateArgs.invalidFlag} needs a template, e.g. --template full.`,
+        ),
+      );
+      process.exit(1);
+    }
+
+    // Which framework, if a flag said. Taken out of `args` before the project
+    // name for the same reason the others are.
+    const frameworkArgs = parseFrameworkArgs(templateArgs.rest);
     if (frameworkArgs.invalidFlag !== null) {
       console.error(
         chalk.red(
@@ -364,9 +453,6 @@ async function main() {
       );
       process.exit(1);
     }
-    const givenTemplate = frameworkArgs.framework
-      ? TEMPLATES[frameworkArgs.framework]
-      : null;
 
     // The help text has always advertised `[project-name]`: whatever is left
     // once the flags are out is it.
@@ -379,15 +465,55 @@ async function main() {
       }
     }
 
+    // What there is to create. Before the first question, so the questions
+    // offer exactly what the templates repository has.
+    const ref = templatesRef(process.env);
+    const fetched = await fetchCatalog(ref);
+    if (fetched.status === "error") {
+      console.error(chalk.red(`❌ Error: ${fetched.message}`));
+      if (fetched.details) {
+        console.error(chalk.dim("Details:"), fetched.details);
+      }
+      process.exit(1);
+    }
+    const templates = fetched.catalog.templates;
+
+    // An id names the framework too, so `--template tanstack-full` is enough.
+    const givenTemplate =
+      templateArgs.template === null
+        ? null
+        : resolveTemplateArg(
+            templateArgs.template,
+            templates,
+            frameworkArgs.framework,
+          );
+    if (givenTemplate?.status === "error") {
+      console.error(chalk.red(`❌ Error: ${givenTemplate.message}`));
+      process.exit(1);
+    }
+    const givenFramework =
+      givenTemplate?.status === "ok"
+        ? givenTemplate.template.framework
+        : frameworkArgs.framework;
+
     let currentStep = 0;
     renderTimeline(currentStep);
 
     // Step 1: Which framework — unless a flag already said
-    const selectedTemplate = await chooseFramework(givenTemplate);
+    const framework = await chooseFramework(givenFramework, templates);
     currentStep++;
     renderTimeline(currentStep);
 
-    // Step 2: Enter project name — unless it was given as an argument
+    // Step 2: Which template — unless a flag already said
+    const selectedTemplate = await chooseTemplate(
+      framework,
+      templates,
+      givenTemplate,
+    );
+    currentStep++;
+    renderTimeline(currentStep);
+
+    // Step 3: Enter project name — unless it was given as an argument
     const projectName =
       projectNameArg ??
       (await input({
@@ -398,12 +524,12 @@ async function main() {
     currentStep++;
     renderTimeline(currentStep);
 
-    // Step 3: Which optional parts of the template to keep
+    // Step 4: Which optional parts of the template to keep
     const features = await chooseFeatures(flags.answers, selectedTemplate);
     currentStep++;
     renderTimeline(currentStep);
 
-    // Step 4: Download template
+    // Step 5: Download template
     const projectPath = join(rootDir, projectName);
     if (existsSync(projectPath)) {
       renderTimeline(currentStep, currentStep);
@@ -420,11 +546,11 @@ async function main() {
     mkdirSync(projectPath, { recursive: true });
     process.stdout.write(
       chalk.bold("\n📥 Downloading template from GitHub...\n") +
-        `  ${chalk.dim(`https://github.com/${selectedTemplate.repo}`)}\n`,
+        `  ${chalk.dim(templateUrl(selectedTemplate, ref))}\n`,
     );
 
     try {
-      const emitter = degit(selectedTemplate.repo, {
+      const emitter = degit(templateSource(selectedTemplate, ref), {
         cache: false,
         force: true,
         verbose: false,
@@ -447,11 +573,13 @@ async function main() {
       ) {
         console.error(
           chalk.yellow(
-            `Template repository not found: ${selectedTemplate.repo}`,
+            `Template not found: ${templateUrl(selectedTemplate, ref)}`,
           ),
         );
         console.error(
-          chalk.yellow("Please check if the repository exists and is public."),
+          chalk.yellow(
+            "The template list names it, so the list and the repository disagree. Try again in a minute, or with a different template.",
+          ),
         );
       } else {
         console.error(
@@ -466,7 +594,7 @@ async function main() {
     renderTimeline(currentStep);
     process.stdout.write(
       chalk.green(
-        `✅ Successfully downloaded template from ${selectedTemplate.repo}!\n`,
+        `✅ Downloaded the ${FRAMEWORK_NAMES[selectedTemplate.framework]} ${selectedTemplate.name} template\n`,
       ),
     );
 
@@ -475,7 +603,11 @@ async function main() {
     // Before the install, because this is what decides which dependencies the
     // install has to fetch — `sharp` in particular, which is a compiled binary
     // and not something to download and then throw away.
-    applyFeatures(projectPath, features);
+    const removedFeatures = applyFeatures(
+      projectPath,
+      features,
+      selectedTemplate.features,
+    );
     pruneForeignLockFiles(projectPath, packageManager);
     // The template's own CI, which is about the template rather than about
     // anything in this new project. See `templateRepoFiles.ts`.
@@ -498,6 +630,12 @@ async function main() {
         cwd: projectPath,
         stdio: "inherit", // Show install output in real-time
       });
+      // After the install, because the script is the template's own and
+      // runs its own tools: TanStack's route tree imports every route file,
+      // including the ones a declined feature just took away.
+      if (removedFeatures && selectedTemplate.regenerate) {
+        regenerate(projectPath, commands.run, selectedTemplate.regenerate);
+      }
 
       // Clear the npm output and show success
       process.stdout.write("\x1b[2J\x1b[0f"); // clear screen
@@ -506,7 +644,7 @@ async function main() {
       renderTimeline(currentStep);
       process.stdout.write(
         chalk.green(
-          `✅ Successfully downloaded template from ${selectedTemplate.repo}!\n`,
+          `✅ Downloaded the ${FRAMEWORK_NAMES[selectedTemplate.framework]} ${selectedTemplate.name} template\n`,
         ),
       );
       process.stdout.write(
@@ -528,8 +666,35 @@ async function main() {
       process.exit(1);
     }
   } catch (error) {
+    if (error instanceof CreateError) {
+      console.error(chalk.red(`❌ Error: ${error.message}`));
+      process.exit(1);
+    }
     console.error(chalk.red("❌ Failed to create project:"), error);
     process.exit(1);
+  }
+}
+
+/**
+ * Bring the template's generated files up to date with what is left.
+ *
+ * Not fatal: the files are regenerated anyway the first time the dev server or
+ * the build runs. What it saves is the first `typecheck`, or the editor,
+ * reporting imports of files that are not there.
+ */
+function regenerate(
+  projectPath: string,
+  run: string,
+  step: { script: string; files: string[] },
+) {
+  try {
+    execSync(`${run} ${step.script}`, { cwd: projectPath, stdio: "pipe" });
+  } catch {
+    console.log(
+      chalk.yellow(
+        `Note: could not run "${run} ${step.script}". ${step.files.join(", ")} will be brought up to date the first time you run the dev server.`,
+      ),
+    );
   }
 }
 

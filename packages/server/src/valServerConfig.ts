@@ -55,6 +55,22 @@ export const DEFAULT_VAL_BUILD_URL = "https://admin.val.build";
  */
 const VAL_APP_ENV = "app";
 
+/**
+ * What the Val app says when a project does not store its media remotely.
+ *
+ * Exported so that `val publish` -- which publishes to the app, and so is
+ * the last place to catch this before a build goes out -- refuses with the
+ * same sentence the deployed server would.
+ */
+export const APP_MODE_REQUIRES_REMOTE_FILES =
+  "This project runs in the Val app, which stores every image, file and " +
+  "video on Val's remote content host -- there is no repository for an " +
+  "upload to go into. Add `files: { remote: true }` to `initVal` in " +
+  "val.config.ts, so that `s.image()`, `s.file()`, `s.video()` and the " +
+  "sets are remote everywhere this project is read. Images already in the " +
+  "project then fail validation until they are uploaded: `npx val validate " +
+  "--fix` does that.";
+
 /** Which mode the environment SAYS this is, and which variable said so. */
 type NamedMode = { mode: string; from: "VAL_MODE" | "VAL_ENV" };
 
@@ -294,6 +310,27 @@ export async function initHandlerOptions(
           because,
       );
     }
+    /*
+     * The Val app has no repository for an uploaded file to go into, so every
+     * image, file and video in it is remote -- and the project has to SAY so,
+     * in `val.config.ts`, rather than this server deciding it.
+     *
+     * Deciding it here would be easy and wrong. The schemas are built when
+     * `val.config.ts` and the modules are evaluated, before this function
+     * sees anything, and the same file is evaluated by `val validate`, the VS
+     * Code extension and `pnpm dev`. A switch only the app could see would
+     * leave every one of those reading the project's media as local: every
+     * remote image reported as a mistake, and `val validate --fix` downloading
+     * it back into the repository.
+     *
+     * So this refuses rather than covers for it. Without the check, the
+     * failure is quieter and later: a local upload that the app has nowhere
+     * to put, found at a publish.
+     */
+    // `config?.`: `initVal()` with no argument hands back no config at all.
+    if (isAppEnv && config?.files?.remote !== true) {
+      throw new Error(APP_MODE_REQUIRES_REMOTE_FILES);
+    }
     const coreVersion = opts.versions?.core;
     if (!coreVersion) {
       throw new Error("Could not determine version of @valbuild/core");
@@ -326,6 +363,7 @@ export async function initHandlerOptions(
       ...(opts.publishBuild !== undefined
         ? { publishBuild: opts.publishBuild }
         : {}),
+      ...(opts.proposal !== undefined ? { proposal: opts.proposal } : {}),
       project: maybeValProject,
       valEnableRedirectUrl,
       valDisableRedirectUrl,
@@ -409,6 +447,9 @@ export function createValOps(
           : {}),
         ...(options.publishBuild !== undefined
           ? { publishBuild: options.publishBuild }
+          : {}),
+        ...(options.proposal !== undefined
+          ? { proposal: options.proposal }
           : {}),
       },
     );
@@ -572,6 +613,33 @@ export type ResolveRemoteFileAuthResult =
       errorCode: "project-not-configured" | "pat-error" | "api-key-missing";
       message: string;
     };
+
+/**
+ * The personal access token `val login` wrote for this project, or null when
+ * there is none (or it does not parse). Only `fs` mode has a working directory
+ * to read it from, so every other mode answers null.
+ *
+ * Unlike `resolveRemoteFileAuth` this never answers with the api key: the
+ * caller wants to act as the DEVELOPER, and an api key is the project.
+ */
+export async function readValLoginToken(
+  options: ValServerConfig,
+): Promise<string | null> {
+  if (options.mode !== "fs") {
+    return null;
+  }
+  const fs = await import("fs");
+  try {
+    const file = await fs.promises.readFile(
+      getPersonalAccessTokenPath(options.cwd),
+      "utf-8",
+    );
+    const parsed = parsePersonalAccessTokenFile(file);
+    return parsed.success ? parsed.data.pat : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function resolveRemoteFileAuth(
   options: ValServerConfig,

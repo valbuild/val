@@ -11,10 +11,10 @@ import { initVal, Schema, SelectorSource, SourcePath } from "@valbuild/core";
  *
  * `isInlineRender` is pinned in `core/src/schema/render.test.ts` and the rows
  * themselves are pinned in the browser (`e2e/inline-render.spec.ts`). Neither
- * covers the seam between them: an `ArrayFields` that read `schema.item.render`
- * directly — which is what it did — passes every test in that file and still
- * draws preview rows for the page-builder list the predicate says is inline.
- * That seam is this file. See `e2e/README.md`.
+ * covers the seam between them: an `ArrayFields` that asked the ITEM instead of
+ * the array passes every test in that file and still draws preview rows for
+ * the list that declared itself inline. That seam is this file. See
+ * `e2e/README.md`.
  *
  * Both lists are stubbed to a marker, deliberately: the claim is the choice, so
  * anything about how a row looks would only make this test fail for reasons it
@@ -91,11 +91,11 @@ import { ArrayFields } from "./ArrayFields";
 const { s } = initVal();
 const PATH = '/content/page.val.ts?p="sections"' as SourcePath;
 
-/** Mount an array of `item`, holding one element. */
-function mount(item: Schema<SelectorSource>) {
+/** Mount `array`, holding one element. */
+function mount(array: Schema<SelectorSource>) {
   mockSchema.mockReturnValue({
     status: "success",
-    data: s.array(item)["executeSerialize"](),
+    data: array["executeSerialize"](),
   });
   mockSource.mockReturnValue({
     status: "success",
@@ -103,43 +103,56 @@ function mount(item: Schema<SelectorSource>) {
   });
 }
 
-/** Mount the same array with NO source: the list has not been created. */
-function mountNull(item: Schema<SelectorSource>) {
+/** Mount `array` with NO source: the list has not been created. */
+function mountNull(array: Schema<SelectorSource>) {
   mockSchema.mockReturnValue({
     status: "success",
-    data: s.array(item).nullable()["executeSerialize"](),
+    data: array["executeSerialize"](),
   });
   mockSource.mockReturnValue({ status: "success", data: null });
 }
 
-const textBlock = s
-  .object({ type: s.literal("text"), text: s.string() })
-  .render({ as: "inline" });
-const codeBlock = s
-  .object({ type: s.literal("code"), code: s.string() })
-  .render({ as: "inline" });
+const textBlock = s.object({ type: s.literal("text"), text: s.string() });
+const codeBlock = s.object({ type: s.literal("code"), code: s.string() });
 
-describe("ArrayFields picks its list from the item schema", () => {
-  test("an inline item is edited in the block list", () => {
-    mount(s.object({ title: s.string() }).render({ as: "inline" }));
+describe("ArrayFields picks its list from the ARRAY's render", () => {
+  test("an inline array is edited in the block list", () => {
+    mount(s.array(s.object({ title: s.string() })).render({ as: "inline" }));
     render(<ArrayFields path={PATH} />);
     expect(screen.queryByTestId("block-list")).not.toBeNull();
     expect(screen.queryByTestId("sortable-list")).toBeNull();
   });
 
   /**
-   * The one that was broken: the render is on the union's VARIANTS, so the
-   * array's item schema — the union — carries none of its own.
+   * The page builder: neither the union nor its blocks carry a render, and
+   * they do not have to — the list says it.
    */
-  test("a union whose variants are inline is edited in the block list", () => {
-    mount(s.discriminatedUnion("type", textBlock, codeBlock));
+  test("an inline array of a union is edited in the block list", () => {
+    mount(
+      s
+        .array(s.discriminatedUnion("type", textBlock, codeBlock))
+        .render({ as: "inline" }),
+    );
     render(<ArrayFields path={PATH} />);
     expect(screen.queryByTestId("block-list")).not.toBeNull();
     expect(screen.queryByTestId("sortable-list")).toBeNull();
   });
 
-  test("an item with no render keeps the preview rows", () => {
-    mount(s.object({ title: s.string() }));
+  test("an array with no render keeps the preview rows", () => {
+    mount(s.array(s.object({ title: s.string() })));
+    render(<ArrayFields path={PATH} />);
+    expect(screen.queryByTestId("sortable-list")).not.toBeNull();
+    expect(screen.queryByTestId("block-list")).toBeNull();
+  });
+
+  /**
+   * An inline array INSIDE the item says nothing about the list the item is
+   * in: a render reaches one level down and no further.
+   */
+  test("an inline array nested in the item does not make this list inline", () => {
+    mount(
+      s.array(s.object({ tags: s.array(s.string()).render({ as: "inline" }) })),
+    );
     render(<ArrayFields path={PATH} />);
     expect(screen.queryByTestId("sortable-list")).not.toBeNull();
     expect(screen.queryByTestId("block-list")).toBeNull();
@@ -151,12 +164,15 @@ describe("ArrayFields picks its list from the item schema", () => {
    * where both are declared the render wins — see
    * `architecture/render-and-preview.md`.
    */
-  test("a preview beside the render does not take the block list away", () => {
+  test("a preview on the item does not take the block list away", () => {
     mount(
       s
-        .object({ title: s.string() })
-        .render({ as: "inline" })
-        .preview(({ val }) => ({ title: val.title })),
+        .array(
+          s
+            .object({ title: s.string() })
+            .preview(({ val }) => ({ title: val.title })),
+        )
+        .render({ as: "inline" }),
     );
     render(<ArrayFields path={PATH} />);
     expect(screen.queryByTestId("block-list")).not.toBeNull();
@@ -165,9 +181,11 @@ describe("ArrayFields picks its list from the item schema", () => {
 
   test("a preview without a render still gets the preview rows", () => {
     mount(
-      s
-        .object({ title: s.string() })
-        .preview(({ val }) => ({ title: val.title })),
+      s.array(
+        s
+          .object({ title: s.string() })
+          .preview(({ val }) => ({ title: val.title })),
+      ),
     );
     render(<ArrayFields path={PATH} />);
     expect(screen.queryByTestId("sortable-list")).not.toBeNull();
@@ -186,24 +204,29 @@ describe("ArrayFields on a null source", () => {
   });
 
   test("draws the create button, and neither list", () => {
-    mountNull(s.object({ title: s.string() }));
+    mountNull(s.array(s.object({ title: s.string() })).nullable());
     render(<ArrayFields path={PATH} />);
     expect(screen.queryByTestId("sortable-list")).toBeNull();
     expect(screen.queryByTestId("block-list")).toBeNull();
     expect(screen.queryByRole("button", { name: /^create$/i })).not.toBeNull();
   });
 
-  test("an inline item does not reach the block list either", () => {
+  test("an inline array does not reach the block list either", () => {
     // The inline branch runs BEFORE the list is drawn, so the null check has
     // to come before it too.
-    mountNull(s.object({ title: s.string() }).render({ as: "inline" }));
+    mountNull(
+      s
+        .array(s.object({ title: s.string() }))
+        .render({ as: "inline" })
+        .nullable(),
+    );
     render(<ArrayFields path={PATH} />);
     expect(screen.queryByTestId("block-list")).toBeNull();
     expect(screen.queryByRole("button", { name: /^create$/i })).not.toBeNull();
   });
 
   test("creating writes an empty array, not null", () => {
-    mountNull(s.object({ title: s.string() }));
+    mountNull(s.array(s.object({ title: s.string() })).nullable());
     render(<ArrayFields path={PATH} />);
     screen.getByRole("button").click();
     expect(mockAddPatch).toHaveBeenCalledWith(
@@ -213,7 +236,7 @@ describe("ArrayFields on a null source", () => {
   });
 
   test("readonly cannot create it", () => {
-    mountNull(s.object({ title: s.string() }));
+    mountNull(s.array(s.object({ title: s.string() })).nullable());
     render(<ArrayFields path={PATH} readonly />);
     const button = screen.getByRole("button");
     expect(button).toHaveProperty("disabled", true);

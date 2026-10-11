@@ -6,6 +6,7 @@ import pageVal from "./_site.showcase.val";
 import themeVal from "../content/theme.val";
 import galleryVal from "../content/gallery.val";
 import downloadsVal from "../content/downloads.val";
+import fontsVal from "../content/fonts.val";
 import mediaVal from "../content/media.val";
 import videoVal from "../content/video.val";
 import linksVal from "../content/links.val";
@@ -30,6 +31,7 @@ function Showcase() {
   const theme = useVal(themeVal);
   const gallery = useVal(galleryVal);
   const downloads = useVal(downloadsVal);
+  const fonts = useVal(fontsVal);
   const media = useVal(mediaVal);
   const video = useVal(videoVal);
   const links = useVal(linksVal);
@@ -98,6 +100,42 @@ function Showcase() {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section>
+        <h2>s.fontset()</h2>
+        <p>{page.notes.fonts}</p>
+        {/*
+         * A font is used through `@font-face`, which wants the URL and nothing
+         * else — so it is built from the raw `path`, never from `url`, whose
+         * edit tag would be part of the URL. The family names are this page's
+         * own: one per file, so the field below can name the one it picked.
+         */}
+        <style>
+          {Object.keys(fonts)
+            .map(
+              (path) =>
+                `@font-face { font-family: "${fontFamilyOf(path)}"; src: url("${Internal.mediaUrl({ path })}") format("woff2"); }`,
+            )
+            .join("\n")}
+        </style>
+        <ul>
+          {Object.keys(fonts).map((path) => (
+            <li key={path} style={{ fontFamily: fontFamilyOf(path) }}>
+              {path.split("/").pop()}
+            </li>
+          ))}
+        </ul>
+        {media.headingFont && (
+          <p
+            style={{
+              fontFamily: fontFamilyOf(media.headingFont.path),
+              fontSize: "2rem",
+            }}
+          >
+            The quick brown fox jumps over the lazy dog
+          </p>
+        )}
       </section>
 
       <section>
@@ -206,4 +244,12 @@ function Showcase() {
       </section>
     </main>
   );
+}
+
+/** A CSS family name for a font file, from its path. */
+function fontFamilyOf(path: string): string {
+  return `showcase-${path
+    .split("/")
+    .pop()
+    ?.replace(/[^a-z0-9-]/gi, "-")}`;
 }

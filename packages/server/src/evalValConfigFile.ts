@@ -7,29 +7,16 @@ import { ValConfig } from "@valbuild/core";
 import { createNodeRequire } from "./createNodeRequire";
 
 /**
- * NOTE: this is intentionally NOT `SharedValConfig` from `@valbuild/shared`.
- * That schema requires `files.directory` to be exactly `/public/val`, whereas
- * this one accepts any path beneath `/public`. Unifying them would change which
- * configs are accepted, so they are kept separate on purpose.
+ * NOTE: this is intentionally NOT `SharedValConfig` from `@valbuild/shared`,
+ * which leaves `files` out: `files.remote` decides how the schemas are built,
+ * so it is read where `val.config.ts` is, not shared with the client.
  */
 const ValConfigSchema = z.object({
   project: z.string().optional(),
   root: z.string().optional(),
   files: z
     .object({
-      directory: z.string().refine(
-        (val): val is `/public` | `/public/${string}` =>
-          (val === "/public" ||
-            (val.startsWith("/public/") && !val.endsWith("/"))) &&
-          // Reject path traversal so the directory cannot escape /public
-          !val
-            .split("/")
-            .some((segment) => segment === "." || segment === ".."),
-        {
-          message:
-            "files.directory must start with '/public', must not end with '/' and must not contain '.' or '..' segments",
-        },
-      ),
+      remote: z.boolean().optional(),
     })
     .optional(),
   gitCommit: z.string().optional(),

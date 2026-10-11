@@ -332,3 +332,65 @@ test("a content API that predates groups still saves, with no group", async () =
   // to parse. Absent, so the client reads it as "no groups here".
   expect(await savedGroupId({ patchId: "p1" })).toBe(undefined);
 });
+
+/*
+ * The group list is remembered for a second, and a write through this server
+ * forgets it.
+ *
+ * Found by home's `pnpm loop --content real`: an editor saved and the draft
+ * page rendered 0.4 s later was missing the change, because the remembered
+ * list still had their group without it, and a scoped render shows only what
+ * the list says is theirs.
+ */
+describe("the remembered group list", () => {
+  /** Answers `GET /patch-groups` with what `groups()` says now, and counts. */
+  function contentApi(groups: () => typeof GROUPS) {
+    let reads = 0;
+    const fetchImpl = (async (url: string, init?: { method?: string }) => {
+      if (String(url).includes("/patch-groups")) {
+        reads += 1;
+        return { ok: true, status: 200, json: async () => groups() };
+      }
+      if (String(url).endsWith("/patches") && init?.method === "POST") {
+        return { ok: true, status: 200, json: async () => ({ patchId: "p1" }) };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    }) as unknown as typeof fetch;
+    return { fetchImpl, reads: () => reads };
+  }
+
+  test("is reused inside its window, so one render asks once", async () => {
+    const api = contentApi(() => GROUPS);
+    const valOps = ops();
+    await withFetch(api.fetchImpl, async () => {
+      await valOps.getPatchGroups();
+      await valOps.getPatchGroups();
+    });
+    expect(api.reads()).toBe(1);
+  });
+
+  test("is asked again after a save through this server, and has the saved patch", async () => {
+    let current = GROUPS;
+    const api = contentApi(() => current);
+    const valOps = exposedOps();
+    const after = await withFetch(api.fetchImpl, async () => {
+      await valOps.getPatchGroups();
+      // The save puts p4 in Alice's group, on the content service.
+      current = {
+        patchGroups: GROUPS.patchGroups.map((group) =>
+          group.patchGroupId === "group-alice"
+            ? { ...group, patchIds: [...group.patchIds, "p4" as PatchId] }
+            : group,
+        ),
+      };
+      await valOps.saveForTest(undefined);
+      return valOps.getPatchGroups();
+    });
+    expect(api.reads()).toBe(2);
+    expect(after.status === "ok" && after.patchGroups[0].patchIds).toEqual([
+      "p1",
+      "p2",
+      "p4",
+    ]);
+  });
+});

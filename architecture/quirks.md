@@ -709,6 +709,26 @@ cleanup cancels, which is the only pass that writes to the editor that survives.
 
 ## Dev environment
 
+**In `fs` mode, the save straight after a publish is slow.** A publish rewrites
+the app's `.val.ts` files, `next dev` sees them change and recompiles, and the
+next `PUT /patches` waits on the rebuild: 5.4s in the CI run that found this,
+during a 4.4s Fast Refresh. A slow save is still not a failed one, but
+`system.publish` treated it as one: it raced its pre-publish flush against a
+fixed 5 seconds, so pressing Save a second time while that PUT was out was
+refused with "your latest changes could not be saved. Check the connection",
+and the status bar said "All changes saved" a moment later. The wait now ends
+when the sync calls the save stuck (`isSaveStuck`), with the clock left only as a
+backstop for a request that never answers. `e2e/studio-ui.spec.ts`'s
+save-then-restore is the test that hit it, intermittently, and only on CI
+runners slow enough to push the rebuild past 5 seconds.
+
+**A toast is gone before Playwright's failure screenshot.** A refusal is
+reported once, through `StatusStore`, and the toast expires long before a 30s
+`expect.poll` gives up — so the screenshot and `error-context.md` show a quiet
+Studio with an enabled Save button, which reads as "the click did nothing". The
+toast IS in the trace: unzip `trace.zip` and grep `0-trace.trace` for the
+message text; the frame snapshot it is in carries the timestamp.
+
 **After `pnpm run build`, run `pnpm preconstruct dev`** or downstream packages keep
 resolving `dist/`. Also delete `examples/next/.next` — a production build left
 there makes the dev server 500 with `MODULE_NOT_FOUND` on Studio routes.
@@ -920,6 +940,78 @@ rewriting at all. It is returned from the plugin's `config()` hook for that
 reason, and `closeBundle` refuses to delete anything still referenced by a
 chunk, which is what turns a 404 in someone's browser into a failed build.
 
+### On an iPhone, the page that opened the builder tab stops running
+
+A page that cannot build (every iPhone's Studio, every overlay) opens a builder
+tab in the tap of Publish. On iOS that tab takes the screen and the page behind
+it is paused AT ONCE: no timers, no fetch callbacks, no `BroadcastChannel`
+messages, until the editor goes back to it. Anything the page means to do after
+the tap does not happen while the tab is in front.
+
+The hand-off was first built with the page doing the work: wait for the AI's
+commit message, run the gate, press, then answer the tab's `ready` with the
+job. On an iPhone none of it ran, and the tab sat at "Starting the publish"
+indefinitely. Going back to the page woke it, and it sent the job, to a tab that
+was now the paused one.
+
+It was flaky rather than always broken, which is what kept it hidden. iOS lets
+the page run for a moment, and a press that was quick enough got through: with
+changes saved a while ago the page pressed at once. One change made just
+before Publish is still being saved, and since a publish waits for that save
+(up to 60 s, from 5 s before `3c5f54a`), the press came after iOS had paused
+the page. Desktop WebKit hit the same hang another way: a page that RELOADS
+between the tap and the tab's `ready` (the dev server compiling the builder
+route does it) loses the job it was holding.
+
+So the tap writes down everything the tab is to do (`HandoffIntent` in
+`spa/publish/handoff.ts`) and the tab presses itself, as the page's tab and
+under a request id the page minted in the tap. The page only follows what was
+pressed, whenever it is in front again. **Anything new in the hand-off has to
+work with the page frozen, or gone, from the tap onwards.**
+
+**The intent goes to `localStorage`, never into the URL** -- the URL carries
+only the hand-off id, a random UUID. It was the URL first, and that made a
+link able to publish: anyone could send an editor `/val?publish-handoff=x&publish-do=press…`,
+and opening it signed in pressed Publish on everything pending, theirs and
+everyone else's. Another origin cannot write this origin's storage, so an
+intent found there was stored by a tap in this browser. The write is
+synchronous, so it is there before iOS can pause the page; an intent over an
+hour old is only shown, never started.
+
+The tab presses what the SERVER has, so the intent also names the page's newest
+unpublished change (`after`), and the tab waits for it to arrive before it
+presses -- for minutes, because it arrives when the page's save does. Without
+that, "one change, then Publish" pressed before the change was saved and found
+nothing to publish. The wait also asks the server where that change is
+(`PatchStore.serverStateOf`): a fresh tab's chain never lists a change that
+has already SHIPPED, so one another publish took would otherwise be waited on
+until the deadline.
+
+A builder tab is one attempt, and opening it again -- a reload, the back
+button, the URL reopened -- must SHOW that attempt, never make it again: the
+page may hold new changes by then, and a second press would publish them
+without anyone pressing Publish. So the tab asks content for its request
+before anything else and follows it if it exists (content answers a request
+it never saw with 404), and remembers in `localStorage` what content cannot
+say: a press the gate refused, and an update. Only ANSWERS are remembered: a
+press that gave up after no answer may have landed, so opened again it asks. Content's press being
+idempotent does not cover this on its own -- the second press makes no second
+publish, but the tab still re-runs the gate, waits for changes, and a try
+again unpauses content's queue.
+
+The rule every wait in the tab follows: it waits only on something that can
+still happen, with a deadline, and when the deadline passes it says what to do
+next. The press is retried when asking again could get past the failure (no
+answer, a 5xx, 408, 429 -- `isTransientPublishError`), which is safe because
+content's press is idempotent on the request id; an answer, such as a
+validation refusal, is never asked again.
+
+Desktop browsers do not do this, so a hand-off that works on a laptop proves
+nothing. Chromium can, on request: `Page.setWebLifecycleState` with
+`state: "frozen"` over CDP pauses a page the same way, and
+`e2e/http/publishHandoff.spec.ts` freezes the Studio straight after the tap.
+That spec fails on the old hand-off with the same screen an iPhone showed.
+
 ## A request "pending" in dev is usually queued, not slow
 
 The devtools show a request as pending from the moment it is _created_, which
@@ -1055,8 +1147,11 @@ independently wrong:
    when it has handed over everything it holds.
 3. **The gate must be ON for the render that decides.** It is not. `ValProvider`
    sets `suspendActive` in an effect, so the SSR and hydration renders never
-   consult it — and hydration is where `notFound()` is called. **This one is not
-   fixed.**
+   consult it — and hydration is where `notFound()` is called. **Not fixed on
+   its own terms, and on TanStack no longer needed:** with `<ValProvider
+draft>` the server renders from the draft it read, so the deciding render
+   already has the route. Without `draft` (and on Next) it is still open. See
+   below.
 
 ### Why (3) is not just a bug
 
@@ -1078,13 +1173,40 @@ effect, which is cheap, static — and always too late for a route.
 Restoring it is not enough on its own, though — this was tried. With the gate on
 during SSR the server suspends on `waitForLoad`, and the store it waits for is
 only ever filled from the browser (the studio pushes sources by `postMessage`;
-`ValExternalStore` has no server-side writer). So the request does not 404, it
+`ValExternalStore` had no server-side writer — it has one now, see below). So the request does not 404, it
 **hangs**: the example app's `/api/val/enable` redirect never finished loading.
 
 That is the actual shape of the remaining work: the server has to be able to
 supply draft sources during its own render — which `fetchVal` already does for
 server components, via `/sources/~` with patches applied. A client component's
 SSR pass has no equivalent, and giving it one is a good deal more than a prop.
+
+**On TanStack Start it has one now: `<ValProvider draft>`.** The site layout's
+loader calls `fetchValDraft()` through a server function, on the server only.
+That is the same per-request `/sources/~` read `fetchVal` makes, cut down to the
+modules the draft changes, and `null` after one cookie lookup for anyone not in
+draft mode. The provider seeds its store with it and starts with `draftMode`
+true, so the server renders the draft and the browser's hydration render reads
+the same sources from the loader data and agrees with it. The edit tags (the
+invisible characters that JSX auto-tagging turns into a `data-val-path`
+attribute) are left OUT of what a component renders on the server and while it
+hydrates, and put in by the render React does right after
+(`useEncodesEditTags`, via `useHydrated`, a `useSyncExternalStore` whose server
+snapshot is `false`). Not a switch timed to a page-wide moment: "after mount" and
+"after the first `/draft/stat` answer" were both tried, and the switch is
+process-wide, so a split-out route -- or a lazy child handed a string as a prop
+-- hydrated after either, tagged, against untagged server HTML. A string with
+no tags has nothing to tag, whenever it is rendered. It does not hang, because nothing waits on the browser: the
+store is full before the first render, and `draftSourcesSynced` starts true
+(a module missing from a server-read draft has no changes, rather than "not
+sent yet"). TanStack can afford it because every request is rendered anyway —
+there is no static route for a cookie read to opt out of.
+
+It also fixed the more common symptom, which was not a 404 at all: every draft
+page load showed the published text and then, once the overlay had loaded, the
+draft. People notice it most right after publishing, when they reload to look.
+`e2e/tanstack/draftRender.spec.ts` pins it. Next still has the gap for client
+components; the cost argument below is why it has not followed.
 
 ### What a visitor pays
 

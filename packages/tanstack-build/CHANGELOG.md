@@ -1,5 +1,23 @@
 # @valbuild/tanstack-build
 
+## 0.142.0
+
+### Patch Changes
+
+- [#805](https://github.com/valbuild/val/pull/805) [`fa03698`](https://github.com/valbuild/val/commit/fa03698ef0f2c7a6df334b4ba0e41843bde60029) Thanks [@freekh](https://github.com/freekh)! - Groundwork for proposals on the Val platform: a server can be told it is running at a proposal's address (`proposal` in the http options, `proposalFromEnv` to read it from the platform). There, the content the proposal has saved replaces the bundled content for those modules on every read, edits go to the proposal's branch, and Save commits to the proposal instead of the site. Nothing changes for a site that is not given a proposal.
+
+## 0.140.1
+
+### Patch Changes
+
+- [#795](https://github.com/valbuild/val/pull/795) [`bbc2f0c`](https://github.com/valbuild/val/commit/bbc2f0cba5778b2095695cc0f6e23c66ce326a89) Thanks [@freekh](https://github.com/freekh)! - A project made from the TanStack starter builds on Val Build again. Since the starter started reading the page's draft (`fetchValDraft`, so a draft page is rendered as the draft from the first paint), its `src/val/val.server.ts` exports one more reader, and the `val.server.ts` that Val Build writes in its place did not, so the build failed with `"fetchValDraft" is not exported by "src/val/val.server.ts"`. The written file now exports it. With an `@valbuild/tanstack` older than 0.140.0 it returns no draft, which is how those versions render anyway.
+
+## 0.139.0
+
+### Patch Changes
+
+- [#782](https://github.com/valbuild/val/pull/782) [`ab97279`](https://github.com/valbuild/val/commit/ab9727935223bd8356976a15d09cb69a523e1140) Thanks [@freekh](https://github.com/freekh)! - The `src/val/project-source.d.ts` that wiring a project up to the platform writes now actually declares `platform:project-source`. It was a module (it ended in `export {}`), which made its `declare module` an augmentation of a module that does not exist, so `import { FILES } from "platform:project-source"` in the generated `val.server.ts` failed to resolve in an editor and in `tsc`. Re-wiring a project rewrites the file.
+
 ## 0.138.6
 
 ### Patch Changes

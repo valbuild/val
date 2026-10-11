@@ -8,10 +8,15 @@ import type { ValConfig } from "@valbuild/core";
  * like it might consult them. It also makes this testable with an object
  * literal rather than a cast.
  */
-type BranchSource =
-  | { mode: "fs"; config: ValConfig }
-  | { mode: "memory"; config: ValConfig }
-  | { mode: "http"; git?: { branch: string }; config: ValConfig };
+type ClientConfigSource =
+  | { mode: "fs"; project?: string; config: ValConfig }
+  | { mode: "memory"; project?: string; config: ValConfig }
+  | {
+      mode: "http";
+      project?: string;
+      git?: { branch: string };
+      config: ValConfig;
+    };
 
 /**
  * The `val.config` the Studio is told about, which is not quite the one on disk.
@@ -48,12 +53,35 @@ type BranchSource =
  * every mode out is what turned "does this one have a branch?" into a compile
  * error somebody had to answer instead of a default that silently applied.
  */
-export function clientConfig(options: BranchSource): ValConfig {
+export function clientConfig(options: ClientConfigSource): ValConfig {
+  const config = withResolvedProject(options.config, options.project);
   if (options.mode !== "http" || options.git === undefined) {
-    return options.config;
+    return config;
   }
-  if (options.config.gitBranch !== undefined) {
-    return options.config;
+  if (config.gitBranch !== undefined) {
+    return config;
   }
-  return { ...options.config, gitBranch: options.git.branch };
+  return { ...config, gitBranch: options.git.branch };
+}
+
+/**
+ * The project, filled in the same way and for the same reason as the branch.
+ *
+ * `project` may come from `VAL_PROJECT` rather than from `val.config`, and the
+ * server talks to that project either way. The Studio decides from
+ * `config.project` whether there is an assistant to offer at all (`wsEnabled`
+ * in `ValProvider`), so a project named only in the environment would have
+ * had it hidden while the server behind it was ready to serve it.
+ *
+ * `val.config` wins, as it does for the branch, and every mode gets it: unlike
+ * a branch, a project means the same thing in fs mode as in http mode.
+ */
+function withResolvedProject(
+  config: ValConfig,
+  project: string | undefined,
+): ValConfig {
+  if (config.project !== undefined || project === undefined) {
+    return config;
+  }
+  return { ...config, project };
 }

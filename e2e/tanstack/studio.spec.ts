@@ -96,4 +96,36 @@ test.describe("the Studio on TanStack Start", () => {
 
     expect(problems.thrown, "uncaught in the page").toEqual([]);
   });
+
+  /*
+   * The schema hash the Vite-built page folds is the one the server folds.
+   *
+   * Nothing visible depends on it until a schema is deployed under an open
+   * Studio, and then everything does: `SchemaFreshnessWatch` only arms once the
+   * two have agreed, so a bundler that serialized a schema differently would
+   * turn the reload prompt off for every TanStack project, silently.
+   * `e2e/http/schemaFreshness.spec.ts` checks the same against Next.
+   */
+  test("the Studio's schema hash is the server's", async ({ page }) => {
+    const served = page
+      .waitForResponse(
+        (res) =>
+          res.request().method() === "POST" &&
+          new URL(res.url()).pathname === "/api/val/stat" &&
+          res.ok(),
+      )
+      .then(async (res) => Reflect.get(Object(await res.json()), "schemaSha"));
+
+    await openStudio(page);
+
+    const running = await page.evaluate(() => {
+      const stores: unknown = Reflect.get(window, "__VAL_STORES__");
+      const system: unknown = Reflect.get(Object(stores), "system");
+      const host: unknown = Reflect.get(Object(system), "host");
+      const schemaSha: unknown = Reflect.get(Object(host), "schemaSha");
+      if (typeof schemaSha !== "function") throw new Error("no schemaSha");
+      return schemaSha.call(host);
+    });
+    expect(running).toBe(await served);
+  });
 });

@@ -37,6 +37,7 @@ const {
   fetchValKeyStega: fetchValKey,
   fetchValRouteStega: fetchValRoute,
   fetchValRouteUrl,
+  fetchValDraft,
 } = initValContent(config, valModules, { draftMode });
 
 export {
@@ -46,4 +47,5 @@ export {
   fetchValKey,
   fetchValRoute,
   fetchValRouteUrl,
+  fetchValDraft,
 };

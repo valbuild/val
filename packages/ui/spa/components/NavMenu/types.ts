@@ -95,6 +95,8 @@ export type MediaModule = {
   dir: string;
   /** Whether this gallery holds images, videos or arbitrary files. */
   mediaType: MediaCollectionType;
+  /** A files gallery that takes only fonts (`s.fontset()`). */
+  fonts?: boolean;
   /** Validation errors attributable to this module. */
   errors?: NavItemErrors;
 };

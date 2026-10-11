@@ -554,6 +554,109 @@ describe("applyJsonValuesEntryPatches", () => {
     expect(res.kind).toBe("error");
   });
 
+  describe("a whole-entry move or copy, with the other entries to read from", () => {
+    const bases: Record<string, { title: string; order: number }> = {
+      "/a": { title: "A", order: 1 },
+    };
+    const baseContentOf = (key: string) =>
+      key in bases ? { content: bases[key] } : undefined;
+
+    test("a renamed entry has the content of the one it came from", () => {
+      const res = applyJsonValuesEntryPatches({
+        serializedSchema: schema,
+        entryKey: "/renamed",
+        baseContent: undefined,
+        patches: [patch([{ op: "move", from: ["/a"], path: ["/renamed"] }])],
+        baseContentOf,
+      });
+      expect(res).toEqual({
+        kind: "content",
+        content: { title: "A", order: 1 },
+        appliedPatchIds: ["p1"],
+      });
+    });
+
+    test("and the key it was moved away from is deleted", () => {
+      const res = applyJsonValuesEntryPatches({
+        serializedSchema: schema,
+        entryKey: "/a",
+        baseContent: bases["/a"],
+        patches: [patch([{ op: "move", from: ["/a"], path: ["/renamed"] }])],
+        baseContentOf,
+      });
+      expect(res).toEqual({ kind: "deleted", appliedPatchIds: ["p1"] });
+    });
+
+    test("it is the source as it stood at the move: earlier edits come along, later ones do not", () => {
+      const patches = [
+        patch(
+          [{ op: "replace", path: ["/a", "title"], value: "A, edited" }],
+          1,
+        ),
+        patch([{ op: "copy", from: ["/a"], path: ["/copy"] }], 2),
+        patch([{ op: "replace", path: ["/a", "order"], value: 9 }], 3),
+        patch([{ op: "replace", path: ["/copy", "order"], value: 2 }], 4),
+      ];
+      expect(
+        applyJsonValuesEntryPatches({
+          serializedSchema: schema,
+          entryKey: "/copy",
+          baseContent: undefined,
+          patches,
+          baseContentOf,
+        }),
+      ).toEqual({
+        kind: "content",
+        content: { title: "A, edited", order: 2 },
+        appliedPatchIds: ["p2", "p4"],
+      });
+      // A copy leaves its source where it was.
+      expect(
+        applyJsonValuesEntryPatches({
+          serializedSchema: schema,
+          entryKey: "/a",
+          baseContent: bases["/a"],
+          patches,
+          baseContentOf,
+        }),
+      ).toEqual({
+        kind: "content",
+        content: { title: "A, edited", order: 9 },
+        appliedPatchIds: ["p1", "p3"],
+      });
+    });
+
+    test("a rename of a rename reads through both", () => {
+      const res = applyJsonValuesEntryPatches({
+        serializedSchema: schema,
+        entryKey: "/c",
+        baseContent: undefined,
+        patches: [
+          patch([{ op: "move", from: ["/a"], path: ["/b"] }], 1),
+          patch([{ op: "move", from: ["/b"], path: ["/c"] }], 2),
+        ],
+        baseContentOf: (key) =>
+          key === "/b" ? { content: undefined } : baseContentOf(key),
+      });
+      expect(res).toEqual({
+        kind: "content",
+        content: { title: "A", order: 1 },
+        appliedPatchIds: ["p2"],
+      });
+    });
+
+    test("a source the caller did not load is still an error", () => {
+      const res = applyJsonValuesEntryPatches({
+        serializedSchema: schema,
+        entryKey: "/renamed",
+        baseContent: undefined,
+        patches: [patch([{ op: "move", from: ["/z"], path: ["/renamed"] }])],
+        baseContentOf,
+      });
+      expect(res.kind).toBe("error");
+    });
+  });
+
   describe("media uploaded into an entry", () => {
     const mediaSchema: SerializedSchema = s
       .record(s.object({ hero: s.image() }))

@@ -1,6 +1,7 @@
 import { s, c } from "../../val.config";
 import galleryVal from "./gallery.val";
 import downloadsVal from "./downloads.val";
+import fontsVal from "./fonts.val";
 
 /**
  * Single media FIELDS, which are the other half of the media story.
@@ -55,6 +56,14 @@ export default c.define(
       .file(downloadsVal)
       .nullable()
       .describe("Picked from the file collection"),
+    /**
+     * `s.font(fontsetVal)`: `s.file(fontsetVal)` for fonts. A row here — the
+     * font's "A" and its name — that opens on the set to pick from.
+     */
+    headingFont: s
+      .font(fontsVal)
+      .nullable()
+      .describe("The typeface the showcase's font sample is set in"),
   }),
   {
     hero: {
@@ -71,5 +80,6 @@ export default c.define(
     fromGallery: { path: "/public/val/gallery/ink-slate_8154a.png" },
     attachment: null,
     fromDownloads: { path: "/public/val/downloads/handbook_c3161.pdf" },
+    headingFont: { path: "/public/val/fonts/nunito-sans-bold_6bccb.woff2" },
   },
 );

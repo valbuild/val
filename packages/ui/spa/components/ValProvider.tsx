@@ -1,13 +1,23 @@
 import { createRequestPublish } from "../publish/requestPublish";
 import { createStudioJobClient } from "../publish/jobClient";
+import { randomUUID } from "../utils/randomUUID";
+import { isTransientPublishError } from "../publish/publishClient";
 import {
   createPublishJobs,
   isSettled,
+  publishingPatchIds,
   type PublishJobs,
   type PublishJobsState,
   type TrackedPublish,
+  heldByContent,
 } from "../publish/publishJobs";
 import { publishProgress } from "../publish/publishProgress";
+import { netChangeModules } from "./netChangeModules";
+import {
+  EDGE_CACHE_MS,
+  otherEditorsJobs,
+  type ObservedJob,
+} from "../publish/publishIndicator";
 import { runStudioJob } from "../publish/runStudioJob";
 import { PUBLISH_TAB_ID } from "../publish/tabId";
 import { canBuildHere } from "../publish/handoff";
@@ -49,11 +59,15 @@ import {
 import { isJsonArray } from "../utils/isJsonArray";
 import { readableProfilesError } from "../utils/readableProfilesError";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
+import { newestUnpublished, pressedAlready } from "../publish/pressForPage";
 import type { ChainProgress } from "../utils/describePendingChangesStall";
 import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { SerializedPatchSet } from "../utils/PatchSets";
-import type { PatchGroupT } from "@valbuild/shared/internal";
+import type {
+  PatchGroupT,
+  PublishRequestStatus,
+} from "@valbuild/shared/internal";
 import { z } from "zod";
 import {
   ValEnrichedDeployment,
@@ -88,7 +102,11 @@ import {
   useStudioDeploy,
   type UseStudioDeploy,
 } from "../publish/useStudioDeploy";
-import { useSiteHandoff, type UseSiteHandoff } from "../publish/useSiteHandoff";
+import {
+  useSiteHandoff,
+  type HandoffPressed,
+  type UseSiteHandoff,
+} from "../publish/useSiteHandoff";
 import { ValOverlayEmitter } from "../stores/react/ValOverlayEmitter";
 import { createValSystem } from "../stores/react/createValSystem";
 import { ValRemoteProvider } from "./ValRemoteProvider";
@@ -178,6 +196,16 @@ type ValContextValue = {
    * server saying nothing is not evidence that a project has no repository.
    */
   sourceMode: "managed" | "connected" | null;
+  /**
+   * The proposal this Studio is in, or `null` on the site. From `/stat`;
+   * the same object until the server names a different one.
+   */
+  proposal: { name: string; branch: string } | null;
+  /**
+   * Ask `/stat` now rather than when its wait runs out. A save at a proposal's
+   * address moves the base the server answers with; see `useStatus`.
+   */
+  refreshStat: () => void;
   profileId: string | null;
   profileAuthError: string | null;
   /**
@@ -221,6 +249,23 @@ type ValContextValue = {
    */
   publishJobs: PublishJobs;
   publishJobsState: PublishJobsState;
+  /**
+   * Every publish job on the branch, as the websocket last reported it --
+   * other editors' as well as this tab's -- so the status bar can say that
+   * someone is publishing. See `publish/publishIndicator.ts`.
+   */
+  observedPublishJobs: readonly ObservedJob[];
+  /**
+   * The changes a publish that is still running holds, as content said:
+   * pressed on this tab, another tab or another device -- and kept until
+   * content lists them as pending again. See `heldByContent`.
+   */
+  serverPublishingPatchIds: ReadonlySet<string>;
+  /**
+   * When content said the holds `serverPublishingPatchIds` was last moved by,
+   * or `undefined` before it has. See `reportedAt` on `publishingPatchIds`.
+   */
+  serverPublishingReportedAt: number | undefined;
   /**
    * Whether a press of Publish is a publish job here: every managed project,
    * and a connected one hosted on the platform (the server says, on `/stat`).
@@ -269,6 +314,11 @@ type ValContextValue = {
   aiConnectionError: string | null;
   /** Try the assistant's connection again, from the first attempt. */
   retryAiConnection: () => void;
+  /**
+   * Ask again which models the project's keys reach — after the AI setup
+   * (`<val-ai-setup>`) saves or removes a key — without reconnecting.
+   */
+  refreshAiModels: () => Promise<void>;
   aiGetSessions: (opts?: {
     limit?: number;
     cursor?: { updatedAt: string; id: string };
@@ -317,6 +367,9 @@ const NO_VAL_PROVIDER = new Proxy(
 ) as ValContextValue;
 
 const ValContext = React.createContext<ValContextValue>(NO_VAL_PROVIDER);
+
+/** How many publish jobs the status bar remembers. See `observedPublishJobs`. */
+const OBSERVED_JOBS_KEPT = 20;
 
 export function useClient() {
   return useContext(ValContext).client;
@@ -368,6 +421,9 @@ export function ValProvider({
     setIsAuthenticated,
     serviceUnavailable,
     subscribePublishJobs,
+    contentHolds,
+    contentHoldsAt,
+    refreshStat,
   ] = useStatus(client);
 
   const isStatConnected = "data" in stat && !!stat.data;
@@ -387,8 +443,20 @@ export function ValProvider({
    * what turns both features off downstream. Commit summaries still honour
    * `config.ai.commitMessages.disabled`, and the chat still honours settings —
    * each where it is used, rather than here.
+   *
+   * "A project to open it for" is meant literally. The socket lives at the
+   * content server under `/v1/<project>/ai`, so with no `project` in the
+   * config the server can only refuse — `/ai/initialize` answers 401 "Project
+   * is not configured" — and that refusal used to surface as a "Login to use
+   * AI chat" prompt in every project created from a template, which no login
+   * can fix. With no project there is no assistant to offer, so nothing is
+   * opened and every way in to the chat stays hidden (`isAIChatEnabled`).
+   * `project` here is the server's resolved one, `VAL_PROJECT` included: see
+   * `clientConfig`.
    */
-  const wsEnabled = isStatConnected;
+  const statConfig =
+    "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
+  const wsEnabled = isStatConnected && !!statConfig?.project;
   const {
     subscribeToMessages: subscribeToWsMessages,
     send: sendWsMessage,
@@ -396,6 +464,7 @@ export function ValProvider({
     authError: aiAuthError,
     connectionError: aiConnectionError,
     retryConnection: retryAiConnection,
+    refreshModels: refreshAiModels,
     availableModel: availableAiModel,
     availableModels: availableAiModels,
     selectedModel: selectedAiModel,
@@ -486,8 +555,7 @@ export function ValProvider({
     [client],
   );
 
-  const runtimeConfig =
-    "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
+  const runtimeConfig = statConfig;
 
   const [showServiceUnavailable, setShowServiceUnavailable] = useState<
     boolean | undefined
@@ -522,8 +590,8 @@ export function ValProvider({
    * Two fields only. The store system needs the ordered patch ids to learn about
    * another session's work, and `baseSha` so a write has an honest `parentRef` —
    * without it `PatchSync` reports every edit unsaveable. `sourcesSha` says
-   * which build answered; `schemaSha` / `jsonEntriesSha` are inputs to a
-   * refetch it does not do yet.
+   * which build answered and `schemaSha` which schema it runs;
+   * `jsonEntriesSha` is an input to a refetch it does not do yet.
    */
   const statPatches =
     "data" in stat && stat.data ? stat.data.patches : undefined;
@@ -573,6 +641,15 @@ export function ValProvider({
    */
   const statSourcesSha =
     "data" in stat && stat.data ? stat.data.sourcesSha : undefined;
+  /** Which schema that build runs. See `SchemaFreshnessWatch`. */
+  const statSchemaSha =
+    "data" in stat && stat.data ? stat.data.schemaSha : undefined;
+  /**
+   * Who holds what, read with the chain. The source of this client's view of
+   * the groups — see `PatchStore.receiveStatGroups`.
+   */
+  const statPatchGroups =
+    "data" in stat && stat.data ? stat.data.patchGroups : undefined;
   const storeStat = useMemo(
     () =>
       baseSha !== undefined && statPatches !== undefined
@@ -585,6 +662,9 @@ export function ValProvider({
             headPatchId: statPatchHead,
             headVersion: statHeadVersion,
             sourcesSha: statSourcesSha,
+            schemaSha: statSchemaSha,
+            patchGroups: statPatchGroups,
+            profileId: statProfileId,
           }
         : null,
     [
@@ -596,6 +676,9 @@ export function ValProvider({
       statPatchHead,
       statHeadVersion,
       statSourcesSha,
+      statSchemaSha,
+      statPatchGroups,
+      statProfileId,
     ],
   );
 
@@ -670,6 +753,40 @@ export function ValProvider({
     [client, getDirectFileUploadSettings],
   );
 
+  /** See {@link ValContextValue.serverPublishingPatchIds}. */
+  const heldByContentRef = useRef<ReadonlySet<string>>(new Set());
+  /*
+   * The chain's version, so a hold is let go once the store has taken in what
+   * content said: committed, or forgotten. See `heldByContent`.
+   */
+  const heldChainVersion = useSyncExternalStore(
+    useCallback(
+      (onChange: () => void) =>
+        system.patchStore.events.on("patch:chain", onChange),
+      [system],
+    ),
+    useCallback(() => system.patchStore.chainVersion(), [system]),
+    useCallback(() => system.patchStore.chainVersion(), [system]),
+  );
+  // From `contentHolds`, not the stat: see `ContentHolds`.
+  const serverPublishingPatchIds = useMemo(() => {
+    void heldChainVersion;
+    const store = system.patchStore;
+    const published = store.publishedPatchIds();
+    const unpublished = new Set<string>(
+      store
+        .allRecords()
+        .filter((record) => !record.appliedAt && !published.has(record.patchId))
+        .map((record) => record.patchId),
+    );
+    heldByContentRef.current = heldByContent(
+      heldByContentRef.current,
+      contentHolds,
+      (patchId) => unpublished.has(patchId),
+    );
+    return heldByContentRef.current;
+  }, [contentHolds, system, heldChainVersion]);
+
   /**
    * Whether this project has an assistant, from its settings module.
    *
@@ -736,6 +853,14 @@ export function ValProvider({
   useEffect(() => {
     if ("data" in stat && stat.data) {
       setDeployments((prev) => {
+        /*
+         * Not in a proposal. Its commits are SAVES, which its address serves
+         * as soon as they answer, and none of them is ever deployed -- so the
+         * feed showed each one "Building", for good. Deploys are the site's.
+         */
+        if (stat.data?.proposal) {
+          return prev.length === 0 ? prev : [];
+        }
         if (
           (stat.data?.deployments && stat.data.deployments?.length > 0) ||
           (stat.data?.commits && stat.data.commits?.length > 0)
@@ -907,8 +1032,21 @@ export function ValProvider({
       markObserved(deploy.state.commit);
     }
   }, [deploy.state, markObserved]);
+  /**
+   * What a builder tab pressed for this page, followed by this page's tracker.
+   * A ref: the tracker is made below, after the handoff that hears it.
+   */
+  const onHandoffPressed = useRef<(pressed: HandoffPressed) => void>(() => {});
   /** See {@link ValContextValue.handoff}. */
-  const handoff = useSiteHandoff({ enabled: handsOffPublish });
+  /** This page's tracker, read by the handoff. A ref for the same reason. */
+  const trackedStatus = useRef<
+    (requestId: string) => PublishRequestStatus | null
+  >(() => null);
+  const handoff = useSiteHandoff({
+    enabled: handsOffPublish,
+    onPressed: (pressed) => onHandoffPressed.current(pressed),
+    requestStatus: (requestId) => trackedStatus.current(requestId),
+  });
 
   /*
    * The publish jobs, made once. The tracker outlives renders, so what it
@@ -920,6 +1058,15 @@ export function ValProvider({
   const handoffRef = useRef(handoff);
   handoffRef.current = handoff;
   const onPublishSettled = useRef<(request: TrackedPublish) => void>(() => {});
+  /** "Published" toasts waiting for the edge window to end. */
+  const liveToasts = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const timers = liveToasts.current;
+    return () => {
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
   const publishJobs = useMemo(() => {
     const client = createStudioJobClient({ api: "/api/val" });
     const jobs = createPublishJobs({
@@ -928,7 +1075,11 @@ export function ValProvider({
       build: (job, onPhase) => {
         const handoff = handoffRef.current;
         if (handoff.active()) {
-          // This page cannot build: the tab it opened runs the job, as this tab.
+          /*
+           * This page cannot build: a job it took goes to the tab it opened,
+           * which runs it as this tab. Only queued work -- that tab makes the
+           * presses itself, and builds the jobs they start.
+           */
           const pressed =
             jobs
               .get()
@@ -953,12 +1104,15 @@ export function ValProvider({
         });
       },
       /*
-       * Not the builder tab a page opened: it runs the one job it was handed,
-       * as that page's tab. Elsewhere, where this page can build -- or while
-       * a builder tab it opened is waiting for work.
+       * Not the builder tab a page opened: it runs the one press it was
+       * opened for, as that page's tab, and asks for that press's queued job
+       * itself. Elsewhere, where this page can build -- or while a builder
+       * tab it opened is open to build what this page takes.
        */
       takesQueuedWork: () =>
         handsOffPublish &&
+        // A proposal's address may reach its own merge's job, and no other.
+        !atProposalRef.current &&
         (connectedJobsRef.current ||
           canBuildHere() ||
           handoffRef.current.active()),
@@ -966,6 +1120,24 @@ export function ValProvider({
     });
     return jobs;
   }, [handsOffPublish]);
+  /*
+   * The builder tab's press is this page's: it pressed as this tab, under the
+   * id this page minted. Followed without its job -- the tab builds that.
+   */
+  trackedStatus.current = (requestId) =>
+    publishJobs
+      .get()
+      .requests.find((request) => request.requestId === requestId)?.status ??
+    null;
+  onHandoffPressed.current = (pressed) =>
+    publishJobs.track({
+      requestId: pressed.requestId,
+      request: pressed.request,
+      job: null,
+      patchIds: pressed.patchIds,
+      ...(pressed.replaces !== null ? { replaces: pressed.replaces } : {}),
+      ...(pressed.merge !== undefined ? { merge: pressed.merge } : {}),
+    });
   onPublishSettled.current = (request) => {
     const status = request.status;
     const id = `publish:${request.requestId}`;
@@ -973,7 +1145,23 @@ export function ValProvider({
     handoffRef.current.settled(request.requestId, status);
     if (status.kind === "live") {
       markObserved(status.commit);
-      toast("Published", { id, description: "Your changes are live." });
+      /*
+       * Not at Live: at the end of the edge window, when every visitor gets
+       * the change. Until then the status bar spins "Reaching visitors", and
+       * this is the announcement that it stopped. See `EDGE_CACHE_MS`.
+       */
+      const settledAt = request.settledAt ?? Date.now();
+      const timer = setTimeout(
+        () => {
+          liveToasts.current.delete(timer);
+          toast("Published", {
+            id,
+            description: "Every visitor now sees your changes.",
+          });
+        },
+        Math.max(0, settledAt + EDGE_CACHE_MS - Date.now()),
+      );
+      liveToasts.current.add(timer);
       return;
     }
     if (status.kind !== "failed") return;
@@ -1033,13 +1221,53 @@ export function ValProvider({
             action: {
               label: "Try again",
               onClick: () => {
-                // In the click, where a page that cannot build may open the
-                // tab that will. A no-op where this page can build.
-                handoffRef.current.prepare(true);
-                void publishJobs.tryAgain(request.requestId).then((done) => {
-                  if (!done.ok) handoffRef.current.cancel(done.message);
-                  reportOutcome(done);
-                });
+                /*
+                 * In the click, where a page that cannot build may open the
+                 * tab that will -- and that tab presses the try again, as
+                 * this page: see `publish/handoff.ts`. A no-op where this
+                 * page can build.
+                 *
+                 * The last edit is sent first, as Publish does: on an iPhone
+                 * this page is paused once the tab opens, and the tab waits
+                 * for that edit. Where the try again stays on this page, it
+                 * is only the save autosave was about to make.
+                 */
+                const after = newestUnpublished(
+                  system.patchStore,
+                  system.patchGroup(),
+                );
+                void system.patchSync.flush().catch(() => undefined);
+                if (
+                  handoffRef.current.prepare(true, {
+                    tryAgainOf: request.requestId,
+                    after,
+                    // A merge's try again presses the merge: see `tryAgain`.
+                    ...(request.merge !== undefined
+                      ? { merge: request.merge }
+                      : {}),
+                  })
+                ) {
+                  return;
+                }
+                // What the new job will take: everything pending now, edits
+                // saved since the failure included.
+                const store = system.patchStore;
+                const published = store.publishedPatchIds();
+                const pending = store
+                  .allRecords()
+                  .filter(
+                    (record) =>
+                      !store.isPending(record.patchId) &&
+                      !record.appliedAt &&
+                      !published.has(record.patchId),
+                  )
+                  .map((record) => record.patchId);
+                void publishJobs
+                  .tryAgain(request.requestId, { patchIds: pending })
+                  .then((done) => {
+                    if (!done.ok) handoffRef.current.cancel(done.message);
+                    reportOutcome(done);
+                  });
               },
             },
           }
@@ -1063,6 +1291,18 @@ export function ValProvider({
   );
   const statSourceMode =
     "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null;
+  const statProposal =
+    "data" in stat && stat.data ? (stat.data.proposal ?? null) : null;
+  const proposalName = statProposal?.name ?? null;
+  const proposalBranch = statProposal?.branch ?? null;
+  // Held by value: every stat is a new object, and the proposal is not.
+  const proposal = useMemo(
+    () =>
+      proposalName === null || proposalBranch === null
+        ? null
+        : { name: proposalName, branch: proposalBranch },
+    [proposalName, proposalBranch],
+  );
   const publishesAsJobs =
     "data" in stat && stat.data
       ? (stat.data.publishJobs ?? statSourceMode === "managed")
@@ -1074,15 +1314,51 @@ export function ValProvider({
    */
   const connectedJobsRef = useRef(false);
   connectedJobsRef.current = publishesAsJobs && statSourceMode === "connected";
+  const atProposalRef = useRef(false);
+  atProposalRef.current = proposal !== null;
+  /*
+   * At a proposal's address too, where saves are commits rather than jobs:
+   * Publish there merges the proposal, which IS a job, and this tracker
+   * follows it to Live. It takes no queued work there (see above).
+   */
+  const followsJobs = publishesAsJobs || proposal !== null;
   useEffect(() => {
-    if (!publishesAsJobs) return;
+    if (!followsJobs) return;
     publishJobs.start();
     const off = subscribePublishJobs(() => publishJobs.nudge());
     return () => {
       off();
       publishJobs.stop();
     };
-  }, [publishesAsJobs, publishJobs, subscribePublishJobs]);
+  }, [followsJobs, publishJobs, subscribePublishJobs]);
+  const [observedPublishJobs, setObservedPublishJobs] = useState<
+    readonly ObservedJob[]
+  >([]);
+  useEffect(
+    () =>
+      subscribePublishJobs((nudge) => {
+        if (nudge.status === null) return;
+        const status = nudge.status;
+        const at = Date.now();
+        setObservedPublishJobs((jobs) => {
+          const before = jobs.find((job) => job.id === nudge.id);
+          const sealedAt =
+            before?.sealedAt ?? (status === "sealed" ? at : undefined);
+          const next: ObservedJob = {
+            id: nudge.id,
+            status,
+            seenAt: at,
+            ...(sealedAt !== undefined ? { sealedAt } : {}),
+          };
+          // The newest few: an old job says nothing a newer one does not.
+          return [next, ...jobs.filter((job) => job.id !== nudge.id)].slice(
+            0,
+            OBSERVED_JOBS_KEPT,
+          );
+        });
+      }),
+    [subscribePublishJobs],
+  );
   /**
    * What every progress surface reads: the deploy, seen through the publish
    * jobs. See `publishProgress`. A clock is not a dependency -- a settled
@@ -1143,6 +1419,9 @@ export function ValProvider({
         handoff,
         publishJobs,
         publishJobsState,
+        observedPublishJobs,
+        serverPublishingPatchIds,
+        serverPublishingReportedAt: contentHoldsAt,
         publishesAsJobs,
         profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
@@ -1152,6 +1431,8 @@ export function ValProvider({
             : null,
         sourceMode:
           "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null,
+        proposal,
+        refreshStat,
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,
         profilesError:
@@ -1174,6 +1455,7 @@ export function ValProvider({
         aiAuthError,
         aiConnectionError,
         retryAiConnection,
+        refreshAiModels,
         aiGetSessions,
         aiGetSessionMessages,
         aiSetSessionName,
@@ -1449,6 +1731,14 @@ function useProfilesData(
       authenticationState === "not-asked" ||
       authenticationState === "loading"
     ) {
+      return;
+    }
+    // Not before the server has said which mode it is in. Authentication can
+    // resolve first, and the two checks below are both about the mode: with
+    // it still "unknown", the fs-mode check for a project could not apply, and
+    // a project with none configured got a 500 from `/profiles` on every load
+    // — a race, so it came and went with how fast `/stat` answered.
+    if (mode === "unknown") {
       return;
     }
     if (mode !== "fs" && authenticationState !== "authorized") {
@@ -2038,6 +2328,8 @@ export function useHasNetChanges(): boolean {
   const sourcesVersion = useSourcesVersion();
   const chainVersion = useChainVersion();
   const committed = useCommittedPatches();
+  const publishing = usePublishingPatchIds();
+  const unstaged = useUnstagedPatchIds();
 
   /*
    * Read off the CHAIN, not off the patch sets.
@@ -2049,18 +2341,18 @@ export function useHasNetChanges(): boolean {
    * where nothing has. `patchStore.allRecords()` already names each record's
    * module and is synchronous, so there is no window.
    */
-  const modules = useMemo((): ModuleFilePath[] => {
-    if (val === null) return [];
+  const { compare: modules, changesOnPublishing } = useMemo<
+    ReturnType<typeof netChangeModules>
+  >(() => {
+    if (val === null) return { compare: [], changesOnPublishing: false };
     void chainVersion;
-    const seen = new Set<ModuleFilePath>();
-    for (const record of val.system.patchStore.allRecords()) {
-      // A patch that has shipped is history, not pending work: its two sides
-      // are equal BECAUSE it shipped, which is the opposite of a no-op.
-      if (committed.has(record.patchId)) continue;
-      seen.add(record.moduleFilePath);
-    }
-    return [...seen];
-  }, [val, chainVersion, committed]);
+    return netChangeModules(
+      val.system.patchStore.allRecords(),
+      committed,
+      publishing,
+      unstaged,
+    );
+  }, [val, chainVersion, committed, publishing, unstaged]);
 
   return useMemo(() => {
     // As in the loop below: what is not known yet counts as a change. `false`
@@ -2075,6 +2367,8 @@ export function useHasNetChanges(): boolean {
      * records that cannot be discarded.
      */
     if (modules.length === 0) return true;
+    // See `netChangeModules`: compared with a base that is about to move.
+    if (changesOnPublishing) return true;
     void sourcesVersion;
     void chainVersion;
     const store = val.system.sourceStore;
@@ -2098,7 +2392,7 @@ export function useHasNetChanges(): boolean {
       }
     }
     return false;
-  }, [val, sourcesVersion, chainVersion, modules]);
+  }, [val, sourcesVersion, chainVersion, modules, changesOnPublishing]);
 }
 
 /**
@@ -2466,6 +2760,41 @@ export function useStudioBuildsInTab(): boolean {
   return mode === "managed" || (mode === "connected" && publishesAsJobs);
 }
 
+/**
+ * Other editors' publish jobs, as the websocket last reported them: every job
+ * on the branch but this tab's own. This tab's own are told by its requests
+ * (`publishProgress`), which are authoritative -- a lost "sealed" nudge must
+ * not leave one of them looking like someone else's publish still running.
+ */
+export function useOtherPublishJobs(): readonly ObservedJob[] {
+  const { observedPublishJobs, publishJobsState } = useContext(ValContext);
+  return useMemo(
+    () => otherEditorsJobs(observedPublishJobs, publishJobsState),
+    [observedPublishJobs, publishJobsState],
+  );
+}
+
+/**
+ * The changes this tab's presses are publishing: see `publishingPatchIds`.
+ * Not pending work while they go, so Publish does not offer them again.
+ */
+export function usePublishingPatchIds(): ReadonlySet<string> {
+  const {
+    publishJobsState,
+    serverPublishingPatchIds,
+    serverPublishingReportedAt,
+  } = useContext(ValContext);
+  return useMemo(
+    () =>
+      publishingPatchIds(
+        publishJobsState,
+        serverPublishingPatchIds,
+        serverPublishingReportedAt,
+      ),
+    [publishJobsState, serverPublishingPatchIds, serverPublishingReportedAt],
+  );
+}
+
 /** See {@link ValContextValue.handoff}. */
 export function useSiteHandoffState(): UseSiteHandoff {
   return useContext(ValContext).handoff;
@@ -2484,6 +2813,14 @@ export function useStudioDeployState(): UseStudioDeploy {
 }
 
 /** See {@link ValContextValue.publishRefusal}. */
+/**
+ * The proposal this Studio is in -- its name and branch -- or `null` on the
+ * site. valbuild/home `docs/proposals.md`.
+ */
+export function useCurrentProposal(): { name: string; branch: string } | null {
+  return useContext(ValContext).proposal;
+}
+
 export function usePublishRefusal(): string | null {
   const { publishRefusal } = useContext(ValContext);
   return publishRefusal;
@@ -2517,6 +2854,37 @@ function useInitialized(): number | null {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
+/**
+ * Each module's Source as the Studio holds it now -- pending changes applied
+ * -- and its BASE Source, for comparing whole modules: Compare with the site
+ * in a proposal. Read out of the store and moved by any source change, like
+ * `useShallowModulesAtPaths`, because the caller is one whole-list view.
+ */
+export function useModuleSourcesNowAndBase(
+  moduleFilePaths: readonly ModuleFilePath[],
+): {
+  now: Partial<Record<ModuleFilePath, Json>>;
+  base: Partial<Record<ModuleFilePath, Json>>;
+} | null {
+  const val = useValSystem();
+  const sourcesVersion = useSourcesVersion();
+  return useMemo(() => {
+    if (val === null) return null;
+    void sourcesVersion;
+    const now: Partial<Record<ModuleFilePath, Json>> = {};
+    const base: Partial<Record<ModuleFilePath, Json>> = {};
+    for (const moduleFilePath of moduleFilePaths) {
+      const current = val.system.sourceStore.moduleSource(moduleFilePath);
+      if (current !== undefined) now[moduleFilePath] = current;
+      const peeked = val.system.sourceStore.peekBase(
+        moduleFilePath as unknown as SourcePath,
+      );
+      if (peeked.status === "ready") base[moduleFilePath] = peeked.data;
+    }
+    return { now, base };
+  }, [val, sourcesVersion, moduleFilePaths]);
+}
+
 /** Moved by every source change anywhere in the project. */
 function useSourcesVersion(): number {
   const val = useValSystem();
@@ -2548,6 +2916,47 @@ const PublishSummaryState = z.union([
 ]);
 type PublishSummaryState = z.infer<typeof PublishSummaryState>;
 /**
+ * What a press of Publish on this page came to. `handed-off`: a builder tab
+ * presses for it -- see `publish/handoff.ts`.
+ */
+type PagePublishResult =
+  | PublishResult
+  | { status: "error"; message: string }
+  | { status: "handed-off" };
+/**
+ * How Publish in a proposal was pressed: see `publishProposal`. Followed
+ * either way with `useProposalPublish`.
+ */
+export type ProposalPublishPress =
+  | { status: "requested" }
+  | { status: "handed-off" }
+  | { status: "error"; message: string };
+
+/**
+ * The newest publish of `proposal` this tab follows -- pressed here, by the
+ * builder tab it opened, or a Try again of either -- and how far this tab has
+ * got with building it. `null` before any.
+ */
+export function useProposalPublish(proposal: string | null): {
+  request: TrackedPublish;
+  /** Its job is being built in this tab, at this phase. */
+  building: boolean;
+} | null {
+  const { publishJobsState } = useContext(ValContext);
+  return useMemo(() => {
+    if (proposal === null) return null;
+    const request = [...publishJobsState.requests]
+      .reverse()
+      .find((tracked) => tracked.merge === proposal);
+    if (request === undefined) return null;
+    const running = publishJobsState.running;
+    return {
+      request,
+      building: running !== null && running.jobId === request.jobId,
+    };
+  }, [proposal, publishJobsState]);
+}
+/**
  * Responsible for publishing and also managing publishing state
  */
 export function usePublishSummary() {
@@ -2555,6 +2964,8 @@ export function usePublishSummary() {
     publishSummaryState,
     setPublishSummaryState,
     config: runtimeConfig,
+    proposal,
+    refreshStat,
   } = useContext(ValContext);
   const val = useValSystem();
   const globalServerSidePatchIds = useCurrentPatchIds();
@@ -2612,15 +3023,29 @@ export function usePublishSummary() {
     !isSettled(latestRequest.status);
   const busyHere = deployState.status === "running" && !waitingElsewhere;
   const publish = useCallback(
-    async (summary: string) => {
+    async (summary: string): Promise<PagePublishResult> => {
       /*
-       * A page that cannot build hands the build to a Studio tab. The press
+       * A page that cannot build hands the publish to a Studio tab. The press
        * that opened the summary normally prepared it already -- that is the
        * moment the browser lets a tab open -- and this is the fallback for a
        * publish that did not come from one. It may be blocked, and the card
        * then offers the tab as a button.
        */
-      if (!handoff.active()) handoff.prepare(buildsInTab);
+      const handedOff =
+        handoff.active() ||
+        handoff.prepare(buildsInTab, {
+          after: val
+            ? newestUnpublished(val.system.patchStore, val.system.patchGroup())
+            : null,
+        });
+      /*
+       * And the tab presses, not this page: on an iPhone this page is paused
+       * from the moment the tab takes the screen, and a press that waited on
+       * it never went out. See `publish/handoff.ts`. (Handled, too, when the
+       * tab could not be told what to do: the card says so, and this page
+       * cannot build what it would press.)
+       */
+      if (handedOff) return { status: "handed-off" };
       if (globalServerSidePatchIds === null) {
         handoff.cancel("No changes to publish");
         return {
@@ -2699,6 +3124,14 @@ export function usePublishSummary() {
       };
       return attempt()
         .then((res) => {
+          /*
+           * A save at a proposal's address moved the base the server answers
+           * with: the saved changes are in the address's snapshot now. Read
+           * it now, not when the stat's wait runs out -- see `useStatus`.
+           */
+          if (res.status === "published" && proposal !== null) {
+            refreshStat();
+          }
           if (res.status === "published" || res.status === "requested") {
             deleteSummaryStateFromLocalStorage(runtimeConfig?.project);
             setPublishSummaryState((prev) => ({
@@ -2708,28 +3141,12 @@ export function usePublishSummary() {
           }
           if (res.status === "requested") {
             /*
-             * Tracked until it is Live. The job it came with is built here, or
-             * by the tab this page opened; a press queued behind another is
-             * built when its turn comes, by whichever free tab asks first.
+             * Tracked until it is Live. The job it came with is built here; a
+             * press queued behind another is built when its turn comes, by
+             * whichever free tab asks first. (A page that cannot build never
+             * gets here: its builder tab presses, and says what it pressed.)
              */
             publishJobs.track(res);
-            /*
-             * No job for the tab this page opened. Queued: it waits, and is
-             * handed the job when its turn comes. Otherwise there is nothing
-             * for it to build -- the changes went with a job in flight, or
-             * there were none.
-             */
-            if (
-              res.job === null &&
-              handoff.active() &&
-              res.request.kind !== "queued"
-            ) {
-              handoff.cancel(
-                res.request.kind === "publishing"
-                  ? "Your changes are publishing with the publish before them."
-                  : "There was nothing to publish.",
-              );
-            }
           } else if (res.status === "refused") {
             // Said out loud rather than swallowed: a publish button that does
             // nothing and reports nothing is how a user comes to believe their
@@ -2770,7 +3187,114 @@ export function usePublishSummary() {
       handoff,
       publishJobs,
       publishesAsJobs,
+      proposal,
+      refreshStat,
     ],
+  );
+  /**
+   * Publish in a proposal: merge it into the site, as a publish request like
+   * any other -- pressed, built by this tab or the builder tab a page that
+   * cannot build opens, followed to Live by the same tracker, and announced
+   * the same way. Only the press is the merge's own, and that it has no gate
+   * here: it ships the proposal's last save, which the caller makes first,
+   * and content's merge checks decide whether it may.
+   *
+   * Call it in the press, before anything awaits, for the same reason as
+   * `preparePublish`. `handed-off`: a builder tab presses it; follow it with
+   * `useProposalPublish`, which finds it once the tab says what it pressed.
+   */
+  const publishProposal = useCallback(
+    async (proposalName: string): Promise<ProposalPublishPress> => {
+      /*
+       * Built in a tab, always: a merge is a managed publish, whatever this
+       * address's own saves are -- they are commits, and build nothing, so
+       * `buildsInTab` is false here.
+       */
+      if (handoff.prepare(true, { merge: proposalName })) {
+        return { status: "handed-off" };
+      }
+      const lock = beginSiteOperation("publish");
+      if (!lock.ok) {
+        return { status: "error", message: busyMessage(lock.busy) };
+      }
+      try {
+        if (studioIsDeployer && (await siteMovedSinceLoad())) {
+          markStudioOutOfDate();
+          return { status: "error", message: STUDIO_OUT_OF_DATE_MESSAGE };
+        }
+        const requestId = randomUUID();
+        const client = createStudioJobClient({ api: "/api/val" });
+        try {
+          const pressed = await client.pressMerge(
+            proposalName,
+            requestId,
+            PUBLISH_TAB_ID,
+          );
+          publishJobs.track({
+            requestId,
+            request: pressed.request,
+            job: pressed.job,
+            merge: proposalName,
+          });
+          return { status: "requested" };
+        } catch (error) {
+          /*
+           * No answer is not a no: content may have taken the press and lost
+           * only the reply, and the merge is then under way with nobody
+           * following it. It says whether it did; followed if so, and its
+           * job claimed by pressing it again (see `PublishJobs`).
+           */
+          const landed = isTransientPublishError(error)
+            ? await pressedAlready({ client, requestId })
+            : null;
+          if (landed !== null) {
+            publishJobs.track({
+              requestId,
+              request: landed,
+              job: null,
+              merge: proposalName,
+            });
+            return { status: "requested" };
+          }
+          return {
+            status: "error",
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
+      } finally {
+        lock.release();
+      }
+    },
+    [handoff, studioIsDeployer, publishJobs],
+  );
+  /**
+   * Try again on a failed publish of a proposal, from its dialog: what the
+   * failure's own "Try again" does -- the tracker's try again, which presses
+   * the merge anew and replaces the failed request -- and that failure's
+   * notice goes, since the dialog is where it is answered. In the press, as
+   * `publishProposal`.
+   */
+  const retryProposalPublish = useCallback(
+    async (
+      proposalName: string,
+      failedRequestId: string,
+    ): Promise<ProposalPublishPress> => {
+      toast.dismiss(`publish:${failedRequestId}`);
+      // In a tab, always: see `publishProposal`.
+      if (
+        handoff.prepare(true, {
+          tryAgainOf: failedRequestId,
+          merge: proposalName,
+        })
+      ) {
+        return { status: "handed-off" };
+      }
+      const done = await publishJobs.tryAgain(failedRequestId);
+      return done.ok
+        ? { status: "requested" }
+        : { status: "error", message: done.message };
+    },
+    [handoff, publishJobs],
   );
   const setSummary = useCallback(
     (
@@ -2803,6 +3327,8 @@ export function usePublishSummary() {
   );
   return {
     publish,
+    publishProposal,
+    retryProposalPublish,
     /**
      * The engine kept a `publishDisabled` flag that it set on entering publish
      * and cleared on the way out, and a caller could not tell why it was set.
@@ -2831,8 +3357,24 @@ export function usePublishSummary() {
      * opens the Studio tab that will, which a browser only allows in the press
      * itself -- not after the AI has written the commit message. See
      * `publish/handoff.ts`.
+     *
+     * `true` when it did: that tab presses, so there is no commit message to
+     * wait for here. It presses what the server has, so this page's last edit
+     * is sent now, while the page still runs.
      */
-    preparePublish: () => handoff.prepare(buildsInTab),
+    preparePublish: (): boolean => {
+      const after = val
+        ? newestUnpublished(val.system.patchStore, val.system.patchGroup())
+        : null;
+      /*
+       * Before the tab opens, not after: on an iPhone this page is paused the
+       * moment it does, and a save not yet sent then never is. Started here,
+       * its request is on the wire first. A publish that stays on this page
+       * flushes as well, so nothing is sent that would not have been.
+       */
+      void val?.system.patchSync.flush().catch(() => undefined);
+      return handoff.prepare(buildsInTab, { after });
+    },
     /**
      * Whether the project wants AI to write its commit messages.
      *
@@ -3409,6 +3951,11 @@ export function useAIConnectionError(): {
     }
     return null;
   }, [aiAuthError, aiConnectionError, retryAiConnection]);
+}
+
+/** See `refreshAiModels`. */
+export function useRefreshAIModels(): () => Promise<void> {
+  return useContext(ValContext).refreshAiModels;
 }
 
 export function useProfilesByAuthorId() {

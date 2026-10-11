@@ -177,7 +177,8 @@ export function SortableContainer({
  * A list of rows you click through to, each showing its item's preview.
  *
  * The other kind of list is `BlockList`, which edits its items in place;
- * `ArrayFields` picks between the two on the item schema (`isInlineRender`).
+ * `ArrayFields` picks between the two on the array's own render
+ * (`isInlineRender`).
  * This one is now only ever the preview-row half of that choice, so it takes no
  * schema: a row resolves its own preview through `RefPreview`.
  */

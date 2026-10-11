@@ -6,6 +6,9 @@ import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
 import { CanvasFrame } from "./canvas/CanvasFrame";
 import { canvasFallbackRoute } from "./canvasFallbackRoute";
 import { SaveState } from "./StatusBar";
+import { RemoteFilesCard, UploadsOffChip } from "./RemoteFilesNotice";
+import { ReadOnlyCard, usePlanAccess } from "./ReadOnlyNotice";
+import { useRemoteFiles } from "../ValRemoteProvider";
 import { useSteadySaveState } from "./useSteadySaveState";
 import { PublishState } from "./TopBar";
 import {
@@ -47,7 +50,8 @@ import { pendingPatchSets } from "../../utils/computeChangedSourcePaths";
 import type { Profile } from "../ValProvider";
 import { cn } from "../designSystem/cn";
 import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
-import { PublishHandoffCard, handoffCardIsNews } from "./PublishHandoff";
+import { PublishHandoffCard, handoffCardInStudio } from "./PublishHandoff";
+import { usePublishIndicator } from "../../publish/usePublishIndicator";
 import { LoginDialog } from "../LoginDialog";
 import { PatchErrorsDialog } from "../PatchErrorsDialog";
 import { GlobalErrors } from "../GlobalErrors";
@@ -90,6 +94,7 @@ import {
   usePublishSummary,
   useStudioDeployState,
   useSiteHandoffState,
+  useOtherPublishJobs,
   useStudioIsDeployer,
   useHasNetChanges,
   useOwnPendingChangeCount,
@@ -98,6 +103,7 @@ import {
   usePendingChangesProgress,
   useValMode,
   useAutoPublish,
+  useCurrentProposal,
   useReportError,
 } from "../ValProvider";
 import {
@@ -115,6 +121,9 @@ import { useProjectLocales } from "../../hooks/useProjectLocales";
 import { useStudioSettings } from "../../hooks/useStudioSettings";
 import { isTourOffered } from "../../hooks/studioSettings";
 import { LocaleFilterProvider } from "../LocaleFilterProvider";
+import { useProposalsBar } from "../proposals/useProposalsBar";
+import { useSiteChanges } from "../../proposals/useSiteChanges";
+import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 
 /**
  * The Val studio on the floating shell.
@@ -211,6 +220,49 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   // it. Held here because the overlay is presentational and the index is not.
   const [searchQuery, setSearchQuery] = useState("");
   const contentSearch = useContentSearch(searchQuery);
+  /**
+   * Remote files unavailable: a card above the editor, folded into a chip in
+   * the status bar once dismissed. See `RemoteFilesNotice`. Read from the
+   * remote settings themselves rather than `useGlobalError`, which reports one
+   * error at a time and would hide this behind a passing network blip.
+   */
+  const remoteFiles = useRemoteFiles();
+  const [remoteNoticeDismissed, setRemoteNoticeDismissed] = useState(false);
+  const remoteFilesNotice =
+    remoteFiles.status === "inactive" && !remoteNoticeDismissed ? (
+      <RemoteFilesCard
+        reason={remoteFiles.reason}
+        onDismiss={() => setRemoteNoticeDismissed(true)}
+      />
+    ) : undefined;
+  /**
+   * The organization's plan has made the Studio read-only (a trial that is
+   * over, a payment failed past its grace): said above everything, because
+   * nothing typed here can be saved. See `ReadOnlyNotice`. Asked only where
+   * the Studio is connected to Val Build (the same test that mounts its web
+   * components): elsewhere the proxy has nothing to forward to, and answers
+   * 404.
+   */
+  const project = useValConfig()?.project;
+  const valBuildConnected =
+    state.status === "success" && state.data.webComponentsUrl !== undefined;
+  const planAccess = usePlanAccess(valBuildConnected ? project : undefined);
+  const editorNotices = [
+    planAccess?.access === "read-only" ? (
+      <ReadOnlyCard key="read-only" access={planAccess} />
+    ) : null,
+    remoteFilesNotice === undefined ? null : (
+      <div key="remote-files">{remoteFilesNotice}</div>
+    ),
+  ].filter((notice) => notice !== null);
+  const editorNotice =
+    editorNotices.length === 0 ? undefined : (
+      <div className="flex flex-col gap-3">{editorNotices}</div>
+    );
+  const remoteFilesStatusNotice =
+    remoteFiles.status === "inactive" && remoteNoticeDismissed ? (
+      <UploadsOffChip onClick={() => setRemoteNoticeDismissed(false)} />
+    ) : undefined;
 
   /**
    * The view state, from the URL and back into it.
@@ -255,7 +307,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const ownPendingChanges = useOwnPendingChangeCount();
   usePatchGroupWrites();
   usePatchGroupScope();
-  usePatchGroupFlush();
+  usePatchGroupIdentity();
   const portalContainer = useValPortal();
   const discardAll = useDiscardAll();
   /*
@@ -337,6 +389,20 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
 
   const data: ShellData =
     state.status === "success" ? state.data : EMPTY_SHELL_DATA;
+  const otherPublishJobs = useOtherPublishJobs();
+  const publishIndicatorState = usePublishIndicator({
+    own: deployState,
+    builder:
+      handoff.state?.kind === "running"
+        ? {
+            step: handoff.state.step,
+            percent: handoff.state.percent ?? null,
+          }
+        : null,
+    jobs: otherPublishJobs,
+    deployments: data.deployments,
+    studioIsDeployer,
+  });
 
   /**
    * The route, as a selection id.
@@ -988,6 +1054,48 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
 
   const publishState: PublishState = isPublishing ? "publishing" : "idle";
 
+  /*
+   * Proposals, where the project has them: the switcher, and in a proposal
+   * Save where Publish is. The unsaved count is Review's, for the same reason
+   * Review's is what it is: changes that cancel out are nothing to save.
+   */
+  /*
+   * In a proposal, Review is Compare with the site: what Publish -- merging
+   * it -- would change, saved and unsaved alike, against what visitors see.
+   * The review page lists pending patches, and a proposal's saved changes are
+   * not patches the Studio holds.
+   */
+  const inProposal = useCurrentProposal() !== null;
+  const siteChanges = useSiteChanges(inProposal);
+  const [siteCompareOpen, setSiteCompareOpen] = useState(false);
+  const openSiteCompare = useCallback(() => setSiteCompareOpen(true), []);
+  const {
+    proposals: proposalsBar,
+    dialogs: proposalDialogs,
+    notice: proposalNotice,
+  } = useProposalsBar({
+    unsaved: hasNetChanges ? ownPendingChanges : 0,
+    portalContainer,
+    onCompare: openSiteCompare,
+  });
+  // A merged proposal's notice first: it says this whole Studio is finished.
+  const shellNotice =
+    proposalNotice === null ? (
+      editorNotice
+    ) : (
+      <div className="flex flex-col gap-3">
+        {proposalNotice}
+        {editorNotice}
+      </div>
+    );
+  const proposals = useMemo(
+    () =>
+      proposalsBar && inProposal
+        ? { ...proposalsBar, onCompare: openSiteCompare }
+        : proposalsBar,
+    [proposalsBar, inProposal, openSiteCompare],
+  );
+
   /**
    * The real auto-save setting, not one of the shell's own.
    *
@@ -1132,9 +1240,11 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         renderExternalPages={renderExternalPages}
         tourEnabled={isTourOffered(studioSettings)}
         editorOverride={overrideEditor}
+        notice={shellNotice}
+        statusNotice={remoteFilesStatusNotice}
         publishSlot={<PublishButton />}
         publishState={publishState}
-        deployState={deployState}
+        publishIndicator={publishIndicatorState}
         saveState={saveState}
         autoSave={autoPublish}
         onAutoSaveChange={setAutoPublish}
@@ -1155,7 +1265,15 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
          * that view is where Discard is, and where a held change is staged again,
          * and Publish is disabled until one of those happens.
          */
-        reviewCount={hasNetChanges ? ownPendingChanges : 0}
+        reviewCount={
+          inProposal
+            ? siteChanges.status === "ready"
+              ? siteChanges.changeCount
+              : 0
+            : hasNetChanges
+              ? ownPendingChanges
+              : 0
+        }
         /*
          * Offered only once the metadata behind the confirm has arrived.
          *
@@ -1195,7 +1313,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         // enables preview and redirects, so it is worth sending to someone.
         previewHref={previewHref}
         onSelectValidationError={onSelectValidationError}
-        onCompare={showReview}
+        onCompare={inProposal ? openSiteCompare : showReview}
         // Recent activity rows did nothing: the panel listed them and no handler
         // was passed. They carry a real source path, so opening one is the same
         // act as opening a search hit.
@@ -1250,14 +1368,22 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         pendingChangesLoaded={pendingChangesLoaded}
         pendingChangesProgress={pendingChangesProgress}
         pendingChangesError={pendingChangesError}
+        proposals={proposals}
       />
-      {handoff.state !== null && handoffCardIsNews(handoff.state) && (
+      {proposalDialogs}
+      <ProposalSiteCompare
+        changes={siteChanges}
+        open={siteCompareOpen}
+        onOpenChange={setSiteCompareOpen}
+        portalContainer={portalContainer}
+      />
+      {handoff.state !== null && handoffCardInStudio(handoff.state) && (
         /*
          * A publish this Studio handed to a builder tab, because it cannot
-         * build here. Above the status bar, where the deploy item is, or
-         * above the phone's bottom bar. Only while the tab has it: once it is
-         * content's, this Studio's own toast and deploy list follow it, and a
-         * card saying "Live" beside them said it twice.
+         * build here -- only when something needs doing about it: the tab was
+         * blocked, or it failed. While it builds, the status bar's indicator
+         * says so, with the tab's step; once it is content's, this Studio's
+         * own indicator and toast follow it. See `handoffCardInStudio`.
          */
         <div className={cn("fixed right-4 z-window", CLEAR_OF_BOTTOM_BARS)}>
           <PublishHandoffCard
@@ -1390,14 +1516,18 @@ function CompareView() {
  *
  * At shell level rather than in the review screen, because publish must be
  * scoped whether or not that screen was ever opened — otherwise the first
- * publish of a session ships the whole pending chain.
+ * publish of a session ships the whole pending chain. The builder tab, which
+ * renders instead of the shell, calls it too: its press runs the same gate.
  *
- * This is the only place the scope is set from the annotation, and it runs
- * once: after it, the scope is local truth that only the user moves. Nothing
- * repairs the group when patch sets coalesce — see `PatchStagingProvider` for
- * why that is the policy — so this hook has no other job.
+ * The SEED runs once. After it, the scope moves on the user's own stages and
+ * unstages, on this tab's writes, and on members the server has put in this
+ * user's open group that this tab never decided about — a write from another
+ * tab or device, adopted by the system itself whenever the annotation or the
+ * group id moves (`adoptOwnGroupMembers` in `createSystem`). Nothing repairs
+ * the group when patch sets coalesce — see `PatchStagingProvider` for why that
+ * is the policy — so this hook has no other job.
  */
-function usePatchGroupScope(): void {
+export function usePatchGroupScope(): void {
   const val = useValSystem();
   const group = useCurrentPatchGroup();
   const scoped = val?.system.patchGroup() ?? null;
@@ -1470,10 +1600,9 @@ function usePatchGroupChange(
        * perfectly usable in: before this author's first write on a branch, and
        * after every publish, since a publish closes the group and the next one
        * is created by the next write. This used to return here, so a stage made
-       * in either window moved the screen and persisted nothing. The system
-       * holds it and sends it when a group exists — the queue cannot live here,
-       * because this screen unmounts as soon as the user navigates off to make
-       * the write that creates the group.
+       * in either window moved the screen and persisted nothing. It is sent
+       * with no id instead, and the content API stages it into the caller's
+       * open group, creating one if there is none.
        */
       val.system.persistPatchGroupChange(patchGroupId, {
         type: change.type,
@@ -1536,29 +1665,17 @@ function usePatchGroupWrites(): void {
 }
 
 /**
- * Send the group changes that were made before there was a group.
+ * Tell the system which group is this user's.
  *
- * At SHELL level for the same reason the queue is on the system: the id
- * normally appears because the user left the review screen and typed
- * something, so the component that took the clicks is unmounted by the time
- * there is anywhere to send them. This one is mounted throughout.
- *
- * Runs on every id change, not only the first. A publish closes the group, so a
- * session goes through this repeatedly — and the id it flushes into is always
- * the current open group, never the closed one the clicks were made against.
+ * `publish` has to tell the content API which group its commit empties, and
+ * the scope needs to know whose group it follows before a stat has named the
+ * user.
  */
-function usePatchGroupFlush(): void {
+function usePatchGroupIdentity(): void {
   const val = useValSystem();
   const group = useCurrentPatchGroup();
 
-  useEffect(() => {
-    if (val === null || group.patchGroupId === undefined) return;
-    val.system.flushPatchGroupChanges(group.patchGroupId);
-  }, [val, group.patchGroupId]);
-
   /*
-   * And the same id reaches `publish`, which has to tell the content API which
-   * group its commit empties.
    *
    * Set from here because resolving "which group is mine" needs the author id
    * and the chain annotation, and `useCurrentPatchGroup` is the one place that

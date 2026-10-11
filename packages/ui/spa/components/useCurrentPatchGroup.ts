@@ -26,8 +26,8 @@ import {
  *   none open. Before their first write on the branch, and again after every
  *   publish, since a publish closes the group and the next write creates the
  *   next one. Staging stays ON in this window: the review screen is usable, and
- *   `System.persistPatchGroupChange` holds what the user does there until there
- *   is a group to send it to.
+ *   `System.persistPatchGroupChange` sends what the user does there with no
+ *   group id, which the content API stages into a group it creates.
  */
 export type CurrentPatchGroup = {
   enabled: boolean;
@@ -113,8 +113,7 @@ export function useCurrentPatchGroup(): CurrentPatchGroup {
      *
      * With the annotation preferred, the first write after a publish learned
      * the new group's id and this hook went on answering the OLD one, so
-     * every stage kept 409-ing and `usePatchGroupFlush` never fired for the
-     * group that existed.
+     * every stage kept 409-ing against a group that had shipped.
      *
      * `members` still comes from the annotation, and only when it is the
      * group we are naming: it is the sole source of membership, and reporting
@@ -127,14 +126,12 @@ export function useCurrentPatchGroup(): CurrentPatchGroup {
      * `markPublished` runs only for a publish made HERE, so the same user
      * publishing from another tab leaves this tab's `ownGroupId` set while a
      * later annotation refetch shows the group closed. Naming it then makes
-     * every stage from this tab a 409 that is only logged, while the local
-     * scope moves anyway — and `usePatchGroupFlush` never queues, because there
-     * appears to be a group to send to.
+     * every stage from this tab a 409 before it is resent to the open group.
      *
      * Falling through to `mine` (which already filters on `publishedAt ===
      * null`) or to `undefined` puts this tab back in the post-publish window it
-     * is really in, where the deferred queue holds the change until the next
-     * write names the next group.
+     * is really in, where a change is sent with no group id and the content
+     * API creates the next group for it.
      */
     const ownGroupPublished =
       ownGroupId !== undefined &&

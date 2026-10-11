@@ -1,4 +1,5 @@
 import {
+  computeSchemaSha,
   computeSourcesSha,
   Internal,
   previewScope,
@@ -166,6 +167,14 @@ export class HostStore implements HostBridge {
       ),
       sources,
     };
+    // Recomputed on every intake, an HMR re-run included: it is the schema
+    // this page is RUNNING, which is what `SchemaFreshnessWatch` compares.
+    this.runningSchemaSha = computeSchemaSha(
+      adopted.map((path) => ({
+        path,
+        serializedSchema: serializedSchemas[path],
+      })),
+    );
     // After the source store has the bundle's source, so a listener that puts
     // another build's base back on top (`BaseAlignment`) has the last word.
     this.events.emit({
@@ -194,6 +203,21 @@ export class HostStore implements HostBridge {
     sourcesSha: string;
     sources: Record<ModuleFilePath, Json>;
   } | null = null;
+
+  /**
+   * The `schemaSha` of the schemas this page is running, or `null` before
+   * intake.
+   *
+   * The same fold the server runs over its build's modules (`computeSchemaSha`),
+   * over the same modules in the same order — the ones that serialized, in
+   * `val.modules` order — so a `/stat` from a build with another schema says so
+   * by not being equal to this.
+   */
+  schemaSha(): string | null {
+    return this.runningSchemaSha;
+  }
+
+  private runningSchemaSha: string | null = null;
 
   async preview(
     moduleFilePath: ModuleFilePath,

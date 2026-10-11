@@ -1,5 +1,10 @@
-import { useMemo } from "react";
-import { Internal, type SourcePath } from "@valbuild/core";
+import { createContext, useContext, useMemo } from "react";
+import {
+  Internal,
+  type Json,
+  type ModuleFilePath,
+  type SourcePath,
+} from "@valbuild/core";
 import { AnyField } from "../components/AnyField";
 import {
   FieldSourceOverrideContext,
@@ -22,6 +27,16 @@ import type { SourceOverride } from "../components/ValFieldProvider";
  * move (where both sides are the same value and a rail would claim an edit
  * that did not happen).
  */
+/**
+ * What the "before" column is, where it is not the published base: in a
+ * proposal, the SITE's Source for the modules the proposal changed. A module
+ * absent here falls back to the base, which is the site's for every module
+ * the proposal has not saved. See `useCompareModel`'s `site`.
+ */
+export const CompareBeforeSourcesContext = createContext<Partial<
+  Record<ModuleFilePath, Json>
+> | null>(null);
+
 export function CompareValue({
   path,
   side,
@@ -44,6 +59,7 @@ export function CompareValue({
 
 function BeforeValue({ path }: { path: SourcePath }) {
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const given = useContext(CompareBeforeSourcesContext)?.[moduleFilePath];
   /*
    * The MODULE's base source, not the path's.
    *
@@ -56,10 +72,12 @@ function BeforeValue({ path }: { path: SourcePath }) {
   const base = useServerSourceAtPath(moduleFilePath);
   const override = useMemo<SourceOverride | null>(
     () =>
-      base.status === "success"
-        ? { moduleFilePath, moduleSource: base.data }
-        : null,
-    [moduleFilePath, base],
+      given !== undefined
+        ? { moduleFilePath, moduleSource: given }
+        : base.status === "success"
+          ? { moduleFilePath, moduleSource: base.data }
+          : null,
+    [moduleFilePath, base, given],
   );
   /*
    * Nothing at all while the base is still arriving, rather than the patched

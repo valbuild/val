@@ -1,10 +1,13 @@
+import type { CatalogTemplate } from "./catalog";
 import {
   DEFAULT_FRAMEWORK,
   dropUnsupportedFeatures,
+  FRAMEWORK_NAMES,
   FRAMEWORKS,
   parseFrameworkArgs,
+  parseTemplateArgs,
   resolveFrameworkName,
-  TEMPLATES,
+  resolveTemplateArg,
 } from "./framework";
 
 /**
@@ -16,13 +19,34 @@ import {
  * framework flag that fails to consume itself becomes the project's name.
  */
 
-describe("TEMPLATES", () => {
-  it("has a template for every framework, keyed by its own name", () => {
-    for (const framework of FRAMEWORKS) {
-      expect(TEMPLATES[framework].framework).toBe(framework);
-    }
-  });
+/** A catalog like `valbuild/templates`' own, as far as these care. */
+function template(
+  id: string,
+  framework: CatalogTemplate["framework"],
+  name: string,
+  features: CatalogTemplate["features"] = {
+    mcp: { paths: ["src/val/mcp.ts"], dependencies: [], docs: [] },
+    imageUploads: { file: "src/val/mcp.images.ts", dependencies: ["sharp"] },
+  },
+): CatalogTemplate {
+  return {
+    id,
+    framework,
+    name,
+    description: `${name} for ${framework}`,
+    path: id.replace("-", "/"),
+    features,
+  };
+}
 
+const CATALOG: CatalogTemplate[] = [
+  template("tanstack-full", "tanstack", "Full"),
+  template("tanstack-minimal", "tanstack", "Minimal"),
+  template("nextjs-full", "nextjs", "Full"),
+  template("nextjs-minimal", "nextjs", "Minimal"),
+];
+
+describe("FRAMEWORKS", () => {
   it("covers both frameworks we ship", () => {
     // Copied before sorting: `sort` is in-place, and `FRAMEWORKS` is an
     // exported singleton the CLI reads for its help text and error messages.
@@ -33,9 +57,16 @@ describe("TEMPLATES", () => {
     expect(FRAMEWORKS).toContain(DEFAULT_FRAMEWORK);
   });
 
-  it("points each framework at its own repository", () => {
-    expect(TEMPLATES.nextjs.repo).toBe("valbuild/template-nextjs-starter");
-    expect(TEMPLATES.tanstack.repo).toBe("valbuild/template-tanstack-starter");
+  it("offers TanStack Start first, and by default", () => {
+    // Val's primary platform.
+    expect(FRAMEWORKS[0]).toBe("tanstack");
+    expect(DEFAULT_FRAMEWORK).toBe("tanstack");
+  });
+
+  it("has a name for each", () => {
+    for (const framework of FRAMEWORKS) {
+      expect(FRAMEWORK_NAMES[framework]).toBeTruthy();
+    }
   });
 });
 
@@ -128,29 +159,112 @@ describe("parseFrameworkArgs", () => {
   });
 });
 
+describe("parseTemplateArgs", () => {
+  it("asks nothing when no flag was given", () => {
+    const parsed = parseTemplateArgs(["my-app"]);
+    expect(parsed.template).toBeNull();
+    expect(parsed.rest).toEqual(["my-app"]);
+  });
+
+  it("consumes its value, so it cannot become the project name", () => {
+    const parsed = parseTemplateArgs(["--template", "full", "my-app"]);
+    expect(parsed.template).toBe("full");
+    expect(parsed.rest).toEqual(["my-app"]);
+  });
+
+  it("reads --template=<id>", () => {
+    expect(parseTemplateArgs(["--template=tanstack-full"]).template).toBe(
+      "tanstack-full",
+    );
+  });
+
+  it("reports --template with nothing after it", () => {
+    expect(parseTemplateArgs(["--template"]).invalidFlag).toBe("--template");
+    expect(parseTemplateArgs(["--template="]).invalidFlag).toBe("--template=");
+    // A flag is not a template name: the next flag is left for its parser.
+    const parsed = parseTemplateArgs(["--template", "--use-pnpm"]);
+    expect(parsed.invalidFlag).toBe("--template");
+    expect(parsed.rest).toEqual(["--use-pnpm"]);
+  });
+});
+
+describe("resolveTemplateArg", () => {
+  it("takes an id, which names the framework too", () => {
+    const resolved = resolveTemplateArg("nextjs-minimal", CATALOG, null);
+    expect(resolved.status === "ok" && resolved.template.id).toBe(
+      "nextjs-minimal",
+    );
+  });
+
+  it("refuses an id for another framework than the one asked for", () => {
+    const resolved = resolveTemplateArg("nextjs-full", CATALOG, "tanstack");
+    expect(resolved.status).toBe("error");
+  });
+
+  it("takes a name within the framework, ignoring case", () => {
+    const resolved = resolveTemplateArg("MINIMAL", CATALOG, "tanstack");
+    expect(resolved.status === "ok" && resolved.template.id).toBe(
+      "tanstack-minimal",
+    );
+  });
+
+  it("waits for the framework when a name could be either", () => {
+    expect(resolveTemplateArg("full", CATALOG, null)).toEqual({
+      status: "needs-framework",
+      name: "full",
+    });
+  });
+
+  it("names what there is when it names nothing", () => {
+    const resolved = resolveTemplateArg("blog", CATALOG, null);
+    expect(resolved.status).toBe("error");
+    expect(resolved.status === "error" && resolved.message).toContain(
+      "tanstack-full",
+    );
+  });
+
+  it("says so when the framework has no template of that name", () => {
+    const resolved = resolveTemplateArg(
+      "docs",
+      [...CATALOG, template("nextjs-docs", "nextjs", "Docs")],
+      "tanstack",
+    );
+    expect(resolved.status).toBe("error");
+    expect(resolved.status === "error" && resolved.message).toContain(
+      "TanStack Start",
+    );
+  });
+});
+
 describe("dropUnsupportedFeatures", () => {
-  it("leaves a template that supports MCP alone", () => {
+  const withEverything = CATALOG[0];
+  const withoutMcp = template("tanstack-bare", "tanstack", "Bare", {});
+  const withoutImages = template("tanstack-noimg", "tanstack", "NoImg", {
+    mcp: { paths: ["src/val/mcp.ts"], dependencies: [], docs: [] },
+  });
+
+  it("leaves a template that has everything alone", () => {
     const result = dropUnsupportedFeatures(
       { mcp: true, imageUploads: true },
-      TEMPLATES.nextjs,
+      withEverything,
     );
     expect(result.features).toEqual({ mcp: true, imageUploads: true });
     expect(result.warning).toBeNull();
   });
 
-  it("turns MCP off, and says so, where the starter has no endpoint", () => {
+  it("turns MCP off, and says so, where the template has no endpoint", () => {
     const result = dropUnsupportedFeatures(
       { mcp: true, imageUploads: true },
-      TEMPLATES.tanstack,
+      withoutMcp,
     );
     expect(result.features).toEqual({ mcp: false, imageUploads: false });
-    expect(result.warning).toContain("TanStack Start");
+    expect(result.warning).toContain("TanStack Start Bare");
   });
 
   it("says nothing when nothing was asked for", () => {
     const result = dropUnsupportedFeatures(
       { mcp: false, imageUploads: false },
-      TEMPLATES.tanstack,
+      withoutMcp,
     );
     expect(result.features).toEqual({ mcp: false, imageUploads: false });
     expect(result.warning).toBeNull();
@@ -159,9 +273,18 @@ describe("dropUnsupportedFeatures", () => {
   it("still reports image uploads asked for on their own", () => {
     const result = dropUnsupportedFeatures(
       { mcp: false, imageUploads: true },
-      TEMPLATES.tanstack,
+      withoutMcp,
     );
     expect(result.features).toEqual({ mcp: false, imageUploads: false });
     expect(result.warning).not.toBeNull();
+  });
+
+  it("keeps MCP and drops only image uploads where those are missing", () => {
+    const result = dropUnsupportedFeatures(
+      { mcp: true, imageUploads: true },
+      withoutImages,
+    );
+    expect(result.features).toEqual({ mcp: true, imageUploads: false });
+    expect(result.warning).toContain("image uploads");
   });
 });

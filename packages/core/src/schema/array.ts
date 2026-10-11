@@ -23,7 +23,10 @@ import {
 
 export type SerializedArraySchema = {
   type: "array";
-  /** Static layout config, carried whole in the serialized schema — see `render.ts`. */
+  /**
+   * How this array lays out its ITEMS: `{ as: "inline" }` edits each one in
+   * its row. Static config, carried whole — see `render.ts`.
+   */
   render?: FieldRender;
   item: SerializedSchema;
   opt: boolean;
@@ -420,17 +423,19 @@ export class ArraySchema<
   }
 
   /**
-   * How this field is laid out in the editor when it is the item of an array
-   * or record: `{ as: "inline" }` renders the field itself inside each row,
-   * instead of a preview row that navigates to it.
+   * How this array lays out its ITEMS in the editor: `{ as: "inline" }` draws
+   * each item's own editor inside its (sortable) row, instead of a preview row
+   * that navigates to it. It reaches the direct items only.
    *
    * Static configuration, not a callback — see `render.ts`.
    *
    * @example
-   * const schema = s.record(s.array(s.string()).render({ as: "inline" }));
-   * export default c.define("/example.val.ts", schema, {
-   *   "a-post": ["news", "release"],
-   * });
+   * const schema = s
+   *   .array(s.object({ title: s.string(), body: s.string() }))
+   *   .render({ as: "inline" });
+   * export default c.define("/example.val.ts", schema, [
+   *   { title: "Hello", body: "World" },
+   * ]);
    */
   render(input: FieldRender): ArraySchema<T, Src> {
     return new ArraySchema(

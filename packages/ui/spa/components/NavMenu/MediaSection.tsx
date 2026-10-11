@@ -1,4 +1,4 @@
-import { Film, Images, Paperclip } from "lucide-react";
+import { Film, Images, Paperclip, Type } from "lucide-react";
 import { useMemo } from "react";
 import { cn } from "../designSystem/cn";
 import { MediaModule } from "./types";
@@ -77,7 +77,9 @@ export function MediaSection({
                   ? Images
                   : entry.mediaType === "videos"
                     ? Film
-                    : Paperclip;
+                    : entry.fonts
+                      ? Type
+                      : Paperclip;
               return (
                 <button
                   key={entry.moduleFilePath}
