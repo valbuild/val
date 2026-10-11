@@ -108,8 +108,15 @@ const SHUTDOWN_DEADLINE_MS = 2_000;
 export async function startLspSession({
   valRoot = EXAMPLE_APP,
   capabilities = {},
+  env = {},
 }: {
   valRoot?: string;
+  /**
+   * Added to the server process's environment. Setting `process.env` in a test
+   * does not reach it: Jest hands each test file its own copy of `process.env`,
+   * and `spawn` inherits the real one.
+   */
+  env?: Record<string, string>;
   /**
    * `InitializeParams.capabilities`. Defaults to `{}` — the bare client a
    * hand-written LSP config sends. Pass something here to exercise a fix that
@@ -120,7 +127,11 @@ export async function startLspSession({
   let child: ChildProcessWithoutNullStreams | undefined = spawn(
     process.execPath,
     [BIN, "--stdio"],
-    { cwd: valRoot, stdio: ["pipe", "pipe", "pipe"] },
+    {
+      cwd: valRoot,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, ...env },
+    },
   );
 
   const client = createMessageConnection(
