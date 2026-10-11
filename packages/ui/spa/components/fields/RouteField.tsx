@@ -282,6 +282,7 @@ function toAvailableRoute(router: CreatableRouter): AvailableRoute {
     patternString: router.patternString,
     existingKeys: router.existingKeys,
     keyDescription: router.keyDescription,
+    routeParams: router.routeParams,
   };
 }
 

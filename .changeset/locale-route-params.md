@@ -27,4 +27,6 @@ Routers can give each route parameter a schema, and a URL can say which language
 
 - **A route's language segment can no longer be forgotten.** In a project that declares `locales.available`, a page route with a `locale` or `lang` segment (`{-$locale}`, `[lang]`) whose module gives that parameter no schema is reported, saying what to add. Any schema answers it, so a `$lang` that is not a language is silenced with its own, e.g. `{ lang: s.enum("typescript", "python") }`.
 
+- **The Studio's new-page form offers a language as a list.** A route parameter whose schema is a locale is picked from the project's languages, each named in its own language, with "no prefix" where the URL may leave the segment out. Other enum parameters get a list of their values, and every parameter's description is shown under it. The URL row previews what the choice puts there.
+
 - **TanStack optional segments (`{-$param}`)** are now understood: route validation, `useValRoute` and the Studio's new-page form accept keys with and without the segment.

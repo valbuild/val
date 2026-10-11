@@ -1,7 +1,13 @@
 import { useMemo, useState } from "react";
-import { ModuleFilePath, matchRoutePattern } from "@valbuild/core";
+import {
+  ModuleFilePath,
+  SerializedSchema,
+  matchRoutePattern,
+} from "@valbuild/core";
 import { RoutePattern, formatRoutePattern } from "@valbuild/shared/internal";
 import { cn } from "../designSystem/cn";
+import { useProjectLocales } from "../../hooks/useProjectLocales";
+import { RouteParamChoices, routeParamChoices } from "./routeParamChoices";
 import { Button } from "../designSystem/button";
 
 /**
@@ -22,6 +28,15 @@ export type AvailableRoute = {
    * editor is filling in - not in a tooltip they have to go looking for.
    */
   keyDescription?: string;
+  /**
+   * The router's schema for each route parameter, by name — what
+   * `s.router(router, { locale: …, slug: … }, item)` gave it.
+   *
+   * A parameter with a closed set of values (an enum, a locale) is offered as a
+   * picker instead of a text box, and every parameter's `.describe()` text is
+   * shown beside its input. See `routeParamChoices`.
+   */
+  routeParams?: Record<string, SerializedSchema>;
 };
 
 export type NewPageFormProps = {
@@ -126,6 +141,29 @@ export function NewPageForm({
     !!selectedRoute && selectedRoute.existingKeys.includes(fullPath);
   const disabled = !isComplete || alreadyExists;
 
+  /**
+   * The parameters with a closed set of values, picked from a list.
+   *
+   * Above the URL rather than inside it: a language is a choice of its own, and
+   * a full-width list in the middle of the URL broke it over two lines. The
+   * URL row shows what the choice puts there, so it still reads as the URL
+   * that will be created.
+   */
+  const projectLocales = useProjectLocales();
+  const choicesByParam = useMemo(() => {
+    const out: Record<string, RouteParamChoices> = {};
+    for (const part of selectedRoute?.routePattern ?? []) {
+      if (part.type !== "string-param") continue;
+      const choices = routeParamChoices(
+        selectedRoute?.routeParams?.[part.paramName],
+        part.optional,
+        projectLocales,
+      );
+      if (choices !== null) out[part.paramName] = choices;
+    }
+    return out;
+  }, [selectedRoute, projectLocales]);
+
   // Focus the first dynamic input when the selected route changes.
   // We rely on autoFocus on render, so changing the key forces remount.
   const inputRenderKey = selectedRoute ? routeKey(selectedRoute) : "";
@@ -171,11 +209,47 @@ export function NewPageForm({
         </div>
       )}
 
+      {Object.entries(choicesByParam).map(([paramName, picked]) => {
+        const description = selectedRoute.routeParams?.[paramName]?.description;
+        const label = picked.kind === "locale" ? "Language" : paramName;
+        return (
+          <div key={paramName} className="space-y-1">
+            <label
+              className="text-xs text-fg-secondary"
+              htmlFor={`new-page-param-${paramName}`}
+            >
+              {label}
+            </label>
+            <ParamChoiceSelect
+              id={`new-page-param-${paramName}`}
+              paramName={paramName}
+              label={label}
+              choices={picked.choices}
+              value={params[paramName] ?? ""}
+              onChange={(next) => {
+                const key = routeKey(selectedRoute);
+                setParamsByRoute((prev) => ({
+                  ...prev,
+                  [key]: { ...(prev[key] ?? {}), [paramName]: next },
+                }));
+              }}
+            />
+            {description && (
+              <div className="max-w-[240px] text-pretty text-xs text-fg-tertiary">
+                {description}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
       <div className="space-y-1">
         <span className="text-xs text-fg-secondary">URL</span>
         <RoutePatternInputs
           key={inputRenderKey}
           pattern={selectedRoute.routePattern}
+          routeParams={selectedRoute.routeParams}
+          choicesByParam={choicesByParam}
           params={params}
           errors={errors}
           onChange={(paramName, value, error) => {
@@ -336,11 +410,16 @@ function RoutePatternDisplay({ pattern }: { pattern: RoutePattern[] }) {
  */
 function RoutePatternInputs({
   pattern,
+  routeParams,
+  choicesByParam,
   params,
   errors,
   onChange,
 }: {
   pattern: RoutePattern[];
+  routeParams?: Record<string, SerializedSchema>;
+  /** Parameters picked from a list above the URL, rather than typed here. */
+  choicesByParam: Record<string, RouteParamChoices>;
   params: Record<string, string>;
   errors: Record<string, string | undefined>;
   onChange: (
@@ -352,8 +431,13 @@ function RoutePatternInputs({
   // Group adjacent literals so they render as a single chip like "/blogs/".
   const groups = useMemo(() => groupPattern(pattern), [pattern]);
   const firstDynamicIndex = useMemo(
-    () => groups.findIndex((g) => g.type !== "literal-run"),
-    [groups],
+    () =>
+      groups.findIndex(
+        (g) =>
+          g.type !== "literal-run" &&
+          choicesByParam[g.part.paramName] === undefined,
+      ),
+    [groups, choicesByParam],
   );
 
   return (
@@ -375,6 +459,30 @@ function RoutePatternInputs({
         const value = params[part.paramName] || "";
         const error = errors[part.paramName];
         const isCatchAll = part.type === "array-param";
+        const description = routeParams?.[part.paramName]?.description;
+        const picked = choicesByParam[part.paramName];
+
+        if (picked !== undefined) {
+          // Chosen above the URL, so here it is only what the URL will read:
+          // the segment, or nothing at all for one that is left out.
+          if (value === "") {
+            return picked.choices.some(
+              (choice) => choice.value === "",
+            ) ? null : (
+              <span key={i} className="inline-flex items-center">
+                <DynamicSegmentPill part={part} />
+              </span>
+            );
+          }
+          return (
+            <span
+              key={i}
+              className="inline-flex items-center px-2 rounded-md bg-bg-brand-secondary text-fg-brand-secondary"
+            >
+              /{value}
+            </span>
+          );
+        }
 
         return (
           <span key={i} className="inline-flex flex-col">
@@ -407,10 +515,78 @@ function RoutePatternInputs({
                 {error}
               </span>
             )}
+            {description && <ParamDescription text={description} />}
           </span>
         );
       })}
     </div>
+  );
+}
+
+/**
+ * A route parameter with a closed set of values, as a picker.
+ *
+ * Native, like `RouteSelect` and for its reason: this sits in a popover, and
+ * the Radix select needs a portal container there. A segment that has to be
+ * filled in starts on a placeholder rather than on its first value, so a page
+ * is never created in a language nobody chose; one the URL may leave out
+ * starts on the "no prefix" choice, which is the empty value the form already
+ * treats as "left out".
+ */
+function ParamChoiceSelect({
+  id,
+  paramName,
+  label,
+  choices,
+  value,
+  onChange,
+}: {
+  id: string;
+  paramName: string;
+  label: string;
+  choices: { value: string; label: string }[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const hasLeftOut = choices.some((choice) => choice.value === "");
+  return (
+    <select
+      id={id}
+      aria-label={label}
+      className={cn(
+        "w-full h-8 px-2 rounded-md bg-bg-primary border border-border-primary",
+        "text-xs text-fg-primary",
+        "focus:outline-none focus:ring-1 focus:ring-border-focus",
+        { "text-fg-secondary": value === "" && !hasLeftOut },
+      )}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {!hasLeftOut && (
+        <option value="" disabled>
+          Choose {label === paramName ? paramName : label.toLowerCase()}…
+        </option>
+      )}
+      {choices.map((choice) => (
+        <option key={choice.value} value={choice.value}>
+          {choice.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * A parameter's own `.describe()` text, under the input it describes.
+ *
+ * Input help belongs where the value is entered, and this is where a route
+ * parameter is entered — see "describe vs preview vs render" in CLAUDE.md.
+ */
+function ParamDescription({ text }: { text: string }) {
+  return (
+    <span className="mt-0.5 max-w-[24ch] text-pretty font-sans text-[10px] text-fg-tertiary">
+      {text}
+    </span>
   );
 }
 
