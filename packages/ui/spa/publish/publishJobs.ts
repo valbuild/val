@@ -40,10 +40,11 @@ export type TrackedPublish = {
    */
   handedOffAt?: number;
   /**
-   * Who builds it after the hand-off: this tab already did (`studio`), or CI
-   * will, after content's push (`ci`, a connected project).
+   * Who builds it after the hand-off: this tab already did (`studio`), CI
+   * will, after content's push (`ci`, a connected project), or nobody does
+   * (`none`): its content goes live on the build already live.
    */
-  builtBy?: "studio" | "ci";
+  builtBy?: "studio" | "ci" | "none";
   /** When this tab first saw it settled. */
   settledAt?: number;
   /**
@@ -358,7 +359,11 @@ export function createPublishJobs(options: {
       });
       if (result.status === "handed-off") {
         const at = now();
-        const builtBy = result.built ? "studio" : "ci";
+        const builtBy = result.built
+          ? "studio"
+          : result.contentOnly
+            ? "none"
+            : "ci";
         // Where each press is now, so one still queued behind this job is
         // not taken for one of its own.
         await refresh();

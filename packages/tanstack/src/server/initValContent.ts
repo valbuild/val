@@ -25,6 +25,7 @@ import {
 import {
   createValServer,
   ValServer,
+  layeredSnapshot,
   proposalSnapshotForReaders,
   type ValPatchStore,
 } from "@valbuild/server";
@@ -293,6 +294,44 @@ export const initFetchValStega =
 
 /** A proposal's saved Source, by module: see `ValProposal` in `@valbuild/server`. */
 type Snapshot = Record<ModuleFilePath, Json>;
+
+/**
+ * What the readers render over the bundle: a proposal's saves over the
+ * content version the site serves (`layeredSnapshot` in @valbuild/server),
+ * either alone, or nothing.
+ */
+export function snapshotForReaders(
+  http:
+    | Pick<ValHttpMode, "proposal" | "contentVersion" | "projectSource">
+    | undefined,
+): Snapshot | undefined {
+  const source = layeredSnapshot(http?.proposal, http?.contentVersion);
+  return source !== undefined
+    ? proposalSnapshotForReaders(source, http?.projectSource)
+    : undefined;
+}
+
+/**
+ * Where an isolate says which content version it applied, for the platform
+ * serving it to read back after a render (valbuild/home: the loader answers it
+ * as a header). A Val that predates content versions never sets it, which is
+ * how the platform tells that an app cannot be served a version its build does
+ * not bundle -- an unknown option is otherwise ignored, silently.
+ */
+export const CONTENT_APPLIED_GLOBAL = "__VAL_CONTENT_APPLIED";
+
+/**
+ * Name the content version this isolate renders, when it renders one -- at a
+ * proposal's address too, where it is under the proposal's saves.
+ */
+export function markContentApplied(
+  http: Pick<ValHttpMode, "proposal" | "contentVersion"> | undefined,
+): void {
+  if (http?.contentVersion === undefined) {
+    return;
+  }
+  Reflect.set(globalThis, CONTENT_APPLIED_GLOBAL, http.contentVersion.id);
+}
 
 /** What `fetchValDraft` reads: the tree, the entries, and the patches' ops. */
 export type DraftValServer = {
@@ -1036,10 +1075,8 @@ export function initValContent(
     throw new Error("Could not get @valbuild/tanstack package version");
   }
   const draftSourcesScope = createTanStackRequestScope();
-  const snapshot: Snapshot | undefined =
-    opts?.http?.proposal !== undefined
-      ? proposalSnapshotForReaders(opts.http.proposal, opts.http.projectSource)
-      : undefined;
+  const snapshot = snapshotForReaders(opts?.http);
+  markContentApplied(opts?.http);
   const draftMode = opts?.draftMode ?? valDraftMode();
   const isEnabled = () => draftMode.isEnabled();
 

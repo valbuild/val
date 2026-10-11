@@ -724,6 +724,29 @@ test("a job CI builds is handed off unbuilt, and shown as CI's", async () => {
   expect(jobs.get().requests[0]).toMatchObject({ builtBy: "ci" });
 });
 
+test("a job content puts live without a build is handed off unbuilt, and shown as nobody's build", async () => {
+  const { client } = fakeClient();
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => ({
+      status: "handed-off",
+      jobId: j.id,
+      built: false,
+      contentOnly: true,
+    }),
+    takesQueuedWork: () => false,
+    now: () => 1_000,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: job("J1"),
+  });
+  await flush();
+  expect(jobs.get().requests[0]).toMatchObject({ builtBy: "none" });
+});
+
 test("a press queued behind the job being built is not handed off with it", async () => {
   const { client, statuses } = fakeClient();
   let finish!: () => void;

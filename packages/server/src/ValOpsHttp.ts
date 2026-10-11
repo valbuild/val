@@ -1,6 +1,8 @@
 import {
   proposalJsonEntries,
+  layeredSnapshot,
   proposalSnapshot,
+  type ValContentVersion,
   type ValProposal,
 } from "./proposal";
 import {
@@ -498,6 +500,8 @@ export class ValOpsHttp extends ValOps {
   private readonly publishBuild: string | null;
   /** See `proposal` on {@link ValApiOptions}; `null` on the site. */
   private readonly proposal: ValProposal | null;
+  /** See `contentVersion` on {@link ValApiOptions}; `null` at a proposal's address. */
+  private readonly contentVersion: ValContentVersion | null;
 
   /** Did the host hand over the running build's source? See `projectSource`. */
   embedsSource(): boolean {
@@ -600,16 +604,35 @@ export class ValOpsHttp extends ValOps {
       publishBuild?: string;
       /** See `proposal` on {@link ValApiOptions}. */
       proposal?: ValProposal;
+      /** See `contentVersion` on {@link ValApiOptions}. */
+      contentVersion?: ValContentVersion;
     },
   ) {
+    /*
+     * What replaces the bundle's Source: the content version the site serves,
+     * and a proposal's saves over it at its address. Two layers rather than
+     * one, because the version is the SITE -- what a proposal is compared
+     * against -- and the proposal is what is being proposed.
+     */
+    const snapshot = layeredSnapshot(
+      options?.proposal,
+      options?.contentVersion,
+    );
     super(
       valModules,
-      options?.proposal
+      options && snapshot
         ? {
             ...options,
-            snapshotSources: proposalSnapshot(options.proposal),
+            ...(options.proposal !== undefined
+              ? { snapshotSources: proposalSnapshot(options.proposal) }
+              : {}),
+            ...(options.contentVersion !== undefined
+              ? {
+                  siteSnapshotSources: proposalSnapshot(options.contentVersion),
+                }
+              : {}),
             snapshotJsonEntries: proposalJsonEntries(
-              options.proposal,
+              snapshot,
               options.projectSource,
             ),
           }
@@ -621,16 +644,27 @@ export class ValOpsHttp extends ValOps {
         : { Authorization: `Bearer ${auth.apiKey}` };
     this.root = options?.root ?? "";
     this.proposal = options?.proposal ?? null;
+    this.contentVersion =
+      this.proposal === null ? (options?.contentVersion ?? null) : null;
     /*
      * In a proposal, the text its saves wrote over the text the build was made
      * from: the next save patches the last one's `.val.ts`, not the base's.
+     * The same for a content version: the next publish patches what the last
+     * one published, not what the build bundles.
      */
     this.projectSource =
-      this.proposal !== null
-        ? { ...(options?.projectSource ?? {}), ...this.proposal.files }
+      snapshot !== undefined
+        ? { ...(options?.projectSource ?? {}), ...snapshot.files }
         : (options?.projectSource ?? null);
     this.publishJob = options?.publishJob ?? null;
-    this.publishBuild = options?.publishBuild ?? null;
+    /*
+     * Not with a content version: the content service places a build by the
+     * build first (`getApplicablePatchesAndCommits`), and this build bundles an
+     * older version than it serves -- placed there, the version's own changes
+     * would be replayed over a snapshot that already holds them.
+     */
+    this.publishBuild =
+      this.contentVersion === null ? (options?.publishBuild ?? null) : null;
     this.mirrorsSourceFiles = git !== null || this.projectSource !== null;
   }
   /**
@@ -1419,6 +1453,18 @@ export class ValOpsHttp extends ValOps {
           ? { commit: this.proposal.commit }
           : {}),
       };
+    }
+    /*
+     * A content version sits where the publish that made it does: its job,
+     * which content places exactly, or its commit, once nothing else says.
+     */
+    if (this.contentVersion !== null) {
+      if (this.contentVersion.job !== null) {
+        return { job: this.contentVersion.job };
+      }
+      if (this.contentVersion.commit !== null) {
+        return { commit: this.contentVersion.commit };
+      }
     }
     if (this.git) {
       return { branch: this.git.branch, commit: this.git.commit };

@@ -364,6 +364,9 @@ export async function initHandlerOptions(
         ? { publishBuild: opts.publishBuild }
         : {}),
       ...(opts.proposal !== undefined ? { proposal: opts.proposal } : {}),
+      ...(opts.contentVersion !== undefined
+        ? { contentVersion: opts.contentVersion }
+        : {}),
       project: maybeValProject,
       valEnableRedirectUrl,
       valDisableRedirectUrl,
@@ -450,6 +453,9 @@ export function createValOps(
           : {}),
         ...(options.proposal !== undefined
           ? { proposal: options.proposal }
+          : {}),
+        ...(options.contentVersion !== undefined
+          ? { contentVersion: options.contentVersion }
           : {}),
       },
     );

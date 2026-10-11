@@ -365,6 +365,7 @@ const tabJob: z.ZodType<PublishTabJob> = z.object({
   step: z.enum(["prepare", "build", "upload"]).nullable(),
   base: z.string().nullable(),
   patches: z.array(z.string()),
+  contentOnly: z.literal(true).optional(),
 });
 
 const pressResponse: z.ZodType<PressResponse> = z.object({

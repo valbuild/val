@@ -1,4 +1,4 @@
-import type { ValProposal } from "./proposal";
+import type { ValContentVersion, ValProposal } from "./proposal";
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   commitCarriesFiles,
@@ -241,6 +241,8 @@ export type ValServerConfig = ValServerOptions &
         publishBuild?: string;
         /** See `proposal` on {@link ValApiOptions}. */
         proposal?: ValProposal;
+        /** See `contentVersion` on {@link ValApiOptions}. */
+        contentVersion?: ValContentVersion;
         config: ValConfig;
       }
     /**

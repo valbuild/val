@@ -386,4 +386,10 @@ export type PublishTabJob = {
   base: string | null;
   /** The changes its build is to include, on top of `base`. */
   patches: string[];
+  /**
+   * Its content goes live on the build already live: content's prepare found
+   * it changes only Val content, which that build shows, so nothing is built
+   * for it. Set on the answer that hands it over (`step: null`).
+   */
+  contentOnly?: true;
 };

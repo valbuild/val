@@ -28,9 +28,16 @@ export type StudioJobResult =
   /**
    * The tab's part is done, and content has the job. `built`: this tab built
    * and uploaded it. `false` is a job whose build is CI's -- a connected
-   * project's, where the tab's part is the prepare alone.
+   * project's, where the tab's part is the prepare alone -- or, with
+   * `contentOnly`, a job nobody builds: its content goes live on the build
+   * already live.
    */
-  | { status: "handed-off"; jobId: string; built: boolean }
+  | {
+      status: "handed-off";
+      jobId: string;
+      built: boolean;
+      contentOnly?: true;
+    }
   /** The job is no longer this tab's. Nothing to report. */
   | { status: "lost"; jobId: string }
   /** A step failed, and was reported as failed. */
@@ -94,9 +101,18 @@ export async function runStudioJob(options: {
       return { status: "failed", jobId: job.id, message };
     }
     if (lost || prepared.job === null) return lostResult;
-    // Content's already: nothing for this tab to build (connected).
+    /*
+     * Content's already: nothing for this tab to build. Connected, CI builds
+     * it; managed and `contentOnly`, nobody does -- its content goes live on
+     * the build already live.
+     */
     if (prepared.job.step === null) {
-      return { status: "handed-off", jobId: job.id, built: false };
+      return {
+        status: "handed-off",
+        jobId: job.id,
+        built: false,
+        ...(prepared.job.contentOnly ? { contentOnly: true } : {}),
+      };
     }
     if (prepared.job.step !== "build") return lostResult;
 
