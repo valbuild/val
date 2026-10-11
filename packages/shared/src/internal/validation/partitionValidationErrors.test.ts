@@ -73,6 +73,51 @@ describe("partitionValidationErrors", () => {
     expect(skipped[sp("/content/page.val.ts")]).toEqual([error]);
   });
 
+  /**
+   * A collection KEY that is wrong as a key: a remote URL in a gallery that
+   * is not `.remote()`, one that does not parse, one outside the gallery's
+   * directory. Nothing repairs it on save, and `--fix` will not either — only
+   * a person knows whether the key or the gallery's options are the mistake.
+   * Hiding it also took it off the publish gate, so it went out unseen.
+   */
+  test.each([
+    "images:check-remote",
+    "files:check-remote",
+    "videos:check-remote",
+  ] as const)("%s is surfaced: nothing repairs a bad key", (fix) => {
+    const error: ValidationError = {
+      message: "Remote URLs are not allowed. Use .remote()",
+      value: "https://remote.val.build/file/p/x",
+      fixes: [fix],
+      keyError: true,
+    };
+    const { surfaced, skipped } = partitionValidationErrors({
+      [sp('/content/images.val.ts?p="https://remote.val.build/file/p/x"')]: [
+        error,
+      ],
+    });
+    expect(surfaced).toEqual({
+      [sp('/content/images.val.ts?p="https://remote.val.build/file/p/x"')]: [
+        error,
+      ],
+    });
+    expect(skipped).toEqual({});
+  });
+
+  test.each(["image:check-remote", "file:check-remote"] as const)(
+    "%s stays skipped: it is core's 'not checked' marker on every remote value",
+    (fix) => {
+      const error: ValidationError = {
+        message: "Remote image was not checked.",
+        fixes: [fix],
+      };
+      const { surfaced } = partitionValidationErrors({
+        [sp("/content/page.val.ts")]: [error],
+      });
+      expect(surfaced).toEqual({});
+    },
+  );
+
   test("keyof:check-keys remnant is surfaced (defensive)", () => {
     const error: ValidationError = {
       message: "keyof not resolved",
