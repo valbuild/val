@@ -29,6 +29,19 @@ function getTestData(valModules: ValModule<Source>[]) {
   return { schemas, sources };
 }
 
+/** What core reports for a module, as the Studio receives it. */
+function validationErrorsOf(
+  valModule: ValModule<Source>,
+): Record<SourcePath, ValidationError[]> {
+  const path = Internal.getValPath(valModule);
+  if (!path) throw new Error("Module has no path");
+  const res = Internal.getSchema(valModule)?.["executeValidate"](
+    path,
+    Internal.getSource(valModule),
+  );
+  return res || {};
+}
+
 describe("filterBlockingValidationErrors", () => {
   test("errors without fixes are blocking", () => {
     const errors: Record<SourcePath, ValidationError[]> = {
@@ -201,6 +214,45 @@ describe("filterBlockingValidationErrors", () => {
     };
     const result = filterBlockingValidationErrors(errors, schemas, sources);
     expect(result["/content/page.val.ts" as SourcePath]).toHaveLength(1);
+  });
+
+  test("a gallery key that is wrong as a key blocks a publish, and a sound remote image does not", () => {
+    const REF =
+      "https://remote.val.build/file/p/proj123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/images/logo.webp";
+    const entry = {
+      width: 8,
+      height: 8,
+      mimeType: "image/webp",
+      alt: null,
+    };
+    // A ref key in a gallery that is not `.remote()`.
+    const localGallery = c.define(
+      "/content/local.val.ts",
+      s.imagedir("/public/val/images"),
+      { [REF]: entry },
+    );
+    // A remote image of its own: core marks it "not checked", which the
+    // server checks on save.
+    const page = c.define("/content/page.val.ts", s.image().remote(), {
+      path: REF,
+      width: 8,
+      height: 8,
+      mimeType: "image/webp",
+    });
+    const errors: Record<SourcePath, ValidationError[]> = {
+      ...validationErrorsOf(localGallery),
+      ...validationErrorsOf(page),
+    };
+    const { schemas, sources } = getTestData([localGallery, page]);
+
+    const blocking = filterBlockingValidationErrors(errors, schemas, sources);
+
+    expect(Object.values(blocking).flat()).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("Remote URLs are not allowed"),
+        fixes: ["images:check-remote"],
+      }),
+    ]);
   });
 
   test("mix: some errors blocking, some not", () => {

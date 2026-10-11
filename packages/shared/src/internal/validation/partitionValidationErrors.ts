@@ -10,7 +10,8 @@ import type {
  * `skipped` errors carry only fix codes the user can't (or shouldn't) act on
  * in the browser:
  *   - image/file metadata checks (need to read bytes from disk)
- *   - remote upload/download/check (need a personal access token + network)
+ *   - remote upload/download, and the singular remote check (need a personal
+ *     access token + network)
  *   - gallery directory uniqueness + untracked-files checks (need fs traversal)
  *
  * The server (ValOps + createFixPatch) resolves all of these automatically on
@@ -62,20 +63,17 @@ function isSkippableFixCode(fix: ValidationFix): boolean {
     case "image:upload-remote":
     case "image:download-remote":
     case "image:check-remote":
-    case "images:check-remote":
     case "images:upload-remote":
     case "file:add-metadata":
     case "file:check-metadata":
     case "file:upload-remote":
     case "file:download-remote":
     case "file:check-remote":
-    case "files:check-remote":
     case "files:upload-remote":
     case "video:add-metadata": // the Studio writes it on upload; --fix for the rest
     case "video:upload-remote":
     case "video:download-remote":
     case "videos:add-metadata": // as `video:add-metadata`, for a set's entry
-    case "videos:check-remote":
     case "videos:upload-remote":
     case "videos:check-unique-folder":
     case "videos:check-all-files":
@@ -85,6 +83,18 @@ function isSkippableFixCode(fix: ValidationFix): boolean {
     case "files:check-all-files":
     case "view:check-module": // schema is code: nothing for an editor to do
       return true;
+    case "images:check-remote":
+    case "files:check-remote":
+    case "videos:check-remote":
+      // A collection KEY that is wrong as a key: a remote URL in a gallery that
+      // is not `.remote()`, one that does not parse, one outside the gallery's
+      // directory. Unlike the singular `image:check-remote` above (core's "not
+      // checked" marker on EVERY remote value, which the server does check),
+      // core emits these only when the key is wrong, and nothing repairs that
+      // on save -- not the server, not `val validate --fix`. Only a person knows
+      // whether the key or the gallery's options are the mistake. Skipping them
+      // also took them off the publish gate, so a broken key published unseen.
+      return false;
     case "keyof:check-keys":
     case "router:check-route":
     case "locale:check-locale":

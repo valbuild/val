@@ -413,6 +413,34 @@ test("the tab's part of the job reaches the site, before the publish is Live", a
   site.close();
 });
 
+test("a job that went live without a build reaches the site as one", async () => {
+  const site = openHandoff({ open });
+  const heard: ToSite[] = [];
+  site.onMessage((message) => heard.push(message));
+  const tab = joinHandoff(site.id, () => undefined, { retryMs: 10 });
+  tab.report({
+    type: "job-result",
+    result: {
+      status: "handed-off",
+      jobId: "J1",
+      built: false,
+      contentOnly: true,
+    },
+  });
+  await until(() => heard.some((message) => message.type === "job-result"));
+  expect(heard.find((message) => message.type === "job-result")).toEqual({
+    type: "job-result",
+    result: {
+      status: "handed-off",
+      jobId: "J1",
+      built: false,
+      contentOnly: true,
+    },
+  });
+  tab.close();
+  site.close();
+});
+
 test("a job that is not one is dropped, not built", async () => {
   const site = openHandoff({ open });
   const got: ToTab[] = [];

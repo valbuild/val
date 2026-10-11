@@ -165,6 +165,14 @@ export type ValOpsOptions = {
    */
   snapshotSources?: Sources;
   /**
+   * Source the SITE serves over what the modules evaluate to, beneath
+   * {@link snapshotSources}: a content version (`ValContentVersion` in
+   * `./proposal`), the content published since the build. Applied the same
+   * way, and what a proposal's saves are compared against
+   * ({@link ValOps.siteSourcesUnderSnapshot}) -- the site, not the bundle.
+   */
+  siteSnapshotSources?: Sources;
+  /**
    * The `.jsonValues()` entries the same snapshot saved, by module and key:
    * their content is in their own files, not in {@link snapshotSources}, which
    * holds markers. The baseline those entries are read from, as a save in
@@ -217,6 +225,13 @@ export abstract class ValOps {
    * {@link siteSourcesUnderSnapshot}, and only where there is a snapshot.
    */
   private siteSourcesBeforeSnapshot: Sources | null = null;
+  /**
+   * The same modules as the bundle evaluated them, imports and all: where a
+   * `.jsonValues()` entry the snapshot did not save is read from. Not
+   * {@link siteSourcesBeforeSnapshot}, whose markers may have come as JSON
+   * from a content version, with no import behind them.
+   */
+  private bundleSourcesBeforeSnapshot: Sources | null = null;
   /**
    * What a save has told us each `.jsonValues()` entry now holds.
    *
@@ -368,18 +383,42 @@ export abstract class ValOps {
        * being served, and a base SHA that still described the bundle would
        * say the snapshot's content was the bundle's.
        */
-      if (this.options?.snapshotSources) {
+      const siteLayer = this.options?.siteSnapshotSources;
+      const snapshotLayer = this.options?.snapshotSources;
+      /*
+       * The bundle's own Source for every module either layer replaces: a
+       * replaced `.jsonValues()` module's markers came as JSON, and an entry
+       * neither layer saved is read through the bundle's marker, which still
+       * has its `import()`.
+       */
+      if (siteLayer || snapshotLayer) {
+        const bundle: Sources = {};
+        for (const moduleFilePath of Object.keys({
+          ...siteLayer,
+          ...snapshotLayer,
+        })) {
+          const path = moduleFilePath as ModuleFilePath;
+          const bundled = extracted.sources[path];
+          if (bundled !== undefined) {
+            bundle[path] = bundled;
+          }
+        }
+        this.bundleSourcesBeforeSnapshot = bundle;
+      }
+      // What a proposal is compared against: the site, only where there is a proposal.
+      if (snapshotLayer) {
         const site: Sources = {};
-        for (const moduleFilePath of Object.keys(
-          this.options.snapshotSources,
-        )) {
-          const source = extracted.sources[moduleFilePath as ModuleFilePath];
+        for (const moduleFilePath of Object.keys(snapshotLayer)) {
+          const path = moduleFilePath as ModuleFilePath;
+          const source = siteLayer?.[path] ?? extracted.sources[path];
           if (source !== undefined) {
-            site[moduleFilePath as ModuleFilePath] = source;
+            site[path] = source;
           }
         }
         this.siteSourcesBeforeSnapshot = site;
-        this.promoteCommittedSources(this.options.snapshotSources);
+      }
+      if (siteLayer || snapshotLayer) {
+        this.promoteCommittedSources({ ...siteLayer, ...snapshotLayer });
       }
       return {
         baseSha: this.baseSha,
@@ -809,7 +848,7 @@ export abstract class ValOps {
            * the module evaluated to.
            */
           const siteMarker =
-            this.siteSourcesBeforeSnapshot?.[moduleFilePath]?.[
+            this.bundleSourcesBeforeSnapshot?.[moduleFilePath]?.[
               entryKey as keyof Sources[ModuleFilePath]
             ];
           const thunk =

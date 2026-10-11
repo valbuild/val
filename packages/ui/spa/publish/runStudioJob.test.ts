@@ -287,3 +287,32 @@ test("connected, a deployment that embeds no source answers unbuildable: the sam
     { tab: "ada", step: "build", ok: true, noBuild: true },
   ]);
 });
+
+test("a job content puts live without a build is handed off at prepare, unbuilt, and says so", async () => {
+  const { client, steps, prepared } = fakeClient();
+  let deployed = false;
+  const result = await runStudioJob({
+    client: {
+      ...client,
+      prepare: async () => ({
+        ...prepared,
+        job: { ...job, step: null, contentOnly: true },
+      }),
+    },
+    job,
+    tab: "ada",
+    deploy: async () => {
+      deployed = true;
+      return uploaded;
+    },
+    onPhase: () => {},
+  });
+  expect(result).toEqual({
+    status: "handed-off",
+    jobId: "J1",
+    built: false,
+    contentOnly: true,
+  });
+  expect(deployed).toBe(false);
+  expect(steps).toEqual([]);
+});

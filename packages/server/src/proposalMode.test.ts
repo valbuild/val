@@ -362,6 +362,35 @@ export default c.define(
       content: { title: "b from the bundle" },
     });
   });
+
+  test("a content version's, on a site with no proposal: the version's entry, and the build's for the rest", async () => {
+    const o = new ValOpsHttp(
+      "https://content.example",
+      "org/project",
+      null,
+      { apiKey: "test" },
+      { config, modules: kbModules },
+      {
+        config,
+        projectSource,
+        contentVersion: {
+          id: "e".repeat(64),
+          job: "J-7",
+          commit: null,
+          modules: saved.modules,
+          files: saved.files,
+        },
+      },
+    );
+    expect(await o.getJsonEntry(KB, "a", { applyPatches: false })).toEqual({
+      status: "success",
+      content: { title: "a saved in the proposal" },
+    });
+    expect(await o.getJsonEntry(KB, "b", { applyPatches: false })).toEqual({
+      status: "success",
+      content: { title: "b from the bundle" },
+    });
+  });
 });
 
 describe("the proposals API, for the Studio", () => {
