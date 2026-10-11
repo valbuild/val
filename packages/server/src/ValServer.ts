@@ -1188,6 +1188,9 @@ export const ValServer = (
             publicProjectId: settingsRes.data.publicProjectId,
             remoteFileBuckets: settingsRes.data.remoteFileBuckets,
             coreVersion: Internal.VERSION.core || "unknown",
+            ...(settingsRes.data.remoteHost !== undefined
+              ? { remoteHost: settingsRes.data.remoteHost }
+              : {}),
           },
         };
       },

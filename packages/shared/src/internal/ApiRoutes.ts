@@ -573,6 +573,12 @@ export const Api = {
                 bucket: z.string(),
               }),
             ),
+            /**
+             * The host new refs name, from the project's settings: its own
+             * address for a Hosted project whose files are in R2. Optional,
+             * for a content service that predates it.
+             */
+            remoteHost: z.string().optional(),
           }),
         }),
         z.object({

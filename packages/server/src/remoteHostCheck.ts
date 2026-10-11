@@ -205,3 +205,21 @@ export async function movedRemoteHost(
     to: hostNameOfRemoteHost(target),
   };
 }
+
+/**
+ * Where else a ref's file can be downloaded from: the same file on the
+ * project's own `valstart.dev` address, for a platform ref on any other host.
+ * `null` when there is nowhere else -- a `remote.val.build` ref, or one already
+ * on the fallback. See valbuild/home `docs/remote-files-on-platform.md`,
+ * "Tooling: the fallback".
+ */
+export function fallbackRefOf(ref: string): string | null {
+  const parsed = Internal.remote.splitRemoteRef(ref);
+  if (
+    parsed.status === "error" ||
+    !needsHostCheck(parsed.remoteHost, parsed.projectId)
+  ) {
+    return null;
+  }
+  return rewriteRefHost(ref, fallbackRemoteHost(parsed.projectId));
+}

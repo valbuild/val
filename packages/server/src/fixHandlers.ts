@@ -76,6 +76,8 @@ export type IValRemote = {
         data: {
           publicProjectId: string;
           remoteFileBuckets: { bucket: string }[];
+          /** See `getSettings`: the host new refs name. */
+          remoteHost?: string;
         };
       }
     | { success: false; message: string }

@@ -1,5 +1,6 @@
 import {
   clearHostAnswers,
+  fallbackRefOf,
   fallbackRemoteHost,
   hostServes,
   movedRemoteHost,
@@ -87,5 +88,13 @@ describe("remoteHostCheck", () => {
       ),
     ).toBeUndefined();
     expect(asked).toEqual([]);
+  });
+
+  test("a platform ref's file can also be fetched from the project's own address", () => {
+    expect(fallbackRefOf(ON_DOMAIN)).toBe(ON_FALLBACK);
+    expect(fallbackRefOf(ON_FALLBACK)).toBeNull();
+    expect(
+      fallbackRefOf(`https://remote.val.build${REST.replace("/_val", "")}`),
+    ).toBeNull();
   });
 });

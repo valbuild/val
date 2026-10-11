@@ -284,6 +284,7 @@ type ValContextValue = {
         publicProjectId: string;
         coreVersion: string;
         buckets: string[];
+        remoteHost?: string;
       }
     | {
         status: "loading" | "not-asked";
@@ -955,6 +956,9 @@ export function ValProvider({
                   (bucket) => bucket.bucket,
                 ),
                 publicProjectId: res.json.publicProjectId,
+                ...(res.json.remoteHost !== undefined
+                  ? { remoteHost: res.json.remoteHost }
+                  : {}),
               });
             } else {
               if ("errorCode" in res.json && res.json.errorCode) {

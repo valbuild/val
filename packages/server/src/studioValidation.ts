@@ -23,6 +23,7 @@ import {
 } from "./extractMetadata";
 import type { FixFiles } from "./fixFiles";
 import { galleryEntryOf } from "./galleryEntryKey";
+import { fallbackRefOf } from "./remoteHostCheck";
 import {
   checkRemoteFiles,
   type RemoteHostProblem,
@@ -573,10 +574,32 @@ export function opsFixFiles(
 /**
  * A remote file's bytes, downloaded and kept nowhere: this server may have no
  * disk to keep them on (http mode, a Worker on the platform).
+ *
+ * A platform ref whose host fails is read from the project's own
+ * `valstart.dev` address instead (`fallbackRefOf`), and those bytes are kept
+ * only if they hash to what the ref names: a different host answering is safe
+ * because of that check, and only because of it.
  */
 const readRemoteFileOverHttp: FixFiles["readRemoteFile"] = async (ref) => {
+  const first = await fetchBytes(ref);
+  if (first.status === "success") {
+    return first;
+  }
+  const fallback = fallbackRefOf(ref);
+  const parsed = Internal.remote.splitRemoteRef(ref);
+  if (fallback === null || parsed.status === "error") {
+    return first;
+  }
+  const second = await fetchBytes(fallback);
+  if (second.status === "success" && second.fileHash === parsed.fileHash) {
+    return second;
+  }
+  return first;
+};
+
+async function fetchBytes(url: string): ReturnType<FixFiles["readRemoteFile"]> {
   try {
-    const res = await fetch(ref, { signal: AbortSignal.timeout(30_000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     if (!res.ok) {
       return {
         status: "error",
@@ -595,4 +618,4 @@ const readRemoteFileOverHttp: FixFiles["readRemoteFile"] = async (ref) => {
       error: `The file could not be downloaded from its address: ${err instanceof Error ? err.message : "unknown error"}.`,
     };
   }
-};
+}
