@@ -139,9 +139,7 @@ export function ValidatePageView({
               <Button variant="secondary" size="sm" onClick={onStop}>
                 Stop
               </Button>
-            ) : fullCheck.status ===
-              "failed" ? // **Try again**; a second button doing the same thing is noise. // The banner below carries
-            null : (
+            ) : fullCheck.status === "failed" ? null : ( // **Try again**; a second button doing the same thing is noise. // The banner below carries
               <Button
                 variant={
                   fullCheck.status === "not-run" ? "default" : "secondary"
