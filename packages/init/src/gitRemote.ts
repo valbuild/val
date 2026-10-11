@@ -8,7 +8,7 @@ export function gitHubOwnerAndRepo(
 ): { owner: string; repo: string } | null {
   for (const line of remotes.split("\n")) {
     const match = line.match(
-      /^origin\s+(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/(?:[^@/\s]+@)?github\.com\/)([^/\s]+)\/([^/\s]+?)(?:\.git)?(?:\s|$)/,
+      /^origin\s+(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/(?:[^@/\s]+@)?github\.com\/)([^/\s]+)\/([^/\s]+?)(?:\.git)?(?:\s|$)/i,
     );
     if (match) return { owner: match[1], repo: match[2] };
   }

@@ -136,7 +136,7 @@ export function getGitHubOwnerAndRepo(
   const match = gitRemote
     .trim()
     .match(
-      /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/(?:[^@/\s]+@)?github\.com\/)([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/,
+      /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/(?:[^@/\s]+@)?github\.com\/)([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i,
     );
   return match ? { owner: match[1], repo: match[2] } : null;
 }

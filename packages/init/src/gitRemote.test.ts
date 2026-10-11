@@ -31,6 +31,12 @@ describe("the GitHub repository origin points at", () => {
     ).toEqual({ owner: "acme", repo: "site" });
   });
 
+  test("whatever the host's case", () => {
+    expect(
+      gitHubOwnerAndRepo("origin\thttps://GitHub.com/acme/site.git (fetch)"),
+    ).toEqual({ owner: "acme", repo: "site" });
+  });
+
   test("none when origin is not on GitHub, or there is no origin", () => {
     expect(
       gitHubOwnerAndRepo("origin\tgit@gitlab.com:acme/site.git (fetch)\n"),
