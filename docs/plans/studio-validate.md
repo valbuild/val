@@ -4,7 +4,7 @@
 > work); the rest is not built yet.
 
 The Studio's errors page, grown so that it can also run the whole of
-`val validate` — sources, local files, remote files and media sets — and
+`val validate` — sources, local files, remote files and media directories — and
 offer each fix as an ordinary pending change, reached from a button in the top
 bar.
 
@@ -89,7 +89,7 @@ errors the Studio's own validator found, fast, client-side, sources only. That
 part stays exactly as fast, because it is the publish gate.
 
 "Check everything" adds the rest below it, from the server: files, remote
-files and the media sets. Rows from both look the same (`FieldErrorList`, the
+files and the media directories. Rows from both look the same (`FieldErrorList`, the
 module grouping in `ValidationErrors.tsx`), and a row the full check also
 found is shown once.
 
@@ -164,7 +164,7 @@ knows, and nothing has been asked of the server.
 │      "/kontakt" is not a page on this site                         [Open]  │
 │                                                                            │
 │ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
-│ Files, remote files and media sets have not been checked.                  │
+│ Files, remote files and media directories have not been checked.           │
 │ "Check everything" checks them on the server. It can take a minute.        │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -199,11 +199,11 @@ they come.
 │      3f9a2c1.valstart.dev. Fix points them at www.acme-group.no.   [Fix]   │
 │      ▸ Details                                                             │
 │                                                                            │
-│ content/media.val.ts  (image set)                                     3    │
+│ content/media.val.ts  (imagedir)                                      3    │
 │ ├─ ✘ /public/val/team_8a1f3.jpg                                            │
-│ │    The file is gone, but the set still lists it.     [Remove from set]   │
+│ │    The file is gone, but the directory still lists it.         [Remove]  │
 │ ├─ ⚠ /public/val/office_2c9e0.jpg                                          │
-│ │    Size is 1200×800 in the set, 2400×1600 in the file.          [Fix]    │
+│ │    Size is 1200×800 in the entry, 2400×1600 in the file.        [Fix]    │
 │ └─ ⚠ /public/val/logo_77b21.png                                            │
 │      No width, height or type recorded.                           [Fix]    │
 │                                                     [Fix all in this file] │
@@ -271,7 +271,7 @@ Everything `val validate` checks, from the same code:
 | Local file metadata                     | `image:*-metadata`, `file:*-metadata`, `video(s):add-metadata` | the file's bytes            |
 | Remote files: present, hashed, metadata | `*:check-remote`, `*:upload-remote`, `*:download-remote`       | the remote bytes, or a HEAD |
 | Remote ref on a host the project left   | the new code from the remote-files plan                        | the project's current hosts |
-| Media sets                              | `*:check-unique-folder`, `*:check-all-files`                   | the set's own entries       |
+| Media directories                       | `*:check-unique-folder`, `*:check-all-files`                   | the directory's own entries |
 
 `external:upload` is shown but **not** offered: it writes to live data, which
 is why `val validate --fix` does not apply it either. The page says to run
@@ -317,26 +317,26 @@ where the app runs in a Worker isolate.
 It is a stub today. It shares its check with the CLI's `checkRemoteRef`
 (`server/src/checkRemoteRef.ts`) rather than growing a second one.
 
-### The media sets are checked by what they track
+### Media directories are checked by what they track
 
-`s.imageset()`, `s.fileset()` and `s.videoset()` each hold a record of the
+`s.imagedir()`, `s.filedir()` and `s.videodir()` each hold a record of the
 files they track, keyed by path. The Studio checks **those entries**: that
 each tracked file exists, and that what the entry says about it (dimensions,
 mime type, a video's length) matches its bytes. A tracked file that is gone
-is a row with **Remove from the set**; an entry whose metadata is wrong is a
+is a row with **Remove**; an entry whose metadata is wrong is a
 row with **Fix**.
 
-It does not list the set's directory looking for files the set does not
+It does not list the directory on disk looking for files the module does not
 track. `*:check-all-files` does that on disk today (`validateSources` cannot,
 "Requires filesystem access to enumerate the gallery directory", `ValOps.ts`),
-and it stays the CLI's: in a managed project nothing puts a file in a set's
-directory except the set itself, so there is nothing untracked to find, and in
+and it stays the CLI's: in a managed project nothing puts a file in that
+directory except the module itself, so there is nothing untracked to find, and in
 a connected project the files that could be untracked are in the repository,
 where `val validate` sees them. So `ValOps` needs no `listFiles`, and http
 mode needs no file list from content.
 
-`*:check-unique-folder` needs no files at all: it compares the sets' `dir`
-options across the schemas, and runs the same everywhere.
+`*:check-unique-folder` needs no files at all: it compares the directory each
+`s.imagedir()`, `s.filedir()` and `s.videodir()` names across the schemas, and runs the same everywhere.
 
 ## How it runs
 
@@ -371,7 +371,7 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
   `partitionValidationErrors` is unchanged: it still decides what the publish
   gate shows. The new page does not go through it.
 - **server:** the reader in `createFixPatch`; `validateRemoteFiles`; the
-  tracked-entries half of the set checks, split from the directory listing
+  tracked-entries half of the media directory checks, split from the directory listing
   the CLI keeps; the two routes in `ValServer`.
 - **ui:** `/val/errors` grown into `/val/validate` (and the redirect), the top
   bar button and its count, and applying a returned patch through the
@@ -389,7 +389,7 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
    a disk reader. A refactor with no visible change; the CLI's tests pin it.
    **Done** for image, file and video metadata and for downloading a remote
    file (`FixFiles` in `server/src/fixFiles.ts`; the CLI and the language
-   server get `diskFixFiles` by default). Still on disk: the set checks
+   server get `diskFixFiles` by default). Still on disk: the media directory checks
    (step 5), and `checkRemoteRef`'s download cache (step 4).
 2. **The two routes**, for source and local-file checks only. **Done**:
    `POST /validate` and `POST /validate/fix` (`server/src/studioValidation.ts`).
@@ -401,13 +401,13 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
    answer both it and the top bar's count read, and `validateSession` keeps a
    run's results for the session. `/val/errors` is still parsed, as the same
    page. Two gaps, left for later steps:
-   - The banner leaves out "media sets" until step 5 makes it true.
+   - The banner leaves out "media directories" until step 5 makes it true.
    - Media inside a `.jsonValues()` entry is checked against its schema but
      not against its bytes: `validateSources` resolves an entry's errors
      through the project snapshot, which has no file reader, so the
      "not checked against the file" errors are dropped there rather than
      reported as unfixable. Comparing them needs the entry's media handed to
-     `validateFiles`, the same thing step 5 needs for sets.
+     `validateFiles`, the same thing step 5 needs for media directories.
 4. **`validateRemoteFiles`** and the remote fixes. **Done**: `checkRemoteFiles`
    (`server/src/remoteFileCheck.ts`) asks, cheapest first, whether a ref
    parses, whether it agrees with what is recorded about it, and whether its
@@ -435,9 +435,10 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
    (there is nothing to retry with until the Studio uploads on add, per the
    remote-files plan), so it is shown with **Open**; and `*:upload-remote` /
    `*:download-remote`, which still show the `val validate --fix` command.
-   Remote refs inside videos and media sets are not checked here.
+   Remote refs inside videos and media directories are not checked here.
 
-5. **The set checks over the set's own entries**, read through `FixFiles`.
+5. **The media directory checks over their own entries**, read through
+   `FixFiles`.
 6. **The host rewrite** from the remote-files plan, which then needs nothing
    here but its own fix code.
 7. **`val validate` inside `val publish`** (cli), independent of the rest and

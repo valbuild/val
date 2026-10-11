@@ -38,7 +38,7 @@ export type ValidatePageViewProps = {
 export type ValidateGroup = {
   id: string;
   title: string;
-  /** What kind of thing the module is, when that helps: "image set". */
+  /** What kind of thing the module is, when that helps: "imagedir". */
   kind?: string;
   /** The project-wide group for hosts, rather than one module. */
   remote?: boolean;
@@ -189,7 +189,7 @@ export function ValidatePageView({
       )}
       {fullCheck.status === "done" && openRows.length === 0 && (
         <Banner tone="success" icon={<CheckCircle2 size={16} aria-hidden />}>
-          {/* Media sets join this sentence when the full check covers them:
+          {/* Media directories join this sentence when the full check covers them:
               step 5 of docs/plans/studio-validate.md. */}
           Everything checks out: content, files and remote files. Ready to
           publish.

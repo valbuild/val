@@ -50,7 +50,7 @@ const OWN_CHECK: ValidateGroup[] = [
   },
 ];
 
-/** What "Check everything" adds: files, remote files and media sets. */
+/** What "Check everything" adds: files, remote files and media directories. */
 const FULL_CHECK: ValidateGroup[] = [
   {
     id: "remote",
@@ -82,7 +82,7 @@ const FULL_CHECK: ValidateGroup[] = [
   {
     id: "/content/media.val.ts",
     title: "content / media.val.ts",
-    kind: "image set",
+    kind: "imagedir",
     rows: [
       {
         id: "set-team",
@@ -253,7 +253,7 @@ export const FixStates: Story = {
       {
         id: "/content/media.val.ts",
         title: "content / media.val.ts",
-        kind: "image set",
+        kind: "imagedir",
         rows: [
           {
             id: "a",

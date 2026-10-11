@@ -61,7 +61,7 @@ export type StudioModuleCheck =
  * host that does not serve them is reported once, as a host, rather than as
  * an error on every image it holds (`checkRemoteFiles`).
  *
- * Not yet here: the media sets' own entries, step 5 of the plan.
+ * Not yet here: the media directories' own entries, step 5 of the plan.
  */
 export async function checkModuleForStudio(
   ops: ValOps,
