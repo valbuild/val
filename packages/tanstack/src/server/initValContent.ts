@@ -26,6 +26,7 @@ import {
   createValServer,
   ValServer,
   layeredSnapshot,
+  proposalSnapshot,
   proposalSnapshotForReaders,
   type ValPatchStore,
 } from "@valbuild/server";
@@ -312,6 +313,19 @@ export function snapshotForReaders(
 }
 
 /**
+ * What the server's own draft starts from, where it is not the bundle's: the
+ * layers `ValOpsHttp` puts over it (`siteSnapshotSources`, then
+ * `snapshotSources`), in the same form, so the Studio that starts from it
+ * holds the base the server reports. See `ValDraft.base`.
+ */
+export function draftBase(
+  http: Pick<ValHttpMode, "proposal" | "contentVersion"> | undefined,
+): Snapshot | undefined {
+  const layered = layeredSnapshot(http?.proposal, http?.contentVersion);
+  return layered !== undefined ? proposalSnapshot(layered) : undefined;
+}
+
+/**
  * Where an isolate says which content version it applied, for the platform
  * serving it to read back after a render (valbuild/home: the loader answers it
  * as a header). A Val that predates content versions never sets it, which is
@@ -362,6 +376,8 @@ export const initFetchValDraft =
     getDraftSourcesScope: GetDraftSourcesScope,
     /** A proposal's saved Source; see `ValDraft.snapshot`. */
     snapshot?: Snapshot,
+    /** What the server's draft starts from; see `ValDraft.base`. */
+    base?: Snapshot,
   ) =>
   async (): Promise<ValDraft | null> => {
     // At a proposal's address the page needs the snapshot whatever draft mode
@@ -401,7 +417,11 @@ export const initFetchValDraft =
           sources[path as ModuleFilePath] = source;
         }
       }
-      return { sources, ...(snapshot !== undefined ? { snapshot } : {}) };
+      return {
+        sources,
+        ...(snapshot !== undefined ? { snapshot } : {}),
+        ...(base !== undefined ? { base } : {}),
+      };
     } catch (err) {
       // Published content, as before this existed: a draft page that renders
       // the site is a degraded preview, one that fails to render is an outage.
@@ -1076,6 +1096,7 @@ export function initValContent(
   }
   const draftSourcesScope = createTanStackRequestScope();
   const snapshot = snapshotForReaders(opts?.http);
+  const base = draftBase(opts?.http);
   markContentApplied(opts?.http);
   const draftMode = opts?.draftMode ?? valDraftMode();
   const isEnabled = () => draftMode.isEnabled();
@@ -1158,6 +1179,7 @@ export function initValContent(
       requestCookies,
       draftSourcesScope,
       snapshot,
+      base,
     ),
   };
 }
