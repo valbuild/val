@@ -1293,7 +1293,9 @@ export function ValProvider({
                 if (
                   handoffRef.current.prepare(
                     // A merge's files come from content: see `pressMerge`.
+                    // Connected, every change is deployed: see `needsBuild`.
                     request.merge !== undefined ||
+                      statSourceMode !== "managed" ||
                       pendingNeedsBuild(system.patchStore, system.patchGroup()),
                     {
                       tryAgainOf: request.requestId,
@@ -3081,12 +3083,16 @@ export function usePublishSummary() {
     !isSettled(latestRequest.status);
   const busyHere = deployState.status === "running" && !waitingElsewhere;
   /*
-   * Whether a page that cannot build needs a builder tab for this publish:
-   * not for one of content alone, which goes live on the build already live.
-   * A guess at what the server decides -- see `pendingNeedsBuild` -- and a
-   * job that needs a build after all asks for the tab with one more tap.
+   * Whether a page that cannot build needs a builder tab for this publish.
+   * Managed, not for one of content alone, which goes live on the build
+   * already live -- a guess at what the server decides (`pendingNeedsBuild`),
+   * and a job that needs a build after all asks for the tab with one more
+   * tap. Connected, always: every change there is deployed, and the tab
+   * builds it sooner than CI does.
    */
+  const sourceMode = useSourceMode();
   const needsBuild = (): boolean =>
+    sourceMode !== "managed" ||
     val === null ||
     pendingNeedsBuild(val.system.patchStore, val.system.patchGroup());
   const publish = useCallback(
