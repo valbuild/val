@@ -1160,6 +1160,7 @@ export function ValProvider({
       patchIds: pressed.patchIds,
       ...(pressed.replaces !== null ? { replaces: pressed.replaces } : {}),
       ...(pressed.merge !== undefined ? { merge: pressed.merge } : {}),
+      viaTab: true,
     });
   /*
    * A publish this page pressed without a builder tab -- it guessed one of
@@ -2858,6 +2859,11 @@ export function usePublishingPatchIds(): ReadonlySet<string> {
 /** See {@link ValContextValue.handoff}. */
 export function useSiteHandoffState(): UseSiteHandoff {
   return useContext(ValContext).handoff;
+}
+
+/** This page's own presses: see {@link PublishJobsState}. */
+export function usePublishJobsState(): PublishJobsState {
+  return useContext(ValContext).publishJobsState;
 }
 
 /**

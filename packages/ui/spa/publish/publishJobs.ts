@@ -67,6 +67,16 @@ export type TrackedPublish = {
    * differs, which presses that merge anew rather than the site's changes.
    */
   merge?: string;
+  /**
+   * Pressed by a builder tab this page opened, which reports on it itself
+   * (`useSiteHandoff`). Not by this page.
+   */
+  viaTab?: true;
+  /**
+   * Its job needs a build this page cannot run (`needs-builder`): it waits
+   * for a builder tab, which only a tap may open.
+   */
+  needsBuilder?: true;
 };
 
 export type PublishJobsState = {
@@ -99,6 +109,8 @@ export type PublishJobs = {
     replaces?: string;
     /** See `TrackedPublish.merge`. */
     merge?: string;
+    /** See `TrackedPublish.viaTab`. */
+    viaTab?: boolean;
   }): void;
   /** A job moved: re-read what is not settled, and look for queued work. */
   nudge(): void;
@@ -364,6 +376,28 @@ export function createPublishJobs(options: {
           }),
       });
       if (result.status === "needs-builder") {
+        /*
+         * The presses waiting on it: those it carries, or -- one queued
+         * without a job, that content gave this one -- the newest open one.
+         */
+        const waiting = state.requests.filter(
+          (request) =>
+            open.has(request.requestId) && !isSettled(request.status),
+        );
+        const carried = waiting.filter((request) => carries(job, request));
+        const marked = new Set(
+          (carried.length > 0 ? carried : waiting.slice(-1)).map(
+            (request) => request.requestId,
+          ),
+        );
+        set({
+          ...state,
+          requests: state.requests.map((request) =>
+            marked.has(request.requestId)
+              ? { ...request, needsBuilder: true }
+              : request,
+          ),
+        });
         options.onNeedsBuilder?.(job.id);
       }
       if (result.status === "handed-off") {
@@ -531,6 +565,7 @@ export function createPublishJobs(options: {
     patchIds: sent,
     replaces,
     merge: namedMerge,
+    viaTab,
   }: {
     requestId: string;
     request: PublishRequestStatus;
@@ -538,6 +573,7 @@ export function createPublishJobs(options: {
     patchIds?: readonly string[];
     replaces?: string;
     merge?: string;
+    viaTab?: boolean;
   }) {
     const at = now();
     /*
@@ -585,6 +621,8 @@ export function createPublishJobs(options: {
           : {}),
       ...(carried.length > 0 ? { patchIds: carried } : {}),
       ...(merge !== undefined ? { merge } : {}),
+      ...(viaTab || before?.viaTab ? { viaTab: true } : {}),
+      ...(before?.needsBuilder && !viaTab ? { needsBuilder: true } : {}),
     };
     const known = before !== undefined;
     set({

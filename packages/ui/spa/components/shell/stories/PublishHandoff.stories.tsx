@@ -49,7 +49,10 @@ function OverlayScene({
   prompt?: boolean;
 }) {
   const working =
-    !prompt && (state.kind === "opening" || state.kind === "running");
+    !prompt &&
+    (state.kind === "opening" ||
+      state.kind === "running" ||
+      state.kind === "publishing");
   return (
     <div
       className="relative w-full overflow-hidden"
@@ -79,6 +82,7 @@ function OverlayScene({
             onShowTab={() => undefined}
             onReload={() => undefined}
             onOpenStudio={() => undefined}
+            onBuildInTab={() => undefined}
             onDismiss={working ? undefined : () => undefined}
           />
         )}
@@ -159,6 +163,23 @@ export const OverlayLive: OverlayStory = {
 /** The browser blocked the tab. Nothing is lost; one click finishes it. */
 export const OverlayTabBlocked: OverlayStory = {
   render: () => <OverlayScene state={{ kind: "blocked" }} />,
+};
+
+/**
+ * Publish of content alone: it needs no build, so no tab opens and the page
+ * publishes it itself. Then Live, as above (`ownPublishCard`).
+ */
+export const OverlayPublishingContent: OverlayStory = {
+  render: () => <OverlayScene state={{ kind: "publishing" }} />,
+};
+
+/**
+ * Pressed as content alone, and the server builds it after all -- a file
+ * the page did not know about, or a live build too old to show new content.
+ * One tap opens the tab that builds it.
+ */
+export const OverlayNeedsBuilder: OverlayStory = {
+  render: () => <OverlayScene state={{ kind: "needs-builder" }} />,
 };
 
 export const OverlayFailed: OverlayStory = {
