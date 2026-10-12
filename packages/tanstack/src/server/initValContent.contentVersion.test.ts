@@ -2,6 +2,7 @@ import type { ModuleFilePath } from "@valbuild/core";
 import type { ValContentVersion, ValProposal } from "@valbuild/server";
 import {
   CONTENT_APPLIED_GLOBAL,
+  draftBase,
   markContentApplied,
   snapshotForReaders,
 } from "./initValContent";
@@ -78,5 +79,30 @@ describe("saying the version was applied", () => {
   test("not when there is no version", () => {
     markContentApplied({ proposal });
     expect(Reflect.get(globalThis, CONTENT_APPLIED_GLOBAL)).toBeUndefined();
+  });
+});
+
+/*
+ * What the Studio's overlay starts from on a draft page (`ValDraft.base`): the
+ * layers the server's own draft starts from, as the server stores them. After
+ * a content-only publish the bundle holds the text from before it, so an
+ * overlay that started from the bundle put that text back on the page.
+ */
+describe("the base a draft page hands the Studio's overlay", () => {
+  test("a content version's Source, for what it holds", () => {
+    expect(draftBase({ contentVersion: version })).toEqual({
+      [PAGE]: { title: "Published since the build" },
+    });
+  });
+
+  test("at a proposal's address, the proposal's saves over the version", () => {
+    expect(draftBase({ proposal, contentVersion: version })).toEqual({
+      [PAGE]: { title: "Saved in the proposal" },
+    });
+  });
+
+  test("nothing, when the page serves the bundle's own content", () => {
+    expect(draftBase({})).toBeUndefined();
+    expect(draftBase(undefined)).toBeUndefined();
   });
 });

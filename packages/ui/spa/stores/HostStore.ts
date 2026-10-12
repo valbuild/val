@@ -94,7 +94,20 @@ export class HostStore implements HostBridge {
     return this.moduleFailures;
   }
 
-  receive(modules: ValModule<SelectorSource>[]): void {
+  receive(
+    modules: ValModule<SelectorSource>[],
+    /**
+     * The Source the page serves where it is not the bundle's, by module: a
+     * content version -- content published without a build -- and a
+     * proposal's saves over it (`ValDraft.base`, `window.__VAL_BASE__`). It IS
+     * the base, and the bundle is not: after a content-only publish the bundle
+     * still holds what it was built with. Taken as given, so the base's sha is
+     * the fold the server reports for the same Source and no base is fetched
+     * for it; without it, the pre-publish text was the Studio's base until a
+     * fetch replaced it, and reached a draft page whenever it got there first.
+     */
+    served?: Record<ModuleFilePath, Json>,
+  ): void {
     const serializedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
     const sources: Record<ModuleFilePath, Json> = {};
     const adopted: ModuleFilePath[] = [];
@@ -135,9 +148,11 @@ export class HostStore implements HostBridge {
         serializedSchemas[moduleFilePath] = schema["executeSerialize"]();
         // JSON round-trip so what crosses is provably clone-safe — no instance
         // can leak downstream by being reachable from a source value.
-        sources[moduleFilePath] = JSON.parse(
-          JSON.stringify(Internal.getSource(module)),
-        ) as Json;
+        const servedSource = served?.[moduleFilePath];
+        sources[moduleFilePath] =
+          servedSource !== undefined
+            ? servedSource
+            : (JSON.parse(JSON.stringify(Internal.getSource(module))) as Json);
         this.instances[moduleFilePath] = schema;
         adopted.push(moduleFilePath);
       } catch (error) {

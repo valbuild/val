@@ -207,6 +207,16 @@ export const ValTanStackProvider = (props: {
    */
   const hasDraft = initialDraft !== null && initialDraft.draftMode !== false;
   const snapshot = initialDraft?.snapshot;
+  /*
+   * The base the Studio's overlay must start from, where it is not the
+   * bundle's (`ValDraft.base`): set while rendering, not in an effect, so it
+   * is in place before the overlay -- loaded after this page hydrates -- takes
+   * its modules in. The same value every render, from a ref, so writing it
+   * again is harmless.
+   */
+  if (typeof window !== "undefined") {
+    window.__VAL_BASE__ = hasDraft ? initialDraft.base : undefined;
+  }
   // TODO: move below into react package
   const valStore = React.useMemo(() => {
     const store = new ValExternalStore();

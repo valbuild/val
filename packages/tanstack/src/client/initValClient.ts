@@ -218,6 +218,24 @@ function draftJsonEntry(
   return { status: "content", content: entry };
 }
 
+/**
+ * The draft view's answer for one entry, or -- where it has none, a marker for
+ * an entry the Studio has not loaded -- the snapshot's: a proposal's saves over
+ * the content version the site serves, with entries filled in. The order the
+ * server renders in (`snapshotJsonEntry` in initValContent), so a draft page
+ * hydrates to what it was served rather than to the build's older entry.
+ */
+function draftOrSnapshotJsonEntry(
+  draftSource: Json | undefined,
+  snapshotSource: Json | undefined,
+  key: string,
+): ReturnType<typeof draftJsonEntry> {
+  const draft = draftJsonEntry(draftSource, key);
+  return draft.status === "unavailable"
+    ? draftJsonEntry(snapshotSource, key)
+    : draft;
+}
+
 // Module-level cache of in-flight/resolved entry loads, so `React.use` gets a
 // stable promise across renders (keyed by module path + entry key).
 const jsonEntryPromiseCache = new Map<string, Promise<unknown>>();
@@ -244,7 +262,11 @@ function useValKeyStega<T extends ResolvableModule>(
   const moduleFilePath =
     valModule && (Internal.getValPath(valModule) as unknown as ModuleFilePath);
   const draftSource = useDraftModuleSource(moduleFilePath || undefined);
-  const draft = draftJsonEntry(draftSource, key);
+  const draft = draftOrSnapshotJsonEntry(
+    draftSource,
+    moduleFilePath && valOverlayContext.snapshot?.[moduleFilePath],
+    key,
+  );
   if (draft.status === "absent") {
     // Deleted in the draft state. Falling back to the bundled entry here would
     // render content the editor has just removed.
@@ -331,11 +353,11 @@ function useValRouteStega<T extends ResolvableModule>(
   // other router `draftSource` is.
   const val = useValStega(valModule);
   const encodes = useEncodesEditTags(valOverlayContext);
-  const draftSource = useDraftModuleSource(
+  const moduleFilePath =
     (valModule &&
       (Internal.getValPath(valModule) as unknown as ModuleFilePath)) ||
-      undefined,
-  );
+    undefined;
+  const draftSource = useDraftModuleSource(moduleFilePath);
   const resolvedParams = resolveParams(params);
   // Careful: null means there was an error - undefined means no params
   if (resolvedParams === null) {
@@ -357,7 +379,11 @@ function useValRouteStega<T extends ResolvableModule>(
     if (!url) {
       return null as RouteValueOf<T>;
     }
-    const draft = draftJsonEntry(draftSource, url);
+    const draft = draftOrSnapshotJsonEntry(
+      draftSource,
+      moduleFilePath && valOverlayContext.snapshot?.[moduleFilePath],
+      url,
+    );
     if (draft.status === "absent") {
       // The draft state says this route is gone — see useValKeyStega.
       return null as RouteValueOf<T>;

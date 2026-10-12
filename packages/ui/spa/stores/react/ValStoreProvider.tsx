@@ -112,7 +112,9 @@ export function ValStoreProvider({
        * The failures are not lost: `HostStore.receive` records the ones that
        * could not serialize and the dev banner names them.
        */
-      system.host.receive(modules);
+      // With the base the page serves, where it is not the bundle's: see
+      // `HostStore.receive`.
+      system.host.receive(modules, window.__VAL_BASE__);
       setReceived(true);
     })();
     return () => {

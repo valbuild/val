@@ -706,6 +706,55 @@ test("a job that ended here is not taken again when content hands it back", asyn
   expect(runs).toBe(1);
 });
 
+test("a job that needs a builder tab is given back for one, and not taken here again", async () => {
+  const { client } = fakeClient({ next: async () => job("J1") });
+  let runs = 0;
+  const needsBuilder: string[] = [];
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => {
+      runs++;
+      return { status: "needs-builder", jobId: j.id };
+    },
+    takesQueuedWork: () => true,
+    onNeedsBuilder: (jobId) => needsBuilder.push(jobId),
+  });
+  jobs.start();
+  await flush();
+  jobs.nudge();
+  await flush();
+  jobs.stop();
+  expect(needsBuilder).toEqual(["J1"]);
+  expect(runs).toBe(1);
+});
+
+test("the press whose job needs a builder tab says so, for the overlay's card", async () => {
+  const { client } = fakeClient();
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => ({ status: "needs-builder", jobId: j.id }),
+    takesQueuedWork: () => false,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: job("J1"),
+  });
+  await flush();
+  expect(jobs.get().requests[0]).toMatchObject({ needsBuilder: true });
+  // The builder tab presses it again, and the card is the tab's from then.
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: null,
+    viaTab: true,
+  });
+  expect(jobs.get().requests[0]?.needsBuilder).toBeUndefined();
+  expect(jobs.get().requests[0]?.viaTab).toBe(true);
+});
+
 test("a job CI builds is handed off unbuilt, and shown as CI's", async () => {
   const { client } = fakeClient();
   const jobs = createPublishJobs({

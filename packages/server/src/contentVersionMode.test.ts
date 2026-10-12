@@ -1,6 +1,15 @@
-import { initVal, type ModuleFilePath } from "@valbuild/core";
+import {
+  computeSourcesSha,
+  initVal,
+  type ModuleFilePath,
+} from "@valbuild/core";
 import { ValOpsHttp } from "./ValOpsHttp";
-import { contentFromEnv, type ValContentVersion } from "./proposal";
+import {
+  contentFromEnv,
+  layeredSnapshot,
+  proposalSnapshot,
+  type ValContentVersion,
+} from "./proposal";
 
 const { s, c, config } = initVal();
 
@@ -185,6 +194,40 @@ describe("a server given a content version", () => {
     const overlay = new URL(sent[0]!.url);
     expect(overlay.searchParams.get("job")).toBe("J-1");
     expect(overlay.searchParams.get("build")).toBe("base-build");
+  });
+});
+
+/*
+ * The Studio's overlay starts from the bundle's modules with the page's base
+ * over them (`ValDraft.base` in @valbuild/tanstack, `HostStore.receive` in
+ * @valbuild/ui), and compares the fold of that with the `sourcesSha` this
+ * server reports. Equal, it holds the base the server's chain is relative to
+ * and fetches none; unequal, it started from the bundle's text -- which after a
+ * content-only publish is the text from before it, and reached a draft page.
+ */
+describe("the base the Studio's overlay is handed", () => {
+  test("folds to the sourcesSha the server reports for a content version", async () => {
+    const served = await ops(version()).getSourcesSha();
+    const layered = layeredSnapshot(undefined, version());
+    if (layered === undefined) throw new Error("a version layers to itself");
+    const base = proposalSnapshot(layered);
+    const studio = computeSourcesSha([
+      { path: PAGE, source: base[PAGE] ?? { title: "From the bundle" } },
+      {
+        path: FOOTER,
+        source: base[FOOTER] ?? { text: "Footer from the bundle" },
+      },
+    ]);
+    expect(studio).toEqual(served);
+  });
+
+  test("and the bundle's own fold does not: that was the old text", async () => {
+    const served = await ops(version()).getSourcesSha();
+    const bundle = computeSourcesSha([
+      { path: PAGE, source: { title: "From the bundle" } },
+      { path: FOOTER, source: { text: "Footer from the bundle" } },
+    ]);
+    expect(bundle).not.toEqual(served);
   });
 });
 
