@@ -158,3 +158,47 @@ describe("useValKey at a proposal's address", () => {
     expect(shown()).toBe("published A");
   });
 });
+
+/*
+ * After a content-only publish the server renders a draft page's entries from
+ * the content version (`snapshotJsonEntry`), and the Studio's overlay sends the
+ * module with markers in place of entries it has not loaded. A marker is "the
+ * draft view cannot say", so the page has to fall back the way the server did
+ * -- to the snapshot, then the build -- or hydration swaps the published entry
+ * for the build's older one.
+ */
+describe("useValKey in draft mode over a content version", () => {
+  const draftTree = (store: ValExternalStore) =>
+    React.createElement(ValOverlayProvider, {
+      store,
+      suspend: false,
+      draftMode: true,
+      snapshot: { [path]: { "/a": { title: "content version A" } } },
+      children: React.createElement(React.Suspense, {
+        fallback: React.createElement("span", { "data-testid": "fallback" }),
+        children: React.createElement(Show, { entryKey: "/a" }),
+      }),
+    });
+
+  it("renders the content version's entry while the overlay has only a marker", async () => {
+    const store = new ValExternalStore();
+    await act(async () => {
+      render(draftTree(store));
+    });
+    await act(async () => {
+      store.update(path, { "/a": { _type: "json" } });
+    });
+    expect(shown()).toBe("content version A");
+  });
+
+  it("still renders the overlay's entry once it has one", async () => {
+    const store = new ValExternalStore();
+    await act(async () => {
+      render(draftTree(store));
+    });
+    await act(async () => {
+      store.update(path, { "/a": { title: "edited A" } });
+    });
+    expect(shown()).toBe("edited A");
+  });
+});
