@@ -1,5 +1,24 @@
 # @valbuild/tanstack
 
+## 0.144.3
+
+### Patch Changes
+
+- [#833](https://github.com/valbuild/val/pull/833) [`99fcac5`](https://github.com/valbuild/val/commit/99fcac527f2d5ba37c4b132ef08189b955d69e51) Thanks [@freekh](https://github.com/freekh)! - A draft page no longer flips back to the text from before a content-only publish.
+
+  After content was published without a build, the Studio's overlay on a draft page started from the text compiled into the build, which still held the old content, and handed it to the page. Depending on which arrived first, an editor reloading the page saw the new text, then the old, then the new again, in a freshly opened tab and long after the publish. Visitors were not affected.
+
+  The page now hands the overlay the content it serves (`ValDraft.base`, from the content version and any proposal's saves), and the overlay starts from that instead of the build's text, so the two never disagree.
+
+  The same holds for `.jsonValues()` entries: where the overlay has not loaded an entry, `useValKey` and `useValRoute` now fall back to the content version's entry, as the server did, before the build's.
+
+- Updated dependencies [[`99fcac5`](https://github.com/valbuild/val/commit/99fcac527f2d5ba37c4b132ef08189b955d69e51), [`0e09e9c`](https://github.com/valbuild/val/commit/0e09e9cdac4918bdfa1c01a92a8968a516f8c0c6)]:
+  - @valbuild/ui@0.144.3
+  - @valbuild/react@0.144.3
+  - @valbuild/server@0.144.3
+  - @valbuild/language-server@0.144.3
+  - @valbuild/mcp@0.144.3
+
 ## 0.144.2
 
 ### Patch Changes
