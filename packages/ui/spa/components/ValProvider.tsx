@@ -59,7 +59,11 @@ import {
 import { isJsonArray } from "../utils/isJsonArray";
 import { readableProfilesError } from "../utils/readableProfilesError";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
-import { newestUnpublished, pressedAlready } from "../publish/pressForPage";
+import {
+  newestUnpublished,
+  pendingNeedsBuild,
+  pressedAlready,
+} from "../publish/pressForPage";
 import type { ChainProgress } from "../utils/describePendingChangesStall";
 import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
@@ -1058,6 +1062,7 @@ export function ValProvider({
   const handoffRef = useRef(handoff);
   handoffRef.current = handoff;
   const onPublishSettled = useRef<(request: TrackedPublish) => void>(() => {});
+  const onNeedsBuilder = useRef<(jobId: string) => void>(() => {});
   /** "Published" toasts waiting for the edge window to end. */
   const liveToasts = useRef(new Set<ReturnType<typeof setTimeout>>());
   useEffect(() => {
@@ -1101,6 +1106,12 @@ export function ValProvider({
           onPhase,
           // A connected tab takes work it cannot build, and says so.
           canBuild: canBuildHere,
+          /*
+           * Managed, where only a tab builds: a page that cannot pressed a
+           * publish it guessed needs no build (`pendingNeedsBuild`), and one
+           * that does after all is given back for a builder tab.
+           */
+          buildsElsewhere: !connectedJobsRef.current,
         });
       },
       /*
@@ -1115,8 +1126,20 @@ export function ValProvider({
         !atProposalRef.current &&
         (connectedJobsRef.current ||
           canBuildHere() ||
-          handoffRef.current.active()),
+          handoffRef.current.active() ||
+          /*
+           * A page that cannot build, waiting on a press of its own that it
+           * made without a builder tab (one of content alone): when its turn
+           * comes, its job is this page's to take, and nobody else's.
+           */
+          jobs
+            .get()
+            .requests.some(
+              (request) =>
+                !isSettled(request.status) && request.handedOffAt === undefined,
+            )),
       onSettled: (request) => onPublishSettled.current(request),
+      onNeedsBuilder: (jobId) => onNeedsBuilder.current(jobId),
     });
     return jobs;
   }, [handsOffPublish]);
@@ -1138,9 +1161,39 @@ export function ValProvider({
       ...(pressed.replaces !== null ? { replaces: pressed.replaces } : {}),
       ...(pressed.merge !== undefined ? { merge: pressed.merge } : {}),
     });
+  /*
+   * A publish this page pressed without a builder tab -- it guessed one of
+   * content alone -- whose job needs a build after all: only a tap may open
+   * the tab, so the editor is asked for one. The tab presses the same request
+   * again, finds it pressed, and builds its job.
+   */
+  onNeedsBuilder.current = (jobId) => {
+    const open = publishJobs
+      .get()
+      .requests.filter((request) => !isSettled(request.status));
+    const request =
+      open.find((candidate) => candidate.jobId === jobId) ?? open.at(-1);
+    if (request === undefined) return;
+    toast("This publish needs a build", {
+      id: `needs-builder:${request.requestId}`,
+      description:
+        "It changes something the live site cannot show without one, and this browser builds in a tab of its own.",
+      duration: Infinity,
+      action: {
+        label: "Build in a new tab",
+        onClick: () => {
+          handoffRef.current.prepare(true, {
+            requestId: request.requestId,
+            after: null,
+          });
+        },
+      },
+    });
+  };
   onPublishSettled.current = (request) => {
     const status = request.status;
     const id = `publish:${request.requestId}`;
+    toast.dismiss(`needs-builder:${request.requestId}`);
     // A publish a builder tab handed to content: the card's last word.
     handoffRef.current.settled(request.requestId, status);
     if (status.kind === "live") {
@@ -1238,14 +1291,19 @@ export function ValProvider({
                 );
                 void system.patchSync.flush().catch(() => undefined);
                 if (
-                  handoffRef.current.prepare(true, {
-                    tryAgainOf: request.requestId,
-                    after,
-                    // A merge's try again presses the merge: see `tryAgain`.
-                    ...(request.merge !== undefined
-                      ? { merge: request.merge }
-                      : {}),
-                  })
+                  handoffRef.current.prepare(
+                    // A merge's files come from content: see `pressMerge`.
+                    request.merge !== undefined ||
+                      pendingNeedsBuild(system.patchStore, system.patchGroup()),
+                    {
+                      tryAgainOf: request.requestId,
+                      after,
+                      // A merge's try again presses the merge: see `tryAgain`.
+                      ...(request.merge !== undefined
+                        ? { merge: request.merge }
+                        : {}),
+                    },
+                  )
                 ) {
                   return;
                 }
@@ -3022,6 +3080,15 @@ export function usePublishSummary() {
     latestRequest !== undefined &&
     !isSettled(latestRequest.status);
   const busyHere = deployState.status === "running" && !waitingElsewhere;
+  /*
+   * Whether a page that cannot build needs a builder tab for this publish:
+   * not for one of content alone, which goes live on the build already live.
+   * A guess at what the server decides -- see `pendingNeedsBuild` -- and a
+   * job that needs a build after all asks for the tab with one more tap.
+   */
+  const needsBuild = (): boolean =>
+    val === null ||
+    pendingNeedsBuild(val.system.patchStore, val.system.patchGroup());
   const publish = useCallback(
     async (summary: string): Promise<PagePublishResult> => {
       /*
@@ -3033,7 +3100,7 @@ export function usePublishSummary() {
        */
       const handedOff =
         handoff.active() ||
-        handoff.prepare(buildsInTab, {
+        handoff.prepare(buildsInTab && needsBuild(), {
           after: val
             ? newestUnpublished(val.system.patchStore, val.system.patchGroup())
             : null,
@@ -3373,7 +3440,7 @@ export function usePublishSummary() {
        * flushes as well, so nothing is sent that would not have been.
        */
       void val?.system.patchSync.flush().catch(() => undefined);
-      return handoff.prepare(buildsInTab, { after });
+      return handoff.prepare(buildsInTab && needsBuild(), { after });
     },
     /**
      * Whether the project wants AI to write its commit messages.

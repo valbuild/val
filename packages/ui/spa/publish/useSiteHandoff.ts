@@ -23,6 +23,12 @@ export type PrepareOptions = {
   after?: string | null;
   /** Publish in a proposal: the tab presses this proposal's merge. */
   merge?: string;
+  /**
+   * A press this page made already, without a tab, whose job turned out to
+   * need a build: the tab presses it again -- idempotent on the id, so it
+   * finds it pressed and follows it -- and builds its job.
+   */
+  requestId?: string;
 };
 
 /** What the builder tab pressed for this page. See `ToSite`. */
@@ -216,7 +222,7 @@ export function useSiteHandoff(
        * This page's tab, so the job is leased to the tab content expects and
        * this page's own runner can still hand the tab a job it took.
        */
-      const requestId = randomUUID();
+      const requestId = prepareOptions?.requestId ?? randomUUID();
       pressedFor.current = requestId;
       ownRequest.current = requestId;
       const after = prepareOptions?.after ?? null;

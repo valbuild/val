@@ -126,6 +126,41 @@ export function newestUnpublished(
   return null;
 }
 
+/**
+ * Whether publishing what the page has not published needs a build: one of
+ * its changes adds or removes a file kept in the project. A page that cannot
+ * build has to open a builder tab in the tap, before anything else knows, and
+ * only then -- text, and files kept remotely, go live on the build already
+ * there (valbuild/home `docs/hosted-publishing.md`, a content-only publish),
+ * and a tab for them opened, did nothing, and closed. The server decides; this
+ * is the page's guess at it, and a publish the server builds after all is
+ * handed to a tab then, at one more tap.
+ *
+ * Of the editor's own changes, where the project has groups: see
+ * {@link newestUnpublished}.
+ */
+export function pendingNeedsBuild(
+  store: {
+    allRecords(): readonly {
+      patchId: string;
+      patch: readonly { op: string; remote?: boolean }[];
+    }[];
+    pendingAmong(patchIds: Iterable<string>): Set<string>;
+  },
+  scope: readonly string[] | null,
+): boolean {
+  const inScope = scope === null ? null : new Set(scope);
+  const records = store
+    .allRecords()
+    .filter((record) => inScope === null || inScope.has(record.patchId));
+  const pending = store.pendingAmong(records.map((record) => record.patchId));
+  return records.some(
+    (record) =>
+      pending.has(record.patchId) &&
+      record.patch.some((op) => op.op === "file" && op.remote !== true),
+  );
+}
+
 /** Where the server says a change is: see `PatchStore.serverStateOf`. */
 export type ChangeOnServer = "shipped" | "pending" | "absent" | "unknown";
 

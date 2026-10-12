@@ -285,6 +285,12 @@ export function createPublishJobs(options: {
   takesQueuedWork: () => boolean;
   /** A tracked request settled: Live, failed, cancelled, nothing to publish. */
   onSettled?: (request: TrackedPublish) => void;
+  /**
+   * A job this tab took needs a build it cannot run (`needs-builder`): given
+   * back for a builder tab, which only a tap may open. Not taken here again
+   * (see `ended`).
+   */
+  onNeedsBuilder?: (jobId: string) => void;
   pollMs?: number;
   now?: () => number;
 }): PublishJobs {
@@ -357,6 +363,9 @@ export function createPublishJobs(options: {
             }
           }),
       });
+      if (result.status === "needs-builder") {
+        options.onNeedsBuilder?.(job.id);
+      }
       if (result.status === "handed-off") {
         const at = now();
         const builtBy = result.built

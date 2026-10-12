@@ -40,6 +40,12 @@ export type StudioJobResult =
     }
   /** The job is no longer this tab's. Nothing to report. */
   | { status: "lost"; jobId: string }
+  /**
+   * A managed job that needs a build, prepared by a tab that cannot run the
+   * builder (`buildsElsewhere`). Not reported: its lease lapses, it goes back
+   * to the queue, and a builder tab -- opened with one more tap -- takes it.
+   */
+  | { status: "needs-builder"; jobId: string }
   /** A step failed, and was reported as failed. */
   | { status: "failed"; jobId: string; message: string };
 
@@ -66,6 +72,13 @@ export async function runStudioJob(options: {
    * managed job never reaches a tab that cannot -- it is handed to one that can.
    */
   canBuild?: () => boolean;
+  /**
+   * Managed, and a tab that cannot build: an iPhone, or the overlay, running
+   * its own publish so that one of content alone needs no tab. A job that
+   * needs a build after all is given back (`needs-builder`) rather than said
+   * to need none -- content refuses that for a managed job, which has no CI.
+   */
+  buildsElsewhere?: boolean;
 }): Promise<StudioJobResult> {
   const { client, job, tab, onPhase } = options;
   let lost = false;
@@ -121,6 +134,9 @@ export async function runStudioJob(options: {
      * this tab cannot run the builder. Said, not attempted -- content seals
      * the job without a build, and CI builds the push.
      */
+    if (options.buildsElsewhere && !(options.canBuild?.() ?? true)) {
+      return { status: "needs-builder", jobId: job.id };
+    }
     if (!prepared.buildable || !(options.canBuild?.() ?? true)) {
       onPhase({ kind: "handing-off" });
       const handed = await client.step(job.id, {
