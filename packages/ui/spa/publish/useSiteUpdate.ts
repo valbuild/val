@@ -12,7 +12,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DependencyChange } from "@valbuild/shared/internal";
 import { createStudioPublishClient } from "./publishClient";
 import { runSiteUpdate, type SiteUpdateOutcome } from "./runSiteUpdate";
-import { describeDeployPhase } from "./deployProgress";
+import { deployPercent, describeDeployPhase } from "./deployProgress";
+import type { DeployPhase } from "./runStudioDeploy";
 import type { UseStudioDeploy } from "./useStudioDeploy";
 import {
   NOT_STORED_MESSAGE,
@@ -37,7 +38,17 @@ export type SiteUpdateView =
   /** The platform will not update this project; the message says why. */
   | { status: "unavailable"; message: string }
   | { status: "check-failed"; message: string }
-  | { status: "updating"; step: string }
+  /**
+   * `percent` and `stage` once the deploy has reported a phase: the line in
+   * `step` is what the status bar says, the stage is which of the three steps
+   * an editor was promised ("rebuilt, checked, live") it is on.
+   */
+  | {
+      status: "updating";
+      step: string;
+      percent?: number;
+      stage?: SiteUpdateStage;
+    }
   /**
    * The builder tab this page opened was blocked by the browser. The update
    * is waiting for it; `openBuilderTab` opens it from a click, which is
@@ -46,6 +57,36 @@ export type SiteUpdateView =
   | { status: "blocked" }
   | { status: "updated"; changes: DependencyChange[] }
   | { status: "failed"; message: string; details: string };
+
+/** The three steps the update dialog lists, in order. */
+export type SiteUpdateStage = "rebuilding" | "checking" | "going-live";
+
+/**
+ * Which step a deploy phase belongs to. Everything before the canary render
+ * is the rebuild -- the upload included, which an editor has no reason to
+ * tell apart from building.
+ */
+export function stageOfPhase(kind: DeployPhase["kind"]): SiteUpdateStage {
+  switch (kind) {
+    case "verifying":
+      return "checking";
+    case "promoting":
+      return "going-live";
+    default:
+      return "rebuilding";
+  }
+}
+
+/**
+ * The same, from a builder tab's percent: the tab sends the label and the
+ * percent of its phase, not the phase. The thresholds are `deployPercent`'s
+ * own, so the two cannot disagree about where checking starts.
+ */
+export function stageOfPercent(percent: number): SiteUpdateStage {
+  if (percent >= deployPercent({ kind: "promoting" })) return "going-live";
+  if (percent >= deployPercent({ kind: "verifying" })) return "checking";
+  return "rebuilding";
+}
 
 export type UseSiteUpdate = {
   view: SiteUpdateView;
@@ -80,10 +121,19 @@ export function viewOfOutcome(outcome: SiteUpdateOutcome): SiteUpdateView {
 
 export function useSiteUpdate(options: {
   deploy: UseStudioDeploy;
+  /**
+   * Whether to ask at all. The shell calls this hook on every Studio, so the
+   * answer can be a badge before anyone opens anything, but only a Studio that
+   * builds its own site has anything to ask about -- and a read-only one has
+   * nobody who could press the button. Off, the view stays `checking` and
+   * nothing is fetched.
+   */
+  enabled?: boolean;
   /** Val's API root on this origin; the same default `useStudioDeploy` has. */
   api?: string;
 }): UseSiteUpdate {
   const { deploy } = options;
+  const enabled = options.enabled ?? true;
   const api = options.api ?? "/api/val";
   const [view, setView] = useState<SiteUpdateView>({ status: "checking" });
   /** Set while an update runs, so a check that lands late cannot overwrite it. */
@@ -119,8 +169,8 @@ export function useSiteUpdate(options: {
   // On mount the view already says `checking`, so this sets nothing until the
   // answer arrives.
   useEffect(() => {
-    load();
-  }, [load]);
+    if (enabled) load();
+  }, [load, enabled]);
 
   const check = useCallback(() => {
     if (updating.current) return;
@@ -173,7 +223,16 @@ export function useSiteUpdate(options: {
       tab.onMessage((message) => {
         if (handoff.current !== tab) return;
         if (message.type === "phase") {
-          setView({ status: "updating", step: message.label });
+          setView({
+            status: "updating",
+            step: message.label,
+            ...(message.percent === undefined
+              ? {}
+              : {
+                  percent: message.percent,
+                  stage: stageOfPercent(message.percent),
+                }),
+          });
         } else if (message.type === "update-done") {
           setView(viewOfOutcome(message.outcome));
           tab.close();
@@ -218,7 +277,12 @@ export function useSiteUpdate(options: {
   const deployState = deploy.state;
   const shown: SiteUpdateView =
     view.status === "updating" && deployState.status === "running"
-      ? { status: "updating", step: describeDeployPhase(deployState.phase) }
+      ? {
+          status: "updating",
+          step: describeDeployPhase(deployState.phase),
+          percent: deployPercent(deployState.phase),
+          stage: stageOfPhase(deployState.phase.kind),
+        }
       : view;
 
   return { view: shown, check, update, openBuilderTab };

@@ -3,6 +3,11 @@ import { ReactNode } from "react";
 import { cn } from "../designSystem/cn";
 import { PreviewButton, PublishButton } from "./TopBar";
 import { LocaleFilter } from "./LocaleFilter";
+import { SiteUpdateBadge } from "./SiteUpdateBadge";
+import {
+  quickActionsLabel,
+  type SiteUpdateIndicator,
+} from "./siteUpdateIndicator";
 
 /**
  * Where a note floating over the bottom of the Studio is anchored, so it
@@ -39,6 +44,7 @@ export function MobileBottomBar({
   locale = null,
   onLocaleChange,
   onOpenQuickActions,
+  quickActionsIndicator = null,
   onOpenAI,
   isAIOpen,
   onToggleCanvas,
@@ -65,6 +71,11 @@ export function MobileBottomBar({
    * Upload media, none of which were reachable on a phone at all.
    */
   onOpenQuickActions?: () => void;
+  /**
+   * The site update's mark on the Quick actions button. Drawn over the icon's
+   * corner, so it takes no width from a row that has none to spare at 320px.
+   */
+  quickActionsIndicator?: SiteUpdateIndicator | null;
   /**
    * Open the assistant.
    *
@@ -112,10 +123,16 @@ export function MobileBottomBar({
         <button
           type="button"
           onClick={onOpenQuickActions}
-          aria-label="Quick actions"
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border-float text-fg-secondary"
+          aria-label={quickActionsLabel(quickActionsIndicator)}
+          className="relative grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border-float text-fg-secondary"
         >
           <PanelRight size={16} />
+          {quickActionsIndicator && (
+            <SiteUpdateBadge
+              indicator={quickActionsIndicator}
+              placement="corner"
+            />
+          )}
         </button>
       )}
       {onOpenAI && (

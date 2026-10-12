@@ -20,7 +20,9 @@ import {
 } from "./types";
 import { useShellData } from "./useShellData";
 import { ValSettingsSections } from "./ValSettingsSections";
-import { ValSiteUpdate } from "./ValSiteUpdate";
+import { SiteUpdateSection } from "./SiteUpdateSection";
+import { useSiteUpdate } from "../../publish/useSiteUpdate";
+import { canBuildHere } from "../../publish/handoff";
 import { ConnectedExternalPages } from "./ConnectedExternalPages";
 import { useValPortal } from "../ValPortalProvider";
 import { useContentSearch } from "./useContentSearch";
@@ -291,8 +293,24 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     canvasTransform: urlState.initial.canvasTransform,
   }));
   const { isPublishing } = usePublishSummary();
-  const { state: deployState } = useStudioDeployState();
+  const deploy = useStudioDeployState();
+  const deployState = deploy.state;
   const studioIsDeployer = useStudioIsDeployer();
+  /**
+   * The site's update, asked once for the whole Studio so the badge on Quick
+   * actions, the dialog and Settings → Updates are one state rather than three
+   * checks that could disagree.
+   *
+   * Only where the Studio builds the site (a managed project: a connected
+   * project's dependencies are its repository's) and only for someone who
+   * could publish it: anyone who can publish may update, and nobody else is
+   * shown a button that would be refused. A plan that has gone read-only is
+   * the one way to be unable to publish today.
+   */
+  const siteUpdateEnabled =
+    studioIsDeployer && planAccess?.access !== "read-only";
+  const siteUpdate = useSiteUpdate({ deploy, enabled: siteUpdateEnabled });
+  const reloadStudio = useCallback(() => window.location.reload(), []);
   const handoff = useSiteHandoffState();
   /**
    * Whether the fields can be trusted yet.
@@ -500,11 +518,28 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
          * is a rebuild and a publish, which is the Studio's job for a managed
          * project and nobody's here for a connected one.
          */}
-        {studioIsDeployer && <ValSiteUpdate />}
+        {siteUpdateEnabled && (
+          <SiteUpdateSection
+            view={siteUpdate.view}
+            buildsInNewTab={!canBuildHere()}
+            onUpdate={siteUpdate.update}
+            onRetry={siteUpdate.check}
+            onReload={reloadStudio}
+            onOpenBuilderTab={siteUpdate.openBuilderTab}
+          />
+        )}
         <ValSettingsSections moduleFilePath={data.settings?.moduleFilePath} />
       </>
     ),
-    [data.settings?.moduleFilePath, studioIsDeployer],
+    [
+      data.settings?.moduleFilePath,
+      siteUpdateEnabled,
+      siteUpdate.view,
+      siteUpdate.update,
+      siteUpdate.check,
+      siteUpdate.openBuilderTab,
+      reloadStudio,
+    ],
   );
 
   /**
@@ -1238,6 +1273,18 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         renderEditor={renderEditor}
         renderSettings={renderSettings}
         renderExternalPages={renderExternalPages}
+        siteUpdate={
+          siteUpdateEnabled
+            ? {
+                view: siteUpdate.view,
+                buildsInNewTab: !canBuildHere(),
+                onUpdate: siteUpdate.update,
+                onRetry: siteUpdate.check,
+                onReload: reloadStudio,
+                onOpenBuilderTab: siteUpdate.openBuilderTab,
+              }
+            : undefined
+        }
         tourEnabled={isTourOffered(studioSettings)}
         editorOverride={overrideEditor}
         notice={shellNotice}

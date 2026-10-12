@@ -58,6 +58,12 @@ import {
 } from "./tourSteps";
 import { servedPath } from "../../utils/mediaPath";
 import { useShellBreakpoint } from "./useShellBreakpoint";
+import type { SiteUpdateView } from "../../publish/useSiteUpdate";
+import { SiteUpdateDialog } from "./SiteUpdateDialog";
+import {
+  siteUpdateActionLabel,
+  siteUpdateIndicator,
+} from "./siteUpdateIndicator";
 import {
   ShellBreakpoint,
   ShellChangeActivity,
@@ -309,6 +315,24 @@ export type ShellProps = {
    * Absent — in Storybook, or in a project with no external router — and the
    * Pages panel has no external pages button.
    */
+  /**
+   * The site's update, where the Studio is what builds the site (a managed
+   * project) and the person could publish it. Absent everywhere else, and then
+   * nothing about updates is drawn.
+   *
+   * The shell owns where it is shown -- a badge on Quick actions, the Show
+   * updates row, the dialog -- and the app owns the update itself
+   * (`useSiteUpdate`), so a story can hand in any state.
+   */
+  siteUpdate?: {
+    view: SiteUpdateView;
+    /** The update runs in a tab of its own (WebKit, every iPhone). */
+    buildsInNewTab: boolean;
+    onUpdate: () => void;
+    onRetry: () => void;
+    onReload: () => void;
+    onOpenBuilderTab: () => void;
+  };
   renderExternalPages?: (props: {
     close: () => void;
     /**
@@ -539,6 +563,7 @@ export function Shell({
   renderEditor,
   renderSettings,
   renderExternalPages,
+  siteUpdate,
   editorOverride,
   notice,
   statusNotice,
@@ -689,6 +714,18 @@ export function Shell({
    */
   const deployments = data.deployments;
   const studioIsDeployer = data.studioIsDeployer ?? false;
+  /**
+   * The update dialog. Opened only by a person (Show updates, or the row it
+   * becomes while the update runs), never by the update arriving: an update
+   * is something somebody chooses to do.
+   */
+  const [isSiteUpdateOpen, setIsSiteUpdateOpen] = useState(false);
+  const updateIndicator = siteUpdate
+    ? siteUpdateIndicator(siteUpdate.view)
+    : null;
+  const updateActionLabel = siteUpdate
+    ? siteUpdateActionLabel(siteUpdate.view)
+    : null;
   const openSearch = useCallback(() => setIsSearchOpen(true), []);
   useGlobalSearchShortcut(openSearch);
   const searchResults = useMemo(() => collectSearchResults(data), [data]);
@@ -1133,6 +1170,7 @@ export function Shell({
           unreadNotifications={
             data.notifications === undefined ? undefined : unreadNotifications
           }
+          quickActionsIndicator={updateIndicator}
           // The rail owns the account wherever it is shown. Passing the user
           // here too would put the same avatar in two corners of one screen.
           user={breakpoint === "desktop" ? undefined : data.user}
@@ -1207,6 +1245,7 @@ export function Shell({
               }
               onOpenStatus={() => setOpenPanel("account")}
               onOpenQuickActions={() => setOpenPanel("utility")}
+              quickActionsIndicator={updateIndicator}
               /*
                * The same gate and the same ACT as the top bar's button above
                * this breakpoint: absent when there is no assistant, and a
@@ -1266,6 +1305,21 @@ export function Shell({
             navSwitcher={navSwitcher}
             isLoading={isLoading}
             loadError={loadError}
+          />
+        )}
+
+        {siteUpdate && isSiteUpdateOpen && (
+          <SiteUpdateDialog
+            view={siteUpdate.view}
+            breakpoint={breakpoint}
+            buildsInNewTab={siteUpdate.buildsInNewTab}
+            pendingChanges={reviewCount ?? pendingChanges}
+            portalContainer={portalContainer}
+            onUpdate={siteUpdate.onUpdate}
+            onRetry={siteUpdate.onRetry}
+            onReload={siteUpdate.onReload}
+            onOpenBuilderTab={siteUpdate.onOpenBuilderTab}
+            onClose={() => setIsSiteUpdateOpen(false)}
           />
         )}
 
@@ -1374,6 +1428,21 @@ export function Shell({
 
         {openPanel === "utility" && (
           <UtilityPanel
+            siteUpdate={
+              updateIndicator && updateActionLabel
+                ? {
+                    label: updateActionLabel,
+                    indicator: updateIndicator,
+                    onOpen: () => {
+                      // The dialog takes over: on a phone the panel is a sheet
+                      // under it, and on a desktop a second thing open beside
+                      // the one being read.
+                      setOpenPanel(null);
+                      setIsSiteUpdateOpen(true);
+                    },
+                  }
+                : undefined
+            }
             breakpoint={breakpoint}
             activity={data.activity}
             validationErrors={data.validationErrors}

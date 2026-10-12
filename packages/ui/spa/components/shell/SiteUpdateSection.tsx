@@ -4,9 +4,10 @@ import { SettingsSection, SettingsSectionDivider } from "./SettingsPanel";
 import type { SiteUpdateView } from "../../publish/useSiteUpdate";
 
 /**
- * The update section, presentational. The connected half is `ValSiteUpdate`,
- * in its own file so this one imports no provider -- see
- * `settingsPanelPresentational.test.tsx` for why that matters.
+ * The update section, presentational. `ValShell` connects it, with the same
+ * `useSiteUpdate` the Quick actions badge and `SiteUpdateDialog` read, so this
+ * file imports no provider -- see `settingsPanelPresentational.test.tsx` for
+ * why that matters.
  */
 export function SiteUpdateSection({
   view,

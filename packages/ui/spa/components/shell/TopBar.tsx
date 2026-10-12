@@ -19,6 +19,11 @@ import {
 } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
+import { SiteUpdateBadge } from "./SiteUpdateBadge";
+import {
+  quickActionsLabel,
+  type SiteUpdateIndicator,
+} from "./siteUpdateIndicator";
 import { Avatar } from "../Avatar";
 import { AccountErrorDot } from "./AccountError";
 import { StudioMark } from "./ValLogo";
@@ -88,6 +93,11 @@ export type TopBarProps = {
    * hidden; a number — including 0 — means show it.
    */
   unreadNotifications?: number;
+  /**
+   * The site update's mark on the Quick actions button, where the Show updates
+   * row is. `null` or absent: nothing to show. See `siteUpdateIndicator`.
+   */
+  quickActionsIndicator?: SiteUpdateIndicator | null;
   /**
    * Whether to offer the history page.
    *
@@ -207,6 +217,7 @@ export function TopBar({
   onTogglePanel,
   onOpenMenu,
   unreadNotifications,
+  quickActionsIndicator = null,
   historyEnabled = false,
   historyActive = false,
   onOpenHistory,
@@ -465,12 +476,18 @@ export function TopBar({
         )}
         {!isMobile && (
           <IconButton
-            label="Quick actions"
+            label={quickActionsLabel(quickActionsIndicator)}
             active={openPanel === "utility"}
             onClick={() => onTogglePanel("utility")}
             tourTarget="utility"
           >
             <PanelRight size={16} />
+            {quickActionsIndicator && (
+              <SiteUpdateBadge
+                indicator={quickActionsIndicator}
+                placement="corner"
+              />
+            )}
           </IconButton>
         )}
         {unreadNotifications !== undefined && (

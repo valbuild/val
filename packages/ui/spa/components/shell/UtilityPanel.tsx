@@ -11,6 +11,7 @@ import {
   Rocket,
   Sparkles,
   Undo2,
+  ArrowUpCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "../designSystem/button";
@@ -32,8 +33,20 @@ import {
   ShellDestination,
   ShellValidationError,
 } from "./types";
+import { SiteUpdateBadge } from "./SiteUpdateBadge";
+import type { SiteUpdateIndicator } from "./siteUpdateIndicator";
 
 export type UtilityPanelProps = {
+  /**
+   * The site update's row: Show updates while one is available, and its
+   * progress or outcome after that, each opening the update dialog. Absent
+   * when there is nothing to show (see `siteUpdateIndicator`).
+   */
+  siteUpdate?: {
+    label: string;
+    indicator: SiteUpdateIndicator;
+    onOpen: () => void;
+  };
   breakpoint: ShellBreakpoint;
   /** Absent while the patch sets are still loading. */
   activity?: ShellActivityEntry[];
@@ -137,6 +150,7 @@ export type UtilityPanelProps = {
  * not a dashboard.
  */
 export function UtilityPanel({
+  siteUpdate,
   breakpoint,
   activity = [],
   validationErrors = [],
@@ -208,6 +222,30 @@ export function UtilityPanel({
           </>
         )}
         <div className="px-3 pt-3 space-y-0.5">
+          {/*
+           * First of the shortcuts: it is the one the badge on this panel's
+           * button is about, so it has to be the first thing seen on opening
+           * it. Below the validation errors, which block publishing.
+           */}
+          {siteUpdate && (
+            <>
+              <button
+                type="button"
+                onClick={siteUpdate.onOpen}
+                className="flex items-center gap-2 w-full h-8 px-2 rounded-md text-xs font-medium text-fg-primary hover:bg-bg-float-raised"
+              >
+                <ArrowUpCircle size={14} className="text-fg-brand-primary" />
+                <span className="flex-1 min-w-0 text-left truncate">
+                  {siteUpdate.label}
+                </span>
+                <SiteUpdateBadge
+                  indicator={siteUpdate.indicator}
+                  placement="inline"
+                />
+              </button>
+              <div className="my-1 border-t border-border-float" />
+            </>
+          )}
           {/*
            * Mobile only: above that the top bar carries Review, beside Publish.
            *
