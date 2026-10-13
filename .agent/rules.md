@@ -1147,7 +1147,11 @@ version is on npm:
 1. Ask the user whether to update the templates now, proposing that we do.
 2. Bump the `@valbuild/*` dependencies in EVERY template's `package.json`,
    install in each so its lock file follows, and open a PR on the templates
-   repository. Its `AGENTS.md` has the per-template checks.
+   repository. Its `AGENTS.md` has the per-template checks. Bump
+   `minimumReleaseAgeExclude` in each template's `pnpm-workspace.yaml` with
+   them: it names the exact version of every `@valbuild/*` package in that
+   template's lock file, and a list left on the previous release makes a fresh
+   `pnpm install` refuse the new one for a day after it is published.
 3. **Test it out** — do not ship the bump on a green typecheck alone. Run each
    template against the new version, open `/val`, and check that the Studio
    loads and that an edit can be made and saved. Breakage from a release shows
