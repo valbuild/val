@@ -552,6 +552,20 @@ export function createValSystem(
           },
         });
         if (res.status !== 200) {
+          // A change held by a running publish is refused one patch at a time,
+          // and the refusal names the publish: that is what lets the Studio
+          // offer to cancel it rather than only say no.
+          if (res.status === 500 && "errors" in res.json) {
+            for (const error of res.json.errors) {
+              if ("publishJobId" in error && error.publishJobId !== undefined) {
+                return {
+                  status: "error",
+                  message: error.message,
+                  publishJobId: error.publishJobId,
+                };
+              }
+            }
+          }
           return {
             status: "error",
             message:

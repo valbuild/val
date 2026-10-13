@@ -2,7 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { initVal, modules } from "@valbuild/core";
-import type { SelectorSource, ValModule } from "@valbuild/core";
+import type { PatchId, SelectorSource, ValModule } from "@valbuild/core";
 import { createValApiRouter, createValServer } from "./ValRouter";
 import { encodeJwt } from "./jwt";
 import { fakeRequest } from "./fakeRequest";
@@ -384,6 +384,86 @@ describe("ValRouter", () => {
    * Cloudflare Dynamic Worker does not have. `/authorize` is the route it
    * happened on, so it is the route this is written against.
    */
+  /*
+   * A failure the route declares reaches the Studio whole. Collapsed to its
+   * message, a discard content refused because a publish holds the change
+   * read "Failed to delete patches": not which change, nor which publish to
+   * cancel -- and the Studio could offer nothing.
+   */
+  describe("a 500 the route declares", () => {
+    const refusingDelete = async (json: {
+      message: string;
+      errors: { patchId: string; message: string; publishJobId?: string }[];
+    }) => {
+      const server = await createValServer(
+        modules(config, [
+          {
+            def: () =>
+              Promise.resolve({
+                default: c.define(
+                  "/content/authors.val.ts",
+                  authorsSchema,
+                  authorsSource,
+                ),
+              }),
+          },
+        ]),
+        route,
+        { disableCache: true },
+        config,
+        {
+          async isEnabled() {
+            return true;
+          },
+          async onDisable() {},
+          async onEnable() {},
+        },
+      );
+      const errors = json.errors.map((error) => ({
+        ...error,
+        patchId: error.patchId as PatchId,
+      }));
+      server["/patches"].DELETE = async () => ({
+        status: 500,
+        json: { message: json.message, errors },
+      });
+      return createValApiRouter(
+        route,
+        Promise.resolve(server),
+        (res) => res,
+      )(
+        fakeRequest({
+          method: "DELETE",
+          url: new URL("http://localhost:3000/api/val/patches?id=p1"),
+        }),
+      );
+    };
+
+    test("keeps which change was refused, and the publish holding it", async () => {
+      const res = await refusingDelete({
+        message: "Failed to delete patches",
+        errors: [
+          {
+            patchId: "p1",
+            message: "This change is being published right now.",
+            publishJobId: "J6",
+          },
+        ],
+      });
+      expect(res.status).toBe(500);
+      expect("json" in res ? res.json : undefined).toEqual({
+        message: "Failed to delete patches",
+        errors: [
+          {
+            patchId: "p1",
+            message: "This change is being published right now.",
+            publishJobId: "J6",
+          },
+        ],
+      });
+    });
+  });
+
   describe("an endpoint that throws", () => {
     test("answers 500 naming the route and the cause", async () => {
       const serverRes = await onRoute(
