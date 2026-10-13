@@ -1,5 +1,19 @@
 # @valbuild/server
 
+## 0.144.5
+
+### Patch Changes
+
+- [#839](https://github.com/valbuild/val/pull/839) [`39e8db3`](https://github.com/valbuild/val/commit/39e8db34cf56c6c43ffff0d3acfe8e0839fa55a9) Thanks [@freekh](https://github.com/freekh)! - A publish that breaks a page no longer stops everyone else publishing. On val.build, the changes it had are held back: the Publish button says how many, and publishes go without them until someone presses Try again or Discard on the failed publish.
+
+  Publish can be pressed while this tab is still building the last publish. The new publish waits its turn and is built when the current one ends.
+
+  Discarding a change that is being published now says so, instead of failing silently. From there you can cancel the publish, which then discards the change, or wait for the publish to end.
+
+- Updated dependencies [[`39e8db3`](https://github.com/valbuild/val/commit/39e8db34cf56c6c43ffff0d3acfe8e0839fa55a9)]:
+  - @valbuild/ui@0.144.5
+  - @valbuild/shared@0.144.5
+
 ## 0.144.4
 
 ### Patch Changes
