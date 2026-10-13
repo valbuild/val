@@ -18,6 +18,7 @@ import {
 } from "./tailwind";
 import { assetModule, isAsset, resolveAsset } from "./assets";
 import { sha256Hex } from "./hash";
+import { buildInputId } from "./inputId";
 import { transformEnvMarkers } from "./envTransforms";
 import { transformRemoveDevtools } from "./removeDevtools";
 import { transformRouteNodes } from "./routeNodes";
@@ -338,6 +339,13 @@ export interface BuildInput {
    * load unless the project actually renders server components.
    */
   rsc?: boolean;
+  /**
+   * What the caller adds to the output after the build, by name, each with a
+   * value that changes when it does: part of the build's id
+   * (`buildInputId`), since the build never sees it. The Studio's carried
+   * live stylesheet is one.
+   */
+  extraInputs?: Record<string, string>;
 }
 
 export interface BuildOutput {
@@ -389,7 +397,18 @@ export interface BuildOutput {
    * builds coexist in one map without either knowing about the other.
    */
   rscCode?: string;
+  /**
+   * The build's name: a hash of its INPUTS (`buildInputId`), so the same
+   * inputs are the same build and the platform builds it once.
+   */
   hash: string;
+  /**
+   * A hash of what came out: every emitted byte, and the base and layer revs.
+   * The build's name until it was named by its inputs; kept to tell two
+   * builds of one name apart, should a builder ever emit different bytes from
+   * the same inputs.
+   */
+  outputHash: string;
   vendorRev: string;
   /** Wall-clock milliseconds per phase; the number the whole design lives on. */
   timings: { server: number; client: number; tailwind: number; total: number };
@@ -1047,14 +1066,13 @@ export async function buildUserApp(input: BuildInput): Promise<BuildOutput> {
     rscChunks: rscBuild?.chunks,
     clientModules: input.rsc ? clientModules : undefined,
     vendorRev: input.target.base.rev,
-    // The project vendor revision has to be in here. Without it, changing a
-    // dependency produces the same hash, and a warm isolate keeps serving the
-    // previous dependency set -- the same trap as the shell revision in the
-    // loader's cache id, one layer down.
-    // Every emitted byte, not just the entries: a change confined to a split
-    // chunk is still a different build, and a warm isolate keyed on an
-    // unchanged entry hash would keep serving the previous one.
-    hash: (
+    // The name a warm isolate is cached under, so anything that can change a
+    // byte of the output has to change it: the layers (a dependency change
+    // must not keep the previous set), and every file, not just the entries.
+    // See `buildInputId`.
+    hash: await buildInputId(input),
+    // Every emitted byte, not just the entries, and the layer revisions.
+    outputHash: (
       await sha256Hex(
         [
           input.target.base.rev,

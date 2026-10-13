@@ -246,6 +246,45 @@ export async function runStudioDeploy(
     problems: [],
   });
 
+  /*
+   * The build content already holds under this name, published as any build
+   * is -- or `null` when content holds none, or cannot be asked by name (one
+   * from before the question existed refuses an empty declaration), and the
+   * build has to be made.
+   *
+   * `null` only for a refusal of the DECLARE: once content has taken the
+   * build, what happens to it is that publish's outcome, a failure included.
+   * Building it again would not change it.
+   */
+  const publishByName = async (
+    name: string,
+    at: {
+      git: { commit: string; branch: string } | null;
+      layerRev: string | null;
+    },
+  ): Promise<StudioDeployResult | null> => {
+    const published = await runStudioPublish({
+      client,
+      artifacts: [],
+      declare: {
+        buildHash: name,
+        commit: at.git?.commit ?? null,
+        branch: at.git?.branch ?? null,
+        layerRev: at.layerRev,
+        // The build's, which content has: this tab built nothing to ask.
+        linksOwnCss: null,
+        artifacts: [],
+        byReference: true,
+      },
+      onPhase,
+      ...(options.until !== undefined ? { until: options.until } : {}),
+    });
+    if (published.status === "failed" && published.publishId === null) {
+      return null;
+    }
+    return asDeployResult(published);
+  };
+
   let builder: StudioBuilder;
   try {
     onPhase({ kind: "getting-ready" });
@@ -391,7 +430,15 @@ export async function runStudioDeploy(
     const binaries = splitBinaryFiles(
       options.committedBinaryFiles?.files ?? {},
     );
-    build = await builder.buildUserApp({
+    /*
+     * What this build ships that it is not built from, so the build's name
+     * (`buildInputId`) changes with it: the live build's public files carried
+     * over by sha, and -- below -- the live stylesheet in place of an empty one.
+     */
+    const extraInputs: Record<string, string> = Object.fromEntries(
+      carried.map(({ key, sha256 }) => [`carried:${key}`, sha256]),
+    );
+    const input = {
       files:
         fileBased && generateRouteTree !== undefined
           ? await generateRouteTree(wired)
@@ -407,14 +454,43 @@ export async function runStudioDeploy(
        */
       projectSource: wired,
       target,
-    });
+      extraInputs,
+    };
+    /*
+     * Named before it is built, because the name is all content needs to find
+     * a build it already holds (`docs/hosted-publishing.md` in valbuild/home,
+     * step 3): the same inputs are the same build, so publishing them again
+     * -- a retry, a change that put a file back -- is declaring the build by
+     * name, with nothing built and nothing uploaded. A name that cannot be
+     * worked out is a build, as it always was.
+     */
+    const name = await builder.buildInputId(input).catch(() => null);
+    if (name !== null) {
+      const held = await publishByName(name, {
+        git,
+        layerRev: target.project.rev,
+      });
+      if (held !== null) return held;
+      onPhase({ kind: "building" });
+    }
+    build = await builder.buildUserApp(input);
     /*
      * After the build, not instead of it: a project whose stylesheet the tab
-     * CAN compile ships its own. Only an empty one is replaced.
+     * CAN compile ships its own. Only an empty one is replaced, and the build
+     * is named with it.
      */
     if (build.cssCode === "" && options.liveStylesheet) {
       const live = await options.liveStylesheet();
-      if (live !== "") build = { ...build, cssCode: live };
+      if (live !== "") {
+        build = {
+          ...build,
+          cssCode: live,
+          hash: await builder.buildInputId({
+            ...input,
+            extraInputs: { ...extraInputs, liveStylesheet: live },
+          }),
+        };
+      }
     }
   } catch (error) {
     return failed(messageOf(error));
