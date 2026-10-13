@@ -223,6 +223,38 @@ describe("MCP declined", () => {
     });
   });
 
+  it("takes them off allowBuilds in pnpm-workspace.yaml, and nothing else", () => {
+    const root = writeTemplate();
+    const workspacePath = path.join(root, "pnpm-workspace.yaml");
+    fs.writeFileSync(
+      workspacePath,
+      [
+        "minimumReleaseAgeExclude:",
+        '  - "sharp@1.0.0"',
+        "",
+        "allowBuilds:",
+        '  "esbuild": true',
+        '  "sharp": true',
+        "  unrs-resolver: true",
+        "",
+      ].join("\n"),
+    );
+
+    applyFeatures(root, { mcp: false, imageUploads: false }, NEXT_FEATURES);
+
+    expect(fs.readFileSync(workspacePath, "utf-8")).toBe(
+      [
+        "minimumReleaseAgeExclude:",
+        '  - "sharp@1.0.0"',
+        "",
+        "allowBuilds:",
+        '  "esbuild": true',
+        "  unrs-resolver: true",
+        "",
+      ].join("\n"),
+    );
+  });
+
   it("takes the README's MCP section out between its markers", () => {
     const root = writeTemplate();
 
