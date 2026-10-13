@@ -1,5 +1,11 @@
 # @valbuild/ui
 
+## 0.144.4
+
+### Patch Changes
+
+- [#835](https://github.com/valbuild/val/pull/835) [`e70a261`](https://github.com/valbuild/val/commit/e70a261ed8c0938b635214721fc4e445704b1f1f) Thanks [@freekh](https://github.com/freekh)! - A build is now named by what it was built from rather than by what it produced, so publishing the same project files again reuses the build the site already has. When that build is still held, the Studio skips building and uploading it.
+
 ## 0.144.3
 
 ### Patch Changes
