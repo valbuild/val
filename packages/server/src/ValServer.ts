@@ -2000,6 +2000,14 @@ export const ValServer = (
               errors: Object.entries(deleteRes.errors).map(([id, error]) => ({
                 patchId: id as PatchId,
                 ...error,
+                /*
+                 * Kept, so the Studio can say the change is being published
+                 * and offer to cancel that publish: content names the job.
+                 */
+                ...("publishJobId" in error &&
+                typeof error.publishJobId === "string"
+                  ? { publishJobId: error.publishJobId }
+                  : {}),
               })),
             },
           };

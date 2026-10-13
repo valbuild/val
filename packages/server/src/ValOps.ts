@@ -3419,6 +3419,13 @@ export type OrderedPatches = {
    * service. Only `ValOpsHttp` fills it.
    */
   publishingPatches?: PatchId[];
+  /**
+   * Of these patches, the ones a publish that failed on its content holds back
+   * from later publishes, until Try again or Discard: they are pending, and
+   * not ready to publish. Absent where publishing is not done in jobs, and
+   * from an older content service. Only `ValOpsHttp` fills it.
+   */
+  heldBackPatches?: PatchId[];
   error?: GenericErrorMessage;
   errors?: PatchReadError[];
   unauthorized?: boolean;
@@ -3439,6 +3446,8 @@ export type OrderedPatchesMetadata = {
   patchGroups?: OrderedPatches["patchGroups"];
   /** See {@link OrderedPatches.publishingPatches}. */
   publishingPatches?: OrderedPatches["publishingPatches"];
+  /** See {@link OrderedPatches.heldBackPatches}. */
+  heldBackPatches?: OrderedPatches["heldBackPatches"];
   error?: GenericErrorMessage;
   errors?: OrderedPatches["errors"];
   unauthorized?: boolean;

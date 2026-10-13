@@ -86,6 +86,14 @@ export type PublishButtonInput = {
    * when there is nothing else to send. See `publishingPatchIds`.
    */
   publishingCount?: number;
+  /**
+   * Changes a publish that failed on its content holds back, and so NOT in
+   * `pendingServerSidePatchCount`: the next publish goes without them, until
+   * Try again or Discard (docs/hosted-publishing.md in valbuild/home, step 4).
+   * What the button says when they are all there is, and a note when there
+   * is something else to publish.
+   */
+  heldBackCount?: number;
   /** Writes that have not reached the server yet. */
   pendingClientSidePatchCount: number;
   /**
@@ -129,6 +137,7 @@ export function describePublishButton(
     autoPublish,
     pendingServerSidePatchCount,
     publishingCount = 0,
+    heldBackCount = 0,
     pendingClientSidePatchCount,
     netChangesEmpty,
     unstagedChangeCount,
@@ -253,11 +262,13 @@ export function describePublishButton(
           ? "Auto save is on: changes are saved for you."
           : (nothingToSend || revertedToNothing) && unstagedChangeCount > 0
             ? `${unstagedChangeCount} ${plural(unstagedChangeCount, "change is", "changes are")} unstaged, so there is nothing to publish. Stage ${plural(unstagedChangeCount, "it", "them")} in Review to publish.`
-            : nothingToSend
-              ? "Nothing to send."
-              : revertedToNothing
-                ? "Every change has been reverted, so there is nothing to publish. Discard them to clear."
-                : null,
+            : nothingToSend && heldBackCount > 0
+              ? heldBackNote(heldBackCount)
+              : nothingToSend
+                ? "Nothing to send."
+                : revertedToNothing
+                  ? "Every change has been reverted, so there is nothing to publish. Discard them to clear."
+                  : null,
       action: "none",
     };
   }
@@ -282,10 +293,20 @@ export function describePublishButton(
         ? `${conflictNote(conflictingChangeCount)} ${saving ? "Save" : "Publish"} again to retry.`
         : saving
           ? "Save to disk"
-          : "Publish pending changes",
+          : heldBackCount > 0
+            ? `Publish pending changes. ${heldBackNote(heldBackCount)}`
+            : "Publish pending changes",
     reason: null,
     action: saving ? "save" : "publish",
   };
+}
+
+/**
+ * Why changes are not being published. Try again and Discard are on the failed
+ * publish's message, for whoever pressed it.
+ */
+function heldBackNote(heldBackCount: number): string {
+  return `${heldBackCount} ${plural(heldBackCount, "change is", "changes are")} held back: the publish that had ${plural(heldBackCount, "it", "them")} broke a page. Publish goes without ${plural(heldBackCount, "it", "them")} until ${plural(heldBackCount, "it is", "they are")} tried again or discarded.`;
 }
 
 function conflictNote(conflictingChangeCount: number): string {

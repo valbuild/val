@@ -132,6 +132,8 @@ const GetApplicablePatches = z.object({
   headVersion: z.number().optional(),
   /** Of `patches`, the ones a running publish holds. See `OrderedPatches.publishingPatches`. */
   publishingPatches: z.array(PatchIdSchema).optional(),
+  /** Of `patches`, the ones a failed publish holds back. See `OrderedPatches.heldBackPatches`. */
+  heldBackPatches: z.array(PatchIdSchema).optional(),
   commits: z
     .array(
       z.object({
@@ -249,6 +251,8 @@ const DeletePatchesResponse = z.object({
       z.object({
         message: z.string(),
         patchId: PatchId,
+        /** The publish job holding it, when that is why it was not deleted. */
+        publishJobId: z.string().optional(),
       }),
     )
     .optional(),
@@ -1295,6 +1299,8 @@ export class ValOpsHttp extends ValOps {
         appliedPatches: PatchId[];
         /** Of `patches`, the ones a running publish holds. See {@link OrderedPatches.publishingPatches}. */
         publishingPatches?: PatchId[];
+        /** Of `patches`, the ones a failed publish holds back. See {@link OrderedPatches.heldBackPatches}. */
+        heldBackPatches?: PatchId[];
         /** The head of the chain. See {@link OrderedPatchesMetadata.headPatchId}. */
         headPatchId?: PatchId | null;
         /** The chain version of that head. See {@link OrderedPatchesMetadata.headVersion}. */
@@ -1397,6 +1403,10 @@ export class ValOpsHttp extends ValOps {
        */
       ...(allPatchData.publishingPatches !== undefined
         ? { publishingPatches: allPatchData.publishingPatches }
+        : {}),
+      // Absent from a content service that does not say, as above.
+      ...(allPatchData.heldBackPatches !== undefined
+        ? { heldBackPatches: allPatchData.heldBackPatches }
         : {}),
       /*
        * The CHAIN head, not the publish head below. Spread: absent is a content
@@ -1860,6 +1870,9 @@ export class ValOpsHttp extends ValOps {
               : {}),
             ...(data.publishingPatches !== undefined
               ? { publishingPatches: data.publishingPatches }
+              : {}),
+            ...(data.heldBackPatches !== undefined
+              ? { heldBackPatches: data.heldBackPatches }
               : {}),
           } as ExcludePatchOps extends true
             ? OrderedPatchesMetadata

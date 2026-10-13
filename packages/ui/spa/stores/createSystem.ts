@@ -341,9 +341,15 @@ export type System = HostRealm &
      * patch's effect must DISAPPEAR, so source is rebuilt without it, whereas a
      * published patch's effect stays because it is in the base now.
      */
-    discard(
-      patchIds: PatchId[],
-    ): Promise<{ status: "discarded" } | { status: "failed"; message: string }>;
+    discard(patchIds: PatchId[]): Promise<
+      | { status: "discarded" }
+      | {
+          status: "failed";
+          message: string;
+          /** See `publishJobId` on {@link DiscardPatches}' error. */
+          publishJobId?: string;
+        }
+    >;
     /**
      * Per patch in the chain: what `/save` refused it for, or `null`.
      *
@@ -3222,7 +3228,13 @@ export function createSystem(options: SystemOptions): System {
         await computeDiscardClosure(patchIds),
       );
       if (res.status === "error") {
-        return { status: "failed", message: res.message };
+        return {
+          status: "failed",
+          message: res.message,
+          ...(res.publishJobId !== undefined
+            ? { publishJobId: res.publishJobId }
+            : {}),
+        };
       }
       // A `/stat` read before the delete still names the discarded patches —
       // and, if one was the head, would hand it back as the next parent.

@@ -420,3 +420,40 @@ describe("while this tab's press is publishing elsewhere", () => {
     expect(state).toMatchObject({ kind: "ready", action: "publish" });
   });
 });
+
+describe("changes a failed publish holds back (step 4)", () => {
+  /*
+   * A publish that broke a page holds its changes back, and the next publish
+   * goes without them. Counted as work, they lit Publish up over a press that
+   * sends nothing; not counted and not said, the button read "Nothing to
+   * send" over changes the editor can see.
+   */
+  test("when they are all there is, Publish is off, and says why", () => {
+    const state = describePublishButton(
+      input({ mode: "http", pendingServerSidePatchCount: 0, heldBackCount: 2 }),
+    );
+    expect(state).toMatchObject({ kind: "idle", action: "none" });
+    expect(state.reason).toMatch(/2 changes are held back/);
+    expect(state.reason).toMatch(/tried again or discarded/);
+  });
+
+  test("anything else is published, and the button says what is left out", () => {
+    const state = describePublishButton(
+      input({ mode: "http", pendingServerSidePatchCount: 1, heldBackCount: 1 }),
+    );
+    expect(state).toMatchObject({ kind: "ready", action: "publish" });
+    expect(state.description).toMatch(/1 change is held back/);
+  });
+
+  test("a publish on its way still reads as publishing", () => {
+    const state = describePublishButton(
+      input({
+        mode: "http",
+        pendingServerSidePatchCount: 0,
+        publishingCount: 1,
+        heldBackCount: 1,
+      }),
+    );
+    expect(state).toMatchObject({ kind: "in-flight", label: "Publishing" });
+  });
+});

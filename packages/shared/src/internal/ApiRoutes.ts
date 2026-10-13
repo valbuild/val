@@ -199,6 +199,11 @@ const GenericPatchError = z.union([
   z.object({
     patchId: PatchId,
     message: z.string(),
+    /**
+     * The publish job that holds the patch, when that is why it was not
+     * deleted. Optional: only a discard of a change being published says it.
+     */
+    publishJobId: z.string().optional(),
   }),
   z.object({
     parentPatchId: z.string(),
@@ -670,6 +675,12 @@ export const Api = {
                * answer: a job that ends without sealing gives them back.
                */
               publishingPatches: z.array(PatchId).optional(),
+              /*
+               * Of `patches`, the ones a publish that failed on its content
+               * holds back from later publishes, until Try again or Discard.
+               * The Studio does not count these as ready to publish.
+               */
+              heldBackPatches: z.array(PatchId).optional(),
               /**
                * The newest commit, which is the PUBLISH head.
                *
@@ -774,6 +785,12 @@ export const Api = {
                * answer: a job that ends without sealing gives them back.
                */
               publishingPatches: z.array(PatchId).optional(),
+              /*
+               * Of `patches`, the ones a publish that failed on its content
+               * holds back from later publishes, until Try again or Discard.
+               * The Studio does not count these as ready to publish.
+               */
+              heldBackPatches: z.array(PatchId).optional(),
               /**
                * The newest commit, which is the PUBLISH head.
                *
