@@ -180,6 +180,18 @@ export function workerBuilder(options: {
       }
       return result.value;
     },
+    buildInputId: async (...args) => {
+      const result = await send({
+        type: "call",
+        id: nextId++,
+        method: "buildInputId",
+        args,
+      });
+      if (result.method !== "buildInputId") {
+        throw mismatch("buildInputId", result.method);
+      }
+      return result.value;
+    },
   };
   return ready.then(() => builder);
 }

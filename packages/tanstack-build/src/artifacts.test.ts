@@ -19,6 +19,7 @@ const build = (overrides: Partial<BuildOutput> = {}): BuildOutput => ({
   cssCode: "",
   linksOwnCss: false,
   hash: "abc",
+  outputHash: "abc-out",
   vendorRev: "rev",
   timings: { server: 0, client: 0, tailwind: 0, total: 0 },
   warnings: [],

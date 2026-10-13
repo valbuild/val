@@ -35,7 +35,7 @@ export interface UserAppModule {
 /** What the studio uploads and the loader Worker stores per publish. */
 export interface PublishManifest {
   projectId: string;
-  /** sha256 of serverCode + clientCode; used as the LOADER.get() cache id. */
+  /** The build's name, a hash of its inputs (`buildInputId`); the loader's isolate cache id. */
   hash: string;
   /** Vendor artifact revision the app was built against. */
   vendorRev: string;

@@ -89,6 +89,15 @@ export type ContentPublishApi = {
           sha256: string;
           bytes: number;
         }[];
+        /**
+         * The build this project already holds under `buildHash`, declared by
+         * name: `artifacts` is sent empty and filled in from that build, and
+         * `linksOwnCss` is the build's. A build is named by its inputs, so a
+         * publisher that knows the name before building can skip the build.
+         * 409 with `BUILD_NOT_HELD` when no complete build has that name:
+         * build it, and declare its artifacts.
+         */
+        byReference?: boolean;
       };
       res: {
         publishId: string;

@@ -82,5 +82,10 @@ async function call(
         method: "publishArtifacts",
         value: await loaded.publishArtifacts(...request.args),
       };
+    case "buildInputId":
+      return {
+        method: "buildInputId",
+        value: await loaded.buildInputId(...request.args),
+      };
   }
 }
