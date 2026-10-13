@@ -210,6 +210,37 @@ function removeDependencies(projectPath: string, names: string[]): void {
   } catch {
     // As above.
   }
+  removeAllowedBuilds(projectPath, names);
+}
+
+/**
+ * The same list where pnpm 11 reads it: `allowBuilds` in pnpm-workspace.yaml,
+ * one `name: true` line per package. Edited as lines rather than parsed, so
+ * the rest of the file is left exactly as the template wrote it.
+ */
+function removeAllowedBuilds(projectPath: string, names: string[]): void {
+  const workspacePath = join(projectPath, "pnpm-workspace.yaml");
+  if (!existsSync(workspacePath)) {
+    return;
+  }
+  try {
+    const lines = readFileSync(workspacePath, "utf-8").split("\n");
+    let inAllowBuilds = false;
+    const kept = lines.filter((line) => {
+      if (/^\S/.test(line)) {
+        inAllowBuilds = line.startsWith("allowBuilds:");
+        return true;
+      }
+      if (!inAllowBuilds) {
+        return true;
+      }
+      const entry = /^\s+["']?([^"':]+)["']?\s*:/.exec(line);
+      return !(entry && names.includes(entry[1]));
+    });
+    writeFileSync(workspacePath, kept.join("\n"), "utf-8");
+  } catch {
+    // As above.
+  }
 }
 
 /** A doc's MCP section, between the markers the template puts around it. */
