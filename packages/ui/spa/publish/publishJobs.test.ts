@@ -6,6 +6,7 @@ import type { StudioJobClient } from "./jobClient";
 import {
   createPublishJobs,
   publishingPatchIds,
+  heldBackPatchIds,
   heldByContent,
   type PublishJobsState,
   type TrackedPublish,
@@ -907,6 +908,65 @@ describe("publishingPatchIds with what content reports", () => {
       const sealed = failedAt(10_000, ["re-run-build"]);
       expect([...publishingPatchIds(sealed, ["p1"], 5_000)]).toEqual(["p1"]);
     });
+  });
+});
+
+/*
+ * A publish that broke a page holds its changes back. Content says which, and
+ * until it does, a press of this tab's that just failed holds its own back:
+ * given back by `publishingPatchIds` at once and counted as pending, they lit
+ * Publish up over a press that would send nothing.
+ */
+describe("heldBackPatchIds", () => {
+  const failedAt = (
+    settledAt: number,
+    actions: Extract<PublishRequestStatus, { kind: "failed" }>["actions"] = [
+      "try-again",
+      "discard",
+    ],
+  ): PublishJobsState => ({
+    requests: [
+      {
+        requestId: "r1",
+        pressedAt: 0,
+        settledAt,
+        status: {
+          kind: "failed",
+          message: "The page did not render.",
+          actions,
+          job: "J1",
+        },
+        patchIds: ["p1"],
+      },
+    ],
+    running: null,
+  });
+  const nothingPressedHere = { requests: [], running: null };
+
+  test("what content says is held back, from any tab", () => {
+    expect([...heldBackPatchIds(nothingPressedHere, ["p1"], 5_000)]).toEqual([
+      "p1",
+    ]);
+  });
+
+  test("a press of ours that failed after content last spoke", () => {
+    expect([...heldBackPatchIds(failedAt(10_000), [], 5_000)]).toEqual(["p1"]);
+  });
+
+  test("not once content has spoken since: it decides, and may hold nothing", () => {
+    expect(heldBackPatchIds(failedAt(10_000), [], 15_000).size).toBe(0);
+  });
+
+  test("not a failed merge, which holds nothing back", () => {
+    expect(
+      heldBackPatchIds(failedAt(10_000, ["try-again"]), [], 5_000).size,
+    ).toBe(0);
+  });
+
+  test("not after the seal: a build CI failed has published them", () => {
+    expect(
+      heldBackPatchIds(failedAt(10_000, ["re-run-build"]), [], 5_000).size,
+    ).toBe(0);
   });
 });
 

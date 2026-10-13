@@ -6,6 +6,7 @@ import {
   createPublishJobs,
   isSettled,
   publishingPatchIds,
+  heldBackPatchIds,
   type PublishJobs,
   type PublishJobsState,
   type TrackedPublish,
@@ -1071,6 +1072,8 @@ export function ValProvider({
   const deployRef = useRef(deploy.deploy);
   deployRef.current = deploy.deploy;
   const handoffRef = useRef(handoff);
+  const refreshStatRef = useRef(refreshStat);
+  refreshStatRef.current = refreshStat;
   handoffRef.current = handoff;
   const onPublishSettled = useRef<(request: TrackedPublish) => void>(() => {});
   const onNeedsBuilder = useRef<(jobId: string) => void>(() => {});
@@ -1230,6 +1233,12 @@ export function ValProvider({
       return;
     }
     if (status.kind !== "failed") return;
+    /*
+     * What the failure holds back is content's to say, and with no socket
+     * (or one that missed it) the next `/stat` could be twenty minutes away.
+     * Until it says, `heldBackPatchIds` holds this press's changes back.
+     */
+    refreshStatRef.current();
     /*
      * After the seal (connected): the change is published, and CI's build of
      * it failed. Nothing to try again or discard -- the next publish builds
@@ -2912,7 +2921,20 @@ export function usePublishingPatchIds(): ReadonlySet<string> {
  * See {@link ValContextValue.serverHeldBackPatchIds}.
  */
 export function useHeldBackPatchIds(): ReadonlySet<string> {
-  return useContext(ValContext).serverHeldBackPatchIds;
+  const {
+    publishJobsState,
+    serverHeldBackPatchIds,
+    serverPublishingReportedAt,
+  } = useContext(ValContext);
+  return useMemo(
+    () =>
+      heldBackPatchIds(
+        publishJobsState,
+        serverHeldBackPatchIds,
+        serverPublishingReportedAt,
+      ),
+    [publishJobsState, serverHeldBackPatchIds, serverPublishingReportedAt],
+  );
 }
 
 /** See {@link ValContextValue.handoff}. */
