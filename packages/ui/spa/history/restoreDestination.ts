@@ -48,7 +48,7 @@ export type SavePatches = (
  */
 export function restoreProposalName(
   createdAt: string,
-  what: "everything" | "one",
+  what: "point" | "everything" | "one",
 ): string {
   const at = new Date(createdAt);
   const when = Number.isNaN(at.getTime())
@@ -59,9 +59,14 @@ export function restoreProposalName(
         hour: "2-digit",
         minute: "2-digit",
       });
-  return what === "everything"
-    ? `Put back as it was on ${when}`
-    : `Restore from ${when}`;
+  switch (what) {
+    case "point":
+      return `Back to ${when}`;
+    case "everything":
+      return `Put back as it was on ${when}`;
+    case "one":
+      return `Restore from ${when}`;
+  }
 }
 
 /**

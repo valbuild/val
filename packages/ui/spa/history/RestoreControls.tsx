@@ -13,6 +13,8 @@ import { useClient } from "../components/ValProvider";
 import { useState } from "react";
 import type { PatchId } from "@valbuild/core";
 import { restoreProposalName } from "./restoreDestination";
+import { planGoBack, type GoBackModule } from "./goBack";
+import { useValSystem } from "../stores/react/SystemContext";
 import { useLandRestore } from "./useLandRestore";
 
 /**
@@ -71,6 +73,7 @@ export function RestoreControls({
   const { writeModulePatch } = useAddPatch(path ?? ("" as SourcePath));
   const client = useClient();
   const land = useLandRestore(restore.destination);
+  const val = useValSystem();
   const toProposal = restore.destination.kind === "proposal";
   /** "Put everything back" handing its patches over again, after a failure. */
   const [revertRetry, setRevertRetry] = useState<(() => void) | null>(null);
@@ -253,6 +256,29 @@ export function RestoreControls({
     );
   };
 
+  /**
+   * Hand written patches to where restores go, saying how it went, with Try
+   * again when the hand-over is what failed. Shared by "Put everything back"
+   * and "Go back to this point".
+   */
+  const handOver = async (
+    written: PatchId[],
+    displayName: string,
+    note: string,
+  ): Promise<void> => {
+    setRevertRetry(null);
+    setBusy(true);
+    setReverting(
+      `Opening a proposal with ${written.length} module${written.length === 1 ? "" : "s"} put back…${note}`,
+    );
+    const landed = await land(written, displayName);
+    setBusy(false);
+    if (landed.status === "error") {
+      setReverting(landed.message);
+      setRevertRetry(() => () => void handOver(written, displayName, note));
+    }
+  };
+
   const revertEverything = async () => {
     /*
      * The entry content first, for the modules that need it, and only then the
@@ -312,23 +338,130 @@ export function RestoreControls({
      * On the site of a project with proposals, what was written goes into a
      * new proposal, and the Studio goes there to review it.
      */
-    const handOver = async () => {
-      setRevertRetry(null);
-      setBusy(true);
-      setReverting(
-        `Opening a proposal with ${written.length} module${written.length === 1 ? "" : "s"} put back…${leftNote}`,
+    await handOver(
+      written,
+      restoreProposalName(patchSet.commit.createdAt, "everything"),
+      leftNote,
+    );
+  };
+
+  /**
+   * Every module as it was at this commit -- not only the ones it changed.
+   *
+   * Content only: code is not patched. On the site of a project with
+   * proposals it opens one, like every restore (valbuild/home
+   * `docs/hosted-publishing.md`, step 9).
+   */
+  const goBackToThisPoint = async () => {
+    if (val === null) return;
+    const { schemaStore, sourceStore } = val.system;
+    const paths = Object.keys(schemaStore.all()).filter(
+      (path): path is ModuleFilePath => path.length > 0,
+    );
+    setBusy(true);
+    setRevertRetry(null);
+    setReverting(`Reading ${paths.length} modules as they were…`);
+    const modules: GoBackModule[] = [];
+    for (let i = 0; i < paths.length; i += ENTRY_FETCH_CONCURRENCY) {
+      const batch = paths.slice(i, i + ENTRY_FETCH_CONCURRENCY);
+      const read = await Promise.all(
+        batch.map(
+          async (
+            moduleFilePath,
+          ): Promise<GoBackModule | { message: string }> => {
+            try {
+              const res = await client("/history/module", "GET", {
+                query: { commit_sha: commitSha, module_file_path: moduleFilePath },
+              });
+              if (res.status !== 200) {
+                return {
+                  message: `Could not read ${moduleFilePath} as it was at this commit${
+                    "message" in res.json ? `: ${res.json.message}` : ""
+                  }`,
+                };
+              }
+              const now = await sourceStore.get(
+                Internal.joinModuleFilePathAndModulePath(moduleFilePath, ""),
+                null,
+              );
+              return {
+                moduleFilePath,
+                atCommit: res.json.module,
+                now: now.status === "resolved-head" ? now.data : undefined,
+              };
+            } catch (err) {
+              return {
+                message: `Could not read ${moduleFilePath} as it was at this commit: ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+              };
+            }
+          },
+        ),
       );
-      const landed = await land(
-        written,
-        restoreProposalName(patchSet.commit.createdAt, "everything"),
-      );
-      setBusy(false);
-      if (landed.status === "error") {
-        setReverting(landed.message);
-        setRevertRetry(() => () => void handOver());
+      for (const entry of read) {
+        if ("message" in entry) {
+          // All or nothing: going back with a module missing is not going back.
+          setBusy(false);
+          setReverting(entry.message);
+          setRevertRetry(() => () => void goBackToThisPoint());
+          return;
+        }
+        modules.push(entry);
       }
-    };
-    await handOver();
+    }
+    let plan = planGoBack(modules);
+    if (plan.needsJsonEntries.length > 0) {
+      setReverting("Reading the entries as they were…");
+      const entries: Partial<Record<ModuleFilePath, Record<string, JSONValue>>> =
+        {};
+      for (const { moduleFilePath, entryKeys } of plan.needsJsonEntries) {
+        const loaded = await loadJsonEntries(moduleFilePath, entryKeys);
+        if ("message" in loaded) {
+          setBusy(false);
+          setReverting(loaded.message);
+          setRevertRetry(() => () => void goBackToThisPoint());
+          return;
+        }
+        entries[moduleFilePath] = loaded.entries;
+      }
+      plan = planGoBack(modules, entries);
+    }
+    const written: PatchId[] = [];
+    const failures: string[] = [];
+    for (const { moduleFilePath, patch } of plan.modules) {
+      const res = await writeModulePatch(moduleFilePath, patch);
+      if (res.status === "ok") {
+        written.push(res.patchId);
+      } else {
+        failures.push(`${moduleFilePath}: ${res.message}`);
+      }
+    }
+    setBusy(false);
+    const left = [
+      ...plan.blocked.map((entry) => `${entry.moduleFilePath} (${entry.reason})`),
+      ...plan.unrecorded.map(
+        (path) => `${path} (no record of it at that point)`,
+      ),
+      ...failures,
+    ];
+    const note =
+      left.length === 0
+        ? ""
+        : ` ${left.length} left as ${left.length === 1 ? "it is" : "they are"}: ${left.join(", ")}`;
+    if (written.length === 0) {
+      setReverting(
+        `Everything is already as it was at this point.${note}`,
+      );
+      return;
+    }
+    if (!toProposal) {
+      setReverting(
+        `Staged ${written.length} module${written.length === 1 ? "" : "s"} as they were. Review and publish when you are ready.${note}`,
+      );
+      return;
+    }
+    await handOver(written, restoreProposalName(patchSet.commit.createdAt, "point"), note);
   };
 
   return (
@@ -375,6 +508,14 @@ export function RestoreControls({
           onClick={revertEverything}
         >
           Put everything back
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!canRestore || busy || val === null}
+          onClick={() => void goBackToThisPoint()}
+        >
+          Go back to this point
         </Button>
       </div>
       {/*
