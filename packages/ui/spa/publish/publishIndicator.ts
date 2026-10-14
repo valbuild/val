@@ -25,13 +25,13 @@ export {
  * The status bar's one publish indicator: whether the site is still on its way
  * to what has been published, for this editor and for everyone else.
  *
- * It spins until a visitor ANYWHERE gets the change, and that is a minute
- * later than "Live". Content moves the site's pointer at the seal, but the
- * loader reads that pointer from KV, and every Cloudflare location caches it
- * for up to {@link EDGE_CACHE_MS} (valbuild/home, docs/app-mode.md, "Live:
- * reported, never waited on"). Nothing a browser can ask answers for every
- * location -- it reaches one -- so the end of that window is a clock, not a
- * poll. When it stops spinning, every visitor sees the change.
+ * It spins until a visitor ANYWHERE gets the change, a few seconds later
+ * than "Live". Content moves the site's pointer at the seal, and every
+ * Cloudflare location keeps the pointer's head for at most
+ * {@link EDGE_CACHE_MS} (valbuild/home, docs/hosted-publishing.md, step 6).
+ * Nothing a browser can ask answers for every location -- it reaches one --
+ * so the end of that bound is a clock, not a poll. When it stops spinning,
+ * every visitor sees the change.
  *
  * Plain functions, so the states are tested and drawn in stories without a
  * provider.

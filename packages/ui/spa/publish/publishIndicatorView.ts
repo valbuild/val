@@ -6,8 +6,16 @@ import type { DeploymentSummary } from "../components/shell/Deployments";
  * bar can draw one without importing the deploy feed's rules back.
  */
 
-/** How long a Cloudflare location may serve the build before the last one. */
-export const EDGE_CACHE_MS = 60_000;
+/**
+ * How long a Cloudflare location may serve the head before the last one.
+ *
+ * A bound, not a guess: each location keeps the project's head for a few
+ * seconds and never serves one older than this (valbuild/home,
+ * `platform/packages/loader/src/headCache.ts`, `HEAD_STALE_MS`). It was a
+ * minute while visitors read the head from KV, which caches for that long and
+ * says nothing about when every location has caught up.
+ */
+export const EDGE_CACHE_MS = 10_000;
 
 /**
  * Where the bar stands when the site goes live: past every step of the build
