@@ -371,7 +371,10 @@ export function RestoreControls({
           ): Promise<GoBackModule | { message: string }> => {
             try {
               const res = await client("/history/module", "GET", {
-                query: { commit_sha: commitSha, module_file_path: moduleFilePath },
+                query: {
+                  commit_sha: commitSha,
+                  module_file_path: moduleFilePath,
+                },
               });
               if (res.status !== 200) {
                 return {
@@ -380,8 +383,11 @@ export function RestoreControls({
                   }`,
                 };
               }
+              // The module root: its file path with no module path after it.
               const now = await sourceStore.get(
-                Internal.joinModuleFilePathAndModulePath(moduleFilePath, ""),
+                Internal.joinModuleFilePathAndModulePath(
+                  ...Internal.splitModuleFilePathAndModulePath(moduleFilePath),
+                ),
                 null,
               );
               return {
@@ -413,8 +419,9 @@ export function RestoreControls({
     let plan = planGoBack(modules);
     if (plan.needsJsonEntries.length > 0) {
       setReverting("Reading the entries as they were…");
-      const entries: Partial<Record<ModuleFilePath, Record<string, JSONValue>>> =
-        {};
+      const entries: Partial<
+        Record<ModuleFilePath, Record<string, JSONValue>>
+      > = {};
       for (const { moduleFilePath, entryKeys } of plan.needsJsonEntries) {
         const loaded = await loadJsonEntries(moduleFilePath, entryKeys);
         if ("message" in loaded) {
@@ -439,7 +446,9 @@ export function RestoreControls({
     }
     setBusy(false);
     const left = [
-      ...plan.blocked.map((entry) => `${entry.moduleFilePath} (${entry.reason})`),
+      ...plan.blocked.map(
+        (entry) => `${entry.moduleFilePath} (${entry.reason})`,
+      ),
       ...plan.unrecorded.map(
         (path) => `${path} (no record of it at that point)`,
       ),
@@ -450,9 +459,7 @@ export function RestoreControls({
         ? ""
         : ` ${left.length} left as ${left.length === 1 ? "it is" : "they are"}: ${left.join(", ")}`;
     if (written.length === 0) {
-      setReverting(
-        `Everything is already as it was at this point.${note}`,
-      );
+      setReverting(`Everything is already as it was at this point.${note}`);
       return;
     }
     if (!toProposal) {
@@ -461,7 +468,11 @@ export function RestoreControls({
       );
       return;
     }
-    await handOver(written, restoreProposalName(patchSet.commit.createdAt, "point"), note);
+    await handOver(
+      written,
+      restoreProposalName(patchSet.commit.createdAt, "point"),
+      note,
+    );
   };
 
   return (
