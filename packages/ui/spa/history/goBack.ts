@@ -41,6 +41,14 @@ export type GoBackPlan = {
 export function planGoBack(
   modules: readonly GoBackModule[],
   jsonEntries?: Partial<Record<ModuleFilePath, Record<string, JSONValue>>>,
+  options?: {
+    /**
+     * Write every module, equal to now or not. For a go-back that brings the
+     * code back as well: the `.val` files staged with it hold the content of
+     * when their build was made, so every module is written over them.
+     */
+    everyModule?: boolean;
+  },
 ): GoBackPlan {
   const plan: GoBackPlan = {
     modules: [],
@@ -66,7 +74,11 @@ export function planGoBack(
         moduleFilePath,
         entryKeys: revert.entryKeys,
       });
-    } else if (now !== undefined && deepEqual(now, revert.value)) {
+    } else if (
+      !options?.everyModule &&
+      now !== undefined &&
+      deepEqual(now, revert.value)
+    ) {
       plan.unchanged.push(moduleFilePath);
     } else {
       plan.modules.push({ moduleFilePath, patch: revert.patch });

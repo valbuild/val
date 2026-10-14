@@ -1,6 +1,9 @@
 import type { PatchId } from "@valbuild/core";
 import {
   landRestore,
+  restoreCodeOf,
+  withRestoreCode,
+  withoutRestoreCode,
   restoreRequestId,
   type RestoreDestination,
   type SavePatches,
@@ -110,5 +113,43 @@ describe("where a restore goes", () => {
       }),
     ).toEqual({ status: "staged" });
     expect(open).not.toHaveBeenCalled();
+  });
+});
+
+describe("going back with the code, across addresses", () => {
+  const COMMIT = "a".repeat(64);
+
+  test("the site's Studio sends the commit along to the proposal's", async () => {
+    const opened: unknown[] = [];
+    await landRestore({
+      destination: {
+        kind: "proposal",
+        open: async (input) => {
+          opened.push(input.restoreCodeFrom);
+        },
+      },
+      save: async () => ({ status: "ok" }),
+      patchIds: ["a-patch"] as PatchId[],
+      displayName: "Back to 3 Oct",
+      restoreCodeFrom: COMMIT,
+    });
+    expect(opened).toEqual([COMMIT]);
+  });
+
+  test("the address carries it, keeps the page, and loses it once acted on", () => {
+    const url = withRestoreCode(
+      "https://p.example.com/val/history?commit=abc#x",
+      COMMIT,
+    );
+    expect(restoreCodeOf(url)).toBe(COMMIT);
+    const after = withoutRestoreCode(url);
+    expect(restoreCodeOf(after)).toBeNull();
+    expect(after).toBe("https://p.example.com/val/history?commit=abc#x");
+  });
+
+  test("anything that is not a commit sha is ignored", () => {
+    expect(
+      restoreCodeOf("https://p.example.com/val?val_restore_code=<script>"),
+    ).toBeNull();
   });
 });

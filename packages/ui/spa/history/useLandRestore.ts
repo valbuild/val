@@ -21,11 +21,21 @@ const SAVE_WAIT_MS = 30_000;
  */
 export function useLandRestore(
   destination: RestoreDestination,
-): (patchIds: PatchId[], displayName: string) => Promise<LandResult> {
+): (
+  patchIds: PatchId[],
+  displayName: string,
+  restoreCodeFrom?: string,
+) => Promise<LandResult> {
   const save = useSavePatches();
   return useCallback(
-    (patchIds, displayName) =>
-      landRestore({ destination, save, patchIds, displayName }),
+    (patchIds, displayName, restoreCodeFrom) =>
+      landRestore({
+        destination,
+        save,
+        patchIds,
+        displayName,
+        ...(restoreCodeFrom !== undefined ? { restoreCodeFrom } : {}),
+      }),
     [destination, save],
   );
 }

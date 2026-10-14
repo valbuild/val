@@ -75,4 +75,14 @@ describe("going back to a point", () => {
       { moduleFilePath: HOME, reason: expect.any(String) },
     ]);
   });
+
+  test("with the code, every module is written, equal to now or not", () => {
+    const plan = planGoBack(
+      [{ moduleFilePath: ABOUT, atCommit: at("Same"), now: { title: "Same" } }],
+      undefined,
+      { everyModule: true },
+    );
+    expect(plan.modules.map((m) => m.moduleFilePath)).toEqual([ABOUT]);
+    expect(plan.unchanged).toEqual([]);
+  });
 });

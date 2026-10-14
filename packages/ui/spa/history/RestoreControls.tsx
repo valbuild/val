@@ -265,17 +265,21 @@ export function RestoreControls({
     written: PatchId[],
     displayName: string,
     note: string,
+    /** "Go back to this point": the site commit whose code comes back too. */
+    restoreCodeFrom?: string,
   ): Promise<void> => {
     setRevertRetry(null);
     setBusy(true);
     setReverting(
-      `Opening a proposal with ${written.length} module${written.length === 1 ? "" : "s"} put back…${note}`,
+      `Opening a proposal with ${written.length} module${written.length === 1 ? "" : "s"} put back${restoreCodeFrom !== undefined ? ", and the code as it was" : ""}…${note}`,
     );
-    const landed = await land(written, displayName);
+    const landed = await land(written, displayName, restoreCodeFrom);
     setBusy(false);
     if (landed.status === "error") {
       setReverting(landed.message);
-      setRevertRetry(() => () => void handOver(written, displayName, note));
+      setRevertRetry(
+        () => () => void handOver(written, displayName, note, restoreCodeFrom),
+      );
     }
   };
 
@@ -416,7 +420,13 @@ export function RestoreControls({
         modules.push(entry);
       }
     }
-    let plan = planGoBack(modules);
+    /*
+     * On the site of a project with proposals, the code comes back too, in
+     * the proposal this opens: every module is written then, because the
+     * `.val` files staged with the code hold their build's content.
+     */
+    const withCode = toProposal ? { everyModule: true } : undefined;
+    let plan = planGoBack(modules, undefined, withCode);
     if (plan.needsJsonEntries.length > 0) {
       setReverting("Reading the entries as they were…");
       const entries: Partial<
@@ -432,7 +442,7 @@ export function RestoreControls({
         }
         entries[moduleFilePath] = loaded.entries;
       }
-      plan = planGoBack(modules, entries);
+      plan = planGoBack(modules, entries, withCode);
     }
     const written: PatchId[] = [];
     const failures: string[] = [];
@@ -472,6 +482,7 @@ export function RestoreControls({
       written,
       restoreProposalName(patchSet.commit.createdAt, "point"),
       note,
+      commitSha,
     );
   };
 

@@ -27,6 +27,11 @@ export type RestoreDestination =
         displayName: string;
         patchIds: PatchId[];
         requestId: string;
+        /**
+         * Bring back the code of this site commit too, once there: "Go back
+         * to this point". See {@link RESTORE_CODE_PARAM}.
+         */
+        restoreCodeFrom?: string;
       }) => Promise<void>;
     };
 
@@ -82,6 +87,7 @@ export async function landRestore(deps: {
   save: SavePatches;
   patchIds: PatchId[];
   displayName: string;
+  restoreCodeFrom?: string;
 }): Promise<LandResult> {
   const { destination, patchIds } = deps;
   if (destination.kind === "here" || patchIds.length === 0) {
@@ -99,6 +105,9 @@ export async function landRestore(deps: {
       displayName: deps.displayName,
       patchIds,
       requestId: restoreRequestId(patchIds),
+      ...(deps.restoreCodeFrom !== undefined
+        ? { restoreCodeFrom: deps.restoreCodeFrom }
+        : {}),
     });
     return { status: "opening" };
   } catch (error) {
@@ -114,4 +123,36 @@ export async function landRestore(deps: {
 /** One per restore, the same on a retry: content's create is keyed by it. */
 export function restoreRequestId(patchIds: readonly PatchId[]): string {
   return `restore-${[...patchIds].sort()[0]}`.slice(0, 100);
+}
+
+/**
+ * The query parameter that carries "and bring back the code of this commit"
+ * from the site's Studio to the proposal's.
+ *
+ * A proposal's files are written by the proposal's own server and nobody
+ * else's (`ValOpsHttp.proposalFilesWrite`), so the site's Studio cannot stage
+ * the code itself: it opens the proposal with the content moved in, and the
+ * Studio at the proposal's address brings the code back when it loads -- once,
+ * taking the parameter out of the address as it does.
+ */
+export const RESTORE_CODE_PARAM = "val_restore_code";
+
+/** `url` with the parameter that asks for the code of `commit`. */
+export function withRestoreCode(url: string, commit: string): string {
+  const next = new URL(url);
+  next.searchParams.set(RESTORE_CODE_PARAM, commit);
+  return next.href;
+}
+
+/** The commit whose code `url` asks for, or `null`. */
+export function restoreCodeOf(url: string): string | null {
+  const commit = new URL(url).searchParams.get(RESTORE_CODE_PARAM);
+  return commit !== null && /^[0-9a-f]{40,64}$/.test(commit) ? commit : null;
+}
+
+/** `url` without the parameter, once it has been acted on. */
+export function withoutRestoreCode(url: string): string {
+  const next = new URL(url);
+  next.searchParams.delete(RESTORE_CODE_PARAM);
+  return next.href;
 }
