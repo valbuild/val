@@ -131,6 +131,7 @@ export const probes = {
   string: s.string(),
   boolean: s.boolean(),
   number: s.number(),
+  int: s.int(),
   literal: s.literal("hero"),
   array: s.array(s.string()),
   object: s.object({ title: s.string() }),
