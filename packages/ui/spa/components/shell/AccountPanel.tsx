@@ -49,8 +49,6 @@ export type AccountPanelProps = {
   branch?: string;
   /** Publishes in flight or recently finished. Absent when there is no feed. */
   deployments?: ShellDeployment[];
-  /** See `ShellData.studioIsDeployer`. */
-  studioIsDeployer?: boolean;
   /**
    * Ends the session. Absent where there is not one.
    *
@@ -90,7 +88,6 @@ export function AccountPanel({
   onAutoSaveChange,
   branch,
   deployments,
-  studioIsDeployer = false,
   onSignOut,
   onClose,
   navSwitcher,
@@ -193,10 +190,7 @@ export function AccountPanel({
           <>
             <PanelSectionLabel divided>Deployments</PanelSectionLabel>
             <div className="pt-1">
-              <DeploymentRows
-                deployments={deployments}
-                studioIsDeployer={studioIsDeployer}
-              />
+              <DeploymentRows deployments={deployments} />
             </div>
           </>
         )}

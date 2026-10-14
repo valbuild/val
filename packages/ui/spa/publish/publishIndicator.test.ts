@@ -107,7 +107,7 @@ describe("this editor's publish", () => {
     expect(indicatorPercent(indicator, EDGE_CACHE_MS / 2)).toBe(94);
     expect(indicatorPercent(indicator, EDGE_CACHE_MS - 1)).toBe(99);
     expect(describeIndicator(indicator, EDGE_CACHE_MS / 2)).toBe(
-      "Reaching visitors 94%",
+      "Reaching edges 94%",
     );
   });
 

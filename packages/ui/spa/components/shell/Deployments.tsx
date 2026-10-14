@@ -12,7 +12,6 @@ import {
   isInFlight,
   type PublishIndicator,
 } from "../../publish/publishIndicatorView";
-import { seconds } from "../../publish/deployProgress";
 import { ProgressBar } from "./DeployProgress";
 import {
   Check,
@@ -24,11 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "../designSystem/cn";
-import {
-  DeploymentProgress,
-  ShellDeployment,
-  ShellDeploymentPublish,
-} from "./types";
+import { DeploymentProgress, ShellDeployment } from "./types";
 
 /**
  * What the deploy feed adds up to right now.
@@ -332,7 +327,6 @@ export function DeploymentsStatus({
       {open && (
         <DeploymentsList
           deployments={deployments}
-          studioIsDeployer={studioIsDeployer}
           onClose={() => onOpenChange(false)}
           className="absolute bottom-full right-0 mb-2 w-80"
         />
@@ -400,11 +394,8 @@ export function DeploymentsList({
   deployments,
   onClose,
   className,
-  studioIsDeployer = false,
 }: {
   deployments: ShellDeployment[];
-  /** See {@link DeploymentsStatusProps.studioIsDeployer}. */
-  studioIsDeployer?: boolean;
   onClose: () => void;
   className?: string;
 }) {
@@ -429,10 +420,7 @@ export function DeploymentsList({
           <X size={14} />
         </button>
       </div>
-      <DeploymentRows
-        deployments={deployments}
-        studioIsDeployer={studioIsDeployer}
-      />
+      <DeploymentRows deployments={deployments} />
     </div>
   );
 }
@@ -443,11 +431,8 @@ export function DeploymentsList({
  */
 export function DeploymentRows({
   deployments,
-  studioIsDeployer = false,
 }: {
   deployments: ShellDeployment[];
-  /** See {@link DeploymentsStatusProps.studioIsDeployer}. */
-  studioIsDeployer?: boolean;
 }) {
   if (deployments.length === 0) {
     return (
@@ -460,87 +445,36 @@ export function DeploymentRows({
   return (
     <ul className="max-h-64 overflow-y-auto scrollbar-slim">
       {deployments.map((deployment) => (
-        <DeploymentRow
-          key={deployment.commitSha}
-          deployment={deployment}
-          studioIsDeployer={studioIsDeployer}
-        />
+        <DeploymentRow key={deployment.commitSha} deployment={deployment} />
       ))}
     </ul>
   );
 }
 
-function DeploymentRow({
-  deployment,
-  studioIsDeployer = false,
-}: {
-  deployment: ShellDeployment;
-  studioIsDeployer?: boolean;
-}) {
-  const progress = deploymentProgress(deployment, studioIsDeployer);
-  const building = progress === "building";
-  const failed = progress === "failed";
-  const running = deployment.publish?.kind === "running";
-  const unknown = progress === "unknown" && !running;
+/**
+ * One publish: what it was, who made it and when it started -- and nothing
+ * about how it went (valbuild/home `docs/hosted-publishing.md`, step 10). The
+ * status bar's one status says where the site is; a row per publish saying it
+ * again, each a little differently, was the list arguing with the bar.
+ */
+function DeploymentRow({ deployment }: { deployment: ShellDeployment }) {
   return (
     <li className="flex items-start gap-2.5 px-3 py-2.5 border-b border-border-float last:border-b-0">
       <span className="mt-0.5 shrink-0">
-        {(building || running) && (
-          <Loader2 size={13} className="animate-spin text-fg-secondary" />
-        )}
-        {failed && (
-          <CircleAlert size={13} className="text-fg-error-on-surface" />
-        )}
-        {unknown && <CircleHelp size={13} className="text-fg-secondary" />}
-        {!building && !running && !failed && !unknown && (
-          <span className="block w-1.5 h-1.5 m-[3px] rounded-full bg-bg-brand-secondary" />
-        )}
+        <span className="block w-1.5 h-1.5 m-[3px] rounded-full bg-bg-brand-secondary" />
       </span>
       <div className="min-w-0 flex-1">
         <div className="text-xs text-fg-primary truncate">
           {deployment.message ?? deployment.commitSha.slice(0, 7)}
         </div>
         <div className="text-[11px] text-fg-secondary-alt truncate">
-          {describeDeploymentState(deployment, studioIsDeployer)}
-          {deployment.author ? ` · ${deployment.author}` : ""} ·{" "}
-          {deployment.timestamp}
+          {deployment.started !== undefined
+            ? `Started ${deployment.started}`
+            : deployment.timestamp}
+          {deployment.author ? ` · ${deployment.author}` : ""}
         </div>
-        {deployment.publish !== undefined && (
-          <PublishBreakdown publish={deployment.publish} />
-        )}
       </div>
     </li>
-  );
-}
-
-/**
- * This tab's own publish of the row's commit: the percentage while it runs,
- * and how long each step took once it is done.
- */
-function PublishBreakdown({ publish }: { publish: ShellDeploymentPublish }) {
-  if (publish.kind === "running") {
-    return (
-      <div className="mt-1.5">
-        <div className="flex items-center justify-between text-[11px] text-fg-secondary">
-          <span>{publish.step}</span>
-          <span className="tabular-nums">{publish.percent}%</span>
-        </div>
-        <ProgressBar percent={publish.percent} className="mt-1 w-full" />
-      </div>
-    );
-  }
-  return (
-    <div className="mt-1.5 text-[11px]">
-      <div className="text-fg-secondary">Live after {seconds(publish.ms)}</div>
-      <ul className="mt-1 space-y-0.5 text-fg-secondary-alt">
-        {publish.steps.map((step) => (
-          <li key={step.label} className="flex justify-between gap-3">
-            <span className="truncate">{step.label}</span>
-            <span className="tabular-nums">{seconds(step.ms)}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }
 

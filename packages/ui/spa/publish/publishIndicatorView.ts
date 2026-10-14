@@ -110,8 +110,13 @@ export function indicatorPercent(
 }
 
 /**
- * The indicator's words: Publishing, Reaching visitors, Live -- with the
+ * The indicator's words: Publishing, Reaching edges, Live -- with the
  * percentage while there is one. The step is behind it, on hover.
+ *
+ * "Reaching edges", decided with the plan (valbuild/home
+ * `docs/hosted-publishing.md`, step 10): the site is live, and the places it
+ * is served from have yet to pick it up -- for at most {@link EDGE_CACHE_MS},
+ * a bound the loader keeps rather than a guess.
  */
 export function describeIndicator(
   indicator: PublishIndicator,
@@ -123,7 +128,7 @@ export function describeIndicator(
     case "publishing":
       return `Publishing${suffix}`;
     case "reaching":
-      return `Reaching visitors${suffix}`;
+      return `Reaching edges${suffix}`;
     case "building":
       return indicator.count > 1
         ? `Building ${indicator.count} publishes`

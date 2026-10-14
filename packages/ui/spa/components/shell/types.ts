@@ -547,6 +547,13 @@ export type ShellDeployment = {
   /** Human-readable relative time, e.g. "2 minutes ago". */
   timestamp: string;
   /**
+   * When the publish started, relative ("12 minutes ago"): what the deploy
+   * feed's rows say, and the only thing they say about it beside its name
+   * (valbuild/home `docs/hosted-publishing.md`, step 10). Absent where only
+   * when it last changed is known; the row says that instead.
+   */
+  started?: string;
+  /**
    * When the publish last changed, as an ISO string.
    *
    * `timestamp` is this same instant already formatted, and is what the rows

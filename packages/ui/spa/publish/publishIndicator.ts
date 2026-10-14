@@ -170,7 +170,7 @@ export function publishIndicator(input: {
       if (job.status === "sealed") moved(job.sealedAt);
     }
     // A failed row is not a seal: the feed's summary says "Build failed" for
-    // it, and a minute of "Reaching visitors" first would be a minute of
+    // it, and a minute of "Reaching edges" first would be a minute of
     // saying the opposite.
     const newest = deployments[0];
     if (

@@ -21,7 +21,7 @@ import {
  *
  * It spins until every visitor gets the change, a few seconds after "Live",
  * once each edge's cache of the site's pointer has run out: Publishing N%,
- * then Reaching visitors N%, then Live. The step is behind it, on hover. It
+ * then Reaching edges N%, then Live. The step is behind it, on hover. It
  * spins for anyone's publish, not only this editor's. The list opens on a
  * click and never by itself, and the "Published" toast comes when it stops.
  */

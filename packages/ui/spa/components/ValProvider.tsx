@@ -1222,7 +1222,7 @@ export function ValProvider({
       markObserved(status.commit);
       /*
        * Not at Live: at the end of the edge window, when every visitor gets
-       * the change. Until then the status bar spins "Reaching visitors", and
+       * the change. Until then the status bar spins "Reaching edges", and
        * this is the announcement that it stopped. See `EDGE_CACHE_MS`.
        */
       const settledAt = request.settledAt ?? Date.now();
