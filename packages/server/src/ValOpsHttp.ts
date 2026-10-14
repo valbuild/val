@@ -1003,11 +1003,30 @@ export class ValOpsHttp extends ValOps {
     if (path === "") return method === "GET" || method === "POST";
     const one = /^\/[0-9a-f]{20}$/.test(path);
     if (one) return method === "GET" || method === "PATCH";
-    if (method === "GET") return /^\/[0-9a-f]{20}\/merge-checks$/.test(path);
+    if (method === "GET")
+      return /^\/[0-9a-f]{20}\/(merge-checks|files)$/.test(path);
     return (
       method === "POST" &&
-      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge)$/.test(path)
+      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|build)$/.test(
+        path,
+      )
     );
+  }
+
+  /**
+   * A write to a proposal's FILES -- staging code, or serving a build of it
+   * (valbuild/home `docs/hosted-publishing.md`, step 7) -- is made by the
+   * proposal's own server and nobody else's: the file tools act on the
+   * proposal the Studio is open in (P11), and the site's files change only
+   * when a proposal is merged. The proposal it names, or `null` when this
+   * path is not such a write.
+   */
+  private static proposalFilesWrite(
+    method: string,
+    path: string,
+  ): string | null {
+    if (method !== "POST") return null;
+    return /^\/([0-9a-f]{20})\/(files|build)$/.exec(path)?.[1] ?? null;
   }
 
   /**
@@ -1051,6 +1070,19 @@ export class ValOpsHttp extends ValOps {
         contentType: json,
         body: JSON.stringify({
           message: `'${init.method} ${path}' is not part of the proposals API.`,
+        }),
+      };
+    }
+    const writes = ValOpsHttp.proposalFilesWrite(init.method, path);
+    if (writes !== null && writes !== this.proposal?.name) {
+      return {
+        status: 403,
+        contentType: json,
+        body: JSON.stringify({
+          message:
+            this.proposal === null
+              ? "The site's files are changed in a proposal: open one, and change them there."
+              : "Files are changed in the proposal this Studio is open in, not in another.",
         }),
       };
     }

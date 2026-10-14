@@ -91,6 +91,7 @@ const inProposal = (over: Partial<InProposal> = {}): InProposal => ({
   overlay: { status: "succeeded" },
   renderCheck: { status: "succeeded" },
   publishBlockedBy: PUBLISH_LATER,
+  code: null,
   ...over,
 });
 
@@ -185,6 +186,12 @@ function ProposalsShell({
       );
       setSaveStep(1);
     },
+    onBuild: () =>
+      setLocation((current) =>
+        current.kind === "proposal"
+          ? { ...current, code: { state: "building" } }
+          : current,
+      ),
     onPublish: () => undefined,
     onCompare: () => console.log("compare with the site"),
     onRename: () => setDialog("rename"),
@@ -388,6 +395,34 @@ export const SaveFailed = shell({
       error: "Some of these changes were changed while they were being saved",
     },
   }),
+});
+
+/*
+ * CODE IN A PROPOSAL (valbuild/home `docs/hosted-publishing.md`, step 7). The
+ * assistant staged files: the preview shows them once the proposal is built.
+ */
+export const BuildRequired = shell({
+  location: inProposal({ unsaved: 0, code: { state: "required" } }),
+});
+
+export const Building = shell({
+  location: inProposal({ unsaved: 0, code: { state: "building" } }),
+});
+
+/** A failed build says so on the button, with why, and builds again when pressed. */
+export const BuildFailed = shell({
+  location: inProposal({
+    unsaved: 0,
+    code: {
+      state: "failed",
+      error:
+        "Could not build: src/components/Hero.tsx: Unexpected token (3:12)",
+    },
+  }),
+});
+
+export const PhoneBuildRequired = shell({
+  location: inProposal({ unsaved: 0, code: { state: "required" } }),
 });
 
 export const InAProposalLightMode = shell({

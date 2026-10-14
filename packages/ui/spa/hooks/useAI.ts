@@ -34,6 +34,7 @@ import {
   useAIModelSelection,
   useAvailableAIModel,
   useCurrentProfile,
+  useCurrentProposal,
   useProfilesByAuthorId,
   useAIContext,
 } from "../components/ValProvider";
@@ -85,6 +86,19 @@ import {
   type ExpandResult,
 } from "./expandSessionKeysInPatch";
 import { useProjectLocales } from "./useProjectLocales";
+import {
+  CODE_TOOLS,
+  codeToolsPromptSection,
+  isCodeTool,
+  runCodeTool,
+} from "../proposals/proposalCode";
+import {
+  proposalCodeChanged,
+  requestProposal,
+  useProposalBuild,
+} from "../proposals/useProposalBuild";
+import { createProposalsClient } from "../proposals/proposalsClient";
+import { createStudioPublishClient } from "../publish/publishClient";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",
@@ -629,6 +643,24 @@ export function useAI(
     aiSessionImagesToPatchFile,
   } = useAIContext();
   const valSystem = useValSystem();
+  /*
+   * The code tools (valbuild/home `docs/hosted-publishing.md`, step 7): the
+   * proposal this Studio is in, its build, and the two APIs they read. Refs,
+   * because the message handler below is subscribed once.
+   */
+  const currentProposal = useCurrentProposal();
+  const currentProposalRef = useRef(currentProposal);
+  currentProposalRef.current = currentProposal;
+  const proposalBuild = useProposalBuild().build;
+  const proposalBuildRef = useRef(proposalBuild);
+  proposalBuildRef.current = proposalBuild;
+  const codeClients = useMemo(
+    () => ({
+      proposals: createProposalsClient({ api: "/api/val" }),
+      publish: createStudioPublishClient({ api: "/api/val" }),
+    }),
+    [],
+  );
   // Same answer the fields get, for the same reason: `empty_at_path` on a
   // locale-keyed record scaffolds one entry per language, and the languages are
   // in another module. See `ProjectLocalesProvider`.
@@ -1789,6 +1821,34 @@ export function useAI(
               });
               chatRef.current?.errorToolCall(message.id, message.toolCallId);
             });
+        } else if (isCodeTool(message.name)) {
+          const toolCallId = message.toolCallId;
+          const messageId = message.id;
+          const toolName = message.name;
+          void runCodeTool(toolName, message.arguments, {
+            proposal: currentProposalRef.current,
+            client: codeClients.proposals,
+            siteSource: () => codeClients.publish.projectSource(),
+            build: () => {
+              const build = proposalBuildRef.current;
+              return build === null
+                ? Promise.resolve({
+                    status: "failed",
+                    message: "Only a proposal is built here.",
+                  })
+                : build();
+            },
+            offerProposal: requestProposal,
+          }).then(({ result, isError }) => {
+            if (toolName === "write_files" && !isError) proposalCodeChanged();
+            sendWsMessage({
+              type: "ai_tool_result",
+              toolCallId,
+              result,
+              ...(isError ? { isError: true } : {}),
+            });
+            chatRef.current?.completeToolCall(messageId, toolCallId);
+          });
         } else if (message.name === "show_compare_view") {
           navigate("/val/compare");
           sendWsMessage({
@@ -2511,8 +2571,8 @@ Do not describe what you will do unless you do it for clarification — just do 
 - Confirm changes in plain language after every successful update.
 - If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
               valReads.getAssistantSettings(),
-            )}`,
-            tools: ALL_TOOLS,
+            )}${codeToolsPromptSection(currentProposal !== null)}`,
+            tools: [...ALL_TOOLS, ...CODE_TOOLS],
           },
         ],
       };
