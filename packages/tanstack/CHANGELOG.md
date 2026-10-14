@@ -1,5 +1,16 @@
 # @valbuild/tanstack
 
+## 0.144.8
+
+### Patch Changes
+
+- Updated dependencies [[`6fd8f79`](https://github.com/valbuild/val/commit/6fd8f791a83d37f95dc3ae12bd8025ccf81e4a7c), [`b67c03e`](https://github.com/valbuild/val/commit/b67c03ee1876803c31098098ae0becf3f4ad6ade)]:
+  - @valbuild/ui@0.144.8
+  - @valbuild/server@0.144.8
+  - @valbuild/react@0.144.8
+  - @valbuild/language-server@0.144.8
+  - @valbuild/mcp@0.144.8
+
 ## 0.144.7
 
 ### Patch Changes

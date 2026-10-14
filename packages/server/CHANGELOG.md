@@ -1,5 +1,17 @@
 # @valbuild/server
 
+## 0.144.8
+
+### Patch Changes
+
+- [#844](https://github.com/valbuild/val/pull/844) [`b67c03e`](https://github.com/valbuild/val/commit/b67c03ee1876803c31098098ae0becf3f4ad6ade) Thanks [@freekh](https://github.com/freekh)! - Publishing a proposal now says what blocks it, and what to do about it:
+
+  - When the site's code changed after a proposal with code changes started, the Publish dialog offers **Update from the site**. It moves the proposal onto the site as it is now, and its code then needs building again ("Build required").
+  - When someone published changes to the same page since the proposal started, the dialog names the fields each side changed.
+
+- Updated dependencies [[`6fd8f79`](https://github.com/valbuild/val/commit/6fd8f791a83d37f95dc3ae12bd8025ccf81e4a7c), [`b67c03e`](https://github.com/valbuild/val/commit/b67c03ee1876803c31098098ae0becf3f4ad6ade)]:
+  - @valbuild/ui@0.144.8
+
 ## 0.144.7
 
 ### Patch Changes

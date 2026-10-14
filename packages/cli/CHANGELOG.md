@@ -1,5 +1,13 @@
 # @valbuild/cli
 
+## 0.144.8
+
+### Patch Changes
+
+- Updated dependencies [[`b67c03e`](https://github.com/valbuild/val/commit/b67c03ee1876803c31098098ae0becf3f4ad6ade)]:
+  - @valbuild/server@0.144.8
+  - @valbuild/language-server@0.144.8
+
 ## 0.144.7
 
 ### Patch Changes
