@@ -1,5 +1,11 @@
 # @valbuild/ui
 
+## 0.144.10
+
+### Patch Changes
+
+- [#849](https://github.com/valbuild/val/pull/849) [`0a061c1`](https://github.com/valbuild/val/commit/0a061c124408aa127c5042c9e3a602d7dd9daf13) Thanks [@freekh](https://github.com/freekh)! - An unpublished change to a `.val` file that has since been renamed or deleted no longer holds the Studio on "Loading unpublished changes…". The Studio now names the file and offers **Discard** beside the message. If the file comes back, the change applies again.
+
 ## 0.144.9
 
 ### Patch Changes

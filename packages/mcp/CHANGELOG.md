@@ -1,5 +1,12 @@
 # @valbuild/mcp
 
+## 0.144.10
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.144.10
+
 ## 0.144.9
 
 ### Patch Changes
