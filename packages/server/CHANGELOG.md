@@ -1,5 +1,22 @@
 # @valbuild/server
 
+## 0.144.7
+
+### Patch Changes
+
+- [#842](https://github.com/valbuild/val/pull/842) [`45ee083`](https://github.com/valbuild/val/commit/45ee0831393345dab08093575d4ed652e20e1229) Thanks [@freekh](https://github.com/freekh)! - In a proposal on a hosted project, the Studio's assistant can now change the project's code, not only its content:
+
+  - `list_files` and `read_file` read the project's code. In a proposal they read the proposal's version of it.
+  - `write_files` stages whole files in the proposal, or deletes them.
+  - `build_proposal` builds those files in the tab, so the proposal's preview shows them. Nothing is published: the site changes only when the proposal is published.
+
+  The top bar shows **Build required** while staged code is not in the preview yet, and the same button builds it. A failed build says why on the button, and pressing it again builds again.
+
+  On the site itself, code is never changed directly. A code change asked for there is refused, and New proposal opens so the change can be made in one.
+
+- Updated dependencies [[`45ee083`](https://github.com/valbuild/val/commit/45ee0831393345dab08093575d4ed652e20e1229)]:
+  - @valbuild/ui@0.144.7
+
 ## 0.144.6
 
 ### Patch Changes
