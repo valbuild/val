@@ -1,5 +1,12 @@
 # @valbuild/language-server
 
+## 0.144.11
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.144.11
+
 ## 0.144.10
 
 ### Patch Changes
