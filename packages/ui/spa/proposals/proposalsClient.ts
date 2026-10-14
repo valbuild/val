@@ -84,6 +84,13 @@ const MergeCheck = z.object({
   id: z.string(),
   ok: z.boolean(),
   message: z.string(),
+  /** What clears it, when something here does. Unknown actions are none. */
+  action: z
+    .string()
+    .optional()
+    .transform((action) =>
+      action === "update-from-site" ? action : undefined,
+    ),
 });
 export type MergeCheckJson = z.infer<typeof MergeCheck>;
 const MergeChecksAnswer = z.object({
@@ -148,6 +155,11 @@ export type ProposalsClient = {
     files: Record<string, string | null>,
     message?: string,
   ): Promise<z.infer<typeof StagedAnswer>>;
+  /**
+   * Onto the site as it is now: its base build becomes the site's, and its
+   * staged code needs building again. The site-code check's action.
+   */
+  updateFromSite(name: string): Promise<ProposalJson>;
   /** Serve a build of its staged files, uploaded as `publishId`, at its address. */
   serveBuild(
     name: string,
@@ -219,6 +231,7 @@ export function createProposalsClient(options: {
         }),
       ),
     serveBuild: (name, build) => one(`${at(name)}/build`, "POST", build),
+    updateFromSite: (name) => one(`${at(name)}/update-from-site`, "POST", {}),
   };
 }
 

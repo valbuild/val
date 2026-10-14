@@ -125,6 +125,50 @@ describe("the proposals client", () => {
   });
 });
 
+describe("step 8: what blocks Publish, and what clears it", () => {
+  test("a check names its action, and an action this Studio does not know is none", async () => {
+    const { fetchImpl } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          checks: [
+            {
+              id: "site-code",
+              ok: false,
+              message: "m",
+              action: "update-from-site",
+            },
+            { id: "later", ok: false, message: "m", action: "something-new" },
+          ],
+          canMerge: false,
+        },
+      },
+    ]);
+    const client = createProposalsClient({ api: "/api/val", fetchImpl });
+    const { checks } = await client.mergeChecks(NAME);
+    expect(checks.map((check) => check.action)).toEqual([
+      "update-from-site",
+      undefined,
+    ]);
+  });
+
+  test("Update from the site is a POST on the proposal, answered as the proposal", async () => {
+    const { sent, fetchImpl } = fakeFetch([
+      { status: 200, body: { proposal: json() } },
+    ]);
+    const client = createProposalsClient({ api: "/api/val", fetchImpl });
+    const updated = await client.updateFromSite(NAME);
+    expect(sent).toEqual([
+      {
+        url: `/api/val/proposals-api/${NAME}/update-from-site`,
+        method: "POST",
+        body: {},
+      },
+    ]);
+    expect(updated.name).toBe(NAME);
+  });
+});
+
 describe("a proposal as the screens show it", () => {
   test("says You to its owner, and names everyone else", () => {
     const ada = { name: "Ada" };
