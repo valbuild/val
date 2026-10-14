@@ -1,7 +1,9 @@
+import path from "path";
 import pc from "picocolors";
 import { error } from "./logger";
 import { PublishProblem } from "@valbuild/shared/internal";
 import { formatBytes, runPublish } from "./publish/runPublish";
+import { validateOnce } from "./validate";
 
 /**
  * `val publish` - a built project in, a live site out.
@@ -19,7 +21,32 @@ export async function publish(options: {
   buildHash?: string;
   linksOwnCss?: boolean;
   dryRun?: boolean;
+  skipValidation?: boolean;
 }): Promise<void> {
+  // Content that does not validate is not published. This is the check that
+  // lets the Studio trust a connected project's published content without
+  // re-checking every file itself: whatever reached the site went through
+  // here. Without `--fix`, so CI never rewrites what it was asked to publish.
+  if (!options.skipValidation) {
+    const projectRoot = options.root
+      ? path.resolve(options.root)
+      : process.cwd();
+    const errorCount = await validateOnce({ projectRoot, fix: false });
+    if (errorCount > 0) {
+      error(
+        `Not published: ${errorCount} validation error${errorCount === 1 ? "" : "s"}.`,
+      );
+      console.error(
+        pc.dim(
+          `    Run "val validate --fix" in the project, commit what it changes and push, ` +
+            `and fix by hand what it cannot. --skip-validation publishes anyway.`,
+        ),
+      );
+      process.exitCode = 1;
+      return;
+    }
+  }
+
   const result = await runPublish({
     ...(options.root ? { root: options.root } : {}),
     ...(options.artifacts ? { artifacts: options.artifacts } : {}),

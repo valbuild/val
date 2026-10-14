@@ -12,6 +12,7 @@ import {
   Menu,
   PanelRight,
   Search,
+  ShieldCheck,
   Sparkles,
   Upload,
   UserRound,
@@ -101,6 +102,18 @@ export type TopBarProps = {
   historyActive?: boolean;
   /** Go to the history page. A navigation, not a panel toggle. */
   onOpenHistory?: () => void;
+  /**
+   * Go to the Validate page. Shown in every mode: every mode has something to
+   * validate. Absent in stories and embeds that do not route.
+   */
+  onOpenValidate?: () => void;
+  /** Whether the Validate page is the one being shown. */
+  validateActive?: boolean;
+  /**
+   * Errors the Validate page would show: the Studio's own, plus what "Check
+   * everything" found this session. Zero shows no badge.
+   */
+  validateCount?: number;
   /** Absent until a profile loads, and in modes that have none. */
   user?: { name: string; avatarUrl?: string };
   onOpenSearch: () => void;
@@ -210,6 +223,9 @@ export function TopBar({
   historyEnabled = false,
   historyActive = false,
   onOpenHistory,
+  onOpenValidate,
+  validateActive = false,
+  validateCount = 0,
   user,
   onOpenSearch,
   locales,
@@ -438,6 +454,27 @@ export function TopBar({
           </>
         )}
         {isMobile && members}
+        {onOpenValidate && (
+          <IconButton
+            label={
+              validateCount > 0
+                ? `Validate (${validateCount} ${validateCount === 1 ? "error" : "errors"})`
+                : "Validate"
+            }
+            active={validateActive}
+            onClick={onOpenValidate}
+          >
+            <ShieldCheck size={16} />
+            {validateCount > 0 && (
+              <span
+                aria-hidden
+                className="absolute -right-1 -top-1 min-w-4 rounded-full bg-bg-warning-primary px-1 text-[10px] font-medium leading-4 text-fg-warning-primary"
+              >
+                {validateCount > 99 ? "99+" : validateCount}
+              </span>
+            )}
+          </IconButton>
+        )}
         {historyEnabled && (
           <IconButton
             label="History"

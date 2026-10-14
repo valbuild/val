@@ -76,6 +76,8 @@ export type IValRemote = {
         data: {
           publicProjectId: string;
           remoteFileBuckets: { bucket: string }[];
+          /** See `getSettings`: the host new refs name. */
+          remoteHost?: string;
         };
       }
     | { success: false; message: string }
@@ -813,6 +815,27 @@ export async function handleViewCheckModule(
   return { success: true, shouldApplyPatch: true };
 }
 
+/**
+ * `remote:rewrite-host`: a platform ref whose host no longer serves its
+ * project. The server's full check reports it, and so does `createFixPatch`'s
+ * `image:check-remote` branch, which is how `val validate` finds it: that
+ * branch asks the host first. Either way the patch is `createFixPatch`'s, and
+ * needs nothing but the ref -- the new host is derived from it.
+ */
+export async function handleRemoteRewriteHost(
+  ctx: FixHandlerContext,
+): Promise<FixHandlerResult> {
+  if (!ctx.fix) {
+    return {
+      success: true,
+      fixableErrorMessage:
+        `${ctx.validationError.message} ` +
+        "Run 'val validate --fix' to point it at the project's own address.",
+    };
+  }
+  return { success: true, shouldApplyPatch: true };
+}
+
 export async function handleExternalUpload(): Promise<FixHandlerResult> {
   return {
     success: true,
@@ -866,6 +889,7 @@ export const currentFixHandlers: Record<
   "jsonValues:extract-entry": handleJsonValuesExtractEntry,
   "external:upload": handleExternalUpload,
   "view:check-module": handleViewCheckModule,
+  "remote:rewrite-host": handleRemoteRewriteHost,
 };
 const deprecatedFixHandlers: Record<string, FixHandler> = {
   "image:replace-metadata": handleFileMetadata,

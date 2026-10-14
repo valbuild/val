@@ -115,7 +115,7 @@ test.describe("validation while editing", () => {
     await page.getByRole("button", { name: "Fix 1" }).click();
 
     // The field is here to be fixed, and the message is here once.
-    await expect(page.getByText("Validation errors")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Validate" })).toBeVisible();
     await expect(page.getByText(TOO_SHORT)).toHaveCount(1);
   });
 });

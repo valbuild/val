@@ -70,6 +70,11 @@ import {
   bufferReader,
 } from "./ValOps";
 import { fromError } from "zod-validation-error";
+import {
+  checkModuleForStudio,
+  fixForStudio,
+  type StudioCheckInput,
+} from "./studioValidation";
 import { ValOpsHttp } from "./ValOpsHttp";
 import { ValOpsMemory, type ValPatchStore } from "./ValOpsMemory";
 import { result } from "@valbuild/core/fp";
@@ -729,6 +734,74 @@ export const ValServer = (
     }
   };
 
+  /**
+   * What the Studio's full check reads: base plus the patches the caller is
+   * showing, as `/sources/~` resolves an explicit `patch_id` list -- including
+   * `draftOverlay`, so a module changed by a publish after this build is
+   * checked as the caller sees it, not as this build has it.
+   */
+  const studioCheckInput = async (
+    cookies: Parameters<typeof getAuth>[0],
+    moduleFilePath: ModuleFilePath,
+    patchIds: PatchId[] | undefined,
+  ): Promise<
+    | { status: "ok"; input: StudioCheckInput }
+    | { status: 401 | 500; json: { message: string } }
+  > => {
+    const auth = getAuth(cookies);
+    if (auth.error) {
+      return { status: 401, json: { message: auth.error } };
+    }
+    if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+      return { status: 401, json: { message: "Unauthorized" } };
+    }
+    const moduleErrors = await serverOps.getModuleErrors();
+    if (moduleErrors?.length > 0) {
+      return {
+        status: 500,
+        json: {
+          message:
+            "Val could not load this project's modules, so nothing can be checked. Check val.modules.",
+        },
+      };
+    }
+    // An EXPLICITLY empty list is base, never "everything": `fetchPatches`
+    // reads an empty filter as no filter (see `/sources/~`).
+    let patchOps: OrderedPatches =
+      patchIds !== undefined && patchIds.length === 0
+        ? { patches: [] }
+        : await serverOps.fetchPatches({ patchIds, excludePatchOps: false });
+    if ("error" in patchOps && patchOps.error) {
+      return "unauthorized" in patchOps && patchOps.unauthorized
+        ? { status: 401, json: { message: "Unauthorized" } }
+        : {
+            status: 500,
+            json: {
+              message:
+                "The unpublished changes could not be read, so nothing was checked.",
+            },
+          };
+    }
+    patchOps = {
+      ...patchOps,
+      patches: draftOverlay(patchOps.patches, patchOps.commits),
+    };
+    const analysis = serverOps.analyzePatches(patchOps.patches);
+    const { sources } = await serverOps.getSourcesWithPatchesApplied({
+      ...analysis,
+      ...patchOps,
+    });
+    return {
+      status: "ok",
+      input: {
+        moduleFilePath,
+        schemas: await serverOps.getSchemas(),
+        sources,
+        fileLastUpdatedByPatchId: analysis.fileLastUpdatedByPatchId,
+      },
+    };
+  };
+
   return {
     "/draft/enable": {
       GET: async (req) => {
@@ -1115,6 +1188,9 @@ export const ValServer = (
             publicProjectId: settingsRes.data.publicProjectId,
             remoteFileBuckets: settingsRes.data.remoteFileBuckets,
             coreVersion: Internal.VERSION.core || "unknown",
+            ...(settingsRes.data.remoteHost !== undefined
+              ? { remoteHost: settingsRes.data.remoteHost }
+              : {}),
           },
         };
       },
@@ -1364,6 +1440,96 @@ export const ValServer = (
             patchId,
           },
         };
+      },
+    },
+    "/validate": {
+      POST: async (req) => {
+        const checked = await studioCheckInput(
+          req.cookies,
+          req.body.moduleFilePath,
+          req.body.patchIds,
+        );
+        if (checked.status !== "ok") {
+          return checked;
+        }
+        const res = await checkModuleForStudio(serverOps, checked.input);
+        switch (res.status) {
+          case "unknown-module":
+            return {
+              status: 404,
+              json: {
+                message: `There is no module '${req.body.moduleFilePath}' in this project.`,
+              },
+            };
+          case "invalid-source":
+            return {
+              status: 200,
+              json: {
+                moduleFilePath: req.body.moduleFilePath,
+                errors: {},
+                invalidSource: res.message,
+              },
+            };
+          case "ok":
+            return {
+              status: 200,
+              json: {
+                moduleFilePath: req.body.moduleFilePath,
+                errors: res.errors,
+                remoteHosts: res.remoteHosts,
+              },
+            };
+        }
+      },
+    },
+    "/validate/fix": {
+      POST: async (req) => {
+        const checked = await studioCheckInput(
+          req.cookies,
+          req.body.moduleFilePath,
+          req.body.patchIds,
+        );
+        if (checked.status !== "ok") {
+          return checked;
+        }
+        const res = await fixForStudio(serverOps, {
+          ...checked.input,
+          sourcePath: req.body.sourcePath,
+          fix: req.body.fix,
+        });
+        switch (res.status) {
+          case "unknown-module":
+            return {
+              status: 404,
+              json: {
+                message: `There is no module '${req.body.moduleFilePath}' in this project.`,
+              },
+            };
+          case "not-found":
+            return {
+              status: 404,
+              json: {
+                message:
+                  "This error is no longer there. Check the module again to see what is left.",
+              },
+            };
+          case "not-in-studio":
+            return {
+              status: 400,
+              json: {
+                message:
+                  "This fix cannot be made from the Studio yet. Run `val validate --fix` in the project.",
+              },
+            };
+          case "ok":
+            return {
+              status: 200,
+              json: {
+                patch: res.patch,
+                remainingErrors: res.remainingErrors,
+              },
+            };
+        }
       },
     },
     "/external-urls/check": {
@@ -2427,12 +2593,9 @@ export const ValServer = (
               sourcesRes.sources,
               sourcesValidation.files,
             );
-            // TODO : actually do something with this
-            await serverOps.validateRemoteFiles(
-              schemas,
-              sourcesRes.sources,
-              sourcesValidation.remoteFiles,
-            );
+            // Remote files are not checked here: their check asks each host
+            // over the network, so it is the Studio's full check that runs it,
+            // one module at a time (`/validate`).
           }
         }
 

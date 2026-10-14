@@ -87,6 +87,10 @@ const LOCAL_FIXES: readonly ValidationFix[] = [
   // A view pointing at the wrong module: the schema names the right one, so the
   // fix is a value the patch already knows. Nothing read, nothing fetched.
   "view:check-module",
+  // Not here, deliberately: `remote:rewrite-host`. The edit is local, but
+  // FINDING it asks the ref's host over the network, inside `image:check-remote`'s
+  // adjudication (`mediaChecks.ts`), whose findings carry no fixes -- so the
+  // diagnostic says what `val validate --fix` will do, and offers no lightbulb.
 ];
 
 /**

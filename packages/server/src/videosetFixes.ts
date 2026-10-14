@@ -44,6 +44,7 @@ import { isNotRoot, type JSONValue, type Patch } from "@valbuild/core/patch";
 import { traverseSchemaSource } from "@valbuild/shared/internal";
 import { collectionReferencePatches } from "./collectionReferences";
 import type { FixPatchRemainingError } from "./createFixPatch";
+import type { FixFiles } from "./fixFiles";
 import {
   extractVideoMetadataFromFile,
   unreadableVideoMetadataMessage,
@@ -790,13 +791,13 @@ export async function videosetCheckAllFilesPatch({
  * `alt` and anything already there are someone's, and stay.
  */
 export async function videosetAddMetadataPatch({
-  projectRoot,
+  files,
   sourcePath,
   validationError,
   moduleSource,
   moduleSchema,
 }: {
-  projectRoot: string;
+  files: FixFiles;
   sourcePath: SourcePath;
   validationError: ValidationError;
   moduleSource: Source | undefined;
@@ -828,7 +829,7 @@ export async function videosetAddMetadataPatch({
   try {
     metadata = galleryEntryOf(key).remote
       ? await extractVideoMetadataFromUrl(key, nameForTypeOf(key))
-      : await extractVideoMetadataFromFile(path.join(projectRoot, key));
+      : await files.readVideoMetadata(key);
   } catch (err) {
     return fail(
       `Failed to read video metadata from ${key}: ${

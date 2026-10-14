@@ -10,7 +10,6 @@ import React, {
 import {
   DEFAULT_APP_HOST,
   DEFAULT_CONTENT_HOST,
-  DEFAULT_VAL_REMOTE_HOST,
   Internal,
   Json,
   ModuleFilePath,
@@ -22,6 +21,7 @@ import {
   ValConfig,
   VideoSource,
 } from "@valbuild/core";
+import { useRemoteHost } from "./ValRemoteProvider";
 import { useValSystem, type ValSystem } from "../stores/react/SystemContext";
 import type { UploadProgress } from "../stores/PatchStore";
 import type { SourcePeek } from "../stores/SourceStore";
@@ -693,6 +693,9 @@ export function useValConfig() {
   // is consistent with that contract.
   const ctx = useContext(ValFieldContext);
   const config = ctx?.config;
+  // The project's settings say which host new remote refs name: see
+  // `useRemoteHost`.
+  const remoteHost = useRemoteHost();
   const lastConfig = useRef<
     | (ValConfig & {
         remoteHost: string;
@@ -705,7 +708,7 @@ export function useValConfig() {
   >(
     config && {
       ...config,
-      remoteHost: DEFAULT_VAL_REMOTE_HOST,
+      remoteHost,
       appHost: DEFAULT_APP_HOST,
       contentHost: DEFAULT_CONTENT_HOST,
       studioPrefix: "/val/~",
@@ -715,13 +718,13 @@ export function useValConfig() {
     if (config) {
       lastConfig.current = {
         ...config,
-        remoteHost: DEFAULT_VAL_REMOTE_HOST,
+        remoteHost,
         appHost: DEFAULT_APP_HOST,
         contentHost: DEFAULT_CONTENT_HOST,
         studioPrefix: "/val/~",
       };
     }
-  }, [config]);
+  }, [config, remoteHost]);
   return lastConfig.current;
 }
 

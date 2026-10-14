@@ -16,6 +16,13 @@ const defaultHost = process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
 const SettingsSchema = z.object({
   publicProjectId: z.string(),
   remoteFileBuckets: z.array(z.object({ bucket: z.string() })),
+  /**
+   * The host a new remote file's ref names: the project's own address with
+   * `/_val` for a Hosted project whose files are in R2, `remote.val.build`
+   * otherwise. Absent from a content service that predates it, where every
+   * project's files are on `remote.val.build`.
+   */
+  remoteHost: z.string().optional(),
 });
 type Settings = z.infer<typeof SettingsSchema>;
 

@@ -64,6 +64,11 @@ import {
   type CurrentJsonEntries,
 } from "./patch/jsonValuesPatch";
 import { validateJsonValuesEntries } from "./validateJsonValues";
+import {
+  checkRemoteFiles,
+  type RemoteFilesCheck,
+  type RemoteNetwork,
+} from "./remoteFileCheck";
 import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
@@ -1340,6 +1345,13 @@ export abstract class ValOps {
     schemas: Schemas,
     sources: Sources,
     patchesByModule?: PatchAnalysis["patchesByModule"],
+    /**
+     * Validate only these modules. The snapshot the cross-module checks read
+     * (a keyOf's keys, a route, a set's directory) is still built from every
+     * module, which is what makes checking one module at a time give the same
+     * answer for it as checking them all. Wins over `patchesByModule`.
+     */
+    onlyModules?: readonly ModuleFilePath[],
   ): Promise<{
     errors: Record<
       ModuleFilePath,
@@ -1390,8 +1402,21 @@ export abstract class ValOps {
         }
       }
     }
-    const modulePathsToValidate =
-      patchesByModule && Object.keys(patchesByModule);
+    const addModuleError = (
+      path: ModuleFilePath,
+      sourcePath: SourcePath,
+      validationError: ValidationError,
+    ) => {
+      if (!errors[path]) {
+        errors[path] = { validations: {} };
+      }
+      if (!errors[path].validations[sourcePath]) {
+        errors[path].validations[sourcePath] = [];
+      }
+      errors[path].validations[sourcePath].push(validationError);
+    };
+    const modulePathsToValidate: readonly string[] | undefined =
+      onlyModules ?? (patchesByModule && Object.keys(patchesByModule));
     for (const [pathS, schema] of entries) {
       if (modulePathsToValidate && !modulePathsToValidate.includes(pathS)) {
         continue;
@@ -1425,13 +1450,32 @@ export abstract class ValOps {
         jsonValuesErrors,
       )) {
         const sourcePath = sourcePathS as SourcePath;
-        if (!errors[path]) {
-          errors[path] = { validations: {} };
+        for (const entryError of entryErrors) {
+          // An entry's errors get the same project-wide resolution as every
+          // other module's. Added raw, every keyOf and route in a
+          // `.jsonValues()` record was reported as unresolved -- 240 of them in
+          // `examples/next`'s kb.val.ts, none real.
+          if (isSchemaSourceFixError(entryError)) {
+            const resolved = resolveSchemaSourceFixForError(
+              entryError,
+              snapshot,
+            );
+            if (!resolved || resolved.status !== "remaining") {
+              continue;
+            }
+            addModuleError(path, sourcePath, resolved.error);
+            continue;
+          }
+          // "Not yet compared with its bytes" is a request, not an error, and
+          // for an entry it cannot be answered here: `validateFiles` resolves a
+          // file's schema through the module's source, which for a
+          // `.jsonValues()` record holds markers rather than the entry. The
+          // publish gate ignores it anyway (`partitionValidationErrors`).
+          if (isOnlyFileCheckValidationError(entryError)) {
+            continue;
+          }
+          addModuleError(path, sourcePath, entryError);
         }
-        if (!errors[path].validations[sourcePath]) {
-          errors[path].validations[sourcePath] = [];
-        }
-        errors[path].validations[sourcePath].push(...entryErrors);
       }
       if (res === false) {
         continue;
@@ -1533,13 +1577,86 @@ export abstract class ValOps {
     return { errors, files, remoteFiles };
   }
 
+  /**
+   * The remote values `validateSources` set aside, checked: is each ref
+   * sound, and does its host serve it. See `checkRemoteFiles`.
+   *
+   * `fileLastUpdatedByPatchId` names the refs whose bytes are still in a
+   * pending patch, which the host will not have until publish.
+   */
   async validateRemoteFiles(
     schemas: Schemas,
     sources: Sources,
     remoteFiles: Record<SourcePath, MediaSource>,
-  ): Promise<Record<SourcePath, ValidationError[]>> {
-    // TODO: Implement
-    return {};
+    fileLastUpdatedByPatchId: PatchAnalysis["fileLastUpdatedByPatchId"] = {},
+    network: RemoteNetwork = {},
+  ): Promise<RemoteFilesCheck> {
+    const sampleByHost = this.sourceMode() === "managed";
+    // Only a managed project vouches for one published ref with another, so
+    // only it needs to know which refs are published.
+    const baseSources = sampleByHost
+      ? (await this.getSources()).sources
+      : undefined;
+    const valueAt = (
+      sourcePath: SourcePath,
+      from: Sources,
+    ): { source: unknown; schema: SerializedSchema } | undefined => {
+      const [moduleFilePath, modulePath] =
+        Internal.splitModuleFilePathAndModulePath(sourcePath);
+      const schema = schemas[moduleFilePath];
+      if (!schema || from[moduleFilePath] === undefined) {
+        return undefined;
+      }
+      try {
+        return Internal.resolvePath(
+          modulePath,
+          from[moduleFilePath],
+          schema["executeSerialize"](),
+        );
+      } catch {
+        return undefined;
+      }
+    };
+    return checkRemoteFiles({
+      remoteFiles,
+      sampleByHost,
+      ...network,
+      schemaAt: (sourcePath) => valueAt(sourcePath, sources)?.schema,
+      isPublished: (sourcePath, ref) => {
+        if (!baseSources) {
+          return false;
+        }
+        const published = valueAt(sourcePath, baseSources)?.source;
+        return (
+          typeof published === "object" &&
+          published !== null &&
+          "path" in published &&
+          published.path === ref
+        );
+      },
+      pendingBytes: this.pendingBytesOf(fileLastUpdatedByPatchId),
+    });
+  }
+
+  /**
+   * Is a remote file's bytes in a pending patch? `not-pending` when no patch
+   * wrote it; `missing` when one did and its bytes are not there.
+   */
+  pendingBytesOf(
+    fileLastUpdatedByPatchId: PatchAnalysis["fileLastUpdatedByPatchId"],
+  ): (ref: string) => Promise<"present" | "missing" | "not-pending"> {
+    return async (ref) => {
+      const fromPatch = fileLastUpdatedByPatchId[ref];
+      if (!fromPatch) {
+        return "not-pending";
+      }
+      const bytes = await this.getBase64EncodedBinaryFileFromPatch(
+        ref,
+        fromPatch.patchId,
+        fromPatch.remote,
+      );
+      return bytes === null ? "missing" : "present";
+    };
   }
 
   // #region validateFiles
@@ -1642,7 +1759,9 @@ export abstract class ValOps {
       if (metadataErrors && metadataErrors.length > 0) {
         return {
           [sourcePath]: metadataErrors.map((e) => ({
-            message: e.message,
+            // Which file: "File not found" on its own names nothing, and the
+            // row it is shown on is the field, not the file.
+            message: `${e.message}: ${filePath}`,
             value: { filePath, patchId: fileData?.patchId ?? null },
           })),
         };
