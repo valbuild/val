@@ -8,16 +8,25 @@
 
 ## Current state / resume here
 
-> **2026-10-13: planned, nothing built.** Decided:
+> **2026-10-14: planned, nothing built.** Rebased on main after
+> hosted-publishing steps 1–10 (home) landed. Decided:
 >
 > 1. Patch groups go, in both repositories. The site's Publish ships every
 >    pending change.
-> 2. A project that publishes through `/commit` (a connected project hosted
->    outside the platform, e.g. Next.js on Vercel in proxy mode) loses partial
->    publish and gets nothing in its place. Accepted.
-> 3. **Publish selected** is part of the first version: pick changes in Review,
->    Val moves them into a throwaway proposal and merges it. Managed projects
->    only, because proposals are.
+> 2. **Switched off everywhere at once**, in one home change. A project that
+>    publishes through `/commit` (connected, on its own hosting — Next.js on
+>    Vercel) loses partial publish and gets nothing in its place. Accepted.
+> 3. **No compatibility window.** Val's users are on current Val. Content
+>    stops accepting the group request fields in the same release train as
+>    the Val deletion, not a release later.
+> 4. **Publish selected** is part of the plan: pick changes in Review, Val
+>    moves their whole patch sets into a throwaway proposal and merges it.
+>    Managed projects only, because proposals are. When a selection pulls in
+>    another author's change, the dialog lists it and confirming publishes it.
+> 5. **A held-back publish goes to a proposal.** A publish that breaks a page
+>    no longer holds its changes back on the site; they move to a proposal.
+>    This is what makes "published comes first" true on the site's chain, and
+>    it reverses `proposals.md` P4 for this one case (see Phase 5).
 
 ---
 
@@ -35,20 +44,26 @@ on one shared, linear chain costs:
   group and rebuilds when the scope moves; held is not applied is not settled;
   `null`, `[]` and `[...]` must never be confused. Draft reads
   (`own_patch_groups_only`) are therefore per caller and cannot be shared.
-- **A non-prefix applied set.** A published patch can come after a pending one,
-  so the chain head is not the last listed patch (`chainHead.ts`), `/stat`
-  sends the applied set, and the Studio tracks a publish head.
 - **Client-computed closures the server trusts** (`withPatchIds`, stage
   `patchIds` + `withPatchIds`, `unstagePatchIds`) and the races between them
   (`holdGroupChangesFor`, `reconcileScope`, widening toasts) — seven numbered
   invariants in `docs/independent-publish/DESIGN.md`, most of them about races.
+- **A second meaning of "staged".** Since hosted-publishing step 7, staging is
+  what a proposal does with files; patch groups use the same word for patches.
 
-Proposals (valbuild/home `docs/proposals.md`) already keep work apart in a way
-that does not share the chain: a proposal is its own branch with its own chain
-and its own base. That doc already sketches this removal under "Later":
-"proposals are the way to keep work apart, publish jobs already publish
-everything pending, and Val's Studio already has a path for a content service
-with no groups."
+**On hosted projects groups already decide nothing about what is published.**
+A publish there is a job: `POST /publish-requests` carries `{ requestId, tab }`
+and the runner takes everything pending (home `runner.ts`, `pendingPatchIds`).
+Groups only narrow what the editor SEES, so the scoped view and the Publish
+button already disagree. The only place a group still decides a publish is
+`/commit`, used by connected projects on their own hosting — which decision 2
+gives up.
+
+Proposals keep work apart without sharing the chain: a proposal is its own
+branch with its own chain and its own base, and since hosted-publishing step
+8 a content-only merge is a ref update with no build. Restore already moves
+pending site changes into a new proposal (`history/restoreDestination.ts` →
+content's `POST /proposals` with `patchIds`).
 
 Size: about 10.6k lines of Val files exist only for groups, plus large parts of
 `createSystem.ts`, `PatchStore.ts`, `SourceStore.ts`, `ValServer.ts`,
@@ -60,33 +75,37 @@ home files, plus edits across the content handlers.
 ## The model after
 
 **The site is one shared draft.** What every editor sees is the bundle's Source
-plus the whole pending chain. Publish ships all of it. To keep something out of
-a publish, it goes to a proposal.
+plus the whole pending chain. Publish ships all of it. Anything that is not
+going out with the next publish is in a proposal.
 
 Four rules replace the patch-group design:
 
-1. **Applied is a prefix.** On the site's chain, the patches a publish has
-   shipped always come before the ones it has not. Every publish path enforces
-   it (see Phase 3). This is what lets the applied set become one cursor and the
-   chain head become the last patch again.
+1. **Published comes first.** On the site's chain, every patch a publish has
+   shipped comes before every patch still pending. Every publish path
+   enforces it (Phase 6). It is what lets the applied set become one cursor
+   and the chain head become the last patch again. Held-back changes are the
+   one thing on main today that breaks it, which is why they move to a
+   proposal (Phase 5).
 2. **The unit of selection is the patch set.** Wherever changes are split off
-   the site's chain — Publish selected, "New proposal with my changes", and
-   later Flow A — whole patch sets move, never part of one. (Patch sets are the
-   schema-derived groups of patches that can shift each other's paths;
-   `utils/PatchSets.ts`.)
+   the site's chain by the client — Publish selected, "New proposal with my
+   changes", Flow A later — whole patch sets move, never part of one. (Patch
+   sets are the schema-derived groups of patches that can shift each other's
+   paths; `utils/PatchSets.ts`.)
 
-   Why whole sets, not a prefix: a move takes patches OUT of the site's chain
-   before the merge lands. Move a prefix and the suffix left on the site is
-   replayed without the patches it was written against — `items/3` lands on a
-   different item, or fails to apply, and a patch that fails to apply is
-   deleted. Move a suffix and the same happens inside the proposal. Only whole
-   sets are safe on both sides, and patches in different sets commute, so
-   whatever is left in the same module is fine. This is computed once, when
-   someone clicks, and never has to be maintained.
+   Why whole sets, not a prefix as groups used: a move takes patches OUT of
+   the site's chain. Move a prefix and the suffix left on the site replays
+   without the patches it was written against — `items/3` lands on another
+   item, or fails to apply and is deleted. Move a suffix and the same happens
+   inside the proposal. Only whole sets are safe on both sides, and patches in
+   different sets commute, so whatever is left in the same module is fine.
+   Computed once, when someone clicks; never maintained.
 
-3. **Discard takes what was written on top.** Unchanged:
-   `computeDiscardClosure`'s forward closure stays, but it only decides what is
-   deleted. There is no membership to repair, so `unstagePatchIds` goes.
+   Content has no schema and moves by module instead (Phase 5), which is
+   coarser and therefore also safe: a module holds whole patch sets.
+
+3. **Discard takes what was written on top.** `computeDiscardClosure`'s
+   forward closure stays, but only decides what is deleted. There is no
+   membership to repair, so `unstagePatchIds` goes.
 4. **Every editor's draft is the same draft.** Draft reads (`fetchVal`,
    `useVal`, `initValContent`) no longer depend on who asks, beyond being
    allowed to ask.
@@ -95,148 +114,56 @@ Four rules replace the patch-group design:
 
 - Two editors on the site can no longer publish independently. Whoever
   publishes ships everyone's pending changes — how Val worked before groups.
-  The Review screen says whose changes are in it (author shown, not filtered).
-- Projects that publish through `/commit` (not hosted on the platform) have no
-  partial publish at all. Decided, above.
+  Review says whose changes are in it (author shown, not filtered).
+- Projects that publish through `/commit` have no partial publish at all.
 - Flow A (milestone 2 in `proposals.md`, not built) loses "Unstage these and
-  keep working". Its remaining choices are "Continue in a proposal" and
-  "Discard". Because nothing can be held back on the site, an affected change
-  blocks the site's Publish until someone moves or discards it — anyone may,
-  since everyone can act on every proposal.
-
----
-
-## Publish selected (option B)
-
-### What the editor sees
-
-Review already has a selection checkbox on each row (`ReviewView.tsx`, "a
-checkbox that is not either of them"). With groups gone it is the only
-selection there is.
-
-- Select rows → **Publish selected (N)** beside Publish.
-- If the selection pulls in more (rule 2), the dialog lists what it adds and
-  whose it is before anything moves: "These 2 changes come with it: they move
-  the same list." Nothing moves until the editor confirms.
-- On confirm: "Publishing 4 changes…" in place of the button, then the usual
-  published state. A failure says why, keeps the proposal, and offers **Open
-  the proposal** (the changes are there, nothing is lost) and **Try again**
-  where retrying can help (a failed build), not where it cannot (the site
-  moved under it).
-
-### What happens
-
-```
- Studio                                   content (home)
- ──────                                   ──────────────
- closure = whole patch sets of selection
- POST /proposals { kind: "publish",  ──▶  create row, base = site head,
-   patchIds: closure, requestId }          moveIntoProposal (re-key), record
-                                           the site chain position of the move
- prepare + POST /proposals/:n/save   ──▶  commit on val/p/<n>
- POST /proposals/:n/merge            ──▶  merge job: build in tab, verify, seal
- ◀── merged ─────────────────────────────  site base now holds the selection
-```
-
-Everything here exists except three changes, all in home:
-
-1. **A `publish` proposal kind** beside `editor | ai | affected`. It is
-   created, saved and merged in one press and is not meant to be opened, so it
-   skips work that only an open proposal needs: the address/overlay `setup`
-   job, and the `carry-over` job (changes made during the merge stay on the
-   site, where they were written). Verify which of those the merge itself reads
-   before skipping it. It still appears under Proposals › Merged, so history
-   can say what was published.
-2. **A merge check for that kind.** Today `pending-on-site` refuses a merge
-   when any pending site patch shares a module with the proposal — true in the
-   common case, so Publish selected would almost never merge. For the `publish`
-   kind, patches that were on the site when the move happened are safe by rule
-   2, so the check becomes: **no site patch created after the move touches a
-   module the proposal holds.** A patch written after the move was written
-   against a view without the selection, and content cannot compute patch sets
-   to tell whether it is affected, so the module is the granularity, as it is
-   everywhere else in proposals. `published-since` is unchanged.
-
-   When the check fails the merge does not happen and the proposal stays open
-   as an ordinary proposal ("Someone changed this page while it was
-   publishing"), with **Open the proposal** — nothing is lost and nothing is
-   rebased.
-
-3. **One request for create + move**, so a lost answer cannot leave a
-   proposal with nothing in it. `POST /proposals` already takes `patchIds`
-   and a `requestId` that makes a retry the same proposal; check that the
-   move happens in the create's transaction for the `publish` kind.
-
-In Val:
-
-- `selectionClosure(patchSets, selected)` in the worker: every patch in every
-  patch set a selected patch is in. Replaces `stageClosure` /
-  `unstageClosure` / `computeWriteClosure`. "New proposal + my changes"
-  (`NewProposalDialog`, which today does not carry changes) uses the same
-  function.
-- `proposalsClient.create` gains `kind` and `patchIds`.
-- The save's `prepare` and the merge press are what `PublishProposalDialog`
-  already does; Publish selected calls them in sequence from the site.
-
-### The window while it merges
-
-Between the move and the merge landing, the selection is on the proposal's
-branch, not the site's: a site Studio does not show it. Today a merge is a
-build in the tab, verify and seal — tens of seconds or more. Fields reverting
-for that long, then coming back, reads as data loss.
-
-Two ways to close it, decide before building the UI:
-
-- **(recommended) Show it as publishing.** While a `publish`-kind proposal is
-  merging, `/stat` lists its patches as `publishingPatches`, the way a running
-  site job's patches are listed today, and the Studio renders them on top of
-  the site's chain, read-only. They are already rendered this way for a site
-  job; the new part is reading them from another branch.
-- **Wait for `hosted-publishing.md`.** Its direction makes a merge a ref
-  update instead of a build, which shrinks the window to about a second.
-  Building B after that lands may make the first option unnecessary.
-
-### Rejected for B
-
-- **A site publish job with a selected subset**, no proposal. Cheaper per
-  press, but it publishes a patch while an earlier one stays pending — the
-  non-prefix applied set this plan exists to remove.
-- **Prefix closures** (what groups used). Safe while patches stay in one chain;
-  not once they are moved out of it (rule 2).
+  keep working". Its choices are "Continue in a proposal" and "Discard"; an
+  affected change blocks the site's Publish until someone acts, and anyone
+  may.
 
 ---
 
 ## Phases
 
-Each phase ships on its own and leaves both repositories releasable. Order
-matters: home stops producing groups before Val stops reading them, and home
-keeps accepting the old request fields (ignored) until no supported Studio
-sends them.
+Each phase leaves both repositories releasable. Phases 1–3 are one release
+train: home switches groups off, Val deletes them and is released, home
+deletes them — with no window in which content accepts fields Val no longer
+sends.
 
-### Phase 1 — home: stop producing groups
+| #   | Phase                                  | Repo      | Needs |
+| --- | -------------------------------------- | --------- | ----- |
+| 1   | Groups off, everywhere                 | home      | –     |
+| 2   | Delete groups                          | val       | 1     |
+| 3   | Delete groups                          | home      | 2     |
+| 4   | Publish selected                       | home, val | 2     |
+| 5   | A held-back publish goes to a proposal | home, val | 3     |
+| 6   | Published comes first, and cash it in  | home, val | 5     |
+| 7   | Docs                                   | both      | –     |
 
-Behaviour change only; tables stay.
+### Phase 1 — home: groups off, everywhere
 
-- `postPatches`: stop resolving, creating and adding to groups. Accept and
-  ignore `patchGroupId`, `withPatchIds`, `alsoAddPatchIds`, `closureVersion`
-  (as `holdBackForGroupIds` already is). Drop the `withPatchIds` validation
-  and the cross-proposal closure guard.
-- `GET /patch-groups` → 404. Stage/unstage routes → 404.
+Behaviour only; tables and types stay until Phase 3.
+
+- `postPatches`: stop resolving, creating and adding to groups. Ignore
+  `patchGroupId`, `withPatchIds`, `alsoAddPatchIds`, `closureVersion`. Drop
+  the `withPatchIds` validation and the cross-proposal closure guard.
+- `GET /patch-groups`, and the stage / unstage routes → 404. That is what the
+  Studio already reads as "no groups on this deployment".
 - `/applicable/patches` (`/stat`), the websocket `patches` message and
   `GET /patches`: stop sending `patchGroups` and per-patch `patchGroupIds`.
 - `postCommit`: ignore `patchGroupId` (keep the proposal refusal on
-  `newBranch`). Stop `markPublished` / `removePatchesFromAllGroups`.
+  `newBranch`); stop `markPublished` / `removePatchesFromAllGroups`.
 - `deletePatches`, publish-job discard, `moveIntoProposal`, publish-job
-  RECORD: stop touching groups; accept and ignore `unstagePatchIds`.
+  RECORD: stop touching groups; ignore `unstagePatchIds`.
 
-**Val side, same phase, no code change:** verify the Studio's no-groups path
-against it. `e2e/http` already runs the mock content host with groups off
-(`enablePatchGroups` is opt-in); run `chromium-http` and `webkit-http` and the
-`reloadEquivalence` specs without groups and fix what fails before Phase 2.
+Before Phase 2, run Val's `chromium-http` and `webkit-http` against the
+mock content host with groups off — the mock's default
+(`enablePatchGroups` is opt-in) — including `reloadEquivalence`, and fix what
+fails. That is the path every Studio takes from here.
 
-### Phase 2 — Val: delete the scoped paths
+### Phase 2 — Val: delete groups
 
-Everything that exists for groups. By package:
+By package:
 
 - **shared** — `ApiRoutes.ts`: `PatchGroup`, `/stat` `patchGroups`,
   `PUT /patches` `patchGroupId` / `withPatchIds` and response `patchGroupId`,
@@ -254,8 +181,8 @@ Everything that exists for groups. By package:
   schemas, `getStat` groups, the `fetchPatches` fold, `stagePatches`,
   `unstagePatches`, `getPatchGroups` and its cache, `mutatePatchGroup*`,
   membership on create, commit `patchGroupId`. `ValOpsFS.ts` /
-  `ValOpsMemory.ts`: the ignored `_patchGroup` parameter. (FS "staged uploads"
-  are binary uploads, unrelated: keep.)
+  `ValOpsMemory.ts`: the ignored `_patchGroup` parameter. (FS "staged
+  uploads" are binary uploads, unrelated: keep.)
 - **ui stores** — `createSystem.ts`: `setPatchGroup`, `seedPatchGroup`,
   `setPatchGroupResolver`, `setOwnPatchGroupId`, `computeWriteClosure`,
   `stagePatches`, `unstagePatches`, `persistPatchGroupChange`, `patchGroup()`,
@@ -284,8 +211,9 @@ Everything that exists for groups. By package:
   (`StagedSections`), `DraftChanges`, `netChangeModules`, review
   (`ReviewSurface`, `ReviewView` — staged / unstaged sections and Stage /
   Unstage go, the selection checkbox stays — `toReviewModel`, `types`,
-  `useReviewModel`, `reviewCompareParam`), `publish/pressForPage.ts`,
-  `publish/jobClient.ts`, and stories / fixtures.
+  `useReviewModel`, `reviewCompareParam`), `publish/pressForPage.ts`
+  (`newestUnpublished` loses its scope), `publish/jobClient.ts`, stories and
+  fixtures.
 - **next / tanstack** — drop `own_patch_groups_only` from `initValRsc.ts` and
   `initValContent.ts`.
 - **e2e** — delete `http/patchGroups.spec.ts`, `http/staging.ts`; edit
@@ -300,120 +228,227 @@ Everything that exists for groups. By package:
   not already covered), `utils/patchGroups.test` and snapshot,
   `patchGroupsStaging.test`, `splitTreesByStaging.test`,
   `useCurrentPatchGroup.test`, `useOwnUnstagedPatchIds.test`,
-  `stagingBulkActions.test`. Edit the rest the inventory names
+  `stagingBulkActions.test`. Edit the rest where they assert group behaviour
   (`appliedSetSync`, `noOpSourcePaths`, `publishButtonState`,
   `ownPendingChangeCount`, `netChangeModules`, `toReviewModel`,
-  `reviewCheckbox`, the sources-memo tests, `ValRouter`, `proposalMode`).
-  Per the repo's rule, a test is edited only where it asserts group
-  behaviour, never to make a non-group failure pass.
+  `reviewCheckbox`, the sources-memo tests, `ValRouter`, `proposalMode`) —
+  never to make a non-group failure pass.
 
 Keep: `PatchSets.ts`, `PatchSetStore`, the worker. They still drive the
 discard closure, review and compare grouping, `collectFieldChanges` (commit
-messages), `CompareLink`, `PatchErrorsDialog` — and, in Phase 5, the
-selection closure.
+messages), `CompareLink`, `PatchErrorsDialog`, and Phase 4's selection
+closure. Keep the applied set and `headPatchId` until Phase 6.
 
-Changeset: a minor bump for `@valbuild/ui`, `server`, `shared`, `next`,
-`tanstack`, written for users: "Publish now publishes every pending change.
-To keep changes out of a publish, move them to a proposal."
+Changeset, written for users: "Publish now publishes every pending change. To
+keep changes out of a publish, move them to a proposal."
 
-### Phase 3 — make "applied is a prefix" true, then cash it in
+### Phase 3 — home: delete groups
 
-First enforce it, in home:
-
-- **`/commit`** (projects not hosted on the platform): refuse an
-  `appliedPatches` that is not exactly the pending chain up to a patch,
-  in chain order. Today it accepts any subset.
-- **Publish jobs** take everything pending at start, but skip claimed rows.
-  A failed job keeps its claims until retried or discarded; a new job must
-  not ship patches after them. Either the new job includes the failed job's
-  patches, or the press is refused until that job is retried or discarded
-  (the latter is today's queue behaviour — verify, then assert it).
-- **Flow A**, when it is built: an affected patch blocks the site's publish
-  rather than being skipped by it.
-- A database-level check in RECORD: after marking applied, no pending site
-  patch precedes an applied one. A violation is a bug and fails the publish.
-
-Then simplify, in both:
-
-- **Applied set → cursor.** `/stat` and the websocket send
-  `appliedThrough: PatchId | null` instead of the applied id list.
-  `PatchStore.receiveApplied` / `applyServerApplied`, `knownShipped`,
-  `shippedOutside`, `pendingAmong`, `SourceStore.markApplied` and
-  `publishJobs.heldByContent` read the cursor. The published realm
-  (`peekBase`, compare's "before") is base + chain up to the cursor.
-- **Chain head.** The last listed patch is the head again. `chainHeadOf` falls
-  back to it; `headPatchId` stays as a cross-check one release, then goes.
-  `headVersion` stays (it orders stats, not publishes). Update the
-  `quirks.md` entry that explains why the head is not the last patch.
-- **Publish head** (`expectedHeadCommitSha`, `/save` `headMoved`,
-  `publishHead.test`). It existed so a subset publish could not land on a
-  commit the client had not seen. Decide in this phase whether "you reviewed
-  a chain that is no longer what ships" is still worth a 409; default: keep
-  it, it is cheap and the question is still real.
-- **Shared draft reads.** `/sources/~` and `/json` answers are the same for
-  every authorized caller, so they can be cached by
-  `(sourcesSha, headPatchId, headVersion)` instead of per request.
-  `requestScopedMemo` keeps the per-request memo; a cross-request cache is a
-  separate, measured change. Update `quirks.md` on draft reads.
-
-### Phase 4 — home: drop groups for good
+Right after the Val release, not a release later (decision 3).
 
 - Forward migration dropping `val_patch_group_patches` and `val_patch_groups`
   (migrations are forward-only; keep the old files).
 - Delete `dal/patchGroups.ts`, `getPatchGroups.ts`, `postPatchGroupPatches.ts`,
   `deletePatchGroupPatches.ts`, `utils/patchGroupAccess.ts`, the routes in
-  `routes.ts`, the `Api.ts` types, `platform/scripts/content-host.ts`'s stub.
-- Delete `patchGroups.test.ts` and `admin/.../patchGroupMembership.test.ts`
-  after moving the two deletion tests in `patchGroups.test.ts` (chain locked
-  before delete; a job-held change left in place) to a `deletePatches` test.
+  `routes.ts`, the group types and request fields in `Api.ts` (now refused,
+  not ignored), and `platform/scripts/content-host.ts`'s stub.
+- Delete `patchGroups.test.ts` and `admin/.../patchGroupMembership.test.ts`,
+  after moving the tests in `patchGroups.test.ts` that are about something
+  else — deletion (chain locked before delete; a job-held change left in
+  place) and, since step 4, held back — to the tests of those handlers.
   Edit `proposals.leaks.test`, `postCommitPhases.test`, `postPatchesHead.test`,
   `patchesMessage.test`, `publishJobs.test`, the billing tests.
-- Stop accepting the ignored request fields once the oldest supported Val no
-  longer sends them.
 - Comments that assume groups: `dal/patches.ts`, `postPatches`,
-  `getApplicablePatchesAndCommits`, `Api.ts`.
+  `getApplicablePatchesAndCommits`, `Api.ts`, `tiers-build-plan.md`.
 
-### Phase 5 — Publish selected
+### Phase 4 — Publish selected
 
-As described above. home first (kind, merge check, one-request create+move,
-`publishingPatches` across branches if that option is chosen), then Val
-(`selectionClosure`, Review action, dialog, progress and failure states).
+Managed projects only, because proposals are.
 
-Tests that matter:
+**What the editor sees.** Review already has a selection checkbox on each row.
+With groups gone it is the only selection there is.
 
-- `selectionClosure`: a selection inside an array with an earlier insert by
-  someone else pulls the insert in; a selection in an unrelated field of the
-  same module pulls in nothing.
-- Content: a `publish`-kind merge succeeds with unselected pending patches in
-  the same module (written before the move); refuses, and leaves the proposal
-  open, when a site patch in that module is written after the move.
-- e2e (`chromium-http`, mock content host): two authors on one page; one
-  publishes a selection; the other's changes are still pending and still
-  render; a reload shows the same thing (`reloadEquivalence`).
+- Select rows → **Publish selected (N)** beside Publish.
+- If the selection pulls in more (rule 2), the dialog lists what it adds and
+  whose it is — "These 2 changes by Kari come with it: they move the same
+  list." — and confirming publishes them too. Nothing moves until then.
+- Then "Publishing 4 changes…" in place of the button, and the usual
+  published state. A failure says why and offers **Open the proposal** (the
+  changes are there, nothing is lost), and **Try again** only where retrying
+  can help.
 
-### Phase 6 — docs
+**What happens.**
 
-- `docs/independent-publish/DESIGN.md` and `PLAN.md`: replace with a short note
-  pointing here, keep in git history.
+```
+ Studio                                   content (home)
+ ──────                                   ──────────────
+ closure = whole patch sets of selection
+ save pending, then
+ POST /proposals { kind: "publish",  ──▶  create, base = site head, move
+   patchIds: closure, requestId }          (re-key) in the same transaction;
+                                           record the move's chain position
+ prepare + POST /proposals/:n/save   ──▶  commit on val/p/<n>
+ POST /proposals/:n/merge            ──▶  content-only: a ref update, no build
+ ◀── merged ─────────────────────────────  the site's content version holds it
+```
+
+The landing half already exists for restore (`landRestore`: save this tab's
+pending changes, then `POST /proposals` with `patchIds`, request id taken
+from the patches so Try again opens the same proposal). Publish selected
+reuses it and adds the closure, the save and the merge.
+
+**home:**
+
+1. **A `publish` proposal kind** beside `editor | ai | affected` (and
+   `held-back`, Phase 5). It is not meant to be opened, so it skips the
+   address / overlay `setup` job if the content-only merge does not read it
+   (check), and the `carry-over` job. It still lists under Proposals ›
+   Merged, so history says what was published.
+2. **Its merge check.** The merge writes the proposal's whole module, and
+   `pending-on-site` refuses when any pending site patch shares a module —
+   the common case. For this kind, patches that were on the site at the move
+   are safe by rule 2, so the check is: **no site patch created after the
+   move touches a module the proposal holds.** A patch written after the move
+   was written against a view without the selection, and content cannot
+   compute patch sets, so the module is the granularity. `published-since`
+   and `siteCodeCheck` are unchanged (a selection is content only, so the
+   latter never fires). When the check fails nothing merges and the proposal
+   stays open as an ordinary one ("Someone changed this page while it was
+   publishing"), with **Open the proposal**.
+3. **Create and move in one transaction** for this kind, so a lost answer
+   cannot leave an empty proposal.
+
+**val:**
+
+- `selectionClosure(patchSets, selected)` in the worker: every patch in every
+  patch set a selected patch is in. Replaces `stageClosure`,
+  `unstageClosure` and `computeWriteClosure`; "New proposal + my changes"
+  (`NewProposalDialog`, which does not carry changes yet) uses it too.
+- `proposalsClient.create` gains `kind`.
+- The Review action, the dialog, and the progress and failure states.
+
+**The window.** Between the move and the ref update, the selection is on the
+proposal's branch, and a site Studio does not show it. For a content-only
+merge that is the merge job's prepare and seal — seconds. Measure it in the
+loop; if fields visibly revert, list a merging `publish` proposal's patches
+as `publishingPatches` on the site's `/stat` and render them read-only, as a
+running site job's are.
+
+**Rejected:** a site publish job with a selected subset — cheaper per press,
+but it ships a patch while an earlier one stays pending, against rule 1. A
+prefix closure — safe only while patches stay in one chain.
+
+**Tests:** `selectionClosure` (an earlier insert by someone else is pulled
+in; an unrelated field of the same module is not); content: a `publish`
+merge succeeds over unselected site patches in the same module written
+before the move, and refuses, leaving the proposal open, over one written
+after; e2e on `chromium-http`: two authors on one page, one publishes a
+selection, the other's change is still pending and still renders, and a
+reload agrees (`reloadEquivalence`).
+
+### Phase 5 — a held-back publish goes to a proposal
+
+Today (hosted-publishing step 4) a publish that fails on its content puts its
+job in `held_back_job_ids`, and every later publish goes without that job's
+changes and without later changes to the same `.val` file
+(`heldBackPatches`, `jobPlan.ts`). Everything else publishes — so a pending
+change sits before published ones, against rule 1.
+
+Instead: **when a publish fails on its content, its changes move to a
+proposal.**
+
+- What moves: the failed job's changes, and the site's pending changes to the
+  same modules written after them — exactly the set `heldBackPatches` holds
+  today. Content moves by module, which holds whole patch sets (rule 2), so
+  no client closure is needed. Under the site's locks, as
+  `moveIntoProposal` already does.
+- The proposal: kind `held-back`, named after the publish ("Publish of 14:02
+  that broke /pricing"), base = the site head the job built on.
+- The site bar says what happened and where the changes are: "Publishing
+  broke /pricing. Its 6 changes are in a proposal." with **Open the
+  proposal** and **Details**. Inside the proposal, **Try again** is its
+  Publish, and **Discard** is Close (recoverable, as every Close is).
+- Bo's good change that rode in Ada's broken publish moves with it, as it is
+  held with it today; in the proposal Ada discards hers and publishes the
+  rest. That replaces the "held only while every change is still pending"
+  rule.
+- A failure the platform caused (it did not answer) moves nothing, as it holds
+  nothing today.
+- **Projects without proposals** (connected, hosted by us — publish jobs, no
+  proposals yet): the failed publish pauses the branch until Try again or
+  Discard, as before step 4, so rule 1 still holds there. When proposals
+  reach those projects they take this path.
+
+**This reverses P4 for one case** ("nothing moves between branches unless an
+editor moved it"), and `proposals.md` has to say so: the editor pressed
+Publish, the publish could not land, and a proposal is where its changes can
+be kept, seen and fixed without blocking anyone else. It is not the rejected
+"moving affected changes automatically": an affected change was valid where
+it was made and the site moved away from it; a held-back one broke a page.
+
+Removed with it: `held_back_job_ids`, `heldBackPatches` / `heldBackOf`, the
+"held back" count and reason in `publishButtonState`, the
+`discardHeldByPublish` path for held-back changes (a change in a RUNNING
+publish is still not discarded), `heldBackSource.ts`. Their model tests in
+`docs/publish-jobs` (`suite.ts` §4) are rewritten for the move.
+
+### Phase 6 — published comes first, and cash it in
+
+Enforce rule 1, in home:
+
+- **`/commit`** (projects on their own hosting): refuse an `appliedPatches`
+  that is not the pending chain up to a patch, in chain order. Today it
+  accepts any subset.
+- **Publish jobs**: everything pending at start; a failure on content moves
+  (Phase 5) or pauses; a platform failure ships nothing. Assert it.
+- **Flow A**, when built: an affected change blocks the site's Publish rather
+  than being skipped by it.
+- **RECORD** checks, after marking applied, that no pending site patch
+  precedes an applied one. A violation is a bug and fails the publish.
+
+Then simplify, in both:
+
+- **Applied set → cursor.** `/stat` and the websocket send
+  `appliedThrough: PatchId | null` instead of the id list.
+  `PatchStore.receiveApplied` / `applyServerApplied`, `knownShipped`,
+  `shippedOutside`, `pendingAmong`, `SourceStore.markApplied` and
+  `publishJobs.heldByContent` read the cursor. The published realm
+  (`peekBase`, compare's "before") is base + chain up to the cursor.
+- **Chain head.** The last listed patch is the head again. `chainHeadOf`
+  falls back to it; `headPatchId` stays as a cross-check one release, then
+  goes. `headVersion` stays (it orders stats, not publishes). Update the
+  `quirks.md` entry on why the head is not the last patch.
+- **Publish head** (`expectedHeadCommitSha`, `/save` `headMoved`). It existed
+  so a subset publish could not land on a commit the client had not seen.
+  Keep it unless it gets in the way: "the chain you reviewed is not what
+  ships" is still a fair 409.
+- **Shared draft reads.** `/sources/~` and `/json` answers are the same for
+  every authorized caller, so they can be cached by
+  `(sourcesSha, headPatchId, headVersion)` instead of per request. A
+  cross-request cache is its own, measured change; update `quirks.md` on
+  draft reads either way.
+
+### Phase 7 — docs
+
+- `docs/independent-publish/DESIGN.md` and `PLAN.md`: replace with a short
+  note pointing here; git keeps them.
 - `architecture/stores.md` (the head paragraph), `architecture/quirks.md`
-  (the chain head and draft-read entries).
-- home: `docs/proposals.md` (the "Patch groups stay" note, Flow A's Unstage,
-  "closed the way unstage is" → whole patch sets, the staged-group wording,
-  "Later › Patch groups"), `docs/app-mode.md` (RECORD's group cleanup, discard
+  (chain head, draft reads).
+- home: `docs/proposals.md` (the patch-groups note, Flow A's Unstage, "closed
+  the way unstage is" → whole patch sets, the staged-group wording, "Later ›
+  Patch groups", P4's exception), `docs/hosted-publishing.md` step 4 (held
+  back → proposal), `docs/app-mode.md` (RECORD's group cleanup, discard
   `unstagePatchIds`, the open question proposing groups for subset publish),
-  `docs/tiers-build-plan.md` (cites `postPatchGroupPatches.ts`).
+  `docs/tiers-build-plan.md`.
 
 ---
 
 ## Open questions
 
-1. **The merge window** for Publish selected: show the selection as
-   publishing, or build B after `hosted-publishing.md` makes a merge a ref
-   update. See above.
-2. **Does a merge read the overlay** that the `setup` job creates? Decides
-   whether the `publish` kind can skip it.
-3. **A patch set spanning authors.** Publishing a selection can publish
-   someone else's change because it moves the same list. The dialog lists it;
-   is listing enough, or should it need that author's change to be selected
-   explicitly?
-4. **Publish head**: keep or drop (Phase 3).
+1. **Does a content-only merge read the overlay** the `setup` job writes?
+   Decides whether a `publish` proposal can skip setup.
+2. **Is the merge window visible?** Measure before building the
+   `publishingPatches` fallback.
+3. **Pausing on projects without proposals** (Phase 5) brings back, for them,
+   the pause step 4 removed. Acceptable until proposals reach connected
+   projects hosted by us?
