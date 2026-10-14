@@ -525,6 +525,31 @@ describe("the proposals API, for the Studio", () => {
     expect(sent).toHaveLength(1);
   });
 
+  test("Update from the site is asked by the proposal's own server, and nobody else's", async () => {
+    const own = ops(proposal("save-2"));
+    await own.proposalsApi(
+      `/${NAME}/update-from-site`,
+      { method: "POST", body: "{}" },
+      "p",
+    );
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `POST /v1/org/project/proposals/${NAME}/update-from-site`,
+    ]);
+    sent.length = 0;
+    for (const [o, path] of [
+      [own, `/${"f".repeat(20)}/update-from-site`],
+      [ops(undefined), `/${NAME}/update-from-site`],
+    ] as const) {
+      const answer = await o.proposalsApi(
+        path,
+        { method: "POST", body: "{}" },
+        "p",
+      );
+      expect([path, answer.status]).toEqual([path, 403]);
+    }
+    expect(sent).toEqual([]);
+  });
+
   test("reaches nothing else: not a save, not a move, not another route", async () => {
     const o = ops(undefined);
     for (const [method, path] of [

@@ -22,6 +22,12 @@ export type MergeCheckView = {
   ok: boolean;
   /** What holds, or what blocks and who. */
   message: string;
+  /**
+   * What clears it, when something here does. "update-from-site": the site's
+   * code changed under the proposal's (valbuild/home
+   * `docs/hosted-publishing.md`, step 8).
+   */
+  action?: "update-from-site";
 };
 
 /**
@@ -97,6 +103,8 @@ export function PublishProposalDialog({
   onCompare,
   onGoToSite,
   onOpenContinuation,
+  onUpdateFromSite,
+  updating = false,
   portalContainer,
 }: {
   open: boolean;
@@ -112,11 +120,20 @@ export function PublishProposalDialog({
   onGoToSite?: () => void;
   /** After the merge, when changes made during it went to a new proposal. */
   onOpenContinuation?: () => void;
+  /** A check's action: the proposal onto the site as it is now. */
+  onUpdateFromSite?: () => void;
+  /** Updating from the site now. */
+  updating?: boolean;
   portalContainer?: HTMLElement | null;
 }) {
   const busy = state.kind === "publishing";
   const blocked =
     state.kind === "ready" && state.checks.some((check) => !check.ok);
+  // Blocked by someone else's changes, which only they can publish or
+  // discard -- not by something an action here clears.
+  const blockedByPeople =
+    state.kind === "ready" &&
+    state.checks.some((check) => !check.ok && check.action === undefined);
   return (
     <Dialog
       open={open}
@@ -198,11 +215,32 @@ export function PublishProposalDialog({
                         className="mt-px shrink-0 text-fg-error-on-surface"
                       />
                     )}
-                    <span>{check.message}</span>
+                    <span className="flex flex-col items-start gap-1.5">
+                      <span>{check.message}</span>
+                      {!check.ok &&
+                        check.action === "update-from-site" &&
+                        onUpdateFromSite !== undefined && (
+                          <button
+                            type="button"
+                            onClick={onUpdateFromSite}
+                            disabled={updating}
+                            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border-proposal px-2 text-xs font-medium text-fg-primary hover:bg-bg-proposal-soft disabled:text-fg-disabled"
+                          >
+                            {updating ? (
+                              <Loader2 size={13} className="animate-spin" />
+                            ) : (
+                              <ArrowRight size={13} />
+                            )}
+                            {updating
+                              ? "Updating from the site…"
+                              : "Update from the site"}
+                          </button>
+                        )}
+                    </span>
                   </li>
                 ))}
               </ul>
-              {blocked && (
+              {blockedByPeople && (
                 <div
                   role="alert"
                   className="rounded-md border border-border-float px-3 py-2 text-xs text-fg-secondary"

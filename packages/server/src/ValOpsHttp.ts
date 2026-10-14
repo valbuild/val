@@ -1007,15 +1007,16 @@ export class ValOpsHttp extends ValOps {
       return /^\/[0-9a-f]{20}\/(merge-checks|files)$/.test(path);
     return (
       method === "POST" &&
-      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|build)$/.test(
+      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|build|update-from-site)$/.test(
         path,
       )
     );
   }
 
   /**
-   * A write to a proposal's FILES -- staging code, or serving a build of it
-   * (valbuild/home `docs/hosted-publishing.md`, step 7) -- is made by the
+   * A write to a proposal's FILES -- staging code, serving a build of it
+   * (valbuild/home `docs/hosted-publishing.md`, step 7), or moving it onto the
+   * site's code (step 8, "Update from the site") -- is made by the
    * proposal's own server and nobody else's: the file tools act on the
    * proposal the Studio is open in (P11), and the site's files change only
    * when a proposal is merged. The proposal it names, or `null` when this
@@ -1026,7 +1027,10 @@ export class ValOpsHttp extends ValOps {
     path: string,
   ): string | null {
     if (method !== "POST") return null;
-    return /^\/([0-9a-f]{20})\/(files|build)$/.exec(path)?.[1] ?? null;
+    return (
+      /^\/([0-9a-f]{20})\/(files|build|update-from-site)$/.exec(path)?.[1] ??
+      null
+    );
   }
 
   /**

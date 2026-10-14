@@ -27,7 +27,10 @@ import {
   type ProposalJson,
 } from "../../proposals/proposalsClient";
 import { useProposals, waitForAddress } from "../../proposals/useProposals";
-import { useProposalBuild } from "../../proposals/useProposalBuild";
+import {
+  proposalCodeChanged,
+  useProposalBuild,
+} from "../../proposals/useProposalBuild";
 import {
   NewProposalDialog,
   type NewProposalProblem,
@@ -317,6 +320,31 @@ export function useProposalsBar({
       });
     }
   }, [client, here, currentJson?.changes, unsaved]);
+
+  /*
+   * "Update from the site" (step 8): the site's code changed under this
+   * proposal's, so it moves onto the site as it is now and its code is built
+   * again there -- "Build required" follows, and the checks are read again.
+   */
+  const [updating, setUpdating] = useState(false);
+  const updateFromSite = useCallback(async () => {
+    if (here === null) return;
+    setUpdating(true);
+    try {
+      await client.updateFromSite(here.name);
+      proposalCodeChanged();
+      await loadChecks();
+    } catch (error) {
+      setPublishState({
+        kind: "error",
+        message: `Could not update from the site: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    } finally {
+      setUpdating(false);
+    }
+  }, [client, here, loadChecks]);
 
   /** Where the press is, while it is followed. See `pressed`. */
   const following = useMemo<
@@ -671,6 +699,8 @@ export function useProposalsBar({
           {...(continuation !== null
             ? { onOpenContinuation: () => void openProposal(continuation) }
             : {})}
+          onUpdateFromSite={() => void updateFromSite()}
+          updating={updating}
           portalContainer={portalContainer}
         />
       )}

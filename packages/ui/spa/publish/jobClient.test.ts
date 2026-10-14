@@ -71,6 +71,43 @@ describe("preparing a job", () => {
 });
 
 /*
+ * A merge that changes only content goes live on the live build (valbuild/home
+ * `docs/hosted-publishing.md`, step 8): content answers its prepare with a job
+ * nobody builds, and says so. The tab must keep the saying, or it reads a job
+ * with no step as one it has lost.
+ */
+test("a merge that changes only content is answered as one nobody builds, and says so", async () => {
+  const fetchImpl: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        job: {
+          id: "J9",
+          step: null,
+          base: "c1",
+          patches: ["merge:p1"],
+          contentOnly: true,
+        },
+        sourceFiles: { "src/a.val.ts": "export default 1;" },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  const prepared = await createStudioJobClient({
+    api: "/api/val",
+    fetchImpl,
+  }).prepare(
+    { id: "J9", step: "prepare", base: "c1", patches: ["merge:p1"] },
+    "tab-1",
+  );
+  expect(prepared.job).toEqual({
+    id: "J9",
+    step: null,
+    base: "c1",
+    patches: ["merge:p1"],
+    contentOnly: true,
+  });
+});
+
+/*
  * Publish in a proposal is pressed by a person -- content records who asked
  * for the merge -- so it goes through the proposals proxy, which carries the
  * editor's session. What comes back is a press's answer like any other.
