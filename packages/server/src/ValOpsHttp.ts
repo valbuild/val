@@ -368,7 +368,8 @@ const CommitPatchesResponse = z.object({
  */
 const CommitModulesResponse = z.object({
   commitSha: z.string(),
-  parentCommitSha: z.string(),
+  // Null for a project's first commit: a hosted one's first publish has none.
+  parentCommitSha: z.string().nullable(),
   /**
    * Whether an `asOf` read covered the whole project.
    *
@@ -1007,7 +1008,7 @@ export class ValOpsHttp extends ValOps {
       return /^\/[0-9a-f]{20}\/(merge-checks|files)$/.test(path);
     return (
       method === "POST" &&
-      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|build|update-from-site)$/.test(
+      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|build|update-from-site|restore-code)$/.test(
         path,
       )
     );
@@ -1028,8 +1029,9 @@ export class ValOpsHttp extends ValOps {
   ): string | null {
     if (method !== "POST") return null;
     return (
-      /^\/([0-9a-f]{20})\/(files|build|update-from-site)$/.exec(path)?.[1] ??
-      null
+      /^\/([0-9a-f]{20})\/(files|build|update-from-site|restore-code)$/.exec(
+        path,
+      )?.[1] ?? null
     );
   }
 

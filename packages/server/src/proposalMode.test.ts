@@ -550,6 +550,30 @@ describe("the proposals API, for the Studio", () => {
     expect(sent).toEqual([]);
   });
 
+  test("bringing back the code of a point is asked by the proposal's own server, and nobody else's", async () => {
+    // valbuild/home docs/hosted-publishing.md, step 9: the site's Studio opens
+    // the proposal, and the Studio at its address stages the code there.
+    const own = ops(proposal("save-2"));
+    const body = JSON.stringify({ commit: "a".repeat(64) });
+    await own.proposalsApi(
+      `/${NAME}/restore-code`,
+      { method: "POST", body },
+      "p",
+    );
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `POST /v1/org/project/proposals/${NAME}/restore-code`,
+    ]);
+    sent.length = 0;
+    for (const [o, path] of [
+      [own, `/${"f".repeat(20)}/restore-code`],
+      [ops(undefined), `/${NAME}/restore-code`],
+    ] as const) {
+      const answer = await o.proposalsApi(path, { method: "POST", body }, "p");
+      expect([path, answer.status]).toEqual([path, 403]);
+    }
+    expect(sent).toEqual([]);
+  });
+
   test("reaches nothing else: not a save, not a move, not another route", async () => {
     const o = ops(undefined);
     for (const [method, path] of [

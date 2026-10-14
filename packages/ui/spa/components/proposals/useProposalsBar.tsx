@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -44,6 +45,13 @@ import {
 import { followCarryOver, type CarryOver } from "../../proposals/carryOver";
 import { canBuildHere } from "../../publish/handoff";
 import { randomUUID } from "../../utils/randomUUID";
+import {
+  restoreCodeOf,
+  withRestoreCode,
+  withoutRestoreCode,
+  type RestoreDestination,
+} from "../../history/restoreDestination";
+import { RestoreCodeNotice, type RestoreCodeState } from "./RestoreCodeNotice";
 import { randomProposalName } from "../../proposals/proposalNames";
 import { AllProposalsDialog } from "./ProposalsList";
 import { MergedProposalNotice } from "./MergedProposalNotice";
@@ -99,6 +107,11 @@ export function useProposalsBar({
   dialogs: ReactNode;
   /** Above the editor, or null: a merged proposal says it is finished. */
   notice: ReactNode | null;
+  /**
+   * Where a restore goes: a new proposal on the site of a project with
+   * proposals, else here. See `restoreDestination.ts`.
+   */
+  restoreDestination: RestoreDestination;
 } {
   const mode = useValMode();
   const here = useCurrentProposal();
@@ -631,6 +644,76 @@ export function useProposalsBar({
     [client, failed, refresh],
   );
 
+  const onSite = here === null && ready !== null;
+  const openWithChanges = useCallback(
+    async (input: {
+      displayName: string;
+      patchIds: string[];
+      requestId: string;
+      restoreCodeFrom?: string;
+    }) => {
+      const made = await client.create({
+        displayName: input.displayName,
+        patchIds: input.patchIds,
+        requestId: input.requestId,
+      });
+      void refresh();
+      const origin = made.address ?? (await waitForAddress(client, made.name));
+      const target = sameStudioPageAt(origin, window.location);
+      window.location.assign(
+        input.restoreCodeFrom === undefined
+          ? target
+          : withRestoreCode(target, input.restoreCodeFrom),
+      );
+    },
+    [client, refresh],
+  );
+
+  /*
+   * "Go back to this point", arriving: the site's Studio opened this proposal
+   * with the content moved in and the commit whose code to bring back in the
+   * address (`RESTORE_CODE_PARAM`). Only a proposal's own server may stage
+   * its files, so it is done here, once, and the parameter is taken out of
+   * the address so a reload does not ask again.
+   */
+  const [restoreCode, setRestoreCode] = useState<RestoreCodeState | null>(null);
+  const runRestoreCode = useCallback(
+    async (name: string, commit: string) => {
+      setRestoreCode({ kind: "restoring", commit });
+      try {
+        await client.restoreCode(name, commit);
+        proposalCodeChanged();
+        void refresh();
+        setRestoreCode({ kind: "restored", commit });
+      } catch (error) {
+        setRestoreCode({
+          kind: "failed",
+          commit,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+    [client, refresh],
+  );
+  const restoreAsked = useRef(false);
+  useEffect(() => {
+    if (here === null || restoreAsked.current) return;
+    const commit = restoreCodeOf(window.location.href);
+    if (commit === null) return;
+    restoreAsked.current = true;
+    window.history.replaceState(
+      window.history.state,
+      "",
+      withoutRestoreCode(window.location.href),
+    );
+    void runRestoreCode(here.name, commit);
+  }, [here, runRestoreCode]);
+  const restoreDestination = useMemo<RestoreDestination>(
+    () =>
+      onSite ? { kind: "proposal", open: openWithChanges } : { kind: "here" },
+    [onSite, openWithChanges],
+  );
+
   const openDialog = (next: Dialog) => {
     setDialogError(null);
     setNewProblem(null);
@@ -639,7 +722,12 @@ export function useProposalsBar({
   };
 
   if (state.status === "off" || (ready === null && here === null)) {
-    return { proposals: undefined, dialogs: null, notice: null };
+    return {
+      proposals: undefined,
+      dialogs: null,
+      notice: null,
+      restoreDestination,
+    };
   }
 
   const proposals: TopBarProposals = {
@@ -767,7 +855,15 @@ export function useProposalsBar({
     currentJson?.continuedIn != null
       ? (all.find((p) => p.name === currentJson.continuedIn) ?? null)
       : null;
-  const notice =
+  const restoreNotice =
+    restoreCode !== null && here !== null ? (
+      <RestoreCodeNotice
+        state={restoreCode}
+        onRetry={() => void runRestoreCode(here.name, restoreCode.commit)}
+        onDismiss={() => setRestoreCode(null)}
+      />
+    ) : null;
+  const mergedNotice =
     currentJson?.status === "merged" ? (
       <MergedProposalNotice
         displayName={currentJson.displayName}
@@ -782,7 +878,17 @@ export function useProposalsBar({
       />
     ) : null;
 
-  return { proposals, dialogs, notice };
+  const notice =
+    restoreNotice !== null && mergedNotice !== null ? (
+      <div className="flex flex-col gap-3">
+        {mergedNotice}
+        {restoreNotice}
+      </div>
+    ) : (
+      (mergedNotice ?? restoreNotice)
+    );
+
+  return { proposals, dialogs, notice, restoreDestination };
 }
 
 function nextNewProposal(): { requestId: string; suggestedName: string } {

@@ -11,6 +11,11 @@ import { planModuleRevert, planRevertAll } from "./revertAll";
 import { useAddPatch } from "../components/ValFieldProvider";
 import { useClient } from "../components/ValProvider";
 import { useState } from "react";
+import type { PatchId } from "@valbuild/core";
+import { restoreProposalName } from "./restoreDestination";
+import { planGoBack, type GoBackModule } from "./goBack";
+import { useValSystem } from "../stores/react/SystemContext";
+import { useLandRestore } from "./useLandRestore";
 
 /**
  * How many entries of one module are read at a time.
@@ -65,8 +70,13 @@ export function RestoreControls({
     commitSha: string;
     byModule: Record<ModuleFilePath, Record<string, JSONValue>>;
   }>({ commitSha: "", byModule: {} });
-  const { addModuleFilePatch } = useAddPatch(path ?? ("" as SourcePath));
+  const { writeModulePatch } = useAddPatch(path ?? ("" as SourcePath));
   const client = useClient();
+  const land = useLandRestore(restore.destination);
+  const val = useValSystem();
+  const toProposal = restore.destination.kind === "proposal";
+  /** "Put everything back" handing its patches over again, after a failure. */
+  const [revertRetry, setRevertRetry] = useState<(() => void) | null>(null);
 
   if (!patchSet) {
     return null;
@@ -246,6 +256,33 @@ export function RestoreControls({
     );
   };
 
+  /**
+   * Hand written patches to where restores go, saying how it went, with Try
+   * again when the hand-over is what failed. Shared by "Put everything back"
+   * and "Go back to this point".
+   */
+  const handOver = async (
+    written: PatchId[],
+    displayName: string,
+    note: string,
+    /** "Go back to this point": the site commit whose code comes back too. */
+    restoreCodeFrom?: string,
+  ): Promise<void> => {
+    setRevertRetry(null);
+    setBusy(true);
+    setReverting(
+      `Opening a proposal with ${written.length} module${written.length === 1 ? "" : "s"} put back${restoreCodeFrom !== undefined ? ", and the code as it was" : ""}…${note}`,
+    );
+    const landed = await land(written, displayName, restoreCodeFrom);
+    setBusy(false);
+    if (landed.status === "error") {
+      setReverting(landed.message);
+      setRevertRetry(
+        () => () => void handOver(written, displayName, note, restoreCodeFrom),
+      );
+    }
+  };
+
   const revertEverything = async () => {
     /*
      * The entry content first, for the modules that need it, and only then the
@@ -271,16 +308,181 @@ export function RestoreControls({
       }
     }
     const plan = planRevertAll(patchSet, entries);
+    const written: PatchId[] = [];
+    const failures: string[] = [];
+    setBusy(true);
     for (const { moduleFilePath, patch } of plan.modules) {
-      addModuleFilePatch(moduleFilePath, patch, "object");
+      const res = await writeModulePatch(moduleFilePath, patch);
+      if (res.status === "ok") {
+        written.push(res.patchId);
+      } else {
+        failures.push(`${moduleFilePath}: ${res.message}`);
+      }
     }
+    setBusy(false);
     const left: ModuleFilePath[] = plan.blocked
       .map((entry) => entry.moduleFilePath)
       .concat(unreadable);
-    setReverting(
+    const leftNote =
+      left.length === 0 && failures.length === 0
+        ? ""
+        : ` ${left.length + failures.length} could not be put back: ${[
+            ...left,
+            ...failures,
+          ].join(", ")}`;
+    if (!toProposal || written.length === 0) {
+      setReverting(
+        left.length === 0 && failures.length === 0
+          ? `Staged ${written.length} module${written.length === 1 ? "" : "s"}. Review and publish when you are ready.`
+          : `Staged ${written.length}.${leftNote}`,
+      );
+      return;
+    }
+    /*
+     * On the site of a project with proposals, what was written goes into a
+     * new proposal, and the Studio goes there to review it.
+     */
+    await handOver(
+      written,
+      restoreProposalName(patchSet.commit.createdAt, "everything"),
+      leftNote,
+    );
+  };
+
+  /**
+   * Every module as it was at this commit -- not only the ones it changed.
+   *
+   * Content only: code is not patched. On the site of a project with
+   * proposals it opens one, like every restore (valbuild/home
+   * `docs/hosted-publishing.md`, step 9).
+   */
+  const goBackToThisPoint = async () => {
+    if (val === null) return;
+    const { schemaStore, sourceStore } = val.system;
+    const paths = Object.keys(schemaStore.all()).filter(
+      (path): path is ModuleFilePath => path.length > 0,
+    );
+    setBusy(true);
+    setRevertRetry(null);
+    setReverting(`Reading ${paths.length} modules as they were…`);
+    const modules: GoBackModule[] = [];
+    for (let i = 0; i < paths.length; i += ENTRY_FETCH_CONCURRENCY) {
+      const batch = paths.slice(i, i + ENTRY_FETCH_CONCURRENCY);
+      const read = await Promise.all(
+        batch.map(
+          async (
+            moduleFilePath,
+          ): Promise<GoBackModule | { message: string }> => {
+            try {
+              const res = await client("/history/module", "GET", {
+                query: {
+                  commit_sha: commitSha,
+                  module_file_path: moduleFilePath,
+                },
+              });
+              if (res.status !== 200) {
+                return {
+                  message: `Could not read ${moduleFilePath} as it was at this commit${
+                    "message" in res.json ? `: ${res.json.message}` : ""
+                  }`,
+                };
+              }
+              // The module root: its file path with no module path after it.
+              const now = await sourceStore.get(
+                Internal.joinModuleFilePathAndModulePath(
+                  ...Internal.splitModuleFilePathAndModulePath(moduleFilePath),
+                ),
+                null,
+              );
+              return {
+                moduleFilePath,
+                atCommit: res.json.module,
+                now: now.status === "resolved-head" ? now.data : undefined,
+              };
+            } catch (err) {
+              return {
+                message: `Could not read ${moduleFilePath} as it was at this commit: ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+              };
+            }
+          },
+        ),
+      );
+      for (const entry of read) {
+        if ("message" in entry) {
+          // All or nothing: going back with a module missing is not going back.
+          setBusy(false);
+          setReverting(entry.message);
+          setRevertRetry(() => () => void goBackToThisPoint());
+          return;
+        }
+        modules.push(entry);
+      }
+    }
+    /*
+     * On the site of a project with proposals, the code comes back too, in
+     * the proposal this opens: every module is written then, because the
+     * `.val` files staged with the code hold their build's content.
+     */
+    const withCode = toProposal ? { everyModule: true } : undefined;
+    let plan = planGoBack(modules, undefined, withCode);
+    if (plan.needsJsonEntries.length > 0) {
+      setReverting("Reading the entries as they were…");
+      const entries: Partial<
+        Record<ModuleFilePath, Record<string, JSONValue>>
+      > = {};
+      for (const { moduleFilePath, entryKeys } of plan.needsJsonEntries) {
+        const loaded = await loadJsonEntries(moduleFilePath, entryKeys);
+        if ("message" in loaded) {
+          setBusy(false);
+          setReverting(loaded.message);
+          setRevertRetry(() => () => void goBackToThisPoint());
+          return;
+        }
+        entries[moduleFilePath] = loaded.entries;
+      }
+      plan = planGoBack(modules, entries, withCode);
+    }
+    const written: PatchId[] = [];
+    const failures: string[] = [];
+    for (const { moduleFilePath, patch } of plan.modules) {
+      const res = await writeModulePatch(moduleFilePath, patch);
+      if (res.status === "ok") {
+        written.push(res.patchId);
+      } else {
+        failures.push(`${moduleFilePath}: ${res.message}`);
+      }
+    }
+    setBusy(false);
+    const left = [
+      ...plan.blocked.map(
+        (entry) => `${entry.moduleFilePath} (${entry.reason})`,
+      ),
+      ...plan.unrecorded.map(
+        (path) => `${path} (no record of it at that point)`,
+      ),
+      ...failures,
+    ];
+    const note =
       left.length === 0
-        ? `Staged ${plan.modules.length} module${plan.modules.length === 1 ? "" : "s"}. Review and publish when you are ready.`
-        : `Staged ${plan.modules.length}. ${left.length} could not be put back: ${left.join(", ")}`,
+        ? ""
+        : ` ${left.length} left as ${left.length === 1 ? "it is" : "they are"}: ${left.join(", ")}`;
+    if (written.length === 0) {
+      setReverting(`Everything is already as it was at this point.${note}`);
+      return;
+    }
+    if (!toProposal) {
+      setReverting(
+        `Staged ${written.length} module${written.length === 1 ? "" : "s"} as they were. Review and publish when you are ready.${note}`,
+      );
+      return;
+    }
+    await handOver(
+      written,
+      restoreProposalName(patchSet.commit.createdAt, "point"),
+      note,
+      commitSha,
     );
   };
 
@@ -329,7 +531,26 @@ export function RestoreControls({
         >
           Put everything back
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!canRestore || busy || val === null}
+          onClick={() => void goBackToThisPoint()}
+        >
+          Go back to this point
+        </Button>
       </div>
+      {/*
+       * Said before the click: on the site, a restore does not land in the
+       * site's pending changes. It opens a proposal, where it is reviewed and
+       * published (valbuild/home `docs/hosted-publishing.md`, step 9).
+       */}
+      {toProposal && canRestore && (
+        <p className="text-xs text-fg-tertiary">
+          A restore opens a new proposal with it, to review and publish from
+          there.
+        </p>
+      )}
       {/*
        * What "Put everything back" covers, said before the click.
        *
@@ -361,12 +582,21 @@ export function RestoreControls({
         <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
-            disabled={restore.stage.status === "staging"}
+            disabled={
+              restore.stage.status === "staging" ||
+              restore.stage.status === "opening"
+            }
             onClick={restore.confirm}
           >
             {restore.stage.status === "staging"
-              ? "Staging…"
-              : "Stage this restore"}
+              ? toProposal
+                ? "Opening a proposal…"
+                : "Staging…"
+              : restore.stage.status === "opening"
+                ? "Opening the proposal…"
+                : toProposal
+                  ? "Restore in a new proposal"
+                  : "Stage this restore"}
           </Button>
           {/*
            * Not offered for a whole-module restore: its destination is the
@@ -387,11 +617,35 @@ export function RestoreControls({
           everything else.
         </p>
       )}
+      {restore.stage.status === "opening" && (
+        <p className="text-xs text-fg-secondary">
+          Restored into a new proposal. Opening it…
+        </p>
+      )}
       {restore.stage.status === "error" && (
-        <p className="text-xs text-fg-error-primary">{restore.stage.message}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-fg-error-primary">
+            {restore.stage.message}
+          </p>
+          {restore.stage.retry && (
+            <Button variant="outline" size="sm" onClick={restore.stage.retry}>
+              Try again
+            </Button>
+          )}
+        </div>
       )}
       {/* Nothing is written until Publish — said here rather than discovered. */}
       {reverting && <p className="text-xs text-fg-secondary">{reverting}</p>}
+      {revertRetry && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="self-start"
+          onClick={revertRetry}
+        >
+          Try again
+        </Button>
+      )}
       {reason && (
         <p className="max-w-prose text-xs text-fg-tertiary">{reason}</p>
       )}

@@ -302,6 +302,25 @@ test("a commit's stored modules parse, with the schema left unvalidated", async 
   }
 });
 
+test("a project's first commit, which has no parent, parses", async () => {
+  // A hosted project's first publish is a root commit: content answers
+  // `parentCommitSha: null` (its Api type says `string | null`). Refusing it
+  // made "Go back to this point" fail on the oldest point there is.
+  const { ops, restore } = opsAnswering({
+    ...HOME_COMMIT_MODULES,
+    parentCommitSha: null,
+  });
+  try {
+    const res = await ops.getCommitModules("a3f19c2", { asOf: true });
+    if (result.isErr(res)) {
+      throw new Error(`did not parse: ${JSON.stringify(res.error)}`);
+    }
+    expect(res.value.modules).toHaveLength(1);
+  } finally {
+    restore();
+  }
+});
+
 test("an as-of read that history cannot cover whole says so", async () => {
   // The trap this closes: `as_of` reads the project as a commit left it, but
   // the index only has rows for commits made after history started being
