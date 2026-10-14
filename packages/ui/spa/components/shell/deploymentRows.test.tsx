@@ -56,34 +56,45 @@ describe("the deploy feed's rows", () => {
 });
 
 /**
- * A managed project's row, rendered.
+ * A row says when its publish started, and nothing about how it went
+ * (valbuild/home `docs/hosted-publishing.md`, step 10, decided 2026-10-11).
  *
- * The state is derived in `Deployments.tsx` and tested there; what this adds is
- * that the derivation reaches the DOM — the row is one of three places the same
- * publish is narrated, and the prop has to be threaded to each of them.
+ * The rows used to say Building, Built, Published, Live or Build failed each,
+ * worked out per row and differently for managed and connected projects, while
+ * the status bar above them said where the site actually was. The one status
+ * is the bar's; the list is a list of publishes.
  */
-describe("a managed project's row", () => {
-  test("says Published where a connected one says Building", () => {
-    // `isLive: false` explicitly: this file's fixture is live by default, and
-    // `isLive` outranks `state`. A managed commit is recorded at its seal --
-    // once its build is live -- so one the site does not serve was
-    // superseded, and is never on its way out.
-    const unfinished = deployment({
-      commitSha: "abc",
-      state: "pending",
-      isLive: false,
-    });
-    const { unmount } = render(
-      <DeploymentRows deployments={[unfinished]} studioIsDeployer />,
+describe("a row of the deploy feed", () => {
+  test("says when it started, and nothing about how it went", () => {
+    render(
+      <DeploymentRows
+        deployments={[
+          deployment({
+            commitSha: "abc",
+            state: "pending",
+            isLive: false,
+            started: "3 minutes ago",
+            author: "Ada",
+          }),
+          deployment({
+            commitSha: "def",
+            state: "failure",
+            isLive: false,
+            started: "an hour ago",
+          }),
+        ]}
+      />,
     );
-    expect(screen.getByText(/Published/)).toBeTruthy();
-    expect(screen.queryByText(/Building/)).toBeNull();
-    // Nothing to finish: a managed row offers no action.
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
-    unmount();
+    expect(screen.getByText("Started 3 minutes ago · Ada")).toBeTruthy();
+    expect(screen.getByText("Started an hour ago")).toBeTruthy();
+    for (const word of [/Building/, /Build failed/, /Published/, /Live/]) {
+      expect(screen.queryByText(word)).toBeNull();
+    }
+  });
 
-    render(<DeploymentRows deployments={[unfinished]} />);
-    expect(screen.getByText(/Building/)).toBeTruthy();
+  test("without a start, says when it last changed", () => {
+    render(<DeploymentRows deployments={[deployment({ commitSha: "abc" })]} />);
+    expect(screen.getByText("12 minutes ago")).toBeTruthy();
   });
 });
 
@@ -106,11 +117,11 @@ describe("the publish indicator", () => {
     );
     expect(
       screen.queryByRole("button", {
-        name: /^Deployments: Reaching visitors \d+%$/,
+        name: /^Deployments: Reaching edges \d+%$/,
       }),
     ).not.toBeNull();
     const progress = screen.getByRole("progressbar", {
-      name: "Reaching visitors",
+      name: "Reaching edges",
     });
     expect(Number(progress.getAttribute("aria-valuenow"))).toBeGreaterThan(87);
   });

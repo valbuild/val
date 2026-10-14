@@ -1375,7 +1375,6 @@ export function Shell({
              * feed (`mode === "http"`); the panel was missed.
              */
             deployments={mode === "fs" ? undefined : deployments}
-            studioIsDeployer={studioIsDeployer}
             // Passed through as-is: absent means there is no session to end, and
             // the panel then shows no Sign out button rather than a dead one.
             onSignOut={onSignOut}
