@@ -31,6 +31,7 @@ import { ProposalSwitcher } from "../proposals/ProposalSwitcher";
 import {
   ProposalMenu,
   ProposalPublishButton,
+  ProposalBuildButton,
   ProposalSaveButton,
 } from "../proposals/ProposalBar";
 import type { ProposalSummary, StudioLocation } from "../proposals/types";
@@ -48,6 +49,8 @@ export type TopBarProposals = {
   onNewProposal: () => void;
   onShowAllProposals: () => void;
   onSave: () => void;
+  /** Build the proposal's staged files, so its address shows them. */
+  onBuild?: () => void;
   /** Publish the proposal: merge it into the site. */
   onPublish: () => void;
   /**
@@ -280,6 +283,13 @@ export function TopBar({
               onSave={proposals.onSave}
             />
           ),
+          build:
+            proposals.onBuild !== undefined ? (
+              <ProposalBuildButton
+                location={proposalLocation}
+                onBuild={proposals.onBuild}
+              />
+            ) : null,
           publish: (
             <ProposalPublishButton
               location={proposalLocation}
@@ -422,6 +432,7 @@ export function TopBar({
                 isCanvasOpen={isCanvasOpen}
               />
             </span>
+            {inProposal?.build}
             <span data-val-tour="publish" className="inline-flex">
               {inProposal !== null
                 ? // In a proposal, Save is where Publish is on the site.

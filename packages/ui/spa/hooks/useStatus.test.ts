@@ -187,6 +187,26 @@ describe("chainOfMessage", () => {
     ).toEqual(["p1"]);
   });
 
+  // Held back is not one-way either: Try again or Discard releases the
+  // changes, and the message saying so is an empty set, not a missing one.
+  test("replaces which patches are held back with the message's set", () => {
+    expect(
+      chainOfMessage(
+        { heldBackPatches: ["p1"] as StatData["patches"] },
+        { ...message, heldBackPatches: [] as StatData["patches"] },
+      ).heldBackPatches,
+    ).toEqual([]);
+  });
+
+  test("keeps the previous held back set when the message has none", () => {
+    expect(
+      chainOfMessage(
+        { heldBackPatches: ["p1"] as StatData["patches"] },
+        message,
+      ).heldBackPatches,
+    ).toEqual(["p1"]);
+  });
+
   // Applied is one-way: a content service that does not send the list leaves
   // the last one standing, which is incomplete but never wrong.
   test("keeps the previous applied list when the message has none", () => {
@@ -258,6 +278,44 @@ describe("content's holds", () => {
     const holds = holdsOfAnswer(sealedOnSocket, olderAnswer, true);
     expect(holds.appliedPatches).toEqual(["p1"]);
     expect([...heldByContent(new Set(["p1"]), holds)]).toEqual(["p1"]);
+  });
+
+  /*
+   * A publish failed on its content, and the socket says which changes the
+   * next publish goes without. A `/stat` answer requested before that must
+   * not hand them back as publishable.
+   */
+  test("hold back what the socket says a failed publish held back", () => {
+    const failedOnSocket = holdsOfMessage(
+      {
+        patches: ids("p1", "p2"),
+        appliedPatches: ids(),
+        publishingPatches: ids("p1"),
+        heldBackPatches: ids(),
+      },
+      {
+        type: "patches",
+        patches: ids("p1", "p2"),
+        headPatchId: ids("p2")[0],
+        headVersion: 4,
+        patchGroups: [],
+        appliedPatches: ids(),
+        publishingPatches: ids(),
+        heldBackPatches: ids("p1"),
+      },
+    );
+    const olderAnswer = {
+      patches: ids("p1", "p2"),
+      appliedPatches: ids(),
+      publishingPatches: ids("p1"),
+      heldBackPatches: ids(),
+    };
+    expect(
+      holdsOfAnswer(failedOnSocket, olderAnswer, true).heldBackPatches,
+    ).toEqual(["p1"]);
+    expect(holdsOfAnswer(failedOnSocket, olderAnswer, false)).toEqual(
+      olderAnswer,
+    );
   });
 
   test("a message without the lists keeps the ones before it", () => {

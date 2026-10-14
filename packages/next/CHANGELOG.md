@@ -1,5 +1,62 @@
 # @valbuild/next
 
+## 0.144.9
+
+### Patch Changes
+
+- Updated dependencies [[`c44b561`](https://github.com/valbuild/val/commit/c44b5611cf9e557b6b744704703dbff0cb8b23b0), [`a2125af`](https://github.com/valbuild/val/commit/a2125af79d2b2401c40bce3d8fcf0431bb101cbf)]:
+  - @valbuild/ui@0.144.9
+  - @valbuild/server@0.144.9
+  - @valbuild/shared@0.144.9
+  - @valbuild/react@0.144.9
+  - @valbuild/language-server@0.144.9
+  - @valbuild/mcp@0.144.9
+
+## 0.144.8
+
+### Patch Changes
+
+- Updated dependencies [[`6fd8f79`](https://github.com/valbuild/val/commit/6fd8f791a83d37f95dc3ae12bd8025ccf81e4a7c), [`b67c03e`](https://github.com/valbuild/val/commit/b67c03ee1876803c31098098ae0becf3f4ad6ade)]:
+  - @valbuild/ui@0.144.8
+  - @valbuild/server@0.144.8
+  - @valbuild/react@0.144.8
+  - @valbuild/language-server@0.144.8
+  - @valbuild/mcp@0.144.8
+
+## 0.144.7
+
+### Patch Changes
+
+- Updated dependencies [[`45ee083`](https://github.com/valbuild/val/commit/45ee0831393345dab08093575d4ed652e20e1229)]:
+  - @valbuild/ui@0.144.7
+  - @valbuild/server@0.144.7
+  - @valbuild/react@0.144.7
+  - @valbuild/language-server@0.144.7
+  - @valbuild/mcp@0.144.7
+
+## 0.144.6
+
+### Patch Changes
+
+- Updated dependencies [[`4e237c9`](https://github.com/valbuild/val/commit/4e237c9b66e059344fa4c800587c572d125aa8f9)]:
+  - @valbuild/ui@0.144.6
+  - @valbuild/react@0.144.6
+  - @valbuild/server@0.144.6
+  - @valbuild/language-server@0.144.6
+  - @valbuild/mcp@0.144.6
+
+## 0.144.5
+
+### Patch Changes
+
+- Updated dependencies [[`39e8db3`](https://github.com/valbuild/val/commit/39e8db34cf56c6c43ffff0d3acfe8e0839fa55a9)]:
+  - @valbuild/ui@0.144.5
+  - @valbuild/server@0.144.5
+  - @valbuild/shared@0.144.5
+  - @valbuild/react@0.144.5
+  - @valbuild/language-server@0.144.5
+  - @valbuild/mcp@0.144.5
+
 ## 0.144.4
 
 ### Patch Changes

@@ -94,6 +94,59 @@ export const BlockedByUnpublishedChanges = at({
   unsaved: 0,
 });
 
+/**
+ * Someone changed the same field on the site since: blocked, naming the field
+ * and who (valbuild/home `docs/hosted-publishing.md`, step 8).
+ */
+export const BlockedByTheSameField = at({
+  kind: "ready",
+  checks: [
+    {
+      id: "published-since",
+      ok: false,
+      message:
+        "Kari Nordmann changed hero › title on /content/home.val.ts after this proposal started, and this proposal changes it too",
+    },
+    PASSING[1]!,
+  ],
+  changes: 15,
+  unsaved: 0,
+});
+
+/**
+ * The site's code changed under the proposal's code: Update from the site is
+ * offered beside the reason, which moves it onto the site and asks for a
+ * build (step 8).
+ */
+export const BlockedByTheSitesCode: Story = {
+  args: {
+    state: {
+      kind: "ready",
+      checks: [
+        ...PASSING,
+        {
+          id: "site-code",
+          ok: false,
+          message:
+            "The site's code changed after this proposal started, so the code changed here has to be built on the site as it is now. Update from the site, then build it",
+          action: "update-from-site",
+        },
+      ],
+      changes: 4,
+      unsaved: 0,
+    },
+    onUpdateFromSite: () => console.log("update from the site"),
+  },
+};
+
+/** Updating from the site, from that check. */
+export const UpdatingFromTheSite: Story = {
+  args: {
+    ...BlockedByTheSitesCode.args,
+    updating: true,
+  },
+};
+
 /** Each step, as it runs. */
 export const Saving = at({ kind: "publishing", step: "saving" });
 export const Building = at({ kind: "publishing", step: "building" });

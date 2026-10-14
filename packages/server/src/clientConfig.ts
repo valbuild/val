@@ -85,3 +85,22 @@ function withResolvedProject(
   }
   return { ...config, project };
 }
+
+/**
+ * The branch History lists, or `null` where there is none to list.
+ *
+ * Not `config.gitBranch` alone, which is the git mirror's and absent for a
+ * managed project -- whose history content holds all the same, under the
+ * branch it reports for the project. In a proposal it is the proposal's, so
+ * its History is its own saves (valbuild/home `docs/hosted-publishing.md`,
+ * step 9). Never in `fs` mode, where `ValOpsFS` has no commits to list.
+ */
+export function historyBranchOf(input: {
+  mode: "fs" | "http";
+  proposal: { branch: string } | null;
+  gitBranch: string | null;
+  projectBranch: string | null;
+}): string | null {
+  if (input.mode !== "http") return null;
+  return input.proposal?.branch ?? input.gitBranch ?? input.projectBranch;
+}

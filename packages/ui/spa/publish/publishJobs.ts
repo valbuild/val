@@ -224,6 +224,42 @@ export function publishingPatchIds(
 }
 
 /**
+ * The changes a failed publish holds back: the next publish goes without them
+ * until someone presses Try again or Discard (`heldBackPatches` in content's
+ * jobPlan.ts).
+ *
+ * Content is the authority, as for {@link publishingPatchIds}, and this tab's
+ * own presses cover the moment before it speaks. A press of this tab's that
+ * failed AFTER content last said what it holds back gives its changes back to
+ * `publishingPatchIds` at once, and content's broadcast of what that failure
+ * holds back arrives on its own schedule: counted as pending in between, they
+ * lit Publish up over a press that would send nothing. So until content speaks
+ * again they are held back here too. Only a press that can be discarded, which
+ * a merge cannot: a failed merge holds nothing back.
+ *
+ * Content may answer that it holds nothing back after all -- a publish can
+ * fail because the platform did not answer, which holds nothing back -- and
+ * that answer, being newer, stands.
+ */
+export function heldBackPatchIds(
+  state: PublishJobsState,
+  reported?: Iterable<string>,
+  reportedAt?: number,
+): ReadonlySet<string> {
+  const ids = new Set<string>(reported ?? []);
+  for (const request of state.requests) {
+    if (
+      request.status.kind === "failed" &&
+      request.status.actions.includes("discard") &&
+      (request.settledAt ?? -Infinity) > (reportedAt ?? -Infinity)
+    ) {
+      for (const id of request.patchIds ?? []) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+/**
  * The changes content says a running publish holds, kept until content says
  * they are pending again.
  *

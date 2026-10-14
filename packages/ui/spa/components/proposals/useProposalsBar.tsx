@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -28,6 +29,10 @@ import {
 } from "../../proposals/proposalsClient";
 import { useProposals, waitForAddress } from "../../proposals/useProposals";
 import {
+  proposalCodeChanged,
+  useProposalBuild,
+} from "../../proposals/useProposalBuild";
+import {
   NewProposalDialog,
   type NewProposalProblem,
 } from "./NewProposalDialog";
@@ -40,10 +45,22 @@ import {
 import { followCarryOver, type CarryOver } from "../../proposals/carryOver";
 import { canBuildHere } from "../../publish/handoff";
 import { randomUUID } from "../../utils/randomUUID";
+import {
+  restoreCodeOf,
+  withRestoreCode,
+  withoutRestoreCode,
+  type RestoreDestination,
+} from "../../history/restoreDestination";
+import { RestoreCodeNotice, type RestoreCodeState } from "./RestoreCodeNotice";
 import { randomProposalName } from "../../proposals/proposalNames";
 import { AllProposalsDialog } from "./ProposalsList";
 import { MergedProposalNotice } from "./MergedProposalNotice";
-import type { ProposalPerson, ProposalSummary, StudioLocation } from "./types";
+import type {
+  ProposalCodeState,
+  ProposalPerson,
+  ProposalSummary,
+  StudioLocation,
+} from "./types";
 
 /** Why Publish is not offered, by the proposal's status; null when it is. */
 function publishBlockedByStatus(status: string | undefined): string | null {
@@ -90,6 +107,11 @@ export function useProposalsBar({
   dialogs: ReactNode;
   /** Above the editor, or null: a merged proposal says it is finished. */
   notice: ReactNode | null;
+  /**
+   * Where a restore goes: a new proposal on the site of a project with
+   * proposals, else here. See `restoreDestination.ts`.
+   */
+  restoreDestination: RestoreDestination;
 } {
   const mode = useValMode();
   const here = useCurrentProposal();
@@ -174,6 +196,39 @@ export function useProposalsBar({
     [client, failed, go, here?.name, ready?.proposals],
   );
 
+  /*
+   * Its code (step 7 of valbuild/home `docs/hosted-publishing.md`): staged
+   * files its address does not serve a build of, a build running, or the last
+   * one failed. Read again whenever the build store says the code moved -- a
+   * build finished or the assistant staged a file -- rather than on a poll.
+   */
+  const proposalBuild = useProposalBuild(client);
+  const codeChanged = proposalBuild.state.changed;
+  useEffect(() => {
+    if (codeChanged > 0) void refresh();
+  }, [codeChanged, refresh]);
+  // The assistant was asked to change code on the site: offer a proposal.
+  const proposalRequested = proposalBuild.state.proposalRequested;
+  useEffect(() => {
+    if (proposalRequested === 0 || here !== null) return;
+    setNewProposal(nextNewProposal());
+    setDialog("new");
+  }, [proposalRequested, here]);
+  const code: ProposalCodeState | null = proposalBuild.state.building
+    ? { state: "building" }
+    : proposalBuild.state.error !== null
+      ? { state: "failed", error: proposalBuild.state.error }
+      : currentJson?.staged?.buildRequired
+        ? { state: "required" }
+        : null;
+  const build = proposalBuild.build;
+  const runBuild = useCallback(async () => {
+    if (build === null) return;
+    const outcome = await build();
+    if (outcome.status === "built")
+      toast.success("Built: the preview shows the change");
+  }, [build]);
+
   const location: StudioLocation = useMemo(() => {
     if (here === null) return { kind: "site" };
     const proposal: ProposalSummary = currentJson
@@ -201,8 +256,18 @@ export function useProposalsBar({
       overlay: jobState(currentJson?.overlay),
       renderCheck: jobState(currentJson?.renderCheck),
       publishBlockedBy: publishBlockedByStatus(currentJson?.status),
+      code,
     };
-  }, [here, currentJson, viewer, people, unsaved, isPublishing, saveError]);
+  }, [
+    here,
+    currentJson,
+    viewer,
+    people,
+    unsaved,
+    isPublishing,
+    saveError,
+    code,
+  ]);
 
   /** Save; the reason it did not, or null when it did. */
   const save = useCallback(async (): Promise<string | null> => {
@@ -268,6 +333,31 @@ export function useProposalsBar({
       });
     }
   }, [client, here, currentJson?.changes, unsaved]);
+
+  /*
+   * "Update from the site" (step 8): the site's code changed under this
+   * proposal's, so it moves onto the site as it is now and its code is built
+   * again there -- "Build required" follows, and the checks are read again.
+   */
+  const [updating, setUpdating] = useState(false);
+  const updateFromSite = useCallback(async () => {
+    if (here === null) return;
+    setUpdating(true);
+    try {
+      await client.updateFromSite(here.name);
+      proposalCodeChanged();
+      await loadChecks();
+    } catch (error) {
+      setPublishState({
+        kind: "error",
+        message: `Could not update from the site: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+    } finally {
+      setUpdating(false);
+    }
+  }, [client, here, loadChecks]);
 
   /** Where the press is, while it is followed. See `pressed`. */
   const following = useMemo<
@@ -554,6 +644,76 @@ export function useProposalsBar({
     [client, failed, refresh],
   );
 
+  const onSite = here === null && ready !== null;
+  const openWithChanges = useCallback(
+    async (input: {
+      displayName: string;
+      patchIds: string[];
+      requestId: string;
+      restoreCodeFrom?: string;
+    }) => {
+      const made = await client.create({
+        displayName: input.displayName,
+        patchIds: input.patchIds,
+        requestId: input.requestId,
+      });
+      void refresh();
+      const origin = made.address ?? (await waitForAddress(client, made.name));
+      const target = sameStudioPageAt(origin, window.location);
+      window.location.assign(
+        input.restoreCodeFrom === undefined
+          ? target
+          : withRestoreCode(target, input.restoreCodeFrom),
+      );
+    },
+    [client, refresh],
+  );
+
+  /*
+   * "Go back to this point", arriving: the site's Studio opened this proposal
+   * with the content moved in and the commit whose code to bring back in the
+   * address (`RESTORE_CODE_PARAM`). Only a proposal's own server may stage
+   * its files, so it is done here, once, and the parameter is taken out of
+   * the address so a reload does not ask again.
+   */
+  const [restoreCode, setRestoreCode] = useState<RestoreCodeState | null>(null);
+  const runRestoreCode = useCallback(
+    async (name: string, commit: string) => {
+      setRestoreCode({ kind: "restoring", commit });
+      try {
+        await client.restoreCode(name, commit);
+        proposalCodeChanged();
+        void refresh();
+        setRestoreCode({ kind: "restored", commit });
+      } catch (error) {
+        setRestoreCode({
+          kind: "failed",
+          commit,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+    [client, refresh],
+  );
+  const restoreAsked = useRef(false);
+  useEffect(() => {
+    if (here === null || restoreAsked.current) return;
+    const commit = restoreCodeOf(window.location.href);
+    if (commit === null) return;
+    restoreAsked.current = true;
+    window.history.replaceState(
+      window.history.state,
+      "",
+      withoutRestoreCode(window.location.href),
+    );
+    void runRestoreCode(here.name, commit);
+  }, [here, runRestoreCode]);
+  const restoreDestination = useMemo<RestoreDestination>(
+    () =>
+      onSite ? { kind: "proposal", open: openWithChanges } : { kind: "here" },
+    [onSite, openWithChanges],
+  );
+
   const openDialog = (next: Dialog) => {
     setDialogError(null);
     setNewProblem(null);
@@ -562,7 +722,12 @@ export function useProposalsBar({
   };
 
   if (state.status === "off" || (ready === null && here === null)) {
-    return { proposals: undefined, dialogs: null, notice: null };
+    return {
+      proposals: undefined,
+      dialogs: null,
+      notice: null,
+      restoreDestination,
+    };
   }
 
   const proposals: TopBarProposals = {
@@ -586,6 +751,7 @@ export function useProposalsBar({
       openDialog("all");
     },
     onSave: () => void save(),
+    ...(build !== null ? { onBuild: () => void runBuild() } : {}),
     onPublish: () => {
       openDialog("publish");
       void loadChecks();
@@ -621,6 +787,8 @@ export function useProposalsBar({
           {...(continuation !== null
             ? { onOpenContinuation: () => void openProposal(continuation) }
             : {})}
+          onUpdateFromSite={() => void updateFromSite()}
+          updating={updating}
           portalContainer={portalContainer}
         />
       )}
@@ -687,7 +855,15 @@ export function useProposalsBar({
     currentJson?.continuedIn != null
       ? (all.find((p) => p.name === currentJson.continuedIn) ?? null)
       : null;
-  const notice =
+  const restoreNotice =
+    restoreCode !== null && here !== null ? (
+      <RestoreCodeNotice
+        state={restoreCode}
+        onRetry={() => void runRestoreCode(here.name, restoreCode.commit)}
+        onDismiss={() => setRestoreCode(null)}
+      />
+    ) : null;
+  const mergedNotice =
     currentJson?.status === "merged" ? (
       <MergedProposalNotice
         displayName={currentJson.displayName}
@@ -702,7 +878,17 @@ export function useProposalsBar({
       />
     ) : null;
 
-  return { proposals, dialogs, notice };
+  const notice =
+    restoreNotice !== null && mergedNotice !== null ? (
+      <div className="flex flex-col gap-3">
+        {mergedNotice}
+        {restoreNotice}
+      </div>
+    ) : (
+      (mergedNotice ?? restoreNotice)
+    );
+
+  return { proposals, dialogs, notice, restoreDestination };
 }
 
 function nextNewProposal(): { requestId: string; suggestedName: string } {

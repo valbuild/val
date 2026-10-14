@@ -200,7 +200,16 @@ export type DiscardPatches = (
        */
       headVersion?: number;
     }
-  | { status: "error"; message: string }
+  | {
+      status: "error";
+      message: string;
+      /**
+       * The publish job holding a change that was not discarded, when that is
+       * why: it can be discarded once that publish ends, or after it is
+       * cancelled. Absent from a server that does not say.
+       */
+      publishJobId?: string;
+    }
 >;
 
 /**

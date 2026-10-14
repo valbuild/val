@@ -16,6 +16,7 @@ import {
   useHasNetChanges,
   useUnstagedPatchIds,
   usePendingServerSidePatchIds,
+  useHeldBackPatchIds,
   usePublishingPatchIds,
   usePublishSummary,
   useValMode,
@@ -185,12 +186,28 @@ export function PublishButton({
    * changed, because of the change being published.
    */
   const unstagedPatchIds = useUnstagedPatchIds();
+  /*
+   * Nor what a failed publish holds back: the next publish goes without them,
+   * so counted as work they lit Publish up over a press that sends nothing.
+   * See `heldBackPatches` in content's jobPlan.ts.
+   */
+  const heldBack = useHeldBackPatchIds();
   const pendingServerSidePatchIds = useMemo(
     () =>
       unpublishedPatchIds.filter(
-        (patchId) => !publishing.has(patchId) && !unstagedPatchIds.has(patchId),
+        (patchId) =>
+          !publishing.has(patchId) &&
+          !unstagedPatchIds.has(patchId) &&
+          !heldBack.has(patchId),
       ),
-    [unpublishedPatchIds, publishing, unstagedPatchIds],
+    [unpublishedPatchIds, publishing, unstagedPatchIds, heldBack],
+  );
+  const heldBackCount = useMemo(
+    () =>
+      unpublishedPatchIds.filter(
+        (patchId) => heldBack.has(patchId) && !publishing.has(patchId),
+      ).length,
+    [unpublishedPatchIds, heldBack, publishing],
   );
   // Counted on its own, so an unstaged change is never called "publishing".
   const publishingCount = useMemo(
@@ -220,6 +237,7 @@ export function PublishButton({
     autoPublish,
     pendingServerSidePatchCount: pendingServerSidePatchIds.length,
     publishingCount,
+    heldBackCount,
     pendingClientSidePatchCount: pendingClientSidePatchIds.length,
     netChangesEmpty: !hasNetChanges,
     unstagedChangeCount: heldChangeIds.size,

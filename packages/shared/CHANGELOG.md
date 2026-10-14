@@ -1,5 +1,25 @@
 # @valbuild/shared
 
+## 0.144.9
+
+### Patch Changes
+
+- [#846](https://github.com/valbuild/val/pull/846) [`c44b561`](https://github.com/valbuild/val/commit/c44b5611cf9e557b6b744704703dbff0cb8b23b0) Thanks [@freekh](https://github.com/freekh)! - History is shown for projects hosted by Val Build and inside a proposal, where it lists the proposal's own saves. On the site of a project with proposals, a restore — one field, one module, or "Put everything back" — opens a new proposal with the restored values in it, so it is reviewed there before it is published.
+
+  History also reads a hosted project's first commit, which has no parent: "Go back to this point" failed on it.
+
+  "Go back to this point" on the site brings back the code as well as the content: the proposal it opens stages the files of the build the site served then, and serves that build at once.
+
+## 0.144.5
+
+### Patch Changes
+
+- [#839](https://github.com/valbuild/val/pull/839) [`39e8db3`](https://github.com/valbuild/val/commit/39e8db34cf56c6c43ffff0d3acfe8e0839fa55a9) Thanks [@freekh](https://github.com/freekh)! - A publish that breaks a page no longer stops everyone else publishing. On val.build, the changes it had are held back: the Publish button says how many, and publishes go without them until someone presses Try again or Discard on the failed publish.
+
+  Publish can be pressed while this tab is still building the last publish. The new publish waits its turn and is built when the current one ends.
+
+  Discarding a change that is being published now says so, instead of failing silently. From there you can cancel the publish, which then discards the change, or wait for the publish to end.
+
 ## 0.144.4
 
 ### Patch Changes

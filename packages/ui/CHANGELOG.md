@@ -1,5 +1,58 @@
 # @valbuild/ui
 
+## 0.144.9
+
+### Patch Changes
+
+- [#846](https://github.com/valbuild/val/pull/846) [`c44b561`](https://github.com/valbuild/val/commit/c44b5611cf9e557b6b744704703dbff0cb8b23b0) Thanks [@freekh](https://github.com/freekh)! - History is shown for projects hosted by Val Build and inside a proposal, where it lists the proposal's own saves. On the site of a project with proposals, a restore — one field, one module, or "Put everything back" — opens a new proposal with the restored values in it, so it is reviewed there before it is published.
+
+  History also reads a hosted project's first commit, which has no parent: "Go back to this point" failed on it.
+
+  "Go back to this point" on the site brings back the code as well as the content: the proposal it opens stages the files of the build the site served then, and serves that build at once.
+
+- [#848](https://github.com/valbuild/val/pull/848) [`a2125af`](https://github.com/valbuild/val/commit/a2125af79d2b2401c40bce3d8fcf0431bb101cbf) Thanks [@freekh](https://github.com/freekh)! - The deployments list says when each publish started, and nothing about how it went: the status bar's one status (Live, Building, Reaching edges) says where the site is. "Reaching visitors" is now "Reaching edges".
+
+## 0.144.8
+
+### Patch Changes
+
+- [#844](https://github.com/valbuild/val/pull/844) [`6fd8f79`](https://github.com/valbuild/val/commit/6fd8f791a83d37f95dc3ae12bd8025ccf81e4a7c) Thanks [@freekh](https://github.com/freekh)! - Publishing a proposal that changes only content no longer builds the site. Its content goes live on the build the site already serves, the way a content-only publish on the site does.
+
+- [#844](https://github.com/valbuild/val/pull/844) [`b67c03e`](https://github.com/valbuild/val/commit/b67c03ee1876803c31098098ae0becf3f4ad6ade) Thanks [@freekh](https://github.com/freekh)! - Publishing a proposal now says what blocks it, and what to do about it:
+
+  - When the site's code changed after a proposal with code changes started, the Publish dialog offers **Update from the site**. It moves the proposal onto the site as it is now, and its code then needs building again ("Build required").
+  - When someone published changes to the same page since the proposal started, the dialog names the fields each side changed.
+
+## 0.144.7
+
+### Patch Changes
+
+- [#842](https://github.com/valbuild/val/pull/842) [`45ee083`](https://github.com/valbuild/val/commit/45ee0831393345dab08093575d4ed652e20e1229) Thanks [@freekh](https://github.com/freekh)! - In a proposal on a hosted project, the Studio's assistant can now change the project's code, not only its content:
+
+  - `list_files` and `read_file` read the project's code. In a proposal they read the proposal's version of it.
+  - `write_files` stages whole files in the proposal, or deletes them.
+  - `build_proposal` builds those files in the tab, so the proposal's preview shows them. Nothing is published: the site changes only when the proposal is published.
+
+  The top bar shows **Build required** while staged code is not in the preview yet, and the same button builds it. A failed build says why on the button, and pressing it again builds again.
+
+  On the site itself, code is never changed directly. A code change asked for there is refused, and New proposal opens so the change can be made in one.
+
+## 0.144.6
+
+### Patch Changes
+
+- [#840](https://github.com/valbuild/val/pull/840) [`4e237c9`](https://github.com/valbuild/val/commit/4e237c9b66e059344fa4c800587c572d125aa8f9) Thanks [@freekh](https://github.com/freekh)! - On val.build, "Reaching visitors" after a publish now takes about 10 seconds instead of a minute. Visitors read the published site from a cache the platform refreshes every few seconds, so when the indicator stops, everyone sees the change.
+
+## 0.144.5
+
+### Patch Changes
+
+- [#839](https://github.com/valbuild/val/pull/839) [`39e8db3`](https://github.com/valbuild/val/commit/39e8db34cf56c6c43ffff0d3acfe8e0839fa55a9) Thanks [@freekh](https://github.com/freekh)! - A publish that breaks a page no longer stops everyone else publishing. On val.build, the changes it had are held back: the Publish button says how many, and publishes go without them until someone presses Try again or Discard on the failed publish.
+
+  Publish can be pressed while this tab is still building the last publish. The new publish waits its turn and is built when the current one ends.
+
+  Discarding a change that is being published now says so, instead of failing silently. From there you can cancel the publish, which then discards the change, or wait for the publish to end.
+
 ## 0.144.4
 
 ### Patch Changes

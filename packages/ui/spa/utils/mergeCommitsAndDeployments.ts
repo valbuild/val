@@ -89,9 +89,17 @@ export function mergeCommitsAndDeployments(
         deploymentState:
           deployment.deploymentState as ValEnrichedDeployment["deploymentState"],
         creator: deploymentsByCommitSha[deployment.commitSha]?.creator || null,
-        createdAt:
-          deploymentsByCommitSha[deployment.commitSha]?.createdAt ||
+        /*
+         * When the publish STARTED: the earlier of the two. A hosted site's
+         * own publish (valbuild/home `docs/hosted-publishing.md`, step 10)
+         * is listed from its press, while its commit is made at the seal --
+         * after it started. A host's deployment of a Val commit starts after
+         * the commit, which is then the earlier one.
+         */
+        createdAt: earlier(
+          deploymentsByCommitSha[deployment.commitSha]?.createdAt,
           deployment.createdAt,
+        ),
         updatedAt: deployment.updatedAt,
         commitSha: deployment.commitSha,
       };
@@ -142,4 +150,10 @@ export function commitSubject(message: string | null): string | null {
   if (message === null) return null;
   const subject = message.split("\n", 1)[0].trim();
   return subject === "" ? null : subject;
+}
+
+/** The earlier of two ISO times; the one there is when only one is. */
+function earlier(a: string | undefined, b: string): string {
+  if (a === undefined || a === "") return b;
+  return new Date(a).getTime() <= new Date(b).getTime() ? a : b;
 }

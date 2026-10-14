@@ -75,6 +75,12 @@ const WebSocketServerMessage = z.union([
      * on {@link StatData}.
      */
     publishingPatches: z.array(PatchId).optional(),
+    /**
+     * Of `patches`, the ones a failed publish holds back, read with them.
+     * Absent from a content service that predates sending it. See
+     * `heldBackPatches` on {@link StatData}.
+     */
+    heldBackPatches: z.array(PatchId).optional(),
   }),
   z.object({
     type: z.literal("deployment"),
@@ -183,6 +189,8 @@ export const StatData = z.object({
   publishJobs: z.boolean().optional(),
   /** The proposal this server runs at the address of. See `proposal` in `ApiRoutes`. */
   proposal: z.object({ name: z.string(), branch: z.string() }).optional(),
+  /** The branch History lists. See `historyBranch` in `ApiRoutes`. */
+  historyBranch: z.string().optional(),
   /**
    * FS mode only: fingerprint of the `.jsonValues()` entry files on disk. No
    * other sha here can see an entry edit, because a jsonValues module's source is
@@ -223,6 +231,14 @@ export const StatData = z.object({
    * content service that predates it -- which is "not reported", not "none".
    */
   publishingPatches: z.array(PatchId).optional(),
+  /**
+   * The changes a publish that failed on its content holds back from later
+   * publishes, until Try again or Discard (docs/hosted-publishing.md in
+   * valbuild/home, step 4). Pending, and not ready to publish: the next
+   * publish goes without them. Replaced whole by every answer, as
+   * `publishingPatches` is; absent from a content service that predates it.
+   */
+  heldBackPatches: z.array(PatchId).optional(),
   /**
    * The head of the PATCH CHAIN, which a new patch names as its parent — see
    * `chainHeadOf`. `http` only; absent is "not reported", not `null`.
@@ -511,7 +527,10 @@ type PatchesMessage = Extract<
  * that predates it) keeps the previous one: incomplete, never wrong.
  */
 export function chainOfMessage(
-  prev: Pick<StatData, "appliedPatches" | "publishingPatches">,
+  prev: Pick<
+    StatData,
+    "appliedPatches" | "publishingPatches" | "heldBackPatches"
+  >,
   message: PatchesMessage,
 ): Pick<
   StatData,
@@ -521,6 +540,7 @@ export function chainOfMessage(
   | "patchGroups"
   | "appliedPatches"
   | "publishingPatches"
+  | "heldBackPatches"
 > {
   return {
     patches: message.patches,
@@ -534,6 +554,7 @@ export function chainOfMessage(
      * from before only when the message does not carry it at all.
      */
     publishingPatches: message.publishingPatches ?? prev.publishingPatches,
+    heldBackPatches: message.heldBackPatches ?? prev.heldBackPatches,
   };
 }
 
@@ -551,7 +572,7 @@ export function chainOfMessage(
  */
 export type ContentHolds = Pick<
   StatData,
-  "patches" | "appliedPatches" | "publishingPatches"
+  "patches" | "appliedPatches" | "publishingPatches" | "heldBackPatches"
 >;
 
 /**
@@ -576,6 +597,7 @@ export function holdsOfMessage(
     patches: message.patches,
     appliedPatches: message.appliedPatches ?? prev?.appliedPatches,
     publishingPatches: message.publishingPatches ?? prev?.publishingPatches,
+    heldBackPatches: message.heldBackPatches ?? prev?.heldBackPatches,
   };
 }
 
@@ -598,6 +620,7 @@ export function holdsOfAnswer(
     patches: answer.patches,
     appliedPatches: answer.appliedPatches,
     publishingPatches: answer.publishingPatches,
+    heldBackPatches: answer.heldBackPatches,
   };
 }
 

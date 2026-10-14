@@ -186,6 +186,13 @@ export const MergePrepareAnswer = z.object({
       step: z.enum(["prepare", "build", "upload"]).nullable(),
       base: z.string().nullable(),
       patches: z.array(z.string()),
+      /*
+       * A merge that changes only content goes live on the live build, and
+       * this tab builds nothing (valbuild/home `docs/hosted-publishing.md`,
+       * step 8). Dropped by an object that did not name it, and the tab then
+       * read a job nobody builds as one it had lost.
+       */
+      contentOnly: z.literal(true).optional(),
     })
     .nullable(),
   sourceFiles: z.record(z.string(), z.string().nullable()),

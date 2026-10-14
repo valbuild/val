@@ -484,6 +484,96 @@ describe("the proposals API, for the Studio", () => {
     ]);
   });
 
+  test("staged files are read anywhere, and written and built only by the proposal's own server", async () => {
+    const own = ops(proposal("save-2"));
+    await own.proposalsApi(`/${NAME}/files`, { method: "GET" }, "p");
+    await own.proposalsApi(
+      `/${NAME}/files`,
+      { method: "POST", body: JSON.stringify({ files: { "src/a.ts": "a" } }) },
+      "p",
+    );
+    await own.proposalsApi(
+      `/${NAME}/build`,
+      { method: "POST", body: "{}" },
+      "p",
+    );
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `GET /v1/org/project/proposals/${NAME}/files`,
+      `POST /v1/org/project/proposals/${NAME}/files`,
+      `POST /v1/org/project/proposals/${NAME}/build`,
+    ]);
+    sent.length = 0;
+
+    const OTHER = "f".repeat(20);
+    for (const [o, path] of [
+      [own, `/${OTHER}/files`],
+      [own, `/${OTHER}/build`],
+      [ops(undefined), `/${NAME}/files`],
+      [ops(undefined), `/${NAME}/build`],
+    ] as const) {
+      const answer = await o.proposalsApi(
+        path,
+        { method: "POST", body: "{}" },
+        "p",
+      );
+      expect([path, answer.status]).toEqual([path, 403]);
+      expect(JSON.parse(answer.body).message).toMatch(/in (a|the) proposal/);
+    }
+    expect(sent).toEqual([]);
+    // Reading another proposal's files is reading it, as GET of it is.
+    await ops(undefined).proposalsApi(`/${NAME}/files`, { method: "GET" }, "p");
+    expect(sent).toHaveLength(1);
+  });
+
+  test("Update from the site is asked by the proposal's own server, and nobody else's", async () => {
+    const own = ops(proposal("save-2"));
+    await own.proposalsApi(
+      `/${NAME}/update-from-site`,
+      { method: "POST", body: "{}" },
+      "p",
+    );
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `POST /v1/org/project/proposals/${NAME}/update-from-site`,
+    ]);
+    sent.length = 0;
+    for (const [o, path] of [
+      [own, `/${"f".repeat(20)}/update-from-site`],
+      [ops(undefined), `/${NAME}/update-from-site`],
+    ] as const) {
+      const answer = await o.proposalsApi(
+        path,
+        { method: "POST", body: "{}" },
+        "p",
+      );
+      expect([path, answer.status]).toEqual([path, 403]);
+    }
+    expect(sent).toEqual([]);
+  });
+
+  test("bringing back the code of a point is asked by the proposal's own server, and nobody else's", async () => {
+    // valbuild/home docs/hosted-publishing.md, step 9: the site's Studio opens
+    // the proposal, and the Studio at its address stages the code there.
+    const own = ops(proposal("save-2"));
+    const body = JSON.stringify({ commit: "a".repeat(64) });
+    await own.proposalsApi(
+      `/${NAME}/restore-code`,
+      { method: "POST", body },
+      "p",
+    );
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `POST /v1/org/project/proposals/${NAME}/restore-code`,
+    ]);
+    sent.length = 0;
+    for (const [o, path] of [
+      [own, `/${"f".repeat(20)}/restore-code`],
+      [ops(undefined), `/${NAME}/restore-code`],
+    ] as const) {
+      const answer = await o.proposalsApi(path, { method: "POST", body }, "p");
+      expect([path, answer.status]).toEqual([path, 403]);
+    }
+    expect(sent).toEqual([]);
+  });
+
   test("reaches nothing else: not a save, not a move, not another route", async () => {
     const o = ops(undefined);
     for (const [method, path] of [

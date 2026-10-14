@@ -436,4 +436,34 @@ describe("mergeCommitsAndDeployments", () => {
     expect(result[0].commitSha).toBe("new");
     expect(result.some((d) => d.commitSha === "old-0")).toBe(false);
   });
+
+  it("a publish started when it was pressed, though its commit was made at the seal", () => {
+    // A hosted site's own publish (valbuild/home docs/hosted-publishing.md,
+    // step 10): content lists it from the press, and the commit comes later.
+    const commits: ValCommit[] = [
+      {
+        commitSha: "sealed",
+        clientCommitSha: null,
+        parentCommitSha: null,
+        branch: "main",
+        commitMessage: "Spring sale",
+        creator: "user1",
+        createdAt: "2026-10-14T12:01:30Z",
+      },
+    ];
+    const deployments: ValDeployment[] = [
+      {
+        commitSha: "sealed",
+        deploymentState: "success",
+        createdAt: "2026-10-14T12:00:00Z",
+        updatedAt: "2026-10-14T12:01:30Z",
+        deploymentId: "job:J7",
+      },
+    ];
+    const [row] = mergeCommitsAndDeployments([], commits, deployments);
+    expect(row).toMatchObject({
+      commitMessage: "Spring sale",
+      createdAt: "2026-10-14T12:00:00Z",
+    });
+  });
 });

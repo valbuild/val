@@ -46,8 +46,34 @@ const ProposalJson = z.object({
   setup: Job.nullable().optional(),
   overlay: Job.nullable().optional(),
   renderCheck: Job.nullable().optional(),
+  /** Its own build, once one is made: the address serves it. */
+  built: z
+    .object({ hash: z.string(), inputs: z.string() })
+    .nullable()
+    .optional(),
+  /** What it holds of the project's code. Only on a read of one. */
+  staged: z
+    .object({
+      files: z.array(z.string()),
+      inputs: z.string().nullable(),
+      buildRequired: z.boolean(),
+    })
+    .optional(),
 });
 export type ProposalJson = z.infer<typeof ProposalJson>;
+
+const Staged = z.object({
+  files: z.array(z.string()),
+  inputs: z.string().nullable(),
+  buildRequired: z.boolean(),
+});
+/** A proposal's staged files, and whether its address needs a build of them. */
+export type ProposalStaged = z.infer<typeof Staged>;
+const FilesAnswer = z.object({
+  files: z.record(z.string(), z.string().nullable()),
+  staged: Staged,
+});
+const StagedAnswer = z.object({ commit: z.string(), staged: Staged });
 
 const ListAnswer = z.object({
   proposals: z.array(ProposalJson),
@@ -58,6 +84,13 @@ const MergeCheck = z.object({
   id: z.string(),
   ok: z.boolean(),
   message: z.string(),
+  /** What clears it, when something here does. Unknown actions are none. */
+  action: z
+    .string()
+    .optional()
+    .transform((action) =>
+      action === "update-from-site" ? action : undefined,
+    ),
 });
 export type MergeCheckJson = z.infer<typeof MergeCheck>;
 const MergeChecksAnswer = z.object({
@@ -100,6 +133,12 @@ export type ProposalsClient = {
      * proposal the first one made rather than making a second.
      */
     requestId: string;
+    /**
+     * Pending changes on the site to move into it as it is made: all of them,
+     * or the create is refused. A restore on the site opens a proposal this
+     * way (valbuild/home `docs/hosted-publishing.md`, step 9).
+     */
+    patchIds?: string[];
   }): Promise<ProposalJson>;
   rename(name: string, displayName: string): Promise<ProposalJson>;
   close(name: string): Promise<ProposalJson>;
@@ -109,6 +148,36 @@ export type ProposalsClient = {
   mergeChecks(
     name: string,
   ): Promise<{ checks: MergeCheckJson[]; canMerge: boolean }>;
+  /**
+   * What it holds of the project's files -- every path its saves and
+   * stagings wrote, `null` for a delete -- and what is staged. Over the
+   * site's source, the proposal's project. valbuild/home
+   * `docs/hosted-publishing.md`, step 7.
+   */
+  files(name: string): Promise<z.infer<typeof FilesAnswer>>;
+  /** Stage files in it: change the project's code there. `null` deletes. */
+  stageFiles(
+    name: string,
+    files: Record<string, string | null>,
+    message?: string,
+  ): Promise<z.infer<typeof StagedAnswer>>;
+  /**
+   * Onto the site as it is now: its base build becomes the site's, and its
+   * staged code needs building again. The site-code check's action.
+   */
+  updateFromSite(name: string): Promise<ProposalJson>;
+  /**
+   * "Go back to this point" with the code: the files of the build the site
+   * served at `commit` (a commit of the site's history) staged in it, and that
+   * build served at its address. valbuild/home `docs/hosted-publishing.md`,
+   * step 9.
+   */
+  restoreCode(name: string, commit: string): Promise<ProposalJson>;
+  /** Serve a build of its staged files, uploaded as `publishId`, at its address. */
+  serveBuild(
+    name: string,
+    build: { publishId: string; inputs: string },
+  ): Promise<ProposalJson>;
 };
 
 export function createProposalsClient(options: {
@@ -165,6 +234,19 @@ export function createProposalsClient(options: {
     retrySetup: (name) => one(`${at(name)}/setup/retry`, "POST", {}),
     mergeChecks: async (name) =>
       MergeChecksAnswer.parse(await call(`${at(name)}/merge-checks`, "GET")),
+    files: async (name) =>
+      FilesAnswer.parse(await call(`${at(name)}/files`, "GET")),
+    stageFiles: async (name, files, message) =>
+      StagedAnswer.parse(
+        await call(`${at(name)}/files`, "POST", {
+          files,
+          ...(message !== undefined ? { message } : {}),
+        }),
+      ),
+    serveBuild: (name, build) => one(`${at(name)}/build`, "POST", build),
+    updateFromSite: (name) => one(`${at(name)}/update-from-site`, "POST", {}),
+    restoreCode: (name, commit) =>
+      one(`${at(name)}/restore-code`, "POST", { commit }),
   };
 }
 

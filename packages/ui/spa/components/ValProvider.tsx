@@ -6,6 +6,7 @@ import {
   createPublishJobs,
   isSettled,
   publishingPatchIds,
+  heldBackPatchIds,
   type PublishJobs,
   type PublishJobsState,
   type TrackedPublish,
@@ -206,6 +207,13 @@ type ValContextValue = {
    */
   proposal: { name: string; branch: string } | null;
   /**
+   * The branch History lists, or `null` where there is none to list: the
+   * proposal's in a proposal, else the site's -- the git mirror's, or the one
+   * content reports for a managed project. From `/stat`, falling back to
+   * `config.gitBranch` from a server that predates the field.
+   */
+  historyBranch: string | null;
+  /**
    * Ask `/stat` now rather than when its wait runs out. A save at a proposal's
    * address moves the base the server answers with; see `useStatus`.
    */
@@ -270,6 +278,12 @@ type ValContextValue = {
    * or `undefined` before it has. See `reportedAt` on `publishingPatchIds`.
    */
   serverPublishingReportedAt: number | undefined;
+  /**
+   * The changes a publish that failed on its content holds back from later
+   * publishes, until Try again or Discard, as content said (`heldBackPatches`
+   * on `/stat` and the socket). Pending, and not ready to publish.
+   */
+  serverHeldBackPatchIds: ReadonlySet<string>;
   /**
    * Whether a press of Publish is a publish job here: every managed project,
    * and a connected one hosted on the platform (the server says, on `/stat`).
@@ -772,6 +786,11 @@ export function ValProvider({
     useCallback(() => system.patchStore.chainVersion(), [system]),
     useCallback(() => system.patchStore.chainVersion(), [system]),
   );
+  // From `contentHolds`, as what is publishing is: see `ContentHolds`.
+  const serverHeldBackPatchIds = useMemo(
+    () => new Set<string>(contentHolds?.heldBackPatches ?? []),
+    [contentHolds],
+  );
   // From `contentHolds`, not the stat: see `ContentHolds`.
   const serverPublishingPatchIds = useMemo(() => {
     void heldChainVersion;
@@ -1060,6 +1079,8 @@ export function ValProvider({
   const deployRef = useRef(deploy.deploy);
   deployRef.current = deploy.deploy;
   const handoffRef = useRef(handoff);
+  const refreshStatRef = useRef(refreshStat);
+  refreshStatRef.current = refreshStat;
   handoffRef.current = handoff;
   const onPublishSettled = useRef<(request: TrackedPublish) => void>(() => {});
   const onNeedsBuilder = useRef<(jobId: string) => void>(() => {});
@@ -1201,7 +1222,7 @@ export function ValProvider({
       markObserved(status.commit);
       /*
        * Not at Live: at the end of the edge window, when every visitor gets
-       * the change. Until then the status bar spins "Reaching visitors", and
+       * the change. Until then the status bar spins "Reaching edges", and
        * this is the announcement that it stopped. See `EDGE_CACHE_MS`.
        */
       const settledAt = request.settledAt ?? Date.now();
@@ -1219,6 +1240,12 @@ export function ValProvider({
       return;
     }
     if (status.kind !== "failed") return;
+    /*
+     * What the failure holds back is content's to say, and with no socket
+     * (or one that missed it) the next `/stat` could be twenty minutes away.
+     * Until it says, `heldBackPatchIds` holds this press's changes back.
+     */
+    refreshStatRef.current();
     /*
      * After the seal (connected): the change is published, and CI's build of
      * it failed. Nothing to try again or discard -- the next publish builds
@@ -1483,6 +1510,7 @@ export function ValProvider({
         observedPublishJobs,
         serverPublishingPatchIds,
         serverPublishingReportedAt: contentHoldsAt,
+        serverHeldBackPatchIds,
         publishesAsJobs,
         profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
@@ -1493,6 +1521,10 @@ export function ValProvider({
         sourceMode:
           "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null,
         proposal,
+        historyBranch:
+          "data" in stat && stat.data
+            ? (stat.data.historyBranch ?? stat.data.config.gitBranch ?? null)
+            : null,
         refreshStat,
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,
@@ -1894,11 +1926,50 @@ export function useDeletePatches() {
       // a chain long enough to matter is long enough to exceed a URL limit.
       for (let i = 0; i < patchIds.length; i += 100) {
         const batch = patchIds.slice(i, i + 100);
-        void val.system.discard(batch).then((res) => {
-          if (res.status === "failed") {
-            console.error("Val: could not discard patches", res.message);
-          }
-        });
+        const discard = () =>
+          val.system.discard(batch).then((res) => {
+            if (res.status === "discarded") return;
+            if (res.publishJobId === undefined) {
+              val.system.status.reportError("Not discarded", res.message);
+              return;
+            }
+            const publishJobId = res.publishJobId;
+            /*
+             * A publish holds the change. Discarding it from under the publish
+             * would publish a page without the change it was built with, so
+             * the server refuses -- and the two ways on are to let the publish
+             * end, or to stop it. "Cancel publish" stops it and then does the
+             * discard that was asked for, so the button finishes the job
+             * rather than leading to the same refusal again.
+             */
+            toast.error("Being published right now", {
+              id: `discard-held:${publishJobId}`,
+              description: res.message,
+              duration: Infinity,
+              action: {
+                label: "Cancel publish",
+                onClick: () => {
+                  void createStudioJobClient({ api: "/api/val" })
+                    .cancel(publishJobId)
+                    .then((cancelled) => {
+                      if (cancelled) return discard();
+                      val.system.status.reportError(
+                        "The publish could not be cancelled",
+                        "It is already going live. Discard the change once it is published.",
+                      );
+                    })
+                    .catch((e: unknown) =>
+                      val.system.status.reportError(
+                        "The publish could not be cancelled",
+                        e instanceof Error ? e.message : String(e),
+                      ),
+                    );
+                },
+              },
+              cancel: { label: "Wait", onClick: () => {} },
+            });
+          });
+        void discard();
       }
     },
     [val],
@@ -2856,6 +2927,27 @@ export function usePublishingPatchIds(): ReadonlySet<string> {
   );
 }
 
+/**
+ * The changes a failed publish holds back: pending, and not ready to publish.
+ * See {@link ValContextValue.serverHeldBackPatchIds}.
+ */
+export function useHeldBackPatchIds(): ReadonlySet<string> {
+  const {
+    publishJobsState,
+    serverHeldBackPatchIds,
+    serverPublishingReportedAt,
+  } = useContext(ValContext);
+  return useMemo(
+    () =>
+      heldBackPatchIds(
+        publishJobsState,
+        serverHeldBackPatchIds,
+        serverPublishingReportedAt,
+      ),
+    [publishJobsState, serverHeldBackPatchIds, serverPublishingReportedAt],
+  );
+}
+
 /** See {@link ValContextValue.handoff}. */
 export function useSiteHandoffState(): UseSiteHandoff {
   return useContext(ValContext).handoff;
@@ -2885,6 +2977,11 @@ export function useStudioDeployState(): UseStudioDeploy {
  */
 export function useCurrentProposal(): { name: string; branch: string } | null {
   return useContext(ValContext).proposal;
+}
+
+/** See `historyBranch` on the context: `null` where History has nothing to list. */
+export function useHistoryBranch(): string | null {
+  return useContext(ValContext).historyBranch;
 }
 
 export function usePublishRefusal(): string | null {
@@ -3070,24 +3167,20 @@ export function usePublishSummary() {
    */
   const buildsInTab = useStudioBuildsInTab();
   const { state: deployState } = useContext(ValContext).deploy;
-  const { handoff, publishJobs, publishesAsJobs, publishJobsState } =
-    useContext(ValContext);
+  const { handoff, publishJobs, publishesAsJobs } = useContext(ValContext);
   /*
-   * A publish this tab is not doing anything for: content verifying it, CI
-   * building it, or a press queued behind another. The progress still reads
-   * it as running, and says so -- but it must not hold the button. A press
-   * now starts another job, or joins the one that has its changes, and the
-   * wait for CI is minutes, in which an editor must be able to publish what
-   * they wrote next. Only this tab's own work holds it: its build, its
-   * upload, the press itself.
+   * A build does not hold the button where publishes are jobs. The press is a
+   * request, and content queues it behind the one being built: this tab takes
+   * it when its build ends, or another free tab does sooner. So an editor can
+   * publish what they wrote next while the last publish is still building,
+   * here or anywhere else, and the wait for CI -- minutes -- never stops
+   * them. Only the press itself holds it (`isPublishing`).
+   *
+   * Without jobs the build follows the commit in this page and the deploy
+   * refuses a second one, so a press then would commit a change and leave it
+   * saved and not live: the build still holds the button there.
    */
-  const latestRequest = publishJobsState.requests.at(-1);
-  const waitingElsewhere =
-    deployState.status === "running" &&
-    publishJobsState.running === null &&
-    latestRequest !== undefined &&
-    !isSettled(latestRequest.status);
-  const busyHere = deployState.status === "running" && !waitingElsewhere;
+  const busyHere = deployState.status === "running" && !publishesAsJobs;
   /*
    * Whether a page that cannot build needs a builder tab for this publish.
    * Managed, not for one of content alone, which goes live on the build
