@@ -1,6 +1,7 @@
 import { FC, useState } from "react";
-import { HANDOFF_PARAM } from "../publish/handoff";
+import { HANDOFF_PARAM, storedHandoffIntent } from "../publish/handoff";
 import { HandoffPublishTab } from "./shell/HandoffPublishTab";
+import { HandoffProposalBuildTab } from "./proposals/HandoffProposalBuildTab";
 import { ValClient } from "@valbuild/shared/internal";
 import { ValModules } from "@valbuild/core";
 import { ValProvider } from "./ValProvider";
@@ -40,6 +41,17 @@ export const ValStudio: FC<ValFullscreenProps> = ({
       ? null
       : new URLSearchParams(window.location.search).get(HANDOFF_PARAM),
   );
+  /*
+   * Or to build a proposal's code it could not build itself: a tab of its own
+   * kind, chosen by what the tap that opened it stored (never by the URL).
+   */
+  const [proposalBuild] = useState(() => {
+    if (handoffId === null) return null;
+    const stored = storedHandoffIntent(handoffId);
+    return stored?.intent.kind === "build-proposal"
+      ? { name: stored.intent.name, at: stored.at }
+      : null;
+  });
   return (
     <ValProvider
       client={client}
@@ -69,7 +81,13 @@ export const ValStudio: FC<ValFullscreenProps> = ({
              */}
             <UploadRequestProvider>
               {cssLoaded &&
-                (handoffId !== null ? (
+                (handoffId !== null && proposalBuild !== null ? (
+                  <HandoffProposalBuildTab
+                    id={handoffId}
+                    name={proposalBuild.name}
+                    at={proposalBuild.at}
+                  />
+                ) : handoffId !== null ? (
                   <HandoffPublishTab id={handoffId} />
                 ) : (
                   <ValShell />
