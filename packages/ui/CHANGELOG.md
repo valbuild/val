@@ -1,5 +1,11 @@
 # @valbuild/ui
 
+## 0.144.6
+
+### Patch Changes
+
+- [#840](https://github.com/valbuild/val/pull/840) [`4e237c9`](https://github.com/valbuild/val/commit/4e237c9b66e059344fa4c800587c572d125aa8f9) Thanks [@freekh](https://github.com/freekh)! - On val.build, "Reaching visitors" after a publish now takes about 10 seconds instead of a minute. Visitors read the published site from a cache the platform refreshes every few seconds, so when the indicator stops, everyone sees the change.
+
 ## 0.144.5
 
 ### Patch Changes
