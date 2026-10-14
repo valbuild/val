@@ -27,6 +27,7 @@ import {
   type ProposalJson,
 } from "../../proposals/proposalsClient";
 import { useProposals, waitForAddress } from "../../proposals/useProposals";
+import { useProposalBuild } from "../../proposals/useProposalBuild";
 import {
   NewProposalDialog,
   type NewProposalProblem,
@@ -43,7 +44,12 @@ import { randomUUID } from "../../utils/randomUUID";
 import { randomProposalName } from "../../proposals/proposalNames";
 import { AllProposalsDialog } from "./ProposalsList";
 import { MergedProposalNotice } from "./MergedProposalNotice";
-import type { ProposalPerson, ProposalSummary, StudioLocation } from "./types";
+import type {
+  ProposalCodeState,
+  ProposalPerson,
+  ProposalSummary,
+  StudioLocation,
+} from "./types";
 
 /** Why Publish is not offered, by the proposal's status; null when it is. */
 function publishBlockedByStatus(status: string | undefined): string | null {
@@ -174,6 +180,39 @@ export function useProposalsBar({
     [client, failed, go, here?.name, ready?.proposals],
   );
 
+  /*
+   * Its code (step 7 of valbuild/home `docs/hosted-publishing.md`): staged
+   * files its address does not serve a build of, a build running, or the last
+   * one failed. Read again whenever the build store says the code moved -- a
+   * build finished or the assistant staged a file -- rather than on a poll.
+   */
+  const proposalBuild = useProposalBuild(client);
+  const codeChanged = proposalBuild.state.changed;
+  useEffect(() => {
+    if (codeChanged > 0) void refresh();
+  }, [codeChanged, refresh]);
+  // The assistant was asked to change code on the site: offer a proposal.
+  const proposalRequested = proposalBuild.state.proposalRequested;
+  useEffect(() => {
+    if (proposalRequested === 0 || here !== null) return;
+    setNewProposal(nextNewProposal());
+    setDialog("new");
+  }, [proposalRequested, here]);
+  const code: ProposalCodeState | null = proposalBuild.state.building
+    ? { state: "building" }
+    : proposalBuild.state.error !== null
+      ? { state: "failed", error: proposalBuild.state.error }
+      : currentJson?.staged?.buildRequired
+        ? { state: "required" }
+        : null;
+  const build = proposalBuild.build;
+  const runBuild = useCallback(async () => {
+    if (build === null) return;
+    const outcome = await build();
+    if (outcome.status === "built")
+      toast.success("Built: the preview shows the change");
+  }, [build]);
+
   const location: StudioLocation = useMemo(() => {
     if (here === null) return { kind: "site" };
     const proposal: ProposalSummary = currentJson
@@ -201,8 +240,18 @@ export function useProposalsBar({
       overlay: jobState(currentJson?.overlay),
       renderCheck: jobState(currentJson?.renderCheck),
       publishBlockedBy: publishBlockedByStatus(currentJson?.status),
+      code,
     };
-  }, [here, currentJson, viewer, people, unsaved, isPublishing, saveError]);
+  }, [
+    here,
+    currentJson,
+    viewer,
+    people,
+    unsaved,
+    isPublishing,
+    saveError,
+    code,
+  ]);
 
   /** Save; the reason it did not, or null when it did. */
   const save = useCallback(async (): Promise<string | null> => {
@@ -586,6 +635,7 @@ export function useProposalsBar({
       openDialog("all");
     },
     onSave: () => void save(),
+    ...(build !== null ? { onBuild: () => void runBuild() } : {}),
     onPublish: () => {
       openDialog("publish");
       void loadChecks();

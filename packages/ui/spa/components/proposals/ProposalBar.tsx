@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Hammer,
   GitCompare,
   Link2,
   Loader2,
@@ -70,6 +71,64 @@ export function ProposalSaveButton({
       {!saving && failed === null && location.unsaved > 0 && (
         <span className="tabular-nums opacity-80">{location.unsaved}</span>
       )}
+    </button>
+  );
+}
+
+/**
+ * Build, in a proposal with staged files: what makes its address show them
+ * (valbuild/home `docs/hosted-publishing.md`, step 7). Shown only while there
+ * is something to build -- "Build required" is the button itself -- and a
+ * failed build says so on it, with the reason, and builds again when pressed.
+ */
+export function ProposalBuildButton({
+  location,
+  onBuild,
+  className,
+}: {
+  location: InProposal;
+  onBuild: () => void;
+  className?: string;
+}) {
+  const code = location.code;
+  if (code === null) return null;
+  const building = code.state === "building";
+  const failed = code.state === "failed" ? code : null;
+  return (
+    <button
+      type="button"
+      onClick={onBuild}
+      disabled={building}
+      title={
+        failed !== null
+          ? `The build failed: ${failed.error}. Press to build again.`
+          : building
+            ? "Building the proposal's code, so its preview shows it."
+            : "Code has changed in this proposal. Build it so the preview shows the change."
+      }
+      className={cn(
+        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium",
+        failed !== null
+          ? "border-transparent bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover"
+          : "border-border-proposal text-fg-primary hover:bg-bg-proposal-soft",
+        "disabled:text-fg-disabled",
+        className,
+      )}
+    >
+      {building ? (
+        <Loader2 size={14} className="shrink-0 animate-spin" />
+      ) : failed !== null ? (
+        <AlertTriangle size={14} className="shrink-0" />
+      ) : (
+        <Hammer size={14} className="shrink-0" />
+      )}
+      <span className="truncate">
+        {building
+          ? "Building…"
+          : failed !== null
+            ? "Build failed"
+            : "Build required"}
+      </span>
     </button>
   );
 }

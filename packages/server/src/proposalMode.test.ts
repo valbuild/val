@@ -484,6 +484,47 @@ describe("the proposals API, for the Studio", () => {
     ]);
   });
 
+  test("staged files are read anywhere, and written and built only by the proposal's own server", async () => {
+    const own = ops(proposal("save-2"));
+    await own.proposalsApi(`/${NAME}/files`, { method: "GET" }, "p");
+    await own.proposalsApi(
+      `/${NAME}/files`,
+      { method: "POST", body: JSON.stringify({ files: { "src/a.ts": "a" } }) },
+      "p",
+    );
+    await own.proposalsApi(
+      `/${NAME}/build`,
+      { method: "POST", body: "{}" },
+      "p",
+    );
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `GET /v1/org/project/proposals/${NAME}/files`,
+      `POST /v1/org/project/proposals/${NAME}/files`,
+      `POST /v1/org/project/proposals/${NAME}/build`,
+    ]);
+    sent.length = 0;
+
+    const OTHER = "f".repeat(20);
+    for (const [o, path] of [
+      [own, `/${OTHER}/files`],
+      [own, `/${OTHER}/build`],
+      [ops(undefined), `/${NAME}/files`],
+      [ops(undefined), `/${NAME}/build`],
+    ] as const) {
+      const answer = await o.proposalsApi(
+        path,
+        { method: "POST", body: "{}" },
+        "p",
+      );
+      expect([path, answer.status]).toEqual([path, 403]);
+      expect(JSON.parse(answer.body).message).toMatch(/in (a|the) proposal/);
+    }
+    expect(sent).toEqual([]);
+    // Reading another proposal's files is reading it, as GET of it is.
+    await ops(undefined).proposalsApi(`/${NAME}/files`, { method: "GET" }, "p");
+    expect(sent).toHaveLength(1);
+  });
+
   test("reaches nothing else: not a save, not a move, not another route", async () => {
     const o = ops(undefined);
     for (const [method, path] of [

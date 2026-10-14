@@ -47,7 +47,10 @@ import { NoSettingsModule, SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
 import { PublishState, TopBar, type TopBarProposals } from "./TopBar";
-import { ProposalSaveButton } from "../proposals/ProposalBar";
+import {
+  ProposalBuildButton,
+  ProposalSaveButton,
+} from "../proposals/ProposalBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
 import { StudioTour } from "./StudioTour";
@@ -1196,11 +1199,20 @@ export function Shell({
                */
               publishSlot={
                 proposals?.location.kind === "proposal" ? (
-                  <ProposalSaveButton
-                    location={proposals.location}
-                    onSave={proposals.onSave}
-                    className="h-9 min-w-[5.5rem]"
-                  />
+                  <>
+                    {proposals.onBuild !== undefined && (
+                      <ProposalBuildButton
+                        location={proposals.location}
+                        onBuild={proposals.onBuild}
+                        className="h-9"
+                      />
+                    )}
+                    <ProposalSaveButton
+                      location={proposals.location}
+                      onSave={proposals.onSave}
+                      className="h-9 min-w-[5.5rem]"
+                    />
+                  </>
                 ) : (
                   publishSlot
                 )
