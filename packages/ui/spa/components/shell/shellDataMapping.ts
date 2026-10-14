@@ -663,6 +663,7 @@ export function collectNewPageRoutes(root: SitemapItem): {
           // Filled in below, once every URL is known.
           existingKeys: [],
           keyDescription: item.keyDescription,
+          routeParams: item.routeParams,
         });
       }
     }

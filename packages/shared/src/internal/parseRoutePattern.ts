@@ -32,3 +32,19 @@ export function parseRoutePattern(pattern: string): RoutePattern[] {
     return { type: "literal", name: part };
   });
 }
+
+/**
+ * A parsed pattern written back as segments: the inverse of
+ * {@link parseRoutePattern}, in the vocabulary core's `matchRoutePattern`
+ * reads.
+ */
+export function formatRoutePattern(pattern: RoutePattern[]): string[] {
+  return pattern.map((part) => {
+    if (part.type === "literal") {
+      return part.name;
+    }
+    const inner =
+      part.type === "string-param" ? part.paramName : `...${part.paramName}`;
+    return part.optional ? `[[${inner}]]` : `[${inner}]`;
+  });
+}

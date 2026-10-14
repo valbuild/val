@@ -144,6 +144,7 @@ export function SitemapItemNode({
       patternString: routePatternToString(item.routePattern),
       existingKeys: existingUrls ?? item.existingKeys ?? [],
       keyDescription: item.keyDescription,
+      routeParams: item.routeParams,
     };
   }, [
     item.canAddChild,
@@ -151,6 +152,7 @@ export function SitemapItemNode({
     item.routePattern,
     item.existingKeys,
     item.keyDescription,
+    item.routeParams,
     existingUrls,
   ]);
 

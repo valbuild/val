@@ -7,7 +7,7 @@ import {
   type SourcePath,
   type ValModule,
 } from "@valbuild/core";
-import { localeAt } from "./localeAt";
+import { localeAt, localeMeantBy } from "./localeAt";
 import type { SchemaSourceSnapshot } from "./resolveSchemaSourceFixes";
 
 const { s, c } = initVal();
@@ -223,5 +223,108 @@ describe("localeAt", () => {
     expect(
       localeAt(AT('/content/page.val.ts?p="gone"."deeper"'), snapshot),
     ).toBe("nb-NO");
+  });
+});
+
+describe("localeAt with locales the URL names", () => {
+  const urlLocale = s
+    .enum("nb")
+    .nullable()
+    .locales({ nb: "nb-NO" }, { null: "en-US" });
+
+  test("a router's locale parameter governs each page", () => {
+    const blog = c.define(
+      "/src/routes/{-$locale}.blog.$slug.val.ts",
+      s.router(
+        Internal.tanstackRouter,
+        { locale: urlLocale, slug: s.string() },
+        s.object({ title: s.string() }),
+      ),
+      {
+        "/blog/hello": { title: "Hello" },
+        "/nb/blog/hei": { title: "Hei" },
+      },
+    );
+    const snapshot = project(["en-US", "nb-NO"], [blog]);
+    const at = (key: string, field = "") =>
+      localeAt(
+        AT(
+          `/src/routes/{-$locale}.blog.$slug.val.ts?p=${JSON.stringify(key)}${field}`,
+        ),
+        snapshot,
+      );
+    // The router itself is every language at once, so none of them.
+    expect(
+      localeAt(AT("/src/routes/{-$locale}.blog.$slug.val.ts"), snapshot),
+    ).toBe(null);
+    expect(at("/nb/blog/hei")).toBe("nb-NO");
+    expect(at("/nb/blog/hei", '."title"')).toBe("nb-NO");
+    // No segment: the language `{ null }` names.
+    expect(at("/blog/hello")).toBe("en-US");
+  });
+
+  test("a mapped language that the project does not declare is no answer", () => {
+    const blog = c.define(
+      "/src/routes/{-$locale}.about.val.ts",
+      s.router(
+        Internal.tanstackRouter,
+        { locale: urlLocale },
+        s.object({ title: s.string() }),
+      ),
+      { "/nb/about": { title: "Om oss" } },
+    );
+    const snapshot = project(["en-US"], [blog]);
+    expect(
+      localeAt(
+        AT('/src/routes/{-$locale}.about.val.ts?p="/nb/about"'),
+        snapshot,
+      ),
+    ).toBe(null);
+  });
+
+  test("a record keyed by an enum with .locales() is in the language each key stands for", () => {
+    const page = c.define(
+      "/content/page.val.ts",
+      s.record(
+        s.enum("en", "nb").locales({ en: "en-US", nb: "nb-NO" }),
+        s.object({ title: s.string() }),
+      ),
+      { en: { title: "Winter jacket" }, nb: { title: "Vinterjakke" } },
+    );
+    const snapshot = project(["en-US", "nb-NO"], [page]);
+    expect(localeAt(AT('/content/page.val.ts?p="nb"'), snapshot)).toBe("nb-NO");
+    expect(localeAt(AT('/content/page.val.ts?p="en"."title"'), snapshot)).toBe(
+      "en-US",
+    );
+  });
+
+  test("an enum field with .locales() is the language its value stands for", () => {
+    const page = c.define(
+      "/content/page.val.ts",
+      s.object({
+        language: s.enum("en", "nb").locales({ en: "en-US", nb: "nb-NO" }),
+        title: s.string(),
+      }),
+      { language: "nb", title: "Vinterjakke" },
+    );
+    const snapshot = project(["en-US", "nb-NO"], [page]);
+    expect(localeAt(AT('/content/page.val.ts?p="title"'), snapshot)).toBe(
+      "nb-NO",
+    );
+  });
+
+  test("a code spelled like an Object.prototype member means no language", () => {
+    expect(
+      localeMeantBy(
+        {
+          type: "enum",
+          values: ["en", "toString"],
+          locales: { en: "en-US" },
+          opt: false,
+        },
+        "toString",
+        ["en-US"],
+      ),
+    ).toBe(null);
   });
 });

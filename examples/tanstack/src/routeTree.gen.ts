@@ -18,6 +18,7 @@ import { Route as ValSplatRouteImport } from './routes/val/$'
 import { Route as SiteDocsSplatRouteImport } from './routes/_site.docs.$'
 import { Route as SitePostsPostIdRouteImport } from './routes/_site.posts.$postId'
 import { Route as ApiValSplatRouteImport } from './routes/api/val.$'
+import { Route as SiteChar123LocaleChar125NewsSlugRouteImport } from './routes/_site.{-$locale}.news.$slug'
 
 const SiteRoute = SiteRouteImport.update({
   id: '/_site',
@@ -63,6 +64,12 @@ const ApiValSplatRoute = ApiValSplatRouteImport.update({
   path: '/api/val/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SiteChar123LocaleChar125NewsSlugRoute =
+  SiteChar123LocaleChar125NewsSlugRouteImport.update({
+    id: '/{-$locale}/news/$slug',
+    path: '/{-$locale}/news/$slug',
+    getParentRoute: () => SiteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/val': typeof ValRouteRouteWithChildren
@@ -73,6 +80,7 @@ export interface FileRoutesByFullPath {
   '/docs/$': typeof SiteDocsSplatRoute
   '/posts/$postId': typeof SitePostsPostIdRoute
   '/api/val/$': typeof ApiValSplatRoute
+  '/{-$locale}/news/$slug': typeof SiteChar123LocaleChar125NewsSlugRoute
 }
 export interface FileRoutesByTo {
   '/showcase': typeof SiteShowcaseRoute
@@ -82,6 +90,7 @@ export interface FileRoutesByTo {
   '/docs/$': typeof SiteDocsSplatRoute
   '/posts/$postId': typeof SitePostsPostIdRoute
   '/api/val/$': typeof ApiValSplatRoute
+  '/{-$locale}/news/$slug': typeof SiteChar123LocaleChar125NewsSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -94,6 +103,7 @@ export interface FileRoutesById {
   '/_site/docs/$': typeof SiteDocsSplatRoute
   '/_site/posts/$postId': typeof SitePostsPostIdRoute
   '/api/val/$': typeof ApiValSplatRoute
+  '/_site/{-$locale}/news/$slug': typeof SiteChar123LocaleChar125NewsSlugRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -106,6 +116,7 @@ export interface FileRouteTypes {
     | '/docs/$'
     | '/posts/$postId'
     | '/api/val/$'
+    | '/{-$locale}/news/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/showcase'
@@ -115,6 +126,7 @@ export interface FileRouteTypes {
     | '/docs/$'
     | '/posts/$postId'
     | '/api/val/$'
+    | '/{-$locale}/news/$slug'
   id:
     | '__root__'
     | '/val'
@@ -126,6 +138,7 @@ export interface FileRouteTypes {
     | '/_site/docs/$'
     | '/_site/posts/$postId'
     | '/api/val/$'
+    | '/_site/{-$locale}/news/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -199,6 +212,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiValSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_site/{-$locale}/news/$slug': {
+      id: '/_site/{-$locale}/news/$slug'
+      path: '/{-$locale}/news/$slug'
+      fullPath: '/{-$locale}/news/$slug'
+      preLoaderRoute: typeof SiteChar123LocaleChar125NewsSlugRouteImport
+      parentRoute: typeof SiteRoute
+    }
   }
 }
 
@@ -221,6 +241,7 @@ interface SiteRouteChildren {
   SiteIndexRoute: typeof SiteIndexRoute
   SiteDocsSplatRoute: typeof SiteDocsSplatRoute
   SitePostsPostIdRoute: typeof SitePostsPostIdRoute
+  SiteChar123LocaleChar125NewsSlugRoute: typeof SiteChar123LocaleChar125NewsSlugRoute
 }
 
 const SiteRouteChildren: SiteRouteChildren = {
@@ -228,6 +249,7 @@ const SiteRouteChildren: SiteRouteChildren = {
   SiteIndexRoute: SiteIndexRoute,
   SiteDocsSplatRoute: SiteDocsSplatRoute,
   SitePostsPostIdRoute: SitePostsPostIdRoute,
+  SiteChar123LocaleChar125NewsSlugRoute: SiteChar123LocaleChar125NewsSlugRoute,
 }
 
 const SiteRouteWithChildren = SiteRoute._addFileChildren(SiteRouteChildren)
