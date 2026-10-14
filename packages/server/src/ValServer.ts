@@ -43,7 +43,7 @@ import {
   verifyJwt,
   type JwtFailureReason,
 } from "./jwt";
-import { clientConfig } from "./clientConfig";
+import { clientConfig, historyBranchOf } from "./clientConfig";
 import { z } from "zod";
 import { probeUrl } from "./linkCheck/probeUrl";
 import { parseRangeHeader } from "./httpRange";
@@ -1208,6 +1208,13 @@ export const ValServer = (
         const sourceMode = serverOps.sourceMode();
         // Spread like the two above: absent is "on the site".
         const proposal = serverOps.currentProposal();
+        const config = clientConfig(options);
+        const historyBranch = historyBranchOf({
+          mode,
+          proposal,
+          gitBranch: config.gitBranch ?? null,
+          projectBranch: serverOps.projectBranch(),
+        });
         return {
           status: 200,
           json: {
@@ -1218,10 +1225,11 @@ export const ValServer = (
             ...(sourceMode ? { sourceMode } : {}),
             ...(sourceMode ? { publishJobs: serverOps.publishesAsJobs() } : {}),
             ...(proposal ? { proposal } : {}),
+            ...(historyBranch ? { historyBranch } : {}),
             // Not `options.config` verbatim: in proxy mode the branch the
             // server resolved is filled in where the file did not name one.
             // See `clientConfig`.
-            config: clientConfig(options),
+            config,
           },
         };
       },

@@ -44,6 +44,7 @@ import {
 import { followCarryOver, type CarryOver } from "../../proposals/carryOver";
 import { canBuildHere } from "../../publish/handoff";
 import { randomUUID } from "../../utils/randomUUID";
+import type { RestoreDestination } from "../../history/restoreDestination";
 import { randomProposalName } from "../../proposals/proposalNames";
 import { AllProposalsDialog } from "./ProposalsList";
 import { MergedProposalNotice } from "./MergedProposalNotice";
@@ -99,6 +100,11 @@ export function useProposalsBar({
   dialogs: ReactNode;
   /** Above the editor, or null: a merged proposal says it is finished. */
   notice: ReactNode | null;
+  /**
+   * Where a restore goes: a new proposal on the site of a project with
+   * proposals, else here. See `restoreDestination.ts`.
+   */
+  restoreDestination: RestoreDestination;
 } {
   const mode = useValMode();
   const here = useCurrentProposal();
@@ -631,6 +637,25 @@ export function useProposalsBar({
     [client, failed, refresh],
   );
 
+  const onSite = here === null && ready !== null;
+  const openWithChanges = useCallback(
+    async (input: {
+      displayName: string;
+      patchIds: string[];
+      requestId: string;
+    }) => {
+      const made = await client.create(input);
+      void refresh();
+      go(made.address ?? (await waitForAddress(client, made.name)));
+    },
+    [client, go, refresh],
+  );
+  const restoreDestination = useMemo<RestoreDestination>(
+    () =>
+      onSite ? { kind: "proposal", open: openWithChanges } : { kind: "here" },
+    [onSite, openWithChanges],
+  );
+
   const openDialog = (next: Dialog) => {
     setDialogError(null);
     setNewProblem(null);
@@ -639,7 +664,12 @@ export function useProposalsBar({
   };
 
   if (state.status === "off" || (ready === null && here === null)) {
-    return { proposals: undefined, dialogs: null, notice: null };
+    return {
+      proposals: undefined,
+      dialogs: null,
+      notice: null,
+      restoreDestination,
+    };
   }
 
   const proposals: TopBarProposals = {
@@ -782,7 +812,7 @@ export function useProposalsBar({
       />
     ) : null;
 
-  return { proposals, dialogs, notice };
+  return { proposals, dialogs, notice, restoreDestination };
 }
 
 function nextNewProposal(): { requestId: string; suggestedName: string } {

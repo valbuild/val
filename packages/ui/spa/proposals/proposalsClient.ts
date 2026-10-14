@@ -133,6 +133,12 @@ export type ProposalsClient = {
      * proposal the first one made rather than making a second.
      */
     requestId: string;
+    /**
+     * Pending changes on the site to move into it as it is made: all of them,
+     * or the create is refused. A restore on the site opens a proposal this
+     * way (valbuild/home `docs/hosted-publishing.md`, step 9).
+     */
+    patchIds?: string[];
   }): Promise<ProposalJson>;
   rename(name: string, displayName: string): Promise<ProposalJson>;
   close(name: string): Promise<ProposalJson>;

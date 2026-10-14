@@ -104,6 +104,7 @@ import {
   useValMode,
   useAutoPublish,
   useCurrentProposal,
+  useHistoryBranch,
   useReportError,
 } from "../ValProvider";
 import {
@@ -312,11 +313,10 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   const discardAll = useDiscardAll();
   /*
    * The branch history is listed under, which decides whether History is
-   * offered at all. `val.config` may not name one and the server fills in the
-   * branch it resolved, so this is null only for a deployment that has
-   * neither.
+   * offered at all: the proposal's in a proposal, else the site's (see
+   * `useHistoryBranch`). Null only for a deployment with no history.
    */
-  const shellGitBranch = useValConfig()?.gitBranch ?? null;
+  const shellHistoryBranch = useHistoryBranch();
   // Only read when the wait has already gone on too long — see
   // `PendingChangesGate`.
   const pendingChangesProgress = usePendingChangesProgress();
@@ -1073,6 +1073,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     proposals: proposalsBar,
     dialogs: proposalDialogs,
     notice: proposalNotice,
+    restoreDestination,
   } = useProposalsBar({
     unsaved: hasNetChanges ? ownPendingChanges : 0,
     portalContainer,
@@ -1171,6 +1172,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    */
   const restore = useDirectedRestore(
     commitState?.status === "success" ? commitState.patchSet : undefined,
+    restoreDestination,
   );
 
   const renderHistory = history.commitSha
@@ -1352,13 +1354,15 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
          *
          * And false without a resolved branch, for the same reason rather than
          * a second one: history is listed PER BRANCH, so `HistoryView` has no
-         * request to make and says so. `gitBranch` is optional in
-         * `val.config` and the server fills in the one it resolved, so this is
-         * the deployment that has neither — a git-less http project. Offering
-         * the button there is the dead affordance this comment exists to
-         * forbid.
+         * request to make and says so. The server names the branch it lists
+         * -- a proposal's, a git mirror's or a managed project's -- so this
+         * is the deployment that has none. Offering the button there is the
+         * dead affordance this comment exists to forbid.
          */
-        historyEnabled={historyEnabledFor({ mode, gitBranch: shellGitBranch })}
+        historyEnabled={historyEnabledFor({
+          mode,
+          historyBranch: shellHistoryBranch,
+        })}
         historyActive={navigation.isHistoryView}
         onOpenHistory={() => navigation.navigate(VAL_HISTORY_ROUTE)}
         onMentionField={(sourcePath) =>
@@ -1417,21 +1421,21 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
 function HistoryView() {
   const config = useValConfig();
   const { history, setHistory } = useHistoryParams();
-  const branch = config?.gitBranch ?? null;
+  const branch = useHistoryBranch();
   const { state, loadMore } = useCommitList(branch);
   /*
-   * `gitBranch` is optional in ValConfig, and history is listed per branch, so
-   * without one there is nothing to ask for. Said out loud rather than left as
-   * a spinner: the hook has no request to make, so it would otherwise sit on
-   * "Reading the history…" forever. `config` being undefined is the different,
-   * transient case - it is still loading - and keeps the spinner.
+   * History is listed per branch, and the server names none for a project
+   * with no history to list. Said out loud rather than left as a spinner: the
+   * hook has no request to make, so it would otherwise sit on "Reading the
+   * history…" forever. `config` being undefined is the different, transient
+   * case - it is still loading - and keeps the spinner.
    */
   if (config !== undefined && branch === null) {
     return (
       <PanelEmptyState>
-        This project has no <code>gitBranch</code> configured, and history is
-        listed per branch. Set one in <code>val.config</code> to see what has
-        been published.
+        This project has no history to show here. History is listed per branch,
+        and this deployment names none: set <code>gitBranch</code> in{" "}
+        <code>val.config</code> if it publishes to git.
       </PanelEmptyState>
     );
   }
@@ -1744,7 +1748,7 @@ function ReviewRoute() {
    * because Restore and the History button are two doors to one page, and a
    * door that opens onto an apology should not be there.
    */
-  const reviewGitBranch = useValConfig()?.gitBranch ?? null;
+  const reviewHistoryBranch = useHistoryBranch();
   return (
     <ReviewLoader>
       {(patchSets) => (
@@ -1757,7 +1761,7 @@ function ReviewRoute() {
              * that page cannot be allowed to answer differently.
              */
             onRestore={
-              historyEnabledFor({ mode, gitBranch: reviewGitBranch })
+              historyEnabledFor({ mode, historyBranch: reviewHistoryBranch })
                 ? () => navigation.navigate(VAL_HISTORY_ROUTE)
                 : undefined
             }

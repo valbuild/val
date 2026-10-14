@@ -745,6 +745,12 @@ export const Api = {
                * where its Save goes (valbuild/home `docs/proposals.md`).
                */
               proposal: StatProposal.optional(),
+              /**
+               * The branch History lists: the proposal's in a proposal, else
+               * the git mirror's or the one content reports for the project.
+               * Absent where there is no history to show.
+               */
+              historyBranch: z.string().optional(),
             }),
             z.object({
               type: z.literal("use-websocket"),
@@ -878,6 +884,12 @@ export const Api = {
                * where its Save goes (valbuild/home `docs/proposals.md`).
                */
               proposal: StatProposal.optional(),
+              /**
+               * The branch History lists: the proposal's in a proposal, else
+               * the git mirror's or the one content reports for the project.
+               * Absent where there is no history to show.
+               */
+              historyBranch: z.string().optional(),
             }),
           ]),
         }),

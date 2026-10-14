@@ -207,6 +207,13 @@ type ValContextValue = {
    */
   proposal: { name: string; branch: string } | null;
   /**
+   * The branch History lists, or `null` where there is none to list: the
+   * proposal's in a proposal, else the site's -- the git mirror's, or the one
+   * content reports for a managed project. From `/stat`, falling back to
+   * `config.gitBranch` from a server that predates the field.
+   */
+  historyBranch: string | null;
+  /**
    * Ask `/stat` now rather than when its wait runs out. A save at a proposal's
    * address moves the base the server answers with; see `useStatus`.
    */
@@ -1514,6 +1521,10 @@ export function ValProvider({
         sourceMode:
           "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null,
         proposal,
+        historyBranch:
+          "data" in stat && stat.data
+            ? (stat.data.historyBranch ?? stat.data.config.gitBranch ?? null)
+            : null,
         refreshStat,
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,
@@ -2966,6 +2977,11 @@ export function useStudioDeployState(): UseStudioDeploy {
  */
 export function useCurrentProposal(): { name: string; branch: string } | null {
   return useContext(ValContext).proposal;
+}
+
+/** See `historyBranch` on the context: `null` where History has nothing to list. */
+export function useHistoryBranch(): string | null {
+  return useContext(ValContext).historyBranch;
 }
 
 export function usePublishRefusal(): string | null {
