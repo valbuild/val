@@ -23,6 +23,7 @@ import { runStudioJob } from "../publish/runStudioJob";
 import { PUBLISH_TAB_ID } from "../publish/tabId";
 import { canBuildHere } from "../publish/handoff";
 import { toast } from "./designSystem/sonner";
+import { describeChangesWithoutModule } from "../utils/describeChangesWithoutModule";
 import React, {
   createContext,
   Dispatch,
@@ -1976,6 +1977,65 @@ export function useDeletePatches() {
   );
   return { deletePatches };
 }
+
+/**
+ * Tell the editor about unpublished changes to files the project no longer has,
+ * with Discard beside the message.
+ *
+ * A renamed or deleted `.val` file leaves its unpublished changes behind. They
+ * no longer hold the editor (see `withoutModule` on `source:patch-apply`), but
+ * they cannot be shown or published either, and only the editor knows whether
+ * the file is coming back. So: one toast, kept until it is acted on, updated in
+ * place as the set changes and gone when it is empty.
+ */
+export function useChangesWithoutModuleNotice(): void {
+  const val = useValSystem();
+  const { deletePatches } = useDeletePatches();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      const offChain = val.system.patchStore.events.on("patch:chain", onChange);
+      const offHead = val.system.patchStore.events.on("patch:head", onChange);
+      return () => {
+        offChain();
+        offHead();
+      };
+    },
+    [val],
+  );
+  // A string, so the snapshot is equal by value and the effect below runs once
+  // per change of the set rather than once per event.
+  const getSnapshot = useCallback(
+    () =>
+      val === null
+        ? "[]"
+        : JSON.stringify(val.system.patchStore.changesWithoutModule()),
+    [val],
+  );
+  const key = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  useEffect(() => {
+    if (val === null) return;
+    const changes = val.system.patchStore.changesWithoutModule();
+    const notice = describeChangesWithoutModule(changes);
+    if (notice === null) {
+      toast.dismiss(CHANGES_WITHOUT_MODULE_TOAST);
+      return;
+    }
+    const patchIds = changes.map((change) => change.patchId);
+    toast.error(notice.title, {
+      id: CHANGES_WITHOUT_MODULE_TOAST,
+      description: notice.description,
+      duration: Infinity,
+      action: {
+        label: "Discard",
+        onClick: () => deletePatches(patchIds),
+      },
+      cancel: { label: "Keep", onClick: () => {} },
+    });
+  }, [val, key, deletePatches]);
+}
+
+const CHANGES_WITHOUT_MODULE_TOAST = "changes-without-module";
 
 export function useAIContext() {
   const {

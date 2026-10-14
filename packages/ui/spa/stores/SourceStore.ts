@@ -268,6 +268,15 @@ export class SourceStore {
   private chains = new Map<ModuleFilePath, ChainEntry[]>();
 
   /**
+   * Whether the project's modules have arrived.
+   *
+   * Intake is the whole project at once, so after it a module that is not
+   * loaded is a module the project does not have. Before it, the same thing
+   * only means "not yet".
+   */
+  private intakeSeen = false;
+
+  /**
    * How far each module's source has moved. THE comparator for reads.
    *
    * Deliberately here rather than on the patch chain: it is bumped from the two
@@ -527,6 +536,7 @@ export class SourceStore {
           success: [],
           failed: [],
           unstaged: [],
+          withoutModule: [],
           modules,
         });
       }
@@ -668,6 +678,7 @@ export class SourceStore {
       success: [],
       failed: [],
       unstaged: [],
+      withoutModule: [],
       modules: [moduleFilePath],
     });
   }
@@ -2023,6 +2034,7 @@ export class SourceStore {
   }
 
   receive(sources: Record<ModuleFilePath, Json>): void {
+    this.intakeSeen = true;
     // Cloned so the caller cannot keep a handle on what the store now owns and
     // mutate it from outside.
     for (const [moduleFilePath, source] of Object.entries(sources)) {
@@ -2084,6 +2096,12 @@ export class SourceStore {
       if (chain === undefined || chain.length === 0) continue;
       this.applyEntries(chain);
     }
+    // And the chains of modules the project does not have, which were waiting
+    // for this intake to say so. See `withoutModule` in `applyEntries`.
+    const withoutModule = [...this.chains].flatMap(([moduleFilePath, chain]) =>
+      this.sources[moduleFilePath] === undefined ? chain : [],
+    );
+    this.applyEntries(withoutModule);
     // And wake everyone reading these modules.
     //
     // Intake replaces the value at EVERY path in the module, and `bump` above has
@@ -2415,6 +2433,7 @@ export class SourceStore {
     const success: PatchId[] = [];
     const failed: { patchId: PatchId; message: string }[] = [];
     const unstaged: PatchId[] = [];
+    const withoutModule: PatchId[] = [];
     const touched: SourcePath[] = [];
     const changedModules = new Set<ModuleFilePath>();
 
@@ -2464,6 +2483,18 @@ export class SourceStore {
           ? undefined
           : this.substitutedSource(record.moduleFilePath, raw);
       if (current === undefined || raw === undefined) {
+        /*
+         * Once the project's modules are in, a module that is not among them
+         * is not coming: its file was renamed or deleted with this change
+         * still unpublished. That is an answer, and saying nothing held the
+         * editor on "Loading unpublished changes…" for the life of the tab.
+         * If the file does come back, the intake that brings it replays this
+         * chain, and the patch applies.
+         */
+        if (this.intakeSeen) {
+          withoutModule.push(record.patchId);
+          continue;
+        }
         // The module is not loaded, so there is nothing to apply the patch to
         // yet. Not a failure: `receive()` rebuilds from base + chain, so this
         // patch lands as soon as the module arrives.
@@ -2518,7 +2549,12 @@ export class SourceStore {
     // patch was unstaged — the normal case for a reader scoped to a small group —
     // returned here, the event was never emitted, and `chainSettled` waited
     // forever on patches it was never told about.
-    if (success.length === 0 && failed.length === 0 && unstaged.length === 0) {
+    if (
+      success.length === 0 &&
+      failed.length === 0 &&
+      unstaged.length === 0 &&
+      withoutModule.length === 0
+    ) {
       return;
     }
 
@@ -2531,6 +2567,7 @@ export class SourceStore {
       success,
       failed,
       unstaged,
+      withoutModule,
       modules: [...changedModules],
     });
 
