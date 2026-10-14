@@ -368,7 +368,8 @@ const CommitPatchesResponse = z.object({
  */
 const CommitModulesResponse = z.object({
   commitSha: z.string(),
-  parentCommitSha: z.string(),
+  // Null for a project's first commit: a hosted one's first publish has none.
+  parentCommitSha: z.string().nullable(),
   /**
    * Whether an `asOf` read covered the whole project.
    *
