@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  ExternalLink,
   Hammer,
   GitCompare,
   Link2,
@@ -93,6 +94,7 @@ export function ProposalBuildButton({
   const code = location.code;
   if (code === null) return null;
   const building = code.state === "building";
+  const blocked = code.state === "blocked";
   const failed = code.state === "failed" ? code : null;
   return (
     <button
@@ -104,7 +106,9 @@ export function ProposalBuildButton({
           ? `The build failed: ${failed.error}. Press to build again.`
           : building
             ? "Building the proposal's code, so its preview shows it."
-            : "Code has changed in this proposal. Build it so the preview shows the change."
+            : blocked
+              ? "This browser builds the proposal in a new tab, and did not let it open. Press to open it."
+              : "Code has changed in this proposal. Build it so the preview shows the change."
       }
       className={cn(
         "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium",
@@ -119,6 +123,8 @@ export function ProposalBuildButton({
         <Loader2 size={14} className="shrink-0 animate-spin" />
       ) : failed !== null ? (
         <AlertTriangle size={14} className="shrink-0" />
+      ) : blocked ? (
+        <ExternalLink size={14} className="shrink-0" />
       ) : (
         <Hammer size={14} className="shrink-0" />
       )}
@@ -127,7 +133,9 @@ export function ProposalBuildButton({
           ? "Building…"
           : failed !== null
             ? "Build failed"
-            : "Build required"}
+            : blocked
+              ? "Open the tab to build"
+              : "Build required"}
       </span>
     </button>
   );

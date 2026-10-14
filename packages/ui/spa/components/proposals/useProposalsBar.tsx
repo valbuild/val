@@ -30,6 +30,7 @@ import {
 import { useProposals, waitForAddress } from "../../proposals/useProposals";
 import {
   proposalCodeChanged,
+  openBuilder,
   useProposalBuild,
 } from "../../proposals/useProposalBuild";
 import {
@@ -214,20 +215,28 @@ export function useProposalsBar({
     setNewProposal(nextNewProposal());
     setDialog("new");
   }, [proposalRequested, here]);
-  const code: ProposalCodeState | null = proposalBuild.state.building
-    ? { state: "building" }
-    : proposalBuild.state.error !== null
-      ? { state: "failed", error: proposalBuild.state.error }
-      : currentJson?.staged?.buildRequired
-        ? { state: "required" }
-        : null;
+  const code: ProposalCodeState | null = proposalBuild.state.inTab?.blocked
+    ? { state: "blocked" }
+    : proposalBuild.state.building
+      ? { state: "building" }
+      : proposalBuild.state.error !== null
+        ? { state: "failed", error: proposalBuild.state.error }
+        : currentJson?.staged?.buildRequired
+          ? { state: "required" }
+          : null;
   const build = proposalBuild.build;
+  const blocked = proposalBuild.state.inTab?.blocked === true;
   const runBuild = useCallback(async () => {
     if (build === null) return;
+    // The build is waiting on a tab the browser did not let open: open it.
+    if (blocked) {
+      openBuilder();
+      return;
+    }
     const outcome = await build();
     if (outcome.status === "built")
       toast.success("Built: the preview shows the change");
-  }, [build]);
+  }, [blocked, build]);
 
   const location: StudioLocation = useMemo(() => {
     if (here === null) return { kind: "site" };
