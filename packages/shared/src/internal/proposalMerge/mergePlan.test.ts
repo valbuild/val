@@ -12,6 +12,50 @@ const { s, c } = initVal();
 describe("publishing a proposal over the site's pending changes", () => {
   // Failing until `mergePlan` is built: switch to `test` once it passes.
   test.failing(
+    "1. different pages: Kari's pending change on About stays on the site",
+    () => {
+      const home = c.define(
+        "/home.val.ts",
+        s.object({ title: s.string(), hero: s.string() }),
+        { title: "Sale", hero: "a.png" },
+      );
+      const about = c.define(
+        "/about.val.ts",
+        s.object({ heading: s.string() }),
+        { heading: "About us" },
+      );
+      const w = world([home, about]);
+      const summer = w.openProposal("Summer campaign", { by: "ola" });
+      summer.patch(home, [
+        { op: "replace", path: ["title"], value: "Summer sale" },
+      ]);
+      w.onSite("kari").patch(about, [
+        { op: "replace", path: ["heading"], value: "Who we are" },
+      ]);
+
+      const published = w.publish(summer);
+
+      // Ola is not blocked, and has nothing to resolve.
+      expect(published).toMatchObject({ status: "published", conflicts: [] });
+      // The site has the proposal's home page, and About as it was published...
+      expect(w.site.page(home)).toEqual({
+        title: "Summer sale",
+        hero: "a.png",
+      });
+      expect(w.site.page(about)).toEqual({ heading: "About us" });
+      // ...and Kari's change is still pending on the site, untouched: editors
+      // there still see it, and the site's next Publish ships it.
+      expect(w.site.pending()).toEqual(["kari-1"]);
+      expect(w.site.draft(about)).toEqual({ heading: "Who we are" });
+      // Nothing moved, so the only proposal is the one that was published.
+      expect(w.proposals()).toEqual([
+        expect.objectContaining({ name: "Summer campaign", status: "merged" }),
+      ]);
+    },
+  );
+
+  // Failing until `mergePlan` is built: switch to `test` once it passes.
+  test.failing(
     "3. same field: Kari's pending title moves into a proposal of her own",
     () => {
       const home = c.define(
