@@ -49,10 +49,67 @@ export type PublishOutcome =
   | { status: "published"; before: string; after: string; conflicts: [] }
   | { status: "conflicts"; conflicts: MergeConflict[] };
 
+export type UpdateOutcome =
+  | { status: "updated"; startsAt: string }
+  | { status: "conflicts"; conflicts: MergeConflict[] };
+
+/**
+ * How a conflict is resolved when the proposal is updated from the site:
+ * keep one side, or write the value (what AI or a developer would).
+ */
+export type Resolution = { module: Module; path: string[] } & (
+  | { keep: "site" | "proposal" }
+  | { value: JSONValue }
+);
+
 function pathOf(module: Module): ModuleFilePath {
   const path = Internal.getValPath(module);
   if (!path) throw new Error("not a Val module: define it with c.define");
   return path as unknown as ModuleFilePath;
+}
+
+/** `value` at `path` in `doc`, leaving `doc` as it was. */
+function setAt(doc: JSONValue, path: string[], value: JSONValue | undefined) {
+  if (path.length === 0) return value ?? null;
+  const [head, ...rest] = path;
+  if (Array.isArray(doc)) {
+    const copy = [...doc];
+    copy[Number(head)] = setAt(copy[Number(head)], rest, value);
+    return copy;
+  }
+  const object =
+    typeof doc === "object" && doc !== null
+      ? { ...doc }
+      : ({} as Record<string, JSONValue>);
+  if (rest.length === 0 && value === undefined) {
+    delete object[head];
+  } else {
+    object[head] = setAt(object[head] ?? null, rest, value);
+  }
+  return object;
+}
+
+/**
+ * The Val patch that turns a page from `from` into `to`, one top-level field
+ * at a time: what a merge commit writes.
+ */
+function patchFrom(from: JSONValue, to: JSONValue): Operation[] {
+  const isObject = (v: JSONValue): v is Record<string, JSONValue> =>
+    typeof v === "object" && v !== null && !Array.isArray(v);
+  if (!isObject(from) || !isObject(to)) {
+    throw new Error("a page is an object or a record at its root");
+  }
+  const ops: Operation[] = [];
+  for (const key of Object.keys(from)) {
+    if (!(key in to)) ops.push({ op: "remove", path: [key] });
+  }
+  for (const [key, value] of Object.entries(to)) {
+    if (!(key in from)) ops.push({ op: "add", path: [key], value });
+    else if (JSON.stringify(from[key]) !== JSON.stringify(value)) {
+      ops.push({ op: "replace", path: [key], value });
+    }
+  }
+  return ops;
 }
 
 /**
@@ -70,6 +127,14 @@ export async function world(modules: Module[]) {
   const counters = new Map<string, number>();
   /** The site's pending changes: one store, kept as the site's commits move. */
   const siteStore = new InMemoryPatchStore();
+  /**
+   * Where every change ever written went, for the check that nothing is lost
+   * (`checkNothingLost`): published, or folded into the merge commit an
+   * update wrote. Pending and in a proposal are read off the branches.
+   */
+  const written = new Set<PatchId>();
+  const published = new Set<PatchId>();
+  const absorbedInto = new Map<PatchId, PatchId>();
 
   /**
    * A real Val server holding the site as it was at a commit: each module
@@ -153,7 +218,97 @@ export async function world(modules: Module[]) {
     if (created.kind !== "ok") {
       throw new Error(`${patchId} was refused: ${JSON.stringify(created)}`);
     }
+    written.add(patchId);
     return patchId;
+  };
+  const moduleAt = (path: ModuleFilePath) => {
+    const module = modules.find((candidate) => pathOf(candidate) === path);
+    if (!module) throw new Error(`no module ${path}`);
+    return module;
+  };
+  const schemaOf = (path: ModuleFilePath) => {
+    const schema = Internal.getSchema(moduleAt(path));
+    if (!schema) throw new Error(`${path} has no schema`);
+    return schema["executeSerialize"]();
+  };
+  const proposalNamed = (name: string) => {
+    const proposal = proposals.find((p) => p.name === name);
+    if (!proposal) throw new Error(`no proposal ${name}`);
+    return proposal;
+  };
+  /**
+   * Val's plan for merging the proposal into the site as it is now: the pages
+   * the proposal changed, as they were where it started, on the site, and in
+   * the proposal; and the site's pending changes.
+   */
+  const planFor = async (proposal: Proposal, withSitePending: boolean) => {
+    const base = commitById(proposal.startsAt);
+    const now = head();
+    const proposalPatches = (await pendingOn(proposal.ops)).patches;
+    const proposalDraft = await draftOf(proposal.ops);
+    const changed = [...new Set(proposalPatches.map((patch) => patch.path))];
+    const sitePending = withSitePending ? (await pendingOn(site)).patches : [];
+    const plan = mergePlan({
+      pages: Object.fromEntries(
+        changed.map((path) => [
+          path,
+          {
+            schema: schemaOf(path),
+            base: base.pages[path],
+            site: now.pages[path],
+            proposal: proposalDraft[path] as JSONValue,
+          },
+        ]),
+      ),
+      sitePending: sitePending.map(
+        (patch): PendingChange => ({
+          patchId: patch.patchId,
+          moduleFilePath: patch.path,
+          patch: patch.patch,
+        }),
+      ),
+    });
+    return { plan, sitePending, proposalPatches };
+  };
+  /**
+   * Every change ever written is in exactly one place: published, pending on
+   * the site, or in one open proposal -- or folded into a merge commit that
+   * is. Checked after everything that moves changes.
+   */
+  const checkNothingLost = async () => {
+    const places = new Map<PatchId, string[]>();
+    const at = (id: PatchId, place: string) =>
+      places.set(id, [...(places.get(id) ?? []), place]);
+    for (const id of published) at(id, "published");
+    for (const patch of (await pendingOn(site)).patches) {
+      at(patch.patchId, "pending on the site");
+    }
+    for (const proposal of proposals) {
+      if (proposal.status !== "open") continue;
+      for (const patch of (await pendingOn(proposal.ops)).patches) {
+        at(patch.patchId, `in “${proposal.name}”`);
+      }
+    }
+    const placeOf = (id: PatchId): string[] => {
+      const direct = places.get(id) ?? [];
+      const into = absorbedInto.get(id);
+      return direct.length > 0 || into === undefined ? direct : placeOf(into);
+    };
+    for (const id of written) {
+      const where = placeOf(id);
+      if (where.length === 0) throw new Error(`${id} was lost`);
+      if (where.length > 1) {
+        throw new Error(`${id} is in two places: ${where.join(", ")}`);
+      }
+    }
+  };
+  /** A unique name for a proposal: "Name", then "Name (2)". */
+  const freeName = (name: string) => {
+    let candidate = name;
+    for (let n = 2; proposals.some((p) => p.name === candidate); n++) {
+      candidate = `${name} (${n})`;
+    }
+    return candidate;
   };
   /** An editor's changes, written as the Studio writes them: Val patches to a module. */
   const editor = (author: string, ops: () => ValOpsMemory) => ({
@@ -185,42 +340,15 @@ export async function world(modules: Module[]) {
      * the plan names moved into a proposal that starts where the site was.
      */
     async publish(handle: { name: string }): Promise<PublishOutcome> {
-      const proposal = proposals.find((p) => p.name === handle.name);
-      if (!proposal) throw new Error(`no proposal ${handle.name}`);
-      const base = commitById(proposal.startsAt);
+      const proposal = proposalNamed(handle.name);
+      if (proposal.status !== "open") {
+        throw new Error(`${proposal.name} is ${proposal.status}`);
+      }
       const before = head();
-      const proposalPending = await pendingOn(proposal.ops);
-      const proposalDraft = await draftOf(proposal.ops);
-      const changed = [
-        ...new Set(proposalPending.patches.map((patch) => patch.path)),
-      ];
-      const sitePending = (await pendingOn(site)).patches;
-      const plan = mergePlan({
-        pages: Object.fromEntries(
-          changed.map((path) => {
-            const schema = Internal.getSchema(
-              modules.find((module) => pathOf(module) === path) as Module,
-            );
-            if (!schema) throw new Error(`${path} has no schema`);
-            return [
-              path,
-              {
-                schema: schema["executeSerialize"](),
-                base: base.pages[path],
-                site: before.pages[path],
-                proposal: proposalDraft[path] as JSONValue,
-              },
-            ];
-          }),
-        ),
-        sitePending: sitePending.map(
-          (patch): PendingChange => ({
-            patchId: patch.patchId,
-            moduleFilePath: patch.path,
-            patch: patch.patch,
-          }),
-        ),
-      });
+      const { plan, sitePending, proposalPatches } = await planFor(
+        proposal,
+        true,
+      );
       if (plan.conflicts.length > 0) {
         return { status: "conflicts", conflicts: plan.conflicts };
       }
@@ -241,6 +369,7 @@ export async function world(modules: Module[]) {
       // chain is when its base moves.
       site = branchAt(after, siteStore);
       proposal.status = "merged";
+      for (const patch of proposalPatches) published.add(patch.patchId);
       for (const ids of plan.move) {
         const changes = moved.filter((patch) => ids.includes(patch.patchId));
         const ops = branchAt(before);
@@ -248,13 +377,13 @@ export async function world(modules: Module[]) {
           await write(
             ops,
             change.authorId ?? "unknown",
-            modules.find((module) => pathOf(module) === change.path) as Module,
+            moduleAt(change.path),
             change.patch,
             change.patchId,
           );
         }
         proposals.push({
-          name: `Moved when “${proposal.name}” was published`,
+          name: freeName(`Moved when “${proposal.name}” was published`),
           owners: [
             ...new Set(changes.map((change) => change.authorId ?? "unknown")),
           ],
@@ -263,12 +392,122 @@ export async function world(modules: Module[]) {
           status: "open",
         });
       }
+      await checkNothingLost();
       return {
         status: "published",
         before: before.id,
         after: after.id,
         conflicts: [],
       };
+    },
+
+    /**
+     * Update from the site: merge the site's last commit into the proposal,
+     * as merging main into a pull request does. Every conflict needs a
+     * resolution; with them, the proposal starts at the site's last commit and
+     * holds one merge commit -- the merged pages, resolutions in.
+     */
+    async update(
+      handle: { name: string },
+      resolutions: Resolution[] = [],
+    ): Promise<UpdateOutcome> {
+      const proposal = proposalNamed(handle.name);
+      const { plan, proposalPatches } = await planFor(proposal, false);
+      const resolutionOf = (conflict: MergeConflict) =>
+        resolutions.find(
+          (resolution) =>
+            pathOf(resolution.module) === conflict.moduleFilePath &&
+            resolution.path.join("/") === conflict.path.join("/"),
+        );
+      const unresolved = plan.conflicts.filter((c) => !resolutionOf(c));
+      if (unresolved.length > 0) {
+        return { status: "conflicts", conflicts: unresolved };
+      }
+      const merged: Record<ModuleFilePath, JSONValue> = { ...plan.merged };
+      for (const conflict of plan.conflicts) {
+        const resolution = resolutionOf(conflict);
+        if (!resolution) continue;
+        const value =
+          "value" in resolution
+            ? resolution.value
+            : resolution.keep === "site"
+              ? conflict.site
+              : conflict.proposal;
+        merged[conflict.moduleFilePath] = setAt(
+          merged[conflict.moduleFilePath],
+          conflict.path,
+          value,
+        );
+      }
+      const now = head();
+      const ops = branchAt(now);
+      const owner = proposal.owners[0];
+      const mergeIds: PatchId[] = [];
+      for (const [path, content] of Object.entries(merged)) {
+        const patch = patchFrom(now.pages[path as ModuleFilePath], content);
+        if (patch.length === 0) continue;
+        mergeIds.push(
+          await write(ops, owner, moduleAt(path as ModuleFilePath), patch),
+        );
+      }
+      const mergeCommit = mergeIds[0];
+      for (const patch of proposalPatches) {
+        if (mergeCommit === undefined) {
+          // Everything the proposal changed is on the site already.
+          published.add(patch.patchId);
+        } else {
+          absorbedInto.set(patch.patchId, mergeCommit);
+        }
+      }
+      for (const id of mergeIds.slice(1)) absorbedInto.set(id, mergeCommit);
+      proposal.ops = ops;
+      proposal.startsAt = now.id;
+      await checkNothingLost();
+      return { status: "updated", startsAt: now.id };
+    },
+
+    /**
+     * The site's own Publish: every pending change, written through Val's
+     * real save -- `prepare` patches the `.val.ts` text -- and the commit is
+     * the draft that was published.
+     */
+    async publishSite() {
+      const pending = await pendingOn(site);
+      const ids = pending.patches.map((patch) => patch.patchId);
+      if (ids.length === 0) return { status: "nothing-to-publish" as const };
+      const analysis = site.analyzePatches(pending.patches, pending.commits);
+      const prepared = await site.prepare({ ...analysis, ...pending });
+      if (prepared.hasErrors) {
+        throw new Error(
+          `the site's publish failed: ${JSON.stringify(prepared.sourceFilePatchErrors)}`,
+        );
+      }
+      const sources = (await site.getSources({ ...analysis, ...pending }))
+        .sources;
+      await site.deletePatches(ids);
+      const after: Commit = { id: `C${commits.length}`, pages: {} };
+      for (const path of Object.keys(head().pages) as ModuleFilePath[]) {
+        after.pages[path] = sources[path] as JSONValue;
+      }
+      commits.push(after);
+      site = branchAt(after, siteStore);
+      for (const id of ids) published.add(id);
+      await checkNothingLost();
+      return { status: "published" as const, commit: after.id, ids };
+    },
+
+    /** A proposal by name, to change or publish: the moved ones too. */
+    proposal(name: string) {
+      const proposal = proposalNamed(name);
+      return {
+        name,
+        ...editor(proposal.owners[0], () => proposal.ops),
+      };
+    },
+
+    /** A proposal's pages, as its address shows them. */
+    async proposalPage(handle: { name: string }, module: Module) {
+      return (await draftOf(proposalNamed(handle.name).ops))[pathOf(module)];
     },
 
     site: {

@@ -46,7 +46,11 @@ export type MergeConflict = {
 };
 
 export type MergePlan = {
-  /** Each page as the merge leaves it, when there is no conflict. */
+  /**
+   * Each page as the merge leaves it: both sides' changes combined. At a
+   * field in conflict it holds the site's value, until a resolution replaces
+   * it.
+   */
   merged: Record<ModuleFilePath, JSONValue>;
   /** Fields to resolve before the proposal can be published. */
   conflicts: MergeConflict[];
