@@ -1,5 +1,5 @@
 import type { JSONValue, Operation } from "@valbuild/core/patch";
-import { page } from "./project";
+import { jsonValuesPage, page } from "./project";
 
 /*
  * The site every scenario starts from: its pages, as `.val.ts` files, and a
@@ -35,6 +35,41 @@ export const productsPage = () =>
     "product-1": { name: "Lamp", price: 100 },
     "product-2": { name: "Chair", price: 200 },
   });
+
+/** Notes, each in a `.val.json` of its own: a `.jsonValues()` record. */
+export const notesPage = () =>
+  jsonValuesPage(
+    "notes.val.ts",
+    `s.object({ title: s.string(), body: s.string() })`,
+    {
+      a: { title: "First", body: "One" },
+      b: { title: "Second", body: "Two" },
+    },
+  );
+
+/** A page with media: an image and a file, each one value, never a set of fields. */
+export const HERO_IMAGE = {
+  path: "/public/val/sale.png",
+  width: 800,
+  height: 600,
+  mimeType: "image/png",
+  alt: "A sale",
+};
+export const BROCHURE = {
+  path: "/public/val/brochure.pdf",
+  mimeType: "application/pdf",
+};
+export const mediaPage = () =>
+  page(
+    "campaign.val.ts",
+    `s.object({ title: s.string(), hero: s.image(), brochure: s.file() })`,
+    { title: "Sale", hero: HERO_IMAGE, brochure: BROCHURE },
+  );
+export const image = (name: string, alt: string) => ({
+  ...HERO_IMAGE,
+  path: `/public/val/${name}.png`,
+  alt,
+});
 
 /** A component: code, and nothing Val reads. */
 export const HERO = "src/components/Hero.tsx";

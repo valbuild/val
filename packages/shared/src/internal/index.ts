@@ -67,3 +67,5 @@ export * from "./theme/accentRamp";
  */
 export * from "./publish/contentApi";
 export * from "./publish/protocol";
+export * from "./patchSets/PatchSets";
+export * from "./patchSets/schemaTypesOfPath";

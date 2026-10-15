@@ -1,6 +1,33 @@
-import type { ModuleFilePath, PatchId } from "@valbuild/core";
-import type { JSONValue, Operation } from "@valbuild/core/patch";
-import type { Files, LoadedProject } from "./project";
+import ts from "typescript";
+import {
+  Internal,
+  type ModuleFilePath,
+  type PatchId,
+  type SourcePath,
+  type ValModule,
+} from "@valbuild/core";
+import {
+  applyPatch,
+  deepClone,
+  JSONOps,
+  type JSONValue,
+  type Operation,
+} from "@valbuild/core/patch";
+import { pipe, result } from "@valbuild/core/fp";
+import { PatchSets, schemaTypesOfPath } from "@valbuild/shared/internal";
+import path from "path";
+import { insertValJsonEntry, removeValJsonEntry, TSOps } from "../patch/ts/ops";
+import { analyzeValModule } from "../patch/ts/valModule";
+import { codeOf, loadProject, type Files, type LoadedProject } from "./project";
+import {
+  diffOps,
+  mergeValues,
+  setAt,
+  valueAt,
+  type IsAtomic,
+  type Value,
+  type ValueConflict,
+} from "./threeWay";
 
 /**
  * Publishing a proposal as a pull request is merged: valbuild/home
@@ -14,7 +41,7 @@ import type { Files, LoadedProject } from "./project";
  * - {@link changesToMove} -- which of the site's pending changes leave the
  *   site when a proposal is merged.
  *
- * Neither is built yet: `mergeScenarios.test.ts` is their specification.
+ * `mergeScenarios.test.ts` is their specification.
  */
 
 /** A project at one commit: its files, and what Val's loader made of them. */
@@ -80,6 +107,20 @@ export type MergeResult =
  * Update from the site: a three-way merge of where the proposal started
  * (`base`), the site's head and the proposal's last save, written whole.
  * Every conflict needs a resolution, or nothing is merged.
+ *
+ * File by file. A file that is not a `.val.ts` is code, and merges as a
+ * file: changed on one side, that side's; on both, a conflict. A `.val.ts`
+ * is code (everything but `c.define`'s content argument) and content, and the
+ * two merge apart: the code as a file, the content field by field
+ * (`mergeValues`). So a schema the proposal changed and a field the site
+ * published in the same file do not conflict. A code conflict in a `.val.ts`
+ * is resolved by keeping a side's code -- the content still merges -- or by
+ * writing the whole file.
+ *
+ * Then the schema check: the merged project is loaded, and content that is
+ * not valid under the schema it ends with is a conflict, unless it was
+ * already invalid on one of the sides. A resolution with a value for one of
+ * those is written into the content before the check.
  */
 export async function mergeFromSite(input: {
   base: Project;
@@ -87,8 +128,144 @@ export async function mergeFromSite(input: {
   proposal: Project;
   resolutions: Resolution[];
 }): Promise<MergeResult> {
-  void input;
-  throw new Error("mergeFromSite is not built yet");
+  const { base, site, proposal, resolutions } = input;
+  const files: Files = {};
+  const conflicts: Conflict[] = [];
+  const paths = [
+    ...new Set([
+      ...Object.keys(base.files),
+      ...Object.keys(site.files),
+      ...Object.keys(proposal.files),
+    ]),
+  ].sort();
+  // A `.jsonValues()` entry is written with its module, never on its own.
+  const entryFiles = new Set(
+    [base, site, proposal].flatMap((side) =>
+      Object.values(side.loaded.modules).flatMap((module) =>
+        Object.values(module.entries ?? {}),
+      ),
+    ),
+  );
+
+  for (const file of paths) {
+    if (entryFiles.has(file)) continue;
+    const b = base.files[file] ?? null;
+    const s = site.files[file] ?? null;
+    const p = proposal.files[file] ?? null;
+    const resolution = fileResolution(resolutions, file);
+    const codeConflict = (): CodeConflict => ({
+      kind: "code",
+      file,
+      base: b,
+      site: s,
+      proposal: p,
+    });
+
+    if (!file.endsWith(".val.ts")) {
+      if (s === b) files[file] = p;
+      else if (p === b) files[file] = s;
+      else if (resolution) files[file] = resolvedText(resolution, s, p);
+      else {
+        conflicts.push(codeConflict());
+        files[file] = s;
+      }
+      continue;
+    }
+
+    // A .val.ts: whose code, then the content under it.
+    const code = (text: string | null) =>
+      text === null ? null : codeOf(file, text);
+    let side: "site" | "proposal";
+    if (code(s) === code(b)) side = "proposal";
+    else if (code(p) === code(b)) side = "site";
+    else if (resolution && "text" in resolution) {
+      files[file] = resolution.text;
+      continue;
+    } else if (resolution) side = resolution.keep;
+    else {
+      conflicts.push(codeConflict());
+      files[file] = s;
+      continue;
+    }
+
+    const moduleFilePath = `/${file}` as ModuleFilePath;
+    const moduleOf = (project: Project) =>
+      project.loaded.modules[moduleFilePath];
+    const sourceOf = (project: Project): Value => moduleOf(project)?.source;
+    const chosen = side === "site" ? site : proposal;
+    const text = side === "site" ? s : p;
+    if (text === null) {
+      // That side deleted the file. Content the other side changed would go
+      // with it: that is for a person to decide -- unless they have.
+      const other = side === "site" ? p : s;
+      if (!resolution && other !== b) {
+        conflicts.push(codeConflict());
+      }
+      files[file] = null;
+      for (const project of [base, site, proposal]) {
+        for (const entry of Object.values(moduleOf(project)?.entries ?? {})) {
+          files[entry] = null;
+        }
+      }
+      continue;
+    }
+    const from = sourceOf(chosen);
+    const merged = mergeValues(
+      sourceOf(base),
+      sourceOf(site),
+      sourceOf(proposal),
+      atomicIn(moduleOf(chosen)?.module),
+    );
+    let content = merged.value;
+    for (const conflict of merged.conflicts) {
+      const resolved = fieldResolution(resolutions, moduleFilePath, conflict);
+      if (resolved === null) {
+        conflicts.push({ kind: "field", moduleFilePath, ...conflict });
+      } else {
+        content = setAt(content, conflict.path, resolved.value);
+      }
+    }
+    // Values written for the schema check (or anywhere else) go in as given.
+    for (const resolution of resolutions) {
+      if (
+        "moduleFilePath" in resolution &&
+        resolution.moduleFilePath === moduleFilePath &&
+        "value" in resolution &&
+        !merged.conflicts.some((c) => samePath(c.path, resolution.path))
+      ) {
+        content = setAt(content, resolution.path, resolution.value);
+      }
+    }
+
+    const entries = moduleOf(chosen)?.entries;
+    if (entries) {
+      Object.assign(
+        files,
+        writeEntries(file, text, chosen.files, entries, from, content, [
+          moduleOf(site)?.entries,
+          moduleOf(proposal)?.entries,
+        ]),
+      );
+    } else {
+      files[file] = writeContent(file, text, from, content);
+    }
+  }
+
+  if (conflicts.length > 0) return { status: "conflicts", conflicts };
+
+  const invalid = await schemaCheck(files, [site, proposal]);
+  if (invalid.length > 0) return { status: "conflicts", conflicts: invalid };
+
+  return {
+    status: "merged",
+    files,
+    code: Object.keys(files).filter((file) => {
+      const text = files[file];
+      const before = site.files[file] ?? null;
+      if (text === null || before === null) return text !== before;
+      return codeOf(file, text) !== codeOf(file, before);
+    }),
+  };
 }
 
 /** A change pending on the site, in chain order. */
@@ -102,12 +279,339 @@ export type PendingChange = {
  * The site's pending changes that conflict with going from `site` to
  * `merged`, as whole patch sets: each inner list moves together, into a
  * proposal of its own. Everything else stays pending.
+ *
+ * Patch sets are the Studio's own (`PatchSets`), from the schema the changes
+ * were written against; sets that share a change are one, because a change
+ * cannot be split. A set moves when, taken as the site's side of a three-way
+ * merge with the merged commit as the other, it conflicts (`mergeValues`, so
+ * the same value on both sides moves too); or when it no longer applies to
+ * the merged commit, or leaves it invalid under the merged schema.
  */
 export async function changesToMove(input: {
   site: Project;
   merged: Project;
   pending: PendingChange[];
 }): Promise<PatchId[][]> {
-  void input;
-  throw new Error("changesToMove is not built yet");
+  const { site, merged, pending } = input;
+  const sets = new PatchSets();
+  for (const change of pending) {
+    sets.insert(
+      change.moduleFilePath,
+      serializedSchemaOf(site.loaded.modules[change.moduleFilePath]?.module),
+      change.patch,
+      change.patchId,
+      "",
+      null,
+    );
+  }
+  const groups = joinSharedChanges(
+    sets.serialize().map((set) => set.patches.map((p) => p.patchId)),
+  );
+
+  const moves: PatchId[][] = [];
+  for (const group of groups) {
+    const changes = pending.filter((change) => group.has(change.patchId));
+    if (await conflictsWithMerge(changes, site, merged)) {
+      moves.push(changes.map((change) => change.patchId));
+    }
+  }
+  // In chain order, so the moved proposals are opened in the order the
+  // changes were written.
+  const order = (ids: PatchId[]) =>
+    pending.findIndex((change) => change.patchId === ids[0]);
+  return moves.sort((a, b) => order(a) - order(b));
+}
+
+// --- the pieces --------------------------------------------------------------
+
+async function conflictsWithMerge(
+  changes: PendingChange[],
+  site: Project,
+  merged: Project,
+): Promise<boolean> {
+  const modules = [...new Set(changes.map((change) => change.moduleFilePath))];
+  for (const moduleFilePath of modules) {
+    const ops = changes
+      .filter((change) => change.moduleFilePath === moduleFilePath)
+      .flatMap((change) => change.patch)
+      .filter((op) => op.op !== "file");
+    const before = site.loaded.modules[moduleFilePath]?.source;
+    const after = merged.loaded.modules[moduleFilePath];
+    if (before === undefined || after === undefined) return true;
+    const written = apply(before, ops);
+    if (written === undefined) return true;
+    const mergedSource = after.source;
+    const atomic = atomicIn(after.module);
+    if (mergeValues(before, written, mergedSource, atomic).conflicts.length) {
+      return true;
+    }
+    // Over the merged commit: it applies, and is as valid as it was.
+    const over = apply(mergedSource, ops);
+    if (over === undefined) return true;
+    const known = new Set(errorPaths(after.module, mergedSource));
+    if (errorPaths(after.module, over).some((path) => !known.has(path))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Patch sets that share a change become one: a change is never split. */
+function joinSharedChanges(sets: PatchId[][]): Set<PatchId>[] {
+  const groups: Set<PatchId>[] = [];
+  for (const set of sets) {
+    const joined = new Set(set);
+    for (const group of groups.filter((g) => set.some((id) => g.has(id)))) {
+      for (const id of group) joined.add(id);
+      groups.splice(groups.indexOf(group), 1);
+    }
+    groups.push(joined);
+  }
+  return groups;
+}
+
+function apply(source: Value, ops: Operation[]): Value {
+  if (source === undefined) return undefined;
+  const applied = applyPatch(deepClone(source), new JSONOps(), ops);
+  return result.isOk(applied) ? applied.value : undefined;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Module = ValModule<any>;
+
+function serializedSchemaOf(module: Module | undefined) {
+  return module
+    ? Internal.getSchema(module)?.["executeSerialize"]()
+    : undefined;
+}
+
+type SchemaError = { path: string[]; message: string };
+
+/** What a module's schema reports about this content, without the fixes the server makes on its own. */
+function validate(module: Module, source: Value): SchemaError[] {
+  const schema = Internal.getSchema(module);
+  const moduleFilePath = Internal.getValPath(module);
+  if (!schema || moduleFilePath === undefined) return [];
+  const res = schema["executeValidate"](
+    moduleFilePath as string as SourcePath,
+    source,
+  );
+  if (res === false) return [];
+  const errors: SchemaError[] = [];
+  for (const [sourcePath, list] of Object.entries(res)) {
+    const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
+      sourcePath as SourcePath,
+    );
+    const path = modulePath ? Internal.createPatchPath(modulePath) : [];
+    for (const error of list) {
+      if (error.fixes && error.fixes.length > 0) continue;
+      errors.push({ path, message: error.message });
+    }
+  }
+  return errors;
+}
+
+function errorPaths(module: Module, source: Value): string[] {
+  return validate(module, source).map((error) => error.path.join("/"));
+}
+
+/**
+ * Loads the merged files and reports content that is invalid under the
+ * schema it ends with, leaving out what was already invalid on a side.
+ */
+async function schemaCheck(
+  files: Files,
+  sides: Project[],
+): Promise<InvalidConflict[]> {
+  const project = await loadProject(files);
+  const conflicts: InvalidConflict[] = [];
+  for (const [path, { module, source }] of Object.entries(project.modules)) {
+    const moduleFilePath = path as ModuleFilePath;
+    const known = new Set(
+      sides.flatMap((side) => {
+        const there = side.loaded.modules[moduleFilePath];
+        return there ? errorPaths(there.module, there.source) : [];
+      }),
+    );
+    for (const error of validate(module, source)) {
+      if (known.has(error.path.join("/"))) continue;
+      conflicts.push({
+        kind: "invalid",
+        moduleFilePath,
+        path: error.path,
+        value: valueAt(source, error.path),
+        message: error.message,
+      });
+    }
+  }
+  return conflicts;
+}
+
+/**
+ * The values that merge whole, though they are objects: media (an image's
+ * alt text describes that image, not another) and rich text.
+ */
+const ATOMIC: ReadonlySet<string> = new Set([
+  "image",
+  "file",
+  "video",
+  "font",
+  "richtext",
+]);
+
+function atomicIn(module: Module | undefined): IsAtomic {
+  const schema = serializedSchemaOf(module);
+  if (!schema) return () => false;
+  return (path) => {
+    const types = schemaTypesOfPath(schema, path);
+    return [...types].some((type) => ATOMIC.has(type));
+  };
+}
+
+const tsOps = new TSOps((document) =>
+  pipe(
+    analyzeValModule(document),
+    result.map(({ source }) => source),
+  ),
+);
+
+/**
+ * `content` written into the `.val.ts` `text`, whose content is `from`: as
+ * the smallest patch, through the same AST operations a save uses, so what
+ * did not change is left exactly as it was.
+ */
+function writeContent(
+  file: string,
+  text: string,
+  from: Value,
+  content: Value,
+): string {
+  const ops = diffOps(from, content);
+  if (ops.length === 0) return text;
+  const sourceFile = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.ES2015,
+    true,
+  );
+  return printed(unwrap(file, applyPatch(sourceFile, tsOps, ops)));
+}
+
+/**
+ * A `.jsonValues()` module, written as its files: the `.val.ts` names the
+ * entries -- one added gets a `c.json(...)` line, as a save writes it, one
+ * removed loses its line -- and each entry is its own `.val.json`. An entry
+ * whose content did not change keeps its file's text exactly.
+ */
+function writeEntries(
+  file: string,
+  text: string,
+  chosenFiles: Files,
+  entries: Record<string, string>,
+  from: Value,
+  content: Value,
+  others: (Record<string, string> | null | undefined)[],
+): Files {
+  const written: Files = {};
+  const before = isRecord(from) ? from : {};
+  const after = isRecord(content) ? content : {};
+  const moduleDir = path.posix.dirname(file);
+  let sourceFile = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.ES2015,
+    true,
+  );
+  for (const key of Object.keys(before)) {
+    if (key in after) continue;
+    sourceFile = unwrap(file, removeValJsonEntry(sourceFile, [], key));
+    written[entries[key]] = null;
+  }
+  for (const [key, value] of Object.entries(after)) {
+    const entryFile =
+      entries[key] ??
+      others.map((other) => other?.[key]).find((f) => f !== undefined) ??
+      path.posix.join(
+        moduleDir,
+        path.posix.basename(file, ".val.ts"),
+        `${key}.val.json`,
+      );
+    if (!(key in before)) {
+      const importPath = `./${path.posix.relative(moduleDir, entryFile)}`;
+      sourceFile = unwrap(
+        file,
+        insertValJsonEntry(sourceFile, [], key, importPath),
+      );
+    }
+    const kept = chosenFiles[entryFile];
+    written[entryFile] =
+      key in before && diffOps(before[key], value).length === 0 && kept
+        ? kept
+        : JSON.stringify(value, null, 2);
+  }
+  written[file] = printed(sourceFile);
+  return written;
+}
+
+function isRecord(value: Value): value is { [key: string]: JSONValue } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function unwrap(
+  file: string,
+  written: result.Result<ts.SourceFile, unknown>,
+): ts.SourceFile {
+  if (result.isErr(written)) {
+    throw new Error(
+      `could not write the merge into ${file}: ${String(written.error)}`,
+    );
+  }
+  return written.value;
+}
+
+/** As `prepare` prints: TypeScript escapes non-ASCII as \\u sequences. */
+function printed(sourceFile: ts.SourceFile): string {
+  return unescape(sourceFile.getText(sourceFile).replace(/\\u/g, "%u"));
+}
+
+function fileResolution(resolutions: Resolution[], file: string) {
+  for (const resolution of resolutions) {
+    if ("file" in resolution && resolution.file === file) return resolution;
+  }
+  return null;
+}
+
+function resolvedText(
+  resolution: { keep: "site" | "proposal" } | { text: string },
+  site: string | null,
+  proposal: string | null,
+): string | null {
+  if ("text" in resolution) return resolution.text;
+  return resolution.keep === "site" ? site : proposal;
+}
+
+/** A field conflict's resolution, as the value it leaves; `null` when it has none. */
+function fieldResolution(
+  resolutions: Resolution[],
+  moduleFilePath: ModuleFilePath,
+  conflict: ValueConflict,
+): { value: Value } | null {
+  for (const resolution of resolutions) {
+    if (
+      !("moduleFilePath" in resolution) ||
+      resolution.moduleFilePath !== moduleFilePath ||
+      !samePath(resolution.path, conflict.path)
+    ) {
+      continue;
+    }
+    if ("value" in resolution) return { value: resolution.value };
+    return {
+      value: resolution.keep === "site" ? conflict.site : conflict.proposal,
+    };
+  }
+  return null;
+}
+
+function samePath(a: string[], b: string[]) {
+  return a.length === b.length && a.every((key, at) => key === b[at]);
 }

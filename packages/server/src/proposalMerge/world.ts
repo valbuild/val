@@ -1,4 +1,4 @@
-import type { ModuleFilePath, PatchId } from "@valbuild/core";
+import { Internal, type ModuleFilePath, type PatchId } from "@valbuild/core";
 import type { Operation } from "@valbuild/core/patch";
 import { ValOpsMemory } from "../ValOpsMemory";
 import type { AuthorId } from "../ValOps";
@@ -56,6 +56,10 @@ export type PublishOutcome =
     }
   | { status: "conflicts"; conflicts: Conflict[] };
 
+export type SitePublishOutcome =
+  | { status: "published"; commit: string; ids: PatchId[] }
+  | { status: "nothing-to-publish" };
+
 export type UpdateOutcome =
   | { status: "updated"; base: string }
   | { status: "conflicts"; conflicts: Conflict[] };
@@ -64,6 +68,7 @@ export async function world(pages: Page[], code: Files = {}) {
   const initial: Files = {
     ...scaffold(pages.map((page) => page.file)),
     ...Object.fromEntries(pages.map((page) => [page.file, page.text])),
+    ...Object.assign({}, ...pages.map((page) => page.files)),
     ...code,
   };
   const c = content(initial, buildName);
@@ -106,11 +111,15 @@ export async function world(pages: Page[], code: Files = {}) {
     const analysis = ops.analyzePatches(pending.patches, pending.commits);
     const committed = (await ops.getSources()).sources;
     const patched = await ops.getSources({ ...analysis, ...pending });
-    // `getSources` answers for the modules with changes; the rest are as committed.
-    return {
-      sources: { ...committed, ...patched.sources },
-      errors: patched.errors,
-    };
+    // `getSources` answers for the modules with changes; the rest are as
+    // committed. A `.jsonValues()` entry nobody changed is still a marker:
+    // read its file, so a page reads the same whether it is pending or not.
+    const sources = { ...committed, ...patched.sources };
+    for (const [path, source] of Object.entries(sources)) {
+      sources[path as ModuleFilePath] =
+        await Internal.resolveJsonValues(source);
+    }
+    return { sources, errors: patched.errors };
   };
   /**
    * Val's prepare on a line: the `.val.ts` files its pending changes rewrite,
@@ -303,16 +312,16 @@ export async function world(pages: Page[], code: Files = {}) {
     },
 
     /** The site's own Publish: every pending change, through Val's prepare. */
-    async publishSite() {
+    async publishSite(): Promise<SitePublishOutcome> {
       const { files, ids } = await prepareOn(SITE);
-      if (ids.length === 0) return { status: "nothing-to-publish" as const };
+      if (ids.length === 0) return { status: "nothing-to-publish" };
       const commit = c.sealSite({
         expectedHead: c.head(SITE).id,
         files,
         published: ids,
       });
       await check();
-      return { status: "published" as const, commit, ids };
+      return { status: "published", commit, ids };
     },
 
     site: {

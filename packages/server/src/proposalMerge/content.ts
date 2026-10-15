@@ -311,7 +311,9 @@ export function content(initial: Files, buildName: BuildName) {
         input.files,
       );
       proposal.base = input.siteHead;
-      for (const path of input.staged) proposal.staged.add(path);
+      // What it has to build now is the code it differs from the site in.
+      // Code the update resolved to the site's needs no build any more.
+      proposal.staged = new Set(input.staged);
     },
 
     /**

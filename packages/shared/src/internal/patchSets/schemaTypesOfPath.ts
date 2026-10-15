@@ -1,0 +1,104 @@
+import { SerializedSchema } from "@valbuild/core";
+
+/**
+ * This functions returns all the possible schema types of a given module path.
+ */
+export function schemaTypesOfPath(
+  schema: SerializedSchema,
+  patchPath?: string[],
+): Set<SerializedSchema["type"]> {
+  if (!patchPath || patchPath.length === 0) {
+    return new Set([schema.type]);
+  }
+  const branches: Set<SerializedSchema["type"]> = new Set();
+  let current = schema;
+  let i = -1;
+  for (const pathPart of patchPath) {
+    i++;
+    if (!current) {
+      break;
+    }
+    if (current.type === "array") {
+      current = current.item;
+    } else if (current.type === "record") {
+      current = current.item;
+    } else if (current.type === "object" || current.type === "settings") {
+      current = current.items[pathPart];
+    } else if (current.type === "richtext") {
+      // richtext has internal structure (nodes with indices and tags), allow traversal
+      break;
+    } else if (current.type === "discriminated-union") {
+      const types = current.items;
+      for (const type of types) {
+        const subTypes = schemaTypesOfPath(type, patchPath.slice(i));
+        for (const subType of Array.from(subTypes.values())) {
+          branches.add(subType);
+        }
+      }
+      return branches;
+    } else if (
+      current.type === "enum" ||
+      current.type === "boolean" ||
+      current.type === "number" ||
+      current.type === "string" ||
+      current.type === "date" ||
+      current.type === "dateTime" ||
+      current.type === "color" ||
+      current.type === "code" ||
+      current.type === "file" ||
+      current.type === "image" ||
+      current.type === "video" ||
+      current.type === "keyOf" ||
+      current.type === "route" ||
+      current.type === "locale" ||
+      current.type === "literal" ||
+      // Nothing is patchable at a view path: the target module owns its source.
+      current.type === "view"
+    ) {
+      if (current.type === "image" || current.type === "file") {
+        // allow changes to metadata
+        if (patchPath[i] === "metadata") {
+          break;
+        }
+      }
+      if (current.type === "video") {
+        // A video is edited a property at a time — its poster time, a caption
+        // track's label — so that two editors changing different parts of one
+        // video do not overwrite each other. Everything below it is the video.
+        break;
+      }
+
+      if (i !== patchPath.length - 1) {
+        throw new Error(
+          "Found " +
+            current.type +
+            " (primitive), but path has more parts: " +
+            patchPath.join("/") +
+            " at " +
+            pathPart,
+        );
+      }
+      break;
+    } else {
+      const _unreachable: never = current;
+      const unknownType = (_unreachable as { type: string }).type;
+      console.error(
+        `Unexecpted resolved schema type: ${unknownType} in ${patchPath.join(
+          "/",
+        )} at ${pathPart}`,
+      );
+      return new Set([unknownType as SerializedSchema["type"]]);
+    }
+  }
+  if (current) {
+    branches.add(current.type);
+    // A discriminated union's value IS an object, and an enum's IS a string:
+    // a patch op typed for either has to be accepted here too.
+    if (current.type === "discriminated-union") {
+      branches.add("object");
+    } else if (current.type === "enum") {
+      branches.add("string");
+    }
+  }
+  return branches;
+}

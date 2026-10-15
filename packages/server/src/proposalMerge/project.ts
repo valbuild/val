@@ -2,9 +2,15 @@ import path from "path";
 import ts from "typescript";
 import { Internal, type ModuleFilePath, type ValModule } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
+import {
+  deepClone,
+  type JSONValue,
+  type ReadonlyJSONValue,
+} from "@valbuild/core/patch";
 import { createHash } from "crypto";
 import { loadValModules, type ValModulesHost } from "../loadValModules";
 import { analyzeValModule } from "../patch/ts/valModule";
+import { analyzeJsonValuesEntries } from "../patch/ts/jsonValuesModule";
 
 /**
  * A project as git holds it: every file's text, by path from the project
@@ -47,13 +53,23 @@ function host(files: Files): ValModulesHost {
 /** A module as the project defines it, read by Val's own loader. */
 export type LoadedModule = {
   module: ValModule<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-  source: unknown;
+  /**
+   * Its content, as the files hold it -- a `.jsonValues()` record's entries
+   * read from their `.val.json` files, so it can be merged and validated as
+   * one record.
+   */
+  source: JSONValue;
+  /**
+   * For a `.jsonValues()` record: each entry's file, by key, from the project
+   * root. `null` for any other module.
+   */
+  entries: Record<string, string> | null;
 };
 
 export type LoadedProject = {
   valModules: ReturnType<typeof loadValModules>;
   modules: Record<ModuleFilePath, LoadedModule>;
-  /** The `.val.ts` files, as `ValOpsMemory` takes them. */
+  /** The `.val.ts` files and `.jsonValues()` entries, as `ValOpsMemory` takes them. */
   sourceFiles: Record<string, string>;
 };
 
@@ -70,16 +86,53 @@ export async function loadProject(files: Files): Promise<LoadedProject> {
     const module = (await def()).default;
     const id = Internal.getValPath(module);
     if (id === undefined) continue;
-    modules[id as string as ModuleFilePath] = {
+    const moduleFilePath = id as string as ModuleFilePath;
+    const text = files[moduleFilePath.slice(1)] ?? null;
+    modules[moduleFilePath] = {
       module,
-      source: Internal.getSource(module),
+      // The one conversion, as `ValOps.getSources` makes it: a module's
+      // Source is JSON once its entries are read (media are plain objects).
+      source: deepClone(
+        (await Internal.resolveJsonValues(
+          Internal.getSource(module),
+        )) as ReadonlyJSONValue,
+      ) as JSONValue,
+      entries: text === null ? null : entryFilesOf(moduleFilePath, text),
     };
   }
   const sourceFiles: Record<string, string> = {};
   for (const [file, text] of Object.entries(files)) {
-    if (text !== null && file.endsWith(".val.ts")) sourceFiles[file] = text;
+    if (
+      text !== null &&
+      (file.endsWith(".val.ts") || file.endsWith(".val.json"))
+    ) {
+      sourceFiles[file] = text;
+    }
   }
   return { valModules, modules, sourceFiles };
+}
+
+/**
+ * A `.jsonValues()` record's entry files, by key, read out of its `.val.ts`
+ * (the loaded marker does not carry the path). `null` when it has none.
+ */
+export function entryFilesOf(
+  moduleFilePath: ModuleFilePath,
+  text: string,
+): Record<string, string> | null {
+  const analysis = analyzeValModule(
+    ts.createSourceFile(moduleFilePath, text, ts.ScriptTarget.ES2015, true),
+  );
+  if (result.isErr(analysis)) return null;
+  const entries = analyzeJsonValuesEntries(analysis.value.source);
+  if (entries.size === 0) return null;
+  const dir = path.posix.dirname(moduleFilePath.slice(1));
+  return Object.fromEntries(
+    [...entries].map(([key, { importPath }]) => [
+      key,
+      path.posix.join(dir, importPath),
+    ]),
+  );
 }
 
 // --- writing a project ---------------------------------------------------------
@@ -142,6 +195,8 @@ export type Page = {
   file: string;
   moduleFilePath: ModuleFilePath;
   text: string;
+  /** Files the page's content lives in besides its `.val.ts`: `.jsonValues()` entries. */
+  files: Files;
   /** The same file with another schema: what a proposal stages to change it. */
   withSchema(schema: string, content: unknown): string;
 };
@@ -151,7 +206,45 @@ export function page(file: string, schema: string, content: unknown): Page {
     file,
     moduleFilePath: `/${file}` as ModuleFilePath,
     text: valFile(file, schema, content),
+    files: {},
     withSchema: (other, otherContent) => valFile(file, other, otherContent),
+  };
+}
+
+/**
+ * A `.jsonValues()` record: each entry in a `.val.json` of its own, next to the
+ * module in a directory named after it, as the Studio writes new ones.
+ */
+export function jsonValuesPage(
+  file: string,
+  itemSchema: string,
+  entries: Record<string, unknown>,
+): Page {
+  const dir = file.replace(/\.val\.ts$/, "");
+  const schema = `s.record(${itemSchema}).jsonValues()`;
+  const text = [
+    `import { s, c } from "./val.config";`,
+    ``,
+    `export default c.define("/${file}", ${schema}, {`,
+    ...Object.keys(entries).map(
+      (key) => `  "${key}": c.json(() => import("./${dir}/${key}.val.json")),`,
+    ),
+    `});`,
+    ``,
+  ].join("\n");
+  return {
+    file,
+    moduleFilePath: `/${file}` as ModuleFilePath,
+    text,
+    files: Object.fromEntries(
+      Object.entries(entries).map(([key, content]) => [
+        `${dir}/${key}.val.json`,
+        JSON.stringify(content, null, 2),
+      ]),
+    ),
+    withSchema: () => {
+      throw new Error("not written for a .jsonValues() page yet");
+    },
   };
 }
 
@@ -160,9 +253,12 @@ export function page(file: string, schema: string, content: unknown): Page {
 /**
  * A file's code: for a `.val.ts`, everything but `c.define`'s content
  * argument, which Val reads at request time (step 2) and so is no part of a
- * build. Every other file is code whole.
+ * build; a `.val.json` entry is no code at all. Every other file is code
+ * whole.
  */
 export function codeOf(file: string, text: string): string {
+  // A `.jsonValues()` entry is content, read at request time like the rest.
+  if (file.endsWith(".val.json")) return "";
   if (!file.endsWith(".val.ts")) return text;
   const analysis = analyzeValModule(
     ts.createSourceFile(file, text, ts.ScriptTarget.ES2015, true),
