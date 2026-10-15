@@ -11,6 +11,7 @@
  * Pure and React-free, so the stores and the publish client -- which see the
  * bodies -- can report one without importing the shell that shows it.
  */
+import { safeHref } from "./safeHref";
 
 /**
  * Why a write was refused. `other` is a code this Studio does not know: a
@@ -97,8 +98,12 @@ export function parsePlanRefusal(body: unknown): PlanRefusal | null {
   const error = body.error;
   if (typeof error.code !== "string") return null;
   const code = planRefusalCodeOf(error.code);
+  // Remote input on its way to an `href`: http(s) only, as every other link
+  // Val Build sends (`studioAccess.ts`).
   const billingUrl =
-    typeof error.billingUrl === "string" ? error.billingUrl : null;
+    typeof error.billingUrl === "string"
+      ? (safeHref(error.billingUrl) ?? null)
+      : null;
   if (code === "other" && billingUrl === null) return null;
   return {
     code,

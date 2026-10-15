@@ -2,7 +2,8 @@ import {
   fixAction,
   formatCount,
   formatShare,
-  mailOwners,
+  plural,
+  projectNames,
   viewerOf,
   type PlanAction,
   type PlanFormat,
@@ -42,8 +43,9 @@ export type PlanStatus =
     };
 
 /**
- * "Ask an owner", for the top bar: shorter than a notice's "Ask them to add
- * a card", because the bar has room for two words.
+ * The notices' own button (`fixAction`), with "Ask an owner" for anyone
+ * else: shorter than a notice's "Ask them to add a card", because the bar
+ * has room for two words.
  */
 function statusAction(
   access: StudioAccess,
@@ -51,29 +53,23 @@ function statusAction(
   subject: string,
   why: string,
 ): PlanAction | null {
-  const viewer = viewerOf(access, null);
-  if (viewer.canFix === false) {
-    if (viewer.owners.length === 0) return null;
-    const where = viewer.billingUrl;
-    return {
-      label: "Ask an owner",
-      href: mailOwners(
-        viewer,
-        subject,
-        `${why}\n\nCould you ${fix === "add-card" ? "add a card" : "upgrade to Pro"}?` +
-          (where !== null ? ` It is done here: ${where}` : ""),
-      ),
-      external: false,
-    };
-  }
-  return fixAction(viewer, fix, { subject, why });
+  return fixAction(
+    viewerOf(access, null),
+    fix,
+    { subject, why },
+    { ask: "Ask an owner" },
+  );
 }
 
 export function planStatusOf(
   access: StudioAccess | null,
-  project: string,
+  /** The project's own name (`website`), or null when it is not known. */
+  project: string | null,
 ): PlanStatus | null {
   const limits = access?.limits ?? null;
+  const named = projectNames(project);
+  // Mail text, read by a person: the locale only changes digit grouping.
+  const en = { locale: "en-US" };
   if (access === null || limits === null) return null;
   const trial = limits.trial;
   if (limits.plan === "hosted" && trial?.status === "running") {
@@ -89,8 +85,8 @@ export function planStatusOf(
       action: statusAction(
         access,
         "add-card",
-        `${project}'s trial: please add a card`,
-        `${project} is on a trial with ${trial.daysLeft} days left. Adding a card keeps it going after that, and lifts the trial's limits.`,
+        `${named.start}: please add a card before the trial ends`,
+        `${named.start} is on a trial with ${plural(trial.daysLeft, "day", "days", en)} left. Adding a card keeps it going after that, and lifts the trial's limits.`,
       ),
     };
   }
@@ -113,8 +109,8 @@ export function planStatusOf(
       action: statusAction(
         access,
         "upgrade",
-        `${project}: please upgrade to Pro`,
-        `${project} is on the Free plan, which allows ${changes.limit} changes in 7 days, and has ${changes.left} left this week. Pro has no limit.`,
+        `${named.start}: please upgrade to Pro`,
+        `${named.start} is on the Free plan, which allows ${plural(changes.limit, "change", "changes", en)} in 7 days, and has ${formatCount(changes.left, en)} left this week. Pro has no limit.`,
       ),
     };
   }
@@ -126,13 +122,12 @@ export function planStatusParts(
   status: PlanStatus,
   format: Pick<PlanFormat, "locale">,
 ): string[] {
-  const days = (n: number) =>
-    `${formatCount(n, format)} ${n === 1 ? "day" : "days"} left`;
+  const days = (n: number) => `${plural(n, "day", "days", format)} left`;
   switch (status.kind) {
     case "trial":
       return [
         days(status.daysLeft),
-        `${status.publishesUsed} of ${status.publishesTotal} publishes`,
+        `${formatCount(status.publishesUsed, format)} of ${plural(status.publishesTotal, "publish", "publishes", format)}`,
         ...(status.usageShare === null
           ? []
           : [`${formatShare(status.usageShare, format)} of trial usage`]),
@@ -143,7 +138,7 @@ export function planStatusParts(
       return [
         status.left === 0
           ? "No changes left this week"
-          : `${formatCount(status.left, format)} ${status.left === 1 ? "change" : "changes"} left this week`,
+          : `${plural(status.left, "change", "changes", format)} left this week`,
         "publishing is never limited",
       ];
   }

@@ -12,6 +12,7 @@ import {
   type StudioAccessState,
 } from "./planLimits/useStudioAccess";
 import { usePlanNotice } from "./planLimits/usePlanNotice";
+import { useRefusalToastRefresh } from "./planLimits/useRefusalToastRefresh";
 import { PlanNoticeCard } from "./planLimits/PlanNoticeCard";
 import { PlanStatusBar } from "./planLimits/PlanStatusBar";
 import { planToastAction } from "./planLimits/planCopy";
@@ -164,8 +165,10 @@ export function ValShell() {
   const studioAccess = useStudioAccess(valBuildConnected ? project : undefined);
   const { access } = studioAccess;
   const toastActionFor = useCallback(
-    (error: { details?: string }) => {
-      const action = planToastAction(access, error.details);
+    (error: { message: string; details?: string }) => {
+      const action =
+        planToastAction(access, error.details) ??
+        planToastAction(access, error.message);
       if (action === null) return undefined;
       return {
         label: action.label,
@@ -291,23 +294,16 @@ function ValShellBody({
   const hasNetChanges = useHasNetChanges();
   const ownPendingChanges = useOwnPendingChangeCount();
   const plan = usePlanNotice(studioAccess, {
-    project: project?.split("/")[1] || "This project",
+    project: project?.split("/")[1] || null,
     changesWaiting: hasNetChanges ? ownPendingChanges : 0,
   });
   /*
-   * A refused save, publish or upload reports an error; ask Val Build again
-   * what is true now, so the notice that explains it appears. The error
-   * itself may carry nothing but a message (a save is refused through this
-   * app's proxy, which keeps the words and not the code), so ANY new error
-   * asks: it is one small request, and calls close together are one.
+   * A refused save, publish or upload reports an error. One whose words are
+   * Val Build's refusal (they name its Billing) asks `/access` again, so the
+   * notice that explains it appears. See `useRefusalToastRefresh`.
    */
   const { globalTransientErrors } = useGlobalTransientErrors();
-  const newestErrorId =
-    globalTransientErrors[globalTransientErrors.length - 1]?.id;
-  const { refresh: refreshStudioAccess } = studioAccess;
-  useEffect(() => {
-    if (newestErrorId !== undefined) refreshStudioAccess();
-  }, [newestErrorId, refreshStudioAccess]);
+  useRefusalToastRefresh(globalTransientErrors, studioAccess);
   const editorNotices = [
     plan.notice === null ? null : (
       <PlanNoticeCard

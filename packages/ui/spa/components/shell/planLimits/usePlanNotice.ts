@@ -1,7 +1,24 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { planNoticesOf, type PlanNotice } from "./planNotices";
 import { planStatusOf, type PlanStatus } from "./planStatus";
 import type { StudioAccessState } from "./useStudioAccess";
+
+/** How often the notices' times are read again: "today at", "until 22 October". */
+export const CLOCK_TICK_MS = 60_000;
+
+/**
+ * The time, as state, moved on every minute: the notices say "today at
+ * 14:20" and "keeps running until 22 October", and a moment captured once
+ * at the answer would keep saying them after they stopped being true.
+ */
+export function useNow(tickMs: number = CLOCK_TICK_MS): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), tickMs);
+    return () => clearInterval(timer);
+  }, [tickMs]);
+  return now;
+}
 
 export type PlanNoticeState = {
   /** The one notice to show now, or null. */
@@ -20,21 +37,22 @@ export type PlanNoticeState = {
 export function usePlanNotice(
   state: StudioAccessState,
   context: {
-    /** The project's own name: `website` of `acme/website`. */
-    project: string;
+    /** The project's own name: `website` of `acme/website`; null if unknown. */
+    project: string | null;
     changesWaiting?: number;
   },
 ): PlanNoticeState {
   const { access, refusal, clearRefusal } = state;
   const { project, changesWaiting } = context;
+  const now = useNow();
   const notices = useMemo(
     () =>
       planNoticesOf(access, refusal, {
         project,
         changesWaiting,
-        now: new Date(),
+        now,
       }),
-    [access, refusal, project, changesWaiting],
+    [access, refusal, project, changesWaiting, now],
   );
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(
     () => new Set(),

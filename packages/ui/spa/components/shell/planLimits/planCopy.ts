@@ -100,11 +100,7 @@ function ownerAction(
 }
 
 /** The owners, as a mailto with what to do and where. */
-export function mailOwners(
-  viewer: Viewer,
-  subject: string,
-  body: string,
-): string {
+function mailOwners(viewer: Viewer, subject: string, body: string): string {
   const to = viewer.owners.map((owner) => owner.email).join(",");
   return `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
@@ -179,6 +175,30 @@ export function formatCount(
   return new Intl.NumberFormat(format.locale).format(value);
 }
 
+/** "1 day", "12 days", "1,000 changes": a count and its noun, agreeing. */
+export function plural(
+  count: number,
+  one: string,
+  many: string,
+  format: Pick<PlanFormat, "locale">,
+): string {
+  return `${formatCount(count, format)} ${count === 1 ? one : many}`;
+}
+
+/**
+ * The project's name, for a sentence: as it is when the Studio knows it
+ * (`website` stays lower case, as it is typed everywhere else), and "this
+ * project" when it does not -- capitalised only where it starts a sentence.
+ */
+export function projectNames(project: string | null): {
+  start: string;
+  mid: string;
+} {
+  return project === null || project === ""
+    ? { start: "This project", mid: "this project" }
+    : { start: project, mid: project };
+}
+
 export function formatShare(
   share: number,
   format: Pick<PlanFormat, "locale">,
@@ -209,10 +229,17 @@ function dayKey(date: Date, timeZone: string | undefined): string {
 
 /**
  * "today at 14:20", "tomorrow at 09:05", "on Thursday at 14:20": a moment
- * within the week, in the viewer's time zone. Further out it names the date.
+ * within the week, in the viewer's time zone. Further out it names the date;
+ * a moment already past is "in a moment".
  */
 export function formatWhen(iso: string, format: PlanFormat): string {
   const date = new Date(iso);
+  /*
+   * Already past: Val Build is asked again at that moment (`useStudioAccess`
+   * schedules it), so the notice is about to change. Until it does, a day of
+   * the week that has gone by would be a promise that cannot be kept.
+   */
+  if (date.getTime() <= format.now.getTime()) return "in a moment";
   const time = new Intl.DateTimeFormat(format.locale, {
     hour: "2-digit",
     minute: "2-digit",
@@ -271,30 +298,65 @@ export function meterName(meter: string): string {
 }
 
 /**
- * The button for a toast whose raw message is a refusal from Val Build --
- * recognised by the organization's Billing link, which every refusal ends
- * with and nothing else carries. A save refused through the app's proxy
- * arrives as that message alone (the proxy keeps the words, not the code), so
- * this is what puts the next step beside it.
+ * The fix a refusal on this project's plan has, when all the Studio has is
+ * the refusal's words: every refusal a plan makes has the same fix, apart
+ * from the organization's failed payment (Free: upgrade; a Hosted trial: a
+ * card; a paying Hosted project: extra usage; Pro: the payment). What
+ * `/access` already refuses is asked first, since it says so outright.
  */
+export function likelyFix(access: StudioAccess): PlanFix {
+  if (access.plan?.access === "read-only") return "update-payment";
+  const limits = access.limits;
+  if (limits === null) return "other";
+  const { edit, publish, remoteFiles } = limits.refused;
+  const refused =
+    edit ??
+    publish ??
+    (remoteFiles?.code === "plan:remote-files" ? undefined : remoteFiles);
+  if (refused !== undefined) return refused.fix;
+  switch (limits.plan) {
+    case "free":
+      return "upgrade";
+    case "hosted":
+      return limits.trial?.status === "running" ||
+        limits.trial?.status === "over"
+        ? "add-card"
+        : "allow-usage";
+    case "pro":
+      return "update-payment";
+    default:
+      return "other";
+  }
+}
+
+/**
+ * The button for a toast whose raw message is a refusal from Val Build --
+ * recognised by the organization's Billing link (or the project's page),
+ * which every refusal names and nothing else carries. A save refused through
+ * the app's proxy arrives as that message alone (the proxy keeps the words,
+ * not the code), so this is what puts the next step beside it: the same
+ * button a notice would give, for the fix this plan's refusals have.
+ */
+export function isRefusalText(
+  access: StudioAccess | null,
+  text: string | undefined,
+): boolean {
+  if (access === null || text === undefined) return false;
+  return [access.billingUrl, access.projectUrl].some(
+    (url) => url !== null && text.includes(url),
+  );
+}
+
 export function planToastAction(
   access: StudioAccess | null,
   details: string | undefined,
 ): PlanAction | null {
   if (access === null || details === undefined) return null;
-  const billingUrl = access.billingUrl;
-  if (billingUrl === null || !details.includes(billingUrl)) return null;
-  const viewer = viewerOf(access, null);
-  if (viewer.canFix !== false) {
-    return { label: "Open Billing", href: billingUrl, external: true };
-  }
-  if (viewer.owners.length === 0) {
-    const href = viewer.projectUrl ?? billingUrl;
-    return { label: "Open in Val Build", href, external: true };
-  }
-  return {
-    label: "Ask an owner",
-    href: mailOwners(viewer, "A change in the Studio was refused", details),
-    external: false,
-  };
+  if (!isRefusalText(access, details)) return null;
+  return fixAction(
+    viewerOf(access, null),
+    likelyFix(access),
+    { subject: "A change in the Studio was refused", why: details },
+    { ask: "Ask an owner" },
+  );
 }

@@ -1,11 +1,8 @@
 import type { FetchAnswer } from "./planLimits/studioAccess";
 import { useStudioAccess } from "./planLimits/useStudioAccess";
 import { PlanNoticeCard } from "./planLimits/PlanNoticeCard";
-import {
-  readOnlyCopy,
-  type PlanAccess,
-  type ReadOnlyAccess,
-} from "./planLimits/readOnly";
+import { readOnlyNotice } from "./planLimits/planNotices";
+import { type PlanAccess, type ReadOnlyAccess } from "./planLimits/readOnly";
 
 /**
  * The organization's half of `/access`: a failed payment past its grace makes
@@ -32,23 +29,13 @@ export function usePlanAccess(
   return useStudioAccess(projectName, fetchImpl).access?.plan ?? null;
 }
 
-export function ReadOnlyCard({ access }: { access: ReadOnlyAccess }) {
-  const copy = readOnlyCopy(access);
-  return (
-    <PlanNoticeCard
-      notice={{
-        id: "read-only",
-        rank: 0,
-        tone: "critical",
-        icon: "lock",
-        title: copy.title,
-        body: copy.body,
-        action: copy.action,
-        aside: null,
-        meter: null,
-        details: null,
-        dismiss: null,
-      }}
-    />
-  );
+export function ReadOnlyCard({
+  access,
+  projectUrl = null,
+}: {
+  access: ReadOnlyAccess;
+  /** The project's page in Val Build: where the owners are, when none were named. */
+  projectUrl?: string | null;
+}) {
+  return <PlanNoticeCard notice={readOnlyNotice(access, projectUrl)} />;
 }
