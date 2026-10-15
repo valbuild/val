@@ -7,6 +7,7 @@ import type { SchemaValidationBridge } from "../bridges";
 import { createSchemaValidationBridge } from "../../validation/schemaValidationBridge";
 import type { PatchRecord } from "../types";
 import type { RequestPublish } from "../PublishSeam";
+import type { SavedPatches } from "../PatchSync";
 import { chunkPatchIds } from "./patchIdChunks";
 import {
   isRecord,
@@ -753,6 +754,15 @@ export function createValSystem(
                 ),
               };
             }
+            if (res.status === 403) {
+              // Refused for the plan: the patches are kept, and the part of
+              // the batch the server took before refusing is reported as saved.
+              return {
+                status: "refused",
+                saved: savedPatchesOf(res.json),
+                refusal: { message: res.json.message, error: res.json.error },
+              };
+            }
             if (res.status !== 200) {
               return {
                 status: "unauthorized",
@@ -762,20 +772,7 @@ export function createValSystem(
                     : `PUT /patches failed with status ${res.status}`,
               };
             }
-            return {
-              status: "saved",
-              newPatchIds: res.json.newPatchIds,
-              parentRef: res.json.parentRef,
-              // Spread, so absent stays absent: `fs` mode and a content API
-              // without groups answer without one, and the client reads that as
-              // "there is no group to stage into here".
-              ...(res.json.patchGroupId !== undefined
-                ? { patchGroupId: res.json.patchGroupId }
-                : {}),
-              ...(res.json.headVersion !== undefined
-                ? { headVersion: res.json.headVersion }
-                : {}),
-            };
+            return { status: "saved", ...savedPatchesOf(res.json) };
           },
         }
       : {}),
@@ -820,4 +817,25 @@ export function createValSystem(
 /** A `/sources/~` key: the response is keyed by module file path, which is absolute. */
 function isModuleFilePath(path: string): path is ModuleFilePath {
   return path.startsWith("/");
+}
+
+/**
+ * What an answer to `PUT /patches` says about the patches it took: all of
+ * them (200), or those before the one refused for the plan (403). One mapping
+ * for both, so a partly saved batch is recorded exactly as a saved one.
+ */
+function savedPatchesOf(json: SavedPatches): SavedPatches {
+  return {
+    newPatchIds: json.newPatchIds,
+    parentRef: json.parentRef,
+    // Spread, so absent stays absent: `fs` mode and a content API without
+    // groups answer without one, and the client reads that as "there is no
+    // group to stage into here".
+    ...(json.patchGroupId !== undefined
+      ? { patchGroupId: json.patchGroupId }
+      : {}),
+    ...(json.headVersion !== undefined
+      ? { headVersion: json.headVersion }
+      : {}),
+  };
 }

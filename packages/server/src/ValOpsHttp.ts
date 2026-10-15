@@ -54,6 +54,7 @@ import {
   type PatchGroupT,
   JSONValue as JSONValueSchema,
   PatchId as PatchIdSchema,
+  PlanRefusalError,
 } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import {
@@ -62,6 +63,9 @@ import {
 } from "@valbuild/shared/internal";
 
 const textEncoder = new TextEncoder();
+
+/** The body of the content API's 403 for a write the project's plan refuses. */
+const PlanRefusedBody = z.object({ error: PlanRefusalError });
 
 const PatchId = z.string().refine((s): s is PatchId => !!s); // TODO: validate
 const CommitSha = z.string().refine((s): s is CommitSha => !!s); // TODO: validate
@@ -2474,6 +2478,21 @@ export class ValOpsHttp extends ValOps {
         if (res.headers.get("Content-Type")?.includes("application/json")) {
           const json = await res.json();
           const message = getErrorMessageFromUnknownJson(json, "Unknown error");
+          /*
+           * Refused for the plan: the patch is fine, and the reason comes as
+           * data. Kept apart from every other error, which the Studio is told
+           * is a bad patch and drops. A 403 without a refusal in it (a
+           * credential missing the write scope) is still one of those.
+           */
+          const refusal =
+            res.status === 403 ? PlanRefusedBody.safeParse(json) : null;
+          if (refusal?.success) {
+            return result.err({
+              errorType: "plan-refused",
+              error: { message },
+              refusal: refusal.data.error,
+            });
+          }
           return result.err({
             errorType: "other",
             message,
