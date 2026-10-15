@@ -17,7 +17,16 @@ import { parseStudioAccess, type FetchAnswer } from "./studioAccess";
 import { planNoticesOf, type PlanNotice } from "./planNotices";
 import { planStatusOf, planStatusParts } from "./planStatus";
 import { formatWhen, planToastAction } from "./planCopy";
-import { useStudioAccess, REFRESH_WINDOW_MS } from "./useStudioAccess";
+import {
+  FOCUS_REFRESH_MS,
+  MIN_SCHEDULED_REFRESH_MS,
+  nextChangeAt,
+  REFRESH_WINDOW_MS,
+  scheduledDelay,
+  useStudioAccess,
+} from "./useStudioAccess";
+import { useRefusalToastRefresh } from "./useRefusalToastRefresh";
+import { ReadOnlyCard } from "../ReadOnlyNotice";
 import { PlanNoticeCard } from "./PlanNoticeCard";
 import { PlanStatusBar } from "./PlanStatusBar";
 import { usePlanNotice } from "./usePlanNotice";
@@ -135,14 +144,18 @@ describe("parsing Val Build's answer", () => {
     expect(
       parsePlanRefusal({
         message: "Something new",
-        error: { code: "limit:seats", fix: "buy-seats", billingUrl: "x" },
+        error: {
+          code: "limit:seats",
+          fix: "buy-seats",
+          billingUrl: "https://admin.val.build/~/acme?section=billing",
+        },
       }),
     ).toEqual({
       code: "other",
       rawCode: "limit:seats",
       fix: "other",
       until: null,
-      billingUrl: "x",
+      billingUrl: "https://admin.val.build/~/acme?section=billing",
       message: "Something new",
     });
     const access = parseStudioAccess({
@@ -295,13 +308,14 @@ describe("the notice above the editor", () => {
     expect(notices[0]).toMatchObject({
       icon: "pause",
       title: "website has used October's included traffic",
-      body: "Unless the project allows extra usage, visitors see a paused page until 1 November. The Studio still works and your changes are saved.",
+      body: "If the project is set to pause, which is the default, visitors see a paused page until 1 November. Allowing extra usage keeps the site running. The Studio still works and your changes are saved.",
       action: {
         label: "Allow extra usage",
         href: PROJECT_URL,
         external: true,
       },
-      dismiss: null,
+      // `out` is listed whatever the policy is, so it may not be paused.
+      dismiss: "session",
     });
     expect(notices[1]).toMatchObject({
       title: "website has used 85% of October's site requests",
@@ -648,16 +662,38 @@ describe("the card", () => {
 describe("a toast for a refused write", () => {
   const details = REFUSED_FIXTURES["refused-limit-changes"].message;
 
-  test("an owner gets Billing; an editor, the owners", () => {
+  test("an owner gets the fix the plan's refusals have; an editor, the owners", () => {
     expect(
       planToastAction(accessOf("access-free-at-limit", "owner"), details),
-    ).toEqual({ label: "Open Billing", href: BILLING_URL, external: true });
+    ).toEqual({ label: "Upgrade to Pro", href: BILLING_URL, external: true });
+    expect(
+      planToastAction(accessOf("access-free-warn", "owner"), details),
+    ).toEqual({ label: "Upgrade to Pro", href: BILLING_URL, external: true });
+    // Extra usage is set on the project's page, not in Billing.
+    expect(
+      planToastAction(
+        accessOf("access-hosted-converted", "owner"),
+        REFUSED_FIXTURES["refused-usage-storage"].message,
+      ),
+    ).toEqual({
+      label: "Allow extra usage",
+      href: PROJECT_URL,
+      external: true,
+    });
+    expect(
+      planToastAction(
+        accessOf("access-hosted-trial-publishes-used", "owner"),
+        REFUSED_FIXTURES["refused-trial-publishes"].message,
+      )?.label,
+    ).toBe("Add a card");
     const editor = planToastAction(
       accessOf("access-free-at-limit", "editor"),
       details,
     );
     expect(editor?.label).toBe("Ask an owner");
-    expect(mailtoOf(editor?.href ?? "").body).toBe(details);
+    const body = mailtoOf(editor?.href ?? "").body;
+    expect(body).toContain(details);
+    expect(body).toContain("Could you upgrade to Pro?");
   });
 
   test("any other error gets no button", () => {
@@ -765,7 +801,7 @@ describe("asking Val Build, and asking again", () => {
     expect(result.current.notice).toBeNull();
   });
 
-  test("a warning can be put away; a paused month cannot", async () => {
+  test("a warning can be put away, and so can a month that may be paused", async () => {
     const warnOnly = {
       ...studioAccessBody("access-hosted-usage-warn", "owner"),
       limits: {
@@ -800,6 +836,330 @@ describe("asking Val Build, and asking again", () => {
     await waitFor(() =>
       expect(second.result.current.notice?.id).toBe("usage:out"),
     );
-    expect(second.result.current.notice?.dismiss).toBeNull();
+    const out = second.result.current.notice;
+    act(() => {
+      if (out !== null) second.result.current.dismiss(out);
+    });
+    expect(second.result.current.notice?.id).toBe("usage:warn:siteRequests");
+  });
+});
+
+describe("asking again when the answer may have changed", () => {
+  const counting = (body: () => unknown) => {
+    const calls: string[] = [];
+    const fetchImpl: FetchAnswer = async (url) => {
+      calls.push(url);
+      return { ok: true, json: async () => body() };
+    };
+    return { calls, fetchImpl };
+  };
+  const flush = () => act(async () => undefined);
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test("coming back to the Studio asks again, at most once a minute", async () => {
+    const { calls, fetchImpl } = counting(() =>
+      studioAccessBody("access-hosted-trial-over", "owner"),
+    );
+    renderHook(() => useStudioAccess("acme/website", fetchImpl));
+    await flush();
+    expect(calls).toHaveLength(1);
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(calls).toHaveLength(1);
+    await act(async () => {
+      jest.advanceTimersByTime(FOCUS_REFRESH_MS);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await flush();
+    expect(calls).toHaveLength(2);
+    // Twice in a row is still once.
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await flush();
+    expect(calls).toHaveLength(2);
+  });
+
+  test("a project that is not connected listens for nothing", async () => {
+    const { calls, fetchImpl } = counting(() => null);
+    renderHook(() => useStudioAccess(undefined, fetchImpl));
+    await act(async () => {
+      jest.advanceTimersByTime(FOCUS_REFRESH_MS);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(calls).toEqual([]);
+  });
+
+  test("the moment the answer names, Val Build is asked again", async () => {
+    const soon = new Date(NOW.getTime() + 10 * 60_000).toISOString();
+    const { calls, fetchImpl } = counting(() => ({
+      ...studioAccessBody("access-free-at-limit", "owner"),
+      limits: {
+        ...ACCESS_FIXTURES["access-free-at-limit"],
+        changes: {
+          ...ACCESS_FIXTURES["access-free-at-limit"].changes,
+          nextAt: soon,
+        },
+      },
+    }));
+    renderHook(() => useStudioAccess("acme/website", fetchImpl));
+    await flush();
+    expect(calls).toHaveLength(1);
+    await act(async () => {
+      jest.advanceTimersByTime(10 * 60_000 - 1000);
+    });
+    expect(calls).toHaveLength(1);
+    await act(async () => {
+      jest.advanceTimersByTime(10_000);
+    });
+    expect(calls).toHaveLength(2);
+  });
+
+  test("which moments count, and how long is waited for them", () => {
+    const now = NOW.getTime();
+    expect(
+      nextChangeAt(accessOf("access-free-at-limit", "owner"), null, now),
+    ).toBe(Date.parse("2026-10-14T12:00:00.000Z"));
+    expect(
+      nextChangeAt(accessOf("access-hosted-trial-over", "owner"), null, now),
+    ).toBe(Date.parse("2026-10-22T12:00:00.000Z"));
+    expect(
+      nextChangeAt(accessOf("access-hosted-trial", "owner"), null, now),
+    ).toBe(Date.parse("2026-10-21T12:00:00.000Z"));
+    expect(nextChangeAt(accessOf("access-pro", "owner"), null, now)).toBeNull();
+    // A moment already past is not waited for.
+    expect(
+      nextChangeAt(
+        accessOf("access-free-at-limit", "owner"),
+        null,
+        Date.parse("2026-10-15T00:00:00Z"),
+      ),
+    ).toBeNull();
+    expect(scheduledDelay(now + 1000, now)).toBe(MIN_SCHEDULED_REFRESH_MS);
+    expect(scheduledDelay(now + 60 * 60_000, now)).toBe(60 * 60_000 + 5000);
+    expect(scheduledDelay(now + 30 * 86_400_000, now)).toBe(6 * 60 * 60_000);
+  });
+
+  test("a refusal a fresh answer no longer backs goes; one it does, stays", async () => {
+    let body: unknown = studioAccessBody("access-free-warn", "owner");
+    const { fetchImpl } = counting(() => body);
+    const { result } = renderHook(() =>
+      useStudioAccess("acme/website", fetchImpl),
+    );
+    await flush();
+    // The owner upgraded while the refusal was on its way back.
+    body = studioAccessBody("access-pro", "owner");
+    act(() => {
+      reportPlanRefusal(REFUSED_FIXTURES["refused-limit-changes"]);
+    });
+    expect(result.current.refusal?.code).toBe("limit:changes");
+    await flush();
+    expect(result.current.access?.limits?.plan).toBe("pro");
+    expect(result.current.refusal).toBeNull();
+
+    // Free refuses remote files all the time, so that refusal stays.
+    body = studioAccessBody("access-free", "owner");
+    await act(async () => {
+      jest.advanceTimersByTime(REFRESH_WINDOW_MS);
+    });
+    act(() => {
+      reportPlanRefusal(REFUSED_FIXTURES["refused-plan-remote-files"]);
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(REFRESH_WINDOW_MS);
+    });
+    await flush();
+    expect(result.current.access?.limits?.plan).toBe("free");
+    expect(result.current.refusal?.code).toBe("plan:remote-files");
+  });
+
+  test("the notice's times move with the clock, and never name a moment gone by", async () => {
+    const soon = new Date(NOW.getTime() + 90_000).toISOString();
+    const body = {
+      ...studioAccessBody("access-free-at-limit", "owner"),
+      limits: {
+        ...ACCESS_FIXTURES["access-free-at-limit"],
+        refused: {
+          edit: { code: "limit:changes", fix: "upgrade", until: soon },
+        },
+        changes: {
+          ...ACCESS_FIXTURES["access-free-at-limit"].changes,
+          nextAt: soon,
+        },
+      },
+    };
+    const { fetchImpl } = counting(() => body);
+    const { result } = renderHook(() => {
+      const state = useStudioAccess("acme/website", fetchImpl);
+      return usePlanNotice(state, { project: "website" });
+    });
+    await flush();
+    expect(result.current.notice?.body).toMatch(/Editing opens again today at/);
+    await act(async () => {
+      jest.advanceTimersByTime(2 * 60_000);
+    });
+    expect(result.current.notice?.body).toContain(
+      "Editing opens again in a moment,",
+    );
+  });
+});
+
+describe("a toast that is Val Build's refusal asks again", () => {
+  const refusalText = REFUSED_FIXTURES["refused-limit-changes"].message;
+  type Errors = { id: string; message: string; details?: string }[];
+
+  const mount = (initial: Errors, loaded = true) => {
+    const refresh = jest.fn();
+    const access = loaded ? accessOf("access-free-warn", "owner") : null;
+    const hook = renderHook(
+      ({ errors, access }) =>
+        useRefusalToastRefresh(errors, { access, refresh }),
+      { initialProps: { errors: initial, access } },
+    );
+    return { refresh, hook, access };
+  };
+
+  test("only a new error naming Billing, once", () => {
+    const old = { id: "a", message: "Could not save", details: refusalText };
+    const { refresh, hook, access } = mount([old]);
+    // There when the Studio opened: not asked about.
+    expect(refresh).not.toHaveBeenCalled();
+    const blip = { id: "b", message: "Network error", details: "fetch failed" };
+    hook.rerender({ errors: [old, blip], access });
+    expect(refresh).not.toHaveBeenCalled();
+    const refused = {
+      id: "c",
+      message: "Could not save",
+      details: refusalText,
+    };
+    hook.rerender({ errors: [old, blip, refused], access });
+    expect(refresh).toHaveBeenCalledTimes(1);
+    // A dismissal changes the list, not the errors.
+    hook.rerender({ errors: [refused], access });
+    hook.rerender({ errors: [refused], access });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  test("not before /access has answered", () => {
+    const { refresh, hook } = mount([], false);
+    hook.rerender({
+      errors: [{ id: "a", message: "x", details: refusalText }],
+      access: null,
+    });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+});
+
+describe("links from a refusal", () => {
+  test("only http(s) is kept", () => {
+    expect(
+      parsePlanRefusal({
+        message: "No",
+        error: {
+          code: "limit:changes",
+          fix: "upgrade",
+          billingUrl: "javascript:alert(1)",
+        },
+      })?.billingUrl,
+    ).toBeNull();
+    // An unknown code with no usable link is not taken for a plan refusal.
+    expect(
+      parsePlanRefusal({
+        error: { code: "limit:seats", billingUrl: "javascript:alert(1)" },
+      }),
+    ).toBeNull();
+    const notice = planNoticesOf(
+      null,
+      parsePlanRefusal({
+        error: {
+          code: "limit:changes",
+          fix: "upgrade",
+          billingUrl: "javascript:alert(1)",
+        },
+      }),
+      CTX,
+    )[0];
+    expect(notice?.action).toBeNull();
+  });
+});
+
+describe("the words", () => {
+  test("a project the Studio cannot name reads right mid-sentence", () => {
+    const at = { ...CTX, project: null };
+    expect(
+      planNoticesOf(accessOf("access-free-at-limit", "owner"), null, at)[0]
+        ?.title,
+    ).toBe("This project has used this week's 1,000 changes");
+    expect(
+      planNoticesOf(accessOf("access-hosted-trial-over", "owner"), null, at)[0]
+        ?.title,
+    ).toBe("The trial for this project has ended");
+  });
+
+  test("counts agree with their nouns", () => {
+    const body = studioAccessBody("access-hosted-trial", "editor");
+    const limits = ACCESS_FIXTURES["access-hosted-trial"];
+    const access = parseStudioAccess({
+      ...body,
+      limits: { ...limits, trial: { ...limits.trial, daysLeft: 1 } },
+    });
+    const status = planStatusOf(access, "website");
+    expect(status && planStatusParts(status, { locale: "en-GB" })[0]).toBe(
+      "1 day left",
+    );
+    expect(
+      status?.kind === "trial" && mailtoOf(status.action?.href ?? "").body,
+    ).toContain("with 1 day left");
+    const one = planNoticesOf(
+      accessOf("access-hosted-trial-publishes-used", "owner"),
+      null,
+      { ...CTX, changesWaiting: 1 },
+    )[0];
+    expect(one?.aside).toBe("1 change waiting");
+    const free = parseStudioAccess({
+      ...studioAccessBody("access-free-warn", "owner"),
+      limits: {
+        ...ACCESS_FIXTURES["access-free-warn"],
+        changes: { ...ACCESS_FIXTURES["access-free-warn"].changes, left: 1 },
+      },
+    });
+    const freeStatus = planStatusOf(free, "website");
+    expect(
+      freeStatus && planStatusParts(freeStatus, { locale: "en-GB" })[0],
+    ).toBe("1 change left this week");
+  });
+
+  test("the read-only card offers the project page when no owner can be named", () => {
+    render(
+      <ReadOnlyCard
+        access={{
+          access: "read-only",
+          reason: "payment-failed",
+          billingUrl: BILLING_URL,
+          org: "acme",
+          canFix: false,
+          owners: [],
+        }}
+        projectUrl={PROJECT_URL}
+      />,
+    );
+    expect(
+      screen
+        .getByRole("link", { name: /Open in Val Build/ })
+        .getAttribute("href"),
+    ).toBe(PROJECT_URL);
   });
 });

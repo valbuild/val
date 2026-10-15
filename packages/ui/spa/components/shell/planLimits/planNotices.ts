@@ -1,11 +1,12 @@
 import type { PlanFix, PlanRefusal } from "../../../utils/planRefusal";
 import {
   fixAction,
-  formatCount,
   formatDay,
   formatShare,
   formatWhen,
   meterName,
+  plural,
+  projectNames,
   usageMonth,
   viewerOf,
   whoCanFix,
@@ -65,8 +66,11 @@ export type PlanNotice = {
 };
 
 export type PlanNoticeContext = PlanFormat & {
-  /** The project's own name: `website` of `acme/website`. */
-  project: string;
+  /**
+   * The project's own name: `website` of `acme/website`. Null when the
+   * Studio does not know it, and the notices say "this project".
+   */
+  project: string | null;
   /** This user's changes waiting to be published, if known. */
   changesWaiting?: number;
 };
@@ -76,10 +80,16 @@ type Source = { refusal: LimitRefusal; details: string | null } & (
   | { from: "refusal" }
 );
 
-function readOnlyNotice(
+/**
+ * The organization's read-only notice (a failed payment): `readOnlyCopy`'s
+ * words, and -- for someone who cannot fix it and has no owners to write to
+ * -- the project's page in Val Build, where the owners are listed, rather
+ * than no button. `ReadOnlyCard` is this.
+ */
+export function readOnlyNotice(
   readOnly: ReadOnlyAccess,
-  viewer: Viewer,
-  dismiss: PlanNotice["dismiss"],
+  projectUrl: string | null,
+  dismiss: PlanNotice["dismiss"] = null,
 ): PlanNotice {
   const copy = readOnlyCopy(readOnly);
   return {
@@ -92,12 +102,8 @@ function readOnlyNotice(
     action:
       copy.action ??
       // No owners to write to: their names are on the project's page.
-      (viewer.projectUrl !== null
-        ? {
-            label: "Open in Val Build",
-            href: viewer.projectUrl,
-            external: true,
-          }
+      (projectUrl !== null
+        ? { label: "Open in Val Build", href: projectUrl, external: true }
         : null),
     aside: null,
     meter: null,
@@ -145,7 +151,7 @@ function readOnlyFrom(
       canFix: viewer.canFix !== false,
       owners: viewer.owners,
     },
-    viewer,
+    viewer.projectUrl,
     dismiss,
   );
 }
@@ -172,9 +178,10 @@ function changesNotice(
   ctx: PlanNoticeContext,
 ): PlanNotice {
   const changes = access?.limits?.changes ?? null;
-  const limit = formatCount(changes?.limit ?? 1000, ctx);
+  const limit = plural(changes?.limit ?? 1000, "change", "changes", ctx);
   const until = source.refusal.until ?? changes?.nextAt ?? null;
-  const title = `${ctx.project} has used this week's ${limit} changes`;
+  const named = projectNames(ctx.project);
+  const title = `${named.start} has used this week's ${limit}`;
   const reopens =
     until === null
       ? "Editing opens again as last week's changes drop out of the 7 days."
@@ -188,7 +195,7 @@ function changesNotice(
       `Everything so far is saved. ${reopens} Pro has no limit.` +
       whoCanFix(viewer, source.refusal.fix),
     action: fixAction(viewer, source.refusal.fix, {
-      subject: `${ctx.project} has used this week's ${limit} changes`,
+      subject: title,
       why: `${title} on the Free plan, so it cannot be edited until older changes drop out of the 7 days. Pro has no limit.`,
     }),
     meter: changes === null ? 1 : Math.min(changes.used / changes.limit, 1),
@@ -211,12 +218,13 @@ function trialOverNotice(
         ? " The site is paused for visitors."
         : ` The site keeps running until ${formatDay(pauseAt, ctx)}, and is paused after that.`;
   const owner = viewer.canFix !== false;
+  const named = projectNames(ctx.project);
   return {
     ...base("trial-over", 1, source),
     tone: "warning",
     icon: owner ? "alert" : "lock",
     title: owner
-      ? `The trial for ${ctx.project} has ended`
+      ? `The trial for ${named.mid} has ended`
       : "Editing is paused: the trial has ended",
     body:
       `The Studio is read-only.${site}` +
@@ -228,8 +236,8 @@ function trialOverNotice(
             : " Add a card to keep both."
         : whoCanFix(viewer, source.refusal.fix)),
     action: fixAction(viewer, source.refusal.fix, {
-      subject: `The trial for ${ctx.project} has ended`,
-      why: `The trial for ${ctx.project} has ended, so its Studio is read-only.${site}`,
+      subject: `The trial for ${named.mid} has ended`,
+      why: `The trial for ${named.mid} has ended, so its Studio is read-only.${site}`,
     }),
   };
 }
@@ -247,11 +255,13 @@ function trialPublishesNotice(
       : null;
   const owner = viewer.canFix !== false;
   const waiting = ctx.changesWaiting ?? 0;
+  const named = projectNames(ctx.project);
+  const publishes = plural(TRIAL_PUBLISHES, "publish", "publishes", ctx);
   return {
     ...base("trial-publishes", 2, source),
     tone: "info",
     icon: "info",
-    title: `The trial's ${TRIAL_PUBLISHES} publishes are used`,
+    title: `The trial's ${publishes} are used`,
     body: owner
       ? "Keep editing: your changes are saved and will go out with your next publish. Add a card to publish again." +
         (endsAt === null
@@ -260,16 +270,16 @@ function trialPublishesNotice(
       : "Keep editing: your changes are saved and will go out with the next publish." +
         whoCanFix(viewer, source.refusal.fix),
     action: fixAction(viewer, source.refusal.fix, {
-      subject: `${ctx.project}: the trial's ${TRIAL_PUBLISHES} publishes are used`,
+      subject: `${named.start}: the trial's ${publishes} are used`,
       why:
-        `The trial for ${ctx.project} has used its ${TRIAL_PUBLISHES} publishes, so nothing more can be published until a card is added.` +
+        `The trial for ${named.mid} has used its ${publishes}, so nothing more can be published until a card is added.` +
         (endsAt === null
           ? ""
           : ` Nothing is charged before ${formatDay(endsAt, ctx)}.`),
     }),
     aside:
       waiting > 0
-        ? `${formatCount(waiting, ctx)} ${waiting === 1 ? "change" : "changes"} waiting`
+        ? `${plural(waiting, "change", "changes", ctx)} waiting`
         : null,
   };
 }
@@ -279,45 +289,60 @@ function remoteFilesNotice(
   viewer: Viewer,
   ctx: PlanNoticeContext,
 ): PlanNotice {
+  const named = projectNames(ctx.project);
   return {
     ...base("plan:remote-files", 3, source),
     tone: "warning",
     icon: "alert",
     title: "Remote files are part of Pro",
     body:
-      `${ctx.project} is on the Free plan, so new images and files cannot be uploaded to Val's remote storage. Text edits save and publish as normal.` +
+      `${named.start} is on the Free plan, so new images and files cannot be uploaded to Val's remote storage. Text edits save and publish as normal.` +
       whoCanFix(viewer, source.refusal.fix),
     action: fixAction(viewer, source.refusal.fix, {
-      subject: `${ctx.project}: remote files are part of Pro`,
-      why: `${ctx.project} is on the Free plan, so new images and files cannot be uploaded to Val's remote storage.`,
+      subject: `${named.start}: remote files are part of Pro`,
+      why: `${named.start} is on the Free plan, so new images and files cannot be uploaded to Val's remote storage.`,
     }),
   };
 }
 
+/**
+ * Storage used up. From a refusal (a 403, or `/access` refusing uploads)
+ * uploads ARE refused, and it says so. From `usage.out` alone it may not be:
+ * Val Build lists a meter there whatever the project's over-usage policy,
+ * which `/access` does not send -- so it says what happens if the project
+ * is set to pause, and can be put away.
+ */
 function storageNotice(
   source: Source,
   usage: UsageSummary | null,
   viewer: Viewer,
   ctx: PlanNoticeContext,
+  refused: boolean,
 ): PlanNotice {
   const month = usageMonth(usage?.resetsAt ?? null, ctx);
+  const named = projectNames(ctx.project);
   const title =
     month === null
-      ? `${ctx.project} has used this month's included storage`
-      : `${ctx.project} has used ${month.month}'s included storage`;
+      ? `${named.start} has used this month's included storage`
+      : `${named.start} has used ${month.month}'s included storage`;
   const until = month === null ? "" : ` until ${month.resetDay}`;
+  const what = refused
+    ? `New files cannot be uploaded${until}, unless the project allows extra usage.`
+    : `If the project is set to pause, which is the default, new files cannot be uploaded${until}. Allowing extra usage lifts that.`;
+  const common = base("usage:storage", 3, source);
   return {
-    ...base("usage:storage", 3, source),
+    ...common,
     tone: "warning",
     icon: "alert",
     title,
     body:
-      `New files cannot be uploaded${until}, unless the project allows extra usage. Text edits save and publish as normal.` +
+      `${what} Text edits save and publish as normal.` +
       whoCanFix(viewer, source.refusal.fix),
     action: fixAction(viewer, source.refusal.fix, {
       subject: title,
-      why: `${title}, so new files cannot be uploaded${until}.`,
+      why: `${title}. ${what}`,
     }),
+    dismiss: refused ? common.dismiss : "session",
   };
 }
 
@@ -328,25 +353,26 @@ function unknownNotice(
   viewer: Viewer,
   ctx: PlanNoticeContext,
 ): PlanNotice {
+  const project = projectNames(ctx.project).mid;
   const copy = {
     edit: {
       title: "Editing is paused",
-      body: `Val Build is not accepting changes to ${ctx.project} right now, because of its plan.`,
+      body: `Val Build is not accepting changes to ${project} right now, because of its plan.`,
       rank: 1,
     },
     publish: {
       title: "Publishing is paused",
-      body: `Val Build is not publishing ${ctx.project} right now, because of its plan. Your changes stay saved.`,
+      body: `Val Build is not publishing ${project} right now, because of its plan. Your changes stay saved.`,
       rank: 2,
     },
     remoteFiles: {
       title: "Uploads are paused",
-      body: `Val Build is not accepting new files for ${ctx.project} right now, because of its plan. Text edits save and publish as normal.`,
+      body: `Val Build is not accepting new files for ${project} right now, because of its plan. Text edits save and publish as normal.`,
       rank: 3,
     },
     unknown: {
       title: "Val Build refused a change",
-      body: `Val Build refused a change to ${ctx.project} because of its plan.`,
+      body: `Val Build refused a change to ${project} because of its plan.`,
       rank: 1,
     },
   }[write];
@@ -357,7 +383,7 @@ function unknownNotice(
     title: copy.title,
     body: copy.body + whoCanFix(viewer, source.refusal.fix),
     action: fixAction(viewer, source.refusal.fix, {
-      subject: `${ctx.project}: ${copy.title.toLowerCase()}`,
+      subject: `${projectNames(ctx.project).start}: ${copy.title.toLowerCase()}`,
       why: copy.body,
     }),
   };
@@ -383,7 +409,13 @@ function refusalNotice(
     case "plan:remote-files":
       return remoteFilesNotice(source, viewer, ctx);
     case "usage:storage":
-      return storageNotice(source, access?.limits?.usage ?? null, viewer, ctx);
+      return storageNotice(
+        source,
+        access?.limits?.usage ?? null,
+        viewer,
+        ctx,
+        true,
+      );
     case "other":
       return unknownNotice(write, source, viewer, ctx);
   }
@@ -398,17 +430,20 @@ function usageOutNotice(
 ): PlanNotice | null {
   if (!usage.out.some((meter) => TRAFFIC_METERS.includes(meter))) return null;
   const month = usageMonth(usage.resetsAt, ctx);
+  const named = projectNames(ctx.project);
   const title =
     month === null
-      ? `${ctx.project} has used this month's included traffic`
-      : `${ctx.project} has used ${month.month}'s included traffic`;
+      ? `${named.start} has used this month's included traffic`
+      : `${named.start} has used ${month.month}'s included traffic`;
   const until = month === null ? "" : ` until ${month.resetDay}`;
   /*
    * Whether the site is paused depends on the project's over-usage policy,
-   * which `/access` does not send: pausing is the default, and a project set
-   * to allow extra usage keeps running. So this says both, and the button
-   * goes to where the policy is set.
+   * which `/access` does not send -- and Val Build lists a meter in `out`
+   * whatever the policy is. Pausing is the default, so this says what
+   * happens then, and goes where the policy is set. Dismissible, since it
+   * may be about a site that was set never to pause.
    */
+  const what = `If the project is set to pause, which is the default, visitors see a paused page${until}.`;
   return {
     id: "usage:out",
     rank: 4,
@@ -416,16 +451,16 @@ function usageOutNotice(
     icon: "pause",
     title,
     body:
-      `Unless the project allows extra usage, visitors see a paused page${until}. The Studio still works and your changes are saved.` +
+      `${what} Allowing extra usage keeps the site running. The Studio still works and your changes are saved.` +
       whoCanFix(viewer, ALLOW_USAGE),
     action: fixAction(viewer, ALLOW_USAGE, {
       subject: title,
-      why: `${title}. Unless the project allows extra usage, visitors see a paused page${until}.`,
+      why: `${title}. ${what}`,
     }),
     aside: null,
     meter: 1,
     details: null,
-    dismiss: null,
+    dismiss: "session",
   };
 }
 
@@ -440,10 +475,11 @@ function usageWarnNotice(
   if (fullest === undefined) return null;
   const month = usageMonth(usage.resetsAt, ctx);
   const share = formatShare(fullest.share, ctx);
+  const named = projectNames(ctx.project);
   const title =
     month === null
-      ? `${ctx.project} has used ${share} of this month's ${meterName(fullest.meter)}`
-      : `${ctx.project} has used ${share} of ${month.month}'s ${meterName(fullest.meter)}`;
+      ? `${named.start} has used ${share} of this month's ${meterName(fullest.meter)}`
+      : `${named.start} has used ${share} of ${month.month}'s ${meterName(fullest.meter)}`;
   const until = month === null ? "" : ` until ${month.resetDay}`;
   const runsOut = STORAGE_METERS.includes(fullest.meter)
     ? `If it runs out, new files cannot be uploaded${until}, unless the project allows extra usage.`
@@ -501,7 +537,7 @@ export function planNoticesOf(
     }
   };
   if (access?.plan?.access === "read-only") {
-    push(readOnlyNotice(access.plan, viewer, null));
+    push(readOnlyNotice(access.plan, viewer.projectUrl, null));
   }
   const limits = access?.limits ?? null;
   if (limits !== null) {
@@ -571,6 +607,7 @@ export function planNoticesOf(
             limits.usage,
             viewer,
             ctx,
+            false,
           ),
         );
       }
