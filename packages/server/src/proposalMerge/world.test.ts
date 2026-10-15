@@ -39,11 +39,11 @@ describe("a proposal", () => {
     const w = await world([home]);
     const summer = w.openProposal("Summer campaign", { by: "ola" });
     await summer.patch(home, [set(["title"], "Summer sale")]);
-    expect(w.whereIs("ola-1")).toBe("in “Summer campaign”");
+    expect(w.whereIs("ola-1")).toBe(`in ${summer.id}`);
 
     await summer.save();
 
-    expect(w.whereIs("ola-1")).toBe("saved in “Summer campaign”");
+    expect(w.whereIs("ola-1")).toBe(`saved in ${summer.id}`);
     expect(w.proposalFile(summer, home.file)).toContain(`"Summer sale"`);
     expect(await w.proposalPage(summer, home)).toMatchObject({
       title: "Summer sale",
@@ -94,6 +94,27 @@ describe("a proposal", () => {
     await summer.patch(home, [set(["title"], "Summer sale")]);
     await summer.save();
     expect(w.buildRequired(summer)).toBe(false);
+  });
+
+  test("a rename changes the title and nothing else", async () => {
+    const home = homePage();
+    const w = await world([home]);
+    const summer = w.openProposal("Summer campaign", { by: "ola" });
+    await summer.patch(home, [set(["title"], "Summer sale")]);
+    summer.rename("Summer sale, take two");
+
+    expect(w.proposals()).toEqual([
+      {
+        id: summer.id,
+        title: "Summer sale, take two",
+        owners: ["ola"],
+        base: w.siteHead(),
+        changes: ["ola-1"],
+        status: "open",
+      },
+    ]);
+    await summer.save();
+    expect(await w.publish(summer)).toMatchObject({ status: "published" });
   });
 
   test("Publish with unsaved changes is refused", async () => {

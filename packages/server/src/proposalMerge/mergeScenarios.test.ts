@@ -1,4 +1,4 @@
-import { world } from "./world";
+import { world, type PublishOutcome } from "./world";
 import { valModulesFile, page } from "./project";
 import {
   aboutPage,
@@ -26,7 +26,19 @@ import {
  * world itself is tested in `world.test.ts`.
  */
 
-const MOVED = "Moved when “Summer campaign” was published";
+/** A publish that moved the site's conflicting changes into one proposal. */
+const MOVED_ONE = { status: "published", moved: [expect.any(String)] };
+
+/**
+ * The proposal a publish moved changes into, by its id. Its title is a
+ * starting point anyone may change, so no scenario reads it.
+ */
+function movedInto(outcome: PublishOutcome) {
+  if (outcome.status !== "published" || outcome.moved.length !== 1) {
+    throw new Error(`expected one moved proposal: ${JSON.stringify(outcome)}`);
+  }
+  return { id: outcome.moved[0] };
+}
 
 // --- publishing over the site's pending changes -----------------------------------
 //
@@ -98,7 +110,8 @@ describe("publishing a proposal over the site's pending changes", () => {
       const published = await w.publish(summer);
 
       // Ola is not blocked, and has nothing to resolve.
-      expect(published).toMatchObject({ status: "published", moved: [MOVED] });
+      expect(published).toMatchObject(MOVED_ONE);
+      const moved = movedInto(published);
       expect(await w.site.page(home)).toMatchObject({ title: "Summer sale" });
       // Kari's change is no longer pending, where the site's next Publish
       // would have silently put "Spring sale" back over Ola's title.
@@ -106,23 +119,24 @@ describe("publishing a proposal over the site's pending changes", () => {
       expect(await w.site.draft(home)).toMatchObject({ title: "Summer sale" });
       // It is in a proposal Kari owns, standing on the site before the merge.
       expect(w.proposals()).toEqual([
-        expect.objectContaining({ name: "Summer campaign", status: "merged" }),
+        expect.objectContaining({ title: "Summer campaign", status: "merged" }),
         {
-          name: MOVED,
+          id: moved.id,
+          title: expect.any(String),
           owners: ["kari"],
           base: published.status === "published" ? published.before : "",
           changes: ["kari-1"],
           status: "open",
         },
       ]);
-      expect(await w.proposalPage({ name: MOVED }, home)).toMatchObject({
+      expect(await w.proposalPage(moved, home)).toMatchObject({
         title: "Spring sale",
       });
     },
   );
 
   test.failing(
-    "3b. same field, same value: nothing conflicts, and Kari's change stays",
+    "3b. same field, same value: still a conflict, so Kari's change moves too -- easy to resolve, both sides agree",
     async () => {
       const home = homePage();
       const w = await world([home]);
@@ -131,8 +145,8 @@ describe("publishing a proposal over the site's pending changes", () => {
       await summer.save();
       await w.onSite("kari").patch(home, [set(["title"], "Summer sale")]);
 
-      expect(await w.publish(summer)).toMatchObject({ moved: [] });
-      expect(w.site.pending()).toEqual(["kari-1"]);
+      expect(await w.publish(summer)).toMatchObject(MOVED_ONE);
+      expect(w.site.pending()).toEqual([]);
     },
   );
 
@@ -151,14 +165,15 @@ describe("publishing a proposal over the site's pending changes", () => {
           set(["subtitle"], "Fresh for spring"),
         ]);
 
-      expect(await w.publish(summer)).toMatchObject({ moved: [MOVED] });
+      const published = await w.publish(summer);
+      expect(published).toMatchObject(MOVED_ONE);
 
       expect(await w.site.draft(home)).toEqual({
         title: "Summer sale",
         subtitle: "Everything must go",
         hero: "a.png",
       });
-      expect(await w.proposalPage({ name: MOVED }, home)).toEqual({
+      expect(await w.proposalPage(movedInto(published), home)).toEqual({
         title: "Spring sale",
         subtitle: "Fresh for spring",
         hero: "a.png",
@@ -180,7 +195,7 @@ describe("publishing a proposal over the site's pending changes", () => {
         .onSite("kari")
         .patch(sections, [add(["sections", "3"], { text: "Contact" })]);
 
-      expect(await w.publish(summer)).toMatchObject({ moved: [MOVED] });
+      expect(await w.publish(summer)).toMatchObject(MOVED_ONE);
       expect(await w.site.page(sections)).toEqual({
         sections: [{ text: "Gallery" }, { text: "Hero" }, { text: "Text" }],
       });
@@ -221,7 +236,7 @@ describe("publishing a proposal over the site's pending changes", () => {
         .onSite("kari")
         .patch(sections, [add(["sections", "0"], { text: "Banner" })]);
 
-      expect(await w.publish(summer)).toMatchObject({ moved: [MOVED] });
+      expect(await w.publish(summer)).toMatchObject(MOVED_ONE);
       expect(await w.site.page(sections)).toEqual({
         sections: [{ text: "Hero" }, { text: "Story" }, { text: "Gallery" }],
       });
@@ -246,12 +261,13 @@ describe("publishing a proposal over the site's pending changes", () => {
         .onSite("per")
         .patch(sections, [set(["sections", "3", "text"], "Contact us")]);
 
-      expect(await w.publish(summer)).toMatchObject({ moved: [MOVED] });
+      const published = await w.publish(summer);
+      expect(published).toMatchObject(MOVED_ONE);
       expect(w.proposals()[1]).toMatchObject({
         owners: ["kari", "per"],
         changes: ["kari-1", "per-1"],
       });
-      expect(await w.proposalPage({ name: MOVED }, sections)).toEqual({
+      expect(await w.proposalPage(movedInto(published), sections)).toEqual({
         sections: [
           { text: "Hero" },
           { text: "Text" },
@@ -273,11 +289,35 @@ describe("publishing a proposal over the site's pending changes", () => {
       await w.onSite("kari").patch(home, [set(["title"], "Spring sale")]);
       await w.onSite("per").patch(home, [set(["title"], "Easter sale")]);
 
-      expect(await w.publish(summer)).toMatchObject({ moved: [MOVED] });
+      expect(await w.publish(summer)).toMatchObject(MOVED_ONE);
       expect(w.proposals()[1]).toMatchObject({
         owners: ["kari", "per"],
         changes: ["kari-1", "per-1"],
       });
+    },
+  );
+
+  test.failing(
+    "two patch sets in conflict, by two editors: a proposal for each, owned by its authors",
+    async () => {
+      const home = homePage();
+      const w = await world([home]);
+      const summer = w.openProposal("Summer campaign", { by: "ola" });
+      await summer.patch(home, [
+        set(["title"], "Summer sale"),
+        set(["subtitle"], "Hot deals"),
+      ]);
+      await summer.save();
+      await w.onSite("kari").patch(home, [set(["title"], "Spring sale")]);
+      await w.onSite("per").patch(home, [set(["subtitle"], "Fresh deals")]);
+
+      expect(await w.publish(summer)).toMatchObject({
+        moved: [expect.any(String), expect.any(String)],
+      });
+      expect(w.proposals().slice(1)).toEqual([
+        expect.objectContaining({ owners: ["kari"], changes: ["kari-1"] }),
+        expect.objectContaining({ owners: ["per"], changes: ["per-1"] }),
+      ]);
     },
   );
 
@@ -292,7 +332,7 @@ describe("publishing a proposal over the site's pending changes", () => {
       await w.onSite("kari").patch(home, [set(["title"], "Spring sale")]);
       await w.onSite("per").patch(home, [set(["hero"], "b.png")]);
 
-      expect(await w.publish(summer)).toMatchObject({ moved: [MOVED] });
+      expect(await w.publish(summer)).toMatchObject(MOVED_ONE);
       expect(w.site.pending()).toEqual(["per-1"]);
       expect(w.proposals()[1]).toMatchObject({ changes: ["kari-1"] });
     },
@@ -324,7 +364,7 @@ describe("publishing a proposal over the site's pending changes", () => {
       "a pending change to the same field of the same entry moves",
       async () => {
         const { w, summer } = await scenario([[["product-1", "price"], 90]]);
-        expect(await w.publish(summer)).toMatchObject({ moved: [MOVED] });
+        expect(await w.publish(summer)).toMatchObject(MOVED_ONE);
       },
     );
 
@@ -351,7 +391,7 @@ describe("publishing a proposal over the site's pending changes", () => {
         await summer.save();
         await w.onSite("kari").patch(products, [remove(["product-1"])]);
 
-        expect(await w.publish(summer)).toMatchObject({ moved: [MOVED] });
+        expect(await w.publish(summer)).toMatchObject(MOVED_ONE);
         expect(await w.site.draft(products)).toMatchObject({
           "product-1": { name: "Lamp", price: 120 },
         });
@@ -476,6 +516,38 @@ describe("publishing a proposal after the site published", () => {
       expect(await w.site.page(home)).toMatchObject({
         title: "Spring and summer sale",
       });
+    },
+  );
+
+  test.failing(
+    "the site published the same title: still a conflict, resolved by keeping either",
+    async () => {
+      const home = homePage();
+      const w = await world([home]);
+      const summer = w.openProposal("Summer campaign", { by: "ola" });
+      await summer.patch(home, [set(["title"], "Summer sale")]);
+      await summer.save();
+      await w.onSite("kari").patch(home, [set(["title"], "Summer sale")]);
+      await w.publishSite();
+
+      expect(await w.publish(summer)).toEqual({
+        status: "conflicts",
+        conflicts: [
+          {
+            kind: "field",
+            moduleFilePath: "/home.val.ts",
+            path: ["title"],
+            base: "Sale",
+            site: "Summer sale",
+            proposal: "Summer sale",
+          },
+        ],
+      });
+      await w.update(summer, [
+        { moduleFilePath: home.moduleFilePath, path: ["title"], keep: "site" },
+      ]);
+      expect(await w.publish(summer)).toMatchObject({ status: "published" });
+      expect(await w.site.page(home)).toMatchObject({ title: "Summer sale" });
     },
   );
 
@@ -678,9 +750,9 @@ describe("a proposal of moved changes", () => {
       await summer.patch(home, [set(["title"], "Summer sale")]);
       await summer.save();
       await w.onSite("kari").patch(home, [set(["title"], "Spring sale")]);
-      await w.publish(summer);
-
-      const moved = w.proposal(MOVED);
+      const moved = w.proposal(movedInto(await w.publish(summer)).id);
+      // Its title is a starting point: Kari names it.
+      moved.rename("Spring title");
       await moved.save();
       expect(await w.publish(moved)).toEqual({
         status: "conflicts",
@@ -718,7 +790,7 @@ describe("a proposal of moved changes", () => {
       await summer.save();
       await w.onSite("kari").patch(home, [set(["title"], "Spring sale")]);
       await w.onSite("per").patch(home, [set(["hero"], "b.png")]);
-      await w.publish(summer);
+      const moved = movedInto(await w.publish(summer));
 
       await w.publishSite();
       expect(await w.site.page(home)).toEqual({
@@ -726,7 +798,7 @@ describe("a proposal of moved changes", () => {
         subtitle: "Everything must go",
         hero: "b.png",
       });
-      expect(w.whereIs("kari-1")).toBe(`in “${MOVED}”`);
+      expect(w.whereIs("kari-1")).toBe(`in ${moved.id}`);
     },
   );
 });
@@ -802,6 +874,35 @@ describe("a proposal that changes code", () => {
       expect(w.buildRequired(summer)).toBe(true);
       expect(await w.publish(summer)).toMatchObject({ build: "built" });
       expect(w.site.file(HERO)).toBe(hero("brand huge"));
+    },
+  );
+
+  test.failing(
+    "the same change to a component on both sides: still a conflict",
+    async () => {
+      const home = homePage();
+      const w = await world([home], { [HERO]: hero("big") });
+      const summer = w.openProposal("Summer campaign", { by: "ola" });
+      summer.stage({ [HERO]: hero("huge") });
+      const brand = w.openProposal("Brand refresh", { by: "per" });
+      brand.stage({ [HERO]: hero("huge") });
+      await w.publish(brand);
+
+      expect(await w.publish(summer)).toEqual({
+        status: "conflicts",
+        conflicts: [
+          {
+            kind: "code",
+            file: HERO,
+            base: hero("big"),
+            site: hero("huge"),
+            proposal: hero("huge"),
+          },
+        ],
+      });
+      await w.update(summer, [{ file: HERO, keep: "site" }]);
+      expect(await w.publish(summer)).toMatchObject({ status: "published" });
+      expect(w.site.file(HERO)).toBe(hero("huge"));
     },
   );
 
@@ -921,7 +1022,7 @@ describe("a proposal that changes a schema", () => {
       await w.onSite("kari").patch(home, [set(["subtitle"], "Fresh deals")]);
       await w.onSite("per").patch(home, [set(["title"], "Spring sale")]);
 
-      expect(await w.publish(summer)).toMatchObject({ moved: [MOVED] });
+      expect(await w.publish(summer)).toMatchObject(MOVED_ONE);
       expect(w.site.pending()).toEqual(["per-1"]);
       expect(await w.site.draft(home)).toEqual({
         title: "Spring sale",
@@ -1062,7 +1163,7 @@ describe("a proposal that changes a schema", () => {
         .onSite("kari")
         .patch(products, [set(["product-2", "price"], 250)]);
 
-      expect(await w.publish(summer)).toMatchObject({ moved: [MOVED] });
+      expect(await w.publish(summer)).toMatchObject(MOVED_ONE);
       expect(w.site.pending()).toEqual([]);
     },
   );

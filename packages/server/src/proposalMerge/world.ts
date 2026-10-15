@@ -188,23 +188,25 @@ export async function world(pages: Page[], code: Files = {}) {
 
   // --- what editors, the assistant and content do ---------------------------------
 
-  const proposalHandle = (name: string) => {
-    const owner = () => c.proposal(name).owners[0];
+  const proposalHandle = (id: string) => {
+    const owner = () => c.proposal(id).owners[0];
     return {
-      name,
+      id,
       /** A change in the proposal, pending until saved. */
       patch: (page: Page, patch: Operation[]) =>
-        write(c.proposal(name).line, owner(), page, patch),
+        write(c.proposal(id).line, owner(), page, patch),
       /** Save: Val prepares the files, content commits them on the line. */
       async save() {
-        const { files, ids } = await prepareOn(c.proposal(name).line);
+        const { files, ids } = await prepareOn(c.proposal(id).line);
         if (ids.length === 0) return;
-        c.save(name, { files, saved: ids });
+        c.save(id, { files, saved: ids });
       },
       /** The assistant's `write_files`: code, staged in the proposal. */
-      stage: (files: Files) => c.stage(name, files),
+      stage: (files: Files) => c.stage(id, files),
+      /** Rename it: anyone may, and nothing depends on the title. */
+      rename: (title: string) => c.rename(id, title),
       /** Build, in the tab, of the proposal's code as it is now. */
-      build: () => c.build(name),
+      build: () => c.build(id),
     };
   };
   type ProposalHandle = ReturnType<typeof proposalHandle>;
@@ -214,10 +216,10 @@ export async function world(pages: Page[], code: Files = {}) {
    * `mergeFromSite`, and its merge commit to content.
    */
   const updateFromSite = async (
-    name: string,
+    id: string,
     resolutions: Resolution[],
   ): Promise<UpdateOutcome> => {
-    const proposal = c.proposal(name);
+    const proposal = c.proposal(id);
     const site = c.head(SITE).id;
     const result = await mergeFromSite({
       base: await projectAt(proposal.base),
@@ -226,7 +228,7 @@ export async function world(pages: Page[], code: Files = {}) {
       resolutions,
     });
     if (result.status === "conflicts") return result;
-    c.updateFromSite(name, {
+    c.updateFromSite(id, {
       siteHead: site,
       files: result.files,
       staged: result.code,
@@ -244,13 +246,13 @@ export async function world(pages: Page[], code: Files = {}) {
       };
     },
 
-    openProposal(name: string, options: { by: string }): ProposalHandle {
-      return proposalHandle(c.openProposal(name, options.by));
+    openProposal(title: string, options: { by: string }): ProposalHandle {
+      return proposalHandle(c.openProposal(title, options.by));
     },
 
-    /** A proposal by name: the moved ones too. */
-    proposal(name: string): ProposalHandle {
-      return proposalHandle(c.proposal(name).name);
+    /** A proposal by id: the moved ones too (`moved` in a publish's outcome). */
+    proposal(id: string): ProposalHandle {
+      return proposalHandle(c.proposal(id).id);
     },
 
     /**
@@ -259,13 +261,13 @@ export async function world(pages: Page[], code: Files = {}) {
      * names the site's pending changes the merge conflicts with, and content
      * merges: one commit on the site, those changes moved out.
      */
-    async publish(handle: { name: string }): Promise<PublishOutcome> {
-      const name = handle.name;
-      if (c.pending(c.proposal(name).line).length > 0) {
+    async publish(handle: { id: string }): Promise<PublishOutcome> {
+      const id = handle.id;
+      if (c.pending(c.proposal(id).line).length > 0) {
         throw new Error("the proposal has unsaved changes: save first");
       }
-      if (c.proposal(name).base !== c.head(SITE).id) {
-        const updated = await updateFromSite(name, []);
+      if (c.proposal(id).base !== c.head(SITE).id) {
+        const updated = await updateFromSite(id, []);
         if (updated.status === "conflicts") return updated;
       }
       const siteHead = c.head(SITE).id;
@@ -277,14 +279,14 @@ export async function world(pages: Page[], code: Files = {}) {
           ? []
           : await changesToMove({
               site: await projectAt(siteHead),
-              merged: await projectAt(c.head(c.proposal(name).line).id),
+              merged: await projectAt(c.head(c.proposal(id).line).id),
               pending: pending.map((patch) => ({
                 patchId: patch.patchId,
                 moduleFilePath: patch.path,
                 patch: patch.patch,
               })),
             });
-      const merged = c.merge(name, { siteHead, move });
+      const merged = c.merge(id, { siteHead, move });
       await check();
       return {
         status: "published",
@@ -296,8 +298,8 @@ export async function world(pages: Page[], code: Files = {}) {
     },
 
     /** Update from the site, with a resolution for every conflict. */
-    update(handle: { name: string }, resolutions: Resolution[] = []) {
-      return updateFromSite(handle.name, resolutions);
+    update(handle: { id: string }, resolutions: Resolution[] = []) {
+      return updateFromSite(handle.id, resolutions);
     },
 
     /** The site's own Publish: every pending change, through Val's prepare. */
@@ -331,20 +333,21 @@ export async function world(pages: Page[], code: Files = {}) {
     },
 
     /** A proposal's page, as its address shows it: its head and its pending changes. */
-    async proposalPage(handle: { name: string }, page: Page) {
-      return (await draftOn(c.proposal(handle.name).line)).sources[
+    async proposalPage(handle: { id: string }, page: Page) {
+      return (await draftOn(c.proposal(handle.id).line)).sources[
         page.moduleFilePath
       ];
     },
     /** A file in a proposal, as its line has it. */
-    proposalFile(handle: { name: string }, file: string) {
-      return c.head(c.proposal(handle.name).line).files[file] ?? null;
+    proposalFile(handle: { id: string }, file: string) {
+      return c.head(c.proposal(handle.id).line).files[file] ?? null;
     },
-    buildRequired: (handle: { name: string }) => c.buildRequired(handle.name),
+    buildRequired: (handle: { id: string }) => c.buildRequired(handle.id),
 
     proposals() {
       return c.proposals().map((proposal) => ({
-        name: proposal.name,
+        id: proposal.id,
+        title: proposal.title,
         owners: proposal.owners,
         base: proposal.base,
         changes: c.pending(proposal.line),

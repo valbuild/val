@@ -37,8 +37,18 @@ export type ContentPatch = StoredPatch & {
 };
 
 export type ContentProposal = {
-  name: string;
-  /** `val/p/<slug>`: the line its saves are commits on. */
+  /**
+   * What names it for good: home's `val_proposals.name`, a hash, never shown.
+   * Every reference to a proposal is by this.
+   */
+  id: string;
+  /**
+   * What people call it. Editable, and nothing depends on it: a moved
+   * proposal gets one written for it (AI may write a better one), and anyone
+   * may change it.
+   */
+  title: string;
+  /** `val/p/<id>`: the line its saves are commits on. */
   line: string;
   owners: string[];
   /** The site's commit it stands on: where it was opened, or last updated to. */
@@ -100,15 +110,15 @@ export function content(initial: Files, buildName: BuildName) {
     if (id === undefined) throw new Error(`no line ${line}`);
     return commitById(id);
   };
-  const proposalNamed = (name: string) => {
-    const found = proposals.find((proposal) => proposal.name === name);
-    if (!found) throw new Error(`no proposal ${name}`);
+  const proposalById = (id: string) => {
+    const found = proposals.find((proposal) => proposal.id === id);
+    if (!found) throw new Error(`no proposal ${id}`);
     return found;
   };
-  const openOnly = (name: string) => {
-    const proposal = proposalNamed(name);
+  const openOnly = (id: string) => {
+    const proposal = proposalById(id);
     if (proposal.status !== "open") {
-      throw new Error(`“${name}” is ${proposal.status}`);
+      throw new Error(`“${proposal.title}” is ${proposal.status}`);
     }
     return proposal;
   };
@@ -123,18 +133,12 @@ export function content(initial: Files, buildName: BuildName) {
     }
   };
   const files = new Map<string, StoredFile>();
-  /** A unique name: "Name", then "Name (2)". */
-  const freeName = (name: string) => {
-    let candidate = name;
-    for (let n = 2; proposals.some((p) => p.name === candidate); n++) {
-      candidate = `${name} (${n})`;
-    }
-    return candidate;
-  };
-  const open = (name: string, owners: string[], at: string) => {
+  const open = (title: string, owners: string[], at: string) => {
+    const id = `p${proposals.length + 1}`;
     const proposal: ContentProposal = {
-      name: freeName(name),
-      line: `val/p/${slug(name)}-${proposals.length + 1}`,
+      id,
+      title,
+      line: `val/p/${id}`,
       owners,
       base: at,
       status: "open",
@@ -151,7 +155,7 @@ export function content(initial: Files, buildName: BuildName) {
 
     head: (line: string) => headOf(line),
     commit: commitById,
-    proposal: proposalNamed,
+    proposal: proposalById,
     proposals: () => [...proposals],
     pending: (line: string) => pendingOn(line).map((patch) => patch.patchId),
     /** The build visitors are served. */
@@ -232,27 +236,32 @@ export function content(initial: Files, buildName: BuildName) {
 
     // --- proposals ------------------------------------------------------------
 
-    openProposal(name: string, owner: string) {
-      return open(name, [owner], headOf(SITE).id).name;
+    openProposal(title: string, owner: string) {
+      return open(title, [owner], headOf(SITE).id).id;
+    },
+
+    /** Rename: the title only. Its id, line and everything on it stay. */
+    rename(id: string, title: string) {
+      proposalById(id).title = title;
     },
 
     /**
      * Save: the proposal's pending changes, as the files Val prepared from
      * them, become a commit on its line.
      */
-    save(name: string, input: { files: Files; saved: PatchId[] }) {
-      const proposal = openOnly(name);
+    save(id: string, input: { files: Files; saved: PatchId[] }) {
+      const proposal = openOnly(id);
       const before = headOf(proposal.line);
-      const id = commit(proposal.line, [before.id], "Save", {
+      const saved = commit(proposal.line, [before.id], "Save", {
         ...before.files,
         ...input.files,
       });
-      apply(input.saved, id);
+      apply(input.saved, saved);
     },
 
     /** The assistant's `write_files`: code, written whole, as a commit. */
-    stage(name: string, files: Files) {
-      const proposal = openOnly(name);
+    stage(id: string, files: Files) {
+      const proposal = openOnly(id);
       const before = headOf(proposal.line);
       commit(proposal.line, [before.id], "Stage files", {
         ...before.files,
@@ -262,8 +271,8 @@ export function content(initial: Files, buildName: BuildName) {
     },
 
     /** Build: the proposal's code, built in the tab and stored by its name. */
-    build(name: string) {
-      const proposal = openOnly(name);
+    build(id: string) {
+      const proposal = openOnly(id);
       const built = buildName(headOf(proposal.line).files);
       builds.add(built);
       proposal.build = built;
@@ -271,8 +280,8 @@ export function content(initial: Files, buildName: BuildName) {
     },
 
     /** "Build required": staged code with no build of it. */
-    buildRequired(name: string) {
-      const proposal = proposalNamed(name);
+    buildRequired(id: string) {
+      const proposal = proposalById(id);
       return (
         proposal.staged.size > 0 &&
         proposal.build !== buildName(headOf(proposal.line).files)
@@ -284,10 +293,10 @@ export function content(initial: Files, buildName: BuildName) {
      * its second parent. The proposal now stands on that head.
      */
     updateFromSite(
-      name: string,
+      id: string,
       input: { siteHead: string; files: Files; staged: string[] },
     ) {
-      const proposal = openOnly(name);
+      const proposal = openOnly(id);
       if (headOf(SITE).id !== input.siteHead) {
         throw new Error("the site moved while the update was prepared");
       }
@@ -314,10 +323,10 @@ export function content(initial: Files, buildName: BuildName) {
      * whoever wrote them.
      */
     merge(
-      name: string,
+      id: string,
       input: { siteHead: string; move: PatchId[][] },
     ): { before: string; after: string; moved: string[]; build: MergeBuild } {
-      const proposal = openOnly(name);
+      const proposal = openOnly(id);
       const before = headOf(SITE);
       // Generic checks: no schema, no fields.
       if (before.id !== input.siteHead || proposal.base !== before.id) {
@@ -334,7 +343,7 @@ export function content(initial: Files, buildName: BuildName) {
       const after = commit(
         SITE,
         [before.id],
-        `Merge “${proposal.name}”`,
+        `Merge “${proposal.title}”`,
         headOf(proposal.line).files,
       );
       proposal.status = "merged";
@@ -342,10 +351,10 @@ export function content(initial: Files, buildName: BuildName) {
       if (proposal.staged.size > 0) {
         // Builds are named by their inputs: the proposal's own, if it is of
         // this code, and otherwise the merge builds it (in the tab).
-        const name = buildName(headOf(proposal.line).files);
-        build = proposal.build === name ? "reused" : "built";
-        builds.add(name);
-        served = name;
+        const code = buildName(headOf(proposal.line).files);
+        build = proposal.build === code ? "reused" : "built";
+        builds.add(code);
+        served = code;
       }
 
       const moved: string[] = [];
@@ -356,13 +365,14 @@ export function content(initial: Files, buildName: BuildName) {
         const owners = [
           ...new Set(group.map((patch) => patch.authorId ?? "unknown")),
         ];
+        // A title to start with. Nothing depends on it; see `title`.
         const into = open(
-          `Moved when “${proposal.name}” was published`,
+          `Moved when “${proposal.title}” was published`,
           owners,
           before.id,
         );
         for (const patch of group) patch.line = into.line;
-        moved.push(into.name);
+        moved.push(into.id);
       }
       return { before: before.id, after, moved, build };
     },
@@ -383,25 +393,18 @@ export function content(initial: Files, buildName: BuildName) {
       if (!proposal) return `lost: on ${row.line}`;
       if (proposal.status === "merged") {
         return row.appliedIn === null
-          ? `lost: unsaved in “${proposal.name}”, which was merged`
+          ? `lost: unsaved in ${proposal.id}, which was merged`
           : "published";
       }
       return row.appliedIn === null
-        ? `in “${proposal.name}”`
-        : `saved in “${proposal.name}”`;
+        ? `in ${proposal.id}`
+        : `saved in ${proposal.id}`;
     },
     allPatchIds: () => patches.map((patch) => patch.patchId),
   };
 }
 
 export type Content = ReturnType<typeof content>;
-
-function slug(name: string) {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
 
 /** Deleted files are not in a tree. */
 function tidy(files: Files): Files {
