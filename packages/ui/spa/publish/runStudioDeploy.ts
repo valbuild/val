@@ -541,6 +541,9 @@ export async function runStudioDeploy(
       commit: git?.commit ?? null,
       branch: git?.branch ?? null,
       layerRev: target.project.rev,
+      // The base layer this build was compiled against, so the platform can
+      // refuse it if it has been deployed since.
+      baseRev: build.vendorRev,
       linksOwnCss: build.linksOwnCss,
       artifacts: declared,
     },

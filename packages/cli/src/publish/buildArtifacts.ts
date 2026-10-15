@@ -38,6 +38,8 @@ export type BuiltArtifacts =
        * `undefined` when the layer artifact is in `dir`, which names it.
        */
       layerRev?: string | null;
+      /** The base layer this was built against: the build target's `base.rev`. */
+      baseRev: string;
       warnings: string[];
     }
   | { status: "error"; message: string };
@@ -370,6 +372,7 @@ export async function buildArtifacts(options: {
       buildHash: built.hash,
       linksOwnCss: built.linksOwnCss,
       ...(layerRev !== undefined ? { layerRev } : {}),
+      baseRev: target.base.rev,
       warnings,
     };
   } catch (e) {

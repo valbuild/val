@@ -81,6 +81,7 @@ type Report = {
     commit: string | null;
     branch: string | null;
     layerRev: string | null;
+    baseRev: string | null;
     linksOwnCss: boolean | null;
     keys: string[];
   }>;
@@ -166,6 +167,7 @@ async function publishOnce(
       commit: string | null;
       branch: string | null;
       layerRev: string | null;
+      baseRev?: string | null;
       linksOwnCss: boolean | null;
       artifacts: Array<{ key: string }>;
     };
@@ -174,6 +176,7 @@ async function publishOnce(
       commit: d.commit,
       branch: d.branch,
       layerRev: d.layerRev,
+      baseRev: d.baseRev ?? null,
       linksOwnCss: d.linksOwnCss,
       keys: d.artifacts.map((a) => a.key).sort(),
     };

@@ -20,6 +20,7 @@ type Declared = {
   commit: string | null;
   branch: string | null;
   layerRev: string | null;
+  baseRev: string | null;
   linksOwnCss: boolean | null;
   keys: string[];
 };
@@ -101,6 +102,9 @@ test("a layer content does not hold is built and sent, and named by its own rev"
   expect(fresh.declared[0]!.keys).toContain("layer");
   expect(fresh.uploadedLayerRev).toEqual(expect.any(String));
   expect(fresh.declared[0]!.layerRev).toBe(fresh.uploadedLayerRev);
+  // The base layer it was built against -- the fake's build target says
+  // "base" -- so the platform can refuse it if it has been deployed since.
+  expect(fresh.declared[0]!.baseRev).toBe("base");
 });
 
 test("a layer content already holds is named, not sent again", () => {
