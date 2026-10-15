@@ -44,20 +44,26 @@ export const MAX_SCHEDULED_REFRESH_MS = 6 * 60 * 60_000;
 const SCHEDULE_GRACE_MS = 5_000;
 
 /**
- * The soonest moment the answer (or a stored refusal) names at which it will
- * change by itself: Free's next change, a refused write's `until`, a trial's
- * end or the day its site pauses, a Hosted month's reset. Null when nothing
- * is due. Past moments are left out: the answer that named them is already
- * the one after.
+ * A moment that passed this recently, and that the answer still names, is
+ * asked about again every {@link FOCUS_REFRESH_MS}: the refresh at the moment
+ * failed, or this clock runs ahead of Val Build's, and a notice is meanwhile
+ * saying "in a moment". Older than this, it is not going to change by itself
+ * (a site that already paused), and asking again would be asking forever.
  */
-export function nextChangeAt(
+export const PAST_DUE_WINDOW_MS = 10 * 60_000;
+
+/**
+ * Every moment the answer (or a stored refusal) names at which it changes by
+ * itself: Free's next change, a refused write's `until`, a trial's end or the
+ * day its site pauses, a Hosted month's reset. The times the notices say.
+ */
+export function momentsNamed(
   access: StudioAccess | null,
   refusal: PlanRefusal | null,
-  now: number,
-): number | null {
+): number[] {
   const limits = access?.limits ?? null;
   const trial = limits?.trial ?? null;
-  const candidates = [
+  return [
     limits?.changes?.nextAt ?? null,
     limits?.refused.edit?.until ?? null,
     limits?.refused.publish?.until ?? null,
@@ -75,12 +81,27 @@ export function nextChangeAt(
   ]
     .filter((iso): iso is string => iso !== null)
     .map((iso) => Date.parse(iso))
-    .filter((at) => Number.isFinite(at) && at > now);
+    .filter((at) => Number.isFinite(at));
+}
+
+/**
+ * The soonest of {@link momentsNamed} worth asking about: one still to come,
+ * or one that passed within {@link PAST_DUE_WINDOW_MS}. Null when none is.
+ */
+export function nextChangeAt(
+  access: StudioAccess | null,
+  refusal: PlanRefusal | null,
+  now: number,
+): number | null {
+  const candidates = momentsNamed(access, refusal).filter(
+    (at) => at > now - PAST_DUE_WINDOW_MS,
+  );
   return candidates.length === 0 ? null : Math.min(...candidates);
 }
 
 /** How long to wait to ask about `at`, clamped to something sensible. */
 export function scheduledDelay(at: number, now: number): number {
+  if (at <= now) return FOCUS_REFRESH_MS;
   return Math.min(
     Math.max(at - now + SCHEDULE_GRACE_MS, MIN_SCHEDULED_REFRESH_MS),
     MAX_SCHEDULED_REFRESH_MS,
@@ -100,7 +121,12 @@ export function refusalStillTrue(
   switch (refusal.code) {
     case "read-only":
     case "payment-failed":
-      return access.plan?.access === "read-only" || refused.edit !== undefined;
+      // The organization's state, or the same refusal on the edit -- not any
+      // refused edit: a Free week used up is not a payment that failed.
+      return (
+        access.plan?.access === "read-only" ||
+        refused.edit?.code === refusal.code
+      );
     case "trial-publishes":
       return refused.publish !== undefined;
     case "plan:remote-files":
@@ -118,9 +144,15 @@ export function refusalStillTrue(
     case "trial-over":
       return refused.edit !== undefined;
     case "other":
-      // Which write it was about is not known: it stays while anything is.
+      // Which write it was about is not known: it stays while one is refused.
+      // Not for remote files on Free, which are refused always and so would
+      // keep it for good.
       return (
-        access.plan?.access === "read-only" || Object.keys(refused).length > 0
+        access.plan?.access === "read-only" ||
+        refused.edit !== undefined ||
+        refused.publish !== undefined ||
+        (refused.remoteFiles !== undefined &&
+          refused.remoteFiles.code !== "plan:remote-files")
       );
   }
 }
@@ -228,7 +260,9 @@ export function useStudioAccess(
     if (at === null) return;
     const timer = setTimeout(refresh, scheduledDelay(at, now));
     return () => clearTimeout(timer);
-  }, [connected, access, refusal, refresh]);
+    // `asked` too: a refresh that failed keeps the same answer, and the timer
+    // has to be armed again for it rather than spent.
+  }, [connected, access, refusal, refresh, asked]);
 
   const clearRefusal = useCallback(() => setRefusal(null), []);
   return { access, refusal, refresh, clearRefusal };
