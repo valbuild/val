@@ -5,10 +5,13 @@ import type { StudioAccessState } from "./useStudioAccess";
 /**
  * Ask Val Build again when an error the Studio reports is a refusal from it.
  *
- * A save refused through this app's proxy arrives as Val Build's sentence
- * alone -- the proxy keeps the words, not the code -- and every one of those
- * sentences names the organization's Billing (or the project's page). So an
- * error that does is a refusal, and `/access` says what is true now. Nothing
+ * A refusal that reaches the Studio as data (`reportPlanRefusal`: a save's
+ * `plan-refused` 403, a publish, an upload) asks by itself. This is for one
+ * that arrives as Val Build's sentence alone -- through an app whose
+ * `@valbuild/server` predates `plan-refused`, which keeps the words and not
+ * the code. Every one of those sentences names the organization's Billing
+ * (or the project's page), so an error that does is a refusal, and `/access`
+ * says what is true now. Nothing
  * else asks: on Free, `/access` takes Val Build's change-count lock, and a
  * network blip is no reason to.
  *
