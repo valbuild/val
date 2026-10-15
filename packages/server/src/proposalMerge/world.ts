@@ -1,216 +1,157 @@
-import {
-  initVal,
-  Internal,
-  type ModuleFilePath,
-  type PatchId,
-  type ValModule,
-  type ValModules,
-} from "@valbuild/core";
-import type { JSONValue, Operation } from "@valbuild/core/patch";
-import {
-  mergePlan,
-  type MergeConflict,
-  type PendingChange,
-} from "@valbuild/shared/internal";
-import { InMemoryPatchStore, ValOpsMemory } from "../ValOpsMemory";
+import type { ModuleFilePath, PatchId } from "@valbuild/core";
+import type { Operation } from "@valbuild/core/patch";
+import { ValOpsMemory } from "../ValOpsMemory";
 import type { AuthorId } from "../ValOps";
+import { content, SITE, type MergeBuild } from "./content";
+import {
+  changesToMove,
+  mergeFromSite,
+  type Conflict,
+  type Project,
+  type Resolution,
+} from "./merge";
+import {
+  buildName,
+  loadProject,
+  scaffold,
+  type Files,
+  type LoadedProject,
+  type Page,
+} from "./project";
 
 /**
- * A site, its editors and their proposals: the scenarios of valbuild/home
- * `docs/hosted-publishing.md` step 8.2, played out on Val's real server code.
+ * A site, its editors and their proposals, in the shape http mode has them:
+ * the scenarios of valbuild/home `docs/hosted-publishing.md` step 8.2.
  *
- * Every branch -- the site, and each proposal -- is a real `ValOpsMemory`:
- * changes are written with `createPatch`, a draft is `getSources`, what is
- * pending is `fetchPatches`, and a change leaves a branch with
- * `deletePatches`. Only content's part is modelled here, with what content
- * itself does and nothing more: the commits, the list of proposals, and
- * carrying out a merge plan by change id. It never looks at a schema, which
- * is the line the design draws -- and what lets content's real handlers take
- * this part over in a second driver.
+ * - **Content** (`content.ts`) is modelled: lines of commits whose trees are
+ *   files, the patches table per line, proposals with saves, staged code and
+ *   builds, and the merge -- carried out by change id, never by schema.
+ * - **Val** is real: on any line, the project at the line's head is loaded by
+ *   Val's own loader (`loadValModules`, as `val validate` does) and served by
+ *   the `ValOps` that `ValOpsHttp` extends, reading and writing that line's
+ *   patches through content. A change is `createPatch`, a draft is
+ *   `getSources`, and a save or a site publish is `prepare`, which rewrites the
+ *   `.val.ts` text. So a schema a proposal stages is the schema the next
+ *   load reads.
+ * - **What Val decides about a merge** is `merge.ts`: the merge commit, and
+ *   which pending changes leave the site.
+ *
+ * Not modelled, and why it does not change an answer here: content keeps each
+ * module's Source in an index beside the files (`val_module_versions`), and
+ * http mode reads Source from it. Every writer here writes text and Source
+ * together (`prepare`), so the text is read for both.
+ *
+ * After every step that moves a change, content is asked where each change
+ * ever written is (`whereIs`): none may be lost.
  */
-
-/** A module, as `c.define` makes it. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Module = ValModule<any>;
-
-/** A published version of the site: each page's content. */
-type Commit = { id: string; pages: Record<ModuleFilePath, JSONValue> };
-
-type Proposal = {
-  name: string;
-  owners: string[];
-  /** The site commit it started from. */
-  startsAt: string;
-  ops: ValOpsMemory;
-  status: "open" | "merged";
-};
 
 export type PublishOutcome =
-  | { status: "published"; before: string; after: string; conflicts: [] }
-  | { status: "conflicts"; conflicts: MergeConflict[] };
+  | {
+      status: "published";
+      before: string;
+      after: string;
+      build: MergeBuild;
+      /** The proposals the site's conflicting pending changes moved into. */
+      moved: string[];
+    }
+  | { status: "conflicts"; conflicts: Conflict[] };
 
 export type UpdateOutcome =
-  | { status: "updated"; startsAt: string }
-  | { status: "conflicts"; conflicts: MergeConflict[] };
+  | { status: "updated"; base: string }
+  | { status: "conflicts"; conflicts: Conflict[] };
 
-/**
- * How a conflict is resolved when the proposal is updated from the site:
- * keep one side, or write the value (what AI or a developer would).
- */
-export type Resolution = { module: Module; path: string[] } & (
-  | { keep: "site" | "proposal" }
-  | { value: JSONValue }
-);
-
-function pathOf(module: Module): ModuleFilePath {
-  const path = Internal.getValPath(module);
-  if (!path) throw new Error("not a Val module: define it with c.define");
-  return path as unknown as ModuleFilePath;
-}
-
-/** `value` at `path` in `doc`, leaving `doc` as it was. */
-function setAt(doc: JSONValue, path: string[], value: JSONValue | undefined) {
-  if (path.length === 0) return value ?? null;
-  const [head, ...rest] = path;
-  if (Array.isArray(doc)) {
-    const copy = [...doc];
-    copy[Number(head)] = setAt(copy[Number(head)], rest, value);
-    return copy;
-  }
-  const object =
-    typeof doc === "object" && doc !== null
-      ? { ...doc }
-      : ({} as Record<string, JSONValue>);
-  if (rest.length === 0 && value === undefined) {
-    delete object[head];
-  } else {
-    object[head] = setAt(object[head] ?? null, rest, value);
-  }
-  return object;
-}
-
-/**
- * The Val patch that turns a page from `from` into `to`, one top-level field
- * at a time: what a merge commit writes.
- */
-function patchFrom(from: JSONValue, to: JSONValue): Operation[] {
-  const isObject = (v: JSONValue): v is Record<string, JSONValue> =>
-    typeof v === "object" && v !== null && !Array.isArray(v);
-  if (!isObject(from) || !isObject(to)) {
-    throw new Error("a page is an object or a record at its root");
-  }
-  const ops: Operation[] = [];
-  for (const key of Object.keys(from)) {
-    if (!(key in to)) ops.push({ op: "remove", path: [key] });
-  }
-  for (const [key, value] of Object.entries(to)) {
-    if (!(key in from)) ops.push({ op: "add", path: [key], value });
-    else if (JSON.stringify(from[key]) !== JSON.stringify(value)) {
-      ops.push({ op: "replace", path: [key], value });
-    }
-  }
-  return ops;
-}
-
-/**
- * The world's site at its first commit: these modules, as `c.define` made
- * them -- their file paths, schemas and content.
- */
-export async function world(modules: Module[]) {
-  const { c, config } = initVal();
-  const first: Commit = { id: "C0", pages: {} };
-  for (const module of modules) {
-    first.pages[pathOf(module)] = Internal.getSource(module) as JSONValue;
-  }
-  const commits: Commit[] = [first];
-  const proposals: Proposal[] = [];
+export async function world(pages: Page[], code: Files = {}) {
+  const initial: Files = {
+    ...scaffold(pages.map((page) => page.file)),
+    ...Object.fromEntries(pages.map((page) => [page.file, page.text])),
+    ...code,
+  };
+  const c = content(initial, buildName);
+  const written: PatchId[] = [];
   const counters = new Map<string, number>();
-  /** The site's pending changes: one store, kept as the site's commits move. */
-  const siteStore = new InMemoryPatchStore();
-  /**
-   * Where every change ever written went, for the check that nothing is lost
-   * (`checkNothingLost`): published, or folded into the merge commit an
-   * update wrote. Pending and in a proposal are read off the branches.
-   */
-  const written = new Set<PatchId>();
-  const published = new Set<PatchId>();
-  const absorbedInto = new Map<PatchId, PatchId>();
 
-  /**
-   * A real Val server holding the site as it was at a commit: each module
-   * defined again with its own schema and the commit's content, and its
-   * `.val.ts` text written from that, which is what a publish rewrites.
-   */
-  const branchAt = (commit: Commit, store = new InMemoryPatchStore()) => {
-    const valModules: ValModules = {
-      config,
-      modules: modules.map((module) => {
-        const path = pathOf(module);
-        const schema = Internal.getSchema(module);
-        if (!schema) throw new Error(`${path} has no schema`);
-        return {
-          def: () =>
-            Promise.resolve({
-              default: c.define(path, schema, commit.pages[path]),
-            }),
-        };
-      }),
-    };
-    const sourceFiles = Object.fromEntries(
-      Object.entries(commit.pages).map(([path, content]) => [
-        path,
-        // The schema is a placeholder: Val takes it from the module, and a
-        // publish rewrites only the content argument.
-        `import { s, c } from "./val.config";\n` +
-          `export default c.define(${JSON.stringify(path)}, schema, ` +
-          `${JSON.stringify(content, null, 2)});\n`,
-      ]),
-    );
-    return new ValOpsMemory(valModules, {
-      config,
-      sourceFiles,
-      patchStore: store,
+  // --- Val, on a line ----------------------------------------------------------
+
+  const loaded = new Map<string, Promise<LoadedProject>>();
+  /** The project at a commit. Commits do not change, so each loads once. */
+  const projectAt = async (commitId: string): Promise<Project> => {
+    const files = c.commit(commitId).files;
+    let project = loaded.get(commitId);
+    if (!project) {
+      project = loadProject(files);
+      loaded.set(commitId, project);
+    }
+    return { files, loaded: await project };
+  };
+  /** Val's server on a line: its head's project, its pending changes. */
+  const valOn = async (line: string) => {
+    const { loaded: project } = await projectAt(c.head(line).id);
+    return new ValOpsMemory(project.valModules, {
+      config: project.valModules.config,
+      sourceFiles: project.sourceFiles,
+      patchStore: c.patchStore(line),
     });
   };
-  let site = branchAt(first, siteStore);
-
-  const head = () => commits[commits.length - 1];
-  const commitById = (id: string) => {
-    const found = commits.find((commit) => commit.id === id);
-    if (!found) throw new Error(`no commit ${id}`);
-    return found;
-  };
-  /** Ids read in scenarios: "kari-1" is Kari's first change. */
-  const nextId = (author: string): PatchId => {
-    const n = (counters.get(author) ?? 0) + 1;
-    counters.set(author, n);
-    return `${author}-${n}` as PatchId;
-  };
-  const pendingOn = async (ops: ValOpsMemory) => {
+  const pendingOf = async (ops: ValOpsMemory) => {
     const pending = await ops.fetchPatches({ excludePatchOps: false });
     if ("error" in pending && pending.error) {
       throw new Error(`could not read changes: ${pending.error.message}`);
     }
     return pending;
   };
-  /** A branch's draft: its commit, and every change on it, as Val applies them. */
-  const draftOf = async (ops: ValOpsMemory) => {
-    const pending = await pendingOn(ops);
+  /** A line's draft: its head, and every pending change, as Val applies them. */
+  const draftOn = async (line: string) => {
+    const ops = await valOn(line);
+    const pending = await pendingOf(ops);
     const analysis = ops.analyzePatches(pending.patches, pending.commits);
-    return (await ops.getSources({ ...analysis, ...pending })).sources;
+    const committed = (await ops.getSources()).sources;
+    const patched = await ops.getSources({ ...analysis, ...pending });
+    // `getSources` answers for the modules with changes; the rest are as committed.
+    return {
+      sources: { ...committed, ...patched.sources },
+      errors: patched.errors,
+    };
+  };
+  /**
+   * Val's prepare on a line: the `.val.ts` files its pending changes rewrite,
+   * as a save or a site publish sends them to content.
+   */
+  const prepareOn = async (line: string) => {
+    const ops = await valOn(line);
+    const pending = await pendingOf(ops);
+    const ids = pending.patches.map((patch) => patch.patchId);
+    const analysis = ops.analyzePatches(pending.patches, pending.commits);
+    const prepared = await ops.prepare({ ...analysis, ...pending });
+    if (prepared.hasErrors) {
+      throw new Error(
+        `prepare failed on ${line}: ${JSON.stringify(prepared.sourceFilePatchErrors)}`,
+      );
+    }
+    const files: Files = {};
+    for (const [path, text] of Object.entries(prepared.patchedSourceFiles)) {
+      files[path.replace(/^\//, "")] = text;
+    }
+    return { files, ids, pending: pending.patches };
+  };
+
+  /** Ids read in scenarios: "kari-1" is Kari's first change. */
+  const nextId = (author: string): PatchId => {
+    const n = (counters.get(author) ?? 0) + 1;
+    counters.set(author, n);
+    return `${author}-${n}` as PatchId;
   };
   const write = async (
-    ops: ValOpsMemory,
+    line: string,
     author: string,
-    module: Module,
+    page: Page,
     patch: Operation[],
-    patchId: PatchId = nextId(author),
   ) => {
+    const ops = await valOn(line);
+    const patchId = nextId(author);
     const created = await ops.createPatch(
-      pathOf(module),
+      page.moduleFilePath,
       patch,
       patchId,
-      // Ignored here: there is no shared chain to name a parent in.
       { type: "head", headBaseSha: await ops.getBaseSha() },
       null,
       author as AuthorId,
@@ -218,322 +159,203 @@ export async function world(modules: Module[]) {
     if (created.kind !== "ok") {
       throw new Error(`${patchId} was refused: ${JSON.stringify(created)}`);
     }
-    written.add(patchId);
+    written.push(patchId);
     return patchId;
   };
-  const moduleAt = (path: ModuleFilePath) => {
-    const module = modules.find((candidate) => pathOf(candidate) === path);
-    if (!module) throw new Error(`no module ${path}`);
-    return module;
-  };
-  const schemaOf = (path: ModuleFilePath) => {
-    const schema = Internal.getSchema(moduleAt(path));
-    if (!schema) throw new Error(`${path} has no schema`);
-    return schema["executeSerialize"]();
-  };
-  const proposalNamed = (name: string) => {
-    const proposal = proposals.find((p) => p.name === name);
-    if (!proposal) throw new Error(`no proposal ${name}`);
-    return proposal;
-  };
+
+  // --- checks after every step -------------------------------------------------
+
   /**
-   * Val's plan for merging the proposal into the site as it is now: the pages
-   * the proposal changed, as they were where it started, on the site, and in
-   * the proposal; and the site's pending changes.
+   * Nothing is lost: every change ever written is published, pending on the
+   * site, or in one open proposal. And every change still pending on the site
+   * applies to the site's head -- one that no longer does should have moved.
    */
-  const planFor = async (proposal: Proposal, withSitePending: boolean) => {
-    const base = commitById(proposal.startsAt);
-    const now = head();
-    const proposalPatches = (await pendingOn(proposal.ops)).patches;
-    const proposalDraft = await draftOf(proposal.ops);
-    const changed = [...new Set(proposalPatches.map((patch) => patch.path))];
-    const sitePending = withSitePending ? (await pendingOn(site)).patches : [];
-    const plan = mergePlan({
-      pages: Object.fromEntries(
-        changed.map((path) => [
-          path,
-          {
-            schema: schemaOf(path),
-            base: base.pages[path],
-            site: now.pages[path],
-            proposal: proposalDraft[path] as JSONValue,
-          },
-        ]),
-      ),
-      sitePending: sitePending.map(
-        (patch): PendingChange => ({
-          patchId: patch.patchId,
-          moduleFilePath: patch.path,
-          patch: patch.patch,
-        }),
-      ),
-    });
-    return { plan, sitePending, proposalPatches };
-  };
-  /**
-   * Every change ever written is in exactly one place: published, pending on
-   * the site, or in one open proposal -- or folded into a merge commit that
-   * is. Checked after everything that moves changes.
-   */
-  const checkNothingLost = async () => {
-    const places = new Map<PatchId, string[]>();
-    const at = (id: PatchId, place: string) =>
-      places.set(id, [...(places.get(id) ?? []), place]);
-    for (const id of published) at(id, "published");
-    for (const patch of (await pendingOn(site)).patches) {
-      at(patch.patchId, "pending on the site");
-    }
-    for (const proposal of proposals) {
-      if (proposal.status !== "open") continue;
-      for (const patch of (await pendingOn(proposal.ops)).patches) {
-        at(patch.patchId, `in “${proposal.name}”`);
-      }
-    }
-    const placeOf = (id: PatchId): string[] => {
-      const direct = places.get(id) ?? [];
-      const into = absorbedInto.get(id);
-      return direct.length > 0 || into === undefined ? direct : placeOf(into);
-    };
+  const check = async () => {
     for (const id of written) {
-      const where = placeOf(id);
-      if (where.length === 0) throw new Error(`${id} was lost`);
-      if (where.length > 1) {
-        throw new Error(`${id} is in two places: ${where.join(", ")}`);
-      }
+      const where = c.whereIs(id);
+      if (where.startsWith("lost")) throw new Error(`${id} was ${where}`);
+    }
+    const { errors } = await draftOn(SITE);
+    const failing = Object.values(errors).flat();
+    if (failing.length > 0) {
+      throw new Error(
+        `pending on the site and no longer applies: ${failing
+          .map((error) => `${error.patchId} (${error.error.message})`)
+          .join(", ")}`,
+      );
     }
   };
-  /** A unique name for a proposal: "Name", then "Name (2)". */
-  const freeName = (name: string) => {
-    let candidate = name;
-    for (let n = 2; proposals.some((p) => p.name === candidate); n++) {
-      candidate = `${name} (${n})`;
-    }
-    return candidate;
+
+  // --- what editors, the assistant and content do ---------------------------------
+
+  const proposalHandle = (name: string) => {
+    const owner = () => c.proposal(name).owners[0];
+    return {
+      name,
+      /** A change in the proposal, pending until saved. */
+      patch: (page: Page, patch: Operation[]) =>
+        write(c.proposal(name).line, owner(), page, patch),
+      /** Save: Val prepares the files, content commits them on the line. */
+      async save() {
+        const { files, ids } = await prepareOn(c.proposal(name).line);
+        if (ids.length === 0) return;
+        c.save(name, { files, saved: ids });
+      },
+      /** The assistant's `write_files`: code, staged in the proposal. */
+      stage: (files: Files) => c.stage(name, files),
+      /** Build, in the tab, of the proposal's code as it is now. */
+      build: () => c.build(name),
+    };
   };
-  /** An editor's changes, written as the Studio writes them: Val patches to a module. */
-  const editor = (author: string, ops: () => ValOpsMemory) => ({
-    patch: (module: Module, patch: Operation[]) =>
-      write(ops(), author, module, patch),
-  });
+  type ProposalHandle = ReturnType<typeof proposalHandle>;
+
+  /**
+   * Update from the site, as Val runs it: the three projects to
+   * `mergeFromSite`, and its merge commit to content.
+   */
+  const updateFromSite = async (
+    name: string,
+    resolutions: Resolution[],
+  ): Promise<UpdateOutcome> => {
+    const proposal = c.proposal(name);
+    const site = c.head(SITE).id;
+    const result = await mergeFromSite({
+      base: await projectAt(proposal.base),
+      site: await projectAt(site),
+      proposal: await projectAt(c.head(proposal.line).id),
+      resolutions,
+    });
+    if (result.status === "conflicts") return result;
+    c.updateFromSite(name, {
+      siteHead: site,
+      files: result.files,
+      staged: result.code,
+    });
+    await check();
+    return { status: "updated", base: site };
+  };
 
   return {
     /** An editor working directly on the site: every change is pending there. */
     onSite(author: string) {
-      return editor(author, () => site);
+      return {
+        patch: (page: Page, patch: Operation[]) =>
+          write(SITE, author, page, patch),
+      };
     },
 
-    openProposal(name: string, options: { by: string }) {
-      const proposal: Proposal = {
-        name,
-        owners: [options.by],
-        startsAt: head().id,
-        ops: branchAt(head()),
-        status: "open",
-      };
-      proposals.push(proposal);
-      return { name, ...editor(options.by, () => proposal.ops) };
+    openProposal(name: string, options: { by: string }): ProposalHandle {
+      return proposalHandle(c.openProposal(name, options.by));
+    },
+
+    /** A proposal by name: the moved ones too. */
+    proposal(name: string): ProposalHandle {
+      return proposalHandle(c.proposal(name).name);
     },
 
     /**
-     * Publish in a proposal: Val plans the merge, and content seals it -- a
-     * new site commit with the merged pages, and the site's pending changes
-     * the plan names moved into a proposal that starts where the site was.
+     * Publish in a proposal. If the site moved since the proposal's base, Val
+     * updates it first -- and stops at a conflict, changing nothing. Then Val
+     * names the site's pending changes the merge conflicts with, and content
+     * merges: one commit on the site, those changes moved out.
      */
     async publish(handle: { name: string }): Promise<PublishOutcome> {
-      const proposal = proposalNamed(handle.name);
-      if (proposal.status !== "open") {
-        throw new Error(`${proposal.name} is ${proposal.status}`);
+      const name = handle.name;
+      if (c.pending(c.proposal(name).line).length > 0) {
+        throw new Error("the proposal has unsaved changes: save first");
       }
-      const before = head();
-      const { plan, sitePending, proposalPatches } = await planFor(
-        proposal,
-        true,
-      );
-      if (plan.conflicts.length > 0) {
-        return { status: "conflicts", conflicts: plan.conflicts };
+      if (c.proposal(name).base !== c.head(SITE).id) {
+        const updated = await updateFromSite(name, []);
+        if (updated.status === "conflicts") return updated;
       }
-
-      // Content's seal: by change id, never looking at a schema.
-      const moving = new Set(plan.move.flat());
-      const moved = sitePending.filter((patch) => moving.has(patch.patchId));
-      if (moved.length !== moving.size) {
-        throw new Error("the plan moves a change that is not pending");
-      }
-      await site.deletePatches([...moving]);
-      const after: Commit = {
-        id: `C${commits.length}`,
-        pages: { ...before.pages, ...plan.merged },
-      };
-      commits.push(after);
-      // What stays pending is replayed over the new commit, as the site's
-      // chain is when its base moves.
-      site = branchAt(after, siteStore);
-      proposal.status = "merged";
-      for (const patch of proposalPatches) published.add(patch.patchId);
-      for (const ids of plan.move) {
-        const changes = moved.filter((patch) => ids.includes(patch.patchId));
-        const ops = branchAt(before);
-        for (const change of changes) {
-          await write(
-            ops,
-            change.authorId ?? "unknown",
-            moduleAt(change.path),
-            change.patch,
-            change.patchId,
-          );
-        }
-        proposals.push({
-          name: freeName(`Moved when “${proposal.name}” was published`),
-          owners: [
-            ...new Set(changes.map((change) => change.authorId ?? "unknown")),
-          ],
-          startsAt: before.id,
-          ops,
-          status: "open",
-        });
-      }
-      await checkNothingLost();
+      const siteHead = c.head(SITE).id;
+      const ops = await valOn(SITE);
+      const pending = (await pendingOf(ops)).patches;
+      // Nothing pending, nothing to move: Val is not asked.
+      const move =
+        pending.length === 0
+          ? []
+          : await changesToMove({
+              site: await projectAt(siteHead),
+              merged: await projectAt(c.head(c.proposal(name).line).id),
+              pending: pending.map((patch) => ({
+                patchId: patch.patchId,
+                moduleFilePath: patch.path,
+                patch: patch.patch,
+              })),
+            });
+      const merged = c.merge(name, { siteHead, move });
+      await check();
       return {
         status: "published",
-        before: before.id,
-        after: after.id,
-        conflicts: [],
+        before: merged.before,
+        after: merged.after,
+        build: merged.build,
+        moved: merged.moved,
       };
     },
 
-    /**
-     * Update from the site: merge the site's last commit into the proposal,
-     * as merging main into a pull request does. Every conflict needs a
-     * resolution; with them, the proposal starts at the site's last commit and
-     * holds one merge commit -- the merged pages, resolutions in.
-     */
-    async update(
-      handle: { name: string },
-      resolutions: Resolution[] = [],
-    ): Promise<UpdateOutcome> {
-      const proposal = proposalNamed(handle.name);
-      const { plan, proposalPatches } = await planFor(proposal, false);
-      const resolutionOf = (conflict: MergeConflict) =>
-        resolutions.find(
-          (resolution) =>
-            pathOf(resolution.module) === conflict.moduleFilePath &&
-            resolution.path.join("/") === conflict.path.join("/"),
-        );
-      const unresolved = plan.conflicts.filter((c) => !resolutionOf(c));
-      if (unresolved.length > 0) {
-        return { status: "conflicts", conflicts: unresolved };
-      }
-      const merged: Record<ModuleFilePath, JSONValue> = { ...plan.merged };
-      for (const conflict of plan.conflicts) {
-        const resolution = resolutionOf(conflict);
-        if (!resolution) continue;
-        const value =
-          "value" in resolution
-            ? resolution.value
-            : resolution.keep === "site"
-              ? conflict.site
-              : conflict.proposal;
-        merged[conflict.moduleFilePath] = setAt(
-          merged[conflict.moduleFilePath],
-          conflict.path,
-          value,
-        );
-      }
-      const now = head();
-      const ops = branchAt(now);
-      const owner = proposal.owners[0];
-      const mergeIds: PatchId[] = [];
-      for (const [path, content] of Object.entries(merged)) {
-        const patch = patchFrom(now.pages[path as ModuleFilePath], content);
-        if (patch.length === 0) continue;
-        mergeIds.push(
-          await write(ops, owner, moduleAt(path as ModuleFilePath), patch),
-        );
-      }
-      const mergeCommit = mergeIds[0];
-      for (const patch of proposalPatches) {
-        if (mergeCommit === undefined) {
-          // Everything the proposal changed is on the site already.
-          published.add(patch.patchId);
-        } else {
-          absorbedInto.set(patch.patchId, mergeCommit);
-        }
-      }
-      for (const id of mergeIds.slice(1)) absorbedInto.set(id, mergeCommit);
-      proposal.ops = ops;
-      proposal.startsAt = now.id;
-      await checkNothingLost();
-      return { status: "updated", startsAt: now.id };
+    /** Update from the site, with a resolution for every conflict. */
+    update(handle: { name: string }, resolutions: Resolution[] = []) {
+      return updateFromSite(handle.name, resolutions);
     },
 
-    /**
-     * The site's own Publish: every pending change, written through Val's
-     * real save -- `prepare` patches the `.val.ts` text -- and the commit is
-     * the draft that was published.
-     */
+    /** The site's own Publish: every pending change, through Val's prepare. */
     async publishSite() {
-      const pending = await pendingOn(site);
-      const ids = pending.patches.map((patch) => patch.patchId);
+      const { files, ids } = await prepareOn(SITE);
       if (ids.length === 0) return { status: "nothing-to-publish" as const };
-      const analysis = site.analyzePatches(pending.patches, pending.commits);
-      const prepared = await site.prepare({ ...analysis, ...pending });
-      if (prepared.hasErrors) {
-        throw new Error(
-          `the site's publish failed: ${JSON.stringify(prepared.sourceFilePatchErrors)}`,
-        );
-      }
-      const sources = (await site.getSources({ ...analysis, ...pending }))
-        .sources;
-      await site.deletePatches(ids);
-      const after: Commit = { id: `C${commits.length}`, pages: {} };
-      for (const path of Object.keys(head().pages) as ModuleFilePath[]) {
-        after.pages[path] = sources[path] as JSONValue;
-      }
-      commits.push(after);
-      site = branchAt(after, siteStore);
-      for (const id of ids) published.add(id);
-      await checkNothingLost();
-      return { status: "published" as const, commit: after.id, ids };
-    },
-
-    /** A proposal by name, to change or publish: the moved ones too. */
-    proposal(name: string) {
-      const proposal = proposalNamed(name);
-      return {
-        name,
-        ...editor(proposal.owners[0], () => proposal.ops),
-      };
-    },
-
-    /** A proposal's pages, as its address shows them. */
-    async proposalPage(handle: { name: string }, module: Module) {
-      return (await draftOf(proposalNamed(handle.name).ops))[pathOf(module)];
+      const commit = c.sealSite({
+        expectedHead: c.head(SITE).id,
+        files,
+        published: ids,
+      });
+      await check();
+      return { status: "published" as const, commit, ids };
     },
 
     site: {
-      /** A page as visitors see it: the last commit. */
-      async page(module: Module) {
-        return head().pages[pathOf(module)];
+      /** A page as visitors see it: the site's head. */
+      async page(page: Page) {
+        const { loaded: project } = await projectAt(c.head(SITE).id);
+        return project.modules[page.moduleFilePath]?.source;
       },
-      /** A page as an editor on the site sees it: the last commit and every pending change. */
-      async draft(module: Module) {
-        return (await draftOf(site))[pathOf(module)];
+      /** A page as an editor on the site sees it: the head and every pending change. */
+      async draft(page: Page) {
+        return (await draftOn(SITE)).sources[page.moduleFilePath];
       },
-      async pending() {
-        return (await pendingOn(site)).patches.map((patch) => patch.patchId);
-      },
+      pending: () => c.pending(SITE),
+      /** A file at the site's head, as git has it. */
+      file: (file: string) => c.head(SITE).files[file] ?? null,
+      /** The build visitors are served. */
+      served: () => c.served(),
     },
 
-    async proposals() {
-      return Promise.all(
-        proposals.map(async ({ name, owners, startsAt, ops, status }) => ({
-          name,
-          owners,
-          startsAt,
-          changes: (await pendingOn(ops)).patches.map((patch) => patch.patchId),
-          status,
-        })),
-      );
+    /** A proposal's page, as its address shows it: its head and its pending changes. */
+    async proposalPage(handle: { name: string }, page: Page) {
+      return (await draftOn(c.proposal(handle.name).line)).sources[
+        page.moduleFilePath
+      ];
     },
+    /** A file in a proposal, as its line has it. */
+    proposalFile(handle: { name: string }, file: string) {
+      return c.head(c.proposal(handle.name).line).files[file] ?? null;
+    },
+    buildRequired: (handle: { name: string }) => c.buildRequired(handle.name),
+
+    proposals() {
+      return c.proposals().map((proposal) => ({
+        name: proposal.name,
+        owners: proposal.owners,
+        base: proposal.base,
+        changes: c.pending(proposal.line),
+        status: proposal.status,
+      }));
+    },
+    /** Where a change is: see `whereIs`. */
+    whereIs: (patchId: string) => c.whereIs(patchId as PatchId),
+    /** The site's head commit id. */
+    siteHead: () => c.head(SITE).id,
   };
 }
+
+export type { ModuleFilePath };

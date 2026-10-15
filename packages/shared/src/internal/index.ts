@@ -67,4 +67,3 @@ export * from "./theme/accentRamp";
  */
 export * from "./publish/contentApi";
 export * from "./publish/protocol";
-export * from "./proposalMerge/mergePlan";
