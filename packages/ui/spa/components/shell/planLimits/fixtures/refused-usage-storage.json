@@ -1,0 +1,9 @@
+{
+  "statusCode": 403,
+  "message": "website has used the storage included this month, so new files cannot be uploaded. An owner can allow extra usage: https://admin.val.build/~/acme?section=billing",
+  "error": {
+    "code": "usage:storage",
+    "fix": "allow-usage",
+    "billingUrl": "https://admin.val.build/~/acme?section=billing"
+  }
+}

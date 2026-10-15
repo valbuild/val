@@ -1,4 +1,5 @@
 import { createStudioJobClient } from "./jobClient";
+import { onPlanRefusal } from "../utils/planRefusal";
 
 /*
  * A merge's job is prepared by content, from the proposal's last save --
@@ -140,5 +141,40 @@ test("a merge is pressed through the proposals proxy, and answered as a press", 
   expect(pressed).toEqual({
     request: { kind: "publishing" },
     job: { id: "J9", step: "prepare", base: "c1", patches: ["merge:p1"] },
+  });
+});
+
+/*
+ * A press the plan does not allow -- a trial's 3 publishes, a trial that
+ * ended -- is refused with a 403 whose body says why as data. The shell
+ * listens for it (`onPlanRefusal`) to say so with the next step beside it.
+ */
+describe("a press Val Build refuses for the plan", () => {
+  test("is told to the shell, and still thrown with Val Build's sentence", async () => {
+    const body = {
+      statusCode: 403,
+      message: "website's trial includes 3 publishes, and they are used.",
+      error: {
+        code: "trial-publishes",
+        fix: "add-card",
+        billingUrl: "https://admin.val.build/~/acme?section=billing",
+      },
+    };
+    const fetchImpl: typeof fetch = async () =>
+      new Response(JSON.stringify(body), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      });
+    const heard: string[] = [];
+    const stop = onPlanRefusal((refusal) => heard.push(refusal.code));
+    try {
+      const client = createStudioJobClient({ api: "/api/val", fetchImpl });
+      await expect(client.press("r1", "tab-1")).rejects.toThrow(
+        "website's trial includes 3 publishes, and they are used.",
+      );
+    } finally {
+      stop();
+    }
+    expect(heard).toEqual(["trial-publishes"]);
   });
 });

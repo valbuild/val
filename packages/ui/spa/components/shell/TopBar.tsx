@@ -186,6 +186,12 @@ export type TopBarProps = {
   aiEnabled?: boolean;
   /** Absent for a project without proposals: nothing here changes. */
   proposals?: TopBarProposals;
+  /**
+   * The plan's status, in the middle of the bar beside where you are: a
+   * Hosted trial's days and publishes, a Free project's changes left. Only
+   * on a desktop; the shell puts it above the editor below that.
+   */
+  planStatus?: ReactNode;
 };
 
 /** `blocked` means validation errors are stopping the publish. */
@@ -233,6 +239,7 @@ export function TopBar({
   aiEnabled = false,
   previewHref,
   proposals,
+  planStatus,
 }: TopBarProps) {
   const proposalLocation =
     proposals?.location.kind === "proposal" ? proposals.location : null;
@@ -374,6 +381,7 @@ export function TopBar({
       {/* Where you are, in the middle of the bar. */}
       {layout === "centered" && (
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
+          {planStatus}
           {switcher}
           {inProposal !== null && (
             <>
