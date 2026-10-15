@@ -1,9 +1,9 @@
-import type {
-  ModuleFilePath,
-  PatchId,
-  Schema,
-  SelectorSource,
-  SerializedSchema,
+import {
+  Internal,
+  type ModuleFilePath,
+  type PatchId,
+  type SerializedSchema,
+  type ValModule,
 } from "@valbuild/core";
 import {
   applyPatch,
@@ -48,11 +48,15 @@ type Proposal = {
   status: "open" | "merged";
 };
 
-/** A page of the site: its schema and its content when the world starts. */
-export type Page = { schema: SerializedSchema; content: JSONValue };
+/** A module, as `c.define` makes it. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Module = ValModule<any>;
 
-export function page(schema: Schema<SelectorSource>, content: JSONValue): Page {
-  return { schema: schema["executeSerialize"](), content };
+/** The module's file path, as patches and pages are keyed. */
+function pathOf(module: Module): ModuleFilePath {
+  const path = Internal.getValPath(module);
+  if (!path) throw new Error("not a Val module: define it with c.define");
+  return path as unknown as ModuleFilePath;
 }
 
 export type PublishOutcome =
@@ -65,12 +69,19 @@ export type PublishOutcome =
     }
   | { status: "conflicts"; conflicts: MergeConflict[] };
 
-export function world(pages: Record<string, Page>) {
+/**
+ * The site at its first commit: these modules, as `c.define` made them --
+ * their file paths, schemas and content.
+ */
+export function world(modules: Module[]) {
   const schemas: Record<ModuleFilePath, SerializedSchema> = {};
   const first: Commit = { id: "C0", pages: {} };
-  for (const [path, page] of Object.entries(pages)) {
-    schemas[path as ModuleFilePath] = page.schema;
-    first.pages[path as ModuleFilePath] = page.content;
+  for (const module of modules) {
+    const path = pathOf(module);
+    const schema = Internal.getSchema(module);
+    if (!schema) throw new Error(`${path} has no schema`);
+    schemas[path] = schema["executeSerialize"]();
+    first.pages[path] = Internal.getSource(module) as JSONValue;
   }
   const commits: Commit[] = [first];
   let sitePending: Change[] = [];
@@ -108,14 +119,14 @@ export function world(pages: Record<string, Page>) {
       pagesAt[moduleFilePath],
       changes.filter((change) => change.moduleFilePath === moduleFilePath),
     );
-  const write = (author: string, into: Change[]) => ({
-    /** Replace one field: what an editor typing into a field writes. */
-    set(moduleFilePath: string, path: string[], value: JSONValue) {
+  /** An editor's changes, written as the Studio writes them: Val patches to a module. */
+  const editor = (author: string, into: Change[]) => ({
+    patch(module: Module, patch: Operation[]) {
       const change: Change = {
         patchId: nextId(author),
         author,
-        moduleFilePath: moduleFilePath as ModuleFilePath,
-        patch: [{ op: "replace", path, value }],
+        moduleFilePath: pathOf(module),
+        patch,
       };
       into.push(change);
       return change.patchId;
@@ -125,7 +136,7 @@ export function world(pages: Record<string, Page>) {
   return {
     /** An editor working directly on the site: every change is pending. */
     onSite(author: string) {
-      return write(author, sitePending);
+      return editor(author, sitePending);
     },
 
     openProposal(name: string, options: { by: string }) {
@@ -137,7 +148,7 @@ export function world(pages: Record<string, Page>) {
         status: "open",
       };
       proposals.push(proposal);
-      return { name, ...write(options.by, proposal.changes) };
+      return { name, ...editor(options.by, proposal.changes) };
     },
 
     /**
@@ -207,16 +218,12 @@ export function world(pages: Record<string, Page>) {
 
     site: {
       /** A page as visitors see it: the last commit. */
-      page(moduleFilePath: string) {
-        return head().pages[moduleFilePath as ModuleFilePath];
+      page(module: Module) {
+        return head().pages[pathOf(module)];
       },
       /** A page as an editor on the site sees it: the last commit and everything pending. */
-      draft(moduleFilePath: string) {
-        return contentOf(
-          head().pages,
-          moduleFilePath as ModuleFilePath,
-          sitePending,
-        );
+      draft(module: Module) {
+        return contentOf(head().pages, pathOf(module), sitePending);
       },
       pending() {
         return sitePending.map((change) => change.patchId);

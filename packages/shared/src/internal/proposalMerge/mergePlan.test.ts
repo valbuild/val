@@ -1,7 +1,7 @@
 import { initVal } from "@valbuild/core";
-import { page, world } from "./testing/world";
+import { world } from "./testing/world";
 
-const { s } = initVal();
+const { s, c } = initVal();
 
 /*
  * Publishing a proposal while editors have pending changes on the site
@@ -14,32 +14,33 @@ describe("publishing a proposal over the site's pending changes", () => {
   test.failing(
     "3. same field: Kari's pending title moves into a proposal of her own",
     () => {
-      const w = world({
-        "/home.val.ts": page(
-          s.object({ title: s.string(), hero: s.string() }),
-          {
-            title: "Sale",
-            hero: "a.png",
-          },
-        ),
-      });
+      const home = c.define(
+        "/home.val.ts",
+        s.object({ title: s.string(), hero: s.string() }),
+        { title: "Sale", hero: "a.png" },
+      );
+      const w = world([home]);
       const summer = w.openProposal("Summer campaign", { by: "ola" });
-      summer.set("/home.val.ts", ["title"], "Summer sale");
-      w.onSite("kari").set("/home.val.ts", ["title"], "Spring sale");
+      summer.patch(home, [
+        { op: "replace", path: ["title"], value: "Summer sale" },
+      ]);
+      w.onSite("kari").patch(home, [
+        { op: "replace", path: ["title"], value: "Spring sale" },
+      ]);
 
       const published = w.publish(summer);
 
       // Ola is not blocked, and has nothing to resolve.
       expect(published).toMatchObject({ status: "published", conflicts: [] });
       // The site shows the proposal's title...
-      expect(w.site.page("/home.val.ts")).toEqual({
+      expect(w.site.page(home)).toEqual({
         title: "Summer sale",
         hero: "a.png",
       });
       // ...and Kari's change is no longer pending there, where publishing the
       // site would have silently put "Spring sale" back over it.
       expect(w.site.pending()).toEqual([]);
-      expect(w.site.draft("/home.val.ts")).toEqual({
+      expect(w.site.draft(home)).toEqual({
         title: "Summer sale",
         hero: "a.png",
       });
