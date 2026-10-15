@@ -12,9 +12,9 @@ import {
 } from "./ReadOnlyNotice";
 
 /**
- * A Studio whose organization's payment failed past its grace cannot save. It says so before anyone types, with what fixes it:
- * Billing for an owner, the owners by name and a way to write to them for
- * everyone else.
+ * A Studio whose organization's payment failed past its grace cannot save.
+ * It says so before anyone types, with what fixes it: Billing for an owner,
+ * the owners by name and a way to write to them for everyone else.
  */
 type ReadOnly = Extract<PlanAccess, { access: "read-only" }>;
 
@@ -79,13 +79,21 @@ describe("the read-only notice", () => {
     expect(
       parsePlanAccess({ access: "read-only", reason: "who-knows" }),
     ).toBeNull();
-    // An organization has no trial any more, so Val Build never says so.
-    expect(
-      parsePlanAccess({
-        ...JSON.parse(JSON.stringify(readOnly())),
-        reason: "trial-over",
-      }),
-    ).toBeNull();
+  });
+
+  test("a reason this Studio does not know is still said, with Billing for an owner", () => {
+    const access = parsePlanAccess({ ...readOnly(), reason: "trial-over" });
+    expect(access).toEqual(readOnly({ reason: "other" }));
+    if (access === null || access.access !== "read-only") return;
+    expect(readOnlyCopy(access)).toEqual({
+      title: "This Studio is read-only",
+      body: "acme's Studio is read-only, so nothing can be saved or published. The site keeps running.",
+      action: {
+        label: "Open Billing",
+        href: "https://admin.val.build/~/acme?section=billing",
+        external: true,
+      },
+    });
   });
 });
 

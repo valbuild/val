@@ -238,8 +238,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       />
     ) : undefined;
   /**
-   * The organization's plan has made the Studio read-only (a trial that is
-   * over, a payment failed past its grace): said above everything, because
+   * The organization has made the Studio read-only (a payment failed past
+   * its grace): said above everything, because
    * nothing typed here can be saved. See `ReadOnlyNotice`. Asked only where
    * the Studio is connected to Val Build (the same test that mounts its web
    * components): elsewhere the proxy has nothing to forward to, and answers

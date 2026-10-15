@@ -20,7 +20,12 @@ export type PlanAccess =
   | { access: "edit" }
   | {
       access: "read-only";
-      reason: "payment-failed";
+      /**
+       * A failed payment, the one reason Val Build gives today; `other` for
+       * one this Studio does not know, which is still said, as every save is
+       * refused all the same.
+       */
+      reason: "payment-failed" | "other";
       billingUrl: string;
       org: string;
       /** The person asking is an owner, who can fix it. */
@@ -36,7 +41,7 @@ export function parsePlanAccess(json: unknown): PlanAccess | null {
   if (json.access === "edit") return { access: "edit" };
   if (
     json.access !== "read-only" ||
-    json.reason !== "payment-failed" ||
+    typeof json.reason !== "string" ||
     typeof json.billingUrl !== "string" ||
     typeof json.org !== "string" ||
     typeof json.canFix !== "boolean" ||
@@ -57,7 +62,7 @@ export function parsePlanAccess(json: unknown): PlanAccess | null {
   }
   return {
     access: "read-only",
-    reason: json.reason,
+    reason: json.reason === "payment-failed" ? "payment-failed" : "other",
     billingUrl: json.billingUrl,
     org: json.org,
     canFix: json.canFix,
@@ -114,13 +119,17 @@ function names(owners: { name: string }[]): string {
 export function readOnlyCopy(
   access: Extract<PlanAccess, { access: "read-only" }>,
 ): Copy {
-  const body = `A payment for ${access.org} failed, so nothing can be saved or published until it is paid. The site keeps running.`;
+  const paymentFailed = access.reason === "payment-failed";
+  const why = paymentFailed
+    ? `A payment for ${access.org} failed, so nothing can be saved or published until it is paid.`
+    : `${access.org}'s Studio is read-only, so nothing can be saved or published.`;
+  const body = `${why} The site keeps running.`;
   if (access.canFix) {
     return {
       title: "This Studio is read-only",
       body,
       action: {
-        label: "Update payment",
+        label: paymentFailed ? "Update payment" : "Open Billing",
         href: access.billingUrl,
         external: true,
       },
@@ -128,7 +137,9 @@ export function readOnlyCopy(
   }
   const owners = access.owners;
   const subject = encodeURIComponent(
-    `${access.org}'s payment failed: the Studio is read-only`,
+    paymentFailed
+      ? `${access.org}'s payment failed: the Studio is read-only`
+      : `${access.org}'s Studio is read-only`,
   );
   return {
     title: "This Studio is read-only",
