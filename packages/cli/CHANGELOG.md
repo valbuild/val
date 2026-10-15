@@ -1,5 +1,13 @@
 # @valbuild/cli
 
+## 0.144.12
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.144.12
+  - @valbuild/language-server@0.144.12
+
 ## 0.144.11
 
 ### Patch Changes
