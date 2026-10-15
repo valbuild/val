@@ -1208,6 +1208,8 @@ export function ValProvider({
           handoffRef.current.prepare(true, {
             requestId: request.requestId,
             after: null,
+            // A merge's tab presses the merge again, not the site's changes.
+            ...(request.merge !== undefined ? { merge: request.merge } : {}),
           });
         },
       },
@@ -3436,13 +3438,23 @@ export function usePublishSummary() {
    * `useProposalPublish`, which finds it once the tab says what it pressed.
    */
   const publishProposal = useCallback(
-    async (proposalName: string): Promise<ProposalPublishPress> => {
-      /*
-       * Built in a tab, always: a merge is a managed publish, whatever this
-       * address's own saves are -- they are commits, and build nothing, so
-       * `buildsInTab` is false here.
+    async (
+      proposalName: string,
+      /**
+       * Whether the merge will build (`mergeNeedsBuild`). A page that cannot
+       * build opens a builder tab at the press only for one that will: a merge
+       * of content alone, or of code already built, goes live on a build the
+       * site or the proposal already has, and this page presses it itself.
+       * One that needs a build after all asks for the tab with another tap
+       * (`onNeedsBuilder`).
        */
-      if (handoff.prepare(true, { merge: proposalName })) {
+      options: { needsBuild: boolean } = { needsBuild: true },
+    ): Promise<ProposalPublishPress> => {
+      /*
+       * Not `buildsInTab`: this address's own saves are commits, and build
+       * nothing, but a merge is a managed publish of the site.
+       */
+      if (handoff.prepare(options.needsBuild, { merge: proposalName })) {
         return { status: "handed-off" };
       }
       const lock = beginSiteOperation("publish");
@@ -3510,11 +3522,12 @@ export function usePublishSummary() {
     async (
       proposalName: string,
       failedRequestId: string,
+      options: { needsBuild: boolean } = { needsBuild: true },
     ): Promise<ProposalPublishPress> => {
       toast.dismiss(`publish:${failedRequestId}`);
-      // In a tab, always: see `publishProposal`.
+      // In a tab only for a merge that builds: see `publishProposal`.
       if (
-        handoff.prepare(true, {
+        handoff.prepare(options.needsBuild, {
           tryAgainOf: failedRequestId,
           merge: proposalName,
         })

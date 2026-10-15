@@ -12,6 +12,7 @@ import {
   ValConfig,
   ValModules,
   Internal,
+  type Json,
   type ResolvableModule,
   SourceObject,
 } from "@valbuild/core";
@@ -25,10 +26,13 @@ import {
 import { createValServer, ValServer } from "@valbuild/server";
 import { VERSION } from "../version";
 import {
+  bundledJsonEntryImport,
+  fillJsonValuesRecord,
   getJsonEntryStegaRoot,
   getValRouteUrlFromVal,
   initValRouteFromVal,
   isJsonValuesRecordSchema,
+  jsonValuesRecordToFill,
 } from "../routeFromVal";
 
 SET_RSC(true);
@@ -227,25 +231,57 @@ export const initFetchValStega =
           if (modules) {
             return stegaEncode(selector, {
               disabled: !enabled,
-              getModule: (path) => {
-                const module = modules[path as ModuleFilePath];
-                if (module) {
-                  return module.source;
-                }
-              },
+              getModule: await withJsonValuesEntries(selector, (path) => [
+                modules[path]?.source,
+              ]),
             });
           }
         }
       }
       return stegaEncode(selector, {
         disabled: !enabled,
+        getModule: await withJsonValuesEntries(selector, () => []),
       });
     };
-    return exec().catch((err) => {
+    return exec().catch(async (err) => {
       console.error("Val: failed to fetch ", err);
-      return stegaEncode(selector, {});
+      return stegaEncode(selector, {
+        getModule: await withJsonValuesEntries(selector, () => []).catch(
+          () => () => undefined,
+        ),
+      });
     });
   };
+
+/**
+ * `getModule` for `stegaEncode`, with a whole `.jsonValues()` record's entries
+ * filled in: its own source holds only lazy markers, so the entries the draft
+ * does not have are imported from the bundle, together. Every other module,
+ * and a selector that is not such a record, reads the first of `sourcesOf`
+ * that has it, as before. `fetchValKey` is the reader for one entry.
+ */
+async function withJsonValuesEntries(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  selector: any,
+  sourcesOf: (path: ModuleFilePath) => (Json | undefined)[],
+): Promise<(path: string) => Json | undefined> {
+  const first = (path: string) =>
+    sourcesOf(path as ModuleFilePath).find((source) => source !== undefined);
+  const plan = jsonValuesRecordToFill(selector, sourcesOf);
+  if (plan === null) {
+    return first;
+  }
+  const loaded = Object.fromEntries(
+    await Promise.all(
+      plan.load.map(async (key) => {
+        const thunk = bundledJsonEntryImport(plan.module, key);
+        return [key, thunk ? (await thunk()).default : undefined] as const;
+      }),
+    ),
+  );
+  const filled = fillJsonValuesRecord(plan.record, loaded) as Json;
+  return (path) => (path === plan.modulePath ? filled : first(path));
+}
 
 function getHost(headers: { get(name: string): string | null } | undefined) {
   // TODO: does NextJs have a way to determine this?
