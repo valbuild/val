@@ -753,6 +753,24 @@ export function createValSystem(
                 ),
               };
             }
+            if (res.status === 403) {
+              // Refused for the plan: the patches are kept, and the part of
+              // the batch the server took before refusing is reported as saved.
+              return {
+                status: "refused",
+                saved: {
+                  newPatchIds: res.json.newPatchIds,
+                  parentRef: res.json.parentRef,
+                  ...(res.json.patchGroupId !== undefined
+                    ? { patchGroupId: res.json.patchGroupId }
+                    : {}),
+                  ...(res.json.headVersion !== undefined
+                    ? { headVersion: res.json.headVersion }
+                    : {}),
+                },
+                refusal: { message: res.json.message, error: res.json.error },
+              };
+            }
             if (res.status !== 200) {
               return {
                 status: "unauthorized",

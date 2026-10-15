@@ -1760,6 +1760,28 @@ export const ValServer = (
                     "The change was written against a different starting point than the server has.",
                 },
               };
+            } else if (createPatchRes.error.errorType === "plan-refused") {
+              /*
+               * Val Build refused it for the plan. Passed on as its 403 rather
+               * than a patch error: the patch is fine and the Studio keeps it,
+               * and the reason travels as data so the fix can sit beside it.
+               * The patches before this one in the batch ARE saved, and are
+               * reported as a 200 would report them.
+               */
+              return {
+                status: 403,
+                json: {
+                  type: "plan-refused",
+                  message: createPatchRes.error.error.message,
+                  error: createPatchRes.error.refusal,
+                  newPatchIds,
+                  parentRef,
+                  ...(patchGroupIdFromStore !== undefined
+                    ? { patchGroupId: patchGroupIdFromStore }
+                    : {}),
+                  ...(headVersion !== undefined ? { headVersion } : {}),
+                },
+              };
             } else {
               return {
                 status: 400,

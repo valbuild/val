@@ -11,6 +11,7 @@ import {
   useStudioAccess,
   type StudioAccessState,
 } from "./planLimits/useStudioAccess";
+import { useResumeRefusedSaves } from "./planLimits/useResumeRefusedSaves";
 import { usePlanNotice } from "./planLimits/usePlanNotice";
 import { PlanNoticeCard } from "./planLimits/PlanNoticeCard";
 import { PlanStatusBar } from "./planLimits/PlanStatusBar";
@@ -163,6 +164,7 @@ export function ValShell() {
     shellData.data.webComponentsUrl !== undefined;
   const studioAccess = useStudioAccess(valBuildConnected ? project : undefined);
   const { access } = studioAccess;
+  useResumeRefusedSaves(access);
   const toastActionFor = useCallback(
     (error: { details?: string }) => {
       const action = planToastAction(access, error.details);

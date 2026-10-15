@@ -8,7 +8,7 @@ import type {
 } from "@valbuild/core";
 import type { ParentRef, Patch } from "@valbuild/core/patch";
 import type { SyncState } from "./PatchSync";
-import type { PatchGroupT } from "@valbuild/shared/internal";
+import type { PatchGroupT, PlanRefusalErrorT } from "@valbuild/shared/internal";
 
 /**
  * A patch as it exists once its data is known: the ops plus the module they
@@ -412,6 +412,19 @@ export type SystemEvent =
       reason: "conflict" | "network-error" | "unparseable-response";
       message: string;
       attempt: number;
+    }
+  /**
+   * Val Build refused a save for the project's plan: the Free week's changes
+   * are used, or a trial is over. The edits are KEPT -- unlike
+   * `patch:save-rejected` -- and saved once the plan allows.
+   *
+   * Once per spell, not per retry. Carries Val Build's 403 as it said it, so
+   * the shell can put the fix (Upgrade, Add card) beside the reason.
+   */
+  | {
+      type: "patch:save-refused";
+      patches: PatchId[];
+      refusal: { message: string; error: PlanRefusalErrorT };
     }
   /**
    * Something the editor should be told changed: an error, the network, the

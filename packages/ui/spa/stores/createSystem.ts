@@ -75,6 +75,7 @@ import type {
   ReferenceBridge,
   SearchBridge,
 } from "./workerBridge";
+import { reportPlanRefusal } from "../utils/planRefusal";
 
 /**
  * How long a chain movement waits before the pending modules are validated.
@@ -2077,6 +2078,14 @@ export function createSystem(options: SystemOptions): System {
       if (event.headVersion !== undefined) {
         stat.noteHeadVersion(event.headVersion);
       }
+    }),
+    /*
+     * Told to the shell, which says it with the fix beside it (Upgrade, Add
+     * card) and asks Val Build what is true now. Not a status error: the edit
+     * is not lost, and "could not be saved" would say it was.
+     */
+    patchSync.events.on("patch:save-refused", (event) => {
+      reportPlanRefusal(event.refusal);
     }),
     patchSync.events.on("patch:save-stuck", (event) => {
       const report = describeStuckSave(

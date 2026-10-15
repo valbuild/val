@@ -38,7 +38,7 @@ import {
 import { TSOps, insertValJsonEntry, removeValJsonEntry } from "./patch/ts/ops";
 import { analyzeValModule } from "./patch/ts/valModule";
 import type { HistoryError } from "./history/HistoryError";
-import type { PatchGroupT } from "@valbuild/shared/internal";
+import type { PatchGroupT, PlanRefusalErrorT } from "@valbuild/shared/internal";
 import type {
   AffectedFile,
   StoredModuleVersion,
@@ -2604,6 +2604,7 @@ export abstract class ValOps {
       },
       | { errorType: "other"; error: GenericErrorMessage }
       | { errorType: "patch-head-conflict" }
+      | PlanRefusedError
     >
   > {
     const saveRes = await this.saveSourceFilePatch(
@@ -2621,6 +2622,9 @@ export abstract class ValOps {
       );
       if (saveRes.error.errorType === "patch-head-conflict") {
         return result.err({ errorType: "patch-head-conflict" });
+      }
+      if (saveRes.error.errorType === "plan-refused") {
+        return result.err(saveRes.error);
       }
       return result.err({ errorType: "other", error: saveRes.error });
     }
@@ -3120,7 +3124,23 @@ export type SaveSourceFilePatchResult = result.Result<
   },
   | ({ errorType: "other" } & GenericErrorMessage)
   | { errorType: "patch-head-conflict" }
+  | PlanRefusedError
 >;
+
+/**
+ * The content API refused a write for the project's plan (a 403 that says why
+ * as data), as opposed to refusing the patch.
+ *
+ * Its own error rather than an `other`: an `other` becomes a 400, and the
+ * Studio drops a patch it is told is bad. This one is good, and is saved once
+ * the plan allows it. `error` has the same shape as `other`'s so a caller that
+ * only wants a sentence reads it the same way.
+ */
+export type PlanRefusedError = {
+  errorType: "plan-refused";
+  error: GenericErrorMessage;
+  refusal: PlanRefusalErrorT;
+};
 
 export type PatchAnalysis = {
   patchesByModule: {
