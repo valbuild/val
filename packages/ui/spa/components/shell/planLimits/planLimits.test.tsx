@@ -16,12 +16,14 @@ import {
 import { parseStudioAccess, type FetchAnswer } from "./studioAccess";
 import { planNoticesOf, type PlanNotice } from "./planNotices";
 import { planStatusOf, planStatusParts } from "./planStatus";
-import { formatWhen, planToastAction } from "./planCopy";
+import { formatWhen, isRefusalText, planToastAction } from "./planCopy";
 import {
   FOCUS_REFRESH_MS,
   MIN_SCHEDULED_REFRESH_MS,
   nextChangeAt,
+  PAST_DUE_WINDOW_MS,
   REFRESH_WINDOW_MS,
+  refusalStillTrue,
   scheduledDelay,
   useStudioAccess,
 } from "./useStudioAccess";
@@ -1161,5 +1163,114 @@ describe("the words", () => {
         .getByRole("link", { name: /Open in Val Build/ })
         .getAttribute("href"),
     ).toBe(PROJECT_URL);
+  });
+});
+
+describe("the second review's cases", () => {
+  test("a refusal's words are told by the whole Billing link, not by a longer one or the project page", () => {
+    const access = accessOf("access-free", "owner");
+    expect(isRefusalText(access, `An owner can upgrade: ${BILLING_URL}`)).toBe(
+      true,
+    );
+    expect(isRefusalText(access, `Upgrade at ${BILLING_URL}. Thanks`)).toBe(
+      true,
+    );
+    expect(isRefusalText(access, `See ${BILLING_URL}&tab=keys`)).toBe(false);
+    expect(isRefusalText(access, `Set up a key at ${PROJECT_URL}`)).toBe(false);
+  });
+
+  test("putting the storage warning away does not hide an upload Val Build refuses", () => {
+    const access = accessOf("access-hosted-usage-warn", "owner");
+    const out = {
+      ...access,
+      limits: access.limits && {
+        ...access.limits,
+        usage: access.limits.usage && {
+          ...access.limits.usage,
+          out: ["filesStored"],
+        },
+      },
+    };
+    const warned = planNoticesOf(out, null, CTX).map((notice) => notice.id);
+    expect(warned).toContain("usage:storage:policy");
+    const refusal = parsePlanRefusal(REFUSED_FIXTURES["refused-usage-storage"]);
+    const refused = planNoticesOf(out, refusal, CTX);
+    // The refusal is said plainly, and the hedged warning is not said beside it.
+    expect(refused.map((notice) => notice.id)).toContain("usage:storage");
+    expect(refused.map((notice) => notice.id)).not.toContain(
+      "usage:storage:policy",
+    );
+  });
+
+  test("a refusal is not kept by a different one the answer happens to have", () => {
+    const unknown = parsePlanRefusal({
+      message: "No",
+      error: { code: "limit:seats", billingUrl: BILLING_URL },
+    });
+    const paymentFailed = parsePlanRefusal(
+      REFUSED_FIXTURES["refused-payment-failed"],
+    );
+    if (unknown === null || paymentFailed === null) throw new Error("parse");
+    // Free refuses remote files always: that does not keep an unknown one.
+    expect(refusalStillTrue(accessOf("access-free", "owner"), unknown)).toBe(
+      false,
+    );
+    // A Free week used up is not a payment that failed.
+    expect(
+      refusalStillTrue(
+        accessOf("access-free-at-limit", "owner"),
+        paymentFailed,
+      ),
+    ).toBe(false);
+    expect(
+      refusalStillTrue(
+        accessOf("access-pro-payment-failed", "owner"),
+        paymentFailed,
+      ),
+    ).toBe(true);
+  });
+
+  test("a moment just past is asked about again, every minute, for a while", () => {
+    const access = accessOf("access-free-at-limit", "owner");
+    const nextAt = Date.parse("2026-10-14T12:00:00.000Z");
+    expect(nextChangeAt(access, null, nextAt + 60_000)).toBe(nextAt);
+    expect(scheduledDelay(nextAt, nextAt + 60_000)).toBe(FOCUS_REFRESH_MS);
+    expect(
+      nextChangeAt(access, null, nextAt + PAST_DUE_WINDOW_MS + 1),
+    ).toBeNull();
+  });
+
+  test("an error before /access answered is judged once it has", () => {
+    const refresh = jest.fn();
+    const refusalText = REFUSED_FIXTURES["refused-limit-changes"].message;
+    type Props = {
+      errors: { id: string; message: string; details?: string }[];
+      access: ReturnType<typeof accessOf> | null;
+    };
+    const initialProps: Props = { errors: [], access: null };
+    const hook = renderHook(
+      ({ errors, access }: Props) =>
+        useRefusalToastRefresh(errors, { access, refresh }),
+      { initialProps },
+    );
+    const errors = [{ id: "a", message: "x", details: refusalText }];
+    hook.rerender({ errors, access: null });
+    expect(refresh).not.toHaveBeenCalled();
+    hook.rerender({ errors, access: accessOf("access-free-warn", "owner") });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  test("an answer with no Billing link to tell a refusal by asks on any new error", () => {
+    const refresh = jest.fn();
+    const access = parseStudioAccess({ access: "edit" });
+    type Props = { errors: { id: string; message: string }[] };
+    const initialProps: Props = { errors: [] };
+    const hook = renderHook(
+      ({ errors }: Props) =>
+        useRefusalToastRefresh(errors, { access, refresh }),
+      { initialProps },
+    );
+    hook.rerender({ errors: [{ id: "a", message: "Could not save" }] });
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 });

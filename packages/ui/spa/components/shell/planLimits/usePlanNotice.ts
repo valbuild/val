@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { planNoticesOf, type PlanNotice } from "./planNotices";
 import { planStatusOf, type PlanStatus } from "./planStatus";
-import type { StudioAccessState } from "./useStudioAccess";
+import { momentsNamed, type StudioAccessState } from "./useStudioAccess";
 
 /** How often the notices' times are read again: "today at", "until 22 October". */
 export const CLOCK_TICK_MS = 60_000;
@@ -11,12 +11,15 @@ export const CLOCK_TICK_MS = 60_000;
  * 14:20" and "keeps running until 22 October", and a moment captured once
  * at the answer would keep saying them after they stopped being true.
  */
-export function useNow(tickMs: number = CLOCK_TICK_MS): Date {
+export function useNow(ticking: boolean, tickMs: number = CLOCK_TICK_MS): Date {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
+    if (!ticking) return;
+    // Read again on starting, too: the clock stood still while it was off.
+    setNow(new Date());
     const timer = setInterval(() => setNow(new Date()), tickMs);
     return () => clearInterval(timer);
-  }, [tickMs]);
+  }, [ticking, tickMs]);
   return now;
 }
 
@@ -44,7 +47,9 @@ export function usePlanNotice(
 ): PlanNoticeState {
   const { access, refusal, clearRefusal } = state;
   const { project, changesWaiting } = context;
-  const now = useNow();
+  // Only while the answer names a time a notice could say: otherwise a tick
+  // re-renders the whole shell every minute for nothing.
+  const now = useNow(momentsNamed(access, refusal).length > 0);
   const notices = useMemo(
     () =>
       planNoticesOf(access, refusal, {

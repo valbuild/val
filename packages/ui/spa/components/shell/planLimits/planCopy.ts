@@ -330,23 +330,38 @@ export function likelyFix(access: StudioAccess): PlanFix {
 }
 
 /**
- * The button for a toast whose raw message is a refusal from Val Build --
- * recognised by the organization's Billing link (or the project's page),
- * which every refusal names and nothing else carries. A save refused through
- * the app's proxy arrives as that message alone (the proxy keeps the words,
- * not the code), so this is what puts the next step beside it: the same
- * button a notice would give, for the fix this plan's refusals have.
+ * Whether an error's words are a refusal from Val Build: they name the
+ * organization's Billing link, which every refusal's sentence ends with, as
+ * the whole link -- not a longer one that starts with it. The project's page
+ * is not a sign: errors about keys or deployments link there too.
  */
 export function isRefusalText(
   access: StudioAccess | null,
   text: string | undefined,
 ): boolean {
-  if (access === null || text === undefined) return false;
-  return [access.billingUrl, access.projectUrl].some(
-    (url) => url !== null && text.includes(url),
-  );
+  if (access === null || text === undefined || access.billingUrl === null) {
+    return false;
+  }
+  const url = access.billingUrl;
+  for (let at = text.indexOf(url); at !== -1; at = text.indexOf(url, at + 1)) {
+    if (LINK_ENDS.test(text.slice(at + url.length))) return true;
+  }
+  return false;
 }
 
+/**
+ * What may follow a link that ends there: nothing, a space, a bracket or a
+ * quote, or the end of a sentence.
+ */
+const LINK_ENDS = /^(?:$|[\s)\]"'>,;]|[.!?](?:\s|$))/;
+
+/**
+ * The button for a toast whose raw message is a refusal from Val Build
+ * ({@link isRefusalText}). A save refused through an app whose
+ * `@valbuild/server` predates `plan-refused` arrives as that message alone,
+ * so this is what puts the next step beside it: the same button a notice
+ * would give, for the fix this plan's refusals have.
+ */
 export function planToastAction(
   access: StudioAccess | null,
   details: string | undefined,

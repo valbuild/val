@@ -329,7 +329,16 @@ function storageNotice(
   const what = refused
     ? `New files cannot be uploaded${until}, unless the project allows extra usage.`
     : `If the project is set to pause, which is the default, new files cannot be uploaded${until}. Allowing extra usage lifts that.`;
-  const common = base("usage:storage", 3, source);
+  /*
+   * Two ids, because they are two notices: the hedged one from `/access` can
+   * be put away for the session, and doing so must not hide an upload Val
+   * Build then actually refuses.
+   */
+  const common = base(
+    refused ? "usage:storage" : "usage:storage:policy",
+    3,
+    source,
+  );
   return {
     ...common,
     tone: "warning",
@@ -590,7 +599,9 @@ export function planNoticesOf(
     if (limits.usage !== null) {
       if (
         limits.usage.out.some((meter) => STORAGE_METERS.includes(meter)) &&
-        remoteFiles?.code !== "usage:storage"
+        remoteFiles?.code !== "usage:storage" &&
+        // An upload refused for it is said plainly below, with its Details.
+        refusal?.code !== "usage:storage"
       ) {
         push(
           storageNotice(

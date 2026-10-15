@@ -119,8 +119,8 @@ export type StudioAccess = {
 
 /**
  * Whether the answer refuses editing: the organization is read-only, or the
- * project's plan refuses the edit write. The one definition, for the notices
- * (`refusalStillTrue`) and for resuming held saves (`useResumeRefusedSaves`).
+ * project's plan refuses the edit write. What decides whether held saves are
+ * sent again (`useResumeRefusedSaves`).
  */
 export function editRefused(access: StudioAccess): boolean {
   return (
