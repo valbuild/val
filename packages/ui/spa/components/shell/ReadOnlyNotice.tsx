@@ -5,10 +5,11 @@ import { ADMIN_PROXY } from "./ProjectSwitcher";
 import { orgOfProject } from "./ProjectMembersButton";
 
 /**
- * The Studio is read-only: the organization's trial is over, or a payment
- * failed and its grace is over. Val Build refuses every save, file and
- * publish until it is fixed (`content/src/billing/planAccess.ts` in
- * valbuild/home); the site itself keeps running.
+ * The Studio is read-only: a payment failed and its grace is over. Val Build
+ * refuses every save, file and publish until it is paid
+ * (`content/src/billing/planAccess.ts` in valbuild/home); the site itself
+ * keeps running. An organization has no trial of its own: a project's limits
+ * are its plan's, and are said where they are hit.
  *
  * Said once, above the editor, before anyone types something that cannot be
  * saved, with what fixes it next to it: Billing for an owner, and for
@@ -19,7 +20,12 @@ export type PlanAccess =
   | { access: "edit" }
   | {
       access: "read-only";
-      reason: "trial-over" | "payment-failed";
+      /**
+       * A failed payment, the one reason Val Build gives today; `other` for
+       * one this Studio does not know, which is still said, as every save is
+       * refused all the same.
+       */
+      reason: "payment-failed" | "other";
       billingUrl: string;
       org: string;
       /** The person asking is an owner, who can fix it. */
@@ -35,7 +41,7 @@ export function parsePlanAccess(json: unknown): PlanAccess | null {
   if (json.access === "edit") return { access: "edit" };
   if (
     json.access !== "read-only" ||
-    !(json.reason === "trial-over" || json.reason === "payment-failed") ||
+    typeof json.reason !== "string" ||
     typeof json.billingUrl !== "string" ||
     typeof json.org !== "string" ||
     typeof json.canFix !== "boolean" ||
@@ -56,7 +62,7 @@ export function parsePlanAccess(json: unknown): PlanAccess | null {
   }
   return {
     access: "read-only",
-    reason: json.reason,
+    reason: json.reason === "payment-failed" ? "payment-failed" : "other",
     billingUrl: json.billingUrl,
     org: json.org,
     canFix: json.canFix,
@@ -113,17 +119,17 @@ function names(owners: { name: string }[]): string {
 export function readOnlyCopy(
   access: Extract<PlanAccess, { access: "read-only" }>,
 ): Copy {
-  const why =
-    access.reason === "trial-over"
-      ? `${access.org}'s trial has ended, so nothing can be saved or published until it is on Pro.`
-      : `A payment for ${access.org} failed, so nothing can be saved or published until it is paid.`;
+  const paymentFailed = access.reason === "payment-failed";
+  const why = paymentFailed
+    ? `A payment for ${access.org} failed, so nothing can be saved or published until it is paid.`
+    : `${access.org}'s Studio is read-only, so nothing can be saved or published.`;
   const body = `${why} The site keeps running.`;
   if (access.canFix) {
     return {
       title: "This Studio is read-only",
       body,
       action: {
-        label: access.reason === "trial-over" ? "Start Pro" : "Update payment",
+        label: paymentFailed ? "Update payment" : "Open Billing",
         href: access.billingUrl,
         external: true,
       },
@@ -131,9 +137,9 @@ export function readOnlyCopy(
   }
   const owners = access.owners;
   const subject = encodeURIComponent(
-    access.reason === "trial-over"
-      ? `Can ${access.org} move to Pro? The Studio is read-only`
-      : `${access.org}'s payment failed: the Studio is read-only`,
+    paymentFailed
+      ? `${access.org}'s payment failed: the Studio is read-only`
+      : `${access.org}'s Studio is read-only`,
   );
   return {
     title: "This Studio is read-only",

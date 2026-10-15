@@ -12,16 +12,15 @@ import {
 } from "./ReadOnlyNotice";
 
 /**
- * A Studio whose organization's trial is over, or whose payment failed past
- * its grace, cannot save. It says so before anyone types, with what fixes it:
- * Billing for an owner, the owners by name and a way to write to them for
- * everyone else.
+ * A Studio whose organization's payment failed past its grace cannot save.
+ * It says so before anyone types, with what fixes it: Billing for an owner,
+ * the owners by name and a way to write to them for everyone else.
  */
 type ReadOnly = Extract<PlanAccess, { access: "read-only" }>;
 
 const readOnly = (over: Partial<ReadOnly> = {}): ReadOnly => ({
   access: "read-only",
-  reason: "trial-over",
+  reason: "payment-failed",
   billingUrl: "https://admin.val.build/~/acme?section=billing",
   org: "acme",
   canFix: true,
@@ -30,19 +29,16 @@ const readOnly = (over: Partial<ReadOnly> = {}): ReadOnly => ({
 });
 
 describe("the read-only notice", () => {
-  test("an owner is sent to Billing to start Pro", () => {
+  test("an owner is sent to Billing to update the payment", () => {
     expect(readOnlyCopy(readOnly())).toEqual({
       title: "This Studio is read-only",
-      body: "acme's trial has ended, so nothing can be saved or published until it is on Pro. The site keeps running.",
+      body: "A payment for acme failed, so nothing can be saved or published until it is paid. The site keeps running.",
       action: {
-        label: "Start Pro",
+        label: "Update payment",
         href: "https://admin.val.build/~/acme?section=billing",
         external: true,
       },
     });
-    expect(
-      readOnlyCopy(readOnly({ reason: "payment-failed" })).action?.label,
-    ).toBe("Update payment");
   });
 
   test("everyone else is told who can fix it, by name, and can write to them", () => {
@@ -66,7 +62,7 @@ describe("the read-only notice", () => {
 
   test("the card shows the action as a link", () => {
     render(<ReadOnlyCard access={readOnly()} />);
-    const link = screen.getByRole("link", { name: /Start Pro/ });
+    const link = screen.getByRole("link", { name: /Update payment/ });
     expect(link.getAttribute("href")).toBe(
       "https://admin.val.build/~/acme?section=billing",
     );
@@ -83,6 +79,21 @@ describe("the read-only notice", () => {
     expect(
       parsePlanAccess({ access: "read-only", reason: "who-knows" }),
     ).toBeNull();
+  });
+
+  test("a reason this Studio does not know is still said, with Billing for an owner", () => {
+    const access = parsePlanAccess({ ...readOnly(), reason: "trial-over" });
+    expect(access).toEqual(readOnly({ reason: "other" }));
+    if (access === null || access.access !== "read-only") return;
+    expect(readOnlyCopy(access)).toEqual({
+      title: "This Studio is read-only",
+      body: "acme's Studio is read-only, so nothing can be saved or published. The site keeps running.",
+      action: {
+        label: "Open Billing",
+        href: "https://admin.val.build/~/acme?section=billing",
+        external: true,
+      },
+    });
   });
 });
 

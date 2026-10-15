@@ -163,7 +163,7 @@ const meta: Meta<typeof ShellHarness> = {
       control: "inline-radio",
       options: ["", "owner", "editor"],
       description:
-        "The organization's plan has made the Studio read-only (a trial that is over). An owner is offered Billing; anyone else, the owners to ask.",
+        "A failed payment has made the Studio read-only. An owner is offered Billing; anyone else, the owners to ask.",
     },
     canvasView: {
       control: "inline-radio",
@@ -411,7 +411,7 @@ function ShellHarness({
           <ReadOnlyCard
             access={{
               access: "read-only",
-              reason: "trial-over",
+              reason: "payment-failed",
               billingUrl: "https://admin.val.build/~/val-demo?section=billing",
               org: "val-demo",
               canFix: readOnly === "owner",
@@ -714,8 +714,8 @@ export const PublishFailed: Story = {
 };
 
 /**
- * The organization's trial is over, so nothing can be saved: said above the
- * editor before anyone types. An owner is sent to Billing.
+ * A payment failed, so nothing can be saved: said above the editor before
+ * anyone types. An owner is sent to Billing.
  */
 export const ReadOnlyForAnOwner: Story = {
   args: {
