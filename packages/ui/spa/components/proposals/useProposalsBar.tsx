@@ -45,6 +45,7 @@ import {
 } from "./PublishProposalDialog";
 import { followCarryOver, type CarryOver } from "../../proposals/carryOver";
 import { canBuildHere } from "../../publish/handoff";
+import { mergeNeedsBuild } from "../../proposals/mergeNeedsBuild";
 import { randomUUID } from "../../utils/randomUUID";
 import {
   restoreCodeOf,
@@ -515,6 +516,7 @@ export function useProposalsBar({
      * before anything here awaits. So a proposal with unsaved changes is
      * saved first, and Publish asks for a second tap.
      */
+    const needsBuild = mergeNeedsBuild(currentJson);
     if (unsaved > 0) {
       const checks = publishState.kind === "ready" ? publishState.checks : [];
       setPublishState({ kind: "publishing", step: "saving" });
@@ -523,7 +525,8 @@ export function useProposalsBar({
         setPublishState({ kind: "failed", message: failed });
         return;
       }
-      if (!canBuildHere()) {
+      // Only a merge that builds needs the tab, and so the second tap.
+      if (!canBuildHere() && needsBuild) {
         setPublishState({
           kind: "ready",
           checks,
@@ -534,8 +537,9 @@ export function useProposalsBar({
         return;
       }
     }
-    await pressMerge(() => publishProposal(name));
+    await pressMerge(() => publishProposal(name, { needsBuild }));
   }, [
+    currentJson,
     currentJson?.changes,
     here,
     pressMerge,
@@ -554,8 +558,19 @@ export function useProposalsBar({
       return;
     }
     setFailedRequest(null);
-    await pressMerge(() => retryProposalPublish(name, failedRequest));
-  }, [failedRequest, here, pressMerge, retryProposalPublish, runPublish]);
+    await pressMerge(() =>
+      retryProposalPublish(name, failedRequest, {
+        needsBuild: mergeNeedsBuild(currentJson),
+      }),
+    );
+  }, [
+    currentJson,
+    failedRequest,
+    here,
+    pressMerge,
+    retryProposalPublish,
+    runPublish,
+  ]);
 
   /* Settled is shown at once; the effect above keeps it once pressed clears. */
   const dialogState: PublishProposalState =
