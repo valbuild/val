@@ -1,28 +1,36 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useValSystem } from "../../../stores/react/SystemContext";
-import type { StudioAccess } from "./studioAccess";
+import { editRefused, type StudioAccess } from "./studioAccess";
 
 /**
  * Whether Val Build says this project's edits can be saved now. False while
- * it has not said: then the sync's own timed retry is what sends them.
+ * it has not said (no answer, or no organization half in it): then the sync's
+ * own timed retry is what sends them.
  */
 export function editAllowed(access: StudioAccess | null): boolean {
-  if (access === null || access.plan?.access !== "edit") return false;
-  return access.limits?.refused.edit === undefined;
+  return access !== null && access.plan !== null && !editRefused(access);
 }
 
 /**
  * Send the edits a plan refusal held back as soon as Val Build says editing
- * is allowed again -- an owner added a card, or the Free week moved on --
- * rather than when the sync's minute runs out (`REFUSED_RETRY_MS`).
+ * has become allowed -- an owner added a card, or the Free week moved on --
+ * rather than when the sync's timed retry comes round.
  *
- * On every new answer that allows it, not only on the change to allowed: a
- * save can be refused between two answers that both said yes. `resume` does
- * nothing when no refusal is holding the queue.
+ * On the CHANGE to allowed, not on every answer that allows it: a save
+ * refused while `/access` (asked a moment earlier, or racing the limit) still
+ * says yes would otherwise resume, be refused, ask again, and resume again,
+ * every couple of seconds. That case is left to the timed retry.
  */
 export function useResumeRefusedSaves(access: StudioAccess | null): void {
   const val = useValSystem();
+  // Null until Val Build answers: the first answer is not a change.
+  const allowed = access === null ? null : editAllowed(access);
+  const wasAllowed = useRef<boolean | null>(null);
   useEffect(() => {
-    if (val !== null && editAllowed(access)) val.system.patchSync.resume();
-  }, [val, access]);
+    const before = wasAllowed.current;
+    wasAllowed.current = allowed;
+    if (val !== null && allowed === true && before === false) {
+      val.system.patchSync.resume();
+    }
+  }, [val, allowed]);
 }

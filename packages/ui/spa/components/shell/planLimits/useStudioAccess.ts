@@ -3,6 +3,7 @@ import { onPlanRefusal, type PlanRefusal } from "../../../utils/planRefusal";
 import { ADMIN_PROXY } from "../ProjectSwitcher";
 import { orgOfProject } from "../ProjectMembersButton";
 import {
+  editRefused,
   parseStudioAccess,
   STORAGE_METERS,
   type FetchAnswer,
@@ -100,7 +101,7 @@ export function refusalStillTrue(
   switch (refusal.code) {
     case "read-only":
     case "payment-failed":
-      return access.plan?.access === "read-only" || refused.edit !== undefined;
+      return editRefused(access);
     case "trial-publishes":
       return refused.publish !== undefined;
     case "plan:remote-files":

@@ -199,15 +199,42 @@ export type ResyncChain = () => Promise<void>;
 export const SAVE_STUCK_AFTER_ATTEMPTS = 2;
 
 /**
- * How long a save refused for the plan waits before it is sent again by itself.
+ * How long a save refused for the plan waits before it is sent again by itself:
+ * the first time. Each refusal after it doubles the wait, up to
+ * {@link REFUSED_RETRY_MAX_MS}.
  *
  * A refusal lifts by something happening elsewhere -- an owner adds a card or
- * upgrades, or the oldest changes leave the Free week -- and nothing tells
- * this client when. A minute is soon enough not to be noticed after an owner
- * acts, and the shell calls {@link PatchSync.resume} sooner when it learns the
- * plan allows editing again.
+ * upgrades, or the oldest changes leave the Free week -- and the shell calls
+ * {@link PatchSync.resume} when Val Build says editing is open again. This
+ * timer is for when nothing tells it: a Studio with no shell listening, or a
+ * refusal that lifts between two of the shell's questions. It backs off
+ * because a trial that ended does not lift by itself, and every retry is a
+ * write the content service has to refuse.
  */
 export const REFUSED_RETRY_MS = 60_000;
+export const REFUSED_RETRY_MAX_MS = 30 * 60_000;
+
+/**
+ * When to send a refused save again: at the moment the refusal says it lifts
+ * (the Free week's oldest change leaving it), or on the backoff when it names
+ * none -- never sooner than {@link REFUSED_RETRY_MS}.
+ */
+export function refusedRetryMs(
+  until: string | undefined,
+  consecutive: number,
+  now: number,
+): number {
+  const backoff = Math.min(
+    REFUSED_RETRY_MS * 2 ** Math.max(0, consecutive - 1),
+    REFUSED_RETRY_MAX_MS,
+  );
+  const at = until === undefined ? NaN : Date.parse(until);
+  if (!Number.isFinite(at)) return backoff;
+  return Math.min(
+    Math.max(at - now + 1_000, REFUSED_RETRY_MS),
+    REFUSED_RETRY_MAX_MS,
+  );
+}
 
 /**
  * Has the write queue failed for long enough to stop waiting on it?
@@ -347,6 +374,9 @@ function sameState(a: SyncState, b: SyncState): boolean {
   if (a.status === "retrying" && b.status === "retrying") {
     return a.attempt === b.attempt && a.reason === b.reason;
   }
+  if (a.status === "refused" && b.status === "refused") {
+    return a.message === b.message;
+  }
   return true;
 }
 
@@ -414,10 +444,17 @@ export class PatchSync {
    * flush sends nothing: every write would be refused, one per keystroke.
    */
   private refused: { message: string } | null = null;
-  /** Bumped per refusal, so only the latest one's timed retry runs. */
+  /** Bumped per refusal and per resume, so only the latest timed retry runs. */
   private refusals = 0;
-  /** One `patch:save-refused` per spell, like {@link reportedStuck}. */
-  private reportedRefused = false;
+  /** Refusals in a row since the last save went through; sets the backoff. */
+  private consecutiveRefusals = 0;
+  /**
+   * The refusal last reported, by code and fix. Reported again only when it
+   * changes, or after the shell resumed: the timed retry is refused the same
+   * way until the plan changes, and a dismissed notice must not come back on
+   * every retry.
+   */
+  private reportedRefusal: string | null = null;
   private state: SyncState = { status: "in-sync" };
   private stopped = false;
 
@@ -783,7 +820,8 @@ export class PatchSync {
     if (result.status === "saved") {
       this.attempt = 0;
       this.reportedStuck = false;
-      this.reportedRefused = false;
+      this.reportedRefusal = null;
+      this.consecutiveRefusals = 0;
       this.recordSaved(result, parentRef);
       // Keep looping. More may have been created while this request was in
       // flight, and the loop's own emptiness check is what terminates it — a
@@ -805,19 +843,25 @@ export class PatchSync {
         patches: held,
         message: result.refusal.message,
       });
-      // Once per spell: the timed retry is refused again until the plan
-      // changes, and a dismissed notice must not come back every minute.
-      if (!this.reportedRefused) {
-        this.reportedRefused = true;
+      const said = `${result.refusal.error.code}:${result.refusal.error.fix ?? ""}`;
+      if (this.reportedRefusal !== said) {
+        this.reportedRefusal = said;
         this.events.emit({
           type: "patch:save-refused",
           patches: held,
           refusal: result.refusal,
         });
       }
+      this.consecutiveRefusals++;
       const refusal = ++this.refusals;
-      void this.sleep(REFUSED_RETRY_MS).then(() => {
-        if (refusal === this.refusals) this.resume();
+      void this.sleep(
+        refusedRetryMs(
+          result.refusal.error.until,
+          this.consecutiveRefusals,
+          Date.now(),
+        ),
+      ).then(() => {
+        if (refusal === this.refusals) this.retryRefused();
       });
       return true;
     }
@@ -944,13 +988,23 @@ export class PatchSync {
   /**
    * Send what a plan refusal held back.
    *
-   * Called by the timed retry after a refusal, and by the shell when Val
-   * Build says editing is allowed again (a card was added, the week moved
-   * on), so the edits made meanwhile go up without waiting out the minute.
-   * Nothing to do when no refusal is holding the queue.
+   * Called by the shell when Val Build says editing has become allowed (a
+   * card was added, the week moved on), so the edits made meanwhile go up
+   * without waiting for the timed retry. Nothing to do when no refusal is
+   * holding the queue, or once the sync is disposed.
    */
   resume(): void {
     if (this.refused === null) return;
+    // Val Build said editing is open: a refusal after this is news, even one
+    // like the last, and the backoff starts over.
+    this.reportedRefusal = null;
+    this.consecutiveRefusals = 0;
+    this.retryRefused();
+  }
+
+  /** Send the held edits again: the timed retry, and {@link resume}. */
+  private retryRefused(): void {
+    if (this.refused === null || this.stopped) return;
     this.refused = null;
     this.refusals++;
     void this.flush();

@@ -117,6 +117,18 @@ export type StudioAccess = {
   projectUrl: string | null;
 };
 
+/**
+ * Whether the answer refuses editing: the organization is read-only, or the
+ * project's plan refuses the edit write. The one definition, for the notices
+ * (`refusalStillTrue`) and for resuming held saves (`useResumeRefusedSaves`).
+ */
+export function editRefused(access: StudioAccess): boolean {
+  return (
+    access.plan?.access === "read-only" ||
+    access.limits?.refused.edit !== undefined
+  );
+}
+
 /** Val Build's trial: 3 publishes, and 10% of a month's included usage. */
 export const TRIAL_PUBLISHES = 3;
 export const TRIAL_USAGE_SHARE = 0.1;

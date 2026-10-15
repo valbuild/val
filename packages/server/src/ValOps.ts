@@ -2617,14 +2617,16 @@ export abstract class ValOps {
       patchGroup,
     );
     if (result.isErr(saveRes)) {
+      if (saveRes.error.errorType === "plan-refused") {
+        // The project's plan, not a failure: the Studio keeps the edit and
+        // sends it again later, so an error line here would be one a minute.
+        return result.err(saveRes.error);
+      }
       console.error(
         `Could not save source patch at path: '${path}'. Error: ${saveRes.error.errorType === "other" ? saveRes.error.message : saveRes.error.errorType}`,
       );
       if (saveRes.error.errorType === "patch-head-conflict") {
         return result.err({ errorType: "patch-head-conflict" });
-      }
-      if (saveRes.error.errorType === "plan-refused") {
-        return result.err(saveRes.error);
       }
       return result.err({ errorType: "other", error: saveRes.error });
     }

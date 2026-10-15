@@ -1,9 +1,15 @@
 import { initVal, type PatchId } from "@valbuild/core";
 import type { ParentRef } from "@valbuild/core/patch";
 import { createSystem } from "./createSystem";
-import { REFUSED_RETRY_MS, type SaveResult } from "./PatchSync";
+import {
+  REFUSED_RETRY_MAX_MS,
+  REFUSED_RETRY_MS,
+  refusedRetryMs,
+  type SaveResult,
+} from "./PatchSync";
 import { mfp } from "./testSystem";
 import type { SystemEvent } from "./types";
+import type { PlanRefusalErrorT } from "@valbuild/shared/internal";
 import { onPlanRefusal, type PlanRefusal } from "../utils/planRefusal";
 
 /**
@@ -59,6 +65,7 @@ function rig() {
         parentRef: { type: "patch", patchId: ids[ids.length - 1] },
       };
     },
+    publishPatches: async () => ({ status: "published" }),
     saveBackoffMs: () => 0,
     saveSleep: (ms) =>
       new Promise<void>((resolve) => {
@@ -77,13 +84,17 @@ function rig() {
     if (created.status !== "created") throw new Error(created.message);
     return created.record.patchId;
   };
-  const refuseAll = () => {
+  const refuseAll = (
+    refusal: { message: string; error: PlanRefusalErrorT } = REFUSAL,
+  ) => {
     answer = () => ({
       status: "refused",
       saved: { newPatchIds: [], parentRef: head },
-      refusal: REFUSAL,
+      refusal,
     });
   };
+  /** The timed retries the sync is waiting on; the save backoff is 0 here. */
+  const retries = () => waits.filter((wait) => wait.ms > 0);
   return {
     system,
     requests,
@@ -91,6 +102,7 @@ function rig() {
     waits,
     edit,
     refuseAll,
+    retries,
     setAnswer: (next: ((ids: PatchId[]) => SaveResult) | null) => {
       answer = next;
     },
@@ -178,15 +190,14 @@ describe("a save refused for the plan", () => {
   });
 
   it("is sent again by itself after a while", async () => {
-    const { system, refuseAll, setAnswer, edit, waits } = rig();
+    const { system, refuseAll, setAnswer, edit, retries } = rig();
     refuseAll();
     await edit("later");
     await system.patchSync.flush();
     setAnswer(null);
 
-    const retry = waits.find((wait) => wait.ms === REFUSED_RETRY_MS);
-    expect(retry).toBeDefined();
-    retry?.wake();
+    expect(retries()).toHaveLength(1);
+    retries()[0].wake();
     await settle();
     await system.patchSync.flush();
 
@@ -195,7 +206,7 @@ describe("a save refused for the plan", () => {
   });
 
   it("runs only the latest refusal's timed retry", async () => {
-    const { system, refuseAll, edit, waits, requests } = rig();
+    const { system, refuseAll, edit, retries, requests } = rig();
     refuseAll();
     await edit("x");
     await system.patchSync.flush();
@@ -204,31 +215,97 @@ describe("a save refused for the plan", () => {
     expect(requests).toHaveLength(2);
 
     // The first refusal's timer is stale: the resume already sent the edit.
-    const timers = waits.filter((wait) => wait.ms === REFUSED_RETRY_MS);
-    expect(timers).toHaveLength(2);
-    timers[0].wake();
+    expect(retries()).toHaveLength(2);
+    retries()[0].wake();
     await settle();
     expect(requests).toHaveLength(2);
     system.dispose();
   });
 
-  it("is reported once per spell, not once per retry", async () => {
-    const { system, refuseAll, setAnswer, edit, events } = rig();
+  it("does not retry once the sync is disposed", async () => {
+    const { system, refuseAll, edit, retries, requests } = rig();
     refuseAll();
     await edit("x");
     await system.patchSync.flush();
-    system.patchSync.resume();
+    system.dispose();
+
+    retries()[0].wake();
+    await settle();
+    expect(requests).toHaveLength(1);
+  });
+
+  it("is reported again only when the refusal changes, or after a resume", async () => {
+    const { system, refuseAll, edit, events, retries } = rig();
+    refuseAll();
+    await edit("x");
     await system.patchSync.flush();
     expect(events).toHaveLength(1);
 
-    // A save that goes through ends the spell, so the next refusal is news.
-    setAnswer(null);
-    system.patchSync.resume();
+    // The timed retry, refused the same way: not news, so a dismissed notice
+    // stays dismissed.
+    retries()[0].wake();
+    await settle();
     await system.patchSync.flush();
-    refuseAll();
-    await edit("y");
+    expect(events).toHaveLength(1);
+
+    // Refused for another reason: the trial ended meanwhile.
+    refuseAll({
+      message: "t's trial has ended, so its Studio is read-only.",
+      error: {
+        code: "trial-over",
+        fix: "add-card",
+        until: REFUSAL.error.until,
+        billingUrl: REFUSAL.error.billingUrl,
+      },
+    });
+    retries()[1].wake();
+    await settle();
     await system.patchSync.flush();
     expect(events).toHaveLength(2);
+    expect(system.patchSync.currentState()).toMatchObject({
+      status: "refused",
+      message: "t's trial has ended, so its Studio is read-only.",
+    });
+
+    // The shell said editing opened, and it was refused anyway: news again.
+    system.patchSync.resume();
+    await system.patchSync.flush();
+    expect(events).toHaveLength(3);
+    system.dispose();
+  });
+
+  it("says a refusal the shell cannot read as a status error, so held edits are never silent", async () => {
+    const { system, refuseAll, edit } = rig();
+    refuseAll({
+      message: "Val Build refused this for a reason this Studio does not know.",
+      error: { code: "limit:something-new" },
+    });
+    await edit("x");
+    await system.patchSync.flush();
+
+    const errors = system.status.current().errors;
+    expect(errors).toHaveLength(1);
+    expect(errors[0].details).toContain(
+      "Val Build refused this for a reason this Studio does not know.",
+    );
+    expect(system.patchStore.pendingPatchIds()).toHaveLength(1);
+    system.dispose();
+  });
+
+  it("refuses a publish with the plan's reason, not the connection", async () => {
+    const { system, refuseAll, edit } = rig();
+    refuseAll();
+    const record = await edit("held");
+    await system.patchSync.flush();
+
+    const res = await system.publish([record]);
+
+    expect(res).toEqual({
+      status: "refused",
+      reason: "unsaved-changes",
+      patchIds: [record],
+      planRefusal: REFUSAL.message,
+    });
     system.dispose();
   });
 
@@ -258,5 +335,38 @@ describe("a save refused for the plan", () => {
     await system.patchSync.flush();
     expect(requests).toEqual([]);
     system.dispose();
+  });
+});
+
+describe("when a refused save is sent again by itself", () => {
+  const now = Date.parse("2026-10-15T12:00:00.000Z");
+
+  it("backs off from a minute, doubling, to at most half an hour", () => {
+    expect(refusedRetryMs(undefined, 1, now)).toBe(REFUSED_RETRY_MS);
+    expect(refusedRetryMs(undefined, 2, now)).toBe(2 * REFUSED_RETRY_MS);
+    expect(refusedRetryMs(undefined, 3, now)).toBe(4 * REFUSED_RETRY_MS);
+    expect(refusedRetryMs(undefined, 20, now)).toBe(REFUSED_RETRY_MAX_MS);
+  });
+
+  it("waits for the moment the refusal says it lifts", () => {
+    expect(refusedRetryMs("2026-10-15T12:10:00.000Z", 5, now)).toBe(
+      10 * 60_000 + 1_000,
+    );
+  });
+
+  it("is never sooner than a minute, nor later than half an hour", () => {
+    expect(refusedRetryMs("2026-10-15T12:00:05.000Z", 1, now)).toBe(
+      REFUSED_RETRY_MS,
+    );
+    expect(refusedRetryMs("2026-10-14T12:00:00.000Z", 1, now)).toBe(
+      REFUSED_RETRY_MS,
+    );
+    expect(refusedRetryMs("2026-10-20T12:00:00.000Z", 1, now)).toBe(
+      REFUSED_RETRY_MAX_MS,
+    );
+  });
+
+  it("falls back to the backoff for a time it cannot read", () => {
+    expect(refusedRetryMs("soon", 2, now)).toBe(2 * REFUSED_RETRY_MS);
   });
 });
