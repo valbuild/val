@@ -89,6 +89,42 @@ export interface BuildTarget {
     modules: Record<string, string>;
     /** The same, for the react-server layer. Empty when RSC is not served. */
     rscModules: Record<string, string>;
+    /**
+     * Package -> the exact version this base layer was built from: every
+     * package a base specifier belongs to, and every `@tanstack/*` the
+     * platform carries.
+     *
+     * A layer build that bundles one of these at another version refuses,
+     * naming both. A project's own copy of a base package is never used for a
+     * base specifier, so a lockfile that disagrees here is either harmless or
+     * the skew PINS.md records -- and a build that is not running in the
+     * platform's own checkout cannot pin to the platform's copy, so it has to
+     * be told which is which.
+     *
+     * These are a property of the base SET, which is why they travel with
+     * `rev` rather than beside it: when a project chooses its base set, the
+     * answer for that set carries that set's versions, and nothing that reads
+     * this has to change.
+     *
+     * Absent from a loader that predates it. A build then skips the check
+     * rather than failing, and says so.
+     */
+    pins?: Record<string, string>;
+    /**
+     * Base chunk name -> the names it exports, per target: what a project
+     * chunk may import from `${baseFrom}${chunk}.js`.
+     *
+     * The export audit's facts for a build that has no built base layer on
+     * disk, which is every build but the platform's own. A chunk that is not
+     * listed is not checked -- the same "cannot be determined" a chunk ending
+     * in `export *` gets -- rather than refused.
+     *
+     * Absent from a loader that predates it, and the audit then skips.
+     */
+    exports?: {
+      worker: Record<string, Array<string>>;
+      browser: Record<string, Array<string>>;
+    };
     /** Where the chunks live, as seen from each kind of importer. */
     paths: {
       /** The base layer, from a project-layer chunk. */

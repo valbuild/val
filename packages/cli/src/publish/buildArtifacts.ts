@@ -287,12 +287,25 @@ export async function buildArtifacts(options: {
       node.cssSpecifiersOf(sources),
       dependencyAssets,
     );
+    /*
+     * There is no platform checkout here, so nothing can be PINNED to the
+     * platform's copies and no built base layer can be read. What stands in
+     * for both is what the platform says about its base set -- `base.pins`,
+     * which refuses a layer carrying a pinned package at another version, and
+     * `base.exports`, which the export audit reads. A platform that predates
+     * them sends neither, and the layer builds unchecked, as it always did
+     * here; that is worth a line in the log rather than silence.
+     */
+    if (!target.base.pins || !target.base.exports) {
+      warnings.push(
+        "The platform did not say which versions its base layer carries, so " +
+          "this build could not check that the project's TanStack and React " +
+          "agree with them.",
+      );
+    }
     const layer = await node.buildVendorLayer(root, deps, css, {
       base: target.base,
-      // A project on the platform layers its own copies; only the platform's
-      // own checkout carries pinned ones.
       resolvePlatformModule: () => null,
-      // No built base layer here: the export audit is skipped, not failed.
       baseLayerDir: null,
     });
 
