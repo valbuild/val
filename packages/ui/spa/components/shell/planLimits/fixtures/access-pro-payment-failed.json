@@ -1,0 +1,23 @@
+{
+  "plan": "pro",
+  "changes": null,
+  "refused": {
+    "edit": {
+      "code": "payment-failed",
+      "fix": "update-payment",
+      "until": null
+    },
+    "publish": {
+      "code": "payment-failed",
+      "fix": "update-payment",
+      "until": null
+    },
+    "remoteFiles": {
+      "code": "payment-failed",
+      "fix": "update-payment",
+      "until": null
+    }
+  },
+  "trial": null,
+  "usage": null
+}

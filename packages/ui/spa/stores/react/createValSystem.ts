@@ -8,6 +8,11 @@ import { createSchemaValidationBridge } from "../../validation/schemaValidationB
 import type { PatchRecord } from "../types";
 import type { RequestPublish } from "../PublishSeam";
 import { chunkPatchIds } from "./patchIdChunks";
+import {
+  isRecord,
+  jsonOrUndefined,
+  reportPlanRefusal,
+} from "../../utils/planRefusal";
 
 /**
  * A {@link System} wired to the real server, from a `ValClient`.
@@ -215,9 +220,24 @@ export function createValSystem(
                   resolve({ status: "ok" });
                   return;
                 }
+                /*
+                 * A plan refusal (remote files on Free, storage used up) is
+                 * told to the shell, which says it with the next step; the
+                 * field gets Val Build's own sentence rather than the status.
+                 */
+                const body = jsonOrUndefined(
+                  typeof xhr.responseText === "string" ? xhr.responseText : "",
+                );
+                const refused = reportPlanRefusal(body);
+                const said =
+                  refused && isRecord(body) && typeof body.message === "string"
+                    ? body.message
+                    : null;
                 resolve({
                   status: "error",
-                  message: `Could not upload ${target}: HTTP ${xhr.status} ${xhr.statusText}`,
+                  message:
+                    said ??
+                    `Could not upload ${target}: HTTP ${xhr.status} ${xhr.statusText}`,
                 });
               });
               xhr.addEventListener("error", () => {

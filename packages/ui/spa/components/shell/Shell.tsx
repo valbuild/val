@@ -345,6 +345,13 @@ export type ShellProps = {
   /** Its folded form, in the status bar. See `StatusBarProps.notice`. */
   statusNotice?: ReactNode;
   /**
+   * The plan's status -- a Hosted trial's days and publishes, a Free
+   * project's changes left -- where it fits: the top bar on a desktop, above
+   * the editor below that, where the bar has no room. A render prop because
+   * the shell is what knows the breakpoint. See `PlanStatusBar`.
+   */
+  renderPlanStatus?: (placement: "top-bar" | "column") => ReactNode;
+  /**
    * The past, beside the editor.
    *
    * A render prop rather than a node, because the shell is what knows the
@@ -545,6 +552,7 @@ export function Shell({
   editorOverride,
   notice,
   statusNotice,
+  renderPlanStatus,
   renderHistory,
   onPublish,
   publishSlot,
@@ -1052,8 +1060,13 @@ export function Shell({
       )}
     </PendingChangesGate>
   );
+  const columnPlanStatus =
+    breakpoint === "desktop" ? null : (renderPlanStatus?.("column") ?? null);
   const editorColumn = (
     <>
+      {columnPlanStatus === null ? null : (
+        <div className="mb-3">{columnPlanStatus}</div>
+      )}
       {notice === undefined || notice === null ? null : (
         <div className="mb-6">{notice}</div>
       )}
@@ -1146,6 +1159,9 @@ export function Shell({
           isLoading={isLoading}
           aiEnabled={aiEnabled}
           proposals={proposals}
+          planStatus={
+            breakpoint === "desktop" ? renderPlanStatus?.("top-bar") : undefined
+          }
           historyEnabled={historyEnabled}
           historyActive={historyActive}
           onOpenHistory={onOpenHistory}

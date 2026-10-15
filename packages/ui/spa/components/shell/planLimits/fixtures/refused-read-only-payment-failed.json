@@ -1,0 +1,9 @@
+{
+  "statusCode": 403,
+  "message": "A payment for acme failed, so its Studio is read-only until it is paid. The site keeps running. An owner can update the payment method: https://admin.val.build/~/acme?section=billing",
+  "error": {
+    "code": "read-only",
+    "reason": "payment-failed",
+    "billingUrl": "https://admin.val.build/~/acme?section=billing"
+  }
+}

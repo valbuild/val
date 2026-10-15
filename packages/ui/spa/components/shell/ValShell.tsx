@@ -7,7 +7,14 @@ import { CanvasFrame } from "./canvas/CanvasFrame";
 import { canvasFallbackRoute } from "./canvasFallbackRoute";
 import { SaveState } from "./StatusBar";
 import { RemoteFilesCard, UploadsOffChip } from "./RemoteFilesNotice";
-import { ReadOnlyCard, usePlanAccess } from "./ReadOnlyNotice";
+import {
+  useStudioAccess,
+  type StudioAccessState,
+} from "./planLimits/useStudioAccess";
+import { usePlanNotice } from "./planLimits/usePlanNotice";
+import { PlanNoticeCard } from "./planLimits/PlanNoticeCard";
+import { PlanStatusBar } from "./planLimits/PlanStatusBar";
+import { planToastAction } from "./planLimits/planCopy";
 import { useRemoteFiles } from "../ValRemoteProvider";
 import { useSteadySaveState } from "./useSteadySaveState";
 import { PublishState } from "./TopBar";
@@ -107,6 +114,7 @@ import {
   useHistoryBranch,
   useReportError,
   useChangesWithoutModuleNotice,
+  useGlobalTransientErrors,
 } from "../ValProvider";
 import {
   useFilePatchIds,
@@ -140,6 +148,35 @@ import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 export function ValShell() {
   const shellData = useShellData();
   const authenticationState = useAuthenticationState();
+  /**
+   * What the project's plan allows, from Val Build: the organization's
+   * read-only state and the project's own limits. See `planLimits/`. Asked
+   * only where the Studio is connected to Val Build (the same test that
+   * mounts its web components): elsewhere the proxy has nothing to forward
+   * to, and answers 404. Here rather than in the body because the toasts
+   * below use it too, to put the next step beside a refused write.
+   */
+  const project = useValConfig()?.project;
+  const valBuildConnected =
+    authenticationState !== "login-required" &&
+    shellData.status === "success" &&
+    shellData.data.webComponentsUrl !== undefined;
+  const studioAccess = useStudioAccess(valBuildConnected ? project : undefined);
+  const { access } = studioAccess;
+  const toastActionFor = useCallback(
+    (error: { details?: string }) => {
+      const action = planToastAction(access, error.details);
+      if (action === null) return undefined;
+      return {
+        label: action.label,
+        onClick: () => {
+          if (action.external) window.open(action.href, "_blank", "noopener");
+          else window.location.assign(action.href);
+        },
+      };
+    },
+    [access],
+  );
 
   if (authenticationState === "login-required") {
     return (
@@ -151,9 +188,9 @@ export function ValShell() {
 
   return (
     <>
-      <ValShellBody state={shellData} />
+      <ValShellBody state={shellData} studioAccess={studioAccess} />
       <Toaster />
-      <TransientErrorToasts />
+      <TransientErrorToasts actionFor={toastActionFor} />
       <PatchGroupWidenedToasts />
       <PatchErrorsDialog />
       <GlobalErrors />
@@ -167,7 +204,13 @@ export function ValShell() {
  * navigation to load, and asking for them only produces failing requests
  * behind the login dialog.
  */
-function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
+function ValShellBody({
+  state,
+  studioAccess,
+}: {
+  state: ReturnType<typeof useShellData>;
+  studioAccess: StudioAccessState;
+}) {
   const { resolvedTheme, setTheme, themeStyle } = useTheme();
   /**
    * The outline colours to hand the canvas frame.
@@ -238,21 +281,43 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       />
     ) : undefined;
   /**
-   * The organization has made the Studio read-only (a payment failed past
-   * its grace): said above everything, because
-   * nothing typed here can be saved. See `ReadOnlyNotice`. Asked only where
-   * the Studio is connected to Val Build (the same test that mounts its web
-   * components): elsewhere the proxy has nothing to forward to, and answers
-   * 404.
+   * The plan: one notice above everything, most pressing first -- the
+   * organization made the Studio read-only (a failed payment), a save or a
+   * publish Val Build refuses, an upload it refuses, a Hosted month running
+   * out -- and a compact status (a trial's days, Free's changes) in the top
+   * bar. Each with the next step beside it. See `planLimits/planNotices.ts`.
    */
   const project = useValConfig()?.project;
-  const valBuildConnected =
-    state.status === "success" && state.data.webComponentsUrl !== undefined;
-  const planAccess = usePlanAccess(valBuildConnected ? project : undefined);
+  const hasNetChanges = useHasNetChanges();
+  const ownPendingChanges = useOwnPendingChangeCount();
+  const plan = usePlanNotice(studioAccess, {
+    project: project?.split("/")[1] || "This project",
+    changesWaiting: hasNetChanges ? ownPendingChanges : 0,
+  });
+  /*
+   * A refused save, publish or upload reports an error; ask Val Build again
+   * what is true now, so the notice that explains it appears. The error
+   * itself may carry nothing but a message (a save is refused through this
+   * app's proxy, which keeps the words and not the code), so ANY new error
+   * asks: it is one small request, and calls close together are one.
+   */
+  const { globalTransientErrors } = useGlobalTransientErrors();
+  const newestErrorId =
+    globalTransientErrors[globalTransientErrors.length - 1]?.id;
+  const { refresh: refreshStudioAccess } = studioAccess;
+  useEffect(() => {
+    if (newestErrorId !== undefined) refreshStudioAccess();
+  }, [newestErrorId, refreshStudioAccess]);
   const editorNotices = [
-    planAccess?.access === "read-only" ? (
-      <ReadOnlyCard key="read-only" access={planAccess} />
-    ) : null,
+    plan.notice === null ? null : (
+      <PlanNoticeCard
+        key={`plan-${plan.notice.id}`}
+        notice={plan.notice}
+        onDismiss={() => {
+          if (plan.notice !== null) plan.dismiss(plan.notice);
+        }}
+      />
+    ),
     remoteFilesNotice === undefined ? null : (
       <div key="remote-files">{remoteFilesNotice}</div>
     ),
@@ -261,6 +326,13 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     editorNotices.length === 0 ? undefined : (
       <div className="flex flex-col gap-3">{editorNotices}</div>
     );
+  const planStatusValue = plan.status;
+  const planStatus =
+    planStatusValue === null
+      ? undefined
+      : (placement: "top-bar" | "column") => (
+          <PlanStatusBar status={planStatusValue} placement={placement} />
+        );
   const remoteFilesStatusNotice =
     remoteFiles.status === "inactive" && remoteNoticeDismissed ? (
       <UploadsOffChip onClick={() => setRemoteNoticeDismissed(false)} />
@@ -305,8 +377,6 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * wrong.
    */
   const pendingChangesLoaded = useInitialPatchesApplied();
-  const hasNetChanges = useHasNetChanges();
-  const ownPendingChanges = useOwnPendingChangeCount();
   usePatchGroupWrites();
   usePatchGroupScope();
   usePatchGroupIdentity();
@@ -1246,6 +1316,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         tourEnabled={isTourOffered(studioSettings)}
         editorOverride={overrideEditor}
         notice={shellNotice}
+        renderPlanStatus={planStatus}
         statusNotice={remoteFilesStatusNotice}
         publishSlot={<PublishButton />}
         publishState={publishState}
