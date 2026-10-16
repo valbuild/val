@@ -104,6 +104,50 @@ interface Site {
   /** Source range of the whole `const x = ...` statement. */
   declStart: number;
   declEnd: number;
+  /**
+   * `.validator(...)` and `.inputValidator(...)` calls in the chain, as the
+   * range from the end of the object each is called on to the end of the call:
+   * what the client build deletes, leaving that object.
+   */
+  validators: Array<{ start: number; end: number }>;
+}
+
+/**
+ * Both spellings, because both are supported while a supported version set
+ * has each: Start 1.169 removed `inputValidator` from its runtime, and 1.168
+ * has both. See `version-sets/` in valbuild/home.
+ */
+const VALIDATOR_METHODS = new Set(["validator", "inputValidator"]);
+
+/**
+ * The validator calls in a `createServerFn()` chain, which the CLIENT build
+ * drops as Start's `handleCreateServerFn` does (`stripMethodCall`).
+ *
+ * A validator is server code: it runs before the handler, on the server, and
+ * nothing in the browser calls it. Left in, it ships to every visitor along
+ * with whatever it imports -- the schema library at best, and a server-only
+ * module at worst. Only the handler used to be replaced, so for a long time
+ * this went to the browser unnoticed; `patterns-test.ts` in valbuild/home now
+ * asserts the validator's body is absent from the client bundle.
+ */
+function validatorsOf(chain: Node, moduleId: string) {
+  const found: Array<{ start: number; end: number }> = [];
+  let current: Node | null | undefined = chain;
+  while (current && current.type === "CallExpression") {
+    const callee = current.callee as Node;
+    if (callee?.type !== "MemberExpression") break;
+    const name = (callee.property as Node)?.name;
+    if (typeof name === "string" && VALIDATOR_METHODS.has(name)) {
+      if (!(current.arguments as Array<Node>)?.[0]) {
+        throw new Error(
+          `${moduleId}: createServerFn().${name}() must be called with a validator.`,
+        );
+      }
+      found.push({ start: (callee.object as Node).end, end: current.end });
+    }
+    current = callee.object as Node;
+  }
+  return found;
 }
 
 /**
@@ -213,6 +257,7 @@ function findSites(
       argEnd: arg.end,
       declStart: statement.start,
       declEnd: statement.end,
+      validators: validatorsOf(callee.object as Node, moduleId),
     });
   });
 
@@ -277,6 +322,9 @@ export async function transformServerFns(
         end: site.argEnd,
         text: `__platformClientRpc(${JSON.stringify(site.id)})`,
       });
+      for (const validator of site.validators) {
+        edits.push({ start: validator.start, end: validator.end, text: "" });
+      }
     }
   }
 
