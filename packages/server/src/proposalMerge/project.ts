@@ -190,11 +190,9 @@ export function entryFilesOf(
   moduleFilePath: ModuleFilePath,
   text: string,
 ): Record<string, string> | null {
-  const analysis = analyzeValModule(
-    ts.createSourceFile(moduleFilePath, text, ts.ScriptTarget.ES2015, true),
-  );
-  if (result.isErr(analysis)) return null;
-  const entries = analyzeJsonValuesEntries(analysis.value.source);
+  const analysis = valModuleOf(moduleFilePath, text);
+  if (analysis === null) return null;
+  const entries = analyzeJsonValuesEntries(analysis.source);
   if (entries.size === 0) return null;
   const dir = path.posix.dirname(moduleFilePath.slice(1));
   return Object.fromEntries(
@@ -330,11 +328,9 @@ export function codeOf(file: string, text: string): string {
   // A `.jsonValues()` entry is content, read at request time like the rest.
   if (file.endsWith(".val.json")) return "";
   if (!file.endsWith(".val.ts")) return text;
-  const analysis = analyzeValModule(
-    ts.createSourceFile(file, text, ts.ScriptTarget.ES2015, true),
-  );
-  if (result.isErr(analysis)) return text;
-  const { source } = analysis.value;
+  const analysis = valModuleOf(file, text);
+  if (analysis === null) return text;
+  const { source } = analysis;
   return (
     text.slice(0, source.getStart()) + "/* content */" + text.slice(source.end)
   );
@@ -349,4 +345,23 @@ export function buildName(files: Files): string {
     hash.update(`${file}\u0000${codeOf(file, text)}\u0000`);
   }
   return `build-${hash.digest("hex").slice(0, 8)}`;
+}
+
+/**
+ * A `.val.ts`'s `c.define(...)`, or `null` when it has none: a file of schemas
+ * that pages share (`export const heroSchema = s.object(...)`) is named like a
+ * module and is code. `analyzeValModule` throws for one; this does not.
+ */
+function valModuleOf(file: string, text: string) {
+  const sourceFile = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.ES2015,
+    true,
+  );
+  if (!sourceFile.statements.some((node) => ts.isExportAssignment(node))) {
+    return null;
+  }
+  const analysis = analyzeValModule(sourceFile);
+  return result.isErr(analysis) ? null : analysis.value;
 }

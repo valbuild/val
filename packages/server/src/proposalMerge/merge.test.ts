@@ -87,6 +87,33 @@ describe("the merge, on projects as data", () => {
     expect(merged.files[FILE]).toContain(`"Spring sale"`);
   });
 
+  test("a .val.ts that defines no module -- a schema shared by pages -- is code, merged as a file", () => {
+    const SHARED = "sections/hero.val.ts";
+    const shared = (fields: string) =>
+      `import { s } from "../val.config";\nexport const heroSchema = s.object({ ${fields} });\n`;
+    const withShared = (project: Project, text: string): Project => ({
+      ...project,
+      files: { ...project.files, [SHARED]: text },
+    });
+    const base = project(loose, LOOSE, { title: "Sale" });
+    const merged = mergeFromSite({
+      base: withShared(base, shared("title: s.string()")),
+      site: withShared(base, shared("title: s.string(), image: s.image()")),
+      proposal: withShared(
+        project(loose, LOOSE, { title: "Summer" }),
+        shared("title: s.string()"),
+      ),
+      resolutions: [],
+    });
+    expect(merged).toMatchObject({ status: "merged" });
+    if (merged.status !== "merged") return;
+    expect(merged.files[SHARED]).toBe(
+      shared("title: s.string(), image: s.image()"),
+    );
+    expect(merged.files[FILE]).toContain(`"Summer"`);
+    expect(merged.code).toEqual([]);
+  });
+
   test("the schema check reads the serialized schema's rules", () => {
     const site = project(loose, LOOSE, { title: "The great spring sale" });
     const proposal = project(tight, TIGHT, { title: "Sale" });

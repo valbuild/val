@@ -166,7 +166,13 @@ export function mergeFromSite(input: {
       proposal: p,
     });
 
-    if (!file.endsWith(".val.ts")) {
+    // A file named like a module that no side defines as one -- schemas the
+    // pages share -- is code.
+    const moduleFilePath = `/${file}` as ModuleFilePath;
+    const isModule = [base, site, proposal].some(
+      (side) => side.modules[moduleFilePath] !== undefined,
+    );
+    if (!file.endsWith(".val.ts") || !isModule) {
       if (s === b) files[file] = p;
       else if (p === b) files[file] = s;
       else if (resolution) files[file] = resolvedText(resolution, s, p);
@@ -193,7 +199,6 @@ export function mergeFromSite(input: {
       continue;
     }
 
-    const moduleFilePath = `/${file}` as ModuleFilePath;
     const moduleOf = (project: Project) => project.modules[moduleFilePath];
     const sourceOf = (project: Project): Value => moduleOf(project)?.source;
     const chosen = side === "site" ? site : proposal;
