@@ -36,6 +36,11 @@ import {
   type PublishRefusal,
 } from "./ValOps";
 import { z } from "zod";
+import {
+  mergeContent,
+  type ContentMergeResult,
+} from "./proposalMerge/mergeContent";
+import { updateWithCode } from "./proposalMerge/updateCode";
 import { fromError } from "zod-validation-error";
 import type { HistoryError } from "./history/HistoryError";
 import type {
@@ -54,6 +59,7 @@ import {
   type PatchGroupT,
   JSONValue as JSONValueSchema,
   PatchId as PatchIdSchema,
+  SerializedSchema as SerializedSchemaSchema,
   PlanRefusalError,
 } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
@@ -1009,7 +1015,7 @@ export class ValOpsHttp extends ValOps {
     const one = /^\/[0-9a-f]{20}$/.test(path);
     if (one) return method === "GET" || method === "PATCH";
     if (method === "GET")
-      return /^\/[0-9a-f]{20}\/(merge-checks|files)$/.test(path);
+      return /^\/[0-9a-f]{20}\/(merge-checks|files|merge-trees)$/.test(path);
     return (
       method === "POST" &&
       /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|build|update-from-site|restore-code)$/.test(
@@ -1074,6 +1080,14 @@ export class ValOpsHttp extends ValOps {
     profileId: string | null,
   ): Promise<{ status: number; body: string; contentType: string }> {
     const json = "application/json";
+    const updating = /^\/([0-9a-f]{20})\/update-content$/.exec(path)?.[1];
+    if (updating !== undefined && init.method === "POST") {
+      return this.updateContentFromSite(updating, init.body, profileId);
+    }
+    const withCode = /^\/([0-9a-f]{20})\/update-code$/.exec(path)?.[1];
+    if (withCode !== undefined && init.method === "POST") {
+      return this.updateCodeFromSite(withCode, init.body, profileId);
+    }
     if (!ValOpsHttp.proposalsApiAllowed(init.method, path)) {
       return {
         status: 403,
@@ -1118,6 +1132,254 @@ export class ValOpsHttp extends ValOps {
       body: await res.text(),
       contentType: res.headers.get("Content-Type") ?? json,
     };
+  }
+
+  /**
+   * Update from the site, for a proposal that changes only content
+   * (valbuild/home `docs/hosted-publishing.md`, step 8.2, slice 1a): content
+   * hands over the three versions of every module the proposal saved, this
+   * server merges them under its own build's schemas -- the same on all
+   * three sides, which is what "content only" means -- and content commits
+   * the merge on the proposal's branch.
+   *
+   * Answered here rather than forwarded, at `POST /<name>/update-content`, and
+   * only by the proposal's own server: the schemas it merges under are this
+   * build's. A conflict comes back for a person to resolve, and the same call
+   * with their `resolutions` merges.
+   */
+  private async updateContentFromSite(
+    name: string,
+    body: string | undefined,
+    profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    const answer = (status: number, value: unknown) => ({
+      status,
+      contentType: json,
+      body: JSON.stringify(value),
+    });
+    if (this.proposal?.name !== name) {
+      return answer(403, {
+        message:
+          "A proposal is updated from the site at its own address, where its build is.",
+      });
+    }
+    let parsedBody: unknown;
+    try {
+      parsedBody = body === undefined || body === "" ? {} : JSON.parse(body);
+    } catch {
+      return answer(400, { message: "The update's body is not JSON." });
+    }
+    const request = UpdateContentBody.safeParse(parsedBody);
+    if (!request.success) {
+      return answer(400, {
+        message: `Invalid update: ${fromError(request.error).toString()}`,
+      });
+    }
+    const content = (path: string, init: RequestInit = {}) =>
+      fetch(`${this.contentUrl}/v1/${this.project}/proposals/${name}${path}`, {
+        ...init,
+        headers: {
+          ...this.authHeaders,
+          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+          ...(init.body === undefined ? {} : { "Content-Type": json }),
+        },
+      });
+    const read = await content("/merge-inputs");
+    if (!read.ok) {
+      return {
+        status: read.status,
+        contentType: json,
+        body: await read.text(),
+      };
+    }
+    const inputs = MergeInputs.safeParse(await read.json());
+    if (!inputs.success) {
+      return answer(502, {
+        message: `Content answered the merge's inputs in a shape this Val does not read: ${fromError(inputs.error).toString()}`,
+      });
+    }
+    if (inputs.data.upToDate) return answer(200, { status: "up-to-date" });
+    if (!inputs.data.contentOnly.ok || inputs.data.siteHead === null) {
+      return answer(409, {
+        status: "needs-build",
+        message: inputs.data.contentOnly.ok
+          ? "The site has no commit to update from."
+          : inputs.data.contentOnly.reason,
+      });
+    }
+    const modules: Parameters<typeof mergeContent>[0]["modules"] = {};
+    const withoutText: ModuleFilePath[] = [];
+    for (const [path, module] of Object.entries(inputs.data.modules)) {
+      const moduleFilePath = path as ModuleFilePath;
+      if (module.text === null) {
+        withoutText.push(moduleFilePath);
+        continue;
+      }
+      modules[moduleFilePath] = {
+        base: module.base,
+        site: module.site,
+        proposal: module.proposal,
+        text: module.text,
+      };
+    }
+    // Decisions are about the values a person was shown. When the site or
+    // the proposal moved since, they would settle values nobody saw, so the
+    // merge is done again without them: what still conflicts is shown again.
+    const { siteHead, proposalHead } = request.data;
+    const decidedHere =
+      siteHead === undefined ||
+      (siteHead === inputs.data.siteHead &&
+        proposalHead === inputs.data.proposalHead);
+    const merged: ContentMergeResult =
+      withoutText.length > 0
+        ? { status: "needs-full-merge", modules: withoutText }
+        : mergeContent({
+            modules,
+            schemas: await this.getSchemas(),
+            resolutions: decidedHere ? request.data.resolutions : [],
+          });
+    if (merged.status === "conflicts") {
+      return answer(200, {
+        status: "conflicts",
+        conflicts: merged.conflicts,
+        siteHead: inputs.data.siteHead,
+        proposalHead: inputs.data.proposalHead,
+      });
+    }
+    if (merged.status === "needs-full-merge") {
+      return answer(409, {
+        status: "needs-full-merge",
+        modules: merged.modules,
+        message: `${merged.modules.join(", ")} changed both here and on the site in a way this version cannot merge yet.`,
+      });
+    }
+    const written = await content("/merge-from-site", {
+      method: "POST",
+      body: JSON.stringify({
+        siteHead: inputs.data.siteHead,
+        proposalHead: inputs.data.proposalHead,
+        files: merged.files,
+        modules: merged.modules,
+      }),
+    });
+    const text = await written.text();
+    if (!written.ok) {
+      return { status: written.status, contentType: json, body: text };
+    }
+    return updatedAnswer(text);
+  }
+
+  /**
+   * Update from the site, for a proposal with code (valbuild/home
+   * `docs/hosted-publishing.md`, step 8.2, slice 1b), at
+   * `POST /<name>/update-code`. The builder tab has read content's trees
+   * (`GET /<name>/merge-trees`, forwarded) and evaluated them; this reads the
+   * trees again -- the tab's evaluation is of the trees content has, or it is
+   * of nothing -- and does the text (`updateWithCode`). The first call
+   * answers the merge for the tab to evaluate; the second, with that
+   * evaluation, commits it on the proposal's branch, staging its code.
+   *
+   * Only at the proposal's own address, as every write to its files is.
+   */
+  private async updateCodeFromSite(
+    name: string,
+    body: string | undefined,
+    profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    const answer = (status: number, value: unknown) => ({
+      status,
+      contentType: json,
+      body: JSON.stringify(value),
+    });
+    if (this.proposal?.name !== name) {
+      return answer(403, {
+        message:
+          "A proposal is updated from the site at its own address, where its files are written.",
+      });
+    }
+    let parsedBody: unknown;
+    try {
+      parsedBody = body === undefined || body === "" ? {} : JSON.parse(body);
+    } catch {
+      return answer(400, { message: "The update's body is not JSON." });
+    }
+    const request = UpdateCodeBody.safeParse(parsedBody);
+    if (!request.success) {
+      return answer(400, {
+        message: `Invalid update: ${fromError(request.error).toString()}`,
+      });
+    }
+    const content = (path: string, init: RequestInit = {}) =>
+      fetch(`${this.contentUrl}/v1/${this.project}/proposals/${name}${path}`, {
+        ...init,
+        headers: {
+          ...this.authHeaders,
+          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+          ...(init.body === undefined ? {} : { "Content-Type": json }),
+        },
+      });
+    const read = await content("/merge-trees");
+    if (!read.ok) {
+      return {
+        status: read.status,
+        contentType: json,
+        body: await read.text(),
+      };
+    }
+    const trees = MergeTrees.safeParse(await read.json());
+    if (!trees.success) {
+      return answer(502, {
+        message: `Content answered the merge's trees in a shape this Val does not read: ${fromError(trees.error).toString()}`,
+      });
+    }
+    const { siteHead, proposalHead, builds } = request.data;
+    if (
+      trees.data.siteHead !== siteHead ||
+      trees.data.proposalHead !== proposalHead ||
+      trees.data.builds.base !== builds.base ||
+      trees.data.builds.site !== builds.site
+    ) {
+      return answer(409, {
+        status: "moved",
+        message:
+          "The site or this proposal changed while this update was being made. Update from the site again.",
+      });
+    }
+    if (trees.data.upToDate) return answer(200, { status: "up-to-date" });
+    if (siteHead === null) {
+      return answer(409, { message: "The site has no commit to update from." });
+    }
+    const merged = updateWithCode({
+      trees: trees.data,
+      evaluated: request.data.evaluated,
+      resolutions: request.data.resolutions,
+      ...(request.data.merged ? { merged: request.data.merged } : {}),
+    });
+    if (merged.status === "stale") {
+      return answer(409, {
+        status: "stale",
+        message:
+          "What was checked is not this update any more. Update from the site again.",
+      });
+    }
+    if (merged.status !== "merged") return answer(200, merged);
+    const written = await content("/merge-from-site", {
+      method: "POST",
+      body: JSON.stringify({
+        siteHead,
+        proposalHead,
+        files: merged.files,
+        modules: merged.modules,
+        code: { build: builds.site, staged: merged.staged },
+      }),
+    });
+    const text = await written.text();
+    if (!written.ok) {
+      return { status: written.status, contentType: json, body: text };
+    }
+    return updatedAnswer(text);
   }
 
   /**
@@ -3440,3 +3702,152 @@ export class ValOpsHttp extends ValOps {
   }
   // #endregion history
 }
+
+/**
+ * Content's answer to a merge it committed, as the Studio is answered: what
+ * content says, marked updated. Content has written the merge by then, so an
+ * answer that cannot be read says so rather than failing as though nothing
+ * happened.
+ */
+function updatedAnswer(text: string): {
+  status: number;
+  body: string;
+  contentType: string;
+} {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return {
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message:
+          "The proposal was updated from the site, but content's answer could not be read. Reload to see the proposal as it is now.",
+      }),
+    };
+  }
+  return {
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ status: "updated", ...parsed }),
+  };
+}
+
+/** What the Studio sends to update a proposal from the site: its decisions. */
+const UpdateContentBody = z.object({
+  /**
+   * Where the site and the proposal were when the conflicts the
+   * `resolutions` decide were found: the conflicts answer says. Absent with
+   * no decisions.
+   */
+  siteHead: z.string().nullable().optional(),
+  proposalHead: z.string().nullable().optional(),
+  resolutions: z
+    .array(
+      z.union([
+        z.object({
+          moduleFilePath: z.string().transform((p) => p as ModuleFilePath),
+          path: z.array(z.string()),
+          keep: z.enum(["site", "proposal"]),
+        }),
+        z.object({
+          moduleFilePath: z.string().transform((p) => p as ModuleFilePath),
+          path: z.array(z.string()),
+          value: JSONValueSchema,
+        }),
+      ]),
+    )
+    .default([]),
+});
+
+/** A module, as the builder tab's evaluation of its tree gave it. */
+const EvaluatedModules = z.record(
+  z.string().transform((p) => p as ModuleFilePath),
+  z.object({
+    schema: SerializedSchemaSchema,
+    written: JSONValueSchema,
+    errors: z.array(
+      z.object({ path: z.array(z.string()), message: z.string() }),
+    ),
+  }),
+);
+
+/** What the builder tab sends to update a proposal with code from the site. */
+const UpdateCodeBody = z.object({
+  siteHead: z.string().nullable(),
+  proposalHead: z.string().nullable(),
+  builds: z.object({ base: z.string(), site: z.string() }),
+  evaluated: z.object({
+    base: EvaluatedModules,
+    site: EvaluatedModules,
+    proposal: EvaluatedModules,
+  }),
+  resolutions: z
+    .array(
+      z.union([
+        z.object({
+          moduleFilePath: z.string().transform((p) => p as ModuleFilePath),
+          path: z.array(z.string()),
+          keep: z.enum(["site", "proposal"]),
+        }),
+        z.object({
+          moduleFilePath: z.string().transform((p) => p as ModuleFilePath),
+          path: z.array(z.string()),
+          value: JSONValueSchema,
+        }),
+        z.object({ file: z.string(), keep: z.enum(["site", "proposal"]) }),
+        z.object({ file: z.string(), text: z.string() }),
+      ]),
+    )
+    .default([]),
+  /** The tab's evaluation of the merge the first call answered. */
+  merged: z.object({ id: z.string(), evaluated: EvaluatedModules }).optional(),
+});
+
+/** Content's `GET /proposals/:name/merge-trees`. */
+const MergeTrees = z.object({
+  base: z.string().nullable(),
+  siteHead: z.string().nullable(),
+  proposalHead: z.string().nullable(),
+  upToDate: z.boolean(),
+  builds: z.object({ base: z.string(), site: z.string() }),
+  trees: z.object({
+    site: z.record(z.string(), z.string()),
+    base: z.record(z.string(), z.string().nullable()),
+    proposal: z.record(z.string(), z.string().nullable()),
+  }),
+  modules: z.record(
+    z.string(),
+    z.object({
+      base: z.string().nullable(),
+      site: z.string().nullable(),
+      proposal: z.string().nullable(),
+    }),
+  ),
+  sources: z.record(z.string(), JSONValueSchema),
+});
+
+/** Content's `GET /proposals/:name/merge-inputs`. */
+const MergeInputs = z.object({
+  base: z.string().nullable(),
+  siteHead: z.string().nullable(),
+  proposalHead: z.string().nullable(),
+  upToDate: z.boolean(),
+  contentOnly: z.union([
+    z.object({ ok: z.literal(true) }),
+    z.object({ ok: z.literal(false), reason: z.string() }),
+  ]),
+  modules: z.record(
+    z.string(),
+    z.object({
+      base: JSONValueSchema.nullable(),
+      site: JSONValueSchema.nullable(),
+      proposal: JSONValueSchema.nullable(),
+      text: z.string().nullable(),
+    }),
+  ),
+});

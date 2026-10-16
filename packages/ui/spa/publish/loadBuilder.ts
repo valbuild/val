@@ -106,6 +106,8 @@ export type StudioBuilder = {
   publishArtifacts: Builder["publishArtifacts"];
   /** A build's name, before building it: see `buildInputId`. */
   buildInputId: Builder["buildInputId"];
+  /** A tree's Val modules, as one module to evaluate: see `bundleValModules`. */
+  bundleValModules: Builder["bundleValModules"];
 };
 
 export type BuilderLoader = () => Promise<StudioBuilder>;
