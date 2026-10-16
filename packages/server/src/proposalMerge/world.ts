@@ -265,16 +265,16 @@ export async function world(pages: Page[], code: Files = {}) {
     },
 
     /**
-     * Publish in a proposal. If the site moved since the proposal's base, Val
-     * updates it first -- and stops at a conflict, changing nothing. Then Val
-     * names the site's pending changes the merge conflicts with, and content
-     * merges: one commit on the site, those changes moved out.
+     * Publish in a proposal, as the Studio presses it (`runPublish`): its
+     * unsaved changes are saved first. If the site moved since the
+     * proposal's base, Val updates it -- and stops at a conflict, changing
+     * nothing. Then Val names the site's pending changes the merge conflicts
+     * with, and content merges: one commit on the site, those changes moved
+     * out.
      */
     async publish(handle: { id: string }): Promise<PublishOutcome> {
       const id = handle.id;
-      if (c.pending(c.proposal(id).line).length > 0) {
-        throw new Error("the proposal has unsaved changes: save first");
-      }
+      await proposalHandle(id).save();
       if (c.proposal(id).base !== c.head(SITE).id) {
         const updated = await updateFromSite(id, []);
         if (updated.status === "conflicts") return updated;

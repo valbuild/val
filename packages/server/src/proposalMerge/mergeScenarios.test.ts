@@ -803,6 +803,37 @@ describe("a proposal that changes code", () => {
     expect(w.site.file(HERO)).toBe(hero("huge"));
   });
 
+  test("two edits to different lines of one component: a conflict, because code merges file by file for now", async () => {
+    const banner = "src/components/Banner.tsx";
+    const lines = (heading: string, button: string) =>
+      [
+        `export function Banner() {`,
+        `  return (`,
+        `    <section>`,
+        `      <h2>${heading}</h2>`,
+        `      <p>Seasonal offers</p>`,
+        `      <p>Free delivery</p>`,
+        `      <button>${button}</button>`,
+        `    </section>`,
+        `  );`,
+        `}`,
+        ``,
+      ].join("\n");
+    const home = homePage();
+    const w = await world([home], { [banner]: lines("Sale", "Buy") });
+    const summer = w.openProposal("Summer campaign", { by: "ola" });
+    summer.stage({ [banner]: lines("Summer sale", "Buy") });
+    const cta = w.openProposal("Clearer button", { by: "per" });
+    cta.stage({ [banner]: lines("Sale", "Shop now") });
+    await w.publish(cta);
+
+    // Line by line (as git does) would combine these: see the plan.
+    expect(await w.publish(summer)).toMatchObject({
+      status: "conflicts",
+      conflicts: [expect.objectContaining({ kind: "code", file: banner })],
+    });
+  });
+
   test("different components on each side: both kept, and the merged code is built", async () => {
     const home = homePage();
     const w = await world([home], {
@@ -1417,6 +1448,6 @@ describe("not modelled yet", () => {
     "a change written on the site after Val named what moves: content refuses the stale answer, and Val asks again (needs the answer and the merge apart in the world)",
   );
   test.todo(
-    "code merged line by line, as git does, rather than file by file (decide first: see the question in the plan)",
+    "code merged line by line, as git does -- if file by file turns out to be annoying (the plan, 8.2 decision 12)",
   );
 });

@@ -1,3 +1,7 @@
+import type { PatchId } from "@valbuild/core";
+import type { BaseSha } from "../ValOps";
+import { content, SITE } from "./content";
+import { buildName, scaffold } from "./project";
 import { world } from "./world";
 import { aboutPage, HERO, hero, HOME_SCHEMA, homePage, set } from "./fixtures";
 
@@ -117,13 +121,41 @@ describe("a proposal", () => {
     expect(await w.publish(summer)).toMatchObject({ status: "published" });
   });
 
-  test("Publish with unsaved changes is refused", async () => {
+  test("Publish saves what is unsaved first, as the Studio does, and publishes it", async () => {
     const home = homePage();
     const w = await world([home]);
     const summer = w.openProposal("Summer campaign", { by: "ola" });
     await summer.patch(home, [set(["title"], "Summer sale")]);
 
-    await expect(w.publish(summer)).rejects.toThrow("unsaved changes");
+    expect(await w.publish(summer)).toMatchObject({ status: "published" });
+    expect(await w.site.page(home)).toMatchObject({ title: "Summer sale" });
+    expect(w.whereIs("ola-1")).toBe("published");
+  });
+});
+
+describe("content, on its own", () => {
+  test("refuses to merge a proposal with unsaved changes: the Studio's saving first is not trusted", async () => {
+    const home = homePage();
+    const c = content(
+      {
+        ...scaffold([home.file]),
+        [home.file]: home.text,
+      },
+      buildName,
+    );
+    const id = c.openProposal("Summer campaign", "ola");
+    await c.patchStore(c.proposal(id).line).append({
+      patchId: "ola-1" as PatchId,
+      path: home.moduleFilePath,
+      patch: [set(["title"], "Summer sale")],
+      authorId: null,
+      createdAt: "",
+      baseSha: "" as BaseSha,
+    });
+
+    expect(() => c.merge(id, { siteHead: c.head(SITE).id, move: [] })).toThrow(
+      "unsaved changes",
+    );
   });
 });
 
