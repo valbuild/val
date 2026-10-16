@@ -1,6 +1,11 @@
 import path from "path";
 import ts from "typescript";
-import { Internal, type ModuleFilePath, type ValModule } from "@valbuild/core";
+import {
+  Internal,
+  type ModuleFilePath,
+  type SerializedSchema,
+  type ValModule,
+} from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import {
   deepClone,
@@ -11,6 +16,8 @@ import { createHash } from "crypto";
 import { loadValModules, type ValModulesHost } from "../loadValModules";
 import { analyzeValModule } from "../patch/ts/valModule";
 import { analyzeJsonValuesEntries } from "../patch/ts/jsonValuesModule";
+import type { Value } from "./threeWay";
+import { validateWith, type SchemaError } from "./validate";
 
 /**
  * A project as git holds it: every file's text, by path from the project
@@ -48,6 +55,56 @@ function host(files: Files): ValModulesHost {
     directoryExists: (p) =>
       inProject(p) ? dirs.has(p) : (ts.sys.directoryExists?.(p) ?? false),
   };
+}
+
+/**
+ * A module, as the merge needs it: data, so whoever evaluated the project's
+ * schemas can hand it over -- Val's loader here and in `val validate`, the
+ * builder tab with rolldown -- and the merge itself never runs project code.
+ */
+export type ProjectModule = {
+  /**
+   * Its content, as the files hold it -- a `.jsonValues()` record's entries
+   * read from their `.val.json` files, so it is merged and validated as one
+   * record.
+   */
+  source: JSONValue;
+  schema: SerializedSchema;
+  /**
+   * For a `.jsonValues()` record: each entry's file, by key, from the project
+   * root. `null` for any other module.
+   */
+  entries: Record<string, string> | null;
+  /**
+   * The evaluated schema's own validation, custom rules too. Without it, the
+   * serialized schema's rules are used (`validateModule`).
+   */
+  validate?: (source: Value) => SchemaError[];
+};
+
+/** A project at one commit: its files, and its modules as data. */
+export type Project = {
+  files: Files;
+  modules: Record<ModuleFilePath, ProjectModule>;
+};
+
+/** A loaded project, as the merge takes it. */
+export function projectOf(files: Files, loaded: LoadedProject): Project {
+  const modules: Record<ModuleFilePath, ProjectModule> = {};
+  for (const [path, { module, source, entries }] of Object.entries(
+    loaded.modules,
+  )) {
+    const moduleFilePath = path as ModuleFilePath;
+    const schema = Internal.getSchema(module);
+    if (!schema) continue;
+    modules[moduleFilePath] = {
+      source,
+      schema: schema["executeSerialize"](),
+      entries,
+      validate: (content) => validateWith(schema, moduleFilePath, content),
+    };
+  }
+  return { files, modules };
 }
 
 /** A module as the project defines it, read by Val's own loader. */

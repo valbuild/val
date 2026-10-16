@@ -8,11 +8,11 @@ import type { JSONValue } from "@valbuild/core/patch";
 import {
   atomicFor,
   resolveContent,
-  validateWith,
   writeContent,
   type Conflict,
   type Resolution,
 } from "./merge";
+import { validateWith } from "./validate";
 import { mergeValues, setAt, valueAt, type Value } from "./threeWay";
 
 /**

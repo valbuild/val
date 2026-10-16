@@ -6,6 +6,7 @@ import { content, SITE, type MergeBuild } from "./content";
 import {
   changesToMove,
   mergeFromSite,
+  schemaCheck,
   type Conflict,
   type Project,
   type Resolution,
@@ -13,6 +14,7 @@ import {
 import {
   buildName,
   loadProject,
+  projectOf,
   scaffold,
   type Files,
   type LoadedProject,
@@ -78,19 +80,21 @@ export async function world(pages: Page[], code: Files = {}) {
   // --- Val, on a line ----------------------------------------------------------
 
   const loaded = new Map<string, Promise<LoadedProject>>();
-  /** The project at a commit. Commits do not change, so each loads once. */
-  const projectAt = async (commitId: string): Promise<Project> => {
-    const files = c.commit(commitId).files;
+  /** Val's loader at a commit. Commits do not change, so each loads once. */
+  const loadedAt = (commitId: string): Promise<LoadedProject> => {
     let project = loaded.get(commitId);
     if (!project) {
-      project = loadProject(files);
+      project = loadProject(c.commit(commitId).files);
       loaded.set(commitId, project);
     }
-    return { files, loaded: await project };
+    return project;
   };
+  /** The project at a commit, as the merge takes it. */
+  const projectAt = async (commitId: string): Promise<Project> =>
+    projectOf(c.commit(commitId).files, await loadedAt(commitId));
   /** Val's server on a line: its head's project, its pending changes. */
   const valOn = async (line: string) => {
-    const { loaded: project } = await projectAt(c.head(line).id);
+    const project = await loadedAt(c.head(line).id);
     return new ValOpsMemory(project.valModules, {
       config: project.valModules.config,
       sourceFiles: project.sourceFiles,
@@ -222,7 +226,8 @@ export async function world(pages: Page[], code: Files = {}) {
 
   /**
    * Update from the site, as Val runs it: the three projects to
-   * `mergeFromSite`, and its merge commit to content.
+   * `mergeFromSite`; the merged files loaded for the schema check; and the
+   * merge commit to content.
    */
   const updateFromSite = async (
     id: string,
@@ -230,13 +235,18 @@ export async function world(pages: Page[], code: Files = {}) {
   ): Promise<UpdateOutcome> => {
     const proposal = c.proposal(id);
     const site = c.head(SITE).id;
-    const result = await mergeFromSite({
+    const sides = {
       base: await projectAt(proposal.base),
       site: await projectAt(site),
       proposal: await projectAt(c.head(proposal.line).id),
-      resolutions,
-    });
+    };
+    const result = mergeFromSite({ ...sides, resolutions });
     if (result.status === "conflicts") return result;
+    const invalid = schemaCheck(
+      projectOf(result.files, await loadProject(result.files)),
+      [sides.site, sides.proposal],
+    );
+    if (invalid.length > 0) return { status: "conflicts", conflicts: invalid };
     c.updateFromSite(id, {
       siteHead: site,
       files: result.files,
@@ -286,7 +296,7 @@ export async function world(pages: Page[], code: Files = {}) {
       const move =
         pending.length === 0
           ? []
-          : await changesToMove({
+          : changesToMove({
               site: await projectAt(siteHead),
               merged: await projectAt(c.head(c.proposal(id).line).id),
               pending: pending.map((patch) => ({
@@ -327,7 +337,7 @@ export async function world(pages: Page[], code: Files = {}) {
     site: {
       /** A page as visitors see it: the site's head. */
       async page(page: Page) {
-        const { loaded: project } = await projectAt(c.head(SITE).id);
+        const project = await projectAt(c.head(SITE).id);
         return project.modules[page.moduleFilePath]?.source;
       },
       /** A page as an editor on the site sees it: the head and every pending change. */

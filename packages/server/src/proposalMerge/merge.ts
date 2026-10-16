@@ -1,14 +1,5 @@
 import ts from "typescript";
-import {
-  Internal,
-  type ModuleFilePath,
-  type PatchId,
-  type Schema,
-  type SelectorSource,
-  type SerializedSchema,
-  type SourcePath,
-  type ValModule,
-} from "@valbuild/core";
+import type { ModuleFilePath, PatchId, SerializedSchema } from "@valbuild/core";
 import {
   applyPatch,
   deepClone,
@@ -21,7 +12,12 @@ import { PatchSets, schemaTypesOfPath } from "@valbuild/shared/internal";
 import path from "path";
 import { insertValJsonEntry, removeValJsonEntry, TSOps } from "../patch/ts/ops";
 import { analyzeValModule } from "../patch/ts/valModule";
-import { codeOf, loadProject, type Files, type LoadedProject } from "./project";
+import {
+  codeOf,
+  type Files,
+  type Project,
+  type ProjectModule,
+} from "./project";
 import {
   diffOps,
   mergeValues,
@@ -31,6 +27,7 @@ import {
   type Value,
   type ValueConflict,
 } from "./threeWay";
+import { validateModule } from "./validate";
 
 /**
  * Publishing a proposal as a pull request is merged: valbuild/home
@@ -47,8 +44,7 @@ import {
  * `mergeScenarios.test.ts` is their specification.
  */
 
-/** A project at one commit: its files, and what Val's loader made of them. */
-export type Project = { files: Files; loaded: LoadedProject };
+export type { Project, ProjectModule } from "./project";
 
 /** A field both sides changed since the proposal started. */
 export type FieldConflict = {
@@ -120,17 +116,16 @@ export type MergeResult =
  * is resolved by keeping a side's code -- the content still merges -- or by
  * writing the whole file.
  *
- * Then the schema check: the merged project is loaded, and content that is
- * not valid under the schema it ends with is a conflict, unless it was
- * already invalid on one of the sides. A resolution with a value for one of
- * those is written into the content before the check.
+ * Not here: the schema check ({@link schemaCheck}). It needs the merged
+ * files' schemas, so whoever can evaluate them -- Val's loader, the builder
+ * tab -- runs it on `files` before the merge is committed.
  */
-export async function mergeFromSite(input: {
+export function mergeFromSite(input: {
   base: Project;
   site: Project;
   proposal: Project;
   resolutions: Resolution[];
-}): Promise<MergeResult> {
+}): MergeResult {
   const { base, site, proposal, resolutions } = input;
   const files: Files = {};
   const conflicts: Conflict[] = [];
@@ -144,7 +139,7 @@ export async function mergeFromSite(input: {
   // A `.jsonValues()` entry is written with its module, never on its own.
   const entryFiles = new Set(
     [base, site, proposal].flatMap((side) =>
-      Object.values(side.loaded.modules).flatMap((module) =>
+      Object.values(side.modules).flatMap((module) =>
         Object.values(module.entries ?? {}),
       ),
     ),
@@ -192,8 +187,7 @@ export async function mergeFromSite(input: {
     }
 
     const moduleFilePath = `/${file}` as ModuleFilePath;
-    const moduleOf = (project: Project) =>
-      project.loaded.modules[moduleFilePath];
+    const moduleOf = (project: Project) => project.modules[moduleFilePath];
     const sourceOf = (project: Project): Value => moduleOf(project)?.source;
     const chosen = side === "site" ? site : proposal;
     const text = side === "site" ? s : p;
@@ -217,7 +211,7 @@ export async function mergeFromSite(input: {
       sourceOf(base),
       sourceOf(site),
       sourceOf(proposal),
-      atomicIn(moduleOf(chosen)?.module),
+      atomicFor(moduleOf(chosen)?.schema),
     );
     const resolved = resolveContent(moduleFilePath, merged, resolutions);
     conflicts.push(...resolved.unresolved);
@@ -238,10 +232,6 @@ export async function mergeFromSite(input: {
   }
 
   if (conflicts.length > 0) return { status: "conflicts", conflicts };
-
-  const invalid = await schemaCheck(files, [site, proposal]);
-  if (invalid.length > 0) return { status: "conflicts", conflicts: invalid };
-
   return {
     status: "merged",
     files,
@@ -273,17 +263,17 @@ export type PendingChange = {
  * the same value on both sides moves too); or when it no longer applies to
  * the merged commit, or leaves it invalid under the merged schema.
  */
-export async function changesToMove(input: {
+export function changesToMove(input: {
   site: Project;
   merged: Project;
   pending: PendingChange[];
-}): Promise<PatchId[][]> {
+}): PatchId[][] {
   const { site, merged, pending } = input;
   const sets = new PatchSets();
   for (const change of pending) {
     sets.insert(
       change.moduleFilePath,
-      serializedSchemaOf(site.loaded.modules[change.moduleFilePath]?.module),
+      site.modules[change.moduleFilePath]?.schema,
       change.patch,
       change.patchId,
       "",
@@ -297,7 +287,7 @@ export async function changesToMove(input: {
   const moves: PatchId[][] = [];
   for (const group of groups) {
     const changes = pending.filter((change) => group.has(change.patchId));
-    if (await conflictsWithMerge(changes, site, merged)) {
+    if (conflictsWithMerge(changes, site, merged)) {
       moves.push(changes.map((change) => change.patchId));
     }
   }
@@ -343,32 +333,34 @@ export function resolveContent(
   return { content, unresolved };
 }
 
-async function conflictsWithMerge(
+function conflictsWithMerge(
   changes: PendingChange[],
   site: Project,
   merged: Project,
-): Promise<boolean> {
+): boolean {
   const modules = [...new Set(changes.map((change) => change.moduleFilePath))];
   for (const moduleFilePath of modules) {
     const ops = changes
       .filter((change) => change.moduleFilePath === moduleFilePath)
       .flatMap((change) => change.patch)
       .filter((op) => op.op !== "file");
-    const before = site.loaded.modules[moduleFilePath]?.source;
-    const after = merged.loaded.modules[moduleFilePath];
+    const before = site.modules[moduleFilePath]?.source;
+    const after = merged.modules[moduleFilePath];
     if (before === undefined || after === undefined) return true;
     const written = apply(before, ops);
     if (written === undefined) return true;
     const mergedSource = after.source;
-    const atomic = atomicIn(after.module);
+    const atomic = atomicFor(after.schema);
     if (mergeValues(before, written, mergedSource, atomic).conflicts.length) {
       return true;
     }
     // Over the merged commit: it applies, and is as valid as it was.
     const over = apply(mergedSource, ops);
     if (over === undefined) return true;
-    const known = new Set(errorPaths(after.module, mergedSource));
-    if (errorPaths(after.module, over).some((path) => !known.has(path))) {
+    const known = new Set(errorPaths(moduleFilePath, after, mergedSource));
+    if (
+      errorPaths(moduleFilePath, after, over).some((path) => !known.has(path))
+    ) {
       return true;
     }
   }
@@ -395,82 +387,43 @@ function apply(source: Value, ops: Operation[]): Value {
   return result.isOk(applied) ? applied.value : undefined;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Module = ValModule<any>;
-
-function serializedSchemaOf(module: Module | undefined) {
-  return module
-    ? Internal.getSchema(module)?.["executeSerialize"]()
-    : undefined;
-}
-
-type SchemaError = { path: string[]; message: string };
-
-function validate(module: Module, source: Value): SchemaError[] {
-  const schema = Internal.getSchema(module);
-  const moduleFilePath = Internal.getValPath(module);
-  if (!schema || moduleFilePath === undefined) return [];
-  return validateWith(
-    schema,
-    moduleFilePath as string as ModuleFilePath,
-    source,
-  );
-}
-
-/** What a schema reports about this content, without the fixes the server makes on its own. */
-export function validateWith(
-  schema: Schema<SelectorSource>,
+function errorPaths(
   moduleFilePath: ModuleFilePath,
+  module: ProjectModule,
   source: Value,
-): SchemaError[] {
-  const res = schema["executeValidate"](
-    moduleFilePath as string as SourcePath,
-    source,
+): string[] {
+  return validateModule(moduleFilePath, module, source).map((error) =>
+    error.path.join("/"),
   );
-  if (res === false) return [];
-  const errors: SchemaError[] = [];
-  for (const [sourcePath, list] of Object.entries(res)) {
-    const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
-      sourcePath as SourcePath,
-    );
-    const path = modulePath ? Internal.createPatchPath(modulePath) : [];
-    for (const error of list) {
-      if (error.fixes && error.fixes.length > 0) continue;
-      errors.push({ path, message: error.message });
-    }
-  }
-  return errors;
-}
-
-function errorPaths(module: Module, source: Value): string[] {
-  return validate(module, source).map((error) => error.path.join("/"));
 }
 
 /**
- * Loads the merged files and reports content that is invalid under the
- * schema it ends with, leaving out what was already invalid on a side.
+ * The schema check of a merge: content in `merged` -- the project
+ * {@link mergeFromSite} wrote, with its schemas evaluated -- that is invalid
+ * under the schema it ends with, leaving out what was already invalid on a
+ * side. A conflict, each; a resolution with a value for one is written into
+ * the content by the merge, and so is checked here.
  */
-async function schemaCheck(
-  files: Files,
+export function schemaCheck(
+  merged: Project,
   sides: Project[],
-): Promise<InvalidConflict[]> {
-  const project = await loadProject(files);
+): InvalidConflict[] {
   const conflicts: InvalidConflict[] = [];
-  for (const [path, { module, source }] of Object.entries(project.modules)) {
+  for (const [path, module] of Object.entries(merged.modules)) {
     const moduleFilePath = path as ModuleFilePath;
     const known = new Set(
       sides.flatMap((side) => {
-        const there = side.loaded.modules[moduleFilePath];
-        return there ? errorPaths(there.module, there.source) : [];
+        const there = side.modules[moduleFilePath];
+        return there ? errorPaths(moduleFilePath, there, there.source) : [];
       }),
     );
-    for (const error of validate(module, source)) {
+    for (const error of validateModule(moduleFilePath, module, module.source)) {
       if (known.has(error.path.join("/"))) continue;
       conflicts.push({
         kind: "invalid",
         moduleFilePath,
         path: error.path,
-        value: valueAt(source, error.path),
+        value: valueAt(module.source, error.path),
         message: error.message,
       });
     }
@@ -489,10 +442,6 @@ const ATOMIC: ReadonlySet<string> = new Set([
   "font",
   "richtext",
 ]);
-
-function atomicIn(module: Module | undefined): IsAtomic {
-  return atomicFor(serializedSchemaOf(module));
-}
 
 /** See {@link ATOMIC}: where this schema holds a value that merges whole. */
 export function atomicFor(schema: SerializedSchema | undefined): IsAtomic {
