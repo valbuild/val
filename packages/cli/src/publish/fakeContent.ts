@@ -92,6 +92,11 @@ export const FAKE_BUILD_TARGET: BuildTargetResponse = {
       flightServer: "@vitejs/plugin-rsc/vendor/react-server-dom/server.edge",
       serverFnBase: "/_serverFn/",
     },
+    // What the platform says its base layer carries (home's base-facts.ts).
+    // Empty: nothing in the probe's project is pinned or imports from a base
+    // chunk by name -- what matters is that they arrive at all.
+    pins: {},
+    exports: { worker: {}, browser: {} },
   },
   project: { rev: null, rsc: false, modules: {}, css: {}, workerOnly: [] },
 };
