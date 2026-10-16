@@ -261,6 +261,9 @@ export async function runPublish(
         commit: git.commit,
         branch: git.branch,
         layerRev: options.layerRev ?? layerRev,
+        // Only for a build made here: one handed over with `--artifacts` was
+        // built against a base layer this run never saw.
+        ...(built ? { baseRev: built.baseRev } : {}),
         linksOwnCss: options.linksOwnCss ?? built?.linksOwnCss ?? null,
         artifacts: collected.artifacts.map(({ key, sha256, bytes }) => ({
           key,

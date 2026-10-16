@@ -52,9 +52,11 @@ export type ContentPublishApi = {
    *
    * ## What is deliberately not here
    *
-   * No loader URL, no `vendorRev`, no `x-platform-project`. This service holds
-   * the operator relationship with the build platform and calls it; a publisher
-   * talks to this API and nothing else. The one exception is the presigned
+   * No loader URL, no `x-platform-project`. This service holds the operator
+   * relationship with the build platform and calls it; a publisher talks to
+   * this API and nothing else. A publisher does say which base layer it built
+   * against (`baseRev` below) -- a fact about its build, which this service
+   * forwards -- but never addresses the platform itself. The one exception is the presigned
    * upload URL, which points at object storage -- bytes do not travel through
    * here.
    *
@@ -75,6 +77,18 @@ export type ContentPublishApi = {
         branch: string | null;
         /** Which dependency layer this was built against, sent or not. */
         layerRev: string | null;
+        /**
+         * Which BASE layer -- the platform's React and TanStack -- this was
+         * built against: `base.rev` of the build target the build used.
+         *
+         * Content forwards it to the build platform as the build's own, and
+         * the platform refuses a new build whose base layer it no longer
+         * serves: one deployed while the build ran, which the build's layer
+         * was never checked against. Left out when it is not known -- a build
+         * made elsewhere and published with `--artifacts` -- which publishes
+         * as every build did before.
+         */
+        baseRev?: string | null;
         /**
          * Whether the app links its own CSS.
          *
