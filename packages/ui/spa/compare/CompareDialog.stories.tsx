@@ -66,7 +66,7 @@ function Harness({
 }
 
 const meta: Meta<typeof Harness> = {
-  title: "Compare/Staged changes dialog",
+  title: "Compare/Pending changes dialog",
   component: Harness,
   parameters: { layout: "fullscreen" },
   args: { model: compareModel },
@@ -119,7 +119,7 @@ export const ArrayWithMoves: Story = {};
 export const RenamedRoute: Story = {};
 
 /**
- * Who staged each change.
+ * Who made each change.
  *
  * Avatars sit on the RIGHT column only: the left is published content nobody
  * is currently editing, so there is no editor to name there. Clicking one opens
@@ -152,7 +152,7 @@ export const FilteredToOneAuthor: Story = {
  * Attribution changes shape here, though: a commit has ONE author, so the left
  * column names them in its header ("by Linus Pauling") rather than per row.
  * The right column keeps its per-row avatars, because those answer a different
- * question — who staged this particular change.
+ * question — who made this particular change.
  */
 export const AgainstACommit: Story = { args: { model: commitBasisModel } };
 
@@ -252,12 +252,12 @@ export const UndoModeMobile: Story = {
 export const AuthorMenu: Story = {};
 
 /**
- * Nothing staged.
+ * Nothing pending.
  *
  * Each section says "No changes" rather than vanishing, so an empty Media
  * section cannot be misread as a project with no galleries.
  */
-export const NothingStaged: Story = { args: { model: emptyModel } };
+export const NothingPending: Story = { args: { model: emptyModel } };
 
 /**
  * On a phone: the nav is a drawer and the two columns are tabs.
@@ -278,11 +278,11 @@ export const MobileLight: Story = {
  *
  * `alarm` paints the bulk action red whatever the mode is doing. `calm` — the
  * default — reserves red for the one action that destroys something: reverting
- * a staged change, confirmed on a single row. See `UndoTone`.
+ * a pending change, confirmed on a single row. See `UndoTone`.
  *
  * Read this against `UndoMode`. The question is not which is prettier but
  * whether the red is telling the truth: the bulk button here reverts every
- * staged change in the publish, which IS the most destructive thing on the
+ * pending change in the publish, which IS the most destructive thing on the
  * screen, so there is a real case for it.
  */
 export const UndoModeAlarmTone: Story = {
@@ -294,7 +294,7 @@ export const UndoModeAlarmTone: Story = {
  *
  * Nothing here is destructive and the words say so: "Restore", not "Revert",
  * because the change already shipped and what this does is bring an old value
- * back as a NEW staged change — reviewable, publishable, and revertable in
+ * back as a NEW pending change — reviewable, publishable, and revertable in
  * turn. The bar says that under the hint.
  */
 export const RestoreFromCommit: Story = {

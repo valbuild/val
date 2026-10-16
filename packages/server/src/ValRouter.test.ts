@@ -373,6 +373,91 @@ describe("ValRouter", () => {
     });
   });
 
+  describe("what a Studio from before patch groups were removed still sends", () => {
+    /*
+     * Patch groups are gone, but a tab left open across a deploy still runs
+     * the old bundle, and that bundle still sends the group fields. They are
+     * STRIPPED, not refused: a 400 here is every edit from that tab failing
+     * with "invalid body data" until someone reloads, for fields that no
+     * longer mean anything. Each request below carries the fields an old
+     * Studio sent; none of them may be what decides the answer.
+     *
+     * The writes go to an fs-mode server, which stores under
+     * `${process.cwd()}/.val`, so cwd points at a scratch directory (see the
+     * preview cases above for why that matters).
+     */
+    let valRoot: string;
+    let cwdSpy: jest.SpyInstance<string, []>;
+    beforeEach(() => {
+      valRoot = fs.mkdtempSync(path.join(os.tmpdir(), "val-router-"));
+      cwdSpy = jest.spyOn(process, "cwd").mockReturnValue(valRoot);
+    });
+    afterEach(() => {
+      cwdSpy.mockRestore();
+      fs.rmSync(valRoot, { recursive: true, force: true });
+    });
+    const request = (method: string, pathAndQuery: string, json?: unknown) =>
+      onRoute(
+        fakeRequest({
+          method,
+          url: new URL(`http://localhost:3000/api/val${pathAndQuery}`),
+          ...(json !== undefined ? { json } : {}),
+          headers: new Headers({
+            Cookie: `val_session=${encodeJwt({}, "")}`,
+          }),
+        }),
+      );
+
+    test("PUT /patches with patchGroupId and withPatchIds", async () => {
+      const res = await request("PUT", "/patches", {
+        patches: [],
+        parentRef: { type: "head", headBaseSha: "0" },
+        patchGroupId: "22222222-2222-4222-8222-222222222222",
+        withPatchIds: ["33333333-3333-4333-8333-333333333333"],
+      });
+      expect(res.status).not.toBe(400);
+    });
+
+    test("DELETE /patches with unstagePatchIds", async () => {
+      const res = await request(
+        "DELETE",
+        "/patches?id=ba48c0ee-b0e0-4d31-a0e2-a5f7c17a1f3a",
+        { unstagePatchIds: ["ba48c0ee-b0e0-4d31-a0e2-a5f7c17a1f3a"] },
+      );
+      expect(res.status).not.toBe(400);
+    });
+
+    test("POST /save with patchGroupId", async () => {
+      const res = await request("POST", "/save", {
+        patchIds: [],
+        patchGroupId: "22222222-2222-4222-8222-222222222222",
+      });
+      expect(res.status).not.toBe(400);
+    });
+
+    test("GET /patches with include_patch_groups=true", async () => {
+      const res = await request("GET", "/patches?include_patch_groups=true");
+      expect(res.status).not.toBe(400);
+    });
+
+    test("PUT /sources/~ with own_patch_groups_only and patch_id", async () => {
+      const res = await request(
+        "PUT",
+        "/sources/~?own_patch_groups_only=true&patch_id=ba48c0ee-b0e0-4d31-a0e2-a5f7c17a1f3a",
+        {},
+      );
+      expect(res.status).not.toBe(400);
+    });
+
+    test("GET /json with own_patch_groups_only and patch_id", async () => {
+      const res = await request(
+        "GET",
+        "/json?path=/content/authors.val.ts&key=teddy&own_patch_groups_only=true&patch_id=ba48c0ee-b0e0-4d31-a0e2-a5f7c17a1f3a",
+      );
+      expect(res.status).not.toBe(400);
+    });
+  });
+
   /*
    * A THROWN endpoint is a 500 with a sentence in it, not a rejected promise.
    *

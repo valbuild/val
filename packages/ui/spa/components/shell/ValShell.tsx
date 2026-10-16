@@ -94,7 +94,7 @@ import {
   useOtherPublishJobs,
   useStudioIsDeployer,
   useHasNetChanges,
-  useOwnPendingChangeCount,
+  usePendingChangeCount,
   useInitialPatchesApplied,
   usePatchFetchError,
   usePendingChangesProgress,
@@ -281,10 +281,10 @@ function ValShellBody({
    */
   const project = useValConfig()?.project;
   const hasNetChanges = useHasNetChanges();
-  const ownPendingChanges = useOwnPendingChangeCount();
+  const pendingChangeCount = usePendingChangeCount();
   const plan = usePlanNotice(studioAccess, {
     project: project?.split("/")[1] || null,
-    changesWaiting: hasNetChanges ? ownPendingChanges : 0,
+    changesWaiting: hasNetChanges ? pendingChangeCount : 0,
   });
   /*
    * A refused save, publish or upload reports an error. One whose words are
@@ -1130,7 +1130,7 @@ function ValShellBody({
     notice: proposalNotice,
     restoreDestination,
   } = useProposalsBar({
-    unsaved: hasNetChanges ? ownPendingChanges : 0,
+    unsaved: hasNetChanges ? pendingChangeCount : 0,
     portalContainer,
     onCompare: openSiteCompare,
   });
@@ -1319,7 +1319,7 @@ function ValShellBody({
               ? siteChanges.changeCount
               : 0
             : hasNetChanges
-              ? ownPendingChanges
+              ? pendingChangeCount
               : 0
         }
         /*

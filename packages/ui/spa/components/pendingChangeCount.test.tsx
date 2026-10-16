@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { renderHook } from "@testing-library/react";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
-import { useOwnPendingChangeCount } from "./ValProvider";
+import { usePendingChangeCount } from "./ValProvider";
 
 /**
  * What Review's badge counts.
@@ -60,7 +60,7 @@ function count(options: {
       },
     },
   };
-  return renderHook(() => useOwnPendingChangeCount()).result.current;
+  return renderHook(() => usePendingChangeCount()).result.current;
 }
 
 test("counts the whole chain", () => {

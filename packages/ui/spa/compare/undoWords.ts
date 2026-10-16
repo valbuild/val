@@ -4,7 +4,7 @@ import type { CompareUndoKind } from "./types";
  * What the two undo mechanics are CALLED, in one place.
  *
  * The mechanics are genuinely different and keep their names in the types:
- * `discard` drops a staged patch that was never published, `revert` writes an
+ * `discard` drops a pending patch that was never published, `revert` writes an
  * old value forward as a new change. The words an editor reads are not those
  * words, for two reasons.
  *
@@ -15,7 +15,7 @@ import type { CompareUndoKind } from "./types";
  *
  * "Revert" against a COMMIT understates in the other direction. Nothing is
  * being undone there — the change already shipped — and what the button does is
- * fetch an old value and stage it as a new change. "Restore" is what that is,
+ * fetch an old value and add it as a new pending change. "Restore" is what that is,
  * and it also says the thing worth knowing: the result is a change like any
  * other, which you can review and revert in turn.
  *
@@ -57,7 +57,7 @@ const WORDS: Record<CompareUndoKind, UndoWords> = {
     hint: "Hover a change to put it back the way it was.",
     /*
      * Said because it is the thing that makes this mode safe to open, and the
-     * thing nobody can tell by looking: these changes are staged, so reverting
+     * thing nobody can tell by looking: these changes are pending, so reverting
      * one changes nothing that is live. Without it an editor has to guess
      * whether they are editing the site or a draft of it.
      */
@@ -73,7 +73,7 @@ const WORDS: Record<CompareUndoKind, UndoWords> = {
     all: "Restore all",
     hint: "Hover a change to bring the old value back.",
     /*
-     * The restore is itself a staged change, which is the whole reason this
+     * The restore is itself a pending change, which is the whole reason this
      * mode is not frightening: it goes through the same review and publish as
      * any edit, and can be reverted like one.
      */
@@ -92,10 +92,10 @@ export function undoWords(kind: CompareUndoKind): UndoWords {
  * How loud the mode is allowed to be.
  *
  * `"alarm"` paints the bulk action red in both modes. `"calm"` reserves red for
- * the one action that actually destroys something — reverting staged work,
+ * the one action that actually destroys something — reverting pending work,
  * confirmed on a single change — and leaves everything else neutral.
  *
- * The distinction is consequence, not taste. Reverting a staged change throws
+ * The distinction is consequence, not taste. Reverting a pending change throws
  * away work that exists nowhere else. Restoring from a commit WRITES a change:
  * nothing is lost, the result is reviewable, and it can be reverted in turn. A
  * screen that shouts equally at both teaches people to ignore the shouting.

@@ -73,10 +73,8 @@ function settled(page: Page): Promise<boolean> {
 /** The keys on which two snapshots differ, with both sides, for a failure. */
 function differences(live: Showing, fresh: Showing): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const key of ["pending"] as const) {
-    if (JSON.stringify(live[key]) !== JSON.stringify(fresh[key])) {
-      out[key] = { live: live[key], reload: fresh[key] };
-    }
+  if (JSON.stringify(live.pending) !== JSON.stringify(fresh.pending)) {
+    out.pending = { live: live.pending, reload: fresh.pending };
   }
   const modules = new Set([
     ...Object.keys(live.sources),

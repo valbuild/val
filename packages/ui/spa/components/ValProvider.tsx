@@ -2565,7 +2565,7 @@ export function useCurrentPatchIds(): PatchId[] {
  * `http` mode until the new commit comes back, and counting it would have
  * Review offer work that is already in a commit.
  */
-export function useOwnPendingChangeCount(): number {
+export function usePendingChangeCount(): number {
   const val = useValSystem();
   const chainVersion = useChainVersion();
   const committed = useCommittedPatches();

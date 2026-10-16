@@ -333,7 +333,9 @@ test.describe("history in http mode", () => {
       .click();
 
     await studio.getByRole("button", { name: "Stage this restore" }).click();
-    await expect(studio.getByText("Staged.")).toBeVisible();
+    await expect(
+      studio.getByText(/Done\. It is in your pending changes/),
+    ).toBeVisible();
 
     const published = await publishAll(page, "Point it back");
     expect(published.status, JSON.stringify(published)).toBe("published");

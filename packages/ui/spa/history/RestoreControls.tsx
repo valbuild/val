@@ -333,8 +333,8 @@ export function RestoreControls({
     if (!toProposal || written.length === 0) {
       setReverting(
         left.length === 0 && failures.length === 0
-          ? `Staged ${written.length} module${written.length === 1 ? "" : "s"}. Review and publish when you are ready.`
-          : `Staged ${written.length}.${leftNote}`,
+          ? `Added ${written.length} module${written.length === 1 ? "" : "s"} to your pending changes. Review and publish when you are ready.`
+          : `Added ${written.length} to your pending changes.${leftNote}`,
       );
       return;
     }
@@ -474,7 +474,7 @@ export function RestoreControls({
     }
     if (!toProposal) {
       setReverting(
-        `Staged ${written.length} module${written.length === 1 ? "" : "s"} as they were. Review and publish when you are ready.${note}`,
+        `Added ${written.length} module${written.length === 1 ? "" : "s"}, as they were, to your pending changes. Review and publish when you are ready.${note}`,
       );
       return;
     }
@@ -613,7 +613,7 @@ export function RestoreControls({
       )}
       {restore.stage.status === "staged" && (
         <p className="text-xs text-fg-secondary">
-          Staged. It is in your pending changes, to review and publish with
+          Done. It is in your pending changes, to review and publish with
           everything else.
         </p>
       )}

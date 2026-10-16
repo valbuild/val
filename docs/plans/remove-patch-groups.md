@@ -17,8 +17,9 @@
 > - **Phase 1 (home)**: groups off everywhere (`1237b4f`). Content suite
 >   1490/1490; the loop passes everything up to the WebKit steps, which needed
 >   WebKit installed in this container.
-> - **Phase 2 (val)**: shared, server, next, tanstack, mcp, the mock content
->   host and e2e done; the UI in progress.
+> - **Phase 2 (val)**: done. Plan `56c6e76`; shared, server, next, tanstack,
+>   mcp, the mock content host and e2e `284d0ea`; the Studio `6d80624`; the
+>   changeset and a leftover comment `5086aab`.
 > - Discard keeps today's no-groups behaviour: it deletes the ids asked for and
 >   nothing else (see rule 3).
 >

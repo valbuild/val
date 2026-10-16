@@ -161,15 +161,6 @@ export type CreatePatchResult =
     };
 
 /**
- * Owns the patch chain: which patches exist, in what order, where each came
- * from, and which of them have data.
- *
- * It does NOT apply patches and does not hold source — {@link SourceStore} does
- * that. The split is what makes the head meaningful: the patch store knows a
- * patch exists, the source store knows whether it landed, and the head is where
- * those two facts meet.
- */
-/**
  * Stands in for the commit sha of a patch somebody else published.
  *
  * `/stat` says WHICH patches have shipped, not what they shipped in — the sha
@@ -179,6 +170,15 @@ export type CreatePatchResult =
  */
 export const APPLIED_ELSEWHERE_SHA = "applied-elsewhere";
 
+/**
+ * Owns the patch chain: which patches exist, in what order, where each came
+ * from, and which of them have data.
+ *
+ * It does NOT apply patches and does not hold source — {@link SourceStore} does
+ * that. The split is what makes the head meaningful: the patch store knows a
+ * patch exists, the source store knows whether it landed, and the head is where
+ * those two facts meet.
+ */
 export class PatchStore {
   readonly events = new StoreBus<SystemEvent>();
 
