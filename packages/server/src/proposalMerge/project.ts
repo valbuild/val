@@ -69,6 +69,13 @@ export type ProjectModule = {
    * record.
    */
   source: JSONValue;
+  /**
+   * The content its file's text holds, when that is not `source`: a build's
+   * `.val.ts` keeps the content of when it was built, while `source` is
+   * content's index. The merge is written into the text from this. Absent:
+   * the text holds `source`.
+   */
+  written?: JSONValue;
   schema: SerializedSchema;
   /**
    * For a `.jsonValues()` record: each entry's file, by key, from the project

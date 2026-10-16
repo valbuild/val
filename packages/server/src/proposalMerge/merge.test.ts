@@ -59,6 +59,34 @@ describe("the merge, on projects as data", () => {
     expect(merged.files[FILE]).toContain(`"Spring sale"`);
   });
 
+  test("a text that holds older content than the index: the merge is written over what the text holds", () => {
+    // The site changed the schema, and its `.val.ts` is from that build, made
+    // when the title was "Sale"; a content-only publish since moved the index
+    // on to "Spring sale". The proposal changed neither, so the site's text is
+    // the one written.
+    const site: Project = {
+      files: { [FILE]: valFile(FILE, TIGHT, { title: "Sale" }) },
+      modules: {
+        [HOME]: {
+          source: { title: "Spring sale" },
+          written: { title: "Sale" },
+          schema: tight,
+          entries: null,
+        },
+      },
+    };
+    const merged = mergeFromSite({
+      base: project(loose, LOOSE, { title: "Sale" }),
+      site,
+      proposal: project(loose, LOOSE, { title: "Sale" }),
+      resolutions: [],
+    });
+    expect(merged).toMatchObject({ status: "merged" });
+    if (merged.status !== "merged") return;
+    expect(merged.files[FILE]).toContain("maxLength(12)");
+    expect(merged.files[FILE]).toContain(`"Spring sale"`);
+  });
+
   test("the schema check reads the serialized schema's rules", () => {
     const site = project(loose, LOOSE, { title: "The great spring sale" });
     const proposal = project(tight, TIGHT, { title: "Sale" });

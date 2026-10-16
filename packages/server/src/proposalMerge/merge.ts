@@ -206,7 +206,8 @@ export function mergeFromSite(input: {
       }
       continue;
     }
-    const from = sourceOf(chosen);
+    // What the chosen text holds, which the merge is written over.
+    const from: Value = moduleOf(chosen)?.written ?? moduleOf(chosen)?.source;
     const merged = mergeValues(
       sourceOf(base),
       sourceOf(site),
