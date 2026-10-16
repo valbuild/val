@@ -77,7 +77,7 @@ describe("the ?compare param", () => {
 
   /*
    * Hand-edited, truncated or from somewhere else: not a path the dialog could
-   * look for. Closed, the same answer a path to no staged change gets, rather
+   * look for. Closed, the same answer a path to no pending change gets, rather
    * than open onto some other change.
    */
   test("names something that is not a source path: the dialog stays closed", () => {
@@ -117,12 +117,12 @@ describe("canOpenReviewCompare", () => {
     },
   ]);
 
-  test("opens on nothing when nothing is staged, link or no link", () => {
+  test("opens on nothing when nothing is pending, link or no link", () => {
     expect(canOpenReviewCompare([], null)).toBe(false);
     expect(canOpenReviewCompare([], entryPath(A))).toBe(false);
   });
 
-  test("opens bare whenever something is staged", () => {
+  test("opens bare whenever something is pending", () => {
     expect(canOpenReviewCompare(added, null)).toBe(true);
   });
 
@@ -140,7 +140,7 @@ describe("canOpenReviewCompare", () => {
     expect(canOpenReviewCompare(altEdited, entryPath(A))).toBe(true);
   });
 
-  test("does not open on an entry that is not in the staged set", () => {
+  test("does not open on an entry that is not among the pending changes", () => {
     expect(canOpenReviewCompare(added, entryPath(B))).toBe(false);
   });
 

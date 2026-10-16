@@ -5,7 +5,6 @@ import {
   useProfilesByAuthorId,
 } from "../components/ValProvider";
 import { useValMode } from "../components/ValProvider";
-import { usePatchStaging } from "../components/PatchStagingProvider";
 import type { SerializedPatchSet } from "../utils/PatchSets";
 import { useDescriptions } from "../components/useDescriptions";
 import { useSchemas } from "../components/ValFieldProvider";
@@ -18,17 +17,12 @@ import type { ReviewModel } from "./types";
  *
  * Thin on purpose: everything that can be decided without a store is in
  * `toReviewModel`, which is pure and tested. What is left here is gathering —
- * the patch sets, who is signed in, the staging state, and the names.
- *
- * Mounted UNDER `PatchStagingProvider`, which is what makes `staging` mean
- * anything: without it every row answers "staged" and the two sections are one.
- * `ReviewSurface` is the thing that guarantees the nesting.
+ * the patch sets, who is signed in, and the names.
  */
 export function useReviewModel(patchSets: SerializedPatchSet): ReviewModel {
   const profiles = useProfilesByAuthorId();
   const currentAuthorId = useCurrentAuthorId();
   const mode = useValMode();
-  const staging = usePatchStaging();
   const schemas = useSchemas();
   /*
    * Whether a module's keys are URLs, which decides whether its changes are
@@ -73,24 +67,10 @@ export function useReviewModel(patchSets: SerializedPatchSet): ReviewModel {
         profiles,
         mode,
         currentAuthorId,
-        stagingEnabled: staging.enabled,
-        stateOf: staging.stateOf,
-        stagePreview: staging.stagePreview,
-        unstagePreview: staging.unstagePreview,
-        authorOf: staging.authorOf,
         isPageModule: isPage,
         describe: descriptions.describe,
         now,
       }),
-    [
-      patchSets,
-      profiles,
-      mode,
-      currentAuthorId,
-      staging,
-      descriptions,
-      isPage,
-      now,
-    ],
+    [patchSets, profiles, mode, currentAuthorId, descriptions, isPage, now],
   );
 }

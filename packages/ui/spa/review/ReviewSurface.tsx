@@ -7,7 +7,6 @@ import {
   useValMode,
 } from "../components/ValProvider";
 import { pendingPatchSets } from "../utils/computeChangedSourcePaths";
-import { usePatchStaging } from "../components/PatchStagingProvider";
 import type { SerializedPatchSet } from "../utils/PatchSets";
 import { ReviewView } from "./ReviewView";
 import { useReviewModel } from "./useReviewModel";
@@ -24,17 +23,13 @@ import { useReviewCompareParam } from "../components/ValRouter";
  * gathering (`useReviewModel`) or turning a row id back into the patches it
  * stands for.
  *
- * That last part is the only real work. A row IS a patch set — the unit
- * staging moves and a revert removes — but the controls speak in patch ids, so
+ * That last part is the only real work. A row IS a patch set — the unit a
+ * selection picks and a revert removes — but the controls speak in patch ids, so
  * every action maps its selection back through the patch sets it came from.
  * Keyed by `reviewRowId`, which is the patch set's own path rather than any
  * patch id in it: a set coalesces as more edits land on the same path, so "the
  * id of its first patch" names a different set an edit later and a tick would
  * silently move to another row.
- *
- * Mounted under `PatchStagingProvider` by the caller. Without it every row
- * answers "staged", both sections collapse into one, and Stage does nothing —
- * which is why `stagingEnabled` is on the model rather than assumed.
  */
 export function ReviewSurface({
   patchSets: allPatchSets,
@@ -57,8 +52,8 @@ export function ReviewSurface({
    * In http mode a published patch stays in the chain until the deploy moves
    * the base, so `usePatchSets()` still names it. This page has no section for
    * shipped work — the compare view does, below the deploy line — so listing
-   * one here offers Stage and Revert over a change that is already live, and
-   * neither can honour it: the patch is in a commit.
+   * one here offers Revert over a change that is already live, and it cannot
+   * honour it: the patch is in a commit.
    *
    * Filtered ONCE, here, so the model, the row actions and the compare dialog
    * are all reading the same set. Filtering only the model would leave
@@ -70,7 +65,6 @@ export function ReviewSurface({
     [allPatchSets, committedPatchIds],
   );
   const model = useReviewModel(patchSets);
-  const staging = usePatchStaging();
   const mode = useValMode();
   const currentAuthorId = useCurrentAuthorId();
   const { deletePatches } = useDeletePatches();
@@ -99,8 +93,8 @@ export function ReviewSurface({
   /*
    * The dialog's row ids are SOURCE paths, not patch-set ids — its rows are
    * finer than this page's. A patch set is dropped when the path it changed is
-   * among them, which is the same unit a discard can honour: the prefix
-   * invariant means a patch out of the middle of a set cannot go alone.
+   * among them, which is the same unit a discard can honour: a patch out of
+   * the middle of a set cannot go alone.
    */
   const patchIdsOfPaths = useCallback(
     (paths: string[]) => {
@@ -113,39 +107,12 @@ export function ReviewSurface({
   );
 
   /*
-   * The dialog compares the PUBLISH, so it sees the staged half alone.
-   *
-   * The button says "Compare staged changes" and the dialog's right column is
-   * headed "After publish" with a count under it — three statements about the
-   * same set. Handed every pending patch set, all three were wrong the moment
-   * anybody unstaged anything: an unstaged row showed up in a diff of what
-   * would ship, and counted towards the number beside it.
-   *
-   * `partial` counts as staged, the same way it does in the page's own
-   * sections: a set halfway into the publish is in the publish.
-   *
-   * Where staging is off — fs mode, and any content API without groups —
-   * every row is staged, so this is the whole list and the button says
-   * "Compare changes".
-   */
-  const stagedPatchSets = useMemo(() => {
-    if (!staging.enabled) return patchSets;
-    return patchSets.filter(
-      (patchSet) =>
-        staging.stateOf(patchSet.patches.map((patch) => patch.patchId)) !==
-        "unstaged",
-    );
-  }, [patchSets, staging]);
-
-  /*
-   * A link to a change that is not in the staged set opens nothing: the page
-   * behind it lists the change, under Unstaged, and that is the true answer.
-   * See `canOpenReviewCompare`. Derived rather than cleared from the URL, so
-   * the link still works the moment the change is staged.
+   * A link to a change that is not pending opens nothing: it has shipped, or
+   * been discarded, since the link was made. See `canOpenReviewCompare`.
    */
   const compareOpen =
     reviewCompare !== null &&
-    canOpenReviewCompare(stagedPatchSets, compareSourcePath);
+    canOpenReviewCompare(patchSets, compareSourcePath);
 
   return (
     <>
@@ -155,10 +122,8 @@ export function ReviewSurface({
           setReviewCompare({ sourcePath: null }, { replace: true })
         }
         onRestore={onRestore}
-        onStage={(rowIds) => staging.stage(patchIdsOf(rowIds))}
-        onUnstage={(rowIds) => staging.unstage(patchIdsOf(rowIds))}
         /*
-         * Reverting a staged change deletes the patch. That is what `discard`
+         * Reverting a pending change deletes the patch. That is what `discard`
          * MEANS at this layer — see `undoWords` for why the button says
          * "Revert" — and it is the one action here that destroys something,
          * which is why it is the only red control on the page.
@@ -169,7 +134,7 @@ export function ReviewSurface({
         portalContainer={portalContainer}
       />
       <ReviewCompare
-        patchSets={stagedPatchSets}
+        patchSets={patchSets}
         mode={mode}
         open={compareOpen}
         onOpenChange={(open) => {

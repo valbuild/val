@@ -8,7 +8,7 @@ import type {
 } from "@valbuild/core";
 import type { ParentRef, Patch } from "@valbuild/core/patch";
 import type { SyncState } from "./PatchSync";
-import type { PatchGroupT, PlanRefusalErrorT } from "@valbuild/shared/internal";
+import type { PlanRefusalErrorT } from "@valbuild/shared/internal";
 
 /**
  * A patch as it exists once its data is known: the ops plus the module they
@@ -249,11 +249,6 @@ export type SystemEvent =
        * un-apply every record on the next stat. See `PatchStore.receiveApplied`.
        */
       appliedPatches?: PatchId[];
-      /**
-       * Who holds what, read with `patches`. See `StatSnapshot.patchGroups`.
-       * Absent where the server does not say.
-       */
-      patchGroups?: PatchGroupT[];
       /** The chain version all of the above was read at, where reported. */
       headVersion?: number;
     }
@@ -320,17 +315,6 @@ export type SystemEvent =
    */
   | { type: "patch:chain"; version: number }
   /**
-   * The patch GROUPS moved — not the chain.
-   *
-   * Deliberately its own event rather than folded into `patch:chain`, in both
-   * directions. Groups change without the chain changing: a stage or unstage
-   * moves membership and touches no patch, and a save can learn the id of the
-   * group it just created while the chain is exactly as it was. And the chain
-   * changes constantly without the groups moving — once per keystroke batch —
-   * so a consumer that only wants groups would re-read on every one of those.
-   */
-  | { type: "patch:groups"; version: number }
-  /**
    * These locally-created patches are on their way to the server.
    *
    * The write is the one thing in this system that is NOT demand-driven: a read
@@ -373,25 +357,6 @@ export type SystemEvent =
       message: string;
       errors?: Record<ModuleFilePath, string[]>;
     }
-  /**
-   * A save pulled OTHER AUTHORS' patches into this user's group.
-   *
-   * The write closure is the one place other people's work enters your view
-   * without you asking for it, and it happened in silence: the scope widened,
-   * `SourceStore` rebuilt the modules, and the only trace was a number changing
-   * on the Review button.
-   *
-   * Told after the fact rather than asked first. The edit that triggered it was
-   * written against a view these patches produce, so it already depends on
-   * them; there is nothing to undo, and offering to would be offering to break
-   * the thing just typed. See "Editing inside a region you are holding back" in
-   * `docs/independent-publish/DESIGN.md` for why the alternative — refusing the
-   * edit — was rejected.
-   *
-   * Carries the ids rather than the authors: resolving a profile needs the
-   * provider, and a store event has no business knowing about one.
-   */
-  | { type: "patch:group-widened"; patches: PatchId[] }
   /**
    * A save has been failing long enough that someone should be told.
    *
@@ -470,23 +435,9 @@ export type SystemEvent =
       success: PatchId[];
       failed: { patchId: PatchId; message: string }[];
       /**
-       * Deliberately NOT applied, because the reader's patch group excludes it.
-       *
-       * A third answer, and it has to be one. "Applied" and "failed" are the
-       * two ways a patch can be finished with, and an unstaged patch is neither —
-       * but it IS decided, and saying nothing about it is what breaks
-       * `PatchStore.chainSettled`, which waits for every patch in the chain to
-       * be accounted for. Silence there reads as "still working", so the editor
-       * holds every field inert forever.
-       *
-       * Not folded into `failed`: nothing went wrong, and a failure is
-       * surfaced to the user as a patch that could not be applied.
-       */
-      unstaged: PatchId[];
-      /**
        * Not applied, because the project has no module by that name.
        *
-       * A fourth answer, for the patch that outlived its file: a `.val` file
+       * A third answer, for the patch that outlived its file: a `.val` file
        * renamed or deleted with unpublished changes still in the chain. Only
        * given once the project's modules are in -- before that, a module that is
        * not loaded is a wait, not an answer. Without it the chain never settled

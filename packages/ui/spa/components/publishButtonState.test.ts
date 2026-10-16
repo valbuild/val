@@ -24,7 +24,6 @@ function input(over: Partial<PublishButtonInput> = {}): PublishButtonInput {
     pendingServerSidePatchCount: 1,
     pendingClientSidePatchCount: 0,
     netChangesEmpty: false,
-    unstagedChangeCount: 0,
     ...over,
   };
 }
@@ -234,17 +233,9 @@ describe("describePublishButton", () => {
 });
 
 /**
- * Reverted and UNSTAGED look identical to every comparison against base — an
- * unstaged patch is not applied, so the scoped source equals base exactly as an
- * undone edit does. The button is off either way, and only the wording tells
- * the reader which of the two they are in.
- *
- * Getting it backwards is the expensive direction: "Every change has been
- * reverted... Discard them to clear" tells someone who deliberately unstaged a
- * change that their work is gone, and points them at the one control that
- * would actually destroy it.
+ * An edit that was undone: the button is off, and says Discard is the way out.
  */
-describe("nothing to publish: reverted against unstaged", () => {
+describe("nothing to publish: reverted", () => {
   const nothingToPublish = {
     netChangesEmpty: true,
     pendingServerSidePatchCount: 1,
@@ -257,73 +248,13 @@ describe("nothing to publish: reverted against unstaged", () => {
       "Every change has been reverted, so there is nothing to publish. Discard them to clear.",
     );
   });
-
-  test("an unstaged change says unstaged, and points at Review", () => {
-    const state = describePublishButton(
-      input({ ...nothingToPublish, unstagedChangeCount: 1 }),
-    );
-    expect(state.kind).toBe("idle");
-    expect(state.reason).toBe(
-      "1 change is unstaged, so there is nothing to publish. Stage it in Review to publish.",
-    );
-    // Never Discard: the change is pending on purpose.
-    expect(state.reason).not.toContain("Discard");
-  });
-
-  /*
-   * The button no longer counts unstaged changes as work to send, so an
-   * unstaged change alone is "nothing to send" -- and still says why.
-   */
-  test("unstaged work alone is nothing to send, and says it is unstaged", () => {
-    const state = describePublishButton(
-      input({ pendingServerSidePatchCount: 0, unstagedChangeCount: 1 }),
-    );
-    expect(state.kind).toBe("idle");
-    expect(state.action).toBe("none");
-    expect(state.reason).toBe(
-      "1 change is unstaged, so there is nothing to publish. Stage it in Review to publish.",
-    );
-  });
-
-  /*
-   * p1 (A→B) publishes and the only other saved change, p2, is unstaged in
-   * the same module. Nothing staged is left to send: the button says what is
-   * publishing, and never offers Publish over it.
-   */
-  test("unstaged work beside a running publish does not light Publish", () => {
-    const state = describePublishButton(
-      input({
-        mode: "http",
-        pendingServerSidePatchCount: 0,
-        publishingCount: 1,
-        unstagedChangeCount: 1,
-        netChangesEmpty: false,
-      }),
-    );
-    expect(state).toMatchObject({
-      kind: "in-flight",
-      label: "Publishing",
-      action: "none",
-    });
-  });
-
-  test("more than one unstaged change reads as plural", () => {
-    expect(
-      describePublishButton(
-        input({ ...nothingToPublish, unstagedChangeCount: 3 }),
-      ).reason,
-    ).toBe(
-      "3 changes are unstaged, so there is nothing to publish. Stage them in Review to publish.",
-    );
-  });
 });
 
 /**
  * A server that cannot publish this project AT ALL.
  *
  * Every other state here is about this client's changes and suggests something
- * the reader could do -- fix the errors, discard the conflicts, stage the held
- * patches. This one is a fact about the deployment: true before anything was
+ * the reader could do -- fix the errors, discard the conflicts. This one is a fact about the deployment: true before anything was
  * edited, and unchanged by any of those. So it is checked first, and it offers
  * nothing to press.
  */

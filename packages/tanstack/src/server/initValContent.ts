@@ -158,21 +158,6 @@ async function loadDraftSources(
       // The server-side read uses the legacy "server applies patches"
       // path, same as the Next package's.
       apply_patches: undefined,
-      /*
-       * The caller's own staged work, and nobody else's.
-       *
-       * A draft render cannot name its group ids — it has no client
-       * state — so it asks for "mine" and the server resolves them from
-       * the session. Without this a preview shows base + every pending
-       * patch on the branch, so one person's half-finished edit appears
-       * in another person's draft.
-       *
-       * `patch_id` stays `undefined`: naming an explicit list is for a
-       * caller that already knows what it wants, and it would override
-       * the resolution rather than intersect with it.
-       */
-      patch_id: undefined,
-      own_patch_groups_only: true,
     },
     cookies: {
       [VAL_SESSION_COOKIE]: sessionCookie,
@@ -501,7 +486,6 @@ async function withDraftJsonEntries(
     query: {
       patch_id: appliedPatchIds,
       exclude_patch_ops: false,
-      include_patch_groups: undefined,
     },
     cookies,
   });
@@ -540,7 +524,6 @@ async function withDraftJsonEntries(
         offset: undefined,
         limit: undefined,
         apply_patches: true,
-        own_patch_groups_only: true,
       },
       cookies,
     });
@@ -838,15 +821,6 @@ async function loadDraftJsonEntry(
       offset: undefined,
       limit: undefined,
       apply_patches: true,
-      /*
-       * Scoped the same way the module content beside it is.
-       *
-       * A draft page renders both, and this call was unscoped — so one page
-       * showed base + the caller's group for its modules and base + EVERY
-       * pending patch on the branch for any `jsonValues` entry, including other
-       * authors' half-finished edits. See the same flag on `/sources/~` above.
-       */
-      own_patch_groups_only: true,
     },
     cookies: {
       [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,

@@ -1385,9 +1385,8 @@ describe("PatchSet", () => {
    * It does not write the source, but it READS it, so the value it produces
    * carries every pending edit to that source. Duplicating a record entry
    * (`useDuplicateRecordEntry`) is the copy that actually ships; with the
-   * source ungrouped, staging the duplicate alone published a copy of a value
-   * whose pending edit was left behind. `editWouldRestage` in `patchGroups`
-   * already checks `from` for both ops.
+   * source ungrouped, moving the duplicate alone took a copy of a value whose
+   * pending edit was left behind.
    */
   test("copy: the source is grouped with the destination", async () => {
     const patchSet = testPatchSet(

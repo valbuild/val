@@ -523,13 +523,13 @@ export const compareModel: CompareModel = {
   changeCount: 14,
   profiles: PROFILES,
   /*
-   * Against Published, undoing means DISCARDING the staged patch. There is no
+   * Against Published, undoing means DISCARDING the pending patch. There is no
    * schema question — the result is a state that already existed — and no
    * whole-commit escape hatch, because the equivalent is discarding everything.
    */
   undo: { kind: "discard" },
   left: { label: "Published", caption: "3 days ago · mockcommit0" },
-  right: { label: "After publish", caption: "14 staged changes" },
+  right: { label: "After publish", caption: "14 changes" },
   selectedBasisId: "published",
   basisOptions: [
     { id: "published", label: "Published", caption: "What is live now" },
@@ -785,7 +785,7 @@ export const singleModuleModel: CompareModel = {
   changeCount: 1,
   profiles: PROFILES,
   left: { label: "Published", caption: "3 days ago" },
-  right: { label: "After publish", caption: "1 staged change" },
+  right: { label: "After publish", caption: "1 change" },
   selectedBasisId: "published",
   basisOptions: compareModel.basisOptions,
   sections: [
@@ -822,7 +822,7 @@ export const commitBasisModel: CompareModel = {
     caption: "3 days ago",
     byline: "Linus Pauling",
   },
-  right: { label: "After publish", caption: "14 staged changes" },
+  right: { label: "After publish", caption: "14 changes" },
 };
 
 /**
@@ -895,7 +895,7 @@ export const longCommitMessageModel: CompareModel = {
     caption: "3 days ago",
     byline: "Linus Pauling",
   },
-  right: { label: "After publish", caption: "14 staged changes" },
+  right: { label: "After publish", caption: "14 changes" },
 };
 
 /**
@@ -990,12 +990,12 @@ export const revertBasisModel: CompareModel = {
   },
 };
 
-/** Nothing staged. The dialog still has to say something useful. */
+/** Nothing pending. The dialog still has to say something useful. */
 export const emptyModel: CompareModel = {
   changeCount: 0,
   profiles: PROFILES,
   left: { label: "Published", caption: "3 days ago" },
-  right: { label: "After publish", caption: "Nothing staged" },
+  right: { label: "After publish", caption: "0 changes" },
   selectedBasisId: "published",
   basisOptions: compareModel.basisOptions,
   sections: [

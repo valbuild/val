@@ -9,8 +9,8 @@ import type {
 /**
  * Which rows an undo actually takes with it.
  *
- * The rule is the prefix invariant, stated in `utils/patchGroups.ts`: inside a
- * patch set, a later patch's array indices were computed against a state in
+ * The rule is the prefix invariant of a patch set (see `PatchSets` in
+ * `@valbuild/shared/internal`): inside a patch set, a later patch's array indices were computed against a state in
  * which its predecessors applied, so discarding one out of the middle "either
  * errors or silently writes to the wrong index". `requires` names what must
  * follow; this closes over it.

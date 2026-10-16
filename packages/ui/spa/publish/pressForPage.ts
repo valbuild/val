@@ -105,22 +105,9 @@ type ChainOf = {
  * The newest change a page has not published, or `null`: what a builder tab
  * must see on the server before it presses (see `HandoffIntent`). Saved or
  * not -- one made just before the tap usually is not.
- *
- * Of the editor's own patch group, where the project has groups (`scope`,
- * `system.patchGroup()`): that is what the press publishes. Another editor's
- * saved change after this one's unsaved edit would otherwise be the one
- * named, already on the server, and the tab would press without the edit.
- * `null` scope: the whole chain.
  */
-export function newestUnpublished(
-  store: ChainOf,
-  scope: readonly string[] | null,
-): string | null {
-  const inScope = scope === null ? null : new Set(scope);
-  const ids = store
-    .allRecords()
-    .map((record) => record.patchId)
-    .filter((patchId) => inScope === null || inScope.has(patchId));
+export function newestUnpublished(store: ChainOf): string | null {
+  const ids = store.allRecords().map((record) => record.patchId);
   const pending = store.pendingAmong(ids);
   for (let i = ids.length - 1; i >= 0; i--) {
     const id = ids[i];
@@ -138,24 +125,15 @@ export function newestUnpublished(
  * and a tab for them opened, did nothing, and closed. The server decides; this
  * is the page's guess at it, and a publish the server builds after all is
  * handed to a tab then, at one more tap.
- *
- * Of the editor's own changes, where the project has groups: see
- * {@link newestUnpublished}.
  */
-export function pendingNeedsBuild(
-  store: {
-    allRecords(): readonly {
-      patchId: string;
-      patch: readonly { op: string; remote?: boolean }[];
-    }[];
-    pendingAmong(patchIds: Iterable<string>): Set<string>;
-  },
-  scope: readonly string[] | null,
-): boolean {
-  const inScope = scope === null ? null : new Set(scope);
-  const records = store
-    .allRecords()
-    .filter((record) => inScope === null || inScope.has(record.patchId));
+export function pendingNeedsBuild(store: {
+  allRecords(): readonly {
+    patchId: string;
+    patch: readonly { op: string; remote?: boolean }[];
+  }[];
+  pendingAmong(patchIds: Iterable<string>): Set<string>;
+}): boolean {
+  const records = store.allRecords();
   const pending = store.pendingAmong(records.map((record) => record.patchId));
   return records.some(
     (record) =>

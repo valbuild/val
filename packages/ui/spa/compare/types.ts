@@ -7,15 +7,15 @@ import type { Profile } from "../components/ValProvider";
  * The view model the compare dialog renders, and nothing else.
  *
  * Deliberately NOT `ChangeTreeNode` from `computeChangedSourcePaths`. That type
- * is the output of the patch-set worker — patch ids, authors, staging state,
- * commit membership — and a layout built directly on it can only be exercised
+ * is the output of the patch-set worker — patch ids, authors, commit
+ * membership — and a layout built directly on it can only be exercised
  * by standing up a store, a worker and a patch chain. This is a design that is
  * going to be iterated on, so the shape it renders is the shape a story can
  * write by hand.
  *
  * The adapter from `ChangeTreeNode` to these types is the integration step and
  * is deliberately not here yet. Keeping it separate is also what lets the same
- * dialog serve "staged vs published" and "published vs a commit" without either
+ * dialog serve "pending vs published" and "published vs a commit" without either
  * side knowing about the other: both reduce to sections, nodes and rows.
  *
  * Values are `ReactNode` rather than `Json` for the same reason. A story can
@@ -98,7 +98,7 @@ export type CompareNavNode = {
    */
   renamedFrom?: string;
   /**
-   * Everyone with a staged change at or under this row.
+   * Everyone with a pending change at or under this row.
    *
    * Ids only: the nav shows no avatars — attribution lives in the right column
    * — but filtering the dialog to one person has to be able to drop a nav row
@@ -123,7 +123,7 @@ export type CompareNavSection = {
  * Both halves are required rather than derived, because the whole point of the
  * chosen direction treatment is that neither column is inferred from position:
  * `label` says what it is ("Published"), `caption` says when or how much
- * ("3 days ago", "4 staged changes"). See `CompareColumns`.
+ * ("3 days ago", "4 changes"). See `CompareColumns`.
  */
 export type CompareSide = {
   label: string;
@@ -153,13 +153,13 @@ export type CompareBasisOption = {
  * Two kinds, because discard and revert are NOT the same operation and fail
  * for different reasons:
  *
- * - **`discard`** removes the staged patches. The result is a state that
+ * - **`discard`** removes the pending patches. The result is a state that
  *   already existed and already validated, so there is no schema question at
- *   all. What there IS, is the prefix invariant from `utils/patchGroups.ts`:
- *   inside a patch set, a later patch's array indices were computed against a
- *   state in which its predecessors applied, so dropping one out of the middle
- *   "either errors or silently writes to the wrong index". `requires` is what
- *   that forces along; `unstageClosure` is the real implementation.
+ *   all. What there IS, is the prefix invariant of a patch set: inside a patch
+ *   set, a later patch's array indices were computed against a state in which
+ *   its predecessors applied, so dropping one out of the middle "either errors
+ *   or silently writes to the wrong index". `requires` is what that forces
+ *   along; `closeOverRequired` applies it.
  * - **`revert`** writes an old value forward as a new `replace`, so it is
  *   entirely a schema question — and the one #563 already answered.
  *   `compatibility` is `checkCompatibility`'s three-way answer, `unknown`
@@ -168,7 +168,7 @@ export type CompareBasisOption = {
  *   confident yes or no.
  *
  * Which one a row offers follows from the BASIS, not from taste. Against
- * Published, the change you want gone is a staged patch, and removing it is
+ * Published, the change you want gone is a pending patch, and removing it is
  * cleaner than writing a second patch to cancel the first. Against a commit,
  * those changes already shipped — there is no patch left to remove — so the
  * only way back is to write the old value forward.
@@ -194,7 +194,7 @@ export type CompareUndo =
        * does: this gate cannot see the value, so refusing on it would block
        * restores that are fine. The value-level check happens at confirm, and
        * the rule there is "refuse type-incompatible, allow validation errors" —
-       * a value that breaks a `minLength` is staged and held at publish, since
+       * a value that breaks a `minLength` is kept pending and held at publish, since
        * putting an old value back must not be stricter than typing it.
        */
       compatibility: "yes" | "no" | "unknown";
@@ -205,7 +205,7 @@ export type CompareUndo =
 /**
  * Which undo mechanic a basis offers.
  *
- * `discard` drops a staged patch that was never published; `revert` writes an
+ * `discard` drops a pending patch that was never published; `revert` writes an
  * old value forward as a new change. These are the MECHANICS — the words shown
  * to an editor are in `undoWords.ts`, and they do not line up one-to-one.
  */
@@ -224,11 +224,11 @@ export type CompareFieldRow = {
   /** Absent for `removed`. */
   after?: ReactNode;
   /**
-   * Who staged this, shown on the RIGHT column only.
+   * Who made this change, shown on the RIGHT column only.
    *
    * The left column is published content that nobody is currently editing, so
-   * there is no editor to name there; every staged change belongs to the side
-   * it is being staged into. Putting it on both would also mean drawing the
+   * there is no editor to name there; every pending change belongs to the side
+   * it would be published into. Putting it on both would also mean drawing the
    * same person twice for one change, once per column.
    */
   authors?: CompareAuthorship;
@@ -273,7 +273,7 @@ export type CompareListItemRow = {
   fields?: CompareFieldRow[];
   /** Where it went, for `moved`. Required to say anything useful about one. */
   move?: CompareMove;
-  /** Who staged it. Right column only — see `CompareFieldRow.authors`. */
+  /** Who made it. Right column only — see `CompareFieldRow.authors`. */
   authors?: CompareAuthorship;
   /** Whether this entry can be undone as a whole. */
   undo?: CompareUndo;

@@ -46,8 +46,9 @@ type PatchPath = string[];
  * patch set.
  *
  * That used to only over-group two unrelated changes in the compare view. Now
- * that patch sets decide what a patch group must contain, it means staging one
- * key silently publishes its similarly-named sibling — so the boundary has to be
+ * that patch sets decide what moves between branches as one (whole patch sets,
+ * as `changesToMove` moves them), it means moving one key silently moves its
+ * similarly-named sibling — so the boundary has to be
  * checked explicitly: '?' when `outer` is a bare module file path, '/' when it
  * already has a patch path.
  */
@@ -213,7 +214,7 @@ export class PatchSets {
    * `insertedPatches` guard and returned — so only a patch's first op ever reached
    * a patch set. A patch that touched two places (a `move`, or a `file` op sitting
    * before its source op) was therefore mis-grouped, which is invisible in the
-   * compare view but decides what a patch group must contain.
+   * compare view but decides what moves as one.
    */
   insert(
     moduleFilePath: ModuleFilePath,
@@ -333,9 +334,9 @@ export class PatchSets {
             // serializes as a record whose ITEM is an object, so editing the
             // alt text of a gallery entry resolves `object` here, hit the throw
             // below, and terminated the whole media module into one patch set —
-            // once per keystroke. Staging any one change in that module then
-            // dragged every other change in it along, because a patch group has
-            // to contain a prefix of each patch set it touches.
+            // once per keystroke. Moving any one change in that module then
+            // dragged every other change in it along, because changes move a
+            // whole patch set at a time.
             schemaTypesAtPath.has("object") ||
             // A settings SECTION is addressed like a record: its keys are
             // named, and an `add` at ["theme", "accent"] modifies exactly that
@@ -370,9 +371,8 @@ export class PatchSets {
             //
             // `copy` reaches here as well as `move`. It does not write the
             // source, but the value it produces is read from it, so it depends
-            // on every pending edit to that source just as a move does — and
-            // `editWouldRestage` in `patchGroups` says so, checking `from` for
-            // both. Duplicating a record entry (`useDuplicateRecordEntry`) is
+            // on every pending edit to that source just as a move does.
+            // Duplicating a record entry (`useDuplicateRecordEntry`) is
             // the copy that actually ships, and its source went ungrouped.
             const fromParent = op.from.slice(0, -1);
             const fromParentTypes = schemaTypesOfPath(schema, fromParent);
@@ -405,7 +405,7 @@ export class PatchSets {
           // both: a PRIMITIVE cannot hold the key at all, which means the path
           // no longer fits the schema — a genuinely stale patch; and `richtext`
           // can, but its children are positional, so isolating one would let a
-          // node insert be staged without the edits whose indices it shifted.
+          // node insert be moved without the edits whose indices it shifted.
           // Both keep reporting, and the catch below terminates the module,
           // which is the conservative thing to do when we cannot say what a
           // change affects.

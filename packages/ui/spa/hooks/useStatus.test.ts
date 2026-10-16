@@ -144,13 +144,11 @@ describe("chainOfMessage", () => {
     patches: ["p1", "p2"] as StatData["patches"],
     headPatchId: "p2" as StatData["patches"][number],
     headVersion: 7,
-    patchGroups: [],
   };
 
-  // A publish moves the groups and the applied list at once. Kept apart, the
-  // publisher's other tabs saw the new groups beside the old applied list,
-  // read the published change as unstaged, and showed the old value.
-  test("takes which patches are applied from the message, with the groups", () => {
+  // A publish moves the chain and the applied list at once, so the message's
+  // list replaces the one the last stat carried.
+  test("takes which patches are applied from the message", () => {
     expect(
       chainOfMessage(
         { appliedPatches: [] },
@@ -160,7 +158,6 @@ describe("chainOfMessage", () => {
       patches: ["p1", "p2"],
       headPatchId: "p2",
       headVersion: 7,
-      patchGroups: [],
       appliedPatches: ["p1"],
     });
   });
@@ -265,7 +262,6 @@ describe("content's holds", () => {
         patches: ids("p1"),
         headPatchId: ids("p1")[0],
         headVersion: 2,
-        patchGroups: [],
         appliedPatches: ids("p1"),
         publishingPatches: ids(),
       },
@@ -298,7 +294,6 @@ describe("content's holds", () => {
         patches: ids("p1", "p2"),
         headPatchId: ids("p2")[0],
         headVersion: 4,
-        patchGroups: [],
         appliedPatches: ids(),
         publishingPatches: ids(),
         heldBackPatches: ids("p1"),
@@ -331,7 +326,6 @@ describe("content's holds", () => {
           patches: ids("p1", "p2"),
           headPatchId: ids("p2")[0],
           headVersion: 3,
-          patchGroups: [],
         },
       ),
     ).toEqual({

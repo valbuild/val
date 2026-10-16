@@ -236,9 +236,9 @@ function RowQuickUndoControl({
  * The avatar stack for one row, in the head.
  *
  * It used to be drawn in the right column only — attribution is about the
- * staged side, and the left column is published content nobody is currently
+ * pending side, and the left column is published content nobody is currently
  * editing. With one spanning head there is no column to choose, and the claim
- * it makes is unchanged: these are the people who staged this change.
+ * it makes is unchanged: these are the people who made this change.
  */
 function RowAuthors({ authors }: { authors: CompareAuthorship | undefined }) {
   const ctx = useCompareAuthors();
