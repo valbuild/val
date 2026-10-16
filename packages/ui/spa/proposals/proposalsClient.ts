@@ -1,4 +1,10 @@
 import { z } from "zod";
+import type { SerializedSchema } from "@valbuild/core";
+import type { JSONValue } from "@valbuild/core/patch";
+import {
+  JSONValue as JSONValueSchema,
+  type SchemaError,
+} from "@valbuild/shared/internal";
 import type {
   ProposalJobState,
   ProposalPerson,
@@ -119,6 +125,14 @@ const UpdateConflict = z.union([
     value: z.unknown(),
     message: z.string(),
   }),
+  /** A file both sides changed: a component, or a `.val.ts`'s schema. */
+  z.object({
+    kind: z.literal("code"),
+    file: z.string(),
+    base: z.string().nullable(),
+    site: z.string().nullable(),
+    proposal: z.string().nullable(),
+  }),
 ]);
 export type UpdateConflict = z.infer<typeof UpdateConflict>;
 const UpdateContentAnswer = z.union([
@@ -135,6 +149,67 @@ export type UpdateResolution = {
   moduleFilePath: string;
   path: string[];
   keep: "site" | "proposal";
+};
+/** The same for a file: which side's code the proposal keeps. */
+export type CodeResolution = { file: string; keep: "site" | "proposal" };
+
+/** Content's trees, for the builder tab to evaluate: see `MergeTrees`. */
+const MergeTreesAnswer = z.object({
+  base: z.string().nullable(),
+  siteHead: z.string().nullable(),
+  proposalHead: z.string().nullable(),
+  upToDate: z.boolean(),
+  builds: z.object({ base: z.string(), site: z.string() }),
+  trees: z.object({
+    site: z.record(z.string(), z.string()),
+    base: z.record(z.string(), z.string().nullable()),
+    proposal: z.record(z.string(), z.string().nullable()),
+  }),
+  modules: z.record(
+    z.string(),
+    z.object({
+      base: z.string().nullable(),
+      site: z.string().nullable(),
+      proposal: z.string().nullable(),
+    }),
+  ),
+  sources: z.record(z.string(), JSONValueSchema),
+});
+const UpdateCodeAnswer = z.union([
+  z.object({
+    status: z.literal("updated"),
+    commit: z.string(),
+    proposal: ProposalJson,
+  }),
+  z.object({ status: z.literal("up-to-date") }),
+  z.object({
+    status: z.literal("conflicts"),
+    conflicts: z.array(UpdateConflict),
+  }),
+  z.object({
+    status: z.literal("evaluate"),
+    id: z.string(),
+    files: z.record(z.string(), z.string().nullable()),
+    sources: z.record(z.string(), JSONValueSchema.nullable()),
+  }),
+]);
+export type UpdateCodeAnswer = z.infer<typeof UpdateCodeAnswer>;
+/** A module as evaluating its tree gave it: see `EvaluatedModule`. */
+export type EvaluatedModules = Record<
+  string,
+  {
+    schema: SerializedSchema;
+    written: JSONValue;
+    errors: SchemaError[];
+  }
+>;
+export type UpdateCodeRequest = {
+  siteHead: string | null;
+  proposalHead: string | null;
+  builds: { base: string; site: string };
+  evaluated: Record<"base" | "site" | "proposal", EvaluatedModules>;
+  resolutions: (UpdateResolution | CodeResolution)[];
+  merged?: { id: string; evaluated: EvaluatedModules };
 };
 
 /** An answer that was not a success: content's status and its words. */
@@ -159,6 +234,22 @@ export class ProposalsApiError extends Error {
       .safeParse(this.body);
     return parsed.success ? parsed.data.details.proposal : null;
   }
+}
+
+/**
+ * Whether a refused content-only update is one the update with code makes:
+ * Val's server says the proposal or the site changed code (`needs-build`), or
+ * changed a `.jsonValues()` record in a way only the full merge reads
+ * (`needs-full-merge`).
+ */
+export function needsCodeUpdate(error: unknown): boolean {
+  return (
+    error instanceof ProposalsApiError &&
+    error.status === 409 &&
+    z
+      .object({ status: z.enum(["needs-build", "needs-full-merge"]) })
+      .safeParse(error.body).success
+  );
 }
 
 export type ProposalsClient = {
@@ -215,6 +306,17 @@ export type ProposalsClient = {
     name: string,
     resolutions: UpdateResolution[],
   ): Promise<UpdateContentAnswer>;
+  /**
+   * Update from the site with code: content's three trees, for the builder
+   * tab to evaluate (valbuild/home `docs/hosted-publishing.md`, step 8.2).
+   */
+  mergeTrees(name: string): Promise<z.infer<typeof MergeTreesAnswer>>;
+  /**
+   * The merge of those trees, at the proposal's own address: first the merge
+   * for the tab to evaluate (`evaluate`), then -- sent again with that
+   * evaluation as `merged` -- committed.
+   */
+  updateCode(name: string, body: UpdateCodeRequest): Promise<UpdateCodeAnswer>;
   /**
    * "Go back to this point" with the code: the files of the build the site
    * served at `commit` (a commit of the site's history) staged in it, and that
@@ -300,6 +402,12 @@ export function createProposalsClient(options: {
       ),
     restoreCode: (name, commit) =>
       one(`${at(name)}/restore-code`, "POST", { commit }),
+    mergeTrees: async (name) =>
+      MergeTreesAnswer.parse(await call(`${at(name)}/merge-trees`, "GET")),
+    updateCode: async (name, body) =>
+      UpdateCodeAnswer.parse(
+        await call(`${at(name)}/update-code`, "POST", body),
+      ),
   };
 }
 

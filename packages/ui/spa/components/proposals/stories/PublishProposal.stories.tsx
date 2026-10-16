@@ -218,6 +218,42 @@ export const UpdateConflicts: Story = {
   },
 };
 
+/**
+ * The update with code: a component both changed, and a schema the site
+ * changed while this proposal changed the same file's.
+ */
+export const UpdateCodeConflicts: Story = {
+  args: {
+    ...UpdateConflicts.args,
+    state: {
+      kind: "ready",
+      checks:
+        BlockedByAPageTheSitePublished.args?.state?.kind === "ready"
+          ? BlockedByAPageTheSitePublished.args.state.checks
+          : [],
+      changes: 3,
+      unsaved: 0,
+      conflicts: [
+        {
+          kind: "code",
+          file: "src/components/Hero.tsx",
+          base: "export function Hero() {\n  return <h1>Sale</h1>;\n}\n",
+          site: 'export function Hero() {\n  return <h1 className="big">Sale</h1>;\n}\n',
+          proposal:
+            "export function Hero() {\n  return (\n    <h1>Summer</h1>\n  );\n}\n",
+        },
+        {
+          kind: "code",
+          file: "src/components/Banner.tsx",
+          base: "export const Banner = () => null;\n",
+          site: null,
+          proposal: "export const Banner = () => <p>New</p>;\n",
+        },
+      ],
+    },
+  },
+};
+
 /** Each step, as it runs. */
 export const Saving = at({ kind: "publishing", step: "saving" });
 export const Building = at({ kind: "publishing", step: "building" });

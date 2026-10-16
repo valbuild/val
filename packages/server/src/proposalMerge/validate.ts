@@ -1,41 +1,21 @@
 import {
   deserializeSchema,
-  Internal,
   type ModuleFilePath,
   type Schema,
   type SelectorSource,
-  type SourcePath,
 } from "@valbuild/core";
+import { schemaErrorsOf, type SchemaError } from "@valbuild/shared/internal";
 import type { ProjectModule } from "./project";
 import type { Value } from "./threeWay";
 
-/** Content a schema does not allow, by path in the module. */
-export type SchemaError = { path: string[]; message: string };
+export type { SchemaError } from "@valbuild/shared/internal";
 
-/** What a schema reports about this content, without the fixes the server makes on its own. */
-export function validateWith(
+/** What a schema reports about this content: see `schemaErrorsOf`. */
+export const validateWith = (
   schema: Schema<SelectorSource>,
   moduleFilePath: ModuleFilePath,
   source: Value,
-): SchemaError[] {
-  const res = schema["executeValidate"](
-    moduleFilePath as string as SourcePath,
-    source,
-  );
-  if (res === false) return [];
-  const errors: SchemaError[] = [];
-  for (const [sourcePath, list] of Object.entries(res)) {
-    const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
-      sourcePath as SourcePath,
-    );
-    const path = modulePath ? Internal.createPatchPath(modulePath) : [];
-    for (const error of list) {
-      if (error.fixes && error.fixes.length > 0) continue;
-      errors.push({ path, message: error.message });
-    }
-  }
-  return errors;
-}
+): SchemaError[] => schemaErrorsOf(schema, moduleFilePath, source);
 
 /**
  * A module's errors for this content: its own `validate` where the schema was

@@ -8,7 +8,22 @@ import {
   type Resolution,
 } from "./merge";
 import { entryFilesOf, type Files, type Project } from "./project";
-import type { SchemaError } from "./validate";
+import {
+  sideFiles,
+  sideSource,
+  type Evaluated,
+  type MergeTrees,
+  type Side,
+} from "@valbuild/shared/internal";
+
+export {
+  sideFiles,
+  sideSource,
+  type Evaluated,
+  type EvaluatedModule,
+  type MergeTrees,
+  type Side,
+} from "@valbuild/shared/internal";
 
 /**
  * Update from the site, for a proposal with code (valbuild/home
@@ -30,37 +45,6 @@ import type { SchemaError } from "./validate";
  *    what content commits. The merge is made again rather than taken from the
  *    tab, and must come out as the same `id`.
  */
-
-/** Content's `merge-trees` answer. */
-export type MergeTrees = {
-  base: string | null;
-  siteHead: string | null;
-  proposalHead: string | null;
-  upToDate: boolean;
-  builds: { base: string; site: string };
-  trees: {
-    site: Record<string, string>;
-    base: Record<string, string | null>;
-    proposal: Record<string, string | null>;
-  };
-  modules: Record<
-    string,
-    { base: string | null; site: string | null; proposal: string | null }
-  >;
-  sources: Record<string, JSONValue>;
-};
-
-export type Side = "base" | "site" | "proposal";
-
-/** A module, as evaluating its tree in the tab gave it. */
-export type EvaluatedModule = {
-  schema: SerializedSchema;
-  /** The content its file's text holds. */
-  written: JSONValue;
-  /** The errors of the module's Source under this schema. */
-  errors: SchemaError[];
-};
-export type Evaluated = Record<ModuleFilePath, EvaluatedModule>;
 
 export type UpdateWithCode =
   | { status: "conflicts"; conflicts: Conflict[] }
@@ -88,37 +72,6 @@ export type UpdateWithCode =
         { source: JSONValue; schema: SerializedSchema }
       >;
     };
-
-/** A side's files: the site's tree, the base's changes over it, the proposal's over that. */
-export function sideFiles(
-  trees: MergeTrees,
-  side: Side,
-): Record<string, string> {
-  const layers: Record<string, string | null>[] =
-    side === "site"
-      ? []
-      : side === "base"
-        ? [trees.trees.base]
-        : [trees.trees.base, trees.trees.proposal];
-  const files: Record<string, string> = { ...trees.trees.site };
-  for (const layer of layers) {
-    for (const [path, text] of Object.entries(layer)) {
-      if (text === null) delete files[path];
-      else files[path] = text;
-    }
-  }
-  return files;
-}
-
-/** A side's Source of a module, from content's index; `null` when it has none. */
-export function sideSource(
-  trees: MergeTrees,
-  side: Side,
-  moduleFilePath: ModuleFilePath,
-): JSONValue | null {
-  const sha = trees.modules[moduleFilePath]?.[side] ?? null;
-  return sha === null ? null : (trees.sources[sha] ?? null);
-}
 
 export function updateWithCode(input: {
   trees: MergeTrees;

@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import {
   PublishProposalDialog,
   type PublishProposalState,
+  type UpdateConflictView,
 } from "./PublishProposalDialog";
 
 /*
@@ -120,7 +121,9 @@ describe("Publish, blocked", () => {
 });
 
 describe("Update from the site, with conflicts (step 8.2)", () => {
-  const withConflicts = (): PublishProposalState => ({
+  const withConflicts = (
+    conflicts?: UpdateConflictView[],
+  ): PublishProposalState => ({
     kind: "ready",
     changes: 1,
     unsaved: 0,
@@ -132,7 +135,7 @@ describe("Update from the site, with conflicts (step 8.2)", () => {
         action: "update-from-site",
       },
     ],
-    conflicts: [
+    conflicts: conflicts ?? [
       {
         kind: "field",
         moduleFilePath: "/content/page.val.ts",
@@ -169,6 +172,32 @@ describe("Update from the site, with conflicts (step 8.2)", () => {
     expect(update.disabled).toBe(false);
     fireEvent.click(update);
     expect(resolve).toHaveBeenCalledWith(["site", "proposal"]);
+  });
+
+  test("a file both changed is one decision, each side said by what it did to the file", () => {
+    const resolve = jest.fn();
+    dialog(
+      withConflicts([
+        {
+          kind: "code",
+          file: "src/components/Hero.tsx",
+          base: "a\nb\nc",
+          site: "a\nB\nc",
+          proposal: null,
+        },
+      ]),
+      () => {},
+      false,
+      { onResolve: resolve },
+    );
+    expect(screen.getByText("src/components/Hero.tsx")).toBeTruthy();
+    expect(screen.getByText("changed (+1 −1 lines)")).toBeTruthy();
+    expect(screen.getByText("deleted")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("radio")[1]);
+    fireEvent.click(
+      screen.getByRole("button", { name: /update from the site/i }),
+    );
+    expect(resolve).toHaveBeenCalledWith(["proposal"]);
   });
 
   test("Not now leaves them undecided, and merges nothing", () => {

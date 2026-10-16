@@ -39,7 +39,11 @@ export function UpdateConflicts({
       <ul className="flex flex-col gap-2">
         {conflicts.map((conflict, at) => (
           <li
-            key={`${conflict.moduleFilePath}?${conflict.path.join("/")}`}
+            key={
+              conflict.kind === "code"
+                ? conflict.file
+                : `${conflict.moduleFilePath}?${conflict.path.join("/")}`
+            }
             className="flex flex-col gap-1.5 rounded-md border border-border-float px-3 py-2 text-xs"
           >
             <span className="font-medium text-fg-primary">
@@ -74,7 +78,9 @@ export function UpdateConflicts({
                           : "Keep this proposal's: "}
                       </span>
                       <span className="text-fg-primary">
-                        {shown(conflict[side])}
+                        {conflict.kind === "code"
+                          ? changeOf(conflict.base, conflict[side])
+                          : shown(conflict[side])}
                       </span>
                     </span>
                   </label>
@@ -121,12 +127,35 @@ export function UpdateConflicts({
   );
 }
 
-/** Where a conflict is: the page, then the field, by its keys. */
+/** Where a conflict is: the file; or the page, then the field, by its keys. */
 function where(conflict: UpdateConflictView): string {
+  if (conflict.kind === "code") return conflict.file;
   const page = conflict.moduleFilePath.replace(/^\//, "");
   return conflict.path.length === 0
     ? page
     : `${page} › ${conflict.path.join(" › ")}`;
+}
+
+/**
+ * What one side did to a file since the proposal started, in a line: the
+ * file is the decision, and its lines are for an editor to open, not to read
+ * here.
+ */
+function changeOf(base: string | null, text: string | null): string {
+  if (text === null) return "deleted";
+  const lines = text.split("\n");
+  if (base === null) return `added (${lines.length} lines)`;
+  const before = base.split("\n");
+  const counts = new Map<string, number>();
+  for (const line of before) counts.set(line, (counts.get(line) ?? 0) + 1);
+  let added = 0;
+  for (const line of lines) {
+    const left = counts.get(line) ?? 0;
+    if (left > 0) counts.set(line, left - 1);
+    else added++;
+  }
+  const removed = [...counts.values()].reduce((sum, n) => sum + n, 0);
+  return `changed (+${added} −${removed} lines)`;
 }
 
 /** A value, short enough for one line. A file by its name, and its alt text. */

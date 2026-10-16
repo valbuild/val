@@ -87,5 +87,10 @@ async function call(
         method: "buildInputId",
         value: await loaded.buildInputId(...request.args),
       };
+    case "bundleValModules":
+      return {
+        method: "bundleValModules",
+        value: await loaded.bundleValModules(...request.args),
+      };
   }
 }

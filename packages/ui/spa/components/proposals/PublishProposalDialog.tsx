@@ -46,6 +46,15 @@ export type UpdateConflictView =
       moduleFilePath: string;
       path: string[];
       message: string;
+    }
+  | {
+      /** A file both changed: a component, or a `.val.ts`'s schema. */
+      kind: "code";
+      file: string;
+      /** Each side's text; `null` where it has no such file. */
+      base: string | null;
+      site: string | null;
+      proposal: string | null;
     };
 
 /**

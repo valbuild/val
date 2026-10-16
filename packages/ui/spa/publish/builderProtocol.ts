@@ -25,6 +25,10 @@ export type BuilderCall =
   | {
       method: "buildInputId";
       args: Parameters<typeof TanstackBuild.buildInputId>;
+    }
+  | {
+      method: "bundleValModules";
+      args: Parameters<typeof TanstackBuild.bundleValModules>;
     };
 
 /** Studio -> worker. */
@@ -52,6 +56,10 @@ export type BuilderResult =
   | {
       method: "buildInputId";
       value: Awaited<ReturnType<typeof TanstackBuild.buildInputId>>;
+    }
+  | {
+      method: "bundleValModules";
+      value: Awaited<ReturnType<typeof TanstackBuild.bundleValModules>>;
     };
 
 /** Worker -> Studio. */

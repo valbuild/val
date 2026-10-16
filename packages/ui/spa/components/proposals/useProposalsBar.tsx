@@ -22,6 +22,9 @@ import { toast } from "../designSystem/sonner";
 import { copyText } from "../../utils/copyText";
 import {
   ProposalsApiError,
+  needsCodeUpdate,
+  type CodeResolution,
+  type UpdateResolution,
   jobState,
   sameStudioPageAt,
   toSummary,
@@ -46,6 +49,8 @@ import {
 } from "./PublishProposalDialog";
 import { followCarryOver, type CarryOver } from "../../proposals/carryOver";
 import { canBuildHere } from "../../publish/handoff";
+import { updateProposalWithCode } from "../../proposals/updateWithCode";
+import { studioCodeUpdateDeps } from "../../proposals/studioCodeUpdate";
 import { mergeNeedsBuild } from "../../proposals/mergeNeedsBuild";
 import { randomUUID } from "../../utils/randomUUID";
 import {
@@ -346,48 +351,109 @@ export function useProposalsBar({
   }, [client, here, currentJson?.changes, unsaved]);
 
   /*
-   * "Update from the site" (step 8). Which update depends on what changed:
+   * "Update from the site" (step 8.2): the site's changes since the proposal
+   * started, merged into it, as a pull request is brought up to date.
    *
-   * - site-code: the site's code changed under this proposal's, so it moves
-   *   onto the site as it is now and its code is built again there -- "Build
-   *   required" follows.
-   * - published-since: the site published a page this proposal changes, and
-   *   Val merges what it published into the proposal (step 8.2). What both
-   *   changed comes back as conflicts, decided in the dialog, and the same
-   *   update with those decisions merges.
+   * - Content only -- nothing staged, the site on the build the proposal
+   *   stands on: Val's server here merges under its own schemas
+   *   (`updateContent`). It says when that is not the case.
+   * - Otherwise the merge needs each tree's schemas, which only running its
+   *   code gives: this page bundles and evaluates them
+   *   (`updateProposalWithCode`), and what the merge leaves staged is built.
    *
-   * Either way the checks are read again after.
+   * What both changed comes back as conflicts, decided in the dialog, and the
+   * same update with those decisions merges. Either way the checks are read
+   * again after.
    */
   const [updating, setUpdating] = useState(false);
-  const [conflicts, setConflicts] = useState<UpdateConflict[] | null>(null);
+  const [conflicts, setConflicts] = useState<{
+    of: "content" | "code";
+    list: UpdateConflict[];
+  } | null>(null);
+  const buildProposalNow = proposalBuild.build;
   const updateFromSite = useCallback(
     async (checkId: string, keep: ("site" | "proposal")[] = []) => {
       if (here === null) return;
       setUpdating(true);
       try {
-        if (checkId !== "published-since") {
+        const resolutions = (conflicts?.list ?? []).flatMap(
+          (conflict, at): (UpdateResolution | CodeResolution)[] => {
+            const kept = keep[at];
+            if (kept === undefined) return [];
+            if (conflict.kind === "field") {
+              return [
+                {
+                  moduleFilePath: conflict.moduleFilePath,
+                  path: conflict.path,
+                  keep: kept,
+                },
+              ];
+            }
+            if (conflict.kind === "code") {
+              return [{ file: conflict.file, keep: kept }];
+            }
+            return [];
+          },
+        );
+        let withCode =
+          conflicts?.of === "code" ||
+          (checkId === "site-code" && canBuildHere());
+        if (!withCode && checkId !== "published-since") {
+          // The site's code moved and this page cannot read code: onto the
+          // site's build, its own code built again there, as before 8.2.
           await client.updateFromSite(here.name);
           proposalCodeChanged();
           await loadChecks();
           return;
         }
-        const resolutions = (conflicts ?? []).flatMap((conflict, at) =>
-          conflict.kind === "field" && keep[at] !== undefined
-            ? [
-                {
-                  moduleFilePath: conflict.moduleFilePath,
-                  path: conflict.path,
-                  keep: keep[at],
-                },
-              ]
-            : [],
+        if (!withCode) {
+          try {
+            const answer = await client.updateContent(
+              here.name,
+              resolutions.filter(
+                (r): r is UpdateResolution => "moduleFilePath" in r,
+              ),
+            );
+            if (answer.status === "conflicts") {
+              setConflicts({ of: "content", list: answer.conflicts });
+              return;
+            }
+            setConflicts(null);
+            await loadChecks();
+            return;
+          } catch (error) {
+            if (!needsCodeUpdate(error)) throw error;
+            withCode = true;
+          }
+        }
+        if (!canBuildHere()) {
+          setPublishState({
+            kind: "error",
+            message:
+              "This proposal changes code, or the site's code changed, so updating it reads the code in this browser -- and this one cannot. Open the proposal in Chrome or Edge on a computer to update it.",
+          });
+          return;
+        }
+        const outcome = await updateProposalWithCode(
+          here.name,
+          resolutions,
+          studioCodeUpdateDeps(client),
         );
-        const answer = await client.updateContent(here.name, resolutions);
-        if (answer.status === "conflicts") {
-          setConflicts(answer.conflicts);
+        if (outcome.status === "conflicts") {
+          setConflicts({ of: "code", list: outcome.conflicts });
           return;
         }
         setConflicts(null);
+        proposalCodeChanged();
+        // What the merge staged is built over the site's build, as any staged
+        // code is: the address serves it once it is.
+        if (
+          outcome.status === "updated" &&
+          outcome.proposal.staged?.buildRequired &&
+          buildProposalNow !== null
+        ) {
+          void buildProposalNow();
+        }
         await loadChecks();
       } catch (error) {
         setPublishState({
@@ -400,7 +466,7 @@ export function useProposalsBar({
         setUpdating(false);
       }
     },
-    [client, conflicts, here, loadChecks],
+    [buildProposalNow, client, conflicts, here, loadChecks],
   );
 
   /** Where the press is, while it is followed. See `pressed`. */
@@ -610,7 +676,7 @@ export function useProposalsBar({
   const dialogState: PublishProposalState =
     following === null
       ? publishState.kind === "ready" && conflicts !== null
-        ? { ...publishState, conflicts }
+        ? { ...publishState, conflicts: conflicts.list }
         : publishState
       : following.kind === "running"
         ? { kind: "publishing", step: following.step }
