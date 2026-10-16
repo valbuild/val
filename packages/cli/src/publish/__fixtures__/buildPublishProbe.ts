@@ -106,6 +106,8 @@ type Report = {
   wiredBranch: string | null;
   /** Whether the run warned that the checkout's branch is not the project's. */
   warnedAboutBranch: boolean;
+  /** Whether it said the platform sent no pins or exports -- which it did. */
+  warnedAboutPlatformFacts: boolean;
 };
 
 /** A 1x1 PNG: small enough to inline, so the page carries it as a data URI. */
@@ -221,6 +223,9 @@ async function publishOnce(
         : false),
     checkoutUntouched: JSON.stringify(listed(root)) === JSON.stringify(before),
     wiredBranch: source ? wiredBranchOf(source) : null,
+    warnedAboutPlatformFacts: logged.some((line) =>
+      /did not say (which versions|what its base layer exports)/.test(line),
+    ),
     warnedAboutBranch: logged.some(
       (line) => line.startsWith("warn:") && line.includes("publishes"),
     ),

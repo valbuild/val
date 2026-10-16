@@ -161,11 +161,14 @@ export interface PinSkew {
 export class PinSkewError extends Error {
   readonly skew: Array<PinSkew>;
   constructor(skew: Array<PinSkew>, baseRev: string) {
+    // One entry per pinned package: a package bundled at two versions is two
+    // skews, and the same pin twice.
+    const pinned = [...new Map(skew.map((s) => [s.name, s.pinned])).entries()];
     super(
       `The project's install resolves ${skew
         .map((s) => `${s.name} ${s.found}`)
         .join(", ")}, but the base layer it builds against (${baseRev}) is ` +
-        `built from ${skew.map((s) => `${s.name} ${s.pinned}`).join(", ")}. ` +
+        `built from ${pinned.map(([name, version]) => `${name} ${version}`).join(", ")}. ` +
         `These are shipped in lockstep with the base layer, and a copy at ` +
         `another version links against the base layer's at runtime -- which ` +
         `fails only when something first imports it, as "does not provide an ` +
@@ -941,7 +944,11 @@ async function baseChunkExports(
   const dist = platform.baseLayerDir;
   if (!dist) {
     const chunk = specifier.slice(target.baseFrom.length).replace(/\.js$/, "");
-    const listed = platform.base.exports?.[target.name]?.[chunk];
+    const chunks = platform.base.exports?.[target.name];
+    // Own keys only: a chunk named like an Object.prototype member must not
+    // read back a function.
+    const listed =
+      chunks && Object.hasOwn(chunks, chunk) ? chunks[chunk] : undefined;
     return listed ? new Set(listed) : null;
   }
   const file = join(

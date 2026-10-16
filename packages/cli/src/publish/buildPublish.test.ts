@@ -38,6 +38,7 @@ type Run = {
   checkoutUntouched: boolean;
   wiredBranch: string | null;
   warnedAboutBranch: boolean;
+  warnedAboutPlatformFacts: boolean;
 };
 
 let probe: { fresh: Run; held: Run; elsewhere: Run };
@@ -126,6 +127,12 @@ test("a checkout on another branch is wired at the project's, and says so", () =
   // Where they agree there is nothing to say.
   expect(probe.fresh.wiredBranch).toBe("main");
   expect(probe.fresh.warnedAboutBranch).toBe(false);
+});
+
+test("the platform's pins and exports reach the build through the client", () => {
+  // content sends them (FAKE_BUILD_TARGET); a parser that dropped them made
+  // every publish skip both checks and say the platform had not sent them.
+  expect(probe.fresh.warnedAboutPlatformFacts).toBe(false);
 });
 
 test("the checkout is left as it was found", () => {

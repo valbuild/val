@@ -52,9 +52,11 @@ export type ContentPublishApi = {
    *
    * ## What is deliberately not here
    *
-   * No loader URL, no `vendorRev`, no `x-platform-project`. This service holds
-   * the operator relationship with the build platform and calls it; a publisher
-   * talks to this API and nothing else. The one exception is the presigned
+   * No loader URL, no `x-platform-project`. This service holds the operator
+   * relationship with the build platform and calls it; a publisher talks to
+   * this API and nothing else. A publisher does say which base layer it built
+   * against (`baseRev` below) -- a fact about its build, which this service
+   * forwards -- but never addresses the platform itself. The one exception is the presigned
    * upload URL, which points at object storage -- bytes do not travel through
    * here.
    *

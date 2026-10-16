@@ -298,11 +298,17 @@ export async function buildArtifacts(options: {
      * them sends neither, and the layer builds unchecked, as it always did
      * here; that is worth a line in the log rather than silence.
      */
-    if (!target.base.pins || !target.base.exports) {
+    if (deps.length > 0 && !target.base.pins) {
       warnings.push(
         "The platform did not say which versions its base layer carries, so " +
           "this build could not check that the project's TanStack and React " +
           "agree with them.",
+      );
+    }
+    if (deps.length > 0 && !target.base.exports) {
+      warnings.push(
+        "The platform did not say what its base layer exports, so this build " +
+          "could not check that the project's dependencies import only what it has.",
       );
     }
     const layer = await node.buildVendorLayer(root, deps, css, {
@@ -310,6 +316,18 @@ export async function buildArtifacts(options: {
       resolvePlatformModule: () => null,
       baseLayerDir: null,
     });
+
+    /*
+     * What the layer left out, and why. A dependency the layer could not build
+     * is dropped rather than fatal -- a Vite plugin nobody imports, say -- and
+     * one the app DOES import then fails the site build naming only the
+     * specifier. The reason is what says whether to fix the import or the
+     * package: an export the base layer does not have, most of all, which is a
+     * version disagreement with the platform rather than a missing package.
+     */
+    for (const { specifier, reason } of layer?.skipped ?? []) {
+      warnings.push(`${specifier} is not in the dependency layer: ${reason}`);
+    }
 
     log("Building the site");
     const fileBased = await node.isFileBased(root);
