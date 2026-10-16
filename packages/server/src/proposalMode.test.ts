@@ -742,6 +742,137 @@ describe("Update from the site, content only", () => {
   });
 });
 
+describe("Update from the site, with code", () => {
+  const HERO = "src/components/Hero.tsx";
+  const FOOTER = "src/components/Footer.tsx";
+  /** Content's `merge-trees`: the site changed the footer, the proposal the hero. */
+  const trees = (over: Record<string, unknown> = {}) => ({
+    base: "site-1",
+    siteHead: "site-2",
+    proposalHead: "save-2",
+    upToDate: false,
+    builds: { base: "build-a", site: "build-b" },
+    trees: {
+      site: { [HERO]: "hero a", [FOOTER]: "footer b" },
+      base: { [FOOTER]: "footer a" },
+      proposal: { [HERO]: "hero c" },
+    },
+    modules: {},
+    sources: {},
+    ...over,
+  });
+  const content = (given: unknown) =>
+    jest.spyOn(global, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      sent.push({
+        url,
+        method: init?.method ?? "GET",
+        body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+      });
+      const body = url.endsWith("/merge-trees")
+        ? given
+        : { commit: "merge-1", proposal: { name: NAME } };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+  /** What the tab sends: the heads it read, and the (here empty) evaluations. */
+  const request = (over: Record<string, unknown> = {}) => ({
+    siteHead: "site-2",
+    proposalHead: "save-2",
+    builds: { base: "build-a", site: "build-b" },
+    evaluated: { base: {}, site: {}, proposal: {} },
+    resolutions: [],
+    ...over,
+  });
+  const update = (o: ValOpsHttp, body: unknown) =>
+    o
+      .proposalsApi(
+        `/${NAME}/update-code`,
+        { method: "POST", body: JSON.stringify(body) },
+        "p",
+      )
+      .then((a) => ({ status: a.status, json: JSON.parse(a.body) }));
+
+  test("the first call answers the merge for the tab to evaluate, and writes nothing", async () => {
+    content(trees());
+    const answer = await update(ops(proposal("save-2")), request());
+    expect(answer).toEqual({
+      status: 200,
+      json: {
+        status: "evaluate",
+        id: expect.stringMatching(/^[0-9a-f]{64}$/),
+        files: { [HERO]: "hero c" },
+        sources: {},
+      },
+    });
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `GET /v1/org/project/proposals/${NAME}/merge-trees`,
+    ]);
+  });
+
+  test("the second, with the merge evaluated, commits it over the live build and stages its code", async () => {
+    content(trees());
+    const first = await update(ops(proposal("save-2")), request());
+    sent.length = 0;
+    const answer = await update(
+      ops(proposal("save-2")),
+      request({ merged: { id: first.json.id, evaluated: {} } }),
+    );
+    expect(answer).toMatchObject({
+      status: 200,
+      json: { status: "updated", commit: "merge-1" },
+    });
+    expect(sent.find((r) => r.url.endsWith("/merge-from-site"))?.body).toEqual({
+      siteHead: "site-2",
+      proposalHead: "save-2",
+      files: { [HERO]: "hero c" },
+      modules: {},
+      code: { build: "build-b", staged: [HERO] },
+    });
+  });
+
+  test("trees that moved since the tab read them are not merged", async () => {
+    content(trees({ siteHead: "site-3" }));
+    expect(await update(ops(proposal("save-2")), request())).toEqual({
+      status: 409,
+      json: {
+        status: "moved",
+        message: expect.stringMatching(/Update from the site again/),
+      },
+    });
+  });
+
+  test("an evaluation of another merge is not committed", async () => {
+    content(trees());
+    const answer = await update(
+      ops(proposal("save-2")),
+      request({ merged: { id: "another", evaluated: {} } }),
+    );
+    expect(answer.status).toBe(409);
+    expect(answer.json.status).toBe("stale");
+    expect(sent.some((r) => r.url.endsWith("/merge-from-site"))).toBe(false);
+  });
+
+  test("only the proposal's own server updates it", async () => {
+    content(trees());
+    expect((await update(ops(undefined), request())).status).toBe(403);
+    expect(sent).toEqual([]);
+  });
+
+  test("the tab reads the trees through the proposals API", async () => {
+    content(trees());
+    const answer = await ops(proposal("save-2")).proposalsApi(
+      `/${NAME}/merge-trees`,
+      { method: "GET" },
+      "p",
+    );
+    expect(answer.status).toBe(200);
+  });
+});
+
 describe("proposalFromEnv", () => {
   test("names a proposal only with both its name and its branch", () => {
     expect(proposalFromEnv({})).toBeUndefined();
