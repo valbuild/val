@@ -94,6 +94,23 @@ const notFoundResponse = z.object({
   }),
 });
 const GenericError = z.object({ message: z.string() });
+/**
+ * Why Val Build refused a write for the project's plan, as data: the `error` of
+ * its 403 (`refusalError` in valbuild/home's `billing/projectLimits.ts`).
+ *
+ * Every field but `code` is optional and every field is a plain string, so a
+ * newer Val Build that adds a code or a fix still parses: the Studio says an
+ * unknown one with Billing beside it rather than failing to read the answer.
+ */
+export const PlanRefusalError = z.object({
+  code: z.string(),
+  fix: z.string().optional(),
+  /** When it lifts by itself, as an ISO time, if it does. */
+  until: z.string().optional(),
+  /** The organization's Billing in Val Build. */
+  billingUrl: z.string().optional(),
+});
+export type PlanRefusalErrorT = z.infer<typeof PlanRefusalError>;
 
 /**
  * The header a request to `/admin/proxy` must carry. A cross-site form or
@@ -1219,6 +1236,29 @@ export const Api = {
                 }),
               ),
             ),
+          }),
+        }),
+        /*
+         * Val Build refused the write for the project's plan: the Free week's
+         * changes are used, or a trial is over. Not the 400 above, because the
+         * patches are fine -- they are kept, and saved once the plan allows.
+         * `message` is Val Build's own sentence and `error` the same as data,
+         * so the Studio can put the fix beside it.
+         *
+         * The patches of the batch BEFORE the refused one were saved (the Free
+         * week can run out mid-batch), so this carries what a 200 does about
+         * them: the client marks those saved and keeps the rest.
+         */
+        z.object({
+          status: z.literal(403),
+          json: z.object({
+            type: z.literal("plan-refused"),
+            message: z.string(),
+            error: PlanRefusalError,
+            newPatchIds: z.array(PatchId),
+            parentRef: ParentRef,
+            patchGroupId: z.string().optional(),
+            headVersion: z.number().optional(),
           }),
         }),
         z.object({

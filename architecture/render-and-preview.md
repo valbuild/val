@@ -11,7 +11,8 @@ prevent — it has already been undone once, when the two shared a pipeline.
   of its items inside its (sortable) list row instead of behind a clickable
   row. The list decides; the item has no say. That is the whole of what a
   render says — see "What a render is not" below. (`s.keyOf(...)` also takes
-  one, meaning something of its own: see "Where it is declared".)
+  one, meaning something of its own: see "Where it is declared"; and so do
+  `s.int()` / `s.number()`, as a slider: see "A slider is a render".)
 - **`preview` is how the VALUE is shown wherever a preview of it is needed** —
   a list row you click through to, a reference (`keyOf`) dropdown, a search
   hit, the references view. A preview is needed exactly where the value is
@@ -49,6 +50,31 @@ What is left is one question — does this list edit its items in their rows —
 which is why `FieldRender` is a single variant and `isInlineRender` can answer
 it from the serialized schema alone. A render that could also mean "textarea" was a
 union whose only common trait was that it lived in the same field.
+
+## A slider is a render
+
+`s.int().render({ as: "slider", min: 0, max: 100 })` is the one render a leaf
+takes, and it passes the test the textarea failed: a slider and a text box hold
+exactly the same values. Nothing about what the content IS changes; only the
+input in front of it does. That is layout, so it is a render — its own type,
+`NumberRender`, beside the containers' `FieldRender` rather than inside it, so
+`isInlineRender` stays a question about lists.
+
+Its `min` and `max` are REQUIRED, because a slider without ends is not a
+slider, and they are the slider's, not rules. The rules are `.min()`, `.max()`
+and `.step()` on the schema, and they are what the validator checks. The two
+are tied by one constraint, checked where the schema is defined
+(`assertNumberSchemaIsConsistent` in `number.ts`): **the slider may only
+produce values the schema accepts** — its range inside the rules, its step a
+multiple of the schema's, its `min` on the schema's grid, and whole numbers on
+an int.
+
+So a value outside the slider's range is valid content and NOT an error: the
+field pins the thumb to the end, keeps the real value in the box beside it,
+says it is out of the slider's reach and offers "Set to" the nearest stop. A
+value that breaks a RULE is a validation error like any other, with a "Round
+to" next to it. Both offer a value from `Internal.number.nearestAllowedNumber`,
+the validator's own arithmetic, so the button never leads back to the error.
 
 ## Where they meet: a list row, and the render wins
 

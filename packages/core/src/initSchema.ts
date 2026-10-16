@@ -1,6 +1,6 @@
 // import type { F } from "ts-toolbelt";
 import { array } from "./schema/array";
-import { number } from "./schema/number";
+import { int, number } from "./schema/number";
 import { object } from "./schema/object";
 import { string } from "./schema/string";
 import { boolean } from "./schema/boolean";
@@ -78,6 +78,28 @@ export type InitSchema = {
    *
    */
   readonly number: typeof number;
+  /**
+   * Define a whole number. The source is an ordinary `number`; `s.int()` adds
+   * the rule that it has no decimals.
+   *
+   * Takes `.min()`, `.max()` and `.step()` for what the value may be, and
+   * `.render({ as: "slider", min, max })` to edit it with a slider.
+   *
+   * @example
+   * const schema = s.object({
+   *   columns: s.int().min(1).max(6),
+   *   opacity: s.int().min(0).max(100).step(5).render({
+   *     as: "slider",
+   *     min: 0,
+   *     max: 100,
+   *   }),
+   * });
+   * export default c.define("/example.val.ts", schema, {
+   *   columns: 3,
+   *   opacity: 40,
+   * });
+   */
+  readonly int: typeof int;
   /**
    * Define one of several object shapes, told apart by a tag field.
    *
@@ -607,6 +629,7 @@ export function initSchema(options?: InitSchemaOptions): InitSchema {
     array,
     object,
     number,
+    int,
     discriminatedUnion,
     enum: enumSchema,
     union,

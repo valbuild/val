@@ -597,7 +597,8 @@ Two things follow, and they are the ones that get forgotten:
 The showcase covers, as of writing: every `s.*` factory except `s.union`
 (deprecated); `describe` / `preview` / `render` (on an array) /
 `validate` / `nullable` / `readonly` / `hidden`; `minLength` / `maxLength` /
-`min` / `max` / `regexp` / `multiline` on strings and numbers, `from` / `to` on
+`min` / `max` / `regexp` / `multiline` on strings and numbers, `s.int()` with
+`step` and `render({ as: "slider" })` (and a slider on `s.number()`), `from` / `to` on
 dates, `include` / `exclude` on routes; `s.record(key, item)` and the
 three-argument `s.router(router, key, item)` so a KEY can carry its own
 description; `.jsonValues()` with `c.json()`; `tanstackRouter` and

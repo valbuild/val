@@ -28,11 +28,12 @@ import type { SerializedSchema } from "./schema";
  */
 /**
  * A RENDER is how a field is laid out in the editor, and it applies only when
- * you are looking at the field. It is declared by a CONTAINER about its
- * children, never by a child about itself: `s.array(item).render({ as: "inline" })`
- * and `s.record(item).render({ as: "inline" })`. The one other schema that takes
- * a render is `s.keyOf(...)`, where it means something of its own (see
- * `KeyOfSchema.render`).
+ * you are looking at the field. On a list it is declared by the CONTAINER about
+ * its children, never by a child about itself: `s.array(item).render({ as: "inline" })`
+ * and `s.record(item).render({ as: "inline" })`. Two other schemas take a
+ * render, each meaning something of its own: `s.keyOf(...)` (see
+ * `KeyOfSchema.render`) and `s.number()` / `s.int()`, whose `{ as: "slider" }`
+ * is a different input for the same value (see {@link SliderRender}).
  *
  * Why the container: inline is a property of the LIST — "my items are edited in
  * their rows" — and the item schema is the wrong place to say it. An item can be
@@ -89,6 +90,40 @@ export type InlineRender = { as: "inline" };
  * What `.render(...)` takes, and what the serialized schema carries verbatim.
  */
 export type FieldRender = InlineRender;
+
+/**
+ * `{ as: "slider", min, max }` on `s.int()` or `s.number()`: the value is
+ * edited with a slider from `min` to `max`, next to a box that takes a typed
+ * value.
+ *
+ * `min` and `max` are REQUIRED, because a slider without ends is not a slider.
+ * They are the slider's own and are not validation: a value outside them is
+ * still valid content (if the schema allows it), and the field says it is out
+ * of the slider's reach and offers to bring it back. What the schema accepts is
+ * `.min()`, `.max()` and `.step()` on the schema itself.
+ *
+ * The one rule tying the two together: **the slider may only produce values
+ * the schema accepts.** So its range has to lie inside the schema's, its step
+ * has to be a multiple of the schema's step and its `min` on the schema's grid,
+ * and on `s.int()` all of them have to be whole numbers. A schema that breaks
+ * that throws where it is defined — see `NumberSchema`.
+ *
+ * `step` defaults to the schema's `.step()`, and to 1 when there is none.
+ *
+ * Unlike `inline` this is about the field itself — no list reads it, and
+ * {@link isInlineRender} answers `false` for it.
+ */
+export type SliderRender = {
+  as: "slider";
+  min: number;
+  max: number;
+  step?: number;
+};
+
+/**
+ * What `s.number().render(...)` and `s.int().render(...)` take.
+ */
+export type NumberRender = SliderRender;
 
 /**
  * Does this CONTAINER edit its items inside their list rows, rather than behind
