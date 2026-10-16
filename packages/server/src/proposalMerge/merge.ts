@@ -27,7 +27,7 @@ import {
   type Value,
   type ValueConflict,
 } from "./threeWay";
-import { validateModule } from "./validate";
+import { errorsOfSource, validateModule } from "./validate";
 
 /**
  * Publishing a proposal as a pull request is merged: valbuild/home
@@ -99,6 +99,12 @@ export type MergeResult =
       files: Files;
       /** Code files `M` changed from the site's, which the proposal stages. */
       code: string[];
+      /**
+       * Each merged module's content, as written into its files. Not a module
+       * whose file a resolution wrote whole: what it holds is what evaluating
+       * it says.
+       */
+      modules: Record<ModuleFilePath, Value>;
     }
   | { status: "conflicts"; conflicts: Conflict[] };
 
@@ -128,6 +134,7 @@ export function mergeFromSite(input: {
 }): MergeResult {
   const { base, site, proposal, resolutions } = input;
   const files: Files = {};
+  const modules: Record<ModuleFilePath, Value> = {};
   const conflicts: Conflict[] = [];
   const paths = [
     ...new Set([
@@ -217,6 +224,7 @@ export function mergeFromSite(input: {
     const resolved = resolveContent(moduleFilePath, merged, resolutions);
     conflicts.push(...resolved.unresolved);
     const content = resolved.content;
+    modules[moduleFilePath] = content;
 
     const entries = moduleOf(chosen)?.entries;
     if (entries) {
@@ -236,6 +244,7 @@ export function mergeFromSite(input: {
   return {
     status: "merged",
     files,
+    modules,
     code: Object.keys(files).filter((file) => {
       const text = files[file];
       const before = site.files[file] ?? null;
@@ -415,10 +424,12 @@ export function schemaCheck(
     const known = new Set(
       sides.flatMap((side) => {
         const there = side.modules[moduleFilePath];
-        return there ? errorPaths(moduleFilePath, there, there.source) : [];
+        return there
+          ? errorsOfSource(moduleFilePath, there).map((e) => e.path.join("/"))
+          : [];
       }),
     );
-    for (const error of validateModule(moduleFilePath, module, module.source)) {
+    for (const error of errorsOfSource(moduleFilePath, module)) {
       if (known.has(error.path.join("/"))) continue;
       conflicts.push({
         kind: "invalid",

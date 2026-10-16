@@ -87,6 +87,12 @@ export type ProjectModule = {
    * serialized schema's rules are used (`validateModule`).
    */
   validate?: (source: Value) => SchemaError[];
+  /**
+   * The errors of `source` under this schema, where they were found where the
+   * schema was evaluated (the builder tab) and only the result crossed over.
+   * What the schema check reads first.
+   */
+  errors?: SchemaError[];
 };
 
 /** A project at one commit: its files, and its modules as data. */

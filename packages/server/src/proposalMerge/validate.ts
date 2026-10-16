@@ -51,3 +51,11 @@ export function validateModule(
   if (module.validate) return module.validate(source);
   return validateWith(deserializeSchema(module.schema), moduleFilePath, source);
 }
+
+/** The errors of a module's own Source: as evaluated where they were, else found here. */
+export function errorsOfSource(
+  moduleFilePath: ModuleFilePath,
+  module: ProjectModule,
+): SchemaError[] {
+  return module.errors ?? validateModule(moduleFilePath, module, module.source);
+}
