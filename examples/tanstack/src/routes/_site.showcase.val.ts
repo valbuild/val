@@ -34,6 +34,8 @@ export default c.define(
       notes: {
         theme:
           "s.color() in four notations, one with an alpha channel and one nullable.",
+        layout:
+          "s.int() with min, max and step, three of them edited with a slider; and s.number() with a slider in tenths.",
         gallery:
           "s.imagedir(): a collection that owns the metadata, so a field pointing at it stores only a path.",
         downloads:
