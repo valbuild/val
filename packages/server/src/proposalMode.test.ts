@@ -639,11 +639,15 @@ describe("Update from the site, content only", () => {
         headers: { "Content-Type": "application/json" },
       });
     });
-  const update = (o: ValOpsHttp, resolutions: unknown[] = []) =>
+  const update = (
+    o: ValOpsHttp,
+    resolutions: unknown[] = [],
+    heads: { siteHead?: string | null; proposalHead?: string | null } = {},
+  ) =>
     o
       .proposalsApi(
         `/${NAME}/update-content`,
-        { method: "POST", body: JSON.stringify({ resolutions }) },
+        { method: "POST", body: JSON.stringify({ resolutions, ...heads }) },
         "p",
       )
       .then((a) => ({ status: a.status, json: JSON.parse(a.body) }));
@@ -665,6 +669,8 @@ describe("Update from the site, content only", () => {
             proposal: "Summer",
           },
         ],
+        siteHead: "site-2",
+        proposalHead: "save-2",
       },
     });
     expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
@@ -692,6 +698,65 @@ describe("Update from the site, content only", () => {
         [PAGE]: { source: { title: "Spring" }, schema: expect.anything() },
       },
     });
+  });
+
+  test("decisions made where the site still is are applied", async () => {
+    content(inputs({ base: "Sale", site: "Spring", proposal: "Summer" }));
+    const answer = await update(
+      ops(proposal("save-2")),
+      [{ moduleFilePath: PAGE, path: ["title"], keep: "proposal" }],
+      { siteHead: "site-2", proposalHead: "save-2" },
+    );
+    expect(answer.json.status).toBe("updated");
+    const commit = sent.find((r) => r.url.endsWith("/merge-from-site"));
+    expect(commit?.body).toMatchObject({
+      modules: { [PAGE]: { source: { title: "Summer" } } },
+    });
+  });
+
+  test("decisions made before the site moved are not applied: the conflict is shown again, as it is now", async () => {
+    // The person kept the proposal's title over the site's "Spring"; the
+    // site has since published "Autumn", which nobody has seen.
+    content(inputs({ base: "Sale", site: "Autumn", proposal: "Summer" }));
+    const answer = await update(
+      ops(proposal("save-2")),
+      [{ moduleFilePath: PAGE, path: ["title"], keep: "proposal" }],
+      { siteHead: "site-1b", proposalHead: "save-2" },
+    );
+    expect(answer).toEqual({
+      status: 200,
+      json: {
+        status: "conflicts",
+        conflicts: [
+          expect.objectContaining({
+            path: ["title"],
+            site: "Autumn",
+            proposal: "Summer",
+          }),
+        ],
+        siteHead: "site-2",
+        proposalHead: "save-2",
+      },
+    });
+    expect(sent.some((r) => r.url.endsWith("/merge-from-site"))).toBe(false);
+  });
+
+  test("an answer from content that cannot be read, after it wrote the merge, says the update happened", async () => {
+    jest
+      .spyOn(global, "fetch")
+      .mockImplementation(async (input) =>
+        String(input).endsWith("/merge-inputs")
+          ? new Response(
+              JSON.stringify(
+                inputs({ base: "Sale", site: "Sale", proposal: "Summer" }),
+              ),
+              { status: 200 },
+            )
+          : new Response("", { status: 200 }),
+      );
+    const answer = await update(ops(proposal("save-2")));
+    expect(answer.status).toBe(502);
+    expect(answer.json.message).toMatch(/was updated from the site/);
   });
 
   test("a site change that does not touch the proposal's fields merges without asking", async () => {

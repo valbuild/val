@@ -173,6 +173,82 @@ describe("mergeContent", () => {
     ).toEqual({ status: "needs-full-merge", modules: [NOTES] });
   });
 
+  test("a .jsonValues() record the site changed waits for the full merge, conflict or not", () => {
+    // Its entries are `.val.json` files the `.val.ts` names with `c.json(...)`:
+    // writing into the `.val.ts` cannot change them, only `writeEntries` can.
+    const NOTES = "/notes.val.ts" as ModuleFilePath;
+    const notesSchema = s
+      .record(s.object({ title: s.string(), body: s.string() }))
+      .jsonValues();
+    const base = { a: { title: "First", body: "Text" } };
+    const merge = (site: JSONValue, proposal: JSONValue) =>
+      mergeContent({
+        modules: { [NOTES]: { base, site, proposal, text: "" } },
+        schemas: { [NOTES]: notesSchema },
+        resolutions: [],
+      });
+    // Different fields of one entry: no conflict, and still the site's to write.
+    expect(
+      merge(
+        { a: { title: "Primary", body: "Text" } },
+        { a: { title: "First", body: "Longer text" } },
+      ),
+    ).toEqual({ status: "needs-full-merge", modules: [NOTES] });
+    // An entry the site added.
+    expect(
+      merge(
+        { ...base, b: { title: "New", body: "" } },
+        { a: { title: "First", body: "Longer text" } },
+      ),
+    ).toEqual({ status: "needs-full-merge", modules: [NOTES] });
+  });
+
+  test("a .jsonValues() record only the proposal changed is left as the proposal wrote it", () => {
+    const NOTES = "/notes.val.ts" as ModuleFilePath;
+    const notesSchema = s.record(s.object({ title: s.string() })).jsonValues();
+    const base = { a: { title: "First" } };
+    const proposal = { a: { title: "Summer" } };
+    const text = "the proposal's .val.ts, untouched";
+    expect(
+      mergeContent({
+        modules: { [NOTES]: { base, site: base, proposal, text } },
+        schemas: { [NOTES]: notesSchema },
+        resolutions: [],
+      }),
+    ).toMatchObject({
+      status: "merged",
+      files: { "notes.val.ts": text },
+      modules: { [NOTES]: { source: proposal } },
+    });
+  });
+
+  test("a value written as a resolution is checked like the rest", () => {
+    const CODE = "/code.val.ts" as ModuleFilePath;
+    const codeSchema = s.object({ code: s.string().maxLength(3) });
+    const merged = mergeContent({
+      modules: {
+        [CODE]: {
+          base: { code: "ABC" },
+          site: { code: "DEF" },
+          proposal: { code: "GHI" },
+          text: valFile(
+            "code.val.ts",
+            "s.object({ code: s.string().maxLength(3) })",
+            { code: "GHI" },
+          ),
+        },
+      },
+      schemas: { [CODE]: codeSchema },
+      resolutions: [
+        { moduleFilePath: CODE, path: ["code"], value: "Far too long" },
+      ],
+    });
+    expect(merged).toMatchObject({
+      status: "conflicts",
+      conflicts: [{ kind: "invalid", moduleFilePath: CODE, path: ["code"] }],
+    });
+  });
+
   test("a module the build does not have is code, and waits for the full merge", () => {
     const OTHER = "/other.val.ts" as ModuleFilePath;
     expect(

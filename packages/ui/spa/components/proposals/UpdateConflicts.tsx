@@ -39,11 +39,7 @@ export function UpdateConflicts({
       <ul className="flex flex-col gap-2">
         {conflicts.map((conflict, at) => (
           <li
-            key={
-              conflict.kind === "code"
-                ? conflict.file
-                : `${conflict.moduleFilePath}?${conflict.path.join("/")}`
-            }
+            key={conflictKey(conflict)}
             className="flex flex-col gap-1.5 rounded-md border border-border-float px-3 py-2 text-xs"
           >
             <span className="font-medium text-fg-primary">
@@ -125,6 +121,19 @@ export function UpdateConflicts({
       </div>
     </div>
   );
+}
+
+/**
+ * Which conflict this is, or which a decision is about: the file, or the
+ * module and the field. Decisions belong to a conflict by this, never by
+ * where it is in the list -- the next answer can be a different list.
+ */
+export function conflictKey(
+  at: { file: string } | { moduleFilePath: string; path: string[] },
+): string {
+  return "file" in at
+    ? `file:${at.file}`
+    : `${at.moduleFilePath}?${at.path.join("/")}`;
 }
 
 /** Where a conflict is: the file; or the page, then the field, by its keys. */

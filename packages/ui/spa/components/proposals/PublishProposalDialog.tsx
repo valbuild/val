@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "../designSystem/dialog";
 import { changesLabel } from "./ProposalSwitcher";
-import { UpdateConflicts } from "./UpdateConflicts";
+import { conflictKey, UpdateConflicts } from "./UpdateConflicts";
 
 /** One merge check, as the dialog shows it. */
 export type MergeCheckView = {
@@ -63,7 +63,8 @@ export type UpdateConflictView =
  * `blocked` is not an error: it is the merge checks saying no, and naming who
  * the editor should talk to. `failed` is the merge going wrong after it was
  * pressed, and offers Try again; `error` is the checks themselves not
- * answering, and offers the same.
+ * answering, or Update from the site failing, and offers the same when trying
+ * again can help.
  */
 export type PublishProposalState =
   | { kind: "checking" }
@@ -96,7 +97,16 @@ export type PublishProposalState =
       continuedIn?: { displayName: string; changes: number };
     }
   | { kind: "failed"; message: string }
-  | { kind: "error"; message: string };
+  | {
+      kind: "error";
+      message: string;
+      /**
+       * Update from the site failed, not the checks. `checkId` is the check
+       * whose action it was, to try again with; `null` when trying again here
+       * cannot help.
+       */
+      update?: { checkId: string | null };
+    };
 
 const STEP_WORDS: Record<
   Extract<PublishProposalState, { kind: "publishing" }>["step"],
@@ -146,7 +156,7 @@ export function PublishProposalDialog({
   displayName: string;
   state: PublishProposalState;
   onPublish: () => void;
-  /** Ask again: the checks, or the merge, whichever failed. */
+  /** Ask again: the checks, the update or the merge, whichever failed. */
   onRetry: () => void;
   /** What will be published, against the site. */
   onCompare?: () => void;
@@ -238,6 +248,8 @@ export function PublishProposalDialog({
               </div>
               {state.conflicts !== undefined && state.conflicts.length > 0 ? (
                 <UpdateConflicts
+                  // A new list is new decisions: none carry over by position.
+                  key={state.conflicts.map(conflictKey).join("\n")}
                   conflicts={state.conflicts}
                   updating={updating}
                   onResolve={onResolve}
@@ -333,7 +345,9 @@ export function PublishProposalDialog({
               <span>
                 {state.kind === "failed"
                   ? `It was not published: ${asSentence(state.message)} Nothing changed on the site.`
-                  : `Could not check whether it can be published: ${asSentence(state.message)}`}
+                  : state.update !== undefined
+                    ? `Could not update it from the site: ${asSentence(state.message)}`
+                    : `Could not check whether it can be published: ${asSentence(state.message)}`}
               </span>
             </div>
           )}
@@ -392,7 +406,8 @@ export function PublishProposalDialog({
               >
                 Cancel
               </button>
-              {state.kind === "failed" || state.kind === "error" ? (
+              {state.kind === "failed" ||
+              (state.kind === "error" && state.update?.checkId !== null) ? (
                 <button
                   type="button"
                   onClick={onRetry}

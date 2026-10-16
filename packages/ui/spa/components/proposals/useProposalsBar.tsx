@@ -24,6 +24,7 @@ import {
   ProposalsApiError,
   needsCodeUpdate,
   type CodeResolution,
+  type ContentHeads,
   type UpdateResolution,
   jobState,
   sameStudioPageAt,
@@ -42,6 +43,7 @@ import {
   type NewProposalProblem,
 } from "./NewProposalDialog";
 import { CloseProposalDialog } from "./CloseProposalDialog";
+import { conflictKey } from "./UpdateConflicts";
 import { RenameProposalDialog } from "./RenameProposalDialog";
 import {
   PublishProposalDialog,
@@ -369,32 +371,54 @@ export function useProposalsBar({
   const [conflicts, setConflicts] = useState<{
     of: "content" | "code";
     list: UpdateConflict[];
+    /** Content's: where the site and the proposal were, sent back. */
+    heads?: ContentHeads;
   } | null>(null);
+  /**
+   * Every decision made in this update so far, across its rounds: a content
+   * round can be followed by a code round with other conflicts, and the
+   * merge then still needs the first round's answers.
+   */
+  const [decided, setDecided] = useState<(UpdateResolution | CodeResolution)[]>(
+    [],
+  );
   const buildProposalNow = proposalBuild.build;
   const updateFromSite = useCallback(
     async (checkId: string, keep: ("site" | "proposal")[] = []) => {
       if (here === null) return;
       setUpdating(true);
+      const now = (conflicts?.list ?? []).flatMap(
+        (conflict, at): (UpdateResolution | CodeResolution)[] => {
+          const kept = keep[at];
+          if (kept === undefined) return [];
+          if (conflict.kind === "field") {
+            return [
+              {
+                moduleFilePath: conflict.moduleFilePath,
+                path: conflict.path,
+                keep: kept,
+              },
+            ];
+          }
+          if (conflict.kind === "code") {
+            return [{ file: conflict.file, keep: kept }];
+          }
+          return [];
+        },
+      );
+      // A conflict decided again is decided as it was last.
+      const resolutions = [
+        ...decided.filter(
+          (earlier) =>
+            !now.some((r) => conflictKey(r) === conflictKey(earlier)),
+        ),
+        ...now,
+      ];
+      const done = () => {
+        setConflicts(null);
+        setDecided([]);
+      };
       try {
-        const resolutions = (conflicts?.list ?? []).flatMap(
-          (conflict, at): (UpdateResolution | CodeResolution)[] => {
-            const kept = keep[at];
-            if (kept === undefined) return [];
-            if (conflict.kind === "field") {
-              return [
-                {
-                  moduleFilePath: conflict.moduleFilePath,
-                  path: conflict.path,
-                  keep: kept,
-                },
-              ];
-            }
-            if (conflict.kind === "code") {
-              return [{ file: conflict.file, keep: kept }];
-            }
-            return [];
-          },
-        );
         let withCode =
           conflicts?.of === "code" ||
           (checkId === "site-code" && canBuildHere());
@@ -402,6 +426,7 @@ export function useProposalsBar({
           // The site's code moved and this page cannot read code: onto the
           // site's build, its own code built again there, as before 8.2.
           await client.updateFromSite(here.name);
+          done();
           proposalCodeChanged();
           await loadChecks();
           return;
@@ -413,12 +438,21 @@ export function useProposalsBar({
               resolutions.filter(
                 (r): r is UpdateResolution => "moduleFilePath" in r,
               ),
+              conflicts?.heads,
             );
             if (answer.status === "conflicts") {
-              setConflicts({ of: "content", list: answer.conflicts });
+              setDecided(resolutions);
+              setConflicts({
+                of: "content",
+                list: answer.conflicts,
+                heads: {
+                  siteHead: answer.siteHead,
+                  proposalHead: answer.proposalHead,
+                },
+              });
               return;
             }
-            setConflicts(null);
+            done();
             await loadChecks();
             return;
           } catch (error) {
@@ -431,6 +465,7 @@ export function useProposalsBar({
             kind: "error",
             message:
               "This proposal changes code, or the site's code changed, so updating it reads the code in this browser -- and this one cannot. Open the proposal in Chrome or Edge on a computer to update it.",
+            update: { checkId: null },
           });
           return;
         }
@@ -440,10 +475,11 @@ export function useProposalsBar({
           studioCodeUpdateDeps(client),
         );
         if (outcome.status === "conflicts") {
+          setDecided(resolutions);
           setConflicts({ of: "code", list: outcome.conflicts });
           return;
         }
-        setConflicts(null);
+        done();
         proposalCodeChanged();
         // What the merge staged is built over the site's build, as any staged
         // code is: the address serves it once it is.
@@ -456,17 +492,18 @@ export function useProposalsBar({
         }
         await loadChecks();
       } catch (error) {
+        // Kept for Try again, which sends the same decisions.
+        setDecided(resolutions);
         setPublishState({
           kind: "error",
-          message: `Could not update from the site: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
+          message: error instanceof Error ? error.message : String(error),
+          update: { checkId },
         });
       } finally {
         setUpdating(false);
       }
     },
-    [buildProposalNow, client, conflicts, here, loadChecks],
+    [buildProposalNow, client, conflicts, decided, here, loadChecks],
   );
 
   /** Where the press is, while it is followed. See `pressed`. */
@@ -903,11 +940,15 @@ export function useProposalsBar({
           displayName={currentSummary.displayName}
           state={dialogState}
           onPublish={() => void runPublish()}
-          onRetry={() =>
-            publishState.kind === "error"
-              ? void loadChecks()
-              : void retryPublish()
-          }
+          onRetry={() => {
+            if (publishState.kind !== "error") return void retryPublish();
+            const checkId = publishState.update?.checkId;
+            if (checkId === undefined || checkId === null) {
+              return void loadChecks();
+            }
+            // The checks first, so what the update answers is shown in them.
+            void loadChecks().then(() => updateFromSite(checkId));
+          }}
           {...(onCompare !== undefined ? { onCompare } : {})}
           {...(siteUrl !== null ? { onGoToSite: () => go(siteUrl) } : {})}
           {...(continuation !== null
@@ -915,7 +956,10 @@ export function useProposalsBar({
             : {})}
           onUpdateFromSite={(checkId) => void updateFromSite(checkId)}
           onResolve={(keep) => void updateFromSite("published-since", keep)}
-          onCancelUpdate={() => setConflicts(null)}
+          onCancelUpdate={() => {
+            setConflicts(null);
+            setDecided([]);
+          }}
           updating={updating}
           portalContainer={portalContainer}
         />
