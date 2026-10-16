@@ -1,5 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { ReadOnlyCard } from "../ReadOnlyNotice";
+import { PlanNoticeCard } from "../planLimits/PlanNoticeCard";
+import { PlanStatusBar } from "../planLimits/PlanStatusBar";
+import { planNoticesOf } from "../planLimits/planNotices";
+import { planStatusOf } from "../planLimits/planStatus";
+import {
+  PLAN_FIXTURES_NOW,
+  PLAN_SCENARIOS,
+  planScenario,
+  type PlanScenario,
+} from "../planLimits/fixtures/planScenarios";
 import { useEffect, useState } from "react";
 import { Shell } from "../Shell";
 import { ExternalPagesDialog } from "../ExternalPagesDialog";
@@ -159,11 +169,23 @@ const meta: Meta<typeof ShellHarness> = {
       description:
         "Open the canvas beside the editor. Offered wherever there is a site to look at, not only on a page.",
     },
+    plan: {
+      control: "select",
+      options: ["", ...Object.keys(PLAN_SCENARIOS)],
+      description:
+        "The project's plan, as Val Build answers /access (planLimits/fixtures): the status in the top bar and the notice above the editor.",
+    },
+    planViewer: {
+      control: "inline-radio",
+      options: ["owner", "editor"],
+      description:
+        "Who is looking at the plan: an owner gets the fix, anyone else the owners to ask.",
+    },
     readOnly: {
       control: "inline-radio",
       options: ["", "owner", "editor"],
       description:
-        "The organization's plan has made the Studio read-only (a trial that is over). An owner is offered Billing; anyone else, the owners to ask.",
+        "A failed payment has made the Studio read-only. An owner is offered Billing; anyone else, the owners to ask.",
     },
     canvasView: {
       control: "inline-radio",
@@ -217,6 +239,8 @@ type HarnessProps = {
   canvasView: CanvasView;
   canvasReported: boolean;
   readOnly?: "" | "owner" | "editor";
+  plan?: "" | PlanScenario;
+  planViewer?: "owner" | "editor";
 };
 
 type DeploymentsFixture =
@@ -360,6 +384,8 @@ function ShellHarness({
   canvasView,
   canvasReported,
   readOnly = "",
+  plan = "",
+  planViewer = "owner",
 }: HarnessProps) {
   const [currentTheme, setCurrentTheme] = useState<"dark" | "light">(theme);
   /**
@@ -379,6 +405,28 @@ function ShellHarness({
     ? base
     : { ...base, validationErrors: [] };
   const published = useSimulatedPublish(simulatePublish);
+  /*
+   * The plan, as `ValShell` shows it: the first notice, and the status where
+   * the shell puts it. Dated at the fixtures' own moment so "9 days left"
+   * and "opens again on Wednesday" read as they were generated.
+   */
+  const planState = plan === "" ? null : planScenario(plan, planViewer);
+  const planNotice =
+    planState === null
+      ? null
+      : (planNoticesOf(planState.access, planState.refusal, {
+          project: "website",
+          now: PLAN_FIXTURES_NOW,
+          changesWaiting: 4,
+        })[0] ?? null);
+  const planStatusValue =
+    planState === null ? null : planStatusOf(planState.access, "website");
+  const planStatus =
+    planStatusValue === null
+      ? undefined
+      : (placement: "top-bar" | "column") => (
+          <PlanStatusBar status={planStatusValue} placement={placement} />
+        );
   const feed = deploymentsFor(deployments);
   const data = {
     ...withErrors,
@@ -406,12 +454,18 @@ function ShellHarness({
       )}
       key={`${openPanel}-${selectionId}-${empty}-${noPendingChanges}-${withoutRouters}-${aiEnabled}-${searchOpen}-${tourOpen}-${isLoading}-${loadError}-${mode}-${deployments}-${deploymentsOpen}-${canvasOpen}-${canvasView}-${canvasReported}`}
       data={data}
+      renderPlanStatus={planStatus}
       notice={
-        readOnly === "" ? undefined : (
+        planNotice !== null ? (
+          <PlanNoticeCard
+            notice={planNotice}
+            onDismiss={() => console.log("dismiss", planNotice.id)}
+          />
+        ) : readOnly === "" ? undefined : (
           <ReadOnlyCard
             access={{
               access: "read-only",
-              reason: "trial-over",
+              reason: "payment-failed",
               billingUrl: "https://admin.val.build/~/val-demo?section=billing",
               org: "val-demo",
               canFix: readOnly === "owner",
@@ -714,8 +768,8 @@ export const PublishFailed: Story = {
 };
 
 /**
- * The organization's trial is over, so nothing can be saved: said above the
- * editor before anyone types. An owner is sent to Billing.
+ * A payment failed, so nothing can be saved: said above the editor before
+ * anyone types. An owner is sent to Billing.
  */
 export const ReadOnlyForAnOwner: Story = {
   args: {
@@ -732,6 +786,101 @@ export const ReadOnlyForAnEditor: Story = {
     selectionId: mockSelectionIds.home,
     readOnly: "editor",
   },
+};
+
+/**
+ * A Hosted trial, running: its days, publishes and usage in the top bar,
+ * with Add a card. On a phone and a tablet it sits above the editor instead.
+ */
+export const PlanTrialForAnOwner: Story = {
+  args: {
+    ...Default.args,
+    selectionId: mockSelectionIds.home,
+    plan: "hosted-trial",
+    planViewer: "owner",
+  },
+};
+
+/** The same bar for an editor: Ask an owner in place of the button. */
+export const PlanTrialForAnEditor: Story = {
+  args: { ...PlanTrialForAnOwner.args, planViewer: "editor" },
+};
+
+/** A trial with a card on file: the days, and nothing to do. */
+export const PlanTrialWithACard: Story = {
+  args: { ...PlanTrialForAnOwner.args, plan: "hosted-trial-with-card" },
+};
+
+/** The trial's 3 publishes are used: keep editing; a card to publish. */
+export const PlanTrialPublishesUsedForAnOwner: Story = {
+  args: { ...PlanTrialForAnOwner.args, plan: "hosted-trial-publishes-used" },
+};
+
+export const PlanTrialPublishesUsedForAnEditor: Story = {
+  args: { ...PlanTrialPublishesUsedForAnOwner.args, planViewer: "editor" },
+};
+
+/** The trial ended: the Studio is read-only, the site runs until it pauses. */
+export const PlanTrialOverForAnOwner: Story = {
+  args: { ...PlanTrialForAnOwner.args, plan: "hosted-trial-over" },
+};
+
+export const PlanTrialOverForAnEditor: Story = {
+  args: { ...PlanTrialOverForAnOwner.args, planViewer: "editor" },
+};
+
+/** A Hosted month past 80%: allow extra usage, on the project's page. */
+export const PlanUsageWarningForAnOwner: Story = {
+  args: { ...PlanTrialForAnOwner.args, plan: "hosted-usage-warn" },
+};
+
+export const PlanUsageWarningForAnEditor: Story = {
+  args: { ...PlanUsageWarningForAnOwner.args, planViewer: "editor" },
+};
+
+/** A Hosted month's included traffic used up: paused, unless extra is allowed. */
+export const PlanUsageOutForAnOwner: Story = {
+  args: { ...PlanTrialForAnOwner.args, plan: "hosted-usage-out" },
+};
+
+export const PlanUsageOutForAnEditor: Story = {
+  args: { ...PlanUsageOutForAnOwner.args, planViewer: "editor" },
+};
+
+/** An upload refused because the month's storage is used up. */
+export const PlanStorageUsedUpForAnOwner: Story = {
+  args: { ...PlanTrialForAnOwner.args, plan: "hosted-storage-used-up" },
+};
+
+export const PlanStorageUsedUpForAnEditor: Story = {
+  args: { ...PlanStorageUsedUpForAnOwner.args, planViewer: "editor" },
+};
+
+/** Free, from 800 changes: what is left this week, in the top bar. */
+export const PlanFreeWarningForAnOwner: Story = {
+  args: { ...PlanTrialForAnOwner.args, plan: "free-warn" },
+};
+
+export const PlanFreeWarningForAnEditor: Story = {
+  args: { ...PlanFreeWarningForAnOwner.args, planViewer: "editor" },
+};
+
+/** Free at 1,000 changes: when editing opens again, and Upgrade to Pro. */
+export const PlanFreeAtLimitForAnOwner: Story = {
+  args: { ...PlanTrialForAnOwner.args, plan: "free-at-limit" },
+};
+
+export const PlanFreeAtLimitForAnEditor: Story = {
+  args: { ...PlanFreeAtLimitForAnOwner.args, planViewer: "editor" },
+};
+
+/** A remote upload refused on Free: remote files are part of Pro. */
+export const PlanFreeRemoteFilesForAnOwner: Story = {
+  args: { ...PlanTrialForAnOwner.args, plan: "free-remote-files" },
+};
+
+export const PlanFreeRemoteFilesForAnEditor: Story = {
+  args: { ...PlanFreeRemoteFilesForAnOwner.args, planViewer: "editor" },
 };
 
 /** Auto save could not write to the working tree. */

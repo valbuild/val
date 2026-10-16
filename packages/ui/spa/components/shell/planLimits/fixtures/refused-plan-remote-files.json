@@ -1,0 +1,9 @@
+{
+  "statusCode": 403,
+  "message": "Remote files are part of Pro. website is on the Free plan, so its images and files are kept in its repository. An owner can upgrade to Pro: https://admin.val.build/~/acme?section=billing",
+  "error": {
+    "code": "plan:remote-files",
+    "fix": "upgrade",
+    "billingUrl": "https://admin.val.build/~/acme?section=billing"
+  }
+}

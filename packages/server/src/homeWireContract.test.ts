@@ -569,6 +569,82 @@ test("home's 500 reaches the editor with the reason it was carrying", async () =
 });
 
 /**
+ * A save `home` refuses for the project's plan: `refusalError` in its
+ * `content/src/billing/projectLimits.ts`, here for the Free week's changes.
+ *
+ * It must arrive as `plan-refused`, not `other`: an `other` becomes a 400
+ * `patch-error`, and the Studio drops a patch it is told is bad. This one is
+ * good, and the Studio keeps it until the plan allows it.
+ */
+const HOME_CHANGES_REFUSAL = {
+  statusCode: 403,
+  message:
+    "site has used this week's 1,000 changes on the Free plan. Everything saved so far is kept. " +
+    "An owner can upgrade to Pro, which has no limit: https://admin.val.build/orgs/acme/billing",
+  error: {
+    code: "limit:changes",
+    fix: "upgrade",
+    until: "2026-10-20T10:00:00.000Z",
+    billingUrl: "https://admin.val.build/orgs/acme/billing",
+  },
+};
+
+test("home's plan refusal of a save is passed on as one, with its reason as data", async () => {
+  const { ops, restore } = opsAnswering(HOME_CHANGES_REFUSAL, 403);
+  try {
+    const res = await ops.createPatch(
+      "/content/landing.val.ts" as ModuleFilePath,
+      [{ op: "replace", path: ["title"], value: "Hello" }],
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+      { type: "head", headBaseSha: "base" as never },
+      null,
+      PROFILE,
+    );
+
+    if (!result.isErr(res)) {
+      throw new Error("a 403 must not be reported as a saved patch");
+    }
+    if (res.error.errorType !== "plan-refused") {
+      throw new Error(`expected 'plan-refused', got '${res.error.errorType}'`);
+    }
+    expect(res.error.error.message).toBe(HOME_CHANGES_REFUSAL.message);
+    expect(res.error.refusal).toEqual(HOME_CHANGES_REFUSAL.error);
+  } finally {
+    restore();
+  }
+});
+
+test("a 403 that is not a plan refusal is still an error about the save", async () => {
+  // `home`'s answer to a credential without the write scope: no `error`, so
+  // nothing says the plan is the problem, and keeping the patch would keep
+  // one that is never going to be saved.
+  const { ops, restore } = opsAnswering(
+    {
+      statusCode: 403,
+      message: "This credential does not have the val:write scope",
+    },
+    403,
+  );
+  try {
+    const res = await ops.createPatch(
+      "/content/landing.val.ts" as ModuleFilePath,
+      [{ op: "replace", path: ["title"], value: "Hello" }],
+      "44444444-4444-4444-8444-444444444444" as PatchId,
+      { type: "head", headBaseSha: "base" as never },
+      null,
+      PROFILE,
+    );
+
+    if (!result.isErr(res)) {
+      throw new Error("a 403 must not be reported as a saved patch");
+    }
+    expect(res.error.errorType).toBe("other");
+  } finally {
+    restore();
+  }
+});
+
+/**
  * A deployment built from no repository, writing a patch.
  *
  * This is what `git: null` MEANS on the wire, and it is the half of the
