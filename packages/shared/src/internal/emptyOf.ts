@@ -117,7 +117,10 @@ export function emptyOf(
   } else if (schema.type === "boolean") {
     return false;
   } else if (schema.type === "number") {
-    return 0;
+    // 0, unless the schema rules it out: an `s.int().min(1)` starts at 1
+    // rather than as an error. `null` means the schema allows nothing at all,
+    // which validation will say; 0 is as good a start as any for that.
+    return Internal.number.nearestAllowedNumber(0, schema.options ?? {}) ?? 0;
   } else if (schema.type === "keyOf") {
     if (schema.values === "string") {
       return ""; // TODO: figure out this: user code might very well fail in this case

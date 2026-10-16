@@ -264,7 +264,17 @@ export type PublishResult =
    * the server is unreachable or refused. Publishing anyway would ship the
    * project without the newest edit, which is the one the user is looking at.
    */
-  | { status: "refused"; reason: "unsaved-changes"; patchIds: PatchId[] }
+  | {
+      status: "refused";
+      reason: "unsaved-changes";
+      patchIds: PatchId[];
+      /**
+       * Val Build's sentence when the edits are held because it refused them
+       * for the project's plan: then no retry helps, and the reason (with its
+       * fix) is what to say, not the connection.
+       */
+      planRefusal?: string;
+    }
   /**
    * An edit landed while the gate was validating, so what was checked is not
    * what would be published.

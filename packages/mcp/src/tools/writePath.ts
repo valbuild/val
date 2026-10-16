@@ -488,6 +488,16 @@ export async function savePatch(
     if (saved.error.errorType === "patch-head-conflict") {
       continue;
     }
+    if (saved.error.errorType === "plan-refused") {
+      // The project's plan does not allow the write (the Free week's changes
+      // are used, a trial is over). Val Build's sentence says what an owner
+      // can do about it, Billing link included; retrying will not help.
+      return {
+        status: "error",
+        code: "forbidden",
+        message: saved.error.error.message,
+      };
+    }
     return {
       status: "error",
       code: "internal",

@@ -5,6 +5,7 @@ import { StoreBus } from "./StoreBus";
 import type { PatchRecord, SystemEvent } from "./types";
 import type { PatchStore } from "./PatchStore";
 import { noopActivity, type ActivitySink } from "./activity";
+import type { PlanRefusalErrorT } from "@valbuild/shared/internal";
 
 /**
  * `PUT /patches`, as a seam.
@@ -18,6 +19,8 @@ import { noopActivity, type ActivitySink } from "./activity";
  * - `conflict` (409) — our parent is no longer the head. Someone else wrote.
  *   Retryable, and the only branch that needs the chain re-synced first.
  * - `rejected` (400) — the patches are permanently bad. NOT retryable.
+ * - `refused` (403) — Val Build refused them for the project's plan. The
+ *   patches are fine and are KEPT; they are sent again later, not in a loop.
  * - `network-error` — retryable, and says nothing about the patches.
  * - `unparseable-response` — retryable, but usually permanent: reported after a
  *   couple of attempts instead of retried in silence.
@@ -104,6 +107,14 @@ export type WriteMembershipResolver = (
   patchIds: PatchId[],
 ) => Promise<WriteMembership>;
 
+/** What the server says about patches it took. */
+export type SavedPatches = {
+  newPatchIds: PatchId[];
+  parentRef: ParentRef;
+  patchGroupId?: string;
+  headVersion?: number;
+};
+
 export type SaveResult =
   | {
       status: "saved";
@@ -148,7 +159,24 @@ export type SaveResult =
    * edit over a transient.
    */
   | { status: "unparseable-response"; message: string }
-  | { status: "unauthorized"; message: string };
+  | { status: "unauthorized"; message: string }
+  /**
+   * Val Build refused the write for the project's plan: the Free week's
+   * changes are used, or a trial is over.
+   *
+   * Not `rejected`, which drops the patches: these are good, and saving them
+   * is a matter of the plan allowing it. Not retried like a network error
+   * either, because asking again a second later gets the same answer — see
+   * {@link REFUSED_RETRY_MS} and {@link PatchSync.resume}.
+   *
+   * `saved` is the part of the batch the server took before it refused: the
+   * week can run out in the middle of one.
+   */
+  | {
+      status: "refused";
+      saved: SavedPatches;
+      refusal: { message: string; error: PlanRefusalErrorT };
+    };
 
 /**
  * Bring the chain back in step with the server, after a conflict.
@@ -169,6 +197,44 @@ export type ResyncChain = () => Promise<void>;
  * a blip. The retry continues either way — this only decides when someone is told.
  */
 export const SAVE_STUCK_AFTER_ATTEMPTS = 2;
+
+/**
+ * How long a save refused for the plan waits before it is sent again by itself:
+ * the first time. Each refusal after it doubles the wait, up to
+ * {@link REFUSED_RETRY_MAX_MS}.
+ *
+ * A refusal lifts by something happening elsewhere -- an owner adds a card or
+ * upgrades, or the oldest changes leave the Free week -- and the shell calls
+ * {@link PatchSync.resume} when Val Build says editing is open again. This
+ * timer is for when nothing tells it: a Studio with no shell listening, or a
+ * refusal that lifts between two of the shell's questions. It backs off
+ * because a trial that ended does not lift by itself, and every retry is a
+ * write the content service has to refuse.
+ */
+export const REFUSED_RETRY_MS = 60_000;
+export const REFUSED_RETRY_MAX_MS = 30 * 60_000;
+
+/**
+ * When to send a refused save again: at the moment the refusal says it lifts
+ * (the Free week's oldest change leaving it), or on the backoff when it names
+ * none -- never sooner than {@link REFUSED_RETRY_MS}.
+ */
+export function refusedRetryMs(
+  until: string | undefined,
+  consecutive: number,
+  now: number,
+): number {
+  const backoff = Math.min(
+    REFUSED_RETRY_MS * 2 ** Math.max(0, consecutive - 1),
+    REFUSED_RETRY_MAX_MS,
+  );
+  const at = until === undefined ? NaN : Date.parse(until);
+  if (!Number.isFinite(at)) return backoff;
+  return Math.min(
+    Math.max(at - now + 1_000, REFUSED_RETRY_MS),
+    REFUSED_RETRY_MAX_MS,
+  );
+}
 
 /**
  * Has the write queue failed for long enough to stop waiting on it?
@@ -209,7 +275,13 @@ export type SyncState =
         | "unauthorized";
       message: string;
       attempt: number;
-    };
+    }
+  /**
+   * Val Build refused these for the project's plan. They are kept, held, and
+   * sent again after {@link REFUSED_RETRY_MS} or on {@link PatchSync.resume};
+   * an edit made meanwhile joins them rather than being sent to be refused.
+   */
+  | { status: "refused"; patches: PatchId[]; message: string };
 
 /**
  * The write-back loop.
@@ -302,6 +374,9 @@ function sameState(a: SyncState, b: SyncState): boolean {
   if (a.status === "retrying" && b.status === "retrying") {
     return a.attempt === b.attempt && a.reason === b.reason;
   }
+  if (a.status === "refused" && b.status === "refused") {
+    return a.message === b.message;
+  }
   return true;
 }
 
@@ -364,6 +439,22 @@ export class PatchSync {
   private attempt = 0;
   /** See {@link reportStuck}: one report per spell of failure, not per attempt. */
   private reportedStuck = false;
+  /**
+   * Saving is held because Val Build refused it for the plan. While held, a
+   * flush sends nothing: every write would be refused, one per keystroke.
+   */
+  private refused: { message: string } | null = null;
+  /** Bumped per refusal and per resume, so only the latest timed retry runs. */
+  private refusals = 0;
+  /** Refusals in a row since the last save went through; sets the backoff. */
+  private consecutiveRefusals = 0;
+  /**
+   * The refusal last reported, by code and fix. Reported again only when it
+   * changes, or after the shell resumed: the timed retry is refused the same
+   * way until the plan changes, and a dismissed notice must not come back on
+   * every retry.
+   */
+  private reportedRefusal: string | null = null;
   private state: SyncState = { status: "in-sync" };
   private stopped = false;
 
@@ -602,6 +693,14 @@ export class PatchSync {
       if (this.stopped) {
         return;
       }
+      if (this.refused !== null) {
+        this.setState({
+          status: "refused",
+          patches: records.map((record) => record.patchId),
+          message: this.refused.message,
+        });
+        return;
+      }
       const save = this.savePatches;
       if (save === undefined) {
         // Nowhere to write. Reported as pending rather than retrying, because
@@ -721,44 +820,50 @@ export class PatchSync {
     if (result.status === "saved") {
       this.attempt = 0;
       this.reportedStuck = false;
-      const lastSaved = result.newPatchIds[result.newPatchIds.length - 1];
-      if (result.headVersion !== undefined) {
-        // Versioned: our last patch is the head as of this version, unless a
-        // stat at a later version has already said otherwise.
-        if (
-          lastSaved !== undefined &&
-          (this.headVersion === undefined ||
-            result.headVersion >= this.headVersion)
-        ) {
-          this.statHeadPatchId = lastSaved;
-          this.headVersion = result.headVersion;
-        }
-      } else {
-        if (this.savedNotInStat.length === 0) {
-          this.savedOnHead =
-            parentRef.type === "patch" ? parentRef.patchId : null;
-        }
-        this.savedNotInStat.push(...result.newPatchIds);
-      }
-      // The ids the SERVER named, not the ids we sent — see `markSaved`.
-      this.patchStore.markSaved(result.newPatchIds);
-      if (result.patchGroupId !== undefined) {
-        // Before the event, so anything woken by `patch:saved` already sees the
-        // group its patches landed in.
-        this.patchStore.recordOwnPatchGroup(result.patchGroupId);
-      }
-      this.events.emit({
-        type: "patch:saved",
-        patches: result.newPatchIds,
-        parentRef: result.parentRef,
-        ...(result.headVersion !== undefined
-          ? { headVersion: result.headVersion }
-          : {}),
-      });
+      this.reportedRefusal = null;
+      this.consecutiveRefusals = 0;
+      this.recordSaved(result, parentRef);
       // Keep looping. More may have been created while this request was in
       // flight, and the loop's own emptiness check is what terminates it — a
       // second condition here would be a second place to get it wrong.
       return false;
+    }
+    if (result.status === "refused") {
+      this.attempt = 0;
+      this.reportedStuck = false;
+      if (result.saved.newPatchIds.length > 0) {
+        this.recordSaved(result.saved, parentRef);
+      }
+      this.refused = { message: result.refusal.message };
+      const held = this.patchStore
+        .unsavedRecords()
+        .map((record) => record.patchId);
+      this.setState({
+        status: "refused",
+        patches: held,
+        message: result.refusal.message,
+      });
+      const said = `${result.refusal.error.code}:${result.refusal.error.fix ?? ""}`;
+      if (this.reportedRefusal !== said) {
+        this.reportedRefusal = said;
+        this.events.emit({
+          type: "patch:save-refused",
+          patches: held,
+          refusal: result.refusal,
+        });
+      }
+      this.consecutiveRefusals++;
+      const refusal = ++this.refusals;
+      void this.sleep(
+        refusedRetryMs(
+          result.refusal.error.until,
+          this.consecutiveRefusals,
+          Date.now(),
+        ),
+      ).then(() => {
+        if (refusal === this.refusals) this.retryRefused();
+      });
+      return true;
     }
     if (result.status === "rejected") {
       this.reportedStuck = false;
@@ -835,6 +940,74 @@ export class PatchSync {
     }
     await this.sleep(this.backoffMs(this.attempt));
     return this.stopped;
+  }
+
+  /**
+   * The bookkeeping for patches the server took: what this sync names as the
+   * head next, the store's saved marks, and `patch:saved`.
+   *
+   * Shared by a save and by a refusal that took part of its batch first.
+   */
+  private recordSaved(saved: SavedPatches, parentRef: ParentRef): void {
+    const lastSaved = saved.newPatchIds[saved.newPatchIds.length - 1];
+    if (saved.headVersion !== undefined) {
+      // Versioned: our last patch is the head as of this version, unless a
+      // stat at a later version has already said otherwise.
+      if (
+        lastSaved !== undefined &&
+        (this.headVersion === undefined ||
+          saved.headVersion >= this.headVersion)
+      ) {
+        this.statHeadPatchId = lastSaved;
+        this.headVersion = saved.headVersion;
+      }
+    } else {
+      if (this.savedNotInStat.length === 0) {
+        this.savedOnHead =
+          parentRef.type === "patch" ? parentRef.patchId : null;
+      }
+      this.savedNotInStat.push(...saved.newPatchIds);
+    }
+    // The ids the SERVER named, not the ids we sent — see `markSaved`.
+    this.patchStore.markSaved(saved.newPatchIds);
+    if (saved.patchGroupId !== undefined) {
+      // Before the event, so anything woken by `patch:saved` already sees the
+      // group its patches landed in.
+      this.patchStore.recordOwnPatchGroup(saved.patchGroupId);
+    }
+    this.events.emit({
+      type: "patch:saved",
+      patches: saved.newPatchIds,
+      parentRef: saved.parentRef,
+      ...(saved.headVersion !== undefined
+        ? { headVersion: saved.headVersion }
+        : {}),
+    });
+  }
+
+  /**
+   * Send what a plan refusal held back.
+   *
+   * Called by the shell when Val Build says editing has become allowed (a
+   * card was added, the week moved on), so the edits made meanwhile go up
+   * without waiting for the timed retry. Nothing to do when no refusal is
+   * holding the queue, or once the sync is disposed.
+   */
+  resume(): void {
+    if (this.refused === null) return;
+    // Val Build said editing is open: a refusal after this is news, even one
+    // like the last, and the backoff starts over.
+    this.reportedRefusal = null;
+    this.consecutiveRefusals = 0;
+    this.retryRefused();
+  }
+
+  /** Send the held edits again: the timed retry, and {@link resume}. */
+  private retryRefused(): void {
+    if (this.refused === null || this.stopped) return;
+    this.refused = null;
+    this.refusals++;
+    void this.flush();
   }
 
   /**

@@ -75,6 +75,7 @@ import type {
   ReferenceBridge,
   SearchBridge,
 } from "./workerBridge";
+import { reportPlanRefusal } from "../utils/planRefusal";
 
 /**
  * How long a chain movement waits before the pending modules are validated.
@@ -2078,6 +2079,20 @@ export function createSystem(options: SystemOptions): System {
         stat.noteHeadVersion(event.headVersion);
       }
     }),
+    /*
+     * Told to the shell, which says it with the fix beside it (Upgrade, Add
+     * card) and asks Val Build what is true now. Not a "could not be saved"
+     * error: the edit is not lost. Only a refusal the shell cannot read (a
+     * code this Studio does not know, with no Billing link) is said here
+     * instead, in Val Build's own words, so held edits are never silent.
+     */
+    patchSync.events.on("patch:save-refused", (event) => {
+      if (reportPlanRefusal(event.refusal)) return;
+      status.reportError(
+        "Val Build is not saving changes to this project right now.",
+        `${event.refusal.message}\n\nYour edits are kept in this tab and are saved as soon as Val Build allows it.`,
+      );
+    }),
     patchSync.events.on("patch:save-stuck", (event) => {
       const report = describeStuckSave(
         event.reason,
@@ -2792,10 +2807,14 @@ export function createSystem(options: SystemOptions): System {
           // The flush could not get everything up. Refused rather than
           // published-in-part: the alternative publishes a chain whose tail is
           // missing, and the tail is the newest edit.
+          const syncState = patchSync.currentState();
           return {
             status: "refused",
             reason: "unsaved-changes",
             patchIds: stillUnsaved.map((record) => record.patchId),
+            ...(syncState.status === "refused"
+              ? { planRefusal: syncState.message }
+              : {}),
           };
         }
 

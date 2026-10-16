@@ -78,12 +78,17 @@ export function useSavePatches(): SavePatches {
       const unsaved = patchStore
         .unsavedRecords()
         .filter((record) => wanted.has(record.patchId));
-      return unsaved.length === 0
-        ? { status: "ok" }
-        : {
-            status: "error",
-            message: "Val Build has not taken it yet. Try again in a moment.",
-          };
+      if (unsaved.length === 0) return { status: "ok" };
+      const syncState = patchSync.currentState();
+      return {
+        status: "error",
+        // Held for the plan: "try again" cannot help, and Val Build's own
+        // sentence says what can.
+        message:
+          syncState.status === "refused"
+            ? syncState.message
+            : "Val Build has not taken it yet. Try again in a moment.",
+      };
     },
     [val],
   );

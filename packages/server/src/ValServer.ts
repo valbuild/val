@@ -1740,6 +1740,22 @@ export const ValServer = (
          * `fs` mode and from an older content API.
          */
         let headVersion: number | undefined;
+        /*
+         * What this request has saved so far: the whole answer to a save, and
+         * the saved part of one refused for the plan. One builder for both, so
+         * the client records a partly saved batch exactly as a saved one.
+         */
+        const savedSoFar = () => ({
+          newPatchIds,
+          parentRef,
+          // Absent rather than null where there are no groups: `fs` mode and
+          // a content API that predates them both answer without one, and the
+          // client reads absence as "staging is not available here".
+          ...(patchGroupIdFromStore !== undefined
+            ? { patchGroupId: patchGroupIdFromStore }
+            : {}),
+          ...(headVersion !== undefined ? { headVersion } : {}),
+        });
         for (const patch of patches) {
           const createPatchRes = await serverOps.createPatch(
             patch.path,
@@ -1758,6 +1774,23 @@ export const ValServer = (
                   type: "patch-head-conflict",
                   message:
                     "The change was written against a different starting point than the server has.",
+                },
+              };
+            } else if (createPatchRes.error.errorType === "plan-refused") {
+              /*
+               * Val Build refused it for the plan. Passed on as its 403 rather
+               * than a patch error: the patch is fine and the Studio keeps it,
+               * and the reason travels as data so the fix can sit beside it.
+               * The patches before this one in the batch ARE saved, and are
+               * reported as a 200 would report them.
+               */
+              return {
+                status: 403,
+                json: {
+                  type: "plan-refused",
+                  message: createPatchRes.error.error.message,
+                  error: createPatchRes.error.refusal,
+                  ...savedSoFar(),
                 },
               };
             } else {
@@ -1792,17 +1825,7 @@ export const ValServer = (
         }
         return {
           status: 200,
-          json: {
-            newPatchIds,
-            parentRef,
-            // Absent rather than null where there are no groups: `fs` mode and
-            // a content API that predates them both answer without one, and the
-            // client reads absence as "staging is not available here".
-            ...(patchGroupIdFromStore !== undefined
-              ? { patchGroupId: patchGroupIdFromStore }
-              : {}),
-            ...(headVersion !== undefined ? { headVersion } : {}),
-          },
+          json: savedSoFar(),
         };
       },
       GET: async (req): Promise<z.infer<Api["/patches"]["GET"]["res"]>> => {
