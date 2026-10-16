@@ -593,6 +593,155 @@ describe("the proposals API, for the Studio", () => {
   });
 });
 
+/*
+ * Update from the site for a proposal that changes only content
+ * (valbuild/home `docs/hosted-publishing.md`, step 8.2, slice 1a): content
+ * hands over the three versions of each module the proposal saved, this
+ * server merges them under its build's schemas, and content commits it.
+ */
+describe("Update from the site, content only", () => {
+  const PAGE_TEXT = (title: string) =>
+    `export default c.define("/app/page.val.ts", s.object({ title: s.string() }), { "title": "${title}" });\n`;
+  const inputs = (
+    page: { base: string; site: string; proposal: string },
+    over: Record<string, unknown> = {},
+  ) => ({
+    base: "site-1",
+    siteHead: "site-2",
+    proposalHead: "save-2",
+    upToDate: false,
+    contentOnly: { ok: true },
+    modules: {
+      [PAGE]: {
+        base: { title: page.base },
+        site: { title: page.site },
+        proposal: { title: page.proposal },
+        text: PAGE_TEXT(page.proposal),
+      },
+    },
+    ...over,
+  });
+  /** Content: `merge-inputs` answers `given`, and `merge-from-site` commits. */
+  const content = (given: unknown) =>
+    jest.spyOn(global, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      sent.push({
+        url,
+        method: init?.method ?? "GET",
+        body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+      });
+      const body = url.endsWith("/merge-inputs")
+        ? given
+        : { commit: "merge-1", proposal: { name: NAME } };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+  const update = (o: ValOpsHttp, resolutions: unknown[] = []) =>
+    o
+      .proposalsApi(
+        `/${NAME}/update-content`,
+        { method: "POST", body: JSON.stringify({ resolutions }) },
+        "p",
+      )
+      .then((a) => ({ status: a.status, json: JSON.parse(a.body) }));
+
+  test("the same field changed on both sides is a conflict, and nothing is written", async () => {
+    content(inputs({ base: "Sale", site: "Spring", proposal: "Summer" }));
+    const answer = await update(ops(proposal("save-2")));
+    expect(answer).toEqual({
+      status: 200,
+      json: {
+        status: "conflicts",
+        conflicts: [
+          {
+            kind: "field",
+            moduleFilePath: PAGE,
+            path: ["title"],
+            base: "Sale",
+            site: "Spring",
+            proposal: "Summer",
+          },
+        ],
+      },
+    });
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `GET /v1/org/project/proposals/${NAME}/merge-inputs`,
+    ]);
+    expect(sent[0].headers["x-val-profile-id"]).toBe("p");
+  });
+
+  test("with a resolution, the merge is written into the proposal's file and committed with both heads", async () => {
+    content(inputs({ base: "Sale", site: "Spring", proposal: "Summer" }));
+    const answer = await update(ops(proposal("save-2")), [
+      { moduleFilePath: PAGE, path: ["title"], keep: "site" },
+    ]);
+    expect(answer).toMatchObject({
+      status: 200,
+      json: { status: "updated", commit: "merge-1" },
+    });
+    const commit = sent.find((r) => r.url.endsWith("/merge-from-site"));
+    expect(commit?.method).toBe("POST");
+    expect(commit?.body).toEqual({
+      siteHead: "site-2",
+      proposalHead: "save-2",
+      files: { "app/page.val.ts": expect.stringContaining('"Spring"') },
+      modules: {
+        [PAGE]: { source: { title: "Spring" }, schema: expect.anything() },
+      },
+    });
+  });
+
+  test("a site change that does not touch the proposal's fields merges without asking", async () => {
+    content(inputs({ base: "Sale", site: "Sale", proposal: "Summer" }));
+    expect((await update(ops(proposal("save-2")))).json.status).toBe("updated");
+  });
+
+  test("up to date: nothing to merge, nothing written", async () => {
+    content(
+      inputs(
+        { base: "Sale", site: "Sale", proposal: "Summer" },
+        {
+          upToDate: true,
+        },
+      ),
+    );
+    expect((await update(ops(proposal("save-2")))).json).toEqual({
+      status: "up-to-date",
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  test("a proposal that changes code needs a build to update, and says why", async () => {
+    content(
+      inputs(
+        { base: "Sale", site: "Spring", proposal: "Summer" },
+        {
+          contentOnly: { ok: false, reason: "The proposal changes code." },
+        },
+      ),
+    );
+    expect(await update(ops(proposal("save-2")))).toEqual({
+      status: 409,
+      json: { status: "needs-build", message: "The proposal changes code." },
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  test("only the proposal's own server updates it: its build's schemas are the ones it merges under", async () => {
+    content(inputs({ base: "Sale", site: "Spring", proposal: "Summer" }));
+    for (const o of [
+      ops(undefined),
+      ops({ ...proposal("x"), name: "f".repeat(20) }),
+    ]) {
+      expect((await update(o)).status).toBe(403);
+    }
+    expect(sent).toEqual([]);
+  });
+});
+
 describe("proposalFromEnv", () => {
   test("names a proposal only with both its name and its branch", () => {
     expect(proposalFromEnv({})).toBeUndefined();

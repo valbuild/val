@@ -98,6 +98,45 @@ const MergeChecksAnswer = z.object({
   canMerge: z.boolean(),
 });
 
+/**
+ * Something the site and the proposal both changed since it started, as Val's
+ * merge reports it (valbuild/home `docs/hosted-publishing.md`, step 8.2).
+ * `invalid`: content the merge combined that its schema does not allow.
+ */
+const UpdateConflict = z.union([
+  z.object({
+    kind: z.literal("field"),
+    moduleFilePath: z.string(),
+    path: z.array(z.string()),
+    base: z.unknown(),
+    site: z.unknown(),
+    proposal: z.unknown(),
+  }),
+  z.object({
+    kind: z.literal("invalid"),
+    moduleFilePath: z.string(),
+    path: z.array(z.string()),
+    value: z.unknown(),
+    message: z.string(),
+  }),
+]);
+export type UpdateConflict = z.infer<typeof UpdateConflict>;
+const UpdateContentAnswer = z.union([
+  z.object({ status: z.literal("updated"), commit: z.string() }),
+  z.object({ status: z.literal("up-to-date") }),
+  z.object({
+    status: z.literal("conflicts"),
+    conflicts: z.array(UpdateConflict),
+  }),
+]);
+export type UpdateContentAnswer = z.infer<typeof UpdateContentAnswer>;
+/** A decision about one conflict: which side's value the proposal keeps. */
+export type UpdateResolution = {
+  moduleFilePath: string;
+  path: string[];
+  keep: "site" | "proposal";
+};
+
 /** An answer that was not a success: content's status and its words. */
 export class ProposalsApiError extends Error {
   constructor(
@@ -166,6 +205,16 @@ export type ProposalsClient = {
    * staged code needs building again. The site-code check's action.
    */
   updateFromSite(name: string): Promise<ProposalJson>;
+  /**
+   * Update from the site for a proposal that changes only content: the
+   * site's published changes merged into it, at its own address. Conflicts
+   * come back for a person; the same call with their `resolutions` merges.
+   * The published-since check's action.
+   */
+  updateContent(
+    name: string,
+    resolutions: UpdateResolution[],
+  ): Promise<UpdateContentAnswer>;
   /**
    * "Go back to this point" with the code: the files of the build the site
    * served at `commit` (a commit of the site's history) staged in it, and that
@@ -245,6 +294,10 @@ export function createProposalsClient(options: {
       ),
     serveBuild: (name, build) => one(`${at(name)}/build`, "POST", build),
     updateFromSite: (name) => one(`${at(name)}/update-from-site`, "POST", {}),
+    updateContent: async (name, resolutions) =>
+      UpdateContentAnswer.parse(
+        await call(`${at(name)}/update-content`, "POST", { resolutions }),
+      ),
     restoreCode: (name, commit) =>
       one(`${at(name)}/restore-code`, "POST", { commit }),
   };

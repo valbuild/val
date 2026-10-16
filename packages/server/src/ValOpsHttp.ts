@@ -36,6 +36,7 @@ import {
   type PublishRefusal,
 } from "./ValOps";
 import { z } from "zod";
+import { mergeContent } from "./proposalMerge/mergeContent";
 import { fromError } from "zod-validation-error";
 import type { HistoryError } from "./history/HistoryError";
 import type {
@@ -1070,6 +1071,10 @@ export class ValOpsHttp extends ValOps {
     profileId: string | null,
   ): Promise<{ status: number; body: string; contentType: string }> {
     const json = "application/json";
+    const updating = /^\/([0-9a-f]{20})\/update-content$/.exec(path)?.[1];
+    if (updating !== undefined && init.method === "POST") {
+      return this.updateContentFromSite(updating, init.body, profileId);
+    }
     if (!ValOpsHttp.proposalsApiAllowed(init.method, path)) {
       return {
         status: 403,
@@ -1113,6 +1118,135 @@ export class ValOpsHttp extends ValOps {
       status: res.status,
       body: await res.text(),
       contentType: res.headers.get("Content-Type") ?? json,
+    };
+  }
+
+  /**
+   * Update from the site, for a proposal that changes only content
+   * (valbuild/home `docs/hosted-publishing.md`, step 8.2, slice 1a): content
+   * hands over the three versions of every module the proposal saved, this
+   * server merges them under its own build's schemas -- the same on all
+   * three sides, which is what "content only" means -- and content commits
+   * the merge on the proposal's branch.
+   *
+   * Answered here rather than forwarded, at `POST /<name>/update-content`, and
+   * only by the proposal's own server: the schemas it merges under are this
+   * build's. A conflict comes back for a person to resolve, and the same call
+   * with their `resolutions` merges.
+   */
+  private async updateContentFromSite(
+    name: string,
+    body: string | undefined,
+    profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    const answer = (status: number, value: unknown) => ({
+      status,
+      contentType: json,
+      body: JSON.stringify(value),
+    });
+    if (this.proposal?.name !== name) {
+      return answer(403, {
+        message:
+          "A proposal is updated from the site at its own address, where its build is.",
+      });
+    }
+    let parsedBody: unknown;
+    try {
+      parsedBody = body === undefined || body === "" ? {} : JSON.parse(body);
+    } catch {
+      return answer(400, { message: "The update's body is not JSON." });
+    }
+    const request = UpdateContentBody.safeParse(parsedBody);
+    if (!request.success) {
+      return answer(400, {
+        message: `Invalid update: ${fromError(request.error).toString()}`,
+      });
+    }
+    const content = (path: string, init: RequestInit = {}) =>
+      fetch(`${this.contentUrl}/v1/${this.project}/proposals/${name}${path}`, {
+        ...init,
+        headers: {
+          ...this.authHeaders,
+          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+          ...(init.body === undefined ? {} : { "Content-Type": json }),
+        },
+      });
+    const read = await content("/merge-inputs");
+    if (!read.ok) {
+      return {
+        status: read.status,
+        contentType: json,
+        body: await read.text(),
+      };
+    }
+    const inputs = MergeInputs.safeParse(await read.json());
+    if (!inputs.success) {
+      return answer(502, {
+        message: `Content answered the merge's inputs in a shape this Val does not read: ${fromError(inputs.error).toString()}`,
+      });
+    }
+    if (inputs.data.upToDate) return answer(200, { status: "up-to-date" });
+    if (!inputs.data.contentOnly.ok || inputs.data.siteHead === null) {
+      return answer(409, {
+        status: "needs-build",
+        message: inputs.data.contentOnly.ok
+          ? "The site has no commit to update from."
+          : inputs.data.contentOnly.reason,
+      });
+    }
+    const modules: Parameters<typeof mergeContent>[0]["modules"] = {};
+    const withoutText: string[] = [];
+    for (const [path, module] of Object.entries(inputs.data.modules)) {
+      if (module.text === null) {
+        withoutText.push(path);
+        continue;
+      }
+      modules[path as ModuleFilePath] = {
+        base: module.base,
+        site: module.site,
+        proposal: module.proposal,
+        text: module.text,
+      };
+    }
+    const merged =
+      withoutText.length > 0
+        ? { status: "needs-full-merge" as const, modules: withoutText }
+        : mergeContent({
+            modules,
+            schemas: await this.getSchemas(),
+            resolutions: request.data.resolutions,
+          });
+    if (merged.status === "conflicts") {
+      return answer(200, {
+        status: "conflicts",
+        conflicts: merged.conflicts,
+      });
+    }
+    if (merged.status === "needs-full-merge") {
+      return answer(409, {
+        status: "needs-full-merge",
+        modules: merged.modules,
+        message: `${merged.modules.join(", ")} changed both here and on the site in a way this version cannot merge yet.`,
+      });
+    }
+    const written = await content("/merge-from-site", {
+      method: "POST",
+      body: JSON.stringify({
+        siteHead: inputs.data.siteHead,
+        proposalHead: inputs.data.proposalHead,
+        files: merged.files,
+        modules: merged.modules,
+      }),
+    });
+    const text = await written.text();
+    if (!written.ok) {
+      return { status: written.status, contentType: json, body: text };
+    }
+    return {
+      status: 200,
+      contentType: json,
+      body: JSON.stringify({ status: "updated", ...JSON.parse(text) }),
     };
   }
 
@@ -3421,3 +3555,44 @@ export class ValOpsHttp extends ValOps {
   }
   // #endregion history
 }
+
+/** What the Studio sends to update a proposal from the site: its decisions. */
+const UpdateContentBody = z.object({
+  resolutions: z
+    .array(
+      z.union([
+        z.object({
+          moduleFilePath: z.string().transform((p) => p as ModuleFilePath),
+          path: z.array(z.string()),
+          keep: z.enum(["site", "proposal"]),
+        }),
+        z.object({
+          moduleFilePath: z.string().transform((p) => p as ModuleFilePath),
+          path: z.array(z.string()),
+          value: JSONValueSchema,
+        }),
+      ]),
+    )
+    .default([]),
+});
+
+/** Content's `GET /proposals/:name/merge-inputs`. */
+const MergeInputs = z.object({
+  base: z.string().nullable(),
+  siteHead: z.string().nullable(),
+  proposalHead: z.string().nullable(),
+  upToDate: z.boolean(),
+  contentOnly: z.union([
+    z.object({ ok: z.literal(true) }),
+    z.object({ ok: z.literal(false), reason: z.string() }),
+  ]),
+  modules: z.record(
+    z.string(),
+    z.object({
+      base: JSONValueSchema.nullable(),
+      site: JSONValueSchema.nullable(),
+      proposal: JSONValueSchema.nullable(),
+      text: z.string().nullable(),
+    }),
+  ),
+});

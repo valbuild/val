@@ -147,6 +147,77 @@ export const UpdatingFromTheSite: Story = {
   },
 };
 
+/**
+ * A page the site published since, in a proposal that changes only content:
+ * Update from the site merges it in (step 8.2).
+ */
+export const BlockedByAPageTheSitePublished: Story = {
+  args: {
+    state: {
+      kind: "ready",
+      checks: [
+        {
+          id: "published-since",
+          ok: false,
+          message:
+            "Kari Nordmann changed hero › subtitle on /content/home.val.ts after this proposal started",
+          action: "update-from-site",
+        },
+        PASSING[1]!,
+      ],
+      changes: 3,
+      unsaved: 0,
+    },
+    onUpdateFromSite: (checkId: string) =>
+      console.log("update from the site", checkId),
+  },
+};
+
+/**
+ * The update found what both changed: each is decided here, and the update
+ * then merges with those decisions. The same value on both sides is a
+ * conflict too -- an easy one.
+ */
+export const UpdateConflicts: Story = {
+  args: {
+    ...BlockedByAPageTheSitePublished.args,
+    state: {
+      kind: "ready",
+      checks:
+        BlockedByAPageTheSitePublished.args?.state?.kind === "ready"
+          ? BlockedByAPageTheSitePublished.args.state.checks
+          : [],
+      changes: 3,
+      unsaved: 0,
+      conflicts: [
+        {
+          kind: "field",
+          moduleFilePath: "/content/home.val.ts",
+          path: ["hero", "title"],
+          site: "Spring sale",
+          proposal: "Summer sale",
+        },
+        {
+          kind: "field",
+          moduleFilePath: "/content/home.val.ts",
+          path: ["hero", "image"],
+          site: { path: "/public/val/beach.png", alt: "A beach" },
+          proposal: { path: "/public/val/sale.png", alt: "A big sale" },
+        },
+        {
+          kind: "field",
+          moduleFilePath: "/content/home.val.ts",
+          path: ["cta"],
+          site: "Shop now",
+          proposal: "Shop now",
+        },
+      ],
+    },
+    onResolve: (keep: ("site" | "proposal")[]) => console.log("keep", keep),
+    onCancelUpdate: () => console.log("not now"),
+  },
+};
+
 /** Each step, as it runs. */
 export const Saving = at({ kind: "publishing", step: "saving" });
 export const Building = at({ kind: "publishing", step: "building" });

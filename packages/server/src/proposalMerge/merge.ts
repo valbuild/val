@@ -3,6 +3,9 @@ import {
   Internal,
   type ModuleFilePath,
   type PatchId,
+  type Schema,
+  type SelectorSource,
+  type SerializedSchema,
   type SourcePath,
   type ValModule,
 } from "@valbuild/core";
@@ -216,26 +219,9 @@ export async function mergeFromSite(input: {
       sourceOf(proposal),
       atomicIn(moduleOf(chosen)?.module),
     );
-    let content = merged.value;
-    for (const conflict of merged.conflicts) {
-      const resolved = fieldResolution(resolutions, moduleFilePath, conflict);
-      if (resolved === null) {
-        conflicts.push({ kind: "field", moduleFilePath, ...conflict });
-      } else {
-        content = setAt(content, conflict.path, resolved.value);
-      }
-    }
-    // Values written for the schema check (or anywhere else) go in as given.
-    for (const resolution of resolutions) {
-      if (
-        "moduleFilePath" in resolution &&
-        resolution.moduleFilePath === moduleFilePath &&
-        "value" in resolution &&
-        !merged.conflicts.some((c) => samePath(c.path, resolution.path))
-      ) {
-        content = setAt(content, resolution.path, resolution.value);
-      }
-    }
+    const resolved = resolveContent(moduleFilePath, merged, resolutions);
+    conflicts.push(...resolved.unresolved);
+    const content = resolved.content;
 
     const entries = moduleOf(chosen)?.entries;
     if (entries) {
@@ -324,6 +310,39 @@ export async function changesToMove(input: {
 
 // --- the pieces --------------------------------------------------------------
 
+/**
+ * A module's merged content with the resolutions written in: each field
+ * conflict that has one, and any value written for the schema check (or
+ * anywhere else) as given. What is left is what still needs a person.
+ */
+export function resolveContent(
+  moduleFilePath: ModuleFilePath,
+  merged: { value: Value; conflicts: ValueConflict[] },
+  resolutions: Resolution[],
+): { content: Value; unresolved: FieldConflict[] } {
+  let content = merged.value;
+  const unresolved: FieldConflict[] = [];
+  for (const conflict of merged.conflicts) {
+    const resolved = fieldResolution(resolutions, moduleFilePath, conflict);
+    if (resolved === null) {
+      unresolved.push({ kind: "field", moduleFilePath, ...conflict });
+    } else {
+      content = setAt(content, conflict.path, resolved.value);
+    }
+  }
+  for (const resolution of resolutions) {
+    if (
+      "moduleFilePath" in resolution &&
+      resolution.moduleFilePath === moduleFilePath &&
+      "value" in resolution &&
+      !merged.conflicts.some((c) => samePath(c.path, resolution.path))
+    ) {
+      content = setAt(content, resolution.path, resolution.value);
+    }
+  }
+  return { content, unresolved };
+}
+
 async function conflictsWithMerge(
   changes: PendingChange[],
   site: Project,
@@ -387,11 +406,23 @@ function serializedSchemaOf(module: Module | undefined) {
 
 type SchemaError = { path: string[]; message: string };
 
-/** What a module's schema reports about this content, without the fixes the server makes on its own. */
 function validate(module: Module, source: Value): SchemaError[] {
   const schema = Internal.getSchema(module);
   const moduleFilePath = Internal.getValPath(module);
   if (!schema || moduleFilePath === undefined) return [];
+  return validateWith(
+    schema,
+    moduleFilePath as string as ModuleFilePath,
+    source,
+  );
+}
+
+/** What a schema reports about this content, without the fixes the server makes on its own. */
+export function validateWith(
+  schema: Schema<SelectorSource>,
+  moduleFilePath: ModuleFilePath,
+  source: Value,
+): SchemaError[] {
   const res = schema["executeValidate"](
     moduleFilePath as string as SourcePath,
     source,
@@ -460,7 +491,11 @@ const ATOMIC: ReadonlySet<string> = new Set([
 ]);
 
 function atomicIn(module: Module | undefined): IsAtomic {
-  const schema = serializedSchemaOf(module);
+  return atomicFor(serializedSchemaOf(module));
+}
+
+/** See {@link ATOMIC}: where this schema holds a value that merges whole. */
+export function atomicFor(schema: SerializedSchema | undefined): IsAtomic {
   if (!schema) return () => false;
   return (path) => {
     const types = schemaTypesOfPath(schema, path);
@@ -480,7 +515,7 @@ const tsOps = new TSOps((document) =>
  * the smallest patch, through the same AST operations a save uses, so what
  * did not change is left exactly as it was.
  */
-function writeContent(
+export function writeContent(
   file: string,
   text: string,
   from: Value,

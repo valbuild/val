@@ -26,6 +26,7 @@ import {
   sameStudioPageAt,
   toSummary,
   type ProposalJson,
+  type UpdateConflict,
 } from "../../proposals/proposalsClient";
 import { useProposals, waitForAddress } from "../../proposals/useProposals";
 import {
@@ -345,29 +346,62 @@ export function useProposalsBar({
   }, [client, here, currentJson?.changes, unsaved]);
 
   /*
-   * "Update from the site" (step 8): the site's code changed under this
-   * proposal's, so it moves onto the site as it is now and its code is built
-   * again there -- "Build required" follows, and the checks are read again.
+   * "Update from the site" (step 8). Which update depends on what changed:
+   *
+   * - site-code: the site's code changed under this proposal's, so it moves
+   *   onto the site as it is now and its code is built again there -- "Build
+   *   required" follows.
+   * - published-since: the site published a page this proposal changes, and
+   *   Val merges what it published into the proposal (step 8.2). What both
+   *   changed comes back as conflicts, decided in the dialog, and the same
+   *   update with those decisions merges.
+   *
+   * Either way the checks are read again after.
    */
   const [updating, setUpdating] = useState(false);
-  const updateFromSite = useCallback(async () => {
-    if (here === null) return;
-    setUpdating(true);
-    try {
-      await client.updateFromSite(here.name);
-      proposalCodeChanged();
-      await loadChecks();
-    } catch (error) {
-      setPublishState({
-        kind: "error",
-        message: `Could not update from the site: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      });
-    } finally {
-      setUpdating(false);
-    }
-  }, [client, here, loadChecks]);
+  const [conflicts, setConflicts] = useState<UpdateConflict[] | null>(null);
+  const updateFromSite = useCallback(
+    async (checkId: string, keep: ("site" | "proposal")[] = []) => {
+      if (here === null) return;
+      setUpdating(true);
+      try {
+        if (checkId !== "published-since") {
+          await client.updateFromSite(here.name);
+          proposalCodeChanged();
+          await loadChecks();
+          return;
+        }
+        const resolutions = (conflicts ?? []).flatMap((conflict, at) =>
+          conflict.kind === "field" && keep[at] !== undefined
+            ? [
+                {
+                  moduleFilePath: conflict.moduleFilePath,
+                  path: conflict.path,
+                  keep: keep[at],
+                },
+              ]
+            : [],
+        );
+        const answer = await client.updateContent(here.name, resolutions);
+        if (answer.status === "conflicts") {
+          setConflicts(answer.conflicts);
+          return;
+        }
+        setConflicts(null);
+        await loadChecks();
+      } catch (error) {
+        setPublishState({
+          kind: "error",
+          message: `Could not update from the site: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+      } finally {
+        setUpdating(false);
+      }
+    },
+    [client, conflicts, here, loadChecks],
+  );
 
   /** Where the press is, while it is followed. See `pressed`. */
   const following = useMemo<
@@ -575,7 +609,9 @@ export function useProposalsBar({
   /* Settled is shown at once; the effect above keeps it once pressed clears. */
   const dialogState: PublishProposalState =
     following === null
-      ? publishState
+      ? publishState.kind === "ready" && conflicts !== null
+        ? { ...publishState, conflicts }
+        : publishState
       : following.kind === "running"
         ? { kind: "publishing", step: following.step }
         : following.kind === "merged"
@@ -811,7 +847,9 @@ export function useProposalsBar({
           {...(continuation !== null
             ? { onOpenContinuation: () => void openProposal(continuation) }
             : {})}
-          onUpdateFromSite={() => void updateFromSite()}
+          onUpdateFromSite={(checkId) => void updateFromSite(checkId)}
+          onResolve={(keep) => void updateFromSite("published-since", keep)}
+          onCancelUpdate={() => setConflicts(null)}
           updating={updating}
           portalContainer={portalContainer}
         />

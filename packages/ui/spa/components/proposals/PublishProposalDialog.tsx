@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "../designSystem/dialog";
 import { changesLabel } from "./ProposalSwitcher";
+import { UpdateConflicts } from "./UpdateConflicts";
 
 /** One merge check, as the dialog shows it. */
 export type MergeCheckView = {
@@ -23,12 +24,29 @@ export type MergeCheckView = {
   /** What holds, or what blocks and who. */
   message: string;
   /**
-   * What clears it, when something here does. "update-from-site": the site's
-   * code changed under the proposal's (valbuild/home
-   * `docs/hosted-publishing.md`, step 8).
+   * What clears it, when something here does. "update-from-site": the site
+   * changed under the proposal -- its code (site-code), or a page the proposal
+   * changes (published-since) -- and the proposal is brought up to it
+   * (valbuild/home `docs/hosted-publishing.md`, step 8).
    */
   action?: "update-from-site";
 };
+
+/** Something both sides changed, as the person decides it. */
+export type UpdateConflictView =
+  | {
+      kind: "field";
+      moduleFilePath: string;
+      path: string[];
+      site: unknown;
+      proposal: unknown;
+    }
+  | {
+      kind: "invalid";
+      moduleFilePath: string;
+      path: string[];
+      message: string;
+    };
 
 /**
  * Where Publish is. `docs/proposals.md`, Flow F.
@@ -49,6 +67,11 @@ export type PublishProposalState =
       unsaved: number;
       /** What happened since the dialog opened, said above the checks. */
       note?: string;
+      /**
+       * Update from the site found these: what both the site and the
+       * proposal changed since it started. Decided here, then merged.
+       */
+      conflicts?: UpdateConflictView[];
     }
   | {
       kind: "publishing";
@@ -104,6 +127,8 @@ export function PublishProposalDialog({
   onGoToSite,
   onOpenContinuation,
   onUpdateFromSite,
+  onResolve,
+  onCancelUpdate,
   updating = false,
   portalContainer,
 }: {
@@ -120,8 +145,15 @@ export function PublishProposalDialog({
   onGoToSite?: () => void;
   /** After the merge, when changes made during it went to a new proposal. */
   onOpenContinuation?: () => void;
-  /** A check's action: the proposal onto the site as it is now. */
-  onUpdateFromSite?: () => void;
+  /** A check's action: the proposal brought up to the site, for that check. */
+  onUpdateFromSite?: (checkId: string) => void;
+  /**
+   * The conflicts decided: for each, in order, which side the proposal
+   * keeps. Merges the update with those.
+   */
+  onResolve?: (keep: ("site" | "proposal")[]) => void;
+  /** Leave the conflicts undecided: nothing is merged. */
+  onCancelUpdate?: () => void;
   /** Updating from the site now. */
   updating?: boolean;
   portalContainer?: HTMLElement | null;
@@ -195,51 +227,60 @@ export function PublishProposalDialog({
                   </button>
                 )}
               </div>
-              <ul className="flex flex-col gap-1.5">
-                {state.checks.map((check) => (
-                  <li
-                    key={check.id}
-                    className={cn(
-                      "flex items-start gap-2 text-xs",
-                      check.ok ? "text-fg-secondary" : "text-fg-primary",
-                    )}
-                  >
-                    {check.ok ? (
-                      <Check
-                        size={14}
-                        className="mt-px shrink-0 text-fg-proposal"
-                      />
-                    ) : (
-                      <X
-                        size={14}
-                        className="mt-px shrink-0 text-fg-error-on-surface"
-                      />
-                    )}
-                    <span className="flex flex-col items-start gap-1.5">
-                      <span>{check.message}</span>
-                      {!check.ok &&
-                        check.action === "update-from-site" &&
-                        onUpdateFromSite !== undefined && (
-                          <button
-                            type="button"
-                            onClick={onUpdateFromSite}
-                            disabled={updating}
-                            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border-proposal px-2 text-xs font-medium text-fg-primary hover:bg-bg-proposal-soft disabled:text-fg-disabled"
-                          >
-                            {updating ? (
-                              <Loader2 size={13} className="animate-spin" />
-                            ) : (
-                              <ArrowRight size={13} />
-                            )}
-                            {updating
-                              ? "Updating from the site…"
-                              : "Update from the site"}
-                          </button>
-                        )}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              {state.conflicts !== undefined && state.conflicts.length > 0 ? (
+                <UpdateConflicts
+                  conflicts={state.conflicts}
+                  updating={updating}
+                  onResolve={onResolve}
+                  onCancel={onCancelUpdate}
+                />
+              ) : (
+                <ul className="flex flex-col gap-1.5">
+                  {state.checks.map((check) => (
+                    <li
+                      key={check.id}
+                      className={cn(
+                        "flex items-start gap-2 text-xs",
+                        check.ok ? "text-fg-secondary" : "text-fg-primary",
+                      )}
+                    >
+                      {check.ok ? (
+                        <Check
+                          size={14}
+                          className="mt-px shrink-0 text-fg-proposal"
+                        />
+                      ) : (
+                        <X
+                          size={14}
+                          className="mt-px shrink-0 text-fg-error-on-surface"
+                        />
+                      )}
+                      <span className="flex flex-col items-start gap-1.5">
+                        <span>{check.message}</span>
+                        {!check.ok &&
+                          check.action === "update-from-site" &&
+                          onUpdateFromSite !== undefined && (
+                            <button
+                              type="button"
+                              onClick={() => onUpdateFromSite(check.id)}
+                              disabled={updating}
+                              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border-proposal px-2 text-xs font-medium text-fg-primary hover:bg-bg-proposal-soft disabled:text-fg-disabled"
+                            >
+                              {updating ? (
+                                <Loader2 size={13} className="animate-spin" />
+                              ) : (
+                                <ArrowRight size={13} />
+                              )}
+                              {updating
+                                ? "Updating from the site…"
+                                : "Update from the site"}
+                            </button>
+                          )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {blockedByPeople && (
                 <div
                   role="alert"
