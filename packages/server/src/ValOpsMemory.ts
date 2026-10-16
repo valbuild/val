@@ -14,7 +14,6 @@ import {
   type OpsMetadata,
   type OrderedPatches,
   type OrderedPatchesMetadata,
-  type PatchGroupMembership,
   type PreparedCommit,
   type SaveSourceFilePatchResult,
   type SchemaSha,
@@ -467,8 +466,7 @@ export class ValOpsMemory extends ValOps {
     ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches
   > {
     // An empty `patchIds` means "no filter", not "none": both shipped
-    // implementations read it that way and callers rely on it. See
-    // `scopedModulePatches` in ValOps.ts, which says why at length.
+    // implementations read it that way and callers rely on it.
     const requested =
       filters.patchIds && filters.patchIds.length > 0
         ? new Set<PatchId>(filters.patchIds)
@@ -523,11 +521,6 @@ export class ValOpsMemory extends ValOps {
     _parentRef: ParentRef | null,
     authorId: AuthorId | null,
     _sessionId: string | null,
-    /* No shared store and no second author yet, so nothing for a group to
-     * separate. Named rather than omitted: TypeScript allows an implementation
-     * to take fewer parameters, so dropping it would look identical to
-     * handling it. */
-    _patchGroup?: PatchGroupMembership,
   ): Promise<SaveSourceFilePatchResult> {
     await this.store.append({
       patchId,

@@ -328,8 +328,6 @@ export type ContentPublishApi = {
   };
   "/publish-jobs/:jobId/discard": {
     POST: {
-      /** The forward closure, as `DELETE /patches` takes it. */
-      body: { unstagePatchIds?: string[] };
       /** Changes it could not discard: another job in flight holds them. */
       res: { stillHeld: string[] };
     };

@@ -181,13 +181,8 @@ describe("writing in a proposal", () => {
     );
   });
 
-  test("there are no patch groups: the proposal is one unit", async () => {
+  test("Publish is not a publish job here: a proposal's merge is", async () => {
     const o = ops(proposal("save-2"));
-    expect(await o.getPatchGroups({ fresh: true })).toEqual({
-      status: "unsupported",
-    });
-    expect(sent).toHaveLength(0);
-    // And Publish is not a publish job here: a proposal's merge is.
     expect(o.publishesAsJobs()).toBe(false);
   });
 });

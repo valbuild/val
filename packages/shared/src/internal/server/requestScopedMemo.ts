@@ -6,14 +6,16 @@
  * byte-identical each time, because the query and the session are fixed for the
  * length of a request. This is what makes the second and third call free.
  *
- * ## Why the scope is the REQUEST and can never be wider
+ * ## Why the scope is the REQUEST
  *
- * The memoised response is `own_patch_groups_only: true` — it contains the
- * CALLER'S OWN unpublished work, resolved from their session cookie. A memo
- * that outlived the request would serve one author's staged edits to the next
- * visitor, which is the exact failure `own_patch_groups_only` exists to
- * prevent, and it would be invisible: the draft would simply render somebody
- * else's half-finished sentence.
+ * The memoised response is a DRAFT -- unpublished work, read with the caller's
+ * session cookie. Every caller allowed to read drafts gets the same draft (patch
+ * groups, which made it per author, are gone), but whether a caller is allowed
+ * at all is decided per session. A memo that outlived the request would hand
+ * the draft to the next visitor without asking, and it would be invisible: the
+ * page would simply render somebody's half-finished sentence. Sharing it across
+ * requests is possible now, keyed on the chain's head, and would be its own
+ * measured change.
  *
  * So this module holds NO state of its own. The caller supplies the box, and
  * the box has to come from something the framework already scopes to the

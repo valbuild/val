@@ -8,7 +8,21 @@
 
 ## Current state / resume here
 
-> **2026-10-16: planned, nothing built.** This branch now carries the
+> **2026-10-16, building Phases 1–3.** Landing order, decided: the 8.2 work
+> on `claude/proposals-feature-design-ctgmbc` goes to main first, in its own
+> PRs (with main merged in, `proposal_merge_commits` renumbered to
+> `1793500000`, and `merge-from-site` asking `proposalSaveRefusal`), then this
+> branch's PRs on top. Done on this branch so far:
+>
+> - **Phase 1 (home)**: groups off everywhere (`1237b4f`). Content suite
+>   1490/1490; the loop passes everything up to the WebKit steps, which needed
+>   WebKit installed in this container.
+> - **Phase 2 (val)**: shared, server, next, tanstack, mcp, the mock content
+>   host and e2e done; the UI in progress.
+> - Discard keeps today's no-groups behaviour: it deletes the ids asked for and
+>   nothing else (see rule 3).
+>
+> **Before that, 2026-10-16: planned.** This branch now carries the
 > proposals work (`claude/proposals-feature-design-ctgmbc`, val `3392738`, home
 > `bd4422f`) and main, merged in. Baseline before any removal:
 > `pnpm test packages/server/src/proposalMerge` 106 (3 todo),
@@ -121,9 +135,11 @@ Four rules replace the patch-group design:
    module, which is coarser and therefore also safe: a module holds whole
    patch sets.
 
-3. **Discard takes what was written on top.** `computeDiscardClosure`'s
-   forward closure stays, but only decides what is deleted. There is no
-   membership to repair, so `unstagePatchIds` goes.
+3. **Discard deletes what it is asked to, as it does today without groups.**
+   `computeDiscardClosure` only ever computed which memberships to repair
+   (`unstagePatchIds`), and returned nothing on a deployment without groups,
+   so it goes with them. Deleting what was written on top of a discarded
+   change as well would be a new behaviour, and is not part of this.
 4. **Every editor's draft is the same draft.** Draft reads (`fetchVal`,
    `useVal`, `initValContent`) no longer depend on who asks, beyond being
    allowed to ask.
@@ -333,8 +349,10 @@ Right after the Val release, not a release later (decision 3).
   (migrations are forward-only; keep the old files).
 - Delete `dal/patchGroups.ts`, `getPatchGroups.ts`, `postPatchGroupPatches.ts`,
   `deletePatchGroupPatches.ts`, `utils/patchGroupAccess.ts`, the routes in
-  `routes.ts`, the group types and request fields in `Api.ts` (now refused,
-  not ignored), and `platform/scripts/content-host.ts`'s stub.
+  `routes.ts`, the group types and request fields in `Api.ts`, and
+  `platform/scripts/content-host.ts`'s stub. The request schemas are plain
+  `z.object`s, which drop keys they do not declare, so a field an older
+  Studio still sends is stripped, not refused: nothing it sends can fail.
 - Delete `patchGroups.test.ts` and `admin/.../patchGroupMembership.test.ts`,
   after moving the tests in `patchGroups.test.ts` that are about something
   else — deletion (chain locked before delete; a job-held change left in

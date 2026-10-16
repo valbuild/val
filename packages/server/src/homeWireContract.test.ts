@@ -11,14 +11,8 @@ import type { ModuleFilePath, PatchId, SerializedSchema } from "@valbuild/core";
  * e2e mock speaks val's dialect, so a suite that is green against the mock says
  * nothing about the service the mock stands in for — and this is the third time
  * the two have diverged on this feature, the first where it was not a missing
- * check but a different wire format.
- *
- * The divergence it was written for: `home` answered `{ groups: [{ id, … }] }`
- * and `{ patchGroupId, added }`, while `ValOpsHttp` parses `{ patchGroups: [{
- * patchGroupId, … }] }` and `{ patchGroupId, patchIds }`. Zod rejected every
- * one, so in production every stage and unstage was a 500, the chain annotation
- * never arrived, and a scoped draft render treated the lookup as failed and
- * rendered base — dropping every pending patch from every `fetchVal`.
+ * check but a different wire format (patch groups, since removed: `home`
+ * answered a shape `ValOpsHttp` did not parse, and every stage was a 500).
  *
  * When `home`'s `Api.ts` changes, change these fixtures with it. A failure here
  * is the two repos drifting, and it is the only place that can say so.
@@ -26,31 +20,6 @@ import type { ModuleFilePath, PatchId, SerializedSchema } from "@valbuild/core";
 
 const PROJECT = "acme/site";
 const CONTENT_URL = "https://content.val.build";
-
-/** `home` — `Api["/patch-groups"]["GET"]["res"]`. */
-const HOME_PATCH_GROUPS = {
-  patchGroups: [
-    {
-      patchGroupId: "11111111-1111-4111-8111-111111111111",
-      authorId: "22222222-2222-4222-8222-222222222222",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      publishedAt: null,
-      patchIds: ["33333333-3333-4333-8333-333333333333"],
-    },
-  ],
-};
-
-/** `home` — `Api["/patch-groups/:patchGroupId/patches"]["POST"]["res"]`. */
-const HOME_STAGE = {
-  patchGroupId: "11111111-1111-4111-8111-111111111111",
-  patchIds: ["33333333-3333-4333-8333-333333333333"],
-};
-
-/** `home` — the same endpoint's `DELETE`. */
-const HOME_UNSTAGE = {
-  patchGroupId: "11111111-1111-4111-8111-111111111111",
-  patchIds: [] as string[],
-};
 
 /** Every request the ops made, so a test can assert on what went out. */
 type SentRequest = {
@@ -118,143 +87,15 @@ function opsAnswering(
   };
 }
 
-test("home's patch-group listing parses", async () => {
-  const { ops, restore } = opsAnswering(HOME_PATCH_GROUPS);
-  try {
-    const res = await ops.getPatchGroups({ fresh: true });
-
-    expect(res.status).toBe("ok");
-    if (res.status !== "ok") throw new Error(res.status);
-    expect(res.patchGroups).toHaveLength(1);
-    // The two fields the shapes disagreed on. A rename on either side lands
-    // here rather than as a 500 in production.
-    expect(res.patchGroups[0].patchGroupId).toBe(
-      "11111111-1111-4111-8111-111111111111",
-    );
-    expect(res.patchGroups[0].patchIds).toEqual([
-      "33333333-3333-4333-8333-333333333333",
-    ]);
-  } finally {
-    restore();
-  }
-});
-
-test("home's stage response parses, and carries the group's membership", async () => {
-  const { ops, restore } = opsAnswering(HOME_STAGE);
-  try {
-    const res = await ops.stagePatches(
-      "11111111-1111-4111-8111-111111111111",
-      ["33333333-3333-4333-8333-333333333333" as PatchId],
-      [],
-      "22222222-2222-4222-8222-222222222222" as AuthorId,
-    );
-
-    expect(res.error).toBe(undefined);
-    // The full membership, not the rows the request changed: staging is an
-    // idempotent upsert, so a retry changes none and `added: []` would read as
-    // "your group is empty" on a request that succeeded.
-    expect(res.patchIds).toEqual(["33333333-3333-4333-8333-333333333333"]);
-  } finally {
-    restore();
-  }
-});
-
-test("home's unstage response parses, and an emptied group is not an error", async () => {
-  const { ops, restore } = opsAnswering(HOME_UNSTAGE);
-  try {
-    const res = await ops.unstagePatches(
-      "11111111-1111-4111-8111-111111111111",
-      ["33333333-3333-4333-8333-333333333333" as PatchId],
-      [],
-      "22222222-2222-4222-8222-222222222222" as AuthorId,
-    );
-
-    expect(res.error).toBe(undefined);
-    expect(res.patchIds).toEqual([]);
-  } finally {
-    restore();
-  }
-});
-
-test("a body in the OLD shape is refused rather than silently read as empty", async () => {
-  /*
-   * The failure this file exists for, pinned from the other side.
-   *
-   * Before `home` was renamed it answered `{ groups: [{ id, … }] }`. Nothing
-   * threw: zod rejected it, `getPatchGroups` returned `error`, and every caller
-   * degraded quietly — `refuseUnlessOwn` to a 500, a scoped draft render to
-   * base with no pending content at all. Asserting the refusal is what makes a
-   * regression here loud instead of invisible.
-   */
-  const { ops, restore } = opsAnswering({
-    groups: [
-      {
-        id: "11111111-1111-4111-8111-111111111111",
-        authorId: "22222222-2222-4222-8222-222222222222",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        publishedAt: null,
-        patchIds: [],
-      },
-    ],
-  });
-  try {
-    const res = await ops.getPatchGroups({ fresh: true });
-    expect(res.status).toBe("error");
-  } finally {
-    restore();
-  }
-});
-
 /**
- * WHO is asking, on every request whose answer depends on it.
- *
- * `home` reads the caller's identity from `x-val-profile-id`: the app's API key
- * names the PROJECT, and every patch group belongs to a PERSON. The three
- * routes whose answer turns on that — stage, unstage and now commit — must all
- * send it, and `home` refuses each of them 403 "Cannot resolve the caller's
- * profile" without it.
- *
- * Commit was the one that did not. `home#55` added an ownership check to
- * `postCommit` so a publish cannot close somebody else's group, and against
- * that check a client sending only the API key cannot publish AT ALL once it
- * names a group — which is the normal full publish, since `publish` names the
- * group whenever the commit empties it. Nothing caught it: the e2e mock trusted
- * whatever group it was named, so the suite was green against a service that
- * refuses.
+ * WHO is publishing. `home` reads the caller's identity from
+ * `x-val-profile-id`: the app's API key names the PROJECT, not the person.
  */
 const PROFILE = "22222222-2222-4222-8222-222222222222" as AuthorId;
 
 function profileHeaderOf(sent: { headers: Record<string, string> }[]) {
   return sent.map((request) => request.headers["x-val-profile-id"]);
 }
-
-test("stage and unstage say who is asking", async () => {
-  const stage = opsAnswering(HOME_STAGE);
-  try {
-    await stage.ops.stagePatches(
-      "11111111-1111-4111-8111-111111111111",
-      ["33333333-3333-4333-8333-333333333333" as PatchId],
-      [],
-      PROFILE,
-    );
-    expect(profileHeaderOf(stage.sent)).toEqual([PROFILE]);
-  } finally {
-    stage.restore();
-  }
-
-  const unstage = opsAnswering(HOME_UNSTAGE);
-  try {
-    await unstage.ops.unstagePatches(
-      "11111111-1111-4111-8111-111111111111",
-      ["33333333-3333-4333-8333-333333333333" as PatchId],
-      [],
-      PROFILE,
-    );
-    expect(profileHeaderOf(unstage.sent)).toEqual([PROFILE]);
-  } finally {
-    unstage.restore();
-  }
-});
 
 /**
  * `home` — `Api["/commits/:commitSha/modules"]["GET"]["res"]`, copied from there.
@@ -438,7 +279,7 @@ test("a commit carries each changed module's data and schema, under the key home
   }
 });
 
-test("a commit says who is publishing, so home can check the group is theirs", async () => {
+test("a commit says who is publishing", async () => {
   const { ops, sent, restore } = opsAnswering({
     updatedFiles: [],
     commit: "abc1234",
@@ -465,7 +306,6 @@ test("a commit says who is publishing, so home can check the group is theirs", a
       PROFILE,
       "/public/val",
       undefined,
-      "11111111-1111-4111-8111-111111111111",
     );
 
     const commitRequest = sent.find((request) =>
@@ -473,38 +313,6 @@ test("a commit says who is publishing, so home can check the group is theirs", a
     );
     expect(commitRequest).toBeDefined();
     expect(commitRequest?.headers["x-val-profile-id"]).toBe(PROFILE);
-  } finally {
-    restore();
-  }
-});
-
-test("a fresh read really does bypass the cache, and a default read really does use it", async () => {
-  /*
-   * The mechanism two ownership decisions rest on.
-   *
-   * `getPatchGroups` caches for a second so the several `fetchVal` calls in one
-   * draft render do not each ask the content API. But two callers make a
-   * DECISION from the answer rather than rendering it — `refuseUnlessOwn`, and
-   * the chain annotation that `emptiesOwnPatchGroup` reads before a publish may
-   * name a group — and a second-old list is enough to get those wrong: the same
-   * author writing in a second tab joins the open group, so a cached membership
-   * is one patch short and this tab closes a group that still holds work.
-   *
-   * Pinned here because `fresh` silently becoming a no-op is invisible
-   * everywhere else — every caller keeps working, just on stale data.
-   */
-  const { ops, sent, restore } = opsAnswering(HOME_PATCH_GROUPS);
-  try {
-    await ops.getPatchGroups({ fresh: true });
-    expect(sent).toHaveLength(1);
-
-    // Inside the one-second window: the render path is content to reuse it.
-    await ops.getPatchGroups();
-    expect(sent).toHaveLength(1);
-
-    // A decision, so it asks again.
-    await ops.getPatchGroups({ fresh: true });
-    expect(sent).toHaveLength(2);
   } finally {
     restore();
   }
@@ -859,12 +667,10 @@ const HOME_APPLICABLE_PATCHES = {
       baseSha: "base",
       createdAt: "2026-01-01T00:00:00.000Z",
       applied: null,
-      patchGroupIds: [],
     },
   ],
   headPatchId: "55555555-5555-4555-8555-555555555555",
   headVersion: 42,
-  patchGroups: [],
   commits: [],
   deployments: [],
   project: { sourceMode: "connected", branch: "main" },
@@ -1033,100 +839,8 @@ test("a publish carries the chain version it moved to", async () => {
   }
 });
 
-/**
- * `home` after `valbuild/home#135`: a group change carries the chain version it
- * committed at, and `~` names the caller's open group.
- *
- * The fixtures above are the older `home`, which answers without a version and
- * must keep parsing until every deployment has the new one.
- */
-const HOME_STAGE_VERSIONED = { ...HOME_STAGE, headVersion: 7 };
-/** `home` — an unstage of `~` by a caller with no open group. */
-const HOME_UNSTAGE_NO_GROUP = {
-  patchGroupId: null,
-  patchIds: [] as string[],
-  headVersion: 7,
-};
-
-test("a stage with no group named goes to `~`, on this build's branch", async () => {
-  const stage = opsAnswering(HOME_STAGE_VERSIONED, 200, {
-    git: { commit: "c", branch: "feature" },
-  });
-  try {
-    const res = await stage.ops.stagePatches(
-      undefined,
-      ["33333333-3333-4333-8333-333333333333" as PatchId],
-      [],
-      PROFILE,
-    );
-
-    expect(stage.sent[0].url).toBe(
-      `${CONTENT_URL}/v1/${PROJECT}/patch-groups/~/patches`,
-    );
-    // The branch this build READS on, so the group it stages into is the group
-    // it is shown.
-    expect(stage.sent[0].body).toMatchObject({ branch: "feature" });
-    expect(res).toMatchObject({
-      patchGroupId: "11111111-1111-4111-8111-111111111111",
-      headVersion: 7,
-    });
-  } finally {
-    stage.restore();
-  }
-});
-
-test("a build with no repository leaves the branch to the content API", async () => {
-  const stage = opsAnswering(HOME_STAGE_VERSIONED, 200, { git: null });
-  try {
-    await stage.ops.stagePatches(
-      undefined,
-      ["33333333-3333-4333-8333-333333333333" as PatchId],
-      [],
-      PROFILE,
-    );
-    expect(stage.sent[0].body).not.toHaveProperty("branch");
-  } finally {
-    stage.restore();
-  }
-});
-
-test("an unstage of `~` with no open group parses as nothing to remove", async () => {
-  const unstage = opsAnswering(HOME_UNSTAGE_NO_GROUP);
-  try {
-    const res = await unstage.ops.unstagePatches(
-      undefined,
-      ["33333333-3333-4333-8333-333333333333" as PatchId],
-      [],
-      PROFILE,
-    );
-    expect(res.error).toBe(undefined);
-    expect(res).toMatchObject({ patchGroupId: null, patchIds: [] });
-  } finally {
-    unstage.restore();
-  }
-});
-
-test("an older home's answer, with no version, still parses", async () => {
-  const stage = opsAnswering(HOME_STAGE);
-  try {
-    const res = await stage.ops.stagePatches(
-      "11111111-1111-4111-8111-111111111111",
-      ["33333333-3333-4333-8333-333333333333" as PatchId],
-      [],
-      PROFILE,
-    );
-    expect(res.error).toBe(undefined);
-    expect(res).not.toHaveProperty("headVersion");
-  } finally {
-    stage.restore();
-  }
-});
-
-/**
- * `home` — `Api["/applicable/patches"]["GET"]["res"]`, the fields groups ride
- * on: `patchGroupIds` per patch, and the groups themselves without members.
- */
-const HOME_APPLICABLE_WITH_GROUPS = {
+/** `home` — `Api["/applicable/patches"]["GET"]["res"]`. */
+const HOME_APPLICABLE = {
   patches: [
     {
       path: "/content/page.val.ts",
@@ -1136,7 +850,6 @@ const HOME_APPLICABLE_WITH_GROUPS = {
       authorId: "22222222-2222-4222-8222-222222222222",
       createdAt: "2026-01-01T00:00:00.000Z",
       applied: null,
-      patchGroupIds: ["11111111-1111-4111-8111-111111111111"],
     },
     {
       path: "/content/page.val.ts",
@@ -1146,65 +859,35 @@ const HOME_APPLICABLE_WITH_GROUPS = {
       authorId: "55555555-5555-4555-8555-555555555555",
       createdAt: "2026-01-01T00:00:00.000Z",
       applied: null,
-      patchGroupIds: [],
     },
   ],
   headPatchId: "44444444-4444-4444-8444-444444444444",
   headVersion: 9,
-  patchGroups: [
-    {
-      patchGroupId: "11111111-1111-4111-8111-111111111111",
-      authorId: "22222222-2222-4222-8222-222222222222",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      publishedAt: null,
-    },
-    {
-      patchGroupId: "66666666-6666-4666-8666-666666666666",
-      authorId: "55555555-5555-4555-8555-555555555555",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      publishedAt: null,
-    },
-  ],
   commits: [],
   deployments: [],
 };
 
-test("the chain's own annotation becomes the groups, read with its version", async () => {
-  const { ops, restore } = opsAnswering(HOME_APPLICABLE_WITH_GROUPS);
-  try {
-    const res = await ops.fetchPatches({ excludePatchOps: true });
-
-    expect(res.headVersion).toBe(9);
-    expect(res.patchGroups).toEqual([
+test("the group fields an older content service still sends are dropped", async () => {
+  // Patch groups are gone; an older `home` annotated the chain with them.
+  const { ops, restore } = opsAnswering({
+    ...HOME_APPLICABLE,
+    patches: HOME_APPLICABLE.patches.map((patch) => ({
+      ...patch,
+      patchGroupIds: ["11111111-1111-4111-8111-111111111111"],
+    })),
+    patchGroups: [
       {
         patchGroupId: "11111111-1111-4111-8111-111111111111",
         authorId: "22222222-2222-4222-8222-222222222222",
         createdAt: "2026-01-01T00:00:00.000Z",
         publishedAt: null,
-        patchIds: ["33333333-3333-4333-8333-333333333333"],
       },
-      // Listed with no members: groups exist, and this one holds none of the
-      // listed patches. Not the same answer as "no groups here".
-      {
-        patchGroupId: "66666666-6666-4666-8666-666666666666",
-        authorId: "55555555-5555-4555-8555-555555555555",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        publishedAt: null,
-        patchIds: [],
-      },
-    ]);
-  } finally {
-    restore();
-  }
-});
-
-test("a content API that sends no groups leaves them absent, not empty", async () => {
-  const { patchGroups: _omit, ...withoutGroups } = HOME_APPLICABLE_WITH_GROUPS;
-  void _omit;
-  const { ops, restore } = opsAnswering(withoutGroups);
+    ],
+  });
   try {
     const res = await ops.fetchPatches({ excludePatchOps: true });
     expect(res).not.toHaveProperty("patchGroups");
+    expect(res.patches[0]).not.toHaveProperty("patchGroupIds");
   } finally {
     restore();
   }
@@ -1212,7 +895,7 @@ test("a content API that sends no groups leaves them absent, not empty", async (
 
 test("the changes a running publish holds come through, as home sends them", async () => {
   const { ops, restore } = opsAnswering({
-    ...HOME_APPLICABLE_WITH_GROUPS,
+    ...HOME_APPLICABLE,
     publishingPatches: ["33333333-3333-4333-8333-333333333333"],
   });
   try {
@@ -1227,7 +910,7 @@ test("the changes a running publish holds come through, as home sends them", asy
 
 test("a content API that does not say which changes are publishing leaves it absent, not empty", async () => {
   // Empty would claim no publish is running, which it cannot know.
-  const { ops, restore } = opsAnswering(HOME_APPLICABLE_WITH_GROUPS);
+  const { ops, restore } = opsAnswering(HOME_APPLICABLE);
   try {
     const res = await ops.fetchPatches({ excludePatchOps: true });
     expect(res).not.toHaveProperty("publishingPatches");

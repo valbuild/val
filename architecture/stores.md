@@ -75,9 +75,9 @@ is what made the two chains disagree.
 
 The parent is the chain's **head** as the server reports it (`headPatchId` on
 `/stat`), never the last id `/stat` listed. The list leaves out what the running
-deployment already contains, and since patch groups a published patch can come
-after a pending one — so "the last patch I was shown" can be behind the head for
-good. The head is a fact about the whole chain and only the server has it; see
+deployment already contains, and a published patch can come after a pending
+one (a publish that held changes back) — so "the last patch I was shown" can be
+behind the head for good. The head is a fact about the whole chain and only the server has it; see
 `PatchSync`'s docblock and the entry in `quirks.md`.
 
 `/stat` is polled and is the authority on **order**, not on existence. A response

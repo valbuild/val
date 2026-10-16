@@ -6,13 +6,11 @@ import type { PatchId } from "@valbuild/core";
  *
  * The head the server REPORTS (`headPatchId`) when it reports one, and not the
  * last patch it listed. The list — `/applicable/patches`, and `/stat` on top of
- * it — leaves out patches the running deployment already contains, and since
- * patch groups a publish can ship later patches while an earlier one stays
- * pending (another author's change that nets to nothing can never be published
- * at all). The last listed id is then behind the head for good, and the content
- * service accepts a write only on the head, so every save naming it is refused
- * — and a re-sync returns the same list. What fixed it in the Studio before
- * this existed was discarding the other author's change.
+ * it — leaves out patches the running deployment already contains, and a
+ * publish can ship later patches while an earlier one stays pending (a failed
+ * publish holds its changes back). The last listed id is then behind the head
+ * for good, and the content service accepts a write only on the head, so every
+ * save naming it is refused — and a re-sync returns the same list.
  *
  * `null` is a REPORTED empty chain, not "unknown". `undefined` is a server
  * that reports no head (`fs` mode, which ignores the parent anyway, or a

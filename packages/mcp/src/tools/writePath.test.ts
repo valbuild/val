@@ -6,8 +6,9 @@ import { deriveParentRef } from "./writePath";
  * What an MCP write names as its parent: the HEAD of the chain.
  *
  * The same rule as the Studio's `PatchSync`, for the same reason. The listing
- * leaves out patches this deployment already contains, and since patch groups a
- * published patch can come after one that is still pending — so the last listed
+ * leaves out patches this deployment already contains, and a published patch
+ * can come after one that is still pending (a publish that held changes back) —
+ * so the last listed
  * id can be behind the head for good, and a write naming it is refused on its
  * retry too.
  */
