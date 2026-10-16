@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import {
   PublishProposalDialog,
   type PublishProposalState,
+  type UpdateConflictView,
 } from "./PublishProposalDialog";
 
 /*
@@ -17,8 +18,12 @@ const ready = (
 
 const dialog = (
   state: PublishProposalState,
-  onUpdateFromSite = () => {},
+  onUpdateFromSite: (checkId: string) => void = () => {},
   updating = false,
+  more: {
+    onResolve?: (keep: ("site" | "proposal")[]) => void;
+    onCancelUpdate?: () => void;
+  } = {},
 ) =>
   render(
     <PublishProposalDialog
@@ -30,6 +35,7 @@ const dialog = (
       onRetry={() => {}}
       onUpdateFromSite={onUpdateFromSite}
       updating={updating}
+      {...more}
     />,
   );
 
@@ -52,6 +58,27 @@ describe("Publish, blocked", () => {
       screen.getByRole("button", { name: /update from the site/i }),
     );
     expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith("site-code");
+    expect(screen.queryByText(/Ask them to publish/)).toBeNull();
+  });
+
+  test("by a page the site published since: Update from the site is offered, for that check", () => {
+    const update = jest.fn();
+    dialog(
+      ready([
+        {
+          id: "published-since",
+          ok: false,
+          message: "Jonas changed title on /content/page.val.ts",
+          action: "update-from-site",
+        },
+      ]),
+      update,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /update from the site/i }),
+    );
+    expect(update).toHaveBeenCalledWith("published-since");
     expect(screen.queryByText(/Ask them to publish/)).toBeNull();
   });
 
@@ -90,5 +117,98 @@ describe("Publish, blocked", () => {
     expect(
       screen.queryByRole("button", { name: /update from the site/i }),
     ).toBeNull();
+  });
+});
+
+describe("Update from the site, with conflicts (step 8.2)", () => {
+  const withConflicts = (
+    conflicts?: UpdateConflictView[],
+  ): PublishProposalState => ({
+    kind: "ready",
+    changes: 1,
+    unsaved: 0,
+    checks: [
+      {
+        id: "published-since",
+        ok: false,
+        message: "Jonas changed title on /content/page.val.ts",
+        action: "update-from-site",
+      },
+    ],
+    conflicts: conflicts ?? [
+      {
+        kind: "field",
+        moduleFilePath: "/content/page.val.ts",
+        path: ["title"],
+        site: "Spring sale",
+        proposal: "Summer sale",
+      },
+      {
+        kind: "field",
+        moduleFilePath: "/content/page.val.ts",
+        path: ["subtitle"],
+        site: "Fresh",
+        proposal: "Fresh",
+      },
+    ],
+  });
+
+  test("each is shown with both sides, and nothing merges until every one is decided", () => {
+    const resolve = jest.fn();
+    dialog(withConflicts(), () => {}, false, { onResolve: resolve });
+    expect(screen.getByText("content/page.val.ts › title")).toBeTruthy();
+    // The same value on both sides is a conflict too: an easy one.
+    expect(screen.getAllByText("Fresh")).toHaveLength(2);
+    const update = screen.getByRole("button", {
+      name: /update from the site/i,
+    });
+    if (!(update instanceof HTMLButtonElement)) throw new Error("not a button");
+    expect(update.disabled).toBe(true);
+
+    const radios = screen.getAllByRole("radio");
+    fireEvent.click(radios[0]); // title: the site's
+    expect(update.disabled).toBe(true);
+    fireEvent.click(radios[3]); // subtitle: this proposal's
+    expect(update.disabled).toBe(false);
+    fireEvent.click(update);
+    expect(resolve).toHaveBeenCalledWith(["site", "proposal"]);
+  });
+
+  test("a file both changed is one decision, each side said by what it did to the file", () => {
+    const resolve = jest.fn();
+    dialog(
+      withConflicts([
+        {
+          kind: "code",
+          file: "src/components/Hero.tsx",
+          base: "a\nb\nc",
+          site: "a\nB\nc",
+          proposal: null,
+        },
+      ]),
+      () => {},
+      false,
+      { onResolve: resolve },
+    );
+    expect(screen.getByText("src/components/Hero.tsx")).toBeTruthy();
+    expect(screen.getByText("changed (+1 −1 lines)")).toBeTruthy();
+    expect(screen.getByText("deleted")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("radio")[1]);
+    fireEvent.click(
+      screen.getByRole("button", { name: /update from the site/i }),
+    );
+    expect(resolve).toHaveBeenCalledWith(["proposal"]);
+  });
+
+  test("Not now leaves them undecided, and merges nothing", () => {
+    const resolve = jest.fn();
+    const cancel = jest.fn();
+    dialog(withConflicts(), () => {}, false, {
+      onResolve: resolve,
+      onCancelUpdate: cancel,
+    });
+    fireEvent.click(screen.getByRole("button", { name: /not now/i }));
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(resolve).not.toHaveBeenCalled();
   });
 });

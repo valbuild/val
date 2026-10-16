@@ -1,5 +1,23 @@
 # @valbuild/ui
 
+## 0.144.12
+
+### Patch Changes
+
+- [#854](https://github.com/valbuild/val/pull/854) [`2193e3a`](https://github.com/valbuild/val/commit/2193e3ae133cd05dd73d0937dde7c15c88417f71) Thanks [@freekh](https://github.com/freekh)! - On an iPhone or in Safari, **Publish** in a proposal opens a builder tab only when the merge has something to build. A proposal of content alone, or one whose code is already built, is now published from the page itself. A merge that turns out to need a build asks for the tab with one more tap, and that tap now publishes the proposal rather than the site's own pending changes.
+
+## 0.144.11
+
+### Patch Changes
+
+- [#852](https://github.com/valbuild/val/pull/852) [`c606395`](https://github.com/valbuild/val/commit/c60639571f9e836726dfef38e6bd0defc503d726) Thanks [@freekh](https://github.com/freekh)! - A proposal's code can be built from every browser, an iPhone included. Where the Studio cannot build itself (Safari, and every browser on iOS), **Build** hands the build to a builder tab at the proposal's address, as Publish does, and follows it to the end. If the browser does not let the tab open — the assistant's `build_proposal` is not a tap — the button becomes **Open the tab to build**.
+
+## 0.144.10
+
+### Patch Changes
+
+- [#849](https://github.com/valbuild/val/pull/849) [`0a061c1`](https://github.com/valbuild/val/commit/0a061c124408aa127c5042c9e3a602d7dd9daf13) Thanks [@freekh](https://github.com/freekh)! - An unpublished change to a `.val` file that has since been renamed or deleted no longer holds the Studio on "Loading unpublished changes…". The Studio now names the file and offers **Discard** beside the message. If the file comes back, the change applies again.
+
 ## 0.144.9
 
 ### Patch Changes

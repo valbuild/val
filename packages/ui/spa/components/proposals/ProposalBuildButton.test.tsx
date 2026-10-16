@@ -79,4 +79,24 @@ describe("the Build button", () => {
     fireEvent.click(button);
     expect(onBuild).toHaveBeenCalledTimes(1);
   });
+
+  /*
+   * A browser that builds in a new tab (Safari, an iPhone), where the tab was
+   * not let open -- the assistant's build is no tap. The button opens it.
+   */
+  test("when the tab could not open, says so and opens it when pressed", () => {
+    const onBuild = jest.fn();
+    render(
+      <ProposalBuildButton
+        location={location({ state: "blocked" })}
+        onBuild={onBuild}
+      />,
+    );
+    const button = screen.getByRole("button", {
+      name: /open the tab to build/i,
+    });
+    expect(button.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(button);
+    expect(onBuild).toHaveBeenCalledTimes(1);
+  });
 });

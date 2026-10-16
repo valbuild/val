@@ -471,6 +471,20 @@ export type SystemEvent =
        */
       unstaged: PatchId[];
       /**
+       * Not applied, because the project has no module by that name.
+       *
+       * A fourth answer, for the patch that outlived its file: a `.val` file
+       * renamed or deleted with unpublished changes still in the chain. Only
+       * given once the project's modules are in -- before that, a module that is
+       * not loaded is a wait, not an answer. Without it the chain never settled
+       * and the editor held every field on "Loading unpublished changes…".
+       *
+       * Not folded into `failed` either, because a failure is deleted on sight
+       * (see `discardUnapplicable`), and this is somebody's edit to a file that
+       * may be coming back. Discarding it is the editor's call.
+       */
+      withoutModule: PatchId[];
+      /**
        * Modules whose source actually changed.
        *
        * Reported here rather than recovered by the consumers: the source store

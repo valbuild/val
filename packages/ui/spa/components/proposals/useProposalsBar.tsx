@@ -22,14 +22,19 @@ import { toast } from "../designSystem/sonner";
 import { copyText } from "../../utils/copyText";
 import {
   ProposalsApiError,
+  needsCodeUpdate,
+  type CodeResolution,
+  type UpdateResolution,
   jobState,
   sameStudioPageAt,
   toSummary,
   type ProposalJson,
+  type UpdateConflict,
 } from "../../proposals/proposalsClient";
 import { useProposals, waitForAddress } from "../../proposals/useProposals";
 import {
   proposalCodeChanged,
+  openBuilder,
   useProposalBuild,
 } from "../../proposals/useProposalBuild";
 import {
@@ -44,6 +49,9 @@ import {
 } from "./PublishProposalDialog";
 import { followCarryOver, type CarryOver } from "../../proposals/carryOver";
 import { canBuildHere } from "../../publish/handoff";
+import { updateProposalWithCode } from "../../proposals/updateWithCode";
+import { studioCodeUpdateDeps } from "../../proposals/studioCodeUpdate";
+import { mergeNeedsBuild } from "../../proposals/mergeNeedsBuild";
 import { randomUUID } from "../../utils/randomUUID";
 import {
   restoreCodeOf,
@@ -214,20 +222,28 @@ export function useProposalsBar({
     setNewProposal(nextNewProposal());
     setDialog("new");
   }, [proposalRequested, here]);
-  const code: ProposalCodeState | null = proposalBuild.state.building
-    ? { state: "building" }
-    : proposalBuild.state.error !== null
-      ? { state: "failed", error: proposalBuild.state.error }
-      : currentJson?.staged?.buildRequired
-        ? { state: "required" }
-        : null;
+  const code: ProposalCodeState | null = proposalBuild.state.inTab?.blocked
+    ? { state: "blocked" }
+    : proposalBuild.state.building
+      ? { state: "building" }
+      : proposalBuild.state.error !== null
+        ? { state: "failed", error: proposalBuild.state.error }
+        : currentJson?.staged?.buildRequired
+          ? { state: "required" }
+          : null;
   const build = proposalBuild.build;
+  const blocked = proposalBuild.state.inTab?.blocked === true;
   const runBuild = useCallback(async () => {
     if (build === null) return;
+    // The build is waiting on a tab the browser did not let open: open it.
+    if (blocked) {
+      openBuilder();
+      return;
+    }
     const outcome = await build();
     if (outcome.status === "built")
       toast.success("Built: the preview shows the change");
-  }, [build]);
+  }, [blocked, build]);
 
   const location: StudioLocation = useMemo(() => {
     if (here === null) return { kind: "site" };
@@ -335,29 +351,123 @@ export function useProposalsBar({
   }, [client, here, currentJson?.changes, unsaved]);
 
   /*
-   * "Update from the site" (step 8): the site's code changed under this
-   * proposal's, so it moves onto the site as it is now and its code is built
-   * again there -- "Build required" follows, and the checks are read again.
+   * "Update from the site" (step 8.2): the site's changes since the proposal
+   * started, merged into it, as a pull request is brought up to date.
+   *
+   * - Content only -- nothing staged, the site on the build the proposal
+   *   stands on: Val's server here merges under its own schemas
+   *   (`updateContent`). It says when that is not the case.
+   * - Otherwise the merge needs each tree's schemas, which only running its
+   *   code gives: this page bundles and evaluates them
+   *   (`updateProposalWithCode`), and what the merge leaves staged is built.
+   *
+   * What both changed comes back as conflicts, decided in the dialog, and the
+   * same update with those decisions merges. Either way the checks are read
+   * again after.
    */
   const [updating, setUpdating] = useState(false);
-  const updateFromSite = useCallback(async () => {
-    if (here === null) return;
-    setUpdating(true);
-    try {
-      await client.updateFromSite(here.name);
-      proposalCodeChanged();
-      await loadChecks();
-    } catch (error) {
-      setPublishState({
-        kind: "error",
-        message: `Could not update from the site: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      });
-    } finally {
-      setUpdating(false);
-    }
-  }, [client, here, loadChecks]);
+  const [conflicts, setConflicts] = useState<{
+    of: "content" | "code";
+    list: UpdateConflict[];
+  } | null>(null);
+  const buildProposalNow = proposalBuild.build;
+  const updateFromSite = useCallback(
+    async (checkId: string, keep: ("site" | "proposal")[] = []) => {
+      if (here === null) return;
+      setUpdating(true);
+      try {
+        const resolutions = (conflicts?.list ?? []).flatMap(
+          (conflict, at): (UpdateResolution | CodeResolution)[] => {
+            const kept = keep[at];
+            if (kept === undefined) return [];
+            if (conflict.kind === "field") {
+              return [
+                {
+                  moduleFilePath: conflict.moduleFilePath,
+                  path: conflict.path,
+                  keep: kept,
+                },
+              ];
+            }
+            if (conflict.kind === "code") {
+              return [{ file: conflict.file, keep: kept }];
+            }
+            return [];
+          },
+        );
+        let withCode =
+          conflicts?.of === "code" ||
+          (checkId === "site-code" && canBuildHere());
+        if (!withCode && checkId !== "published-since") {
+          // The site's code moved and this page cannot read code: onto the
+          // site's build, its own code built again there, as before 8.2.
+          await client.updateFromSite(here.name);
+          proposalCodeChanged();
+          await loadChecks();
+          return;
+        }
+        if (!withCode) {
+          try {
+            const answer = await client.updateContent(
+              here.name,
+              resolutions.filter(
+                (r): r is UpdateResolution => "moduleFilePath" in r,
+              ),
+            );
+            if (answer.status === "conflicts") {
+              setConflicts({ of: "content", list: answer.conflicts });
+              return;
+            }
+            setConflicts(null);
+            await loadChecks();
+            return;
+          } catch (error) {
+            if (!needsCodeUpdate(error)) throw error;
+            withCode = true;
+          }
+        }
+        if (!canBuildHere()) {
+          setPublishState({
+            kind: "error",
+            message:
+              "This proposal changes code, or the site's code changed, so updating it reads the code in this browser -- and this one cannot. Open the proposal in Chrome or Edge on a computer to update it.",
+          });
+          return;
+        }
+        const outcome = await updateProposalWithCode(
+          here.name,
+          resolutions,
+          studioCodeUpdateDeps(client),
+        );
+        if (outcome.status === "conflicts") {
+          setConflicts({ of: "code", list: outcome.conflicts });
+          return;
+        }
+        setConflicts(null);
+        proposalCodeChanged();
+        // What the merge staged is built over the site's build, as any staged
+        // code is: the address serves it once it is.
+        if (
+          outcome.status === "updated" &&
+          outcome.proposal.staged?.buildRequired &&
+          buildProposalNow !== null
+        ) {
+          void buildProposalNow();
+        }
+        await loadChecks();
+      } catch (error) {
+        setPublishState({
+          kind: "error",
+          message: `Could not update from the site: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+      } finally {
+        setUpdating(false);
+      }
+    },
+    [buildProposalNow, client, conflicts, here, loadChecks],
+  );
 
   /** Where the press is, while it is followed. See `pressed`. */
   const following = useMemo<
@@ -506,6 +616,7 @@ export function useProposalsBar({
      * before anything here awaits. So a proposal with unsaved changes is
      * saved first, and Publish asks for a second tap.
      */
+    const needsBuild = mergeNeedsBuild(currentJson);
     if (unsaved > 0) {
       const checks = publishState.kind === "ready" ? publishState.checks : [];
       setPublishState({ kind: "publishing", step: "saving" });
@@ -514,7 +625,8 @@ export function useProposalsBar({
         setPublishState({ kind: "failed", message: failed });
         return;
       }
-      if (!canBuildHere()) {
+      // Only a merge that builds needs the tab, and so the second tap.
+      if (!canBuildHere() && needsBuild) {
         setPublishState({
           kind: "ready",
           checks,
@@ -525,8 +637,9 @@ export function useProposalsBar({
         return;
       }
     }
-    await pressMerge(() => publishProposal(name));
+    await pressMerge(() => publishProposal(name, { needsBuild }));
   }, [
+    currentJson,
     currentJson?.changes,
     here,
     pressMerge,
@@ -545,13 +658,26 @@ export function useProposalsBar({
       return;
     }
     setFailedRequest(null);
-    await pressMerge(() => retryProposalPublish(name, failedRequest));
-  }, [failedRequest, here, pressMerge, retryProposalPublish, runPublish]);
+    await pressMerge(() =>
+      retryProposalPublish(name, failedRequest, {
+        needsBuild: mergeNeedsBuild(currentJson),
+      }),
+    );
+  }, [
+    currentJson,
+    failedRequest,
+    here,
+    pressMerge,
+    retryProposalPublish,
+    runPublish,
+  ]);
 
   /* Settled is shown at once; the effect above keeps it once pressed clears. */
   const dialogState: PublishProposalState =
     following === null
-      ? publishState
+      ? publishState.kind === "ready" && conflicts !== null
+        ? { ...publishState, conflicts: conflicts.list }
+        : publishState
       : following.kind === "running"
         ? { kind: "publishing", step: following.step }
         : following.kind === "merged"
@@ -787,7 +913,9 @@ export function useProposalsBar({
           {...(continuation !== null
             ? { onOpenContinuation: () => void openProposal(continuation) }
             : {})}
-          onUpdateFromSite={() => void updateFromSite()}
+          onUpdateFromSite={(checkId) => void updateFromSite(checkId)}
+          onResolve={(keep) => void updateFromSite("published-since", keep)}
+          onCancelUpdate={() => setConflicts(null)}
           updating={updating}
           portalContainer={portalContainer}
         />

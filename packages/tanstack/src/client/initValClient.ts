@@ -21,10 +21,13 @@ import { ValConfig } from "@valbuild/core";
 import { useValOverlayContext } from "../ValOverlayContext";
 import { useHydrated } from "../useHydrated";
 import {
+  bundledJsonEntryImport,
+  fillJsonValuesRecord,
   getJsonEntryStegaRoot,
   getValRouteUrlFromVal,
   initValRouteFromVal,
   isJsonValuesRecordSchema,
+  jsonValuesRecordToFill,
 } from "../routeFromVal";
 
 /**
@@ -125,18 +128,46 @@ function useValStega<T extends Resolvable>(selector: T): UseValType<T> {
   ) {
     React.use(store.waitForLoad(moduleIds));
   }
+  const sourceOf = (moduleId: string): Json | undefined => {
+    if (moduleMap && valOverlayContext.draftMode) {
+      const draft = moduleMap[moduleId as ModuleFilePath];
+      if (draft !== undefined) {
+        return draft;
+      }
+    }
+    // At a proposal's address: its saved Source, not the bundle's.
+    return valOverlayContext.snapshot?.[moduleId as ModuleFilePath];
+  };
+  /*
+   * A whole `.jsonValues()` record is read with every entry's content: its own
+   * source holds only lazy markers. The entries no draft or snapshot has are
+   * imported from the bundle -- all of them started before waiting on any, so
+   * they load together. `useValKey` is the reader for one entry.
+   */
+  const jsonValues = jsonValuesRecordToFill(selector, (modulePath) => [
+    moduleMap && valOverlayContext.draftMode
+      ? moduleMap[modulePath]
+      : undefined,
+    valOverlayContext.snapshot?.[modulePath],
+  ]);
+  let filledRecord: Record<string, unknown> | null = null;
+  if (jsonValues !== null) {
+    const pending = jsonValues.load.map((key) =>
+      committedJsonEntryPromise(jsonValues.module, jsonValues.modulePath, key),
+    );
+    const loaded: Record<string, unknown> = {};
+    jsonValues.load.forEach((key, index) => {
+      const promise = pending[index];
+      loaded[key] = promise === undefined ? undefined : React.use(promise);
+    });
+    filledRecord = fillJsonValuesRecord(jsonValues.record, loaded);
+  }
   return stegaEncode(selector, {
     disabled: !encodes,
-    getModule: (moduleId) => {
-      if (moduleMap && valOverlayContext.draftMode) {
-        const draft = moduleMap[moduleId as ModuleFilePath];
-        if (draft !== undefined) {
-          return draft;
-        }
-      }
-      // At a proposal's address: its saved Source, not the bundle's.
-      return valOverlayContext.snapshot?.[moduleId as ModuleFilePath];
-    },
+    getModule: (moduleId) =>
+      jsonValues !== null && moduleId === jsonValues.modulePath
+        ? filledRecord
+        : sourceOf(moduleId),
   });
 }
 
@@ -305,13 +336,36 @@ function readCommittedJsonEntry(
   if (!thunk) {
     return undefined;
   }
-  const cacheKey = `${Internal.getValPath(selector) ?? ""} ${key}`;
+  const promise = committedJsonEntryPromise(
+    selector,
+    Internal.getValPath(selector) as unknown as ModuleFilePath | undefined,
+    key,
+  );
+  return promise === undefined ? undefined : React.use(promise);
+}
+
+/**
+ * The bundle's import of one entry, started once and kept, so every render
+ * that waits on it is handed the same promise (`React.use` needs that).
+ * `undefined` when the module has no import for `key`.
+ */
+function committedJsonEntryPromise(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  module: any,
+  modulePath: ModuleFilePath | undefined,
+  key: string,
+): Promise<unknown> | undefined {
+  const cacheKey = `${modulePath ?? ""} ${key}`;
   let promise = jsonEntryPromiseCache.get(cacheKey);
   if (!promise) {
+    const thunk = bundledJsonEntryImport(module, key);
+    if (!thunk) {
+      return undefined;
+    }
     promise = thunk().then((mod) => mod.default);
     jsonEntryPromiseCache.set(cacheKey, promise);
   }
-  return React.use(promise);
+  return promise;
 }
 
 function resolveParams(

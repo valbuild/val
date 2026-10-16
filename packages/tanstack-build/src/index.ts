@@ -39,3 +39,4 @@ export * from "./contract";
 export * from "./artifacts";
 export * from "./gitTree";
 export * from "./wire";
+export { bundleValModules } from "./valModules";

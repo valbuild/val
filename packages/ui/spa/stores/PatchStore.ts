@@ -289,6 +289,13 @@ export class PatchStore {
    * {@link chainSettled} needs the second; every value reader needs the first.
    */
   private unstagedIds = new Set<PatchId>();
+  /**
+   * Patches whose module the project does not have: the file was renamed or
+   * deleted with them unpublished. Decided, like unstaged, so
+   * {@link chainSettled} stops waiting on them; reported through
+   * {@link changesWithoutModule} so the editor can discard them.
+   */
+  private withoutModuleIds = new Set<PatchId>();
   private failedById = new Map<PatchId, string>();
   /** Ids announced by stat whose fetch is in flight, so we do not re-fetch. */
   private fetching = new Set<PatchId>();
@@ -512,12 +519,22 @@ export class PatchStore {
         this.failedById.delete(patchId);
         this.appliedIds.delete(patchId);
       }
+      for (const patchId of event.withoutModule) {
+        this.withoutModuleIds.add(patchId);
+        this.failedById.delete(patchId);
+        this.appliedIds.delete(patchId);
+      }
       for (const patchId of [
         ...event.success,
         ...event.failed.map((f) => f.patchId),
       ]) {
         // Re-staged, or now applying: it is no longer unstaged.
         this.unstagedIds.delete(patchId);
+        // Its module is back.
+        this.withoutModuleIds.delete(patchId);
+      }
+      for (const patchId of event.unstaged) {
+        this.withoutModuleIds.delete(patchId);
       }
       this.events.emit({ type: "patch:head", head: this.currentHead() });
     });
@@ -1772,6 +1789,7 @@ export class PatchStore {
       // change is unstaged — stage it in Review" about a patch that is not
       // there to stage.
       this.unstagedIds.delete(patchId);
+      this.withoutModuleIds.delete(patchId);
       forgotten.push(patchId);
     }
     if (forgotten.length === 0) return;
@@ -1821,6 +1839,7 @@ export class PatchStore {
       // change is unstaged — stage it in Review" about a patch that is not
       // there to stage.
       this.unstagedIds.delete(patchId);
+      this.withoutModuleIds.delete(patchId);
       this.publishedIds.delete(patchId);
       dropped.push(patchId);
     }
@@ -2054,6 +2073,26 @@ export class PatchStore {
   }
 
   /**
+   * Unpublished changes to modules the project does not have, in chain order.
+   *
+   * What a renamed or deleted `.val` file leaves behind. They stay in the chain
+   * -- the file may come back, and then they apply -- so this is where the
+   * editor is told about them, and offered to discard them.
+   */
+  changesWithoutModule(): {
+    patchId: PatchId;
+    moduleFilePath: ModuleFilePath;
+  }[] {
+    return this.ordered.flatMap((patchId) => {
+      const record = this.dataById.get(patchId);
+      if (!this.withoutModuleIds.has(patchId) || record === undefined) {
+        return [];
+      }
+      return [{ patchId, moduleFilePath: record.moduleFilePath }];
+    });
+  }
+
+  /**
    * Something about groups that this store does not hold has changed.
    *
    * The local SCOPE — which patches this client is showing and will publish —
@@ -2237,7 +2276,9 @@ export class PatchStore {
         !this.appliedIds.has(patchId) &&
         !this.pendingIds.has(patchId) &&
         // Unstaged is an answer, not a wait. See `unstagedIds`.
-        !this.unstagedIds.has(patchId)
+        !this.unstagedIds.has(patchId) &&
+        // So is a module the project does not have. See `withoutModuleIds`.
+        !this.withoutModuleIds.has(patchId)
       ) {
         return false;
       }
@@ -2281,7 +2322,12 @@ export class PatchStore {
         unfetched.push(patchId);
         continue;
       }
-      if (!this.appliedIds.has(patchId) && !this.pendingIds.has(patchId)) {
+      if (
+        !this.appliedIds.has(patchId) &&
+        !this.pendingIds.has(patchId) &&
+        !this.unstagedIds.has(patchId) &&
+        !this.withoutModuleIds.has(patchId)
+      ) {
         unapplied.push(patchId);
         continue;
       }

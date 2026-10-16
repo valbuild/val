@@ -667,6 +667,9 @@ export function HandoffPublishTab({ id }: { id: string }) {
           },
         });
       } else startUpdate();
+    } else if (intent.kind === "build-proposal") {
+      // `HandoffProposalBuildTab`'s, which `ValStudio` mounts for it instead.
+      setWaiting({ kind: "cancelled", message: NO_INTENT_MESSAGE });
     } else {
       ownPending.current = true;
       void press(intent);

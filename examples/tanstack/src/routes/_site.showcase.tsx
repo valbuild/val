@@ -1,6 +1,7 @@
+import { Suspense } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Internal, ValImage, ValRichText, ValVideo } from "@valbuild/tanstack";
-import { useVal, useValRoute } from "../val/client";
+import { useVal, useValKey, useValRoute } from "../val/client";
 import { NotFound } from "../components/NotFound";
 import pageVal from "./_site.showcase.val";
 import themeVal from "../content/theme.val";
@@ -201,6 +202,7 @@ function Showcase() {
       <section>
         <h2>.jsonValues()</h2>
         <p>{page.notes.kb}</p>
+        {/* `useVal` reads the whole record: every entry's file is loaded. */}
         <ul>
           {Object.entries(kb)
             .sort(([, a], [, b]) => a.order - b.order)
@@ -210,6 +212,10 @@ function Showcase() {
               </li>
             ))}
         </ul>
+        {/* `useValKey` reads one entry, and loads only that entry's file. */}
+        <Suspense fallback={null}>
+          <FeaturedArticle articleKey="what-is-val" />
+        </Suspense>
       </section>
 
       <section>
@@ -252,4 +258,22 @@ function fontFamilyOf(path: string): string {
     .split("/")
     .pop()
     ?.replace(/[^a-z0-9-]/gi, "-")}`;
+}
+
+/**
+ * One `.jsonValues()` entry, read by key. `useValKey` loads only this entry's
+ * `*.val.json`, where `useVal(kbVal)` above loads them all -- the reader to
+ * use for a page that shows one entry of a large record. It suspends until the
+ * entry has loaded, hence the `<Suspense>` around it.
+ */
+function FeaturedArticle({ articleKey }: { articleKey: string }) {
+  const article = useValKey(kbVal, articleKey);
+  if (article === undefined) {
+    return null;
+  }
+  return (
+    <p>
+      Featured: <strong>{article.title}</strong>
+    </p>
+  );
 }

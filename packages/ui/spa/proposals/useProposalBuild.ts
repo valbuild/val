@@ -4,6 +4,7 @@ import {
   useStudioDeployState,
 } from "../components/ValProvider";
 import { canBuildHere } from "../publish/handoff";
+import { buildInTab, openBuilder as openBuilderTab } from "./buildInTab";
 import { buildProposal, type ProposalBuildOutcome } from "./proposalCode";
 import { createProposalsClient, type ProposalsClient } from "./proposalsClient";
 
@@ -27,6 +28,13 @@ export type ProposalBuildState = {
    * in: the assistant, on the site. The proposals bar opens New proposal.
    */
   proposalRequested: number;
+  /**
+   * Built in a builder tab, because this page cannot build (`canBuildHere`):
+   * Safari, an iPhone. `blocked` while the browser has not let the tab open
+   * -- the assistant's `build_proposal` is no tap -- and then Build opens it
+   * (`openBuilder`). `step` is the tab's, as it reports it.
+   */
+  inTab: { blocked: boolean; step: string | null } | null;
 };
 
 const INITIAL: ProposalBuildState = {
@@ -34,6 +42,7 @@ const INITIAL: ProposalBuildState = {
   error: null,
   changed: 0,
   proposalRequested: 0,
+  inTab: null,
 };
 let current: ProposalBuildState = INITIAL;
 const listeners = new Set<() => void>();
@@ -94,6 +103,14 @@ export function runProposalBuild(
   return running;
 }
 
+/**
+ * Open the builder tab the browser did not let open: from a tap, which it
+ * allows. See `buildInTab`.
+ */
+export function openBuilder(): void {
+  if (openBuilderTab()) set({ inTab: { blocked: false, step: null } });
+}
+
 export function useProposalBuild(client?: ProposalsClient): {
   state: ProposalBuildState;
   /** `null` off a proposal: nothing to build. */
@@ -110,19 +127,23 @@ export function useProposalBuild(client?: ProposalsClient): {
   const build = useCallback(
     () =>
       runProposalBuild(() =>
-        buildProposal({
-          name: name ?? "",
-          client: proposals,
-          canBuildHere,
-          deploy: async (files) =>
-            (
-              await deploy(null, files, {
-                binaryFiles: null,
-                branch: null,
-                until: "confirmed",
-              })
-            ).result,
-        }),
+        !canBuildHere() && name !== null
+          ? buildInTab(name, proposals, {
+              onTab: (inTab) => set({ inTab }),
+            })
+          : buildProposal({
+              name: name ?? "",
+              client: proposals,
+              canBuildHere,
+              deploy: async (files) =>
+                (
+                  await deploy(null, files, {
+                    binaryFiles: null,
+                    branch: null,
+                    until: "confirmed",
+                  })
+                ).result,
+            }),
       ),
     [deploy, name, proposals],
   );

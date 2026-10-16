@@ -106,6 +106,7 @@ import {
   useCurrentProposal,
   useHistoryBranch,
   useReportError,
+  useChangesWithoutModuleNotice,
 } from "../ValProvider";
 import {
   useFilePatchIds,
@@ -309,6 +310,8 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
   usePatchGroupWrites();
   usePatchGroupScope();
   usePatchGroupIdentity();
+  // Changes left behind by a renamed or deleted file: told, with Discard.
+  useChangesWithoutModuleNotice();
   const portalContainer = useValPortal();
   const discardAll = useDiscardAll();
   /*

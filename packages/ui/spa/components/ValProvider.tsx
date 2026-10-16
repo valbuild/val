@@ -23,6 +23,7 @@ import { runStudioJob } from "../publish/runStudioJob";
 import { PUBLISH_TAB_ID } from "../publish/tabId";
 import { canBuildHere } from "../publish/handoff";
 import { toast } from "./designSystem/sonner";
+import { describeChangesWithoutModule } from "../utils/describeChangesWithoutModule";
 import React, {
   createContext,
   Dispatch,
@@ -1207,6 +1208,8 @@ export function ValProvider({
           handoffRef.current.prepare(true, {
             requestId: request.requestId,
             after: null,
+            // A merge's tab presses the merge again, not the site's changes.
+            ...(request.merge !== undefined ? { merge: request.merge } : {}),
           });
         },
       },
@@ -1976,6 +1979,65 @@ export function useDeletePatches() {
   );
   return { deletePatches };
 }
+
+/**
+ * Tell the editor about unpublished changes to files the project no longer has,
+ * with Discard beside the message.
+ *
+ * A renamed or deleted `.val` file leaves its unpublished changes behind. They
+ * no longer hold the editor (see `withoutModule` on `source:patch-apply`), but
+ * they cannot be shown or published either, and only the editor knows whether
+ * the file is coming back. So: one toast, kept until it is acted on, updated in
+ * place as the set changes and gone when it is empty.
+ */
+export function useChangesWithoutModuleNotice(): void {
+  const val = useValSystem();
+  const { deletePatches } = useDeletePatches();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      const offChain = val.system.patchStore.events.on("patch:chain", onChange);
+      const offHead = val.system.patchStore.events.on("patch:head", onChange);
+      return () => {
+        offChain();
+        offHead();
+      };
+    },
+    [val],
+  );
+  // A string, so the snapshot is equal by value and the effect below runs once
+  // per change of the set rather than once per event.
+  const getSnapshot = useCallback(
+    () =>
+      val === null
+        ? "[]"
+        : JSON.stringify(val.system.patchStore.changesWithoutModule()),
+    [val],
+  );
+  const key = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  useEffect(() => {
+    if (val === null) return;
+    const changes = val.system.patchStore.changesWithoutModule();
+    const notice = describeChangesWithoutModule(changes);
+    if (notice === null) {
+      toast.dismiss(CHANGES_WITHOUT_MODULE_TOAST);
+      return;
+    }
+    const patchIds = changes.map((change) => change.patchId);
+    toast.error(notice.title, {
+      id: CHANGES_WITHOUT_MODULE_TOAST,
+      description: notice.description,
+      duration: Infinity,
+      action: {
+        label: "Discard",
+        onClick: () => deletePatches(patchIds),
+      },
+      cancel: { label: "Keep", onClick: () => {} },
+    });
+  }, [val, key, deletePatches]);
+}
+
+const CHANGES_WITHOUT_MODULE_TOAST = "changes-without-module";
 
 export function useAIContext() {
   const {
@@ -3376,13 +3438,23 @@ export function usePublishSummary() {
    * `useProposalPublish`, which finds it once the tab says what it pressed.
    */
   const publishProposal = useCallback(
-    async (proposalName: string): Promise<ProposalPublishPress> => {
-      /*
-       * Built in a tab, always: a merge is a managed publish, whatever this
-       * address's own saves are -- they are commits, and build nothing, so
-       * `buildsInTab` is false here.
+    async (
+      proposalName: string,
+      /**
+       * Whether the merge will build (`mergeNeedsBuild`). A page that cannot
+       * build opens a builder tab at the press only for one that will: a merge
+       * of content alone, or of code already built, goes live on a build the
+       * site or the proposal already has, and this page presses it itself.
+       * One that needs a build after all asks for the tab with another tap
+       * (`onNeedsBuilder`).
        */
-      if (handoff.prepare(true, { merge: proposalName })) {
+      options: { needsBuild: boolean } = { needsBuild: true },
+    ): Promise<ProposalPublishPress> => {
+      /*
+       * Not `buildsInTab`: this address's own saves are commits, and build
+       * nothing, but a merge is a managed publish of the site.
+       */
+      if (handoff.prepare(options.needsBuild, { merge: proposalName })) {
         return { status: "handed-off" };
       }
       const lock = beginSiteOperation("publish");
@@ -3450,11 +3522,12 @@ export function usePublishSummary() {
     async (
       proposalName: string,
       failedRequestId: string,
+      options: { needsBuild: boolean } = { needsBuild: true },
     ): Promise<ProposalPublishPress> => {
       toast.dismiss(`publish:${failedRequestId}`);
-      // In a tab, always: see `publishProposal`.
+      // In a tab only for a merge that builds: see `publishProposal`.
       if (
-        handoff.prepare(true, {
+        handoff.prepare(options.needsBuild, {
           tryAgainOf: failedRequestId,
           merge: proposalName,
         })
