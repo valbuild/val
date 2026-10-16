@@ -1,5 +1,32 @@
 # @valbuild/cli
 
+## 0.145.1
+
+### Patch Changes
+
+- [#860](https://github.com/valbuild/val/pull/860) [`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7) Thanks [@freekh](https://github.com/freekh)! - `val publish` now refuses to build a site whose installed TanStack disagrees with the platform's. A project's CI builds its dependency layer from its own `node_modules`, and a lockfile two patches away from the platform's `@tanstack/*` used to publish fine and then fail on the first request that reached the mismatched code — typically signing in — with "does not provide an export named …". The build now stops with a message naming the package, the version the project resolved and the version the platform carries, and the fix is to pin the package to that version (with `pnpm.overrides` for a transitive one) and reinstall.
+
+  The same build also checks every import a dependency takes from the platform's React and TanStack against what the platform says those modules export, which until now ran only in the platform's own checkout.
+
+  Both checks use what the platform reports about itself, so they run once the platform does; until then `val publish` builds as before and says in its output that the check was skipped. They run in the `@valbuild/tanstack-build` the project has installed, so upgrade it alongside `@valbuild/cli`.
+
+- [#860](https://github.com/valbuild/val/pull/860) [`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7) Thanks [@freekh](https://github.com/freekh)! - `val publish` and the Studio now tell Val Build which version of the platform's React and TanStack a build was made against. If the platform is updated while a build is running — a project's CI can take several minutes — that build is no longer published onto a platform it was never checked against: the publish stops with a message saying the platform was updated and to build again, and the next build is checked against what it will run on. A build published with `val publish --artifacts` was made elsewhere and does not say, and publishes as before.
+- Updated dependencies [[`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7), [`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7), [`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7)]:
+  - @valbuild/tanstack-build@0.145.1
+  - @valbuild/shared@0.145.1
+  - @valbuild/language-server@0.145.1
+  - @valbuild/server@0.145.1
+
+## 0.145.0
+
+### Patch Changes
+
+- Updated dependencies [[`b6cb939`](https://github.com/valbuild/val/commit/b6cb9395d8bdcd5182e9c6ba84f5284930de2fa5), [`f085be0`](https://github.com/valbuild/val/commit/f085be0eb5bdc195e9d8cdb15dd5f8acfdabe23c)]:
+  - @valbuild/core@0.145.0
+  - @valbuild/shared@0.145.0
+  - @valbuild/server@0.145.0
+  - @valbuild/language-server@0.145.0
+
 ## 0.144.12
 
 ### Patch Changes

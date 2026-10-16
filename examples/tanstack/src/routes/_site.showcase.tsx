@@ -5,6 +5,7 @@ import { useVal, useValKey, useValRoute } from "../val/client";
 import { NotFound } from "../components/NotFound";
 import pageVal from "./_site.showcase.val";
 import themeVal from "../content/theme.val";
+import layoutVal from "../content/layout.val";
 import galleryVal from "../content/gallery.val";
 import downloadsVal from "../content/downloads.val";
 import fontsVal from "../content/fonts.val";
@@ -30,6 +31,7 @@ export const Route = createFileRoute("/_site/showcase")({
 function Showcase() {
   const page = useValRoute(pageVal, {});
   const theme = useVal(themeVal);
+  const layout = useVal(layoutVal);
   const gallery = useVal(galleryVal);
   const downloads = useVal(downloadsVal);
   const fonts = useVal(fontsVal);
@@ -68,6 +70,35 @@ function Showcase() {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section>
+        <h2>s.int() and s.number()</h2>
+        <p>{page.notes.layout}</p>
+        <div
+          style={{
+            display: "grid",
+            gap: `${layout.gap}px`,
+            gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
+            lineHeight: layout.lineHeight,
+          }}
+        >
+          {Array.from({ length: layout.columns }, (_, i) => (
+            <div
+              key={i}
+              style={{
+                border: "1px solid currentColor",
+                opacity: layout.opacity / 100,
+                padding: "0.5rem",
+              }}
+            >
+              {"★".repeat(layout.rating)}
+              {"☆".repeat(Math.max(0, 5 - layout.rating))}
+              <br />
+              Card {i + 1}
+            </div>
+          ))}
+        </div>
       </section>
 
       <section>

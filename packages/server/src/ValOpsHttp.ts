@@ -35,7 +35,10 @@ import {
   type PublishRefusal,
 } from "./ValOps";
 import { z } from "zod";
-import { mergeContent } from "./proposalMerge/mergeContent";
+import {
+  mergeContent,
+  type ContentMergeResult,
+} from "./proposalMerge/mergeContent";
 import { updateWithCode } from "./proposalMerge/updateCode";
 import { fromError } from "zod-validation-error";
 import type { HistoryError } from "./history/HistoryError";
@@ -1133,31 +1136,42 @@ export class ValOpsHttp extends ValOps {
       });
     }
     const modules: Parameters<typeof mergeContent>[0]["modules"] = {};
-    const withoutText: string[] = [];
+    const withoutText: ModuleFilePath[] = [];
     for (const [path, module] of Object.entries(inputs.data.modules)) {
+      const moduleFilePath = path as ModuleFilePath;
       if (module.text === null) {
-        withoutText.push(path);
+        withoutText.push(moduleFilePath);
         continue;
       }
-      modules[path as ModuleFilePath] = {
+      modules[moduleFilePath] = {
         base: module.base,
         site: module.site,
         proposal: module.proposal,
         text: module.text,
       };
     }
-    const merged =
+    // Decisions are about the values a person was shown. When the site or
+    // the proposal moved since, they would settle values nobody saw, so the
+    // merge is done again without them: what still conflicts is shown again.
+    const { siteHead, proposalHead } = request.data;
+    const decidedHere =
+      siteHead === undefined ||
+      (siteHead === inputs.data.siteHead &&
+        proposalHead === inputs.data.proposalHead);
+    const merged: ContentMergeResult =
       withoutText.length > 0
-        ? { status: "needs-full-merge" as const, modules: withoutText }
+        ? { status: "needs-full-merge", modules: withoutText }
         : mergeContent({
             modules,
             schemas: await this.getSchemas(),
-            resolutions: request.data.resolutions,
+            resolutions: decidedHere ? request.data.resolutions : [],
           });
     if (merged.status === "conflicts") {
       return answer(200, {
         status: "conflicts",
         conflicts: merged.conflicts,
+        siteHead: inputs.data.siteHead,
+        proposalHead: inputs.data.proposalHead,
       });
     }
     if (merged.status === "needs-full-merge") {
@@ -1180,11 +1194,7 @@ export class ValOpsHttp extends ValOps {
     if (!written.ok) {
       return { status: written.status, contentType: json, body: text };
     }
-    return {
-      status: 200,
-      contentType: json,
-      body: JSON.stringify({ status: "updated", ...JSON.parse(text) }),
-    };
+    return updatedAnswer(text);
   }
 
   /**
@@ -1296,7 +1306,7 @@ export class ValOpsHttp extends ValOps {
     if (!written.ok) {
       return { status: written.status, contentType: json, body: text };
     }
-    return answer(200, { status: "updated", ...JSON.parse(text) });
+    return updatedAnswer(text);
   }
 
   /**
@@ -3090,8 +3100,49 @@ export class ValOpsHttp extends ValOps {
   // #endregion history
 }
 
+/**
+ * Content's answer to a merge it committed, as the Studio is answered: what
+ * content says, marked updated. Content has written the merge by then, so an
+ * answer that cannot be read says so rather than failing as though nothing
+ * happened.
+ */
+function updatedAnswer(text: string): {
+  status: number;
+  body: string;
+  contentType: string;
+} {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return {
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message:
+          "The proposal was updated from the site, but content's answer could not be read. Reload to see the proposal as it is now.",
+      }),
+    };
+  }
+  return {
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ status: "updated", ...parsed }),
+  };
+}
+
 /** What the Studio sends to update a proposal from the site: its decisions. */
 const UpdateContentBody = z.object({
+  /**
+   * Where the site and the proposal were when the conflicts the
+   * `resolutions` decide were found: the conflicts answer says. Absent with
+   * no decisions.
+   */
+  siteHead: z.string().nullable().optional(),
+  proposalHead: z.string().nullable().optional(),
   resolutions: z
     .array(
       z.union([

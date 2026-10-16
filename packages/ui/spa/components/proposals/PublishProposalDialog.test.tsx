@@ -200,6 +200,44 @@ describe("Update from the site, with conflicts (step 8.2)", () => {
     expect(resolve).toHaveBeenCalledWith(["proposal"]);
   });
 
+  test("a new list of conflicts starts undecided: no choice carries over by position", () => {
+    const view = dialog(withConflicts(), () => {}, false, {
+      onResolve: () => {},
+    });
+    const radios = screen.getAllByRole("radio");
+    fireEvent.click(radios[0]);
+    fireEvent.click(radios[3]);
+    // The next answer is a code round, with one other conflict.
+    view.rerender(
+      <PublishProposalDialog
+        open
+        onOpenChange={() => {}}
+        displayName="Spring"
+        state={withConflicts([
+          {
+            kind: "code",
+            file: "src/components/Hero.tsx",
+            base: "a",
+            site: "b",
+            proposal: "c",
+          },
+        ])}
+        onPublish={() => {}}
+        onRetry={() => {}}
+        onResolve={() => {}}
+      />,
+    );
+    const update = screen.getByRole("button", {
+      name: /update from the site/i,
+    });
+    if (!(update instanceof HTMLButtonElement)) throw new Error("not a button");
+    expect(update.disabled).toBe(true);
+    for (const radio of screen.getAllByRole("radio")) {
+      if (!(radio instanceof HTMLInputElement)) throw new Error("not a radio");
+      expect(radio.checked).toBe(false);
+    }
+  });
+
   test("Not now leaves them undecided, and merges nothing", () => {
     const resolve = jest.fn();
     const cancel = jest.fn();
@@ -210,5 +248,49 @@ describe("Update from the site, with conflicts (step 8.2)", () => {
     fireEvent.click(screen.getByRole("button", { name: /not now/i }));
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(resolve).not.toHaveBeenCalled();
+  });
+});
+
+describe("Update from the site, failing", () => {
+  test("says the update failed, not the checks, and Try again retries it", () => {
+    const retry = jest.fn();
+    render(
+      <PublishProposalDialog
+        open
+        onOpenChange={() => {}}
+        displayName="Spring"
+        state={{
+          kind: "error",
+          message: "Val Build could not be reached",
+          update: { checkId: "published-since" },
+        }}
+        onPublish={() => {}}
+        onRetry={retry}
+      />,
+    );
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Could not update it from the site: Val Build could not be reached.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  test("offers no Try again when trying again here cannot help", () => {
+    render(
+      <PublishProposalDialog
+        open
+        onOpenChange={() => {}}
+        displayName="Spring"
+        state={{
+          kind: "error",
+          message:
+            "Open the proposal in Chrome or Edge on a computer to update it.",
+          update: { checkId: null },
+        }}
+        onPublish={() => {}}
+        onRetry={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /try again/i })).toBeNull();
   });
 });

@@ -24,6 +24,25 @@ describe("SerializedSchema round-trips", () => {
     });
   });
 
+  test("an int keeps integer, step and its slider", () => {
+    const parsed = SerializedSchema.safeParse(
+      serialize(
+        s
+          .int()
+          .min(0)
+          .max(100)
+          .step(5)
+          .render({ as: "slider", min: 0, max: 100, step: 10 }),
+      ),
+    );
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data).toMatchObject({
+      type: "number",
+      options: { integer: true, min: 0, max: 100, step: 5 },
+      render: { as: "slider", min: 0, max: 100, step: 10 },
+    });
+  });
+
   test("richtext keeps maxLength and minLength", () => {
     const parsed = SerializedSchema.safeParse(
       serialize(s.richtext({ bold: true }).minLength(2).maxLength(10)),

@@ -141,6 +141,9 @@ const UpdateContentAnswer = z.union([
   z.object({
     status: z.literal("conflicts"),
     conflicts: z.array(UpdateConflict),
+    /** Where the site and the proposal were: sent back with the decisions. */
+    siteHead: z.string().nullable(),
+    proposalHead: z.string().nullable(),
   }),
 ]);
 export type UpdateContentAnswer = z.infer<typeof UpdateContentAnswer>;
@@ -152,6 +155,11 @@ export type UpdateResolution = {
 };
 /** The same for a file: which side's code the proposal keeps. */
 export type CodeResolution = { file: string; keep: "site" | "proposal" };
+/** Where the site and the proposal were when content conflicts were found. */
+export type ContentHeads = {
+  siteHead: string | null;
+  proposalHead: string | null;
+};
 
 /** Content's trees, for the builder tab to evaluate: see `MergeTrees`. */
 const MergeTreesAnswer = z.object({
@@ -299,12 +307,15 @@ export type ProposalsClient = {
   /**
    * Update from the site for a proposal that changes only content: the
    * site's published changes merged into it, at its own address. Conflicts
-   * come back for a person; the same call with their `resolutions` merges.
+   * come back for a person; the same call with their `resolutions`, and the
+   * heads the conflicts answer named, merges -- unless the site or the
+   * proposal moved since, when the conflicts come back as they are now.
    * The published-since check's action.
    */
   updateContent(
     name: string,
     resolutions: UpdateResolution[],
+    heads?: ContentHeads,
   ): Promise<UpdateContentAnswer>;
   /**
    * Update from the site with code: content's three trees, for the builder
@@ -396,9 +407,12 @@ export function createProposalsClient(options: {
       ),
     serveBuild: (name, build) => one(`${at(name)}/build`, "POST", build),
     updateFromSite: (name) => one(`${at(name)}/update-from-site`, "POST", {}),
-    updateContent: async (name, resolutions) =>
+    updateContent: async (name, resolutions, heads) =>
       UpdateContentAnswer.parse(
-        await call(`${at(name)}/update-content`, "POST", { resolutions }),
+        await call(`${at(name)}/update-content`, "POST", {
+          resolutions,
+          ...heads,
+        }),
       ),
     restoreCode: (name, commit) =>
       one(`${at(name)}/restore-code`, "POST", { commit }),

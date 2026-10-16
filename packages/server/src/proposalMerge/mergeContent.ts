@@ -13,7 +13,7 @@ import {
   type Resolution,
 } from "./merge";
 import { validateWith } from "./validate";
-import { mergeValues, setAt, valueAt, type Value } from "./threeWay";
+import { diffOps, mergeValues, valueAt, type Value } from "./threeWay";
 
 /**
  * Update from the site when only content changed (valbuild/home
@@ -30,9 +30,12 @@ import { mergeValues, setAt, valueAt, type Value } from "./threeWay";
  * written into the proposal's own `.val.ts` text with the same AST operations
  * a save uses.
  *
- * Not here: a `.jsonValues()` record both sides changed. Its Source in content's
+ * Not here: a `.jsonValues()` record the site changed. Its Source in content's
  * index holds only the entries a commit touched, so it cannot be merged from
- * the index; that waits for the full merge, and is answered as such.
+ * the index, and its entries are `.val.json` files the `.val.ts` only names,
+ * which writing into the `.val.ts` cannot change. That waits for the full
+ * merge (`writeEntries`), and is answered as such -- with or without a
+ * conflict, since a clean merge still has the site's entries to write.
  */
 
 export type ModuleToMerge = {
@@ -97,9 +100,10 @@ export function mergeContent(input: {
       atomicFor(serialized),
     );
     if (
-      merged.conflicts.length > 0 &&
       serialized.type === "record" &&
-      serialized.jsonValues
+      serialized.jsonValues &&
+      (merged.conflicts.length > 0 ||
+        diffOps(orUndefined(proposal), merged.value).length > 0)
     ) {
       needsFullMerge.push(moduleFilePath);
       continue;
@@ -109,7 +113,9 @@ export function mergeContent(input: {
     if (resolved.unresolved.length > 0) continue;
 
     // The schema check, under the one schema there is: what was already
-    // invalid on a side is not the merge's doing.
+    // invalid on a side is not the merge's doing. A value written as a
+    // resolution is already in `content`, and checked like the rest -- as
+    // `schemaCheck` does for the full merge.
     const known = new Set(
       [site, proposal].flatMap((side) =>
         validateWith(schema, moduleFilePath, orUndefined(side)).map((e) =>
@@ -117,20 +123,9 @@ export function mergeContent(input: {
         ),
       ),
     );
-    let content = resolved.content;
+    const content = resolved.content;
     for (const error of validateWith(schema, moduleFilePath, content)) {
       if (known.has(error.path.join("/"))) continue;
-      const written = input.resolutions.find(
-        (r) =>
-          "moduleFilePath" in r &&
-          r.moduleFilePath === moduleFilePath &&
-          "value" in r &&
-          r.path.join("/") === error.path.join("/"),
-      );
-      if (written && "value" in written) {
-        content = setAt(content, error.path, written.value);
-        continue;
-      }
       conflicts.push({
         kind: "invalid",
         moduleFilePath,

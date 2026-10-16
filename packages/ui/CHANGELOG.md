@@ -1,5 +1,56 @@
 # @valbuild/ui
 
+## 0.145.1
+
+### Patch Changes
+
+- [#860](https://github.com/valbuild/val/pull/860) [`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7) Thanks [@freekh](https://github.com/freekh)! - `val publish` and the Studio now tell Val Build which version of the platform's React and TanStack a build was made against. If the platform is updated while a build is running — a project's CI can take several minutes — that build is no longer published onto a platform it was never checked against: the publish stops with a message saying the platform was updated and to build again, and the next build is checked against what it will run on. A build published with `val publish --artifacts` was made elsewhere and does not say, and publishes as before.
+
+## 0.145.0
+
+### Minor Changes
+
+- [#859](https://github.com/valbuild/val/pull/859) [`f085be0`](https://github.com/valbuild/val/commit/f085be0eb5bdc195e9d8cdb15dd5f8acfdabe23c) Thanks [@freekh](https://github.com/freekh)! - An edit Val Build refuses to save because of the project's plan — the Free plan's 1,000 changes a week are used, or a Hosted trial has ended — is now kept in the Studio instead of being reverted.
+
+  - `PUT /patches` answers such a save with a `403` of type `plan-refused`, carrying Val Build's reason and fix as data and which patches of the request it did save. It used to answer `400 patch-error`, which the Studio reads as a bad patch and drops.
+  - The Studio keeps the refused edits and any made after them, shows the plan notice with **Upgrade** or **Add a card** beside it, and saves them by itself once the plan allows it: as soon as Val Build says editing is open again (an owner added a card, the week moved on), and otherwise by trying again now and then. A publish or a restore that meets held edits says why, in Val Build's words, instead of suggesting the connection.
+  - The MCP write tools answer a refused write as `forbidden`, with Val Build's sentence, instead of `internal`.
+
+- [#858](https://github.com/valbuild/val/pull/858) [`dda5c52`](https://github.com/valbuild/val/commit/dda5c523698395c6dfb96ae8e39dae04307ec332) Thanks [@freekh](https://github.com/freekh)! - The Studio now says what a project's Val Build plan allows, before a save is refused and when one is, with the next step beside it.
+
+  - **Hosted trial:** the top bar shows the days left, how many of the trial's 3 publishes are used and how much of the trial's usage is gone, with **Add a card**. When the 3 publishes are used, editing carries on and a notice says a card is needed to publish again. When the trial has ended, the Studio is read-only and the notice says until when the site keeps running.
+  - **Free:** from 800 changes in 7 days the top bar shows how many are left this week (publishing is never limited), with **Upgrade to Pro**. At 1,000 the notice says when editing opens again, in your own time zone.
+  - **Hosted usage:** past 80% of a month's included usage, and once traffic or storage is used up, the notice says what happens and offers **Allow extra usage** on the project's page.
+  - **Remote files on Free:** an image or file upload Val Build refuses says that remote files are part of Pro, with **Upgrade to Pro**.
+
+  Owners get the button that fixes it. Everyone else is told who the owners are, by name, and can email them from the notice. A refused save, publish or upload makes the Studio ask Val Build again, so the right notice appears straight away, and the error toast of a refused write gets **Open Billing** (or **Ask an owner**) beside it.
+
+### Patch Changes
+
+- [#851](https://github.com/valbuild/val/pull/851) [`b6cb939`](https://github.com/valbuild/val/commit/b6cb9395d8bdcd5182e9c6ba84f5284930de2fa5) Thanks [@freekh](https://github.com/freekh)! - New `s.int()` for whole numbers, `.step()` on `s.int()` and `s.number()`, and a slider for both:
+
+  ```ts
+  s.object({
+    columns: s.int().min(1).max(6),
+    opacity: s
+      .int()
+      .min(0)
+      .max(100)
+      .step(5)
+      .render({ as: "slider", min: 0, max: 100 }),
+    lineHeight: s.number().render({ as: "slider", min: 1, max: 2, step: 0.1 }),
+  });
+  ```
+
+  - `.min()`, `.max()` and `.step()` are rules the validator checks. A step is counted from `min`, or from 0 when there is none.
+  - `.render({ as: "slider", min, max, step? })` is how the field is edited: a slider, with a box beside it for typing an exact value. `min` and `max` are required. The slider's step defaults to the schema's `.step()`, then to 1.
+  - The slider can only produce values the schema accepts. A slider outside `.min()`/`.max()`, with a step that is not a multiple of `.step()`, or with decimals on an `s.int()` throws where the schema is defined.
+  - A value outside the slider's range is still valid content. The field says it is out of the slider's reach and offers "Set to" the nearest stop. A value that breaks a rule offers "Round to" the nearest allowed value.
+  - Fixed: `.min(0)` and `.max(0)` on `s.number()` were ignored.
+  - A new item of a number schema starts at the nearest allowed value instead of `0`, so `s.int().min(1)` starts at 1.
+
+- [#856](https://github.com/valbuild/val/pull/856) [`ac0bb7c`](https://github.com/valbuild/val/commit/ac0bb7cb5a99df022b198326a5f8a0cf61e45388) Thanks [@freekh](https://github.com/freekh)! - The Studio's read-only notice no longer speaks of an organization's trial. On Val Build an organization has no trial of its own any more, and a whole organization's Studio is read-only only after a failed payment, so the notice says that, with **Update payment** for an owner. A read-only reason the Studio does not know is still shown, with Billing for an owner.
+
 ## 0.144.12
 
 ### Patch Changes

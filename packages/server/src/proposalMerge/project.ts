@@ -33,9 +33,21 @@ export type Files = Record<string, string | null>;
  * from the disk for everything else, so `@valbuild/core` resolves to the one
  * the tests run on.
  */
-const ROOT = path.join(__dirname, "__project__");
+function projectRoot(): string {
+  /*
+   * Asked when a project is loaded, never at import: `__dirname` exists only
+   * in CommonJS, and this module is imported by Val's server wherever it runs
+   * -- in the TanStack example's Vite SSR, which is ESM, a top-level read of
+   * it stopped the server from starting. There the app's own directory is
+   * where `@valbuild/core` resolves from, which is what a merge in a running
+   * app should load.
+   */
+  const base = typeof __dirname === "string" ? __dirname : process.cwd();
+  return path.join(base, "__project__");
+}
 
 function host(files: Files): ValModulesHost {
+  const ROOT = projectRoot();
   const byAbs = new Map<string, string>();
   for (const [file, text] of Object.entries(files)) {
     if (text !== null) byAbs.set(path.join(ROOT, file), text);
@@ -150,7 +162,7 @@ export type LoadedProject = {
  * to, read from the text it wrote.
  */
 export async function loadProject(files: Files): Promise<LoadedProject> {
-  const valModules = loadValModules(ROOT, host(files));
+  const valModules = loadValModules(projectRoot(), host(files));
   const modules: Record<ModuleFilePath, LoadedModule> = {};
   for (const { def } of valModules.modules) {
     const module = (await def()).default;

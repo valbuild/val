@@ -46,6 +46,11 @@ const nullableAfterValidate: Record<
     .number()
     .validate(() => MESSAGE)
     .nullable(),
+  int: s
+    .int()
+    .render({ as: "slider", min: 0, max: 10 })
+    .validate(() => MESSAGE)
+    .nullable(),
   discriminatedUnion: s
     .discriminatedUnion("type", s.object({ type: s.literal("a") }))
     .validate(() => MESSAGE)
