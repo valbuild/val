@@ -155,11 +155,11 @@ export type CompareBasisOption = {
  *
  * - **`discard`** removes the staged patches. The result is a state that
  *   already existed and already validated, so there is no schema question at
- *   all. What there IS, is the prefix invariant from `utils/patchGroups.ts`:
- *   inside a patch set, a later patch's array indices were computed against a
- *   state in which its predecessors applied, so dropping one out of the middle
- *   "either errors or silently writes to the wrong index". `requires` is what
- *   that forces along; `unstageClosure` is the real implementation.
+ *   all. What there IS, is the prefix invariant of a patch set: inside a patch
+ *   set, a later patch's array indices were computed against a state in which
+ *   its predecessors applied, so dropping one out of the middle "either errors
+ *   or silently writes to the wrong index". `requires` is what that forces
+ *   along; `closeOverRequired` applies it.
  * - **`revert`** writes an old value forward as a new `replace`, so it is
  *   entirely a schema question — and the one #563 already answered.
  *   `compatibility` is `checkCompatibility`'s three-way answer, `unknown`

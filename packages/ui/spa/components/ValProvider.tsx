@@ -70,10 +70,7 @@ import type { ChainProgress } from "../utils/describePendingChangesStall";
 import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { SerializedPatchSet } from "../utils/PatchSets";
-import type {
-  PatchGroupT,
-  PublishRequestStatus,
-} from "@valbuild/shared/internal";
+import type { PublishRequestStatus } from "@valbuild/shared/internal";
 import { z } from "zod";
 import {
   ValEnrichedDeployment,
@@ -128,8 +125,7 @@ import {
   type AISession,
   AITool,
 } from "../hooks/useAIWebSocket";
-import { concatModulePath, isPathWithin } from "../utils/sourcePath";
-import { touchedSourcePaths } from "../stores/SourceStore";
+import { concatModulePath } from "../utils/sourcePath";
 
 export type { AITool };
 
@@ -663,12 +659,6 @@ export function ValProvider({
   /** Which schema that build runs. See `SchemaFreshnessWatch`. */
   const statSchemaSha =
     "data" in stat && stat.data ? stat.data.schemaSha : undefined;
-  /**
-   * Who holds what, read with the chain. The source of this client's view of
-   * the groups — see `PatchStore.receiveStatGroups`.
-   */
-  const statPatchGroups =
-    "data" in stat && stat.data ? stat.data.patchGroups : undefined;
   const storeStat = useMemo(
     () =>
       baseSha !== undefined && statPatches !== undefined
@@ -682,8 +672,6 @@ export function ValProvider({
             headVersion: statHeadVersion,
             sourcesSha: statSourcesSha,
             schemaSha: statSchemaSha,
-            patchGroups: statPatchGroups,
-            profileId: statProfileId,
           }
         : null,
     [
@@ -696,8 +684,6 @@ export function ValProvider({
       statHeadVersion,
       statSourcesSha,
       statSchemaSha,
-      statPatchGroups,
-      statProfileId,
     ],
   );
 
@@ -1316,10 +1302,7 @@ export function ValProvider({
                  * for that edit. Where the try again stays on this page, it
                  * is only the save autosave was about to make.
                  */
-                const after = newestUnpublished(
-                  system.patchStore,
-                  system.patchGroup(),
-                );
+                const after = newestUnpublished(system.patchStore);
                 void system.patchSync.flush().catch(() => undefined);
                 if (
                   handoffRef.current.prepare(
@@ -1327,7 +1310,7 @@ export function ValProvider({
                     // Connected, every change is deployed: see `needsBuild`.
                     request.merge !== undefined ||
                       statSourceMode !== "managed" ||
-                      pendingNeedsBuild(system.patchStore, system.patchGroup()),
+                      pendingNeedsBuild(system.patchStore),
                     {
                       tryAgainOf: request.requestId,
                       after,
@@ -2113,136 +2096,6 @@ export function useDeployments() {
  * Asynchronous for the same reason: the grouping is in the worker realm, so
  * there is no synchronous answer to give.
  */
-/**
- * The patch groups on this branch, or `undefined` where there are none.
- *
- * Re-read whenever the chain moves, because that is when the annotation
- * arrives: `GET /patches` carries the groups alongside the patches, so a save
- * landing or a stat arriving is also when membership can have changed.
- *
- * `undefined` and `[]` are different answers and both reach callers unchanged.
- * `undefined` means this deployment has no groups and staging must stay off;
- * `[]` means groups exist and this branch's hold nothing.
- */
-/**
- * Every pending patch id, oldest first — the order they are applied in.
- *
- * The prefix invariant is only meaningful in chain order, so the staging
- * provider takes this rather than deriving it from the patch sets, whose own
- * ordering is newest-first for display.
- */
-export function useChainOrder(): PatchId[] {
-  const val = useValSystem();
-  const chainVersion = useChainVersion();
-  /*
-   * Read during render, not from an effect.
-   *
-   * An effect fills this AFTER the first paint, so the first render answers
-   * `[]` — and an empty chain order makes `indexPatchSets` throw for every
-   * patch set it is handed, which the staging provider catches by turning
-   * staging off "for this render". The result was an error logged on every
-   * mount and the feature quietly disabled, with nothing failing.
-   *
-   * `chainVersion` is what makes this correct rather than merely early: it
-   * bumps on every movement of the chain, so the memo is recomputed exactly
-   * when `allRecords()` would answer differently.
-   */
-  const previous = useRef<PatchId[]>([]);
-  return useMemo(() => {
-    if (val === null) return previous.current;
-    const next = val.system.patchStore.allRecords().map((r) => r.patchId);
-    const current = previous.current;
-    // Identity kept when the chain has not actually reordered: this feeds the
-    // patch-set index, and a fresh array on every chain movement would reindex
-    // on every keystroke.
-    if (
-      current.length === next.length &&
-      current.every((id, i) => id === next[i])
-    ) {
-      return current;
-    }
-    previous.current = next;
-    return next;
-  }, [val, chainVersion]);
-}
-
-/**
- * Moved by every change to the patch GROUPS. See `PatchStore`'s `bumpGroups`.
- *
- * Not `chainVersion`, in both directions. The groups move without the chain
- * moving — a stage or unstage touches no patch, and a save can learn the id of
- * the group it just created while the chain is exactly as it was — so keying on
- * the chain left those changes unobserved. And the chain moves once per
- * keystroke batch without the groups moving at all, so keying on it also meant
- * re-reading them constantly for nothing.
- */
-export function useGroupsVersion(): number {
-  const val = useValSystem();
-  const subscribe = useCallback(
-    (onChange: () => void) => {
-      if (val === null) return () => {};
-      return val.system.patchStore.events.on("patch:groups", onChange);
-    },
-    [val],
-  );
-  const getSnapshot = useCallback(
-    () => (val === null ? 0 : val.system.patchStore.groupsVersion()),
-    [val],
-  );
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-}
-
-export function usePatchGroups(): PatchGroupT[] | undefined {
-  const val = useValSystem();
-  const groupsVersion = useGroupsVersion();
-  /*
-   * Read during render rather than from an effect, and identity is the store's
-   * job now: `PatchStore` only moves `groupsVersion` when the annotation
-   * actually says something different, so an unchanged annotation is the same
-   * array and this memo does not even re-run. That matters because it feeds the
-   * `useMemo` deciding whether the staging controls repaint.
-   */
-  return useMemo(() => {
-    void groupsVersion;
-    if (val === null) return undefined;
-    return val.system.patchStore.groups();
-  }, [val, groupsVersion]);
-}
-
-/**
- * The id of the group this client's own writes are joining, where one is known.
- *
- * Learned from the save response — see `PatchStore.ownPatchGroupId`. Separate
- * from {@link usePatchGroups} because it carries no membership: it says which
- * group to stage INTO, not what is in it.
- */
-export function useOwnPatchGroupId(): string | undefined {
-  const val = useValSystem();
-  const groupsVersion = useGroupsVersion();
-  return useMemo(() => {
-    void groupsVersion;
-    if (val === null) return undefined;
-    return val.system.patchStore.ownGroupId();
-  }, [val, groupsVersion]);
-}
-
-/**
- * Whether this deployment has patch groups at all.
- *
- * Not the same question as "do I have a group", and asking the second in place
- * of the first is what turned staging off after a publish — see
- * `PatchStore.patchGroupsSeen`.
- */
-export function usePatchGroupsSupported(): boolean {
-  const val = useValSystem();
-  const groupsVersion = useGroupsVersion();
-  return useMemo(() => {
-    void groupsVersion;
-    if (val === null) return false;
-    return val.system.patchStore.patchGroupsSupported();
-  }, [val, groupsVersion]);
-}
-
 export function usePatchSets():
   | {
       status: "success";
@@ -2447,45 +2300,7 @@ export function useNoOpSourcePaths(
     void sourcesVersion;
     void chainVersion;
     const store = val.system.sourceStore;
-    /*
-     * Modules with a HELD patch, which are never no-ops.
-     *
-     * `peek` answers with the scoped source, so a module whose only pending
-     * patch is unstaged reads exactly like one whose pending patch was undone
-     * — and the review screen files it under "reverted", tells its author the
-     * content matches what is published, and offers only Discard. That is the
-     * screen a held change has to be put BACK from, so getting this wrong
-     * strands the change with no way to re-stage it.
-     *
-     * A held patch's two sides are not equal. They only look equal because we
-     * are hiding it.
-     */
-    const heldPaths: SourcePath[] = [];
-    for (const record of val.system.patchStore.recordsFor([
-      ...val.system.patchStore.unstagedPatchIds(),
-    ])) {
-      heldPaths.push(...touchedSourcePaths(record));
-    }
-    /*
-     * Per PATH, not per module.
-     *
-     * Excluding every path in a module that has any held patch is too coarse: a
-     * field the user typed back to its original, in a module that also happens
-     * to carry somebody else's held insert, never reaches the comparison and is
-     * listed as a live change it is not.
-     *
-     * A path is skipped when a held patch touches it, or touches something
-     * inside it — the second because a held change to `?items/0/title` is
-     * hidden from `?items` too, so `?items` compares equal for the same reason
-     * and would be misread the same way.
-     */
-    const hiddenAt = (path: SourcePath) =>
-      heldPaths.some(
-        (heldPath) =>
-          isPathWithin(heldPath, path) || isPathWithin(path, heldPath),
-      );
     for (const path of paths) {
-      if (hiddenAt(path)) continue;
       const after = store.peek(path);
       const before = store.peekBase(path);
       // Only a settled pair can be compared. Anything still loading is not
@@ -2523,7 +2338,6 @@ export function useHasNetChanges(): boolean {
   const chainVersion = useChainVersion();
   const committed = useCommittedPatches();
   const publishing = usePublishingPatchIds();
-  const unstaged = useUnstagedPatchIds();
 
   /*
    * Read off the CHAIN, not off the patch sets.
@@ -2544,9 +2358,8 @@ export function useHasNetChanges(): boolean {
       val.system.patchStore.allRecords(),
       committed,
       publishing,
-      unstaged,
     );
-  }, [val, chainVersion, committed, publishing, unstaged]);
+  }, [val, chainVersion, committed, publishing]);
 
   return useMemo(() => {
     // As in the loop below: what is not known yet counts as a change. `false`
@@ -2746,80 +2559,26 @@ export function useCurrentPatchIds(): PatchId[] {
 }
 
 /**
- * Pending patches this client has UNSTAGED, because they are outside its patch
- * group.
+ * How many pending changes there are — what Publish would ship.
  *
- * Not the same question as "is anything pending" or "does anything change".
- * An unstaged patch is not applied, so the scoped source equals base and every
- * comparison against base reads it as an undone edit — which is why anything
- * that wants to tell those two apart has to ask this instead.
- *
- * Empty wherever there is no scope: `fs` mode and any content API without
- * groups leave nothing unstaged.
- */
-export function useUnstagedPatchIds(): ReadonlySet<PatchId> {
-  const val = useValSystem();
-  const chainVersion = useChainVersion();
-  const groupsVersion = useGroupsVersion();
-  return useMemo(() => {
-    if (val === null) return new Set<PatchId>();
-    void chainVersion;
-    void groupsVersion;
-    /*
-     * COPIED, so identity tracks content.
-     *
-     * `PatchStore.unstagedPatchIds()` returns `this.unstagedIds` itself — one Set,
-     * mutated in place — so handing that reference out made this memo's result
-     * referentially identical forever, however much the held set changed. Any
-     * consumer keying its own memo on it then computed once and never again,
-     * which is what made Publish keep offering to stage a change the user had
-     * already staged.
-     *
-     * The copy is made inside this memo, so it is rebuilt only when the chain
-     * or the groups actually move — a new identity per CHANGE, not per render.
-     */
-    return new Set(val.system.patchStore.unstagedPatchIds());
-  }, [val, chainVersion, groupsVersion]);
-}
-
-/**
- * How many pending changes are THIS user's own — what Publish would ship.
- *
- * Review's badge sits beside Publish and is read as "how much is waiting for
- * me", so it counts the scoped set rather than the chain. On a shared branch
- * the chain also holds other people's pending work, which this client can
- * neither publish nor discard, and putting that on the badge asks the reader to
- * go and do something about somebody else's edit.
- *
- * Unscoped — `fs` mode, or a content API without patch groups — is the whole
- * chain, which is the same number as before and still the right one: there is
- * only one author there.
- *
- * Committed patches are subtracted in both branches. A published patch stays in
- * the chain in `http` mode until the new commit comes back, and counting it
- * would have Review offer work that is already in a commit.
+ * Committed patches are subtracted. A published patch stays in the chain in
+ * `http` mode until the new commit comes back, and counting it would have
+ * Review offer work that is already in a commit.
  */
 export function useOwnPendingChangeCount(): number {
   const val = useValSystem();
   const chainVersion = useChainVersion();
-  // The scope moves without the chain moving — a stage touches no patch — so
-  // both versions are dependencies. See `PatchStore.notifyGroupsChanged`.
-  const groupsVersion = useGroupsVersion();
   const committed = useCommittedPatches();
   return useMemo(() => {
     if (val === null) return 0;
     void chainVersion;
-    void groupsVersion;
-    const scope = val.system.patchGroup();
-    const inScope = scope === null ? null : new Set(scope);
     let count = 0;
     for (const record of val.system.patchStore.allRecords()) {
       if (committed.has(record.patchId)) continue;
-      if (inScope !== null && !inScope.has(record.patchId)) continue;
       count++;
     }
     return count;
-  }, [val, chainVersion, groupsVersion, committed]);
+  }, [val, chainVersion, committed]);
 }
 
 export type PendingPatch = {
@@ -3255,7 +3014,7 @@ export function usePublishSummary() {
   const needsBuild = (): boolean =>
     sourceMode !== "managed" ||
     val === null ||
-    pendingNeedsBuild(val.system.patchStore, val.system.patchGroup());
+    pendingNeedsBuild(val.system.patchStore);
   const publish = useCallback(
     async (summary: string): Promise<PagePublishResult> => {
       /*
@@ -3268,9 +3027,7 @@ export function usePublishSummary() {
       const handedOff =
         handoff.active() ||
         handoff.prepare(buildsInTab && needsBuild(), {
-          after: val
-            ? newestUnpublished(val.system.patchStore, val.system.patchGroup())
-            : null,
+          after: val ? newestUnpublished(val.system.patchStore) : null,
         });
       /*
        * And the tab presses, not this page: on an iPhone this page is paused
@@ -3608,9 +3365,7 @@ export function usePublishSummary() {
      * is sent now, while the page still runs.
      */
     preparePublish: (): boolean => {
-      const after = val
-        ? newestUnpublished(val.system.patchStore, val.system.patchGroup())
-        : null;
+      const after = val ? newestUnpublished(val.system.patchStore) : null;
       /*
        * Before the tab opens, not after: on an iPhone this page is paused the
        * moment it does, and a save not yet sent then never is. Started here,

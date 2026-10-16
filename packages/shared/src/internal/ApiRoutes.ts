@@ -196,7 +196,6 @@ const StatProposal = z.object({
   branch: z.string(),
 });
 
-
 const GenericPatchError = z.union([
   z.object({
     patchId: PatchId,

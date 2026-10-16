@@ -2,7 +2,6 @@ import { Patch } from "@valbuild/core/patch";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import {
   newestCommitSha,
-  PatchGroup,
   ValClient,
   ValCommit,
   ValDeployment,
@@ -59,11 +58,6 @@ const WebSocketServerMessage = z.union([
     headPatchId: PatchId.nullable().optional(),
     /** The chain version of that head. See `headVersion` on {@link StatData}. */
     headVersion: z.number().optional(),
-    /**
-     * Who holds what, read with `patches` and `headVersion`. Absent from a
-     * content service that predates sending it.
-     */
-    patchGroups: z.array(PatchGroup).optional(),
     /**
      * Of `patches`, the ones already published, read with them. Absent from a
      * content service that predates sending it. See {@link chainOfMessage}.
@@ -250,11 +244,6 @@ export const StatData = z.object({
    * reported".
    */
   headVersion: z.number().optional(),
-  /**
-   * Every group on the branch and what each holds, read with `patches` and
-   * `headVersion`. `http` only, and absent where there are no groups.
-   */
-  patchGroups: z.array(PatchGroup).optional(),
   /**
    * The newest commit, which is the PUBLISH head.
    *
@@ -510,18 +499,9 @@ type PatchesMessage = Extract<
  *
  * - the head and its version: a head older than the list it came with is a
  *   parent the server will refuse;
- * - the groups: read at that version. A message without them clears the old
- *   ones rather than keeping them -- the old groups beside the new version
- *   would say a stage or unstage the server has made is not there, and the
- *   scope would follow that;
- * - which of the patches are already published. This one was kept from the
- *   previous stat, and a publish is exactly the change that moves both at
- *   once: it takes the patches out of every group and marks them applied. With
- *   the new groups and the old applied list, the publisher's patches looked
- *   like pending ones that had left their group -- unstaged -- so the
- *   published change vanished from the Studio until a reload, which reads both
- *   from one `/stat`. The `/stat` poll is twenty minutes apart once a socket is
- *   up, so nothing else corrected it.
+ * - which of the patches are already published, when the message says. The
+ *   `/stat` poll is twenty minutes apart once a socket is up, so a list kept
+ *   from the previous stat would otherwise describe a chain that has moved.
  *
  * Applied is one-way, so a content service that does not send the list (one
  * that predates it) keeps the previous one: incomplete, never wrong.
@@ -537,7 +517,6 @@ export function chainOfMessage(
   | "patches"
   | "headPatchId"
   | "headVersion"
-  | "patchGroups"
   | "appliedPatches"
   | "publishingPatches"
   | "heldBackPatches"
@@ -546,7 +525,6 @@ export function chainOfMessage(
     patches: message.patches,
     headPatchId: message.headPatchId,
     headVersion: message.headVersion,
-    patchGroups: message.patchGroups,
     appliedPatches: message.appliedPatches ?? prev.appliedPatches,
     /*
      * Replaced, never accumulated: a job that ends without sealing gives its

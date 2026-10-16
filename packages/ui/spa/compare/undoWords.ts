@@ -26,8 +26,8 @@ import type { CompareUndoKind } from "./types";
  * it exactly backwards. That mismatch is the cost of not renaming the
  * discriminants, and it is deliberate for now: the words are still being
  * evaluated, and renaming a discriminant that appears across types, adapters
- * and comments is not a thing to do twice. If the words stick, rename
- * `discard` → `unstage` and `revert` → `restore` and delete this paragraph.
+ * and comments is not a thing to do twice. If the words stick, rename the
+ * discriminants to match the buttons and delete this paragraph.
  */
 export type UndoWords = {
   /** The verb alone: a row's hover action, and the confirm button. */

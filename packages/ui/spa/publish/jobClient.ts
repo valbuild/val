@@ -51,7 +51,7 @@ export type StudioJobClient = {
   renew(jobId: string, tab: string): Promise<boolean>;
   cancel(jobId: string): Promise<boolean>;
   /** Discard a failed job's changes; answers what another job still holds. */
-  discard(jobId: string, unstagePatchIds?: string[]): Promise<string[]>;
+  discard(jobId: string): Promise<string[]>;
   /**
    * Connected: the newest CI run the branch's workflow reported -- where
    * "View run" goes for a build that failed. `null` when none was reported.
@@ -160,14 +160,8 @@ export function createStudioJobClient(options: {
       parseRenew(await proxy(job(jobId, "renew"), "POST", { tab })).renewed,
     cancel: async (jobId) =>
       parseCancel(await proxy(job(jobId, "cancel"), "POST", {})).cancelled,
-    discard: async (jobId, unstagePatchIds) =>
-      parseDiscard(
-        await proxy(
-          job(jobId, "discard"),
-          "POST",
-          unstagePatchIds ? { unstagePatchIds } : {},
-        ),
-      ).stillHeld,
+    discard: async (jobId) =>
+      parseDiscard(await proxy(job(jobId, "discard"), "POST", {})).stillHeld,
     newestCiRun: async () =>
       parseNewestCiRun(await proxy("/ci-runs/newest", "GET")).run,
   };

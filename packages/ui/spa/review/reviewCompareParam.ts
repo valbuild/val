@@ -27,7 +27,7 @@ export type ReviewCompareParam = { sourcePath: SourcePath | null } | null;
  * Read the dialog's state out of a URL. Total, like `parseHistoryParams`.
  *
  * A value that is not a source path leaves the dialog CLOSED, the same answer
- * a path that names no staged change gets: a link that cannot be followed
+ * a path that names no pending change gets: a link that cannot be followed
  * should not open onto some other change.
  */
 export function parseReviewCompareParam(
@@ -88,11 +88,10 @@ export function searchStringOf(params: URLSearchParams): string {
 /**
  * Whether the dialog has anything to open onto.
  *
- * The dialog compares the STAGED set — see `ReviewSurface` — so a link to a
- * change that is unstaged, or that has shipped since the link was made, has
- * no pane to land on. Opening it anyway would show some other change under a
- * link that named this one, which is worse than not opening: the review page
- * behind it still lists the change, under Unstaged, where it actually is.
+ * The dialog compares the PENDING set — see `ReviewSurface` — so a link to a
+ * change that has shipped, or been discarded, since the link was made has no
+ * pane to land on. Opening it anyway would show some other change under a
+ * link that named this one, which is worse than not opening.
  *
  * Matched in both directions. The link names what the linking surface knows
  * — the gallery knows the ENTRY — while the change can sit inside it (an
@@ -100,12 +99,12 @@ export function searchStringOf(params: URLSearchParams): string {
  * whole gallery).
  */
 export function canOpenReviewCompare(
-  stagedPatchSets: SerializedPatchSet,
+  pendingPatchSets: SerializedPatchSet,
   sourcePath: SourcePath | null,
 ): boolean {
-  if (stagedPatchSets.length === 0) return false;
+  if (pendingPatchSets.length === 0) return false;
   if (sourcePath === null) return true;
-  return hasChangeAt(stagedPatchSets, sourcePath);
+  return hasChangeAt(pendingPatchSets, sourcePath);
 }
 
 /**

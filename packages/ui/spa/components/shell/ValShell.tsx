@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ModuleFilePath, SourcePath, type PatchId } from "@valbuild/core";
+import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { ValCanvasElement } from "@valbuild/shared/internal";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
@@ -47,16 +47,7 @@ import { useRenamePage } from "../useRenamePage";
 import { PublishButton } from "../PublishButton";
 import { ValidationErrorsView } from "../ValidationErrors";
 import { ComparePatchSets, CompareLoading } from "../ComparePatchSets";
-import {
-  PatchStagingProvider,
-  type PatchGroupChange,
-} from "../PatchStagingProvider";
-
-import { useCurrentPatchGroup } from "../useCurrentPatchGroup";
-import type { SerializedPatchSet } from "../../utils/PatchSets";
 import { isPathWithin } from "../../utils/sourcePath";
-import { pendingPatchSets } from "../../utils/computeChangedSourcePaths";
-import type { Profile } from "../ValProvider";
 import { cn } from "../designSystem/cn";
 import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
 import { PublishHandoffCard, handoffCardInStudio } from "./PublishHandoff";
@@ -65,7 +56,6 @@ import { LoginDialog } from "../LoginDialog";
 import { PatchErrorsDialog } from "../PatchErrorsDialog";
 import { GlobalErrors } from "../GlobalErrors";
 import { TransientErrorToasts } from "../TransientErrorToasts";
-import { PatchGroupWidenedToasts } from "../PatchGroupWidenedToasts";
 import { Toaster } from "../designSystem/sonner";
 import { useTheme } from "../ValThemeProvider";
 import {
@@ -92,10 +82,8 @@ import { useHistoricalCommit } from "../../history/useHistoricalCommit";
 import {
   useAllPatchErrors,
   useAuthenticationState,
-  useCommittedPatches,
   useConnectionStatus,
   useProfilesError,
-  useChainOrder,
   usePatchSets,
   usePendingClientSidePatchIds,
   useProfilesByAuthorId,
@@ -196,7 +184,6 @@ export function ValShell() {
       <ValShellBody state={shellData} studioAccess={studioAccess} />
       <Toaster />
       <TransientErrorToasts actionFor={toastActionFor} />
-      <PatchGroupWidenedToasts />
       <PatchErrorsDialog />
       <GlobalErrors />
     </>
@@ -375,9 +362,6 @@ function ValShellBody({
    * wrong.
    */
   const pendingChangesLoaded = useInitialPatchesApplied();
-  usePatchGroupWrites();
-  usePatchGroupScope();
-  usePatchGroupIdentity();
   // Changes left behind by a renamed or deleted file: told, with Discard.
   useChangesWithoutModuleNotice();
   const portalContainer = useValPortal();
@@ -1324,20 +1308,10 @@ function ValShellBody({
         onAutoSaveChange={setAutoPublish}
         pendingChanges={data.pendingChanges ?? 0}
         /*
-         * THIS user's own pending changes, not the chain's.
-         *
-         * The badge sits beside Publish and is read as "how much is waiting for
-         * me", so it counts the scoped set. On a shared branch the chain also
-         * holds other people's pending work, which this client can neither
-         * publish nor discard — putting that on the badge asks the reader to go
-         * and do something about somebody else's edit. Unscoped (`fs`, or a
-         * content API without groups) this is the whole chain, which is the same
-         * number as before and still the right one: there is one author there.
-         *
-         * Still zeroed when the pending patches cancel out, so Review does not
-         * put a number on changes that will not ship. The button itself stays:
-         * that view is where Discard is, and where a held change is staged again,
-         * and Publish is disabled until one of those happens.
+         * Zeroed when the pending patches cancel out, so Review does not put a
+         * number on changes that will not ship. The button itself stays: that
+         * view is where Discard is, and Publish is disabled until something
+         * changes.
          */
         reviewCount={
           inProposal
@@ -1577,223 +1551,13 @@ function CompareView() {
     );
   }
   return (
-    <StagedCompare
+    <ComparePatchSets
       patchSets={patchSetsResult.data}
       profilesByAuthorIds={profilesByAuthorIds}
       mode={mode}
-      publishCount={publishCount}
+      canDiscard
+      reloadKey={publishCount}
     />
-  );
-}
-
-/**
- * Scope the client to this user's group, once, as soon as the server's answer
- * is known.
- *
- * At shell level rather than in the review screen, because publish must be
- * scoped whether or not that screen was ever opened — otherwise the first
- * publish of a session ships the whole pending chain. The builder tab, which
- * renders instead of the shell, calls it too: its press runs the same gate.
- *
- * The SEED runs once. After it, the scope moves on the user's own stages and
- * unstages, on this tab's writes, and on members the server has put in this
- * user's open group that this tab never decided about — a write from another
- * tab or device, adopted by the system itself whenever the annotation or the
- * group id moves (`adoptOwnGroupMembers` in `createSystem`). Nothing repairs
- * the group when patch sets coalesce — see `PatchStagingProvider` for why that
- * is the policy — so this hook has no other job.
- */
-export function usePatchGroupScope(): void {
-  const val = useValSystem();
-  const group = useCurrentPatchGroup();
-  const scoped = val?.system.patchGroup() ?? null;
-
-  useEffect(() => {
-    if (val === null || !group.enabled) return;
-    if (scoped !== null) return;
-    // `seed`, not `set`: the annotation is routinely older than the last thing
-    // the user typed, and scoping to it verbatim hides their own writes.
-    val.system.seedPatchGroup([...group.members]);
-  }, [val, group.enabled, group.members, scoped]);
-}
-
-/**
- * Make every write carry this user's patch group.
- *
- * Registered from the SHELL, not from the compare view, and that is the point:
- * writes happen while somebody is editing, which is exactly when the review
- * screen is closed. Registering it there would mean a patch joins a group only
- * if you happened to have Compare open when you typed.
- *
- * The closure is computed here because here is where both halves are visible —
- * the patch sets (which need the schema) and the group. `PatchSync` can see
- * neither, which is why it takes a resolver rather than working it out.
- */
-/**
- * Move this client's patch group, locally and on the server.
- *
- * Shared by the review screen's controls and by the automatic repair, because
- * they must do exactly the same thing: the repair is a stage the user did not
- * click, and a second implementation of "stage" is how the two come to disagree
- * about what was persisted.
- */
-function usePatchGroupChange(
-  patchGroupId: string | undefined,
-): (next: Set<PatchId>, change: PatchGroupChange) => void {
-  const val = useValSystem();
-  return useCallback(
-    (next: Set<PatchId>, change: PatchGroupChange) => {
-      if (val === null) return;
-      const current = val.system.patchGroup();
-      if (current !== null && sameMembers(current, next)) {
-        /*
-         * Nothing moved. Worth checking because this runs from a repair that
-         * fires on every recomputation of the patch-set index, from two places
-         * — the shell and the review screen — and a no-op that still sent a
-         * request would put one on the wire per keystroke batch.
-         */
-        return;
-      }
-      /*
-       * Scoped locally FIRST, so the screen answers immediately, and persisted
-       * after.
-       *
-       * If the persist fails, nothing corrects the local scope — a KNOWN GAP,
-       * spelled out where the failure is handled (`sendPatchGroupChange` in
-       * `createSystem`) and in `docs/independent-publish/DESIGN.md`.
-       */
-      val.system.setPatchGroup([...next]);
-      /*
-       * Both halves go. The server unions on stage and removes on unstage, so
-       * sending only what the user asked for would leave the group holding a
-       * suffix of a patch set — the shape the prefix invariant exists to
-       * prevent.
-       */
-      if (change.requested.length === 0 && change.alsoMoved.length === 0)
-        return;
-      /*
-       * `patchGroupId` is `undefined` in two windows the review screen is
-       * perfectly usable in: before this author's first write on a branch, and
-       * after every publish, since a publish closes the group and the next one
-       * is created by the next write. This used to return here, so a stage made
-       * in either window moved the screen and persisted nothing. It is sent
-       * with no id instead, and the content API stages it into the caller's
-       * open group, creating one if there is none.
-       */
-      val.system.persistPatchGroupChange(patchGroupId, {
-        type: change.type,
-        // What the user clicked, told apart from what moved with it: the
-        // content API stores the distinction and cannot infer it.
-        patchIds: change.requested,
-        withPatchIds: change.alsoMoved,
-      });
-    },
-    [val, patchGroupId],
-  );
-}
-
-function sameMembers(a: readonly PatchId[], b: ReadonlySet<PatchId>): boolean {
-  if (a.length !== b.size) return false;
-  for (const patchId of a) {
-    if (!b.has(patchId)) return false;
-  }
-  return true;
-}
-
-/**
- * Make every write carry this user's patch group.
- *
- * Registered from the SHELL, not from the compare view, and that is the point:
- * writes happen while somebody is editing, which is exactly when the review
- * screen is closed. Registering it there would mean a patch joins a group only
- * if you happened to have Compare open when you typed.
- *
- * The closure itself is `System.computeWriteClosure`, not something computed
- * here. It has to be: the flush runs synchronously off `patch:create`, so
- * anything derived from already-rendered patch sets is one grouping behind and
- * cannot contain the patch being saved — which made `withPatchIds` empty in
- * the normal case. The system awaits a grouping that covers the batch.
- *
- * All this hook decides is WHETHER to send a group at all.
- */
-function usePatchGroupWrites(): void {
-  const val = useValSystem();
-  const group = useCurrentPatchGroup();
-
-  useEffect(() => {
-    if (val === null) return;
-    if (!group.enabled) {
-      // No groups on this deployment. Writing with no group is what every
-      // client did before groups existed.
-      val.system.setPatchGroupResolver(undefined);
-      return;
-    }
-    /*
-     * No group id is sent, even when we know one. The server resolves this
-     * author's open group and creates it if absent, so a fresh branch
-     * bootstraps on the first write — and no stale id survives a publish to
-     * fail the next one.
-     */
-    val.system.setPatchGroupResolver(async (patchIds) => ({
-      withPatchIds: await val.system.computeWriteClosure(patchIds),
-    }));
-  }, [val, group.enabled]);
-}
-
-/**
- * Tell the system which group is this user's.
- *
- * `publish` has to tell the content API which group its commit empties, and
- * the scope needs to know whose group it follows before a stat has named the
- * user.
- */
-function usePatchGroupIdentity(): void {
-  const val = useValSystem();
-  const group = useCurrentPatchGroup();
-
-  /*
-   *
-   * Set from here because resolving "which group is mine" needs the author id
-   * and the chain annotation, and `useCurrentPatchGroup` is the one place that
-   * decision is made. The system holding a second copy of the reasoning is how
-   * the two come to disagree about whose group is being closed.
-   */
-  useEffect(() => {
-    if (val === null) return;
-    val.system.setOwnPatchGroupId(
-      group.enabled ? group.patchGroupId : undefined,
-    );
-  }, [val, group.enabled, group.patchGroupId]);
-}
-
-/**
- * The compare view, scoped to this user's patch group.
- *
- * Staging is only offered where it can do something: the provider is handed
- * `enabled: false` unless this deployment actually has groups, and there the
- * review screen renders exactly the flat list it always did.
- */
-function StagedCompare({
-  patchSets,
-  profilesByAuthorIds,
-  mode,
-  publishCount,
-}: {
-  patchSets: SerializedPatchSet;
-  profilesByAuthorIds: Record<string, Profile>;
-  mode: "fs" | "http" | "unknown";
-  publishCount: number;
-}) {
-  return (
-    <StagingScope patchSets={patchSets}>
-      <ComparePatchSets
-        patchSets={patchSets}
-        profilesByAuthorIds={profilesByAuthorIds}
-        mode={mode}
-        canDiscard
-        reloadKey={publishCount}
-      />
-    </StagingScope>
   );
 }
 
@@ -1824,115 +1588,31 @@ function ReviewRoute() {
   return (
     <ReviewLoader>
       {(patchSets) => (
-        <StagingScope patchSets={patchSets}>
-          <ReviewSurface
-            patchSets={patchSets}
-            /*
-             * The same test the top bar's History button uses, from the same
-             * function — see `historyEnabledFor` for why the two doors to
-             * that page cannot be allowed to answer differently.
-             */
-            onRestore={
-              historyEnabledFor({ mode, historyBranch: reviewHistoryBranch })
-                ? () => navigation.navigate(VAL_HISTORY_ROUTE)
-                : undefined
-            }
-            /*
-             * Only while there is something a revert could take back. Same
-             * test the shell's own Discard all uses — a committed patch is in
-             * a commit and cannot be dropped from here, so a page whose rows
-             * have all shipped would otherwise offer a button that confirms
-             * and does nothing.
-             */
-            onDiscardAll={
-              discardAll.enabled ? discardAll.discardAll : undefined
-            }
-            discardAllDescription={discardAll.description}
-            portalContainer={portalContainer}
-          />
-        </StagingScope>
+        <ReviewSurface
+          patchSets={patchSets}
+          /*
+           * The same test the top bar's History button uses, from the same
+           * function — see `historyEnabledFor` for why the two doors to
+           * that page cannot be allowed to answer differently.
+           */
+          onRestore={
+            historyEnabledFor({ mode, historyBranch: reviewHistoryBranch })
+              ? () => navigation.navigate(VAL_HISTORY_ROUTE)
+              : undefined
+          }
+          /*
+           * Only while there is something a revert could take back. Same
+           * test the shell's own Discard all uses — a committed patch is in
+           * a commit and cannot be dropped from here, so a page whose rows
+           * have all shipped would otherwise offer a button that confirms
+           * and does nothing.
+           */
+          onDiscardAll={discardAll.enabled ? discardAll.discardAll : undefined}
+          discardAllDescription={discardAll.description}
+          portalContainer={portalContainer}
+        />
       )}
     </ReviewLoader>
-  );
-}
-
-/**
- * The staging provider, around whatever is reading it.
- *
- * Shared by `/val/compare` and `/val/review` because both of them ARE the
- * staging UI — one shows it per diff row, the other per patch set — and the
- * scope logic below is not a thing to have two copies of. Without this wrapper
- * `PatchStaging.enabled` is false, every row answers "staged", and the review
- * page's two sections collapse into one with no way to tell.
- */
-function StagingScope({
-  patchSets,
-  children,
-}: {
-  patchSets: SerializedPatchSet;
-  children: React.ReactNode;
-}) {
-  const val = useValSystem();
-  const group = useCurrentPatchGroup();
-  const chainOrder = useChainOrder();
-  /*
-   * Indexed over the PENDING half, the same half the page shows.
-   *
-   * `stageClosure` walks each patch set and pulls in every predecessor of
-   * whatever is staged, which is exactly right for pending work — a patch
-   * cannot ship without the ones it was built on. A shipped patch is already
-   * in a commit, so it is not a predecessor that needs bringing along; it is
-   * one the page has just promised cannot be staged or unstaged from here.
-   * Indexing the unfiltered sets let the closure reach one anyway and put it
-   * in the next group request, because a source path edited on both sides of
-   * a publish has its committed and pending patches in ONE set — which is the
-   * ordinary state of things now that a shipped patch stays in the chain
-   * until the deploy moves the base.
-   *
-   * Filtered here rather than in `ReviewLoader` because the loader feeds the
-   * surface too, and `ReviewSurface` does its own filtering for its own
-   * reasons; one more caller of the same helper is cheaper than a second
-   * definition of "pending".
-   */
-  const committedPatchIds = useCommittedPatches();
-  const pending = useMemo(
-    () => pendingPatchSets(patchSets, committedPatchIds),
-    [patchSets, committedPatchIds],
-  );
-
-  /**
-   * What this client is scoped to, which is the LOCAL truth.
-   *
-   * Two things made the annotation alone wrong as the provider's `group`.
-   * Nothing re-reads it after a stage or unstage — `PatchStore` refreshes
-   * groups only when it fetches missing patch ids — so a toggle moved the
-   * server and nothing on screen. And until the first toggle the system was
-   * never scoped at all, so `publish` shipped the whole pending chain
-   * including other authors' patches, which is the failure this feature exists
-   * to prevent.
-   *
-   * So the system holds it, `onChange` moves it, and the annotation seeds it —
-   * the seeding itself lives in `usePatchGroupScope`, at shell level, because
-   * publish must be scoped whether or not this screen was ever opened.
-   */
-  const scoped = val?.system.patchGroup() ?? null;
-  const members = useMemo(
-    () => (scoped === null ? group.members : new Set(scoped)),
-    [scoped, group.members],
-  );
-
-  const onChange = usePatchGroupChange(group.patchGroupId);
-
-  return (
-    <PatchStagingProvider
-      enabled={group.enabled}
-      patchSets={pending}
-      chainOrder={chainOrder}
-      group={members}
-      onChange={onChange}
-    >
-      {children}
-    </PatchStagingProvider>
   );
 }
 

@@ -990,17 +990,10 @@ describe("the page's last change", () => {
   });
 
   test("is the newest one not yet published, saved or not", () => {
-    expect(newestUnpublished(store(["p1", "p2", "p3"]), null)).toBe("p3");
-    expect(newestUnpublished(store(["p1", "p2"], ["p2"]), null)).toBe("p1");
-    expect(newestUnpublished(store(["p1"], ["p1"]), null)).toBeNull();
-    expect(newestUnpublished(store([]), null)).toBeNull();
-  });
-
-  test("is the editor's own, where the project has patch groups", () => {
-    // p1 is this editor's edit, not yet saved; p2 is another editor's, saved
-    // after it. Named p2, the tab would see it at once and press without p1.
-    expect(newestUnpublished(store(["p1", "p2"]), ["p1"])).toBe("p1");
-    expect(newestUnpublished(store(["p1", "p2"]), [])).toBeNull();
+    expect(newestUnpublished(store(["p1", "p2", "p3"]))).toBe("p3");
+    expect(newestUnpublished(store(["p1", "p2"], ["p2"]))).toBe("p1");
+    expect(newestUnpublished(store(["p1"], ["p1"]))).toBeNull();
+    expect(newestUnpublished(store([]))).toBeNull();
   });
 
   test("is there once the tab's chain has it, saved", () => {
@@ -1134,10 +1127,7 @@ describe("whether a press needs a build", () => {
 
   test("not for text alone", () => {
     expect(
-      pendingNeedsBuild(
-        store([{ patchId: "p1", patch: [{ op: "replace" }] }]),
-        null,
-      ),
+      pendingNeedsBuild(store([{ patchId: "p1", patch: [{ op: "replace" }] }])),
     ).toBe(false);
   });
 
@@ -1151,7 +1141,6 @@ describe("whether a press needs a build", () => {
             patch: [{ op: "replace" }, { op: "file", remote: false }],
           },
         ]),
-        null,
       ),
     ).toBe(true);
   });
@@ -1160,7 +1149,6 @@ describe("whether a press needs a build", () => {
     expect(
       pendingNeedsBuild(
         store([{ patchId: "p1", patch: [{ op: "file", remote: true }] }]),
-        null,
       ),
     ).toBe(false);
   });
@@ -1172,17 +1160,7 @@ describe("whether a press needs a build", () => {
           [{ patchId: "p1", patch: [{ op: "file", remote: false }] }],
           ["p1"],
         ),
-        null,
       ),
     ).toBe(false);
-  });
-
-  test("of the editor's own changes, where the project has patch groups", () => {
-    const records = [
-      { patchId: "p1", patch: [{ op: "replace" }] },
-      { patchId: "p2", patch: [{ op: "file", remote: false }] },
-    ];
-    expect(pendingNeedsBuild(store(records), ["p1"])).toBe(false);
-    expect(pendingNeedsBuild(store(records), ["p2"])).toBe(true);
   });
 });

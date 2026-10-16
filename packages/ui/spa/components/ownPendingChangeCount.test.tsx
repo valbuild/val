@@ -6,16 +6,12 @@ import { useOwnPendingChangeCount } from "./ValProvider";
 /**
  * What Review's badge counts.
  *
- * It sits beside Publish and is read as "how much is waiting for me", so it has
- * to be the scoped set. On a shared branch the chain also holds other people's
- * pending work — which this client can neither publish nor discard — and a
- * badge that counted it would send the reader off to deal with somebody else's
- * edit.
+ * Every pending change in the chain — what Publish would ship — and nothing
+ * that has already shipped.
  */
 
 const AUTHORS = "/content/authors.val.ts" as ModuleFilePath;
 const MINE = "mine" as PatchId;
-const ALSO_MINE = "also-mine" as PatchId;
 const THEIRS = "theirs" as PatchId;
 const SHIPPED = "shipped" as PatchId;
 
@@ -41,20 +37,16 @@ jest.mock("../stores/react/SystemContext", () => ({
 function count(options: {
   /** Every patch in the chain, oldest first. */
   chain: PatchId[];
-  /** What this client is scoped to. `null` is unscoped. */
-  scope: PatchId[] | null;
   /** Already in a commit, though still in the chain. */
   committed: PatchId[];
 }): number {
   const noEvents = { on: () => () => {} };
   mockCurrent = {
     system: {
-      patchGroup: () => options.scope,
       sourceStore: { events: noEvents, sourcesVersion: () => 1 },
       patchStore: {
         events: noEvents,
         chainVersion: () => 1,
-        groupsVersion: () => 1,
         publishedPatchIds: () => new Set(options.committed),
         allRecords: () =>
           options.chain.map((patchId) => ({
@@ -71,25 +63,8 @@ function count(options: {
   return renderHook(() => useOwnPendingChangeCount()).result.current;
 }
 
-test("unscoped counts the whole chain", () => {
-  // `fs` mode, or a content API without groups. One author, so the chain is
-  // theirs — the same number this showed before groups existed.
-  expect(count({ chain: [MINE, THEIRS], scope: null, committed: [] })).toBe(2);
-});
-
-test("scoped counts only what this client would publish", () => {
-  expect(
-    count({
-      chain: [MINE, THEIRS, ALSO_MINE],
-      scope: [MINE, ALSO_MINE],
-      committed: [],
-    }),
-  ).toBe(2);
-});
-
-test("an unstaged change is not counted", () => {
-  // Unstaged: still in the chain, still pending, and not this publish's.
-  expect(count({ chain: [MINE, THEIRS], scope: [], committed: [] })).toBe(0);
+test("counts the whole chain", () => {
+  expect(count({ chain: [MINE, THEIRS], committed: [] })).toBe(2);
 });
 
 test("a published patch is not counted, though it is still in the chain", () => {
@@ -101,7 +76,6 @@ test("a published patch is not counted, though it is still in the chain", () => 
   expect(
     count({
       chain: [SHIPPED, MINE],
-      scope: [SHIPPED, MINE],
       committed: [SHIPPED],
     }),
   ).toBe(1);

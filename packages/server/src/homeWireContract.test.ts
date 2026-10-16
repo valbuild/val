@@ -93,10 +93,6 @@ function opsAnswering(
  */
 const PROFILE = "22222222-2222-4222-8222-222222222222" as AuthorId;
 
-function profileHeaderOf(sent: { headers: Record<string, string> }[]) {
-  return sent.map((request) => request.headers["x-val-profile-id"]);
-}
-
 /**
  * `home` — `Api["/commits/:commitSha/modules"]["GET"]["res"]`, copied from there.
  *

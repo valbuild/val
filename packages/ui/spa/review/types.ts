@@ -1,17 +1,15 @@
 import type { Profile } from "../components/ValProvider";
 import type { Description } from "../utils/describePath";
 import type { CompareAuthorship } from "../compare/types";
-import type { RowStagingState } from "../components/PatchStagingProvider";
 
 /**
  * The review page's data, as a story writes it.
  *
  * Separate from `SerializedPatchSet` for the same reason `CompareModel` is
  * separate from `ChangeTreeNode`: the adapter that turns patch sets into this
- * is where the awkward parts live — resolving a `Description` per row, reading
- * the staging state out of `PatchStagingProvider`, counting what a publish
- * would hold back — and none of it should have to exist before the layout can
- * be looked at.
+ * is where the awkward parts live — resolving a `Description` per row,
+ * grouping by page or module — and none of it should have to exist before the
+ * layout can be looked at.
  *
  * It is also narrower than a patch set on purpose. A row here does not carry
  * before/after values, because this page is deliberately NOT a diff: the diff
@@ -22,15 +20,6 @@ import type { RowStagingState } from "../components/PatchStagingProvider";
 export type ReviewModel = {
   /** One entry per module, in the order the page lists them. */
   modules: ReviewModuleGroup[];
-  /**
-   * Whether the server can store patch groups at all.
-   *
-   * False in fs mode and against a content API that predates groups, and then
-   * every checkbox is gone rather than present and inert — the same rule
-   * `PatchStaging.enabled` already states, kept here so the page can be
-   * rendered in that state without a provider.
-   */
-  stagingEnabled: boolean;
   /**
    * `Profile`, not a shape of this page's own, so `ProfileAvatar` draws a
    * person here exactly as it draws them everywhere else.
@@ -56,9 +45,7 @@ export type ReviewModel = {
    * Who is looking, so the author filter can lead with them and say "(you)".
    *
    * Null when the profile has not loaded or there is no session, and then it
-   * is simply one more name in the list — the same rule the staging checkboxes
-   * follow in fs mode: a control that cannot mean anything is not drawn
-   * meaning nothing.
+   * is simply one more name in the list.
    *
    * NOT a one-click "Mine" preset, which this said for a while and the page
    * never had. Narrowing to yourself and then pressing "Select showing" is two
@@ -112,11 +99,11 @@ export type ReviewModuleGroup = {
 /**
  * One patch set: every patch at one path in one module, as one line.
  *
- * A patch set is the unit a publish stages and a discard removes, so it is the
+ * A patch set is the unit a selection picks and a discard removes, so it is the
  * unit this page lists. Splitting it finer would offer a control that cannot be
- * honoured — the prefix invariant means a patch out of the middle of a set
- * cannot go alone — and coarser would be the module, which routinely holds two
- * unrelated edits by two people.
+ * honoured — a patch out of the middle of a set cannot go alone, because the
+ * later ones were written against it — and coarser would be the module, which
+ * routinely holds two unrelated edits by two people.
  */
 export type ReviewRow = {
   id: string;
@@ -142,43 +129,9 @@ export type ReviewRow = {
   trail: string[];
   /** What kinds of edit are in here, for the one-line summary. */
   summary: string;
-  /** Who staged it, and when — the same shape the compare rows carry. */
+  /** Who made it, and when — the same shape the compare rows carry. */
   authors: CompareAuthorship;
   lastUpdated: string;
   /** How many patches coalesced into this set. */
   patchCount: number;
-  /**
-   * Which half of the page this row is in.
-   *
-   * It is no longer what the checkbox shows. The checkbox is a SELECTION —
-   * what you are about to act on — and staged-ness is the section the row sits
-   * in, because one control cannot answer both "is this going out" and "am I
-   * about to change that" without the answer to one being mistaken for the
-   * other. `partial` sits with the staged rows and says so on the row.
-   */
-  staging: RowStagingState;
-  /**
-   * What staging this row would additionally pull in, by author name.
-   *
-   * The prefix invariant again: a patch set later in the chain cannot publish
-   * without its predecessors, so ticking one row can drag another person's work
-   * into the publish. Named rather than counted, because "also publishes 2
-   * changes" does not tell you whose.
-   */
-  alsoStages?: string[];
-  /**
-   * Whose work REVERTING this row would push out of the publish, by name.
-   *
-   * The mirror of {@link alsoStages}, and it was missing while that one was
-   * there — which made the page warn about the cheaper of the two directions
-   * and stay silent about the destructive one. Reverting deletes this row's
-   * patches, and the prefix invariant then applies backwards: a later patch
-   * set cannot stay in the publish without the predecessors that have just
-   * gone, so it is unstaged. It is not lost — it stays pending, and can be
-   * staged again once the hole is filled — which is exactly why the warning
-   * says "unstages" rather than anything stronger.
-   *
-   * Only staged rows carry it: an unstaged row's revert takes nothing with it.
-   */
-  alsoUnstages?: string[];
 };
