@@ -77,7 +77,7 @@ const WORDS: Record<CompareUndoKind, UndoWords> = {
      * mode is not frightening: it goes through the same review and publish as
      * any edit, and can be reverted like one.
      */
-    reassurance: "This stages a change you can review before publishing.",
+    reassurance: "This adds a pending change you can review before publishing.",
     ask: "Bring the old value back?",
     askWithDependents: (count) =>
       `Bring this and ${count} later ${count === 1 ? "value" : "values"} back?`,

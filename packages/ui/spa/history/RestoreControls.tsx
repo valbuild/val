@@ -591,12 +591,12 @@ export function RestoreControls({
             {restore.stage.status === "staging"
               ? toProposal
                 ? "Opening a proposal…"
-                : "Staging…"
+                : "Restoring…"
               : restore.stage.status === "opening"
                 ? "Opening the proposal…"
                 : toProposal
                   ? "Restore in a new proposal"
-                  : "Stage this restore"}
+                  : "Restore as pending changes"}
           </Button>
           {/*
            * Not offered for a whole-module restore: its destination is the

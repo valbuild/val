@@ -332,7 +332,9 @@ test.describe("history in http mode", () => {
       .getByRole("button", { name: "Restore the picked value here" })
       .click();
 
-    await studio.getByRole("button", { name: "Stage this restore" }).click();
+    await studio
+      .getByRole("button", { name: "Restore as pending changes" })
+      .click();
     await expect(
       studio.getByText(/Done\. It is in your pending changes/),
     ).toBeVisible();
