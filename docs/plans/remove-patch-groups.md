@@ -8,8 +8,19 @@
 
 ## Current state / resume here
 
-> **2026-10-14: planned, nothing built.** Rebased on main after
-> hosted-publishing steps 1–10 (home) landed. Decided:
+> **2026-10-16: planned, nothing built.** This branch now carries the
+> proposals work (`claude/proposals-feature-design-ctgmbc`, val `3392738`, home
+> `bd4422f`) and main, merged in. Baseline before any removal:
+> `pnpm test packages/server/src/proposalMerge` 106 (3 todo),
+> `pnpm test packages/server/src/proposalMode.test.ts` 40, the home loop 256/256.
+> What the removal must keep working is listed under "Proposals: what this
+> must keep working" — read it before every phase. Hosted-publishing 8.2
+> (merging like a pull request) is built on this plan, and its next step —
+> moving conflicting pending changes when a proposal is published — waits on
+> Phases 1–3.
+>
+> **2026-10-14:** rebased on main after hosted-publishing steps 1–10 (home)
+> landed. Decided:
 >
 > 1. Patch groups go, in both repositories. The site's Publish ships every
 >    pending change.
@@ -90,7 +101,11 @@ Four rules replace the patch-group design:
    the site's chain by the client — Publish selected, "New proposal with my
    changes", Flow A later — whole patch sets move, never part of one. (Patch
    sets are the schema-derived groups of patches that can shift each other's
-   paths; `utils/PatchSets.ts`.)
+   paths; `PatchSets` in `packages/shared/src/internal/patchSets/`, exported
+   from `@valbuild/shared/internal`.) Sets that share a change are one set,
+   because a change is never split. Hosted-publishing 8.2 already applies this
+   rule on the server: `changesToMove` in
+   `packages/server/src/proposalMerge/merge.ts`.
 
    Why whole sets, not a prefix as groups used: a move takes patches OUT of
    the site's chain. Move a prefix and the suffix left on the site replays
@@ -100,8 +115,11 @@ Four rules replace the patch-group design:
    different sets commute, so whatever is left in the same module is fine.
    Computed once, when someone clicks; never maintained.
 
-   Content has no schema and moves by module instead (Phase 5), which is
-   coarser and therefore also safe: a module holds whole patch sets.
+   Content has no schema, and 8.2 decided it should not need to know about
+   patch sets: Val computes which ids move, content checks only that they
+   are pending. Where content has to decide alone (Phase 5), it moves by
+   module, which is coarser and therefore also safe: a module holds whole
+   patch sets.
 
 3. **Discard takes what was written on top.** `computeDiscardClosure`'s
    forward closure stays, but only decides what is deleted. There is no
@@ -120,6 +138,66 @@ Four rules replace the patch-group design:
   keep working". Its choices are "Continue in a proposal" and "Discard"; an
   affected change blocks the site's Publish until someone acts, and anyone
   may.
+
+### Proposals: what this must keep working
+
+Hosted-publishing 8.2 ("merging like a pull request", valbuild/home
+`docs/hosted-publishing.md`) is built on top of this plan, on the same code.
+Every phase keeps these working; none of them use patch groups.
+
+1. **Patch sets live in shared.** `PatchSets` and `schemaTypesOfPath` are in
+   `packages/shared/src/internal/patchSets/`; the files in `ui/spa/utils` are
+   re-export shims. Change the shared copy only, and never bring a second one
+   back. The comments about groups that Phase 2 removes are in the shared
+   copy.
+2. **The merge groups pending changes by patch set.** `changesToMove()` in
+   `proposalMerge/merge.ts` calls
+   `sets.insert(moduleFilePath, serializedSchema, ops, patchId, "", null)` and
+   `sets.serialize()`, then joins sets that share a change
+   (`joinSharedChanges`). If the `PatchSets` API changes, change that call
+   with it. Decided rules for moved changes: whole patch sets only; everyone
+   who wrote a change in a moved set owns the new proposal; it is titled
+   "Moved when “<title>” was published" and starts at the site commit before
+   the merge.
+3. **The merge test world drives Val's real patch path.**
+   `proposalMerge/world.ts` uses `ValOpsMemory`, one patch store per line
+   (`content.ts`), and calls
+   `createPatch(path, ops, patchId, { type: "head", headBaseSha }, null, author)`,
+   `fetchPatches({ excludePatchOps: false })`, `analyzePatches`, `getSources`
+   and `prepare`. If `createPatch`, `ParentRef` or `fetchPatches` change shape,
+   change `world.ts` with them — never what the scenarios expect. (Phase 2
+   removes only `createPatch`'s trailing, optional `patchGroup` argument; the
+   `null` world.ts passes is the session id.)
+4. **Update from the site** (`ValOpsHttp.proposalsApi`, `update-content` and
+   `update-code`) reads content's `merge-inputs` / `merge-trees` and commits
+   through `merge-from-site`. It touches no patches, but `merge-from-site`
+   refuses while the proposal has unsaved changes (`dal.proposals.unsavedCount`).
+   Anything that changes what counts as pending or unsaved (Phases 5 and 6)
+   changes that count with it.
+5. **The end-to-end loop** (valbuild/home `platform/scripts/loop.ts`): about
+   22 steps `PUT /api/val/patches` with `parentRef` `{ type: "head",
+headBaseSha }` or `{ type: "patch", patchId }`, and several read
+   `headPatchId` from content's `/applicable/patches`. If the patches API or
+   that response changes shape, change those steps. Its content-host stand-in
+   answers `GET /patch-groups` with an empty list (`content-host.ts`), which
+   Phase 3 deletes.
+
+**Checks after every phase**, in addition to the repository's own CI:
+
+```bash
+pnpm test packages/server/src/proposalMerge         # 106, 3 todo
+pnpm test packages/server/src/proposalMode.test.ts  # 40
+
+# the home loop, against real content (256/256 at the baseline)
+pg_ctlcluster 16 main start
+moto_server -p 4569 &
+cd home/platform/packages/loader && ./node_modules/.bin/wrangler dev \
+  --var CONTROL_PLANE_AUTH:open --var PLATFORM_ADMIN_TOKEN:loop-admin-token &
+cd home/platform && pnpm loop --val ../../val --content real
+```
+
+The admin token is required; without it the loop stops at "giving the project
+its secrets" with a 401.
 
 ---
 
@@ -234,10 +312,15 @@ By package:
   `reviewCheckbox`, the sources-memo tests, `ValRouter`, `proposalMode`) —
   never to make a non-group failure pass.
 
-Keep: `PatchSets.ts`, `PatchSetStore`, the worker. They still drive the
-discard closure, review and compare grouping, `collectFieldChanges` (commit
-messages), `CompareLink`, `PatchErrorsDialog`, and Phase 4's selection
-closure. Keep the applied set and `headPatchId` until Phase 6.
+Keep: `PatchSets` (in shared; only its group comments change),
+`PatchSetStore`, the worker. They still drive the discard closure, review and
+compare grouping, `collectFieldChanges` (commit messages), `CompareLink`,
+`PatchErrorsDialog`, the proposal merge's `changesToMove`, and Phase 4's
+selection closure. Keep the applied set and `headPatchId` until Phase 6.
+
+`createPatch` loses its trailing `patchGroup?` argument; `ParentRef` and
+`fetchPatches` keep their shape, so `proposalMerge/world.ts` and the loop are
+untouched by this phase — the proposal checks above say so.
 
 Changeset, written for users: "Publish now publishes every pending change. To
 keep changes out of a publish, move them to a proposal."
@@ -277,7 +360,11 @@ With groups gone it is the only selection there is.
   changes are there, nothing is lost), and **Try again** only where retrying
   can help.
 
-**What happens.**
+**What happens.** Publish selected is "New proposal with my changes" and
+then that proposal's Publish, in one press. Since 8.2, a merge is not refused
+because of pending site changes: the ones that conflict with it move into a
+proposal of their own, and the rest stay pending. So the unselected changes
+on the same page are not in the way, and no special kind of merge is needed.
 
 ```
  Studio                                   content (home)
@@ -285,10 +372,10 @@ With groups gone it is the only selection there is.
  closure = whole patch sets of selection
  save pending, then
  POST /proposals { kind: "publish",  ──▶  create, base = site head, move
-   patchIds: closure, requestId }          (re-key) in the same transaction;
-                                           record the move's chain position
+   patchIds: closure, requestId }          (re-key) in the same transaction
  prepare + POST /proposals/:n/save   ──▶  commit on val/p/<n>
- POST /proposals/:n/merge            ──▶  content-only: a ref update, no build
+ POST /proposals/:n/merge            ──▶  content-only: a ref update, no build;
+                                           8.2's moves, if anything conflicts
  ◀── merged ─────────────────────────────  the site's content version holds it
 ```
 
@@ -297,6 +384,16 @@ pending changes, then `POST /proposals` with `patchIds`, request id taken
 from the patches so Try again opens the same proposal). Publish selected
 reuses it and adds the closure, the save and the merge.
 
+Why it merges cleanly: the selection is whole patch sets (rule 2), and what
+was left on the site is in other sets, so it commutes with the selection and
+does not conflict at the merge. What CAN conflict is a change written on the
+site after the move, against a view without the selection: 8.2 moves it, as
+it moves any conflicting pending change, and its authors are told.
+
+**Needs, from 8.2:** the move at publish wired into content and the Studio
+(8.2's next step, which waits on Phases 1–3). Publish selected comes after
+it.
+
 **home:**
 
 1. **A `publish` proposal kind** beside `editor | ai | affected` (and
@@ -304,28 +401,22 @@ reuses it and adds the closure, the save and the merge.
    address / overlay `setup` job if the content-only merge does not read it
    (check), and the `carry-over` job. It still lists under Proposals ›
    Merged, so history says what was published.
-2. **Its merge check.** The merge writes the proposal's whole module, and
-   `pending-on-site` refuses when any pending site patch shares a module —
-   the common case. For this kind, patches that were on the site at the move
-   are safe by rule 2, so the check is: **no site patch created after the
-   move touches a module the proposal holds.** A patch written after the move
-   was written against a view without the selection, and content cannot
-   compute patch sets, so the module is the granularity. `published-since`
-   and `siteCodeCheck` are unchanged (a selection is content only, so the
-   latter never fires). When the check fails nothing merges and the proposal
-   stays open as an ordinary one ("Someone changed this page while it was
-   publishing"), with **Open the proposal**.
-3. **Create and move in one transaction** for this kind, so a lost answer
+2. **Create and move in one transaction** for this kind, so a lost answer
    cannot leave an empty proposal.
 
 **val:**
 
-- `selectionClosure(patchSets, selected)` in the worker: every patch in every
-  patch set a selected patch is in. Replaces `stageClosure`,
+- `selectionClosure(patchSets, selected)` in `@valbuild/shared/internal`,
+  beside `PatchSets`: every patch in every patch set a selected patch is in,
+  sets that share a change joined. That is the grouping `changesToMove`
+  already does with `joinSharedChanges`, so the two share one function (moved
+  from `merge.ts` to shared) rather than two copies. Replaces `stageClosure`,
   `unstageClosure` and `computeWriteClosure`; "New proposal + my changes"
   (`NewProposalDialog`, which does not carry changes yet) uses it too.
 - `proposalsClient.create` gains `kind`.
-- The Review action, the dialog, and the progress and failure states.
+- The Review action, the dialog, and the progress and failure states. A
+  failure keeps the proposal and says so; one the merge refused (the site
+  code moved, say) offers what the proposal's own Publish offers.
 
 **The window.** Between the move and the ref update, the selection is on the
 proposal's branch, and a site Studio does not show it. For a content-only
@@ -336,15 +427,16 @@ running site job's are.
 
 **Rejected:** a site publish job with a selected subset — cheaper per press,
 but it ships a patch while an earlier one stays pending, against rule 1. A
-prefix closure — safe only while patches stay in one chain.
+prefix closure — safe only while patches stay in one chain. A merge check of
+its own for this kind (planned 2026-10-14) — 8.2's moves make it unnecessary.
 
 **Tests:** `selectionClosure` (an earlier insert by someone else is pulled
-in; an unrelated field of the same module is not); content: a `publish`
-merge succeeds over unselected site patches in the same module written
-before the move, and refuses, leaving the proposal open, over one written
-after; e2e on `chromium-http`: two authors on one page, one publishes a
-selection, the other's change is still pending and still renders, and a
-reload agrees (`reloadEquivalence`).
+in; an unrelated field of the same module is not; sets that share a change
+come together); a `proposalMerge` scenario: two authors on one page, one
+publishes a selection, the other's change stays pending and still applies,
+and a change written after the move that conflicts is moved; e2e on
+`chromium-http`: the same through the Studio, and a reload agrees
+(`reloadEquivalence`); the loop, end to end.
 
 ### Phase 5 — a held-back publish goes to a proposal
 
@@ -386,6 +478,11 @@ be kept, seen and fixed without blocking anyone else. It is not the rejected
 "moving affected changes automatically": an affected change was valid where
 it was made and the site moved away from it; a held-back one broke a page.
 
+The move is the one 8.2 makes, with content deciding alone (no Val server is
+in the failed job's loop to compute patch sets), hence by module. The moved
+changes leave the site as pending and are pending in the proposal, so
+`merge-from-site`'s unsaved count sees them there, which is what it should.
+
 Removed with it: `held_back_job_ids`, `heldBackPatches` / `heldBackOf`, the
 "held back" count and reason in `publishButtonState`, the
 `discardHeldByPublish` path for held-back changes (a change in a RUNNING
@@ -416,7 +513,8 @@ Then simplify, in both:
   (`peekBase`, compare's "before") is base + chain up to the cursor.
 - **Chain head.** The last listed patch is the head again. `chainHeadOf`
   falls back to it; `headPatchId` stays as a cross-check one release, then
-  goes. `headVersion` stays (it orders stats, not publishes). Update the
+  goes — and the loop's steps that read it from `/applicable/patches` change
+  in the same PR. `headVersion` stays (it orders stats, not publishes). Update the
   `quirks.md` entry on why the head is not the last patch.
 - **Publish head** (`expectedHeadCommitSha`, `/save` `headMoved`). It existed
   so a subset publish could not land on a commit the client had not seen.
