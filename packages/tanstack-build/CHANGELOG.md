@@ -1,5 +1,15 @@
 # @valbuild/tanstack-build
 
+## 0.146.0
+
+### Minor Changes
+
+- [#861](https://github.com/valbuild/val/pull/861) [`89b0fa8`](https://github.com/valbuild/val/commit/89b0fa82a3ae0d8ccd5d0282c1034f1f40cc4e26) Thanks [@freekh](https://github.com/freekh)! - Proposals can be brought up to date with the site, like a pull request.
+
+  - **Update from the site** merges what was published on the site since a proposal started into the proposal, field by field. Where the site and the proposal changed the same field, the Publish dialog shows both and asks which to keep.
+  - **With code:** a proposal that changes code, or a site whose code changed since the proposal started, is updated too. The Studio runs each version's schemas in the tab, and the merged code is built before it can be published.
+  - Publish offers **Update from the site** whenever the site has moved under the proposal.
+
 ## 0.145.1
 
 ### Patch Changes

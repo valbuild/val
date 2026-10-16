@@ -1,5 +1,27 @@
 # @valbuild/tanstack
 
+## 0.146.0
+
+### Minor Changes
+
+- [#864](https://github.com/valbuild/val/pull/864) [`f0c7d27`](https://github.com/valbuild/val/commit/f0c7d27846c21f81ff6ce79c579185150bc0d063) Thanks [@freekh](https://github.com/freekh)! - Patch groups are removed. **Publish** now publishes every pending change, and
+  the Review list shows everyone's pending changes in one list. To keep changes
+  out of a publish, move them to a proposal.
+
+  Draft reads no longer send `own_patch_groups_only`, `patch_id` or
+  `include_patch_groups`, and the server no longer has the patch-group routes or
+  fields. A content host that still sends them is fine: they are ignored.
+
+### Patch Changes
+
+- Updated dependencies [[`89b0fa8`](https://github.com/valbuild/val/commit/89b0fa82a3ae0d8ccd5d0282c1034f1f40cc4e26), [`f0c7d27`](https://github.com/valbuild/val/commit/f0c7d27846c21f81ff6ce79c579185150bc0d063)]:
+  - @valbuild/ui@0.146.0
+  - @valbuild/server@0.146.0
+  - @valbuild/shared@0.146.0
+  - @valbuild/react@0.146.0
+  - @valbuild/language-server@0.146.0
+  - @valbuild/mcp@0.146.0
+
 ## 0.145.1
 
 ### Patch Changes
