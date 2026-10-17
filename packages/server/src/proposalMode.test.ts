@@ -473,8 +473,11 @@ describe("the proposals API, for the Studio", () => {
     const o = ops(undefined);
     await o.proposalsApi(`/${NAME}/merge-checks`, { method: "GET" }, "p");
     await o.proposalsApi(`/${NAME}/merge`, { method: "POST", body: "{}" }, "p");
+    // On the site, each first asks whether it is Publish selected's proposal.
     expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `GET /v1/org/project/proposals/${NAME}`,
       `GET /v1/org/project/proposals/${NAME}/merge-checks`,
+      `GET /v1/org/project/proposals/${NAME}`,
       `POST /v1/org/project/proposals/${NAME}/merge`,
     ]);
   });
@@ -984,8 +987,11 @@ describe("proposalFromEnv", () => {
 
 describe("Publish moves the site's conflicting pending changes (step 8.2)", () => {
   const FOOTER_PAGE = "/app/footer.val.ts";
-  /** Content: the checks block on pending-on-site, and the pending changes are Kari's and Bo's. */
-  const content = () =>
+  /**
+   * Content: the checks block on pending-on-site, and the pending changes are
+   * Kari's and Bo's. `kind` is the proposal's, as content answers it.
+   */
+  const content = (kind = "editor") =>
     jest.spyOn(global, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       sent.push({
@@ -994,50 +1000,54 @@ describe("Publish moves the site's conflicting pending changes (step 8.2)", () =
         body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
         headers: Object.fromEntries(new Headers(init?.headers).entries()),
       });
-      const body = url.endsWith("/merge-checks")
-        ? {
-            checks: [
-              { id: "published-since", ok: true, message: "ok" },
-              {
-                id: "pending-on-site",
-                ok: false,
-                message: "Kari and Bo have unpublished changes",
-                blockers: [{ moduleFilePath: PAGE, by: "Kari" }],
-              },
-            ],
-            canMerge: false,
-          }
-        : url.endsWith("/move-inputs")
+      const body = url.endsWith(`/proposals/${NAME}`)
+        ? { proposal: { name: NAME, kind: kind } }
+        : url.endsWith("/merge-checks")
           ? {
-              siteHead: "site-2",
-              pending: [
+              checks: [
+                { id: "published-since", ok: true, message: "ok" },
                 {
-                  patchId: "k1",
-                  moduleFilePath: PAGE,
-                  patch: [{ op: "replace", path: ["title"], value: "Kari's" }],
-                  author: "kari",
-                  authorName: "Kari",
-                },
-                {
-                  patchId: "b1",
-                  moduleFilePath: FOOTER_PAGE,
-                  patch: [{ op: "replace", path: ["text"], value: "Bo's" }],
-                  author: "bo",
-                  authorName: "Bo",
+                  id: "pending-on-site",
+                  ok: false,
+                  message: "Kari and Bo have unpublished changes",
+                  blockers: [{ moduleFilePath: PAGE, by: "Kari" }],
                 },
               ],
-              modules: {
-                [PAGE]: {
-                  site: { title: "On the site" },
-                  merged: { title: "Saved in the proposal" },
-                },
-                [FOOTER_PAGE]: {
-                  site: { text: "Footer" },
-                  merged: { text: "Footer" },
-                },
-              },
+              canMerge: false,
             }
-          : { request: { id: "m1" }, job: null };
+          : url.endsWith("/move-inputs")
+            ? {
+                siteHead: "site-2",
+                pending: [
+                  {
+                    patchId: "k1",
+                    moduleFilePath: PAGE,
+                    patch: [
+                      { op: "replace", path: ["title"], value: "Kari's" },
+                    ],
+                    author: "kari",
+                    authorName: "Kari",
+                  },
+                  {
+                    patchId: "b1",
+                    moduleFilePath: FOOTER_PAGE,
+                    patch: [{ op: "replace", path: ["text"], value: "Bo's" }],
+                    author: "bo",
+                    authorName: "Bo",
+                  },
+                ],
+                modules: {
+                  [PAGE]: {
+                    site: { title: "On the site" },
+                    merged: { title: "Saved in the proposal" },
+                  },
+                  [FOOTER_PAGE]: {
+                    site: { text: "Footer" },
+                    merged: { text: "Footer" },
+                  },
+                },
+              }
+            : { request: { id: "m1" }, job: null };
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -1097,7 +1107,22 @@ describe("Publish moves the site's conflicting pending changes (step 8.2)", () =
     const answer = await api(ops(undefined), "/merge-checks", "GET");
     expect(answer.json.canMerge).toBe(false);
     expect(sent.map((r) => new URL(r.url).pathname)).toEqual([
+      `/v1/org/project/proposals/${NAME}`,
       `/v1/org/project/proposals/${NAME}/merge-checks`,
     ]);
+  });
+
+  test("on the site, Publish selected's proposal is answered with the moves: it changes no code, so the site's schemas are its own", async () => {
+    content("publish");
+    const site = ops(undefined);
+    const checks = await api(site, "/merge-checks", "GET");
+    expect(checks.json.canMerge).toBe(true);
+    await api(site, "/merge", "POST", { requestId: "m1", tab: "t1" });
+    const press = sent.find((r) => r.url.endsWith("/merge"));
+    expect(press?.body).toEqual({
+      requestId: "m1",
+      tab: "t1",
+      moves: { siteHead: "site-2", considered: ["k1", "b1"], groups: [["k1"]] },
+    });
   });
 });

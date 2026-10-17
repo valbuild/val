@@ -8,7 +8,11 @@ import {
   type Operation,
 } from "@valbuild/core/patch";
 import { pipe, result } from "@valbuild/core/fp";
-import { PatchSets, schemaTypesOfPath } from "@valbuild/shared/internal";
+import {
+  joinSharedChanges,
+  PatchSets,
+  schemaTypesOfPath,
+} from "@valbuild/shared/internal";
 import path from "path";
 import { insertValJsonEntry, removeValJsonEntry, TSOps } from "../patch/ts/ops";
 import { analyzeValModule } from "../patch/ts/valModule";
@@ -380,20 +384,6 @@ function conflictsWithMerge(
     }
   }
   return false;
-}
-
-/** Patch sets that share a change become one: a change is never split. */
-function joinSharedChanges(sets: PatchId[][]): Set<PatchId>[] {
-  const groups: Set<PatchId>[] = [];
-  for (const set of sets) {
-    const joined = new Set(set);
-    for (const group of groups.filter((g) => set.some((id) => g.has(id)))) {
-      for (const id of group) joined.add(id);
-      groups.splice(groups.indexOf(group), 1);
-    }
-    groups.push(joined);
-  }
-  return groups;
 }
 
 function apply(source: Value, ops: Operation[]): Value {

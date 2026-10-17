@@ -2275,6 +2275,131 @@ export const ValServer = (
         });
       },
     },
+    "/publish-selected": {
+      POST: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const profileId = profileOf(auth);
+        if (profileId === null) {
+          return { status: 401, json: { message: "Sign in to publish" } };
+        }
+        if (serverOps instanceof ValOpsHttp) {
+          await serverOps.learnProjectExpectation();
+        }
+        if (
+          !(serverOps instanceof ValOpsHttp) ||
+          serverOps.sourceMode() !== "managed" ||
+          !serverOps.publishesAsJobs() ||
+          serverOps.currentProposal() !== null
+        ) {
+          return {
+            status: 409,
+            json: {
+              message:
+                "Publish selected is for a site whose publishes are proposals: this deployment cannot.",
+            },
+          };
+        }
+        const refusal = serverOps.publishRefusal();
+        if (refusal) {
+          return { status: 409, json: { message: refusal.message } };
+        }
+        const { patchIds, displayName, requestId } = req.body;
+        /*
+         * The selection's content over the site's head, exactly as a publish
+         * job of it is prepared: this build's source, the commits since it,
+         * and the selection on top. Only what the selection touched is saved,
+         * so the proposal's save is the selection and nothing else.
+         */
+        const built = await buildSourcesOf(serverOps, patchIds, commit);
+        if ("status" in built) return built;
+        if (built.headCommitSha === undefined) {
+          return {
+            status: 409,
+            json: {
+              message:
+                "The content service does not say where the site's head is, which Publish selected needs: it is older than this Studio.",
+            },
+          };
+        }
+        const selected = new Set<string>(patchIds);
+        const prepared: PreparedCommit = {
+          ...built.withJob,
+          patchedSourceFiles: built.split.archive.patchedSourceFiles,
+          patchedBinaryFilesDescriptors:
+            built.split.archive.patchedBinaryFilesDescriptors,
+          moduleVersions: built.split.archive.modules,
+          appliedPatches: Object.fromEntries(
+            Object.entries(built.withJob.appliedPatches)
+              .map(([path, ids]) => [
+                path,
+                ids.filter((id) => selected.has(id)),
+              ])
+              .filter(([, ids]) => ids.length > 0),
+          ),
+        };
+        /*
+         * Moved and based in one transaction, on the head the selection was
+         * prepared over: content refuses the create when the site is no
+         * longer there, and nothing has moved.
+         */
+        const created = await serverOps.proposalsApi(
+          "",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              displayName,
+              kind: "publish",
+              patchIds,
+              requestId,
+              base: built.headCommitSha,
+            }),
+          },
+          profileId,
+        );
+        const createdBody = PublishProposalCreated.safeParse(
+          safeJson(created.body),
+        );
+        if (created.status === 409) {
+          return {
+            status: 409,
+            json: {
+              message:
+                "The site was published while this was being prepared. Nothing was published: publish them again.",
+            },
+          };
+        }
+        if (created.status !== 200 || !createdBody.success) {
+          return {
+            status: 500,
+            json: {
+              message: `The changes could not be moved into a proposal to publish them (${created.status}): ${created.body.slice(0, 300)}`,
+            },
+          };
+        }
+        const proposal = createdBody.data.proposal.name;
+        const saved = await serverOps.commit(
+          prepared,
+          `Publish selected: ${displayName}`,
+          profileId as AuthorId,
+          FILES_DIRECTORY,
+          undefined,
+          proposal,
+        );
+        if (saved.error) {
+          return {
+            status: 502,
+            json: {
+              message: `The changes are in a proposal, but could not be saved there: ${saved.error.message}`,
+              proposal,
+            },
+          };
+        }
+        return { status: 200, json: { proposal } };
+      },
+    },
     "/admin/status": {
       GET: async (req) => {
         const credential = await getValBuildCredential(req.cookies);
@@ -4381,6 +4506,10 @@ async function buildSourcesOf(
   | { status: 409 | 500; json: { message: string } }
   | {
       split: ReturnType<typeof splitJobPrepare>;
+      /** The job's content, prepared: what a save of the job commits. */
+      withJob: PreparedCommit;
+      /** The branch's head the commits it was prepared over reach, at the least. */
+      headCommitSha: string | null | undefined;
       sourceFiles: Record<string, string | null>;
       binaryFiles: Record<string, string>;
       binaryFilesUnread: string[];
@@ -4451,6 +4580,8 @@ async function buildSourcesOf(
   );
   return {
     split,
+    withJob,
+    headCommitSha: chain.headCommitSha,
     sourceFiles: split.buildSourceFiles,
     binaryFiles: binaries.files,
     binaryFilesUnread: binaries.unread,
@@ -4513,5 +4644,18 @@ function jobPrepareAnswer(
       status: 502,
       json: { message: e instanceof Error ? e.message : String(e) },
     };
+  }
+}
+
+/** What `/publish-selected` reads from content's proposal create. */
+const PublishProposalCreated = z.object({
+  proposal: z.object({ name: z.string() }),
+});
+
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
   }
 }

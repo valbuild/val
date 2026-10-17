@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { ReviewView } from "./ReviewView";
+import { ReviewView, type ReviewPublishSelected } from "./ReviewView";
+import type { PublishSelectedState } from "./usePublishSelected";
 import { TooltipProvider } from "../components/designSystem/tooltip";
 import { emptyReviewModel, fsReviewModel, reviewModel } from "./fixtures";
 import type { ReviewModel } from "./types";
@@ -19,9 +20,12 @@ import type { ReviewModel } from "./types";
 function Harness({
   model,
   initialSelection,
+  publishSelected,
 }: {
   model: ReviewModel;
   initialSelection?: string[];
+  /** Offered: the site of a project with proposals. */
+  publishSelected?: PublishSelectedState;
 }) {
   return (
     /*
@@ -43,10 +47,37 @@ function Harness({
           onRestore={model.mode === "fs" ? undefined : () => undefined}
           onDiscard={() => undefined}
           onDiscardAll={() => undefined}
+          publishSelected={
+            publishSelected === undefined
+              ? undefined
+              : publishSelectedOf(publishSelected)
+          }
         />
       </div>
     </TooltipProvider>
   );
+}
+
+/**
+ * Publish selected on fixtures: a selection with Ada's heading in it pulls in
+ * Linus's change to the same list, which is what the confirm has to say.
+ */
+function publishSelectedOf(state: PublishSelectedState): ReviewPublishSelected {
+  return {
+    plan: (rowIds) =>
+      rowIds.includes("landing-heading")
+        ? {
+            count: rowIds.length + 2,
+            added: 2,
+            addedAuthors: ["profile-linus"],
+          }
+        : { count: rowIds.length, added: 0, addedAuthors: [] },
+    state,
+    onPublish: () => undefined,
+    onRetry: () => undefined,
+    onOpenProposal: () => undefined,
+    onDismiss: () => undefined,
+  };
 }
 
 const meta: Meta<typeof Harness> = {
@@ -158,4 +189,59 @@ export const Fs: Story = { args: { model: fsReviewModel } };
  */
 export const Avatars: Story = {
   args: { initialSelection: ["landing-heading"] },
+};
+
+/**
+ * Publish selected, offered: on the site of a project with proposals. Press it
+ * with "Landing page — heading" ticked to see the confirm name Linus's two
+ * changes that have to come with it.
+ */
+export const PublishSelected: Story = {
+  args: {
+    initialSelection: ["landing-heading", "authors-erlamd"],
+    publishSelected: { kind: "idle" },
+  },
+};
+
+/** Under way: the button waits, and the line says how many are going. */
+export const PublishSelectedPublishing: Story = {
+  args: { publishSelected: { kind: "publishing", count: 3 } },
+};
+
+/** Done: the rows have gone from the list, and the line says where. */
+export const PublishSelectedPublished: Story = {
+  args: { publishSelected: { kind: "published", count: 3 } },
+};
+
+/**
+ * Stopped after the move: the changes are safe in their proposal, so the line
+ * offers to open it as well as to try again.
+ */
+export const PublishSelectedFailed: Story = {
+  args: {
+    publishSelected: {
+      kind: "failed",
+      count: 3,
+      message: "Building the site failed on /pricing.",
+      proposal: "0123456789abcdef0123",
+      canRetry: true,
+    },
+  },
+};
+
+/**
+ * Refused before anything moved: the site was published meanwhile. Nothing is
+ * in a proposal, so there is nothing to open -- only Try again.
+ */
+export const PublishSelectedRefused: Story = {
+  args: {
+    publishSelected: {
+      kind: "failed",
+      count: 3,
+      message:
+        "The site was published while this was being prepared. Nothing was published: publish them again.",
+      proposal: null,
+      canRetry: true,
+    },
+  },
 };

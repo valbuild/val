@@ -1487,6 +1487,55 @@ export const Api = {
       ]),
     },
   },
+  /**
+   * Publish selected (`docs/plans/remove-patch-groups.md`, Phase 4), its first
+   * half, on the site's own server: the changes picked in Review, already
+   * closed into whole patch sets (`selectionClosure`), moved into a proposal
+   * of kind `publish` and saved there -- prepared over the site's head, which
+   * the proposal is based on, so a publish landing in between is refused
+   * rather than reverted. The second half is that proposal's Publish, pressed
+   * as any proposal's is (`publishProposal`); this server answers its checks
+   * and press with what the merge moves, as the proposal's own address would.
+   */
+  "/publish-selected": {
+    POST: {
+      req: {
+        body: z.object({
+          /** The changes to publish, in chain order: whole patch sets. */
+          patchIds: z.array(PatchId).min(1),
+          /** What the merged proposal is listed as. */
+          displayName: z.string().min(1).max(200),
+          /** The press's own id: the same press sent again is the same proposal. */
+          requestId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({ status: z.literal(400), json: GenericError }),
+        /** Refused: the site moved, a change went, or this deployment cannot. */
+        z.object({ status: z.literal(409), json: GenericError }),
+        z.object({ status: z.literal(500), json: GenericError }),
+        /**
+         * The proposal was made and its changes moved into it, and the save
+         * there failed: they are safe in it, which `proposal` names.
+         */
+        z.object({
+          status: z.literal(502),
+          json: GenericError.extend({ proposal: z.string() }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            /** The proposal to publish next. */
+            proposal: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
   "/save": {
     POST: {
       req: {

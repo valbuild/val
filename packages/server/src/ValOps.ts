@@ -3339,6 +3339,15 @@ export type OrderedPatches = {
    */
   headVersion?: number;
   /**
+   * The branch's last commit, `null` when it has none: what the commits this
+   * answer lists bring a build up to at the least, because the content
+   * service reads it before them. What Publish selected names as its
+   * proposal's base, so a publish landing in between is refused rather than
+   * reverted. Only `ValOpsHttp` fills it, and only from an unfiltered read
+   * (`fetchPatches` without `patchIds`); absent from an older content service.
+   */
+  headCommitSha?: string | null;
+  /**
    * Of these patches, the ones a publish job that is still running holds. A
    * Studio does not offer Publish over them, on any tab or device. Reported
    * whole on every answer, so a job that ends without sealing gives them back.
@@ -3369,6 +3378,8 @@ export type OrderedPatchesMetadata = {
   headPatchId?: OrderedPatches["headPatchId"];
   /** See {@link OrderedPatches.headVersion}. */
   headVersion?: OrderedPatches["headVersion"];
+  /** See {@link OrderedPatches.headCommitSha}. */
+  headCommitSha?: OrderedPatches["headCommitSha"];
   /** See {@link OrderedPatches.publishingPatches}. */
   publishingPatches?: OrderedPatches["publishingPatches"];
   /** See {@link OrderedPatches.heldBackPatches}. */

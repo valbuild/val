@@ -118,6 +118,8 @@ const GetApplicablePatches = z.object({
    * Optional for the same reason.
    */
   headVersion: z.number().optional(),
+  /** The branch's last commit. See `OrderedPatches.headCommitSha`. */
+  headCommitSha: z.string().nullable().optional(),
   /** Of `patches`, the ones a running publish holds. See `OrderedPatches.publishingPatches`. */
   publishingPatches: z.array(PatchIdSchema).optional(),
   /** Of `patches`, the ones a failed publish holds back. See `OrderedPatches.heldBackPatches`. */
@@ -1026,7 +1028,7 @@ export class ValOpsHttp extends ValOps {
     if (
       checking !== undefined &&
       init.method === "GET" &&
-      this.proposal?.name === checking
+      (await this.answersMovesFor(checking, profileId))
     ) {
       return this.mergeChecksWithMoves(checking, profileId);
     }
@@ -1034,7 +1036,7 @@ export class ValOpsHttp extends ValOps {
     if (
       pressing !== undefined &&
       init.method === "POST" &&
-      this.proposal?.name === pressing
+      (await this.answersMovesFor(pressing, profileId))
     ) {
       return this.pressMergeWithMoves(pressing, init.body, profileId);
     }
@@ -1218,6 +1220,23 @@ export class ValOpsHttp extends ValOps {
       return { status: written.status, contentType: json, body: text };
     }
     return updatedAnswer(text);
+  }
+
+  /**
+   * Whether this server says what a merge of `name` moves: at the proposal's
+   * own address, whose schemas are the ones it publishes; and on the site, for
+   * Publish selected's proposal, which changes no code -- so the site's
+   * schemas are its own -- and has no address to be published from.
+   */
+  private async answersMovesFor(
+    name: string,
+    profileId: string | null,
+  ): Promise<boolean> {
+    if (this.proposal !== null) return this.proposal.name === name;
+    const read = await this.proposalContent(name, profileId)("");
+    if (!read.ok) return false;
+    const kind = ProposalKindAnswer.safeParse(await read.json());
+    return kind.success && kind.data.proposal.kind === "publish";
   }
 
   /** Content's proposals API for one proposal, as the person asking. */
@@ -2208,6 +2227,9 @@ export class ValOpsHttp extends ValOps {
             ...(data.headVersion !== undefined
               ? { headVersion: data.headVersion }
               : {}),
+            ...(data.headCommitSha !== undefined
+              ? { headCommitSha: data.headCommitSha }
+              : {}),
             ...(data.publishingPatches !== undefined
               ? { publishingPatches: data.publishingPatches }
               : {}),
@@ -2856,6 +2878,12 @@ export class ValOpsHttp extends ValOps {
     committer: AuthorId,
     filesDirectory: string,
     newBranch?: string,
+    /**
+     * A save into this proposal rather than this server's own branch: the
+     * site's server saving Publish selected's proposal (`/publish-selected`),
+     * which has no address of its own to save from.
+     */
+    intoProposal?: string,
   ): Promise<
     | {
         isNotFastForward?: boolean;
@@ -2881,9 +2909,10 @@ export class ValOpsHttp extends ValOps {
        * route: the site's `/commit` refuses a proposal's patches, which is
        * the line that keeps them off the site until a merge.
        */
+      const proposalName = intoProposal ?? this.proposal?.name;
       const commitUrl =
-        this.proposal !== null
-          ? `${this.contentUrl}/v1/${this.project}/proposals/${this.proposal.name}/save`
+        proposalName !== undefined
+          ? `${this.contentUrl}/v1/${this.project}/proposals/${proposalName}/save`
           : `${this.contentUrl}/v1/${this.project}/commit`;
       const res = await fetch(commitUrl, {
         method: "POST",
@@ -3376,6 +3405,10 @@ const MoveInputs = z.object({
   ),
 });
 
+/** The one thing `answersMovesFor` reads from content's `GET /proposals/:name`. */
+const ProposalKindAnswer = z.object({
+  proposal: z.object({ kind: z.string() }),
+});
 /** Content's `GET /proposals/:name/merge-checks`, as far as it is changed here. */
 const MergeChecksAnswer = z
   .object({
