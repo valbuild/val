@@ -13,8 +13,10 @@
 > in both repositories: hosted-publishing 8.2 step 2, Publish in a proposal
 > moving the site's conflicting pending changes into proposals of their own
 > (val `movesAtMerge`; home migration `1793800000`, `mergeMoves.ts`); and
-> Phase 4, Publish selected (see its "Built"; home migration `1793900000`).
-> Next: Phases 5–7.
+> Phase 4, Publish selected (see its "Built"; home migration `1793900000`);
+> and Phase 5 for managed projects (see its "Built"; `1794000000`). Next:
+> proposals for connected projects (decided 2026-10-17: they get them, and
+> keep held back until then), which Phase 6 waits on; Phase 7's docs.
 >
 > **2026-10-16, building Phases 1–3.** Landing order, decided: the 8.2 work
 > on `claude/proposals-feature-design-ctgmbc` goes to main first, in its own
