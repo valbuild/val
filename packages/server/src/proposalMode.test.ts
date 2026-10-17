@@ -1017,6 +1017,7 @@ describe("Publish moves the site's conflicting pending changes (step 8.2)", () =
             }
           : url.endsWith("/move-inputs")
             ? {
+                save: "save-1",
                 siteHead: "site-2",
                 pending: [
                   {
@@ -1120,6 +1121,9 @@ describe("Publish moves the site's conflicting pending changes (step 8.2)", () =
     await api(site, "/merge", "POST", { requestId: "m1", tab: "t1" });
     const press = sent.find((r) => r.url.endsWith("/merge"));
     expect(press?.body).toEqual({
+      // The save the moves were read against: an edit made after the press
+      // continues in a new proposal rather than refusing it.
+      save: "save-1",
       requestId: "m1",
       tab: "t1",
       moves: { siteHead: "site-2", considered: ["k1", "b1"], groups: [["k1"]] },

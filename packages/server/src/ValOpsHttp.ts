@@ -1262,12 +1262,18 @@ export class ValOpsHttp extends ValOps {
   private async mergeMovesOf(
     name: string,
     profileId: string | null,
-  ): Promise<(MergeMoves & { authors: string[][] }) | null> {
+  ): Promise<
+    | (MergeMoves & { authors: string[][]; save: string | null | undefined })
+    | null
+  > {
     const read = await this.proposalContent(name, profileId)("/move-inputs");
     if (!read.ok) return null;
     const inputs = MoveInputs.safeParse(await read.json());
     if (!inputs.success) return null;
-    return movesAtMerge(inputs.data, await this.getSchemas());
+    return {
+      ...movesAtMerge(inputs.data, await this.getSchemas()),
+      save: inputs.data.save,
+    };
   }
 
   /**
@@ -1356,6 +1362,13 @@ export class ValOpsHttp extends ValOps {
     if (moves === null) return forward(body);
     return forward(
       JSON.stringify({
+        /*
+         * The save the moves were worked out against is the one this press
+         * publishes: named, so a change written after the press -- which the
+         * Studio lets an editor make at once -- continues in a new proposal
+         * rather than refusing it as unsaved.
+         */
+        ...(typeof moves.save === "string" ? { save: moves.save } : {}),
         ...pressed,
         moves: {
           siteHead: moves.siteHead,
@@ -3386,6 +3399,8 @@ const UpdateCodeBody = z.object({
 
 /** Content's `GET /proposals/:name/move-inputs`. */
 const MoveInputs = z.object({
+  /** The proposal's last save; absent from a content service before it. */
+  save: z.string().nullable().optional(),
   siteHead: z.string().nullable(),
   pending: z.array(
     z.object({
