@@ -1,275 +1,241 @@
-# Demo mode: try Val with no account and no backend
+# Demo mode: try the Studio with no account and no backend
 
-> **Status: proposal, not started.** Options for discussion. Nothing here is
-> built yet. Section 6 (the demo template and the Studio tour) is a placeholder
-> to discuss separately.
+> **Status: proposal, not started.** Section 7 (the demo template and the
+> Studio tour) is a placeholder to discuss separately.
 
-The goal: someone who has never heard of Val opens a link, gets a real site with
-the real Studio beside it, and can edit, upload an image, see the page change
-and press Publish — **without signing in and without one request reaching a Val
-API**. Everything lives in their browser session and is gone when they reset or
-leave.
+The goal: someone opens a link to a demo site's `/val`, gets the real Studio
+with the page in the canvas beside it, edits content and sees the preview
+change — **without signing in and without any request for content or patches
+leaving the tab**. Their edits live in the browser session and are gone when
+they reset.
 
-The good news, and the reason this is smaller than it sounds: almost every
-piece already exists. What is missing is a place for "the server" to run that is
-not a server.
+## 1. Scope
 
----
+Decided:
 
-## 1. What the Studio needs from a backend today
+- **TanStack Start only.** No Next.js demo.
+- **Inside the Studio only.** The canvas preview (`CanvasFrame`, an iframe of
+  the site with `?val_canvas=1`) is the one place edits show up. No overlay on
+  the site's own pages.
+- **No publish.** The Publish button is not offered. Edits stay pending for the
+  life of the demo.
+- **Files and images are read-only** if supporting them costs a lot — and it
+  does (section 5). Existing media is shown and can be picked from a gallery;
+  nothing can be uploaded.
 
-The Studio is closer to a pure client than it looks.
+That scope removes the hard parts of the general problem: no `/save` (so no
+TypeScript rewrite of `.val.ts` text in the browser), no second document
+competing for the patch chain, no draft-mode cookies on the site's own pages,
+and no unpublished binaries to serve.
 
-- **Schemas and sources need no server.** The app puts its modules on
-  `window.__VAL_MODULES__` (`next/src/ValModulesClient.tsx`, tanstack copy), and
-  the Studio evaluates them in the tab (`ui/spa/hooks/useValModules.ts`,
-  `ui/spa/stores/react/ValStoreProvider.tsx`). `/schema` is not called.
-- **Patches are applied in the tab.** `SourceStore` applies the chain on top of
-  the base. The server's job is to _persist and order_ patches (one linear chain,
-  `parentRef` checked, 409 on a stale head). It does not apply or validate them
-  on the way in.
-- **Validation runs in a worker in the tab** (`ValidationStore`,
-  `createSchemaValidationBridge`).
-- **The site preview is fed by events, not fetches.** Client hooks (`useVal`)
-  read `ValExternalStore`, which is filled by `"val-event"` window events: from
-  `ValOverlayEmitter` in the same window, or re-dispatched by `ValCanvasBridge`
-  from the Studio's `postMessage` in the canvas iframe.
+## 2. What the Studio needs from a backend, inside that scope
 
-What it calls the server for, all through `/api/val`:
+The Studio already does most of its work in the tab. It reads schemas and
+sources from the app's modules (`window.__VAL_MODULES__`, evaluated in
+`ValStoreProvider`), applies the patch chain itself (`SourceStore`), and
+validates in a worker (`ValidationStore`). The canvas page receives source over
+`postMessage` from `CanvasFrame` and `ValCanvasBridge` turns it into
+`"val-event"`s for the client store that `useVal` reads.
 
-| Need                       | Endpoint                                                                 | Goes through `ValClient`?                          |
-| -------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------- |
-| Session / "am I logged in" | `POST /stat` (401 → `LoginDialog`)                                       | yes                                                |
-| Patch chain and head       | `POST /stat` (long-poll in fs/memory mode; WebSocket only in http mode)  | yes                                                |
-| Save / load / drop patches | `PUT`, `GET`, `DELETE /patches`                                          | yes                                                |
-| Base sources after a move  | `PUT /sources/~?apply_patches=false`                                     | yes                                                |
-| `.jsonValues()` entries    | `GET /json`                                                              | yes                                                |
-| Publish                    | `POST /save`                                                             | yes                                                |
-| Upload a file              | `POST {baseUrl}/patches/{id}/files` via `/direct-file-upload-settings`   | **no** — raw `XMLHttpRequest` (`createValSystem`)  |
-| Show an unpublished image  | `<img src="/api/val/files/...?patch_id=…">` (`core/src/source/media.ts`) | **no** — a URL baked into source by `mediaUrl`     |
-| Studio JS and CSS          | `/api/val/static/{VERSION}/…`                                            | **no** — `<script>` / `<link>`                     |
-| Draft mode for the site    | `GET /draft/stat` poll, `/enable`, `/draft/enable` iframe                | partly; `/enable` is a navigation that sets cookie |
-| Optional                   | `/profiles`, `/history/*`, `/ai/*`, `/remote/settings`, proposals, …     | mostly; a few raw `fetch`es                        |
+What is left for a server, counted from the `client(...)` calls in
+`packages/ui/spa`:
 
-The last three columns are what decides the options below: **a fake
-`ValClient` alone is not enough**, because uploads, draft media, the Studio's
-own assets and the draft-mode handshake do not go through it.
+| Route                                                                                                  | Who calls it                                                     | Demo answer                                                                         |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `POST /stat` (×3)                                                                                      | `useStatus`, `createValSystem` (chain, schema freshness)         | 200, fs-shaped, the demo's chain; long-polls on a promise, never busy-loops         |
+| `PUT /patches`                                                                                         | `createValSystem` save seam                                      | append, with the real `parentRef` head check (409 on a stale head)                  |
+| `GET /patches` (×2)                                                                                    | `createValSystem`, `DraftChanges`                                | the stored records                                                                  |
+| `DELETE /patches`                                                                                      | discard                                                          | drop them                                                                           |
+| `GET /profiles`                                                                                        | `ValProvider`                                                    | one profile, "You"                                                                  |
+| `GET /json`                                                                                            | `.jsonValues()` entries                                          | from the module's entry thunks — or the demo template does not use `.jsonValues()`  |
+| `PUT /sources/~`                                                                                       | `BaseAlignment`, only when `/stat`'s `sourcesSha` ≠ the bundle's | never needed if `/stat` reports the bundle's own `sourcesSha` (`computeSourcesSha`) |
+| `POST /direct-file-upload-settings`                                                                    | uploads                                                          | not reached: uploads are off                                                        |
+| `/save`, `/history/*`, `/ai/*`, `/admin/status`, `/remote/settings`, `/external-urls/check`, proposals | publish, History, assistant, Val Build access, link checks       | not offered in demo; answer a typed "not available in the demo" if reached          |
 
-## 2. The backend already exists: memory mode
+Two hashes have to be right or the Studio will try to fetch things that do not
+exist: `/stat`'s `sourcesSha` must equal what `HostStore` folds from the
+bundle, and its `schemaSha` must equal the bundle's (see
+`SchemaFreshnessWatch`). Both are computed in the tab from the same modules
+with the same functions the server uses, so the demo backend computes them
+rather than inventing them.
 
-`packages/server/src/ValOpsMemory.ts` (marked EXPERIMENTAL) is a `ValOps` with
-no filesystem and no git. It is selected by `ValServer`'s `mode: "memory"`, and
-it takes:
+That is **seven routes, all of them going through `ValClient`**. Nothing here
+needs a Service Worker: the side channels that bypass `ValClient` (the upload
+`XMLHttpRequest`, `/api/val/files?patch_id=…` image URLs, the `/enable`
+navigation) are all out of scope.
 
-- `sourceFiles: Record<string, string>` — the project's `.val.ts` text,
-- `patchStore?: ValPatchStore` — pluggable, defaulting to `InMemoryPatchStore`,
-- `unsafelyAllowUnauthenticated?: boolean` — skip the session check.
+## 3. Options for the in-tab backend
 
-It implements the whole chain (head check, long-poll `/stat`, file staging,
-`/save` that rewrites the `.val.ts` text and adopts it as the new base) and has
-its own test suite. TanStack's `initValServer` / `initValContent` already wire
-it through. History answers `not-supported-in-fs-mode`, which the Studio
-already handles by hiding History.
+### Option A — A demo `ValClient` (recommended)
 
-So the demo backend is **"run `ValServer` in memory mode somewhere in the
-browser"**, not "write a new fake server". That matters: the repo's stance
-(see "Proxy mode" in `.claude/CLAUDE.md`) is that a second fake of a real
-service in shipped code drifts with nothing testing it.
+`createDemoClient(valModules)` implements `ClientOf<Api>` for the seven routes
+above, holding the chain in memory and mirroring it to `sessionStorage` (it is
+text, so a few KB; it survives a reload and dies with the tab). `App.tsx` uses
+it instead of `createValClient("/api/val")` when the config says demo. Nothing
+else in the Studio changes how it talks to the server.
 
-What stops `ValServer` from being bundled for a browser today — all static
-imports, none of them used in memory mode:
+The worry with a hand-written fake is that it drifts from the real server — the
+repo's stance (see "Proxy mode" in `.claude/CLAUDE.md`) is that a second fake
+in shipped code goes wrong with nothing testing it. The answer is a **contract
+test**: run the same request sequence against `ValServer` in memory mode
+(`ValOpsMemory`, already exported and tested) in jest and against the demo
+client, and assert they answer alike — chain order, head check, 409s, `/stat`
+shape. The fake stays small because the scope does, and the test is what keeps
+it honest.
 
-- `ValServer.ts` imports `ValOpsFS` (fs, path, `patchLock`'s os/crypto) and
-  `ValOpsHttp` (`proposalMerge/*`, node `crypto`).
-- `linkCheck/probeUrl.ts` (`node:http`, `node:https`, `node:net`).
-- `jwt.ts` (`crypto.timingSafeEqual`, `Buffer`).
-- `path` in `ValServer.ts`, `rewriteDraftPlaylist.ts`, `patch/jsonValuesPatch.ts`,
-  `history/getJsonEntryAtCommit.ts`.
-- `Buffer` throughout (`StoredFile.data` and several places in `ValServer.ts`).
-- `typescript` and `image-size` in `ValOps.ts` — browser-capable, but
-  `typescript` is large. It is only needed by `/save` (rewriting `.val.ts` text).
+- **Size:** S. Roughly 300 lines plus the contract test.
 
-None of these is hard: make the mode-specific ops lazy (or select them through
-an injected factory), use a posix `path` shim, and either polyfill `Buffer` or
-move the memory store to `Uint8Array`. A side benefit: the same work makes
-memory mode cheaper in a Worker host, which is what it was written for.
+### Option B — Real `ValServer` in memory mode, in the tab
 
-## 3. Options for where the backend runs
+Run the actual server, wrapped as a `ValClient`. No second implementation at
+all — but `packages/server` is not browser-bundleable today: `ValServer.ts`
+statically imports `ValOpsFS` (fs, os, crypto), `ValOpsHttp` (node crypto),
+`linkCheck/probeUrl.ts` (`node:http`/`https`/`net`), `jwt.ts`, `path`, and
+`ValOps.ts` imports `typescript`. All fixable (lazy op selection, a posix `path`
+shim, `Uint8Array` for `Buffer`), but it is a refactor of the server package
+and a much larger Studio bundle, to serve seven routes.
 
-### Option A — A hand-written in-tab `ValClient`
+- **Size:** M. Worth revisiting only if the demo grows to include publish.
 
-`createDemoClient()` answers the ~8 essential routes from IndexedDB, and
-`App.tsx` / `Overlay.tsx` pick it instead of `createValClient("/api/val")` when
-the config says demo. Uploads go through the `uploadFile` seam
-`createValSystem` already has; draft media is shown from `blob:` URLs; Publish
-folds the chain into the base JSON (no TypeScript).
+### Option C — Swap the stores' seams instead of the client
 
-- **For:** smallest bundle, no changes to `packages/server`, quickest to a
-  first clickable demo.
-- **Against:** a second implementation of the chain, the head check and
-  `/stat` — exactly the kind of fake the repo avoids. `mediaUrl` hardcodes
-  `/api/val/files`, so `blob:` URLs need a new escape hatch in core or a
-  rewrite step. The draft-mode handshake (`/draft/stat`, `/enable`, the canvas
-  frame's `/api/val/enable?redirect_to=`) has to be special-cased in both
-  providers and in `CanvasFrame`. The Studio's assets still need `/api/val/static`.
-- **Size:** S–M for the Studio side; the special cases are where the time goes.
+`createSystem` already takes every network path as a seam (`fetchPatches`,
+`savePatches`, `discardPatches`, `fetchJsonEntry`), and every store test runs
+against the in-memory fake in `stores/testSystem.ts`. A demo could build its
+`System` from an in-memory chain extracted out of `testSystem.ts`, so the demo
+and the test suite share one fake.
 
-### Option B — Real `ValServer` (memory mode) in the tab, behind an adapter
+- **Against:** `useStatus`, `ValProvider` and `DraftChanges` call the client
+  directly, so a demo `ValClient` for `/stat` and `/profiles` is needed anyway
+  — two seams to keep in step instead of one. And `testSystem.ts` is built on
+  jest's matchers, so extracting it is real work.
 
-Make `packages/server` browser-bundleable (section 2), and wrap
-`ServerOf<Api>` as a `ClientOf<Api>`: the server's handler functions are
-already plain async functions of a typed request, so the adapter is small.
-`ValPatchStore` gets an IndexedDB implementation so a reload keeps the edits.
+**Recommendation: A, with the contract test against memory mode.**
 
-- **For:** one implementation of the chain; the demo exercises the same code a
-  customer's Studio talks to. Publish really rewrites `.val.ts` text, so the
-  tour can show the code diff a publish produces — a strong "this is just
-  code" moment.
-- **Against:** same leftover side channels as A (uploads, draft media, static
-  assets, the draft-mode handshake). Two documents (the `/val` Studio page and
-  a site page with the overlay) each get their own server instance, so they
-  must share the IndexedDB store and coordinate over `BroadcastChannel` — the
-  linear chain wants ONE authority. `typescript` is a large lazy chunk loaded on
-  Publish.
-- **Size:** M. Most of it is the import surgery in `packages/server`, which is
-  worth doing anyway.
+## 4. The canvas page in demo mode
 
-### Option C — Real `ValServer` in a Service Worker answering `/api/val/*` (recommended)
+The page in the canvas iframe is the site itself, rendered by the demo app. Its
+provider (`ValTanStackProvider`) currently mounts the canvas bridge only when
+`mountOverlay` (the `val_enable` cookie) and `isCanvas` are both true, finds
+out whether draft mode is on by polling `GET /api/val/draft/stat`, and
+`CanvasFrame` navigates a frame that is not in draft mode through
+`/api/val/enable?redirect_to=…`. None of that can work without the server.
 
-Same backend as B, but hosted in a Service Worker scoped to the demo site. It
-intercepts every request to `/api/val/*` — `fetch`, `XMLHttpRequest`, `<img>`,
-`<script>`, `<link>` and navigations alike.
+In demo mode the provider:
 
-- **For:** **no changes to the Studio's network code at all.** Uploads,
-  `/api/val/files?patch_id=…` image URLs, the draft-mode poll, `/enable` and
-  the canvas frame's redirect all keep working as written. One Service Worker
-  is one instance for every tab and the canvas iframe, so the single-writer
-  chain holds without coordination. The Studio's JS and CSS can be precached,
-  so the demo can be a fully static deployment on any CDN.
-- **Against:**
-  - Service Worker lifecycle: it does not control the page that registered it
-    until a reload or `clients.claim()`; the first visit needs a "starting
-    demo…" gate so no `/api/val` request escapes to the network.
-  - A synthesized `Response` cannot set cookies. `val_enable` and draft mode
-    are cookies today, so the demo providers set them via `document.cookie` (or
-    treat draft mode as always on, which is what a demo wants anyway).
-  - Needs a secure context (HTTPS or `localhost`). Fine for a hosted demo;
-    note the repo has `e2e/insecure-context.spec.ts` for a reason, and demo
-    mode must refuse to start (with a message saying why) rather than half-work.
-  - The Service Worker must contain the project's modules (`val.modules.ts`)
-    to give `ValServer` its schemas, so the demo build needs a second entry.
-    A new Vite plugin from `@valbuild/tanstack` is the natural home (there is
-    none today).
-- **Size:** M–L. B's server work plus the worker build and its lifecycle.
+- mounts the bridge when `isCanvas`, with no cookie,
+- reports `draftMode: true` in its `ready` message, so `CanvasFrame` never
+  redirects it,
+- skips the `/draft/stat` poll and the hidden `/draft/enable` iframe,
+- does not call `router.invalidate()` on a change (it would re-run loaders
+  against published content),
+- mounts nothing on a page that is not in the canvas.
 
-### Option D — A hosted demo server (baseline, not what was asked)
+**The template must read content with the client hooks** (`useVal` and
+friends), not in loaders through `initValContent`. Server-rendered reads come
+from a server that never sees the tab's patches, so they would show published
+content forever. On TanStack the hooks are already the recommended reader:
+they render the published content on the server, and the Studio's snapshot of
+pending sources arrives over `postMessage` as soon as the frame reports ready.
 
-Deploy a TanStack demo app with memory mode and `unsafelyAllowUnauthenticated`,
-one patch store per visitor (keyed by an anonymous cookie, expired after an
-hour). This works **today** with no Val changes beyond a per-visitor store.
+### The Studio's own assets
 
-- **For:** zero client work; server-rendered content updates too.
-- **Against:** it calls our servers, which is what this plan is meant to
-  avoid: cost per visitor, abuse surface (anonymous uploads), state to expire.
-  Useful as a throwaway prototype to build and test the tour before C lands.
+The Studio's JS and CSS are loaded from `/api/val/static/{VERSION}/…`, served
+by the app's own `/api/val` route. The demo app keeps that route, **serving
+static assets only**: in demo mode every other path answers 404 with "not
+available in the demo". That is the app's own static-file route — no Val
+service is reached, nothing is authenticated, and there is no content or patch
+endpoint on the deployment for anyone to call.
 
-### Recommendation
+## 5. Files and images: read-only
 
-**C, built in two steps:** first B's server work (browser-bundleable
-`ValServer` in memory mode + an IndexedDB `ValPatchStore`, verified by running
-the existing `ValOpsMemory.*.test.ts` against the new store), then host it in a
-Service Worker. If we want something clickable for the tour in the meantime,
-D is a day of work and throws nothing away — the tour does not care where the
-server is.
+Uploading is where it gets expensive:
 
-## 4. How demo mode is switched on
+- the upload is a raw `XMLHttpRequest` to `{baseUrl}/patches/{id}/files`, not
+  a `ValClient` call;
+- an unpublished file is shown at `/api/val/files/…?patch_id=…`, a URL
+  `Internal.mediaUrl` builds into the source (`core/src/source/media.ts`), so
+  both the Studio's thumbnail and the canvas page's `<img>` request it from the
+  app's server, which has never seen the bytes.
 
-All of these are build-time; a demo is a property of a deployment, never
-something a visitor can turn on.
+Making that work needs either a Service Worker intercepting `/api/val/files`
+or a new `blob:` escape hatch in core's `mediaUrl`. Neither is worth it for a
+first demo.
 
-1. **A separate entrypoint, chosen by an env var in the template
-   (recommended).** `@valbuild/tanstack/demo` exports `ValDemoProvider` and a
-   `valDemo()` Vite plugin that builds the Service Worker. The demo template
-   does `import.meta.env.VITE_VAL_DEMO ? ValDemoProvider : ValProvider`. A
-   normal app never imports the demo code, so nothing ships to customers.
-2. **A server-side env var (`VAL_DEMO=true`) read by `initValServer` and passed
-   to the client as `config.demo`** through the existing sessionStorage config
-   channel (`useConfigStorageSave` → `useConfig`). Simple, but the demo code is
-   then in every app's bundle (lazy, but present) and the flag can be left on by
-   mistake in a real deployment.
-3. **`initVal({ demo: true })` in `val.config.ts`.** Project config like
-   `files: { remote: true }`. Visible in code review, but the same "left on in
-   production" risk as 2, and it puts a deployment concern in content config.
-4. **A separate build of `@valbuild/ui`** (a `VITE_VAL_DEMO` define in the SPA
-   build). Clean tree-shaking, but doubles the release artifacts and the
-   static-asset upload. Not worth it.
+So in demo mode:
 
-Whichever we pick, two guards:
+- **Works:** showing every published image, file and video (they are plain
+  static files of the app, `/val/...`); picking an existing entry from a
+  gallery (`ModuleMediaPicker` writes a plain `replace` with just the path —
+  no file op); editing `alt`, the hotspot, captions and other authored fields.
+- **Off:** upload, drop, replace-with-new-file and delete-from-gallery. The
+  entry points are `ImageField`, `FileField`, `VideoField`, `ModuleGallery`,
+  `useImageUpload`, the image button in `RichTextField`, and the upload seam in
+  `ValFieldProvider`. One capability on the Studio's context (for example
+  `canUploadFiles`) disables them, with a tooltip that says uploads are not
+  part of the demo — rather than seven separate demo checks.
 
-- Demo mode refuses to combine with `VAL_API_KEY` / `VAL_SECRET` / remote
-  media, with an error that says which setting conflicts.
-- The Studio shows a permanent, non-dismissable banner: "Demo — your changes
-  stay in this browser", with **Reset demo** and **Create your own project**.
+If we later want uploads, a Service Worker answering `/api/val/files` and the
+upload URL from the same in-tab store is the way, and nothing above has to
+change for it.
 
-## 5. What the Studio does differently in demo mode
+## 6. How demo mode is switched on
 
-Small, and each is a single branch on `mode` (memory mode already reports
-`mode: "fs"` on `/stat`; demo should report its own value so the Studio can
-tell).
+Build-time; a demo is a property of a deployment, never something a visitor
+can turn on. Three places need to know: `ValApp` (which client the Studio
+uses), the site's `ValProvider` (the canvas behaviour in section 4), and the
+`/api/val` route (static only).
 
-- **Login:** never shown. `/stat` answers 200; `/profiles` returns one fake
-  "You" profile so authorship UI has something to show.
-- **Publish:** runs `/save` in the worker, which rewrites the `.val.ts` text
-  and adopts it as the new base; the Studio's `BaseAlignment` sees the new
-  `sourcesSha` and refetches `/sources/~`. The success state should say what
-  would have happened in a real project ("this is a commit to your GitHub
-  repository") and offer the code diff.
-- **Hidden or stubbed:** AI assistant (calls our API), History (already hidden
-  in fs mode), project switcher, remote media, external link checks
-  (`/external-urls/check` would reach the internet from the worker — answer
-  `skipped`), proposals, publish jobs, deployments.
-- **Reset:** clears the IndexedDB store and reloads.
-- **Storage:** IndexedDB for patches and uploaded files (sessionStorage is ~5 MB
-  and images do not fit), keyed by a per-tab session id so two tabs can be two
-  demos if we want — or one shared demo if we key by origin. To decide.
+1. **One env var in the template, passed to each (recommended).** The template
+   reads `VITE_VAL_DEMO` once and passes `demo` to `ValApp`, `ValProvider` and
+   `initValServer`. `ValApp`'s config already reaches the Studio through the
+   sessionStorage config channel (`useConfigStorageSave` → `useConfig`), so
+   the Studio gets it with no new plumbing. The demo client is a lazy chunk of
+   the Studio bundle, so a normal app downloads none of it.
+2. **`initVal({ demo: true })` in `val.config.ts`.** One place reaches all
+   three. But `val.config.ts` is also evaluated by the CLI and the language
+   server, the flag is a deployment concern living in content config, and it
+   is easy to leave on.
+3. **A separate entrypoint, `@valbuild/tanstack/demo`**, exporting
+   `ValDemoApp` / `ValDemoProvider`. Clean, but a third copy of two components
+   that `@valbuild/tanstack` deliberately keeps in step with `@valbuild/next`.
 
-### What the site can and cannot show
+Guards, whichever we pick:
 
-Edits reach the page through the client store (`useVal`). Content rendered on
-the **server** (Next RSC `fetchVal`, TanStack loaders calling
-`initValContent`) is read by a server that never sees the browser's patches, so
-it would not update. The demo template therefore has to read content with
-client hooks only — which on TanStack is already the recommended way — and the
-demo is **TanStack only** to start (TanStack is the primary target, and Next's
-RSC path is server-side by construction). Prerendering the template to static
-HTML keeps hosting free.
+- Demo mode refuses to start alongside `VAL_API_KEY` / `VAL_SECRET` or
+  `files: { remote: true }`, with an error that names the conflicting setting.
+- The Studio shows a permanent banner: "Demo — your changes stay in this
+  browser", with **Reset demo** (clears the stored chain, reloads) and
+  **Create your own project**.
+- Hidden in demo: Publish, History, the assistant, the project switcher,
+  sign-in/sign-out, deployments and Val Build access.
 
-## 6. Later: the demo template and the Studio tour (to discuss)
+## 7. Later: the demo template and the Studio tour (to discuss)
 
 Not part of this plan's work, listed so we discuss them before building:
 
 - **A dedicated template** in `valbuild/templates` (e.g. `tanstack/demo`), not
-  `examples/tanstack`: the showcase is meant to cover every feature, the demo
-  should cover the five that sell Val and look good doing it. Which five?
-- **A guided tour** through the Studio: click a heading on the page → edit it
-  → see it change → upload an image → reorder a list → Publish → see the code
-  diff. Questions: built into `@valbuild/ui` behind demo mode, or a layer the
-  template adds? Driven by `data-val-path` and Studio events (the activity
-  channel, `window.__VAL_STORES__`) so it can wait for "the visitor did it"
-  rather than "the visitor clicked Next"? Skippable, resumable after a reload?
+  `examples/tanstack`: the showcase covers every feature; the demo should show
+  the handful that sell Val, read content with client hooks only, use no
+  `.jsonValues()` (or we answer `/json` from the entry thunks), and have a
+  well-stocked image gallery so read-only media still feels real.
+- **A guided tour** through the Studio: click a heading in the canvas → edit
+  it → see it change → pick a different image from the gallery → reorder a list
+  → see validation catch a mistake. Built into `@valbuild/ui` behind demo
+  mode, or a layer the template adds? Driven by Studio events (the activity
+  channel) so a step waits for "the visitor did it" rather than "the visitor
+  clicked Next"? Skippable, resumable after a reload?
 - **Where it lives:** `val.build/demo`? Linked from `npm create @valbuild`?
-- **Conversion:** what "Create your own project" does — a template picker, or
-  `npm create @valbuild` with this template pre-selected.
-- **Measuring it:** do we want to know how far people get through the tour, and
-  does that conflict with "no calls to our APIs"?
+- **Conversion:** what "Create your own project" does.
+- **Measuring it:** do we want to know how far people get through the tour,
+  and is that compatible with "nothing leaves the tab"?
 
-## 7. Open questions
+## 8. Open questions
 
-1. Is a hosted prototype (Option D) acceptable as a stepping stone, or must the
-   first version already be browser-only?
-2. Should Publish in the demo rewrite `.val.ts` text (lazy-loading `typescript`,
-   several MB) to show the code diff, or just fold patches into JSON and say
-   what would have happened?
-3. One demo per tab, or one per browser?
-4. Image uploads in v1, or text-only first? (C makes uploads free; A does not.)
-5. Do we want the demo flag to exist for Next.js at all?
+1. One demo per tab (`sessionStorage`) or one per browser (`localStorage`)?
+   Per tab is the proposal: a fresh tab is a fresh demo.
+2. Should the demo start with some pending edits already in the chain, so
+   "unsaved changes" and the change list have something to show?
+3. Is `/json` worth supporting, or does the template just avoid `.jsonValues()`?
+4. Option 1 vs 2 in section 6: is an env var passed in three places acceptable,
+   or do we want the single `val.config.ts` switch despite its risks?
