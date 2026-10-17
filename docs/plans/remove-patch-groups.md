@@ -8,6 +8,14 @@
 
 ## Current state / resume here
 
+> **2026-10-17: Phases 1–3 are on main** (val #861 and home #235 for 8.2,
+> then the removal). Built on top, on `claude/proposals-feature-design-ctgmbc`
+> in both repositories: hosted-publishing 8.2 step 2, Publish in a proposal
+> moving the site's conflicting pending changes into proposals of their own
+> (val `movesAtMerge`; home migration `1793800000`, `mergeMoves.ts`). Next:
+> Phase 4 (Publish selected), which creates and moves in one transaction the
+> way `moveOutAtMerge` does, then Phases 5–7.
+>
 > **2026-10-16, building Phases 1–3.** Landing order, decided: the 8.2 work
 > on `claude/proposals-feature-design-ctgmbc` goes to main first, in its own
 > PRs (with main merged in, `proposal_merge_commits` renumbered to
