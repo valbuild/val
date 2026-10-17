@@ -33,6 +33,11 @@ const ProposalJson = z.object({
   displayName: z.string(),
   description: z.string().nullable().optional(),
   ownerId: z.string().nullable().optional(),
+  /**
+   * Everyone who owns it, `ownerId` first: the authors of changes moved into
+   * it together own it together (step 8.2). Absent from older content.
+   */
+  ownerIds: z.array(z.string()).optional(),
   status: z.enum([
     "open",
     "updating",
@@ -484,7 +489,9 @@ export function toSummary(
         ? json.status
         : "open",
     owner,
-    ownedByViewer: viewer !== null && json.ownerId === viewer,
+    ownedByViewer:
+      viewer !== null &&
+      (json.ownerIds ?? (json.ownerId ? [json.ownerId] : [])).includes(viewer),
     changes: json.changes ?? 0,
     updatedAt: json.updatedAt,
     ...(json.setup !== undefined ? { setup: jobState(json.setup) } : {}),

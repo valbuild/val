@@ -981,3 +981,123 @@ describe("proposalFromEnv", () => {
     ).toThrow(/commit must be a string or null/);
   });
 });
+
+describe("Publish moves the site's conflicting pending changes (step 8.2)", () => {
+  const FOOTER_PAGE = "/app/footer.val.ts";
+  /** Content: the checks block on pending-on-site, and the pending changes are Kari's and Bo's. */
+  const content = () =>
+    jest.spyOn(global, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      sent.push({
+        url,
+        method: init?.method ?? "GET",
+        body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+      });
+      const body = url.endsWith("/merge-checks")
+        ? {
+            checks: [
+              { id: "published-since", ok: true, message: "ok" },
+              {
+                id: "pending-on-site",
+                ok: false,
+                message: "Kari and Bo have unpublished changes",
+                blockers: [{ moduleFilePath: PAGE, by: "Kari" }],
+              },
+            ],
+            canMerge: false,
+          }
+        : url.endsWith("/move-inputs")
+          ? {
+              siteHead: "site-2",
+              pending: [
+                {
+                  patchId: "k1",
+                  moduleFilePath: PAGE,
+                  patch: [{ op: "replace", path: ["title"], value: "Kari's" }],
+                  author: "kari",
+                  authorName: "Kari",
+                },
+                {
+                  patchId: "b1",
+                  moduleFilePath: FOOTER_PAGE,
+                  patch: [{ op: "replace", path: ["text"], value: "Bo's" }],
+                  author: "bo",
+                  authorName: "Bo",
+                },
+              ],
+              modules: {
+                [PAGE]: {
+                  site: { title: "On the site" },
+                  merged: { title: "Saved in the proposal" },
+                },
+                [FOOTER_PAGE]: {
+                  site: { text: "Footer" },
+                  merged: { text: "Footer" },
+                },
+              },
+            }
+          : { request: { id: "m1" }, job: null };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+  const api = (o: ValOpsHttp, path: string, method: string, body?: unknown) =>
+    o
+      .proposalsApi(
+        `/${NAME}${path}`,
+        {
+          method,
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        },
+        "p",
+      )
+      .then((a) => ({ status: a.status, json: JSON.parse(a.body) }));
+
+  test("the checks say what moves, and the site's pending changes no longer block", async () => {
+    content();
+    const answer = await api(ops(proposal("save-2")), "/merge-checks", "GET");
+    expect(answer.status).toBe(200);
+    expect(answer.json.canMerge).toBe(true);
+    expect(
+      answer.json.checks.find(
+        (c: { id: string }) => c.id === "pending-on-site",
+      ),
+    ).toEqual({
+      id: "pending-on-site",
+      ok: true,
+      blockers: [],
+      message:
+        "1 unpublished change by Kari conflicts with this proposal, and moves to a new proposal when it is published",
+      moves: [{ patchIds: ["k1"], authors: ["Kari"] }],
+    });
+  });
+
+  test("Publish carries the moves to content: the head they were worked out on, what was looked at, what moves", async () => {
+    content();
+    const answer = await api(ops(proposal("save-2")), "/merge", "POST", {
+      requestId: "m1",
+      tab: "t1",
+      save: "save-2",
+    });
+    expect(answer.status).toBe(200);
+    const press = sent.find((r) => r.url.endsWith("/merge"));
+    expect(press?.method).toBe("POST");
+    expect(press?.body).toEqual({
+      requestId: "m1",
+      tab: "t1",
+      save: "save-2",
+      moves: { siteHead: "site-2", considered: ["k1", "b1"], groups: [["k1"]] },
+    });
+  });
+
+  test("away from the proposal's address both go to content as they are", async () => {
+    content();
+    const answer = await api(ops(undefined), "/merge-checks", "GET");
+    expect(answer.json.canMerge).toBe(false);
+    expect(sent.map((r) => new URL(r.url).pathname)).toEqual([
+      `/v1/org/project/proposals/${NAME}/merge-checks`,
+    ]);
+  });
+});

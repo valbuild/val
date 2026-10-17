@@ -40,6 +40,7 @@ import {
   type ContentMergeResult,
 } from "./proposalMerge/mergeContent";
 import { updateWithCode } from "./proposalMerge/updateCode";
+import { movesAtMerge, type MergeMoves } from "./proposalMerge/movesAtMerge";
 import { fromError } from "zod-validation-error";
 import type { HistoryError } from "./history/HistoryError";
 import type {
@@ -1015,6 +1016,28 @@ export class ValOpsHttp extends ValOps {
     if (withCode !== undefined && init.method === "POST") {
       return this.updateCodeFromSite(withCode, init.body, profileId);
     }
+    /*
+     * Publish, and the checks before it, at the proposal's own address: Val
+     * says which of the site's pending changes the merge moves, from this
+     * build's schemas (step 8.2). Anywhere else they go to content as they
+     * are, and the site's pending changes block as they always did.
+     */
+    const checking = /^\/([0-9a-f]{20})\/merge-checks$/.exec(path)?.[1];
+    if (
+      checking !== undefined &&
+      init.method === "GET" &&
+      this.proposal?.name === checking
+    ) {
+      return this.mergeChecksWithMoves(checking, profileId);
+    }
+    const pressing = /^\/([0-9a-f]{20})\/merge$/.exec(path)?.[1];
+    if (
+      pressing !== undefined &&
+      init.method === "POST" &&
+      this.proposal?.name === pressing
+    ) {
+      return this.pressMergeWithMoves(pressing, init.body, profileId);
+    }
     if (!ValOpsHttp.proposalsApiAllowed(init.method, path)) {
       return {
         status: 403,
@@ -1195,6 +1218,133 @@ export class ValOpsHttp extends ValOps {
       return { status: written.status, contentType: json, body: text };
     }
     return updatedAnswer(text);
+  }
+
+  /** Content's proposals API for one proposal, as the person asking. */
+  private proposalContent(name: string, profileId: string | null) {
+    return (path: string, init: RequestInit = {}) =>
+      fetch(`${this.contentUrl}/v1/${this.project}/proposals/${name}${path}`, {
+        ...init,
+        headers: {
+          ...this.authHeaders,
+          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+          ...(init.body === undefined
+            ? {}
+            : { "Content-Type": "application/json" }),
+        },
+      });
+  }
+
+  /**
+   * Which of the site's pending changes a merge of this proposal moves
+   * (`movesAtMerge`), or `null` when content could not say what is pending:
+   * then nothing is claimed, and the site's pending changes block the merge.
+   */
+  private async mergeMovesOf(
+    name: string,
+    profileId: string | null,
+  ): Promise<(MergeMoves & { authors: string[][] }) | null> {
+    const read = await this.proposalContent(name, profileId)("/move-inputs");
+    if (!read.ok) return null;
+    const inputs = MoveInputs.safeParse(await read.json());
+    if (!inputs.success) return null;
+    return movesAtMerge(inputs.data, await this.getSchemas());
+  }
+
+  /**
+   * The merge checks, with `pending-on-site` answered by what the merge
+   * moves rather than by whether anything is pending: the conflicting
+   * changes move to a proposal of their own when it is published, and the
+   * rest stay, so neither blocks it.
+   */
+  private async mergeChecksWithMoves(
+    name: string,
+    profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    const read = await this.proposalContent(name, profileId)("/merge-checks");
+    const text = await read.text();
+    const answer = { status: read.status, contentType: json, body: text };
+    if (!read.ok) return answer;
+    const parsed = MergeChecksAnswer.safeParse(JSON.parse(text));
+    if (!parsed.success) return answer;
+    const pending = parsed.data.checks.find(
+      (check) => check.id === "pending-on-site",
+    );
+    if (pending === undefined || pending.ok) return answer;
+    const moves = await this.mergeMovesOf(name, profileId);
+    if (moves === null) return answer;
+    const moving = moves.groups.flat().length;
+    const names = [...new Set(moves.authors.flat())];
+    const checks = parsed.data.checks.map((check) =>
+      check.id !== "pending-on-site"
+        ? check
+        : {
+            ...check,
+            ok: true,
+            blockers: [],
+            message:
+              moving === 0
+                ? "Unpublished changes on these pages do not conflict with this proposal, and stay unpublished"
+                : `${moving === 1 ? "1 unpublished change" : `${moving} unpublished changes`} by ${namesOf(names)} ${moving === 1 ? "conflicts" : "conflict"} with this proposal, and ${moving === 1 ? "moves" : "move"} to ${moves.groups.length === 1 ? "a new proposal" : "new proposals"} when it is published`,
+            moves: moves.groups.map((group, at) => ({
+              patchIds: group,
+              authors: moves.authors[at] ?? [],
+            })),
+          },
+    );
+    const othersOk = parsed.data.checks.every(
+      (check) => check.ok || check.id === "pending-on-site",
+    );
+    return {
+      status: 200,
+      contentType: json,
+      body: JSON.stringify({
+        ...parsed.data,
+        checks,
+        canMerge: parsed.data.canMerge || othersOk,
+      }),
+    };
+  }
+
+  /** Publish in a proposal, carrying the moves (`MergeBody.moves` in content). */
+  private async pressMergeWithMoves(
+    name: string,
+    body: string | undefined,
+    profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    const content = this.proposalContent(name, profileId);
+    const forward = async (sent: string | undefined) => {
+      const res = await content("/merge", {
+        method: "POST",
+        ...(sent === undefined ? {} : { body: sent }),
+      });
+      return {
+        status: res.status,
+        contentType: res.headers.get("Content-Type") ?? json,
+        body: await res.text(),
+      };
+    };
+    let pressed: unknown;
+    try {
+      pressed = body === undefined || body === "" ? {} : JSON.parse(body);
+    } catch {
+      return forward(body);
+    }
+    if (typeof pressed !== "object" || pressed === null) return forward(body);
+    const moves = await this.mergeMovesOf(name, profileId);
+    if (moves === null) return forward(body);
+    return forward(
+      JSON.stringify({
+        ...pressed,
+        moves: {
+          siteHead: moves.siteHead,
+          considered: moves.considered,
+          groups: moves.groups,
+        },
+      }),
+    );
   }
 
   /**
@@ -3204,6 +3354,44 @@ const UpdateCodeBody = z.object({
   /** The tab's evaluation of the merge the first call answered. */
   merged: z.object({ id: z.string(), evaluated: EvaluatedModules }).optional(),
 });
+
+/** Content's `GET /proposals/:name/move-inputs`. */
+const MoveInputs = z.object({
+  siteHead: z.string().nullable(),
+  pending: z.array(
+    z.object({
+      patchId: z.string(),
+      moduleFilePath: z.string(),
+      patch: Patch,
+      author: z.string().nullable(),
+      authorName: z.string().nullable(),
+    }),
+  ),
+  modules: z.record(
+    z.string(),
+    z.object({
+      site: JSONValueSchema.nullable(),
+      merged: JSONValueSchema.nullable(),
+    }),
+  ),
+});
+
+/** Content's `GET /proposals/:name/merge-checks`, as far as it is changed here. */
+const MergeChecksAnswer = z
+  .object({
+    checks: z.array(
+      z.object({ id: z.string(), ok: z.boolean() }).passthrough(),
+    ),
+    canMerge: z.boolean(),
+  })
+  .passthrough();
+
+/** "Kari", "Kari and Bo", "Kari, Bo and 2 more". */
+function namesOf(names: string[]): string {
+  return names.length <= 2
+    ? names.join(" and ")
+    : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+}
 
 /** Content's `GET /proposals/:name/merge-trees`. */
 const MergeTrees = z.object({
