@@ -99,18 +99,95 @@ and a much larger Studio bundle, to serve seven routes.
 
 ### Option C — Swap the stores' seams instead of the client
 
-`createSystem` already takes every network path as a seam (`fetchPatches`,
-`savePatches`, `discardPatches`, `fetchJsonEntry`), and every store test runs
-against the in-memory fake in `stores/testSystem.ts`. A demo could build its
-`System` from an in-memory chain extracted out of `testSystem.ts`, so the demo
-and the test suite share one fake.
+The store layer was built so that only one file knows about HTTP.
+`createSystem` (`stores/createSystem.ts`) takes every network path as a plain
+async function — a **seam** — and `createValSystem`
+(`stores/react/createValSystem.ts`) is the one place that turns each seam into
+a `ValClient` call:
 
-- **Against:** `useStatus`, `ValProvider` and `DraftChanges` call the client
-  directly, so a demo `ValClient` for `/stat` and `/profiles` is needed anyway
-  — two seams to keep in step instead of one. And `testSystem.ts` is built on
-  jest's matchers, so extracting it is real work.
+```
+                         today                                   option C
+  ValProvider ── createValSystem(client) ── createSystem   ValProvider ── createDemoSystem(memory) ── createSystem
+                    │ fetchPatches   → GET /patches                          │ fetchPatches   → memory
+                    │ savePatches    → PUT /patches                          │ savePatches    → memory (head check, 409)
+                    │ discardPatches → DELETE /patches                       │ discardPatches → memory
+                    │ fetchJsonEntry → GET /json                             │ fetchJsonEntry → the module's own thunk
+                    │ uploadFile     → XHR                                   │ uploadFile     → (absent: read-only)
+                    │ publishPatches → POST /save                            │ publishPatches → (absent: no publish)
+                    │ resyncChain    → POST /stat                            │ resyncChain    → memory.stat()
+```
 
-**Recommendation: A, with the contract test against memory mode.**
+Every store test already runs against an in-memory version of exactly these
+seams: the fake server inside `initTestSystem` (`stores/testSystem.ts`). It is
+a real chain, not a stub — it keeps the patch table and its order, answers a
+stale `parentRef` with a genuine conflict computed from its own chain, omits
+unknown ids from `fetchPatches` the way `ValOpsFS` does, deletes on discard,
+and serves `.jsonValues()` entries from the modules' own import thunks. Its
+code is plain TypeScript; jest is only in the recording and assertion helpers
+around it (`Ledger`, `matches`).
+
+So option C is:
+
+1. **Extract that fake server** into `stores/memoryServer.ts` — the patch
+   table, the ordered chain, the head check, discard, `fetchPatches`,
+   `fetchJsonEntry` — with a `stat()` that returns the current snapshot.
+   `initTestSystem` builds on it and keeps its failure injection (held writes,
+   queued failures) as a wrapper. From then on, **every store test exercises
+   the code the demo runs.** That is the whole argument for C: the demo backend
+   is not a fake anyone has to keep honest, it is the fake the ~40 store test
+   files already depend on.
+2. **`createDemoSystem(memory)`** calls `createSystem` with the memory seams,
+   the worker validation bridge (`createSchemaValidationBridge`, as
+   `createValSystem` does), `mode: "fs"` (auto-save, no deployments), and no
+   `uploadFile`, `publishPatches` or `requestPublish`.
+3. **Persistence**: the memory server writes its chain to `sessionStorage` on
+   every change and reads it back on load; `receiveStat` then announces the
+   ids and the patch store fetches them through `fetchPatches` like any other.
+
+**The part that is not seam-shaped is `ValProvider`.** It builds the system
+itself (`createValSystem(client, …)`, `components/ValProvider.tsx` ~746), and
+it runs `useStatus(client)` (~442), a ~1000-line hook that long-polls
+`/stat` and is the source of about twenty things the rest of the Studio reads:
+whether to show the login dialog, `mode`, `config`, `profileId`, the chain and
+head that `ValStoreProvider` feeds into `system.stat.receiveStat`, deployments,
+commits, proposal state. Two ways through it:
+
+- **C-lite: inject the system, keep `useStatus`.** `ValProvider` takes an
+  optional system factory; the demo passes `createDemoSystem`. `/stat` and
+  `/profiles` are still answered by a tiny demo `ValClient`, but from the
+  SAME memory server object, so the two cannot disagree. The `/stat` answer has
+  to carry the bundle's own `sourcesSha` and `schemaSha` (otherwise
+  `BaseAlignment` and `SchemaFreshnessWatch` go looking for another build),
+  read from the system's `HostStore` rather than computed twice. And it has to
+  block until the chain changes, like fs mode does, or `useStatus` re-polls in
+  a tight loop.
+- **C-full: also replace `useStatus`.** Introduce a status source that
+  `ValProvider` reads instead of calling `useStatus` directly; the demo one is
+  synthesized from the memory server and needs no `/stat` at all — no long
+  poll, and `receiveStat` can be called without the hashes (which is what the
+  test rig does, and means "the bundle's own build"). Cleaner, but it means
+  changing how the Studio's largest component gets its status, for a demo.
+
+The other direct `client(...)` calls are features the demo hides (AI, History,
+Val Build access, link checks, remote settings, uploads), plus `/profiles` and
+the patch-error report download in `DraftChanges` — those two are answered by
+the demo client in either flavour.
+
+- **For:** no second fake; the patch path is the most-tested code in the
+  Studio. No wire shapes to imitate for the patch routes, no zod response
+  validation to satisfy, no status codes to map.
+- **Against:** touches `ValProvider`, the Studio's central component, where A
+  touches only `App.tsx`. The demo still needs a small `ValClient` for `/stat`
+  (C-lite) or a status-source refactor (C-full). And the code that turns HTTP
+  into seams — `createValSystem` — is skipped, so the demo exercises less of
+  the real Studio than A does (it is well covered by its own tests, though).
+- **Size:** S–M for C-lite (the extraction is mechanical; the `ValProvider`
+  change is one optional parameter). M for C-full.
+
+**Recommendation: A or C-lite; to decide.** They cost about the same. A keeps
+every change out of the Studio's components and pays for it with a fake that
+needs a contract test. C-lite reuses the fake the store tests already trust and
+pays for it with one injection point in `ValProvider` and a demo `/stat`.
 
 ## 4. The canvas page in demo mode
 
