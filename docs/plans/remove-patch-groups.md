@@ -12,9 +12,9 @@
 > then the removal). Built on top, on `claude/proposals-feature-design-ctgmbc`
 > in both repositories: hosted-publishing 8.2 step 2, Publish in a proposal
 > moving the site's conflicting pending changes into proposals of their own
-> (val `movesAtMerge`; home migration `1793800000`, `mergeMoves.ts`). Next:
-> Phase 4 (Publish selected), which creates and moves in one transaction the
-> way `moveOutAtMerge` does, then Phases 5–7.
+> (val `movesAtMerge`; home migration `1793800000`, `mergeMoves.ts`); and
+> Phase 4, Publish selected (see its "Built"; home migration `1793900000`).
+> Next: Phases 5–7.
 >
 > **2026-10-16, building Phases 1–3.** Landing order, decided: the 8.2 work
 > on `claude/proposals-feature-design-ctgmbc` goes to main first, in its own
@@ -465,6 +465,37 @@ and a change written after the move that conflicts is moved; e2e on
 `chromium-http`: the same through the Studio, and a reload agrees
 (`reloadEquivalence`); the loop, end to end.
 
+**Built (2026-10-17).** Decided: the site's own Val server does the second
+step, rather than the Studio going to the proposal's address to publish it
+there. What it came to:
+
+- **Studio** (`review/publishSelected.ts`, `usePublishSelected`): Review's
+  selection bar has Publish selected, offered where a restore opens a
+  proposal (the site of a project with proposals). `planSelection` closes the
+  ticked rows into whole patch sets (`selectionClosure` in shared, which
+  shares `joinSharedChanges` with `changesToMove`), and the confirm names what
+  comes with it and whose it is. Then: save, `POST /publish-selected`, and the
+  proposal's Publish (`publishProposal`, content only), followed to Live by
+  the tracker every publish goes through. A failure after the move offers
+  **Open the proposal** as well as **Try again**.
+- **Val's server** (`/publish-selected`): prepares the selection over the
+  site's head exactly as a publish job of it is prepared (`buildSourcesOf`:
+  this build, the commits since it, the selection) and saves only what the
+  selection touched, into a `publish` proposal created on that head. The
+  head is content's `headCommitSha`, read before the chain, so a publish
+  landing in between makes the create refuse ("publish them again") rather
+  than revert it. On the site, the merge checks and press of a `publish`
+  proposal are answered with the 8.2 moves (`answersMovesFor`): it changes no
+  code, so the site's schemas are its own.
+- **Content**: the `publish` kind (migration `1793900000`), which names its
+  base and carries changes. It keeps its `setup` job: the merge does not need
+  the address, but a failed publish does, so its changes can be opened. That
+  answers open question 1.
+
+Not yet: a lost answer after the move (the changes are in the proposal and
+the Studio does not know its name) says the changes are no longer on the
+site, and the proposal is found in the list. The merge window (open question 2) is not measured yet.
+
 ### Phase 5 — a held-back publish goes to a proposal
 
 Today (hosted-publishing step 4) a publish that fails on its content puts its
@@ -570,8 +601,9 @@ Then simplify, in both:
 
 ## Open questions
 
-1. **Does a content-only merge read the overlay** the `setup` job writes?
-   Decides whether a `publish` proposal can skip setup.
+1. ~~**Does a content-only merge read the overlay** the `setup` job writes?~~
+   No, but a `publish` proposal keeps its setup anyway: a failed publish
+   leaves its changes in it, and they have to be openable (Phase 4, Built).
 2. **Is the merge window visible?** Measure before building the
    `publishingPatches` fallback.
 3. **Pausing on projects without proposals** (Phase 5) brings back, for them,
