@@ -1,4 +1,4 @@
-import { parseBuildTarget } from "./protocol";
+import { parseBuildTarget, parseRequestStatus } from "./protocol";
 
 /**
  * `GET /v1/build-target` as the CLI reads it.
@@ -47,4 +47,27 @@ test("a platform that predates them still parses, without them", () => {
   const parsed = parseBuildTarget(target);
   expect(parsed.base.pins).toBeUndefined();
   expect(parsed.base.exports).toBeUndefined();
+});
+
+test("a failed publish says where its changes went, and that survives the parse", () => {
+  // Dropped by the parse, the Studio would offer Try again on changes that
+  // are no longer on the site, and never say which proposal has them.
+  const movedTo = { proposal: "p1", displayName: "From a publish", changes: 2 };
+  expect(
+    parseRequestStatus({
+      request: {
+        kind: "failed",
+        message: "It broke /pricing",
+        actions: [],
+        job: "J1",
+        movedTo,
+      },
+    }).request,
+  ).toEqual({
+    kind: "failed",
+    message: "It broke /pricing",
+    actions: [],
+    job: "J1",
+    movedTo,
+  });
 });
