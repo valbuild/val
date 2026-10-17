@@ -547,6 +547,37 @@ Removed with it: `held_back_job_ids`, `heldBackPatches` / `heldBackOf`, the
 publish is still not discarded), `heldBackSource.ts`. Their model tests in
 `docs/publish-jobs` (`suite.ts` §4) are rewritten for the move.
 
+**Built, for managed projects (2026-10-17).** Decided: connected projects
+get proposals too (later; on GitHub a proposal is a pull request, 8.2
+decision 5), and until then they keep today's held-back behaviour rather than
+pausing. So rule 1 holds on managed sites now, and on connected ones once
+they have proposals; Phase 6 waits for that.
+
+- **Content** (`moveFailedPublish`, migration `1794000000`): in the
+  transaction that fails a job on its content, after the jobs sharing its
+  changes are interrupted, `JobTx.moveFailed` moves what `heldBackPatches`
+  would hold into a `held-back` proposal based on `job.base`, owned by the
+  first author and co-owned by the rest. Changes an active job holds stay.
+  `no-proposals` makes the runner hold them back, as before. The proposal
+  remembers its job (`held_back_job_id`), and the request status says where
+  the changes went (`movedTo`, with `actions: []`).
+- **Studio**: the failure toast says "Publishing broke the site", names the
+  proposal, and offers Open the proposal instead of Try again and Discard.
+- **Tests**: the handler tests pin both (held back without proposals, moved
+  with them), and the Postgres-against-memory differential test runs with
+  proposals on in both worlds. The model's suite (`docs/publish-jobs`) is of
+  a project without proposals and is unchanged; a model of the move is not
+  written yet.
+
+Found while building it: step 8.2's press reads `move-inputs` before it
+reaches the merge, so an edit made right after pressing Publish got there
+first and was refused as unsaved. The press now names the save it
+publishes (`MergeBody.save`, from `move-inputs`), and content lets a press
+that names its save go past later changes, which carry over.
+
+Not yet: removing `held_back_job_ids`, `heldBackPatches` and the held-back
+UI, which connected projects still use.
+
 ### Phase 6 — published comes first, and cash it in
 
 Enforce rule 1, in home:
