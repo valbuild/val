@@ -33,6 +33,7 @@ import {
   type UpdateConflict,
 } from "../../proposals/proposalsClient";
 import { useProposals, waitForAddress } from "../../proposals/useProposals";
+import { goToProposal } from "../../proposals/proposalHandoff";
 import {
   proposalCodeChanged,
   openBuilder,
@@ -179,6 +180,10 @@ export function useProposalsBar({
   const go = useCallback((origin: string) => {
     window.location.assign(sameStudioPageAt(origin, window.location));
   }, []);
+  /** Into a proposal, signed in, rather than through Val Build's sign-in. */
+  const enter = useCallback((name: string, origin: string) => {
+    void goToProposal(name, sameStudioPageAt(origin, window.location));
+  }, []);
 
   const failed = useCallback(
     (what: string, error: unknown) =>
@@ -192,18 +197,18 @@ export function useProposalsBar({
       const known = ready?.proposals.find((p) => p.name === name);
       try {
         if (known?.address) {
-          go(known.address);
+          enter(name, known.address);
           return;
         }
         if (known?.setup?.status === "failed") {
           await client.retrySetup(name);
         }
-        go(await waitForAddress(client, name));
+        enter(name, await waitForAddress(client, name));
       } catch (error) {
         failed("Could not open the proposal", error);
       }
     },
-    [client, failed, go, here?.name, ready?.proposals],
+    [client, enter, failed, here?.name, ready?.proposals],
   );
 
   /*
@@ -732,7 +737,10 @@ export function useProposalsBar({
           ...(input.description ? { description: input.description } : {}),
         });
         void refresh();
-        go(made.address ?? (await waitForAddress(client, made.name)));
+        enter(
+          made.name,
+          made.address ?? (await waitForAddress(client, made.name)),
+        );
       } catch (error) {
         const existing =
           error instanceof ProposalsApiError ? error.existing() : null;
@@ -751,7 +759,7 @@ export function useProposalsBar({
         setBusy(null);
       }
     },
-    [client, go, newProposal.requestId, refresh],
+    [client, enter, newProposal.requestId, refresh],
   );
 
   const close = useCallback(async () => {
@@ -823,7 +831,8 @@ export function useProposalsBar({
       void refresh();
       const origin = made.address ?? (await waitForAddress(client, made.name));
       const target = sameStudioPageAt(origin, window.location);
-      window.location.assign(
+      await goToProposal(
+        made.name,
         input.restoreCodeFrom === undefined
           ? target
           : withRestoreCode(target, input.restoreCodeFrom),

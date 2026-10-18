@@ -79,6 +79,11 @@ import { getModuleAtCommit } from "./history/getModuleAtCommit";
 import { getJsonEntryAtCommit } from "./history/getJsonEntryAtCommit";
 import { getSettings } from "./getSettings";
 import {
+  HANDOFF_PATH,
+  HANDOFF_SECONDS,
+  sealProposalHandoff,
+} from "./proposalHandoff";
+import {
   forwardToStudioApi,
   type AdminProxyResult,
   type ValBuildCredential,
@@ -1303,6 +1308,58 @@ export const ValServer = (
           profileOf(auth),
           JSON.stringify(req.body ?? {}),
         );
+      },
+    },
+    /**
+     * This session, sealed for one proposal's address: what lets opening a
+     * proposal skip Val Build's sign-in. The address is read from content,
+     * never taken from the request, so a session is only ever sealed for an
+     * address of this project. See `proposalHandoff.ts`.
+     */
+    "/proposal-handoff": {
+      POST: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const session = req.cookies[VAL_SESSION_COOKIE];
+        if (!options.valSecret || session === undefined) {
+          // fs mode, signed in to nothing: there is no session to hand over.
+          return { status: 401, json: { message: "Not signed in." } };
+        }
+        const answer = await proxyProposalsApi(
+          `/${encodeURIComponent(req.body.proposal)}`,
+          "GET",
+          profileOf(auth),
+        );
+        if (answer.status !== 200) {
+          return {
+            status: 404,
+            json: { message: "No such proposal in this project." },
+          };
+        }
+        const address = ProposalAddress.safeParse(answer.json);
+        if (!address.success) {
+          return {
+            status: 409,
+            json: { message: "The proposal has no address yet." },
+          };
+        }
+        const aud = new URL(address.data.proposal.address).origin;
+        return {
+          status: 200,
+          json: {
+            action: new URL(HANDOFF_PATH, aud).href,
+            token: sealProposalHandoff(
+              {
+                aud,
+                exp: Math.floor(Date.now() / 1000) + HANDOFF_SECONDS,
+                session,
+              },
+              options.valSecret,
+            ),
+          },
+        };
       },
     },
     "/proposal-site-sources": {
@@ -4206,6 +4263,11 @@ const ValAppJwtPayload = z.object({
   org: z.string(),
 });
 type ValAppJwtPayload = z.infer<typeof ValAppJwtPayload>;
+
+/** What `/proposal-handoff` reads of content's answer for one proposal. */
+const ProposalAddress = z.object({
+  proposal: z.object({ address: z.string().url() }),
+});
 
 const IntegratedServerJwtPayload = z.object({
   sub: z.string(),

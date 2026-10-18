@@ -1431,6 +1431,36 @@ export const Api = {
    * base Source there is the proposal's last save. 404 anywhere that is not a
    * proposal's address. valbuild/home `docs/proposals.md`.
    */
+  /**
+   * Seal this session for one proposal's address, so opening the proposal
+   * does not send the editor through Val Build's sign-in again. See
+   * `proposalHandoff.ts` in `@valbuild/server`.
+   */
+  "/proposal-handoff": {
+    POST: {
+      req: {
+        body: z.object({ proposal: z.string() }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.union([z.literal(404), z.literal(409)]),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            /** Where to POST `token`: the loader at the proposal's address. */
+            action: z.string(),
+            token: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
   "/proposal-site-sources": {
     GET: {
       req: {

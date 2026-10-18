@@ -10,6 +10,7 @@ import {
   sameStudioPageAt,
 } from "../proposals/proposalsClient";
 import { waitForAddress } from "../proposals/useProposals";
+import { goToProposal } from "../proposals/proposalHandoff";
 import { randomUUID } from "../utils/randomUUID";
 import {
   publishSelectedClient,
@@ -191,7 +192,7 @@ export function usePublishSelected(): {
     const client = createProposalsClient({ api: "/api/val" });
     void waitForAddress(client, proposal)
       .then((origin) =>
-        window.location.assign(sameStudioPageAt(origin, window.location)),
+        goToProposal(proposal, sameStudioPageAt(origin, window.location)),
       )
       .catch((error: unknown) => {
         setState((current) =>
