@@ -117,27 +117,44 @@ demo:   createValClient ── fetch ─────────────► 
 esbuild (2026-10-18). Fifteen Node-only imports fail to resolve, from about
 twenty files, almost all of them belonging to modes the demo never runs:
 
-| Import                             | From                                                                             | Fix                                                    |
-| ---------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `fs`, `os`, `crypto`               | `ValOpsFS`, `patchStore`, `patchLog`, `patchLock`, `jsonEntryFiles`              | construct the ops for a mode lazily, by `mode`         |
-| `crypto`, `path`                   | `ValOpsHttp`, `proposalMerge/*`                                                  | same                                                   |
-| `node:http`, `https`, `net`, `dns` | `linkCheck/probeUrl.ts`                                                          | dynamic `import()` inside the link-check route         |
-| `node:vm`, `node:module`, `fs`     | `loadValModules`, `createNodeRequire`, `valServerConfig`, `personalAccessTokens` | keep out of the router's import graph                  |
-| `crypto`, `buffer`                 | `jwt.ts`                                                                         | Web Crypto, or lazy: memory mode without auth skips it |
-| `path`                             | `ValServer`, `rewriteDraftPlaylist`, `patch/jsonValuesPatch`, `history/*`        | a posix `path` shim (these only join and split)        |
-| `typescript`                       | `ValOps.ts` (`prepare`, i.e. publish)                                            | dynamic `import()` in `prepare`                        |
-| `@valbuild/ui/server`              | `ValRouter.ts` (the Studio's own embedded assets)                                | inject the static handler; the demo has none           |
+The fix is the split `@valbuild/tanstack-build` already has: a root that a
+browser can import, and a Node half that hands the Node-only pieces to it.
+**Lazy `import()` is not enough** -- a bundler follows a dynamic import of a
+literal path just as it follows a static one, and fails on what it finds there.
+So the browser-safe core takes these as parameters instead of importing them:
+
+| Import                             | From                                                                             | Fix                                                                     |
+| ---------------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `fs`, `os`, `crypto`               | `ValOpsFS`, `patchStore`, `patchLog`, `patchLock`, `jsonEntryFiles`              | the core takes a constructed `ValOps`; the Node entry builds FS or HTTP |
+| `crypto`, `path`                   | `ValOpsHttp`, `proposalMerge/*`                                                  | same                                                                    |
+| `node:http`, `https`, `net`, `dns` | `linkCheck/probeUrl.ts`                                                          | injected by the Node entry; absent in the demo (the route says so)      |
+| `node:vm`, `node:module`, `fs`     | `loadValModules`, `createNodeRequire`, `valServerConfig`, `personalAccessTokens` | Node entry only (config resolution is a Node concern)                   |
+| `crypto`, `buffer`                 | `jwt.ts`                                                                         | Web Crypto (available in Node too), or injected                         |
+| `path`                             | `ValServer`, `rewriteDraftPlaylist`, `patch/jsonValuesPatch`, `history/*`        | a posix `path` shim (these only join and split)                         |
+| `typescript`                       | `ValOps.ts` (`prepare`, i.e. publish)                                            | injected into `prepare`; the demo has no publish                        |
+| `@valbuild/ui/server`              | `ValRouter.ts` (the Studio's own embedded assets)                                | inject the static handler; the demo has none                            |
 
 With node builtins stubbed, the bundle is 4.3 MB minified, and 3.5 MB of that
 is `typescript`. Without it, the server's own code is about 190 KB minified;
 `zod`, core and shared are already in the Studio's bundle. All of it is a lazy
 chunk that only a demo loads.
 
-To keep it that way, a test in the style of
-`packages/tanstack-build/src/noNodeFromBrowser.test.ts` walks the router's
-import graph and fails if a Node builtin becomes reachable. That test is the
-whole maintenance burden: anyone adding a server feature either keeps Node
-imports out of the shared path or finds out in CI, with a message saying why.
+Three tests keep it that way, each catching what the one before cannot:
+
+1. **The import guard** (jest, milliseconds). Walks the import graph from the
+   demo's entry -- static and literal dynamic imports, as
+   `packages/tanstack-build/src/noNodeFromBrowser.test.ts` does -- and fails if
+   a Node builtin is reachable, naming the chain of files that reaches it.
+2. **The in-tab round trip** (jest). `createValClient` with the in-tab `fetch`,
+   the real router, a memory-mode `ValServer`: read `/stat`, save a patch, read
+   it back, save on a stale parent and get the 409. Catches a change that
+   leaves the demo bundleable but no longer working.
+3. **The demo e2e** (Playwright, in the blocking `smoke` job). Build
+   `examples/tanstack` with the demo flag, open `/val`, edit a field, and see
+   the canvas change -- with every request to `/api/val/*` other than the
+   Studio's static assets failed by `page.route`. Catches what neither jest
+   test can: a new Studio feature that calls the server some other way than
+   through the client, or that memory mode does not support.
 
 - **For:** the most faithful option by a distance. The Studio's client, the
   router's request parsing, every route handler, the patch chain, the head
@@ -150,7 +167,7 @@ imports out of the shared path or finds out in CI, with a message saying why.
 - **Later:** the same router can move into a Service Worker unchanged if we
   ever want uploads (it would answer `/api/val/files` and the upload URL) or
   publish.
-- **Size:** M. Most of it is the lazy-import work, which also makes memory mode
+- **Size:** M. Most of it is splitting `packages/server` into a browser-safe core and a Node entry, which also makes memory mode
   lighter for the Worker host it was written for.
 
 ### Option C — Swap the stores' seams instead of the client
