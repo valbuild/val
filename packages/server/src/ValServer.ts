@@ -2313,7 +2313,9 @@ export const ValServer = (
          * and the selection on top. Only what the selection touched is saved,
          * so the proposal's save is the selection and nothing else.
          */
-        const built = await buildSourcesOf(serverOps, patchIds, commit);
+        const built = await buildSourcesOf(serverOps, patchIds, commit, {
+          binaries: false,
+        });
         if ("status" in built) return built;
         if (built.headCommitSha === undefined) {
           return {
@@ -2362,14 +2364,32 @@ export const ValServer = (
         const createdBody = PublishProposalCreated.safeParse(
           safeJson(created.body),
         );
+        const createdError = ContentError.safeParse(safeJson(created.body));
         if (created.status === 409) {
-          return {
-            status: 409,
-            json: {
-              message:
-                "The site was published while this was being prepared. Nothing was published: publish them again.",
-            },
-          };
+          /*
+           * Content refuses a base that is not the site's head -- a publish
+           * landed in between, and pressing again prepares over the new one.
+           * Any other refusal is content's to put in words, and again would
+           * be refused the same way.
+           */
+          const message = createdError.success ? createdError.data.message : "";
+          return /base is not the site's head/.test(message)
+            ? {
+                status: 409,
+                json: {
+                  message:
+                    "The site was published while this was being prepared. Nothing was published: publish them again.",
+                  headMoved: true,
+                },
+              }
+            : {
+                status: 409,
+                json: {
+                  message:
+                    message ||
+                    "The changes could not be moved into a proposal to publish them.",
+                },
+              };
         }
         if (created.status !== 200 || !createdBody.success) {
           return {
@@ -4502,6 +4522,11 @@ async function buildSourcesOf(
   serverOps: ValOpsHttp,
   patchIds: string[],
   commit: CommitSha | undefined,
+  /**
+   * Read the job's binary files back for a build. Off for a caller that only
+   * commits what was prepared, which names the files rather than carrying them.
+   */
+  options: { binaries: boolean } = { binaries: true },
 ): Promise<
   | { status: 409 | 500; json: { message: string } }
   | {
@@ -4574,10 +4599,12 @@ async function buildSourcesOf(
     jobPatchIds: patchIds,
   });
   // Read now, while the job's changes still hold their files.
-  const binaries = await readCommittedBinaryFiles(
-    serverOps,
-    split.archive.patchedBinaryFilesDescriptors,
-  );
+  const binaries = options.binaries
+    ? await readCommittedBinaryFiles(
+        serverOps,
+        split.archive.patchedBinaryFilesDescriptors,
+      )
+    : { files: {}, unread: [] };
   return {
     split,
     withJob,
@@ -4651,6 +4678,8 @@ function jobPrepareAnswer(
 const PublishProposalCreated = z.object({
   proposal: z.object({ name: z.string() }),
 });
+/** Content's refusal, in its words. */
+const ContentError = z.object({ message: z.string() });
 
 function safeJson(text: string): unknown {
   try {

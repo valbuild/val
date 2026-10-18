@@ -27,7 +27,10 @@ import { z } from "zod";
 
 /** What a selection publishes: whole patch sets, and who else's comes with it. */
 export type SelectionPlan = {
-  /** Every change that goes, in the order the patch sets list them. */
+  /**
+   * Every change that goes, in the order the patch sets list them: any order
+   * will do, a move keeps the chain's (content renumbers by position).
+   */
   patchIds: PatchId[];
   /** Of those, the ones that were not selected: they come with it. */
   added: PatchId[];
@@ -69,10 +72,19 @@ export type PublishSelectedResult =
        * safe there, and it is where to finish publishing them.
        */
       proposal: string | null;
+      /**
+       * Whether pressing again can help: not when the server refused for a
+       * reason that holds next time too, and not once the changes are in a
+       * proposal they could not be saved in -- that proposal's own Publish,
+       * opened, saves them first.
+       */
+      canRetry: boolean;
     };
 
 /** The proposal the changes are in: on success, and on a 502 after the move. */
 const Moved = z.object({ proposal: z.string() });
+/** The one refusal that pressing again gets past: the site moved meanwhile. */
+const HeadMoved = z.object({ headMoved: z.literal(true) });
 
 /** `POST /publish-selected` on this deployment's Val server. */
 export function publishSelectedClient(options: {
@@ -87,20 +99,28 @@ export function publishSelectedClient(options: {
     requestId: string;
   }): Promise<
     | { status: "moved"; proposal: string }
-    | { status: "error"; message: string; proposal: string | null }
+    | {
+        status: "error";
+        message: string;
+        proposal: string | null;
+        canRetry: boolean;
+      }
   > => {
     try {
       const answer = Moved.parse(await callJson(fetchImpl, url, "POST", body));
       return { status: "moved", proposal: answer.proposal };
     } catch (error) {
-      const saved =
-        error instanceof StudioPublishError
-          ? Moved.safeParse(error.body)
-          : null;
+      const message = error instanceof Error ? error.message : String(error);
+      if (!(error instanceof StudioPublishError)) {
+        // No answer: nothing is known to have happened, and again may get one.
+        return { status: "error", message, proposal: null, canRetry: true };
+      }
+      const saved = Moved.safeParse(error.body);
       return {
         status: "error",
-        message: error instanceof Error ? error.message : String(error),
-        proposal: saved?.success ? saved.data.proposal : null,
+        message,
+        proposal: saved.success ? saved.data.proposal : null,
+        canRetry: HeadMoved.safeParse(error.body).success,
       };
     }
   };
@@ -133,6 +153,7 @@ export async function runPublishSelected(deps: {
         status: "error",
         message: `Nothing was published: the changes are not saved yet. ${saved.message}`,
         proposal: null,
+        canRetry: true,
       };
     }
     const moved = await deps.move({
@@ -149,6 +170,7 @@ export async function runPublishSelected(deps: {
       status: "error",
       message: `The changes are in a proposal, and its publish could not start: ${pressed.message}`,
       proposal,
+      canRetry: true,
     };
   }
   return { status: "pressed", proposal };

@@ -240,7 +240,13 @@ describe("/publish-selected", () => {
 
   test("the site published in between: refused, and nothing is saved", async () => {
     const { handler, calls, restore } = setup({
-      create: { status: 409, body: { message: "the base is not the head" } },
+      create: {
+        status: 409,
+        body: {
+          message:
+            "Conflict: the base is not the site's head. A proposal based on an older version of the site is not supported yet.",
+        },
+      },
     });
     try {
       const res = await publishSelected(handler);
@@ -248,6 +254,26 @@ describe("/publish-selected", () => {
       expect("json" in res && res.json).toEqual({
         message:
           "The site was published while this was being prepared. Nothing was published: publish them again.",
+        headMoved: true,
+      });
+      expect(callsTo(calls, `/proposals/${NAME}/save`)).toEqual([]);
+    } finally {
+      restore();
+    }
+  });
+
+  test("any other refusal is content's, in its words, and not marked as one to press again", async () => {
+    const { handler, calls, restore } = setup({
+      create: {
+        status: 409,
+        body: { message: "Conflict: these changes are in a proposal already" },
+      },
+    });
+    try {
+      const res = await publishSelected(handler);
+      expect(res.status).toBe(409);
+      expect("json" in res && res.json).toEqual({
+        message: "Conflict: these changes are in a proposal already",
       });
       expect(callsTo(calls, `/proposals/${NAME}/save`)).toEqual([]);
     } finally {

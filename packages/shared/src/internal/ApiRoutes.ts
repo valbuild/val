@@ -1501,7 +1501,7 @@ export const Api = {
     POST: {
       req: {
         body: z.object({
-          /** The changes to publish, in chain order: whole patch sets. */
+          /** The changes to publish, whole patch sets, in any order: a move keeps the chain's. */
           patchIds: z.array(PatchId).min(1),
           /** What the merged proposal is listed as. */
           displayName: z.string().min(1).max(200),
@@ -1515,8 +1515,14 @@ export const Api = {
       res: z.union([
         unauthorizedResponse,
         z.object({ status: z.literal(400), json: GenericError }),
-        /** Refused: the site moved, a change went, or this deployment cannot. */
-        z.object({ status: z.literal(409), json: GenericError }),
+        /**
+         * Refused: the site moved (`headMoved`: pressing again prepares over
+         * the new head), a change went, or this deployment cannot.
+         */
+        z.object({
+          status: z.literal(409),
+          json: GenericError.extend({ headMoved: z.literal(true).optional() }),
+        }),
         z.object({ status: z.literal(500), json: GenericError }),
         /**
          * The proposal was made and its changes moved into it, and the save

@@ -82,7 +82,7 @@ export function usePublishSelected(): {
           count: next.patchIds.length,
           message: result.message,
           proposal: result.proposal,
-          canRetry: true,
+          canRetry: result.canRetry,
         });
         return;
       }
@@ -106,12 +106,18 @@ export function usePublishSelected(): {
         setState({ kind: "published", count });
         return;
       case "failed":
+        /*
+         * What content says can be done, and where the changes are: a merge
+         * that broke the site moves them on into a proposal of their own
+         * (`movedTo`), which is then the one to open, and there is nothing
+         * to try again here.
+         */
         setState({
           kind: "failed",
           count,
           message: request.status.message,
-          proposal: press.proposal,
-          canRetry: true,
+          proposal: request.status.movedTo?.proposal ?? press.proposal,
+          canRetry: request.status.actions.includes("try-again"),
         });
         return;
       case "cancelled":

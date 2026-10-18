@@ -4,7 +4,9 @@ import type {
   Schema,
   SelectorSource,
 } from "@valbuild/core";
-import type { JSONValue, Operation } from "@valbuild/core/patch";
+import type { JSONValue } from "@valbuild/core/patch";
+import { JSONValue as JSONValueSchema, Patch } from "@valbuild/shared/internal";
+import { z } from "zod";
 import { changesToMove } from "./merge";
 import type { Project } from "./project";
 import { validateWith } from "./validate";
@@ -26,18 +28,37 @@ import { validateWith } from "./validate";
  * is not left on the site to break.
  */
 
-/** Content's `move-inputs` answer. */
-export type MoveInputs = {
-  siteHead: string | null;
-  pending: {
-    patchId: string;
-    moduleFilePath: string;
-    patch: Operation[];
-    author: string | null;
-    authorName: string | null;
-  }[];
-  modules: Record<string, { site: JSONValue | null; merged: JSONValue | null }>;
-};
+const PatchIdOf = z.string().refine((s): s is PatchId => !!s);
+const ModuleFilePathOf = z
+  .string()
+  .refine((s): s is ModuleFilePath => s.startsWith("/"));
+
+/**
+ * Content's `move-inputs` answer, as it is parsed: the one definition, so the
+ * parser and what `movesAtMerge` reads cannot drift apart.
+ */
+export const MoveInputs = z.object({
+  /** The proposal's last save; absent from a content service before it. */
+  save: z.string().nullable().optional(),
+  siteHead: z.string().nullable(),
+  pending: z.array(
+    z.object({
+      patchId: PatchIdOf,
+      moduleFilePath: ModuleFilePathOf,
+      patch: Patch,
+      author: z.string().nullable(),
+      authorName: z.string().nullable(),
+    }),
+  ),
+  modules: z.record(
+    z.string(),
+    z.object({
+      site: JSONValueSchema.nullable(),
+      merged: JSONValueSchema.nullable(),
+    }),
+  ),
+});
+export type MoveInputs = z.infer<typeof MoveInputs>;
 
 /** What the Publish press carries (`MergeBody.moves` in content), and who moves. */
 export type MergeMoves = {
@@ -52,10 +73,13 @@ export function movesAtMerge(
 ): MergeMoves & { authors: string[][] } {
   const site: Project = { files: {}, modules: {} };
   const merged: Project = { files: {}, modules: {} };
-  for (const [path, { site: before, merged: after }] of Object.entries(
-    inputs.modules,
+  // The pages of the pending changes, which are the pages content answered.
+  for (const moduleFilePath of new Set(
+    inputs.pending.map((change) => change.moduleFilePath),
   )) {
-    const moduleFilePath = path as ModuleFilePath;
+    const page = inputs.modules[moduleFilePath];
+    if (page === undefined) continue;
+    const { site: before, merged: after } = page;
     const schema = schemas[moduleFilePath];
     if (schema === undefined) continue;
     const serialized = schema["executeSerialize"]();
@@ -82,8 +106,8 @@ export function movesAtMerge(
     site,
     merged,
     pending: inputs.pending.map((change) => ({
-      patchId: change.patchId as PatchId,
-      moduleFilePath: change.moduleFilePath as ModuleFilePath,
+      patchId: change.patchId,
+      moduleFilePath: change.moduleFilePath,
       patch: change.patch,
     })),
   });

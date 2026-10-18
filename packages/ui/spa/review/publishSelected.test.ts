@@ -103,6 +103,7 @@ describe("runPublishSelected", () => {
       message:
         "Nothing was published: the changes are not saved yet. Val Build is slow.",
       proposal: null,
+      canRetry: true,
     });
     expect(move).not.toHaveBeenCalled();
   });
@@ -121,6 +122,7 @@ describe("runPublishSelected", () => {
       message:
         "The changes are in a proposal, and its publish could not start: busy",
       proposal: "p1",
+      canRetry: true,
     });
   });
 
@@ -164,7 +166,7 @@ describe("publishSelectedClient", () => {
     expect(await move(body)).toEqual({ status: "moved", proposal: "p1" });
   });
 
-  test("moved but not saved there: the proposal still, so they can be found", async () => {
+  test("moved but not saved there: the proposal, to open and publish from; pressing again here cannot save it", async () => {
     const move = publishSelectedClient({
       api: "/api/val",
       fetchImpl: answering(502, { message: "not saved", proposal: "p1" }),
@@ -173,18 +175,38 @@ describe("publishSelectedClient", () => {
       status: "error",
       message: "not saved",
       proposal: "p1",
+      canRetry: false,
     });
   });
 
-  test("refused before anything moved: no proposal", async () => {
+  test("the site moved meanwhile: nothing moved, and pressing again prepares over the new head", async () => {
     const move = publishSelectedClient({
       api: "/api/val",
-      fetchImpl: answering(409, { message: "The site was published" }),
+      fetchImpl: answering(409, {
+        message: "The site was published while this was being prepared.",
+        headMoved: true,
+      }),
     });
     expect(await move(body)).toEqual({
       status: "error",
-      message: "The site was published",
+      message: "The site was published while this was being prepared.",
       proposal: null,
+      canRetry: true,
+    });
+  });
+
+  test("refused for a reason that holds next time too: no proposal, and no Try again", async () => {
+    const move = publishSelectedClient({
+      api: "/api/val",
+      fetchImpl: answering(409, {
+        message: "Conflict: these changes are in a proposal already",
+      }),
+    });
+    expect(await move(body)).toEqual({
+      status: "error",
+      message: "Conflict: these changes are in a proposal already",
+      proposal: null,
+      canRetry: false,
     });
   });
 });

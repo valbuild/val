@@ -1,5 +1,9 @@
 import { initVal, type ModuleFilePath } from "@valbuild/core";
-import { movesAtMerge, type MoveInputs } from "./movesAtMerge";
+import type { z } from "zod";
+import { MoveInputs, movesAtMerge } from "./movesAtMerge";
+
+/** Content's answer as it arrives, parsed as Val's server parses it. */
+const answer = (raw: z.input<typeof MoveInputs>) => MoveInputs.parse(raw);
 
 const { s } = initVal();
 
@@ -24,7 +28,7 @@ const change = (
   authorName: string,
   path: string[],
   value: string,
-): MoveInputs["pending"][number] => ({
+): z.input<typeof MoveInputs>["pending"][number] => ({
   patchId,
   moduleFilePath: HOME,
   patch: [{ op: "replace", path, value }],
@@ -35,7 +39,7 @@ const change = (
 describe("movesAtMerge", () => {
   test("the change to a field the merge changes moves; the one to another field stays", () => {
     const moves = movesAtMerge(
-      {
+      answer({
         siteHead: "site-2",
         pending: [
           change("k1", "Kari", ["title"], "Spring sale"),
@@ -44,7 +48,7 @@ describe("movesAtMerge", () => {
         modules: {
           [HOME]: { site: SITE, merged: { ...SITE, title: "Summer sale" } },
         },
-      },
+      }),
       schemas,
     );
     expect(moves).toEqual({
@@ -57,11 +61,11 @@ describe("movesAtMerge", () => {
 
   test("nothing the merge touches: nothing moves, and everything was looked at", () => {
     const moves = movesAtMerge(
-      {
+      answer({
         siteHead: null,
         pending: [change("b1", "Bo", ["subtitle"], "Hot deals")],
         modules: { [HOME]: { site: SITE, merged: SITE } },
-      },
+      }),
       schemas,
     );
     expect(moves).toMatchObject({ considered: ["b1"], groups: [] });
@@ -69,11 +73,11 @@ describe("movesAtMerge", () => {
 
   test("a page this server has no schema for moves whole: what cannot be checked is not left to break", () => {
     const moves = movesAtMerge(
-      {
+      answer({
         siteHead: null,
         pending: [change("b1", "Bo", ["subtitle"], "Hot deals")],
         modules: { [HOME]: { site: SITE, merged: SITE } },
-      },
+      }),
       {},
     );
     expect(moves.groups).toEqual([["b1"]]);

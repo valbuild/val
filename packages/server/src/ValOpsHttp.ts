@@ -40,7 +40,11 @@ import {
   type ContentMergeResult,
 } from "./proposalMerge/mergeContent";
 import { updateWithCode } from "./proposalMerge/updateCode";
-import { movesAtMerge, type MergeMoves } from "./proposalMerge/movesAtMerge";
+import {
+  MoveInputs,
+  movesAtMerge,
+  type MergeMoves,
+} from "./proposalMerge/movesAtMerge";
 import { fromError } from "zod-validation-error";
 import type { HistoryError } from "./history/HistoryError";
 import type {
@@ -1235,7 +1239,9 @@ export class ValOpsHttp extends ValOps {
     if (this.proposal !== null) return this.proposal.name === name;
     const read = await this.proposalContent(name, profileId)("");
     if (!read.ok) return false;
-    const kind = ProposalKindAnswer.safeParse(await read.json());
+    const kind = ProposalKindAnswer.safeParse(
+      await read.json().catch(() => null),
+    );
     return kind.success && kind.data.proposal.kind === "publish";
   }
 
@@ -1268,7 +1274,7 @@ export class ValOpsHttp extends ValOps {
   > {
     const read = await this.proposalContent(name, profileId)("/move-inputs");
     if (!read.ok) return null;
-    const inputs = MoveInputs.safeParse(await read.json());
+    const inputs = MoveInputs.safeParse(await read.json().catch(() => null));
     if (!inputs.success) return null;
     return {
       ...movesAtMerge(inputs.data, await this.getSchemas()),
@@ -1291,7 +1297,7 @@ export class ValOpsHttp extends ValOps {
     const text = await read.text();
     const answer = { status: read.status, contentType: json, body: text };
     if (!read.ok) return answer;
-    const parsed = MergeChecksAnswer.safeParse(JSON.parse(text));
+    const parsed = MergeChecksAnswer.safeParse(parseJsonOrNull(text));
     if (!parsed.success) return answer;
     const pending = parsed.data.checks.find(
       (check) => check.id === "pending-on-site",
@@ -3398,28 +3404,6 @@ const UpdateCodeBody = z.object({
 });
 
 /** Content's `GET /proposals/:name/move-inputs`. */
-const MoveInputs = z.object({
-  /** The proposal's last save; absent from a content service before it. */
-  save: z.string().nullable().optional(),
-  siteHead: z.string().nullable(),
-  pending: z.array(
-    z.object({
-      patchId: z.string(),
-      moduleFilePath: z.string(),
-      patch: Patch,
-      author: z.string().nullable(),
-      authorName: z.string().nullable(),
-    }),
-  ),
-  modules: z.record(
-    z.string(),
-    z.object({
-      site: JSONValueSchema.nullable(),
-      merged: JSONValueSchema.nullable(),
-    }),
-  ),
-});
-
 /** The one thing `answersMovesFor` reads from content's `GET /proposals/:name`. */
 const ProposalKindAnswer = z.object({
   proposal: z.object({ kind: z.string() }),
@@ -3484,3 +3468,12 @@ const MergeInputs = z.object({
     }),
   ),
 });
+
+/** `JSON.parse`, or `null` for a body that is not JSON: an answer passed on as it came. */
+function parseJsonOrNull(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
