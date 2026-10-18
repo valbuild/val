@@ -66,7 +66,7 @@ navigation) are all out of scope.
 
 ## 3. Options for the in-tab backend
 
-### Option A — A demo `ValClient` (recommended)
+### Option A — A demo `ValClient`
 
 `createDemoClient(valModules)` implements `ClientOf<Api>` for the seven routes
 above, holding the chain in memory and mirroring it to `sessionStorage` (it is
@@ -85,17 +85,73 @@ it honest.
 
 - **Size:** S. Roughly 300 lines plus the contract test.
 
-### Option B — Real `ValServer` in memory mode, in the tab
+### Option B — The real server and router in the tab, with only the network removed
 
-Run the actual server, wrapped as a `ValClient`. No second implementation at
-all — but `packages/server` is not browser-bundleable today: `ValServer.ts`
-statically imports `ValOpsFS` (fs, os, crypto), `ValOpsHttp` (node crypto),
-`linkCheck/probeUrl.ts` (`node:http`/`https`/`net`), `jwt.ts`, `path`, and
-`ValOps.ts` imports `typescript`. All fixable (lazy op selection, a posix `path`
-shim, `Uint8Array` for `Buffer`), but it is a refactor of the server package
-and a much larger Studio bundle, to serve seven routes.
+`createValApiRouter` (`packages/server/src/ValRouter.ts`) is already a
+web-standard function, `(req: Request) => Promise<Response>`, and
+`createValClient` (`packages/shared/src/internal/ValClient.ts`) does nothing
+but build a URL and call `fetch`. So the demo can run the whole production
+pipeline in the tab and cut out exactly one thing, the network hop:
 
-- **Size:** M. Worth revisiting only if the demo grows to include publish.
+```
+today:  createValClient ── fetch ──► network ──► createValApiRouter ─► ValServer ─► ValOpsMemory/FS/Http
+demo:   createValClient ── fetch ─────────────► createValApiRouter ─► ValServer ─► ValOpsMemory
+                         (injected: router(new Request(url, init)))
+```
+
+- `createValClient` gains an optional `fetch`. The demo passes one that hands
+  the `Request` to an in-tab router instead of the network.
+- The router runs a `ValServer` in memory mode (`ValOpsMemory`) with
+  `sourceFiles: {}`, `unsafelyAllowUnauthenticated: true`, and the modules the
+  Studio already has (`window.__VAL_MODULES__`). `sourceFiles` is only read by
+  `prepare` (`ValOps.ts`, the `/save` path), so with no publish it can be
+  empty. Edits are kept in a `ValPatchStore` backed by `sessionStorage`.
+- Memory mode is not a fake. It is the backend of the hosted Val app, it has
+  its own tests (`ValOpsMemory.*.test.ts`), and it reports `mode: "fs"`, so
+  the Studio behaves as it does in local development: auto-save, long-polled
+  `/stat`, no deployments. The content and schema hashes on `/stat` come from
+  the same server code reading the same modules, so they match the bundle's
+  by construction.
+
+**What it takes**, measured by bundling `ValServer` for the browser with
+esbuild (2026-10-18). Fifteen Node-only imports fail to resolve, from about
+twenty files, almost all of them belonging to modes the demo never runs:
+
+| Import                             | From                                                                             | Fix                                                    |
+| ---------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `fs`, `os`, `crypto`               | `ValOpsFS`, `patchStore`, `patchLog`, `patchLock`, `jsonEntryFiles`              | construct the ops for a mode lazily, by `mode`         |
+| `crypto`, `path`                   | `ValOpsHttp`, `proposalMerge/*`                                                  | same                                                   |
+| `node:http`, `https`, `net`, `dns` | `linkCheck/probeUrl.ts`                                                          | dynamic `import()` inside the link-check route         |
+| `node:vm`, `node:module`, `fs`     | `loadValModules`, `createNodeRequire`, `valServerConfig`, `personalAccessTokens` | keep out of the router's import graph                  |
+| `crypto`, `buffer`                 | `jwt.ts`                                                                         | Web Crypto, or lazy: memory mode without auth skips it |
+| `path`                             | `ValServer`, `rewriteDraftPlaylist`, `patch/jsonValuesPatch`, `history/*`        | a posix `path` shim (these only join and split)        |
+| `typescript`                       | `ValOps.ts` (`prepare`, i.e. publish)                                            | dynamic `import()` in `prepare`                        |
+| `@valbuild/ui/server`              | `ValRouter.ts` (the Studio's own embedded assets)                                | inject the static handler; the demo has none           |
+
+With node builtins stubbed, the bundle is 4.3 MB minified, and 3.5 MB of that
+is `typescript`. Without it, the server's own code is about 190 KB minified;
+`zod`, core and shared are already in the Studio's bundle. All of it is a lazy
+chunk that only a demo loads.
+
+To keep it that way, a test in the style of
+`packages/tanstack-build/src/noNodeFromBrowser.test.ts` walks the router's
+import graph and fails if a Node builtin becomes reachable. That test is the
+whole maintenance burden: anyone adding a server feature either keeps Node
+imports out of the shared path or finds out in CI, with a message saying why.
+
+- **For:** the most faithful option by a distance. The Studio's client, the
+  router's request parsing, every route handler, the patch chain, the head
+  check and the hashes are all production code; a new route or a change to the
+  patch protocol reaches the demo with nobody touching the demo. No fake to
+  keep in step with anything, and no change to `ValProvider` or the stores.
+- **Against:** a refactor of `packages/server`'s imports (the table above),
+  and one more CI guard. The demo also inherits any gap memory mode has — but
+  memory mode is a shipped backend, so a gap there is a bug for app mode too.
+- **Later:** the same router can move into a Service Worker unchanged if we
+  ever want uploads (it would answer `/api/val/files` and the upload URL) or
+  publish.
+- **Size:** M. Most of it is the lazy-import work, which also makes memory mode
+  lighter for the Worker host it was written for.
 
 ### Option C — Swap the stores' seams instead of the client
 
@@ -184,10 +240,19 @@ the demo client in either flavour.
 - **Size:** S–M for C-lite (the extraction is mechanical; the `ValProvider`
   change is one optional parameter). M for C-full.
 
-**Recommendation: A or C-lite; to decide.** They cost about the same. A keeps
-every change out of the Studio's components and pays for it with a fake that
-needs a contract test. C-lite reuses the fake the store tests already trust and
-pays for it with one injection point in `ValProvider` and a demo `/stat`.
+**Recommendation: B.** The question that decides it is "what breaks the demo
+when we add a feature?":
+
+| A feature that…                                | A (demo client)                                            | C-lite (store seams)                                        | B (real server in the tab)         |
+| ---------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------- |
+| adds a route the Studio calls                  | demo answers nothing until someone writes it               | same, through the demo `/stat`/client                       | works                              |
+| changes the `/stat` shape or the head protocol | fake must be updated by hand; the contract test catches it | demo `/stat` by hand; the test fake follows the store tests | works                              |
+| adds a seam to `createValSystem`               | works                                                      | silently absent from `createDemoSystem`                     | works                              |
+| adds a Node import to the server               | works                                                      | works                                                       | CI fails with a message saying why |
+
+A and C-lite each mean keeping a second implementation in step, and both find
+out late when they fall behind. B puts the one way it can break in CI, at the
+moment someone causes it.
 
 ## 4. The canvas page in demo mode
 
