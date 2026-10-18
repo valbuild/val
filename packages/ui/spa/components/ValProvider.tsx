@@ -69,6 +69,7 @@ import {
 import type { ChainProgress } from "../utils/describePendingChangesStall";
 import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
+import { DEMO_UPLOADS_OFF, useValDemo } from "../demo/ValDemoContext";
 import { SerializedPatchSet } from "../utils/PatchSets";
 import type { PublishRequestStatus } from "@valbuild/shared/internal";
 import { z } from "zod";
@@ -426,6 +427,7 @@ export function ValProvider({
 }) {
   // config parameter is unused but kept for API compatibility
   void _config;
+  const demo = useValDemo();
   const [
     stat,
     _setStat,
@@ -746,6 +748,7 @@ export function ValProvider({
       createValSystem(client, {
         writes: true,
         uploadSettings: getDirectFileUploadSettings,
+        ...(demo !== null ? { uploadsOff: DEMO_UPLOADS_OFF } : {}),
         /*
          * A managed project's Publish is a request for a publish job, which
          * `usePublishSummary` asks for. Offered to every system: only the
@@ -755,7 +758,7 @@ export function ValProvider({
           createStudioJobClient({ api: "/api/val" }),
         ),
       }),
-    [client, getDirectFileUploadSettings],
+    [client, getDirectFileUploadSettings, demo],
   );
 
   /** See {@link ValContextValue.serverPublishingPatchIds}. */

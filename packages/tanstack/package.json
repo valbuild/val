@@ -26,6 +26,10 @@
       "module": "./dist/valbuild-tanstack.esm.js",
       "default": "./dist/valbuild-tanstack.cjs.js"
     },
+    "./demo": {
+      "module": "./demo/dist/valbuild-tanstack-demo.esm.js",
+      "default": "./demo/dist/valbuild-tanstack-demo.cjs.js"
+    },
     "./client": {
       "module": "./client/dist/valbuild-tanstack-client.esm.js",
       "default": "./client/dist/valbuild-tanstack-client.cjs.js"
@@ -41,7 +45,8 @@
     "entrypoints": [
       "./index.ts",
       "./server/index.ts",
-      "./client/index.ts"
+      "./client/index.ts",
+      "./demo/index.ts"
     ],
     "exports": true
   },
@@ -79,6 +84,7 @@
     "CHANGELOG.md",
     "dist",
     "client",
-    "server"
+    "server",
+    "demo"
   ]
 }

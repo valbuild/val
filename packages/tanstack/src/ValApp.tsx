@@ -5,6 +5,7 @@ import { useConfigStorageSave } from "./useConfigStorageSave";
 import { cn, valPrefixedClass } from "./cssUtils";
 import { canvasDarkBg, canvasLightBg } from "./fallbackColors";
 import { ValScript } from "./ValScript";
+import type { ValDemoRuntime } from "@valbuild/shared/internal";
 
 /**
  * How often the embedded Studio announces itself to the opener.
@@ -24,11 +25,26 @@ const VAL_READY_PING_MS = 100;
 export const ValApp = ({
   config,
   children,
+  demo,
 }: {
   config: ValConfig;
   children?: ReactNode;
+  /**
+   * Run the Studio as a demo: no sign-in, and no request leaves the tab.
+   *
+   * Val's own server is started here, in the browser, in memory mode, and the
+   * Studio's requests go to it instead of to `/api/val`. Edits last for the
+   * life of the tab (`sessionStorage`). Pair it with `initValDemoServer` on
+   * the API route, which serves the Studio's files and nothing else, and with
+   * `<ValProvider demo>` on the site so the canvas shows the edits.
+   *
+   * Set it from the build -- `demo={import.meta.env.VITE_VAL_DEMO === "true"}`
+   * -- never from anything a visitor controls.
+   */
+  demo?: boolean;
 }) => {
   const route = "/api/val"; // TODO: make configurable
+  const demoReady = useDemoServer(demo === true, config);
   const [inMessageMode, setInMessageMode] = useState<boolean>();
   const isClientSIde = inMessageMode === undefined;
   useConfigStorageSave(config);
@@ -151,6 +167,12 @@ export const ValApp = ({
   if (inMessageMode) {
     return <div>Val Studio is disabled: in message mode</div>;
   }
+  if (demo && !demoReady) {
+    // The Studio reads `window.__VAL_DEMO__` when its script starts, so the
+    // server it talks to has to be there first. The modules are registered
+    // by a child (`ValModulesClient`), whose effect has run by then.
+    return <>{children}</>;
+  }
   return (
     <>
       <ValScript
@@ -161,3 +183,42 @@ export const ValApp = ({
     </>
   );
 };
+
+/**
+ * Starts Val's server in this tab, and hands it to the Studio.
+ *
+ * Loaded on demand: `@valbuild/server/browser` is the whole request-handling
+ * half of the server, and only a demo should download it.
+ */
+function useDemoServer(demo: boolean, config: ValConfig): boolean {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (!demo) return;
+    let cancelled = false;
+    void import("@valbuild/server/browser").then(
+      ({ createInTabValFetch, createDemoPatchStore, resetDemoPatches }) => {
+        if (cancelled) return;
+        const modules = window.__VAL_MODULES__;
+        if (!modules) {
+          console.error(
+            "Val: the demo needs the project's modules. Render <ValModulesClient modules={valModules} /> inside <ValApp demo>.",
+          );
+          return;
+        }
+        const runtime: ValDemoRuntime = {
+          fetch: createInTabValFetch(modules, {
+            config,
+            patchStore: createDemoPatchStore(),
+          }),
+          reset: resetDemoPatches,
+        };
+        window.__VAL_DEMO__ = runtime;
+        setReady(true);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [demo, config]);
+  return ready;
+}

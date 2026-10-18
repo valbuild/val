@@ -50,6 +50,14 @@ import { ComparePatchSets, CompareLoading } from "../ComparePatchSets";
 import { isPathWithin } from "../../utils/sourcePath";
 import { cn } from "../designSystem/cn";
 import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
+import { useValDemo } from "../../demo/ValDemoContext";
+import { DemoBanner } from "../../demo/DemoBanner";
+import { DemoPublishButton } from "../../demo/DemoPublishButton";
+import {
+  demoTourSteps,
+  readDemoTourSeen,
+  writeDemoTourSeen,
+} from "../../demo/demoTour";
 import { PublishHandoffCard, handoffCardInStudio } from "./PublishHandoff";
 import { usePublishIndicator } from "../../publish/usePublishIndicator";
 import { LoginDialog } from "../LoginDialog";
@@ -203,6 +211,16 @@ function ValShellBody({
   state: ReturnType<typeof useShellData>;
   studioAccess: StudioAccessState;
 }) {
+  /*
+   * A demo (`docs/plans/demo-mode.md`): the same Studio, with its own tour,
+   * a card saying what this is, Publish explained rather than done, and no
+   * uploads. Read once at mount, as whether the tour has been seen in this
+   * tab is.
+   */
+  const demo = useValDemo();
+  const [demoTourPending] = useState(
+    () => demo !== null && !readDemoTourSeen(),
+  );
   const { resolvedTheme, setTheme, themeStyle } = useTheme();
   /**
    * The outline colours to hand the canvas frame.
@@ -1295,17 +1313,33 @@ function ValShellBody({
         renderEditor={renderEditor}
         renderSettings={renderSettings}
         renderExternalPages={renderExternalPages}
-        tourEnabled={isTourOffered(studioSettings)}
+        tourEnabled={demo !== null || isTourOffered(studioSettings)}
+        buildTourSteps={demo !== null ? demoTourSteps : undefined}
+        autoStartTour={demoTourPending}
+        onTourClose={demo !== null ? writeDemoTourSeen : undefined}
+        renderDemoBanner={
+          demo !== null
+            ? (startTour) => (
+                <DemoBanner
+                  onStartTour={startTour}
+                  onReset={() => {
+                    demo.reset();
+                    window.location.reload();
+                  }}
+                />
+              )
+            : undefined
+        }
         editorOverride={overrideEditor}
         notice={shellNotice}
         renderPlanStatus={planStatus}
         statusNotice={remoteFilesStatusNotice}
-        publishSlot={<PublishButton />}
+        publishSlot={demo !== null ? <DemoPublishButton /> : <PublishButton />}
         publishState={publishState}
         publishIndicator={publishIndicatorState}
         saveState={saveState}
         autoSave={autoPublish}
-        onAutoSaveChange={setAutoPublish}
+        onAutoSaveChange={demo !== null ? undefined : setAutoPublish}
         pendingChanges={data.pendingChanges ?? 0}
         /*
          * Zeroed when the pending patches cancel out, so Review does not put a
@@ -1355,7 +1389,8 @@ function ValShellBody({
         onNewPage={addPage}
         onDuplicatePage={duplicatePage}
         onRenamePage={renamePage}
-        onUploadMedia={uploadInto}
+        // The demo uploads nothing: its server is in the tab. See `DEMO_UPLOADS_OFF`.
+        onUploadMedia={demo !== null ? undefined : uploadInto}
         onPreview={openPreviewTab}
         // Also as an href, so the menu item is a link that can be copied. The URL
         // enables preview and redirects, so it is worth sending to someone.

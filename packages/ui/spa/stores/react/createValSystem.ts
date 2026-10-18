@@ -74,6 +74,13 @@ export function createValSystem(
     schemaValidation?: SchemaValidationBridge;
     /** A press of Publish as a publish job, for a managed project. See `RequestPublish`. */
     requestPublish?: RequestPublish;
+    /**
+     * Uploads are not offered here, and this is what to tell the person who
+     * tries: the demo, whose server runs in the tab and serves no files.
+     * Every upload answers it before anything is sent, whichever field or
+     * panel started it.
+     */
+    uploadsOff?: string;
   },
 ): System {
   /**
@@ -165,6 +172,9 @@ export function createValSystem(
             metadata,
             onProgress,
           }) => {
+            if (options.uploadsOff !== undefined) {
+              return { status: "error", message: options.uploadsOff };
+            }
             const settings = await options.uploadSettings!();
             if (settings.status === "error") {
               return {

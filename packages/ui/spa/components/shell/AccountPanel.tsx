@@ -45,7 +45,8 @@ export type AccountPanelProps = {
   /** How Val is running. Auto save is a dev-server setting; see `StatusBar`. */
   mode?: "fs" | "http" | "unknown";
   autoSave: boolean;
-  onAutoSaveChange: (autoSave: boolean) => void;
+  /** Absent where there is nothing to auto save to: the demo. */
+  onAutoSaveChange?: (autoSave: boolean) => void;
   branch?: string;
   /** Publishes in flight or recently finished. Absent when there is no feed. */
   deployments?: ShellDeployment[];
@@ -170,7 +171,7 @@ export function AccountPanel({
         <PanelSectionLabel divided>Workspace</PanelSectionLabel>
         <div className="px-4 pt-1 space-y-2.5">
           {/* `fs` only, for the reason given in `StatusBar`. */}
-          {mode === "fs" && (
+          {mode === "fs" && onAutoSaveChange && (
             <SettingsToggle
               label="Auto save"
               description="Write changes to the working tree on a pause in typing."
