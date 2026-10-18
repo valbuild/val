@@ -14,6 +14,9 @@ import { reviewRowId, reviewSourcePath } from "./toReviewModel";
 import { ReviewCompare } from "./ReviewCompare";
 import { canOpenReviewCompare } from "./reviewCompareParam";
 import { useReviewCompareParam } from "../components/ValRouter";
+import type { ReviewPublishSelected } from "./ReviewView";
+import { planSelection } from "./publishSelected";
+import { usePublishSelected } from "./usePublishSelected";
 
 /**
  * `/val/review`, wired up.
@@ -36,6 +39,7 @@ export function ReviewSurface({
   onRestore,
   onDiscardAll,
   discardAllDescription,
+  canPublishSelected = false,
   portalContainer,
 }: {
   patchSets: SerializedPatchSet;
@@ -44,6 +48,11 @@ export function ReviewSurface({
   /** Absent where there is nothing a revert could take back. */
   onDiscardAll?: () => void;
   discardAllDescription?: string;
+  /**
+   * Offer Publish selected: on the site of a project with proposals, where a
+   * selection can be moved into one and published. See `publishSelected.ts`.
+   */
+  canPublishSelected?: boolean;
   portalContainer?: HTMLElement | null;
 }) {
   /*
@@ -106,6 +115,28 @@ export function ReviewSurface({
     [patchSets],
   );
 
+  const selectedPublish = usePublishSelected();
+  const publishSelected = useMemo<ReviewPublishSelected | undefined>(() => {
+    if (!canPublishSelected) return undefined;
+    const planOf = (rowIds: string[]) =>
+      planSelection(patchSets, patchIdsOf(rowIds));
+    return {
+      plan: (rowIds) => {
+        const plan = planOf(rowIds);
+        return {
+          count: plan.patchIds.length,
+          added: plan.added.length,
+          addedAuthors: plan.addedAuthors,
+        };
+      },
+      state: selectedPublish.state,
+      onPublish: (rowIds) => selectedPublish.publish(planOf(rowIds).patchIds),
+      onRetry: selectedPublish.retry,
+      onOpenProposal: selectedPublish.openProposal,
+      onDismiss: selectedPublish.dismiss,
+    };
+  }, [canPublishSelected, patchIdsOf, patchSets, selectedPublish]);
+
   /*
    * A link to a change that is not pending opens nothing: it has shipped, or
    * been discarded, since the link was made. See `canOpenReviewCompare`.
@@ -131,6 +162,7 @@ export function ReviewSurface({
         onDiscard={(rowIds) => deletePatches(patchIdsOf(rowIds))}
         onDiscardAll={onDiscardAll}
         discardAllDescription={discardAllDescription}
+        publishSelected={publishSelected}
         portalContainer={portalContainer}
       />
       <ReviewCompare

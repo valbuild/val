@@ -181,6 +181,12 @@ describe("a proposal as the screens show it", () => {
     expect(toSummary(json(), "kari", () => ada).ownedByViewer).toBe(false);
   });
 
+  test("is the viewer's own when they are one of its owners: changes moved in together are everyone's", () => {
+    const moved = json({ ownerId: "kari", ownerIds: ["kari", "ada"] });
+    expect(toSummary(moved, "ada", () => null).ownedByViewer).toBe(true);
+    expect(toSummary(moved, "bo", () => null).ownedByViewer).toBe(false);
+  });
+
   test("is open while it is updating, resolving or merging", () => {
     for (const status of ["updating", "needs-resolution", "merging"] as const) {
       expect(toSummary(json({ status }), null, () => null).status).toBe("open");

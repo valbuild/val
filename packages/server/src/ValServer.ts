@@ -2275,6 +2275,151 @@ export const ValServer = (
         });
       },
     },
+    "/publish-selected": {
+      POST: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const profileId = profileOf(auth);
+        if (profileId === null) {
+          return { status: 401, json: { message: "Sign in to publish" } };
+        }
+        if (serverOps instanceof ValOpsHttp) {
+          await serverOps.learnProjectExpectation();
+        }
+        if (
+          !(serverOps instanceof ValOpsHttp) ||
+          serverOps.sourceMode() !== "managed" ||
+          !serverOps.publishesAsJobs() ||
+          serverOps.currentProposal() !== null
+        ) {
+          return {
+            status: 409,
+            json: {
+              message:
+                "Publish selected is for a site whose publishes are proposals: this deployment cannot.",
+            },
+          };
+        }
+        const refusal = serverOps.publishRefusal();
+        if (refusal) {
+          return { status: 409, json: { message: refusal.message } };
+        }
+        const { patchIds, displayName, requestId } = req.body;
+        /*
+         * The selection's content over the site's head, exactly as a publish
+         * job of it is prepared: this build's source, the commits since it,
+         * and the selection on top. Only what the selection touched is saved,
+         * so the proposal's save is the selection and nothing else.
+         */
+        const built = await buildSourcesOf(serverOps, patchIds, commit, {
+          binaries: false,
+        });
+        if ("status" in built) return built;
+        if (built.headCommitSha === undefined) {
+          return {
+            status: 409,
+            json: {
+              message:
+                "The content service does not say where the site's head is, which Publish selected needs: it is older than this Studio.",
+            },
+          };
+        }
+        const selected = new Set<string>(patchIds);
+        const prepared: PreparedCommit = {
+          ...built.withJob,
+          patchedSourceFiles: built.split.archive.patchedSourceFiles,
+          patchedBinaryFilesDescriptors:
+            built.split.archive.patchedBinaryFilesDescriptors,
+          moduleVersions: built.split.archive.modules,
+          appliedPatches: Object.fromEntries(
+            Object.entries(built.withJob.appliedPatches)
+              .map(([path, ids]) => [
+                path,
+                ids.filter((id) => selected.has(id)),
+              ])
+              .filter(([, ids]) => ids.length > 0),
+          ),
+        };
+        /*
+         * Moved and based in one transaction, on the head the selection was
+         * prepared over: content refuses the create when the site is no
+         * longer there, and nothing has moved.
+         */
+        const created = await serverOps.proposalsApi(
+          "",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              displayName,
+              kind: "publish",
+              patchIds,
+              requestId,
+              base: built.headCommitSha,
+            }),
+          },
+          profileId,
+        );
+        const createdBody = PublishProposalCreated.safeParse(
+          safeJson(created.body),
+        );
+        const createdError = ContentError.safeParse(safeJson(created.body));
+        if (created.status === 409) {
+          /*
+           * Content refuses a base that is not the site's head -- a publish
+           * landed in between, and pressing again prepares over the new one.
+           * Any other refusal is content's to put in words, and again would
+           * be refused the same way.
+           */
+          const message = createdError.success ? createdError.data.message : "";
+          return /base is not the site's head/.test(message)
+            ? {
+                status: 409,
+                json: {
+                  message:
+                    "The site was published while this was being prepared. Nothing was published: publish them again.",
+                  headMoved: true,
+                },
+              }
+            : {
+                status: 409,
+                json: {
+                  message:
+                    message ||
+                    "The changes could not be moved into a proposal to publish them.",
+                },
+              };
+        }
+        if (created.status !== 200 || !createdBody.success) {
+          return {
+            status: 500,
+            json: {
+              message: `The changes could not be moved into a proposal to publish them (${created.status}): ${created.body.slice(0, 300)}`,
+            },
+          };
+        }
+        const proposal = createdBody.data.proposal.name;
+        const saved = await serverOps.commit(
+          prepared,
+          `Publish selected: ${displayName}`,
+          profileId as AuthorId,
+          FILES_DIRECTORY,
+          undefined,
+          proposal,
+        );
+        if (saved.error) {
+          return {
+            status: 502,
+            json: {
+              message: `The changes are in a proposal, but could not be saved there: ${saved.error.message}`,
+              proposal,
+            },
+          };
+        }
+        return { status: 200, json: { proposal } };
+      },
+    },
     "/admin/status": {
       GET: async (req) => {
         const credential = await getValBuildCredential(req.cookies);
@@ -4377,10 +4522,19 @@ async function buildSourcesOf(
   serverOps: ValOpsHttp,
   patchIds: string[],
   commit: CommitSha | undefined,
+  /**
+   * Read the job's binary files back for a build. Off for a caller that only
+   * commits what was prepared, which names the files rather than carrying them.
+   */
+  options: { binaries: boolean } = { binaries: true },
 ): Promise<
   | { status: 409 | 500; json: { message: string } }
   | {
       split: ReturnType<typeof splitJobPrepare>;
+      /** The job's content, prepared: what a save of the job commits. */
+      withJob: PreparedCommit;
+      /** The branch's head the commits it was prepared over reach, at the least. */
+      headCommitSha: string | null | undefined;
       sourceFiles: Record<string, string | null>;
       binaryFiles: Record<string, string>;
       binaryFilesUnread: string[];
@@ -4445,12 +4599,16 @@ async function buildSourcesOf(
     jobPatchIds: patchIds,
   });
   // Read now, while the job's changes still hold their files.
-  const binaries = await readCommittedBinaryFiles(
-    serverOps,
-    split.archive.patchedBinaryFilesDescriptors,
-  );
+  const binaries = options.binaries
+    ? await readCommittedBinaryFiles(
+        serverOps,
+        split.archive.patchedBinaryFilesDescriptors,
+      )
+    : { files: {}, unread: [] };
   return {
     split,
+    withJob,
+    headCommitSha: chain.headCommitSha,
     sourceFiles: split.buildSourceFiles,
     binaryFiles: binaries.files,
     binaryFilesUnread: binaries.unread,
@@ -4513,5 +4671,20 @@ function jobPrepareAnswer(
       status: 502,
       json: { message: e instanceof Error ? e.message : String(e) },
     };
+  }
+}
+
+/** What `/publish-selected` reads from content's proposal create. */
+const PublishProposalCreated = z.object({
+  proposal: z.object({ name: z.string() }),
+});
+/** Content's refusal, in its words. */
+const ContentError = z.object({ message: z.string() });
+
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
   }
 }

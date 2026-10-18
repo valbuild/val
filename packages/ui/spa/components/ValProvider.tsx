@@ -1,6 +1,11 @@
 import { createRequestPublish } from "../publish/requestPublish";
 import { createStudioJobClient } from "../publish/jobClient";
 import { randomUUID } from "../utils/randomUUID";
+import {
+  createProposalsClient,
+  sameStudioPageAt,
+} from "../proposals/proposalsClient";
+import { waitForAddress } from "../proposals/useProposals";
 import { isTransientPublishError } from "../publish/publishClient";
 import {
   createPublishJobs,
@@ -1261,6 +1266,43 @@ export function ValProvider({
               .catch((e: unknown) =>
                 system.status.reportError(
                   "The build's run could not be found",
+                  e instanceof Error ? e.message : String(e),
+                ),
+              );
+          },
+        },
+      });
+      return;
+    }
+    /*
+     * It broke a page, and on a project with proposals its changes have left
+     * the site: they are in a proposal of their own, which is where they are
+     * fixed and published (its Publish is the Try again). Nothing here to try
+     * again or discard, so the one action is going there.
+     */
+    if (status.movedTo !== undefined) {
+      const moved = status.movedTo;
+      toast.error("Publishing broke the site", {
+        id,
+        description: `${
+          moved.changes === 1
+            ? "Its change is"
+            : `Its ${moved.changes} changes are`
+        } in the proposal “${moved.displayName}”, to be fixed and published there. ${status.message}`,
+        duration: Infinity,
+        action: {
+          label: "Open the proposal",
+          onClick: () => {
+            const client = createProposalsClient({ api: "/api/val" });
+            void waitForAddress(client, moved.proposal)
+              .then((origin) =>
+                window.location.assign(
+                  sameStudioPageAt(origin, window.location),
+                ),
+              )
+              .catch((e: unknown) =>
+                system.status.reportError(
+                  "The proposal could not be opened",
                   e instanceof Error ? e.message : String(e),
                 ),
               );

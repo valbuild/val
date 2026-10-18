@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { GitCompareArrows, History, Undo2 } from "lucide-react";
+import { GitCompareArrows, History, Undo2, Upload } from "lucide-react";
 import { Button } from "../components/designSystem/button";
 import {
   Popover,
@@ -13,6 +13,29 @@ import { CompareAuthorFilterMenu } from "../compare/CompareAuthorFilter";
 import { undoWords } from "../compare/undoWords";
 import { UNKNOWN_AUTHOR } from "../utils/computeChangedSourcePaths";
 import type { ReviewModel, ReviewModuleGroup, ReviewRow } from "./types";
+import type { PublishSelectedState } from "./usePublishSelected";
+
+/**
+ * Publish selected, for the bar: what a selection publishes, and where the
+ * last one is. Absent where it is not offered -- in a proposal, whose own
+ * Publish ships what it holds, and on a project with no proposals.
+ */
+export type ReviewPublishSelected = {
+  /**
+   * What publishing these rows publishes: whole patch sets, so possibly more
+   * than was ticked, and whose the rest is.
+   */
+  plan: (rowIds: string[]) => {
+    count: number;
+    added: number;
+    addedAuthors: (string | null)[];
+  };
+  state: PublishSelectedState;
+  onPublish: (rowIds: string[]) => void;
+  onRetry: () => void;
+  onOpenProposal: () => void;
+  onDismiss: () => void;
+};
 
 /**
  * The words, from the one place that owns them.
@@ -48,9 +71,10 @@ const COMMITTED = undoWords("revert");
  *
  * ## The checkbox is a selection
  *
- * The checkbox picks rows to act on — today Revert, which is why the bar
- * beside it exists. It says nothing about whether a row is going out: every
- * row on this page is, with the next publish.
+ * The checkbox picks rows to act on — Revert, and Publish selected where it
+ * is offered — which is why the bar beside it exists. It says nothing about
+ * whether a row is going out: every row on this page is, with the next
+ * publish, unless it is published on its own first.
  */
 export function ReviewView({
   model,
@@ -60,6 +84,7 @@ export function ReviewView({
   onDiscard,
   onDiscardAll,
   discardAllDescription,
+  publishSelected,
   portalContainer = null,
 }: {
   model: ReviewModel;
@@ -97,6 +122,8 @@ export function ReviewView({
    * that turns it on.
    */
   discardAllDescription?: string;
+  /** Publishing only the selected rows. See {@link ReviewPublishSelected}. */
+  publishSelected?: ReviewPublishSelected;
   /** Where popups portal to, inside the shadow root. See `ValPortalProvider`. */
   portalContainer?: HTMLElement | null;
 }) {
@@ -226,7 +253,25 @@ export function ReviewView({
         selected={selected}
         onSelect={setSelected}
         onDiscard={() => act(onDiscard)}
+        publishSelected={
+          publishSelected === undefined
+            ? undefined
+            : {
+                ...publishSelected,
+                onPublish: () => act(publishSelected.onPublish),
+              }
+        }
+        portalContainer={portalContainer}
       />
+      {publishSelected !== undefined &&
+        publishSelected.state.kind !== "idle" && (
+          <PublishSelectedStatus
+            state={publishSelected.state}
+            onRetry={publishSelected.onRetry}
+            onOpenProposal={publishSelected.onOpenProposal}
+            onDismiss={publishSelected.onDismiss}
+          />
+        )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
         {/*
@@ -314,6 +359,8 @@ function SelectionBar({
   selected,
   onSelect,
   onDiscard,
+  publishSelected,
+  portalContainer,
 }: {
   model: ReviewModel;
   /** The rows the filter is letting through — what "Select all" means. */
@@ -325,6 +372,8 @@ function SelectionBar({
   selected: ReadonlySet<string>;
   onSelect: (next: ReadonlySet<string>) => void;
   onDiscard: () => void;
+  publishSelected?: ReviewPublishSelected;
+  portalContainer: HTMLElement | null;
 }) {
   const count = selected.size;
   const allShown = rows.length > 0 && rows.every((row) => selected.has(row.id));
@@ -387,9 +436,176 @@ function SelectionBar({
         >
           {PENDING.verb}
         </Button>
+        {publishSelected !== undefined && (
+          <PublishSelected
+            model={model}
+            rowIds={[...selected]}
+            publishSelected={publishSelected}
+            portalContainer={portalContainer}
+          />
+        )}
       </div>
     </div>
   );
+}
+
+/**
+ * Publishing the ticked rows and nothing else, behind a confirm that says
+ * what comes with them.
+ *
+ * A row is a patch set, and a patch set that shares a change with another
+ * cannot go without it, so a selection can publish more than was ticked --
+ * often someone else's. That is said BEFORE anything moves, by name, and
+ * confirming publishes it too: the one thing this must never do is publish a
+ * colleague's change the person did not see coming.
+ */
+function PublishSelected({
+  model,
+  rowIds,
+  publishSelected,
+  portalContainer,
+}: {
+  model: ReviewModel;
+  rowIds: string[];
+  publishSelected: ReviewPublishSelected;
+  portalContainer: HTMLElement | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const busy = publishSelected.state.kind === "publishing";
+  const plan = open ? publishSelected.plan(rowIds) : null;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={rowIds.length === 0 || busy}
+        >
+          <Upload size={13} aria-hidden />
+          Publish selected
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        container={portalContainer}
+        align="end"
+        className="z-[9001] flex w-72 flex-col gap-3"
+      >
+        {plan !== null && (
+          <>
+            <div>
+              <p className="text-xs font-semibold text-fg-primary">
+                {`Publish ${changes(plan.count)}?`}
+              </p>
+              {plan.added > 0 ? (
+                <p className="mt-1 text-xs text-fg-secondary">
+                  {`${plan.added === 1 ? "This change" : `These ${plan.added} changes`} by ${namesOf(model, plan.addedAuthors)} ${plan.added === 1 ? "comes" : "come"} with it: ${plan.added === 1 ? "it changes" : "they change"} the same thing, and cannot be published apart.`}
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-fg-secondary">
+                  The rest stays unpublished.
+                </p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setOpen(false);
+                  publishSelected.onPublish(rowIds);
+                }}
+              >
+                {`Publish ${changes(plan.count)}`}
+              </Button>
+            </div>
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Where the last Publish selected is: under way, published, or stopped --
+ * and then what can be done about it. Try again where it can help; Open the
+ * proposal once the changes are in one, because they are safe there and that
+ * is where publishing them can be finished.
+ */
+function PublishSelectedStatus({
+  state,
+  onRetry,
+  onOpenProposal,
+  onDismiss,
+}: {
+  state: PublishSelectedState;
+  onRetry: () => void;
+  onOpenProposal: () => void;
+  onDismiss: () => void;
+}) {
+  if (state.kind === "idle") return null;
+  return (
+    <div
+      role="status"
+      className={cn(
+        "flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border-primary px-6 py-3 text-sm",
+        state.kind === "failed" ? "bg-bg-error-secondary" : "bg-bg-secondary",
+      )}
+    >
+      {state.kind === "publishing" && (
+        <span className="text-fg-secondary">{`Publishing ${changes(state.count)}…`}</span>
+      )}
+      {state.kind === "published" && (
+        <span className="text-fg-primary">{`${capitalized(changes(state.count))} published.`}</span>
+      )}
+      {state.kind === "failed" && (
+        <span className="min-w-0 text-fg-primary">
+          {`${capitalized(changes(state.count))} could not be published. ${state.message}`}
+        </span>
+      )}
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        {state.kind === "failed" && state.proposal !== null && (
+          <Button size="sm" variant="secondary" onClick={onOpenProposal}>
+            Open the proposal
+          </Button>
+        )}
+        {state.kind === "failed" && state.canRetry && (
+          <Button size="sm" onClick={onRetry}>
+            Try again
+          </Button>
+        )}
+        {state.kind !== "publishing" && (
+          <Button size="sm" variant="ghost" onClick={onDismiss}>
+            Close
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function changes(count: number): string {
+  return count === 1 ? "1 change" : `${count} changes`;
+}
+
+function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** "Kari", "Kari and Bo", "you": who wrote what comes with a selection. */
+function namesOf(model: ReviewModel, authorIds: (string | null)[]): string {
+  const names = authorIds.map((id) =>
+    id === null
+      ? "someone else"
+      : id === model.currentAuthorId
+        ? "you"
+        : (model.profiles[id]?.fullName ?? "someone else"),
+  );
+  const unique = [...new Set(names)];
+  return unique.length <= 1
+    ? (unique[0] ?? "someone else")
+    : `${unique.slice(0, -1).join(", ")} and ${unique[unique.length - 1]}`;
 }
 
 /**
