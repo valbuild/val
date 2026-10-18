@@ -2813,6 +2813,18 @@ export abstract class ValOps {
    */
   abstract readonly requiresAuth: boolean;
 
+  /**
+   * Which implementation this is, for the routes that differ by mode.
+   *
+   * A tag rather than `instanceof`, because `instanceof ValOpsFS` needs the
+   * class itself, and importing the class imports `fs`: `ValServer` asking
+   * which mode it is in was what put the filesystem and the content-service
+   * client in the module graph of a server that runs in a browser tab (the
+   * demo, `@valbuild/server/browser`). `isFsOps` and friends in `opsKind.ts`
+   * narrow on it with type-only imports.
+   */
+  abstract readonly kind: "fs" | "http" | "memory";
+
   abstract onInit(baseSha: BaseSha, schemaSha: SchemaSha): Promise<void>;
   abstract fetchPatches<ExcludePatchOps extends boolean>(filters: {
     patchIds?: PatchId[];

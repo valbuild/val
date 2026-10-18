@@ -6,9 +6,19 @@ import { getErrorMessageFromUnknownJson } from "./getErrorMessageFromUnknownJson
 export type ValClient = ClientOf<Api>;
 export const createValClient = (
   host: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   config: SharedValConfig | null, // We want to use this in the future
+  options?: {
+    /**
+     * What sends a request. The network's `fetch` unless given.
+     *
+     * The demo passes one that hands the `Request` to Val's server running in
+     * the same tab (`@valbuild/server/browser`), so everything on both sides
+     * of the call is the real thing and only the network is gone.
+     */
+    fetch?: (input: string, init: RequestInit) => Promise<Response>;
+  },
 ): ValClient => {
+  const send = options?.fetch ?? ((input, init) => fetch(input, init));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const anyApi = Api as any;
   return (async (path, method, req) => {
@@ -85,7 +95,7 @@ export const createValClient = (
       } satisfies ClientFetchErrors;
     }
     try {
-      const res = await fetch(`${host}${fullPath}`, {
+      const res = await send(`${host}${fullPath}`, {
         method: method as string,
         headers: {
           "Content-Type": "application/json",
