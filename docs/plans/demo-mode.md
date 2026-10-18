@@ -155,6 +155,8 @@ Three tests keep it that way, each catching what the one before cannot:
    Studio's static assets failed by `page.route`. Catches what neither jest
    test can: a new Studio feature that calls the server some other way than
    through the client, or that memory mode does not support.
+   Run it in the `webkit-http` project too: every browser on iOS is WebKit,
+   and that is the engine a demo link opened on a phone runs in.
 
 - **For:** the most faithful option by a distance. The Studio's client, the
   router's request parsing, every route handler, the patch chain, the head
