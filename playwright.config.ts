@@ -9,6 +9,7 @@ import {
   HTTP_APP_PORT,
 } from "./e2e/http/config";
 import { TANSTACK_APP_PORT } from "./e2e/tanstack/config";
+import { DEMO_APP_PORT } from "./e2e/demo/config";
 
 const PREINSTALLED_CHROMIUM =
   "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
@@ -98,6 +99,20 @@ const needsHttpApp =
   willRun("chromium-http") || (webkitRequested && willRun("webkit-http"));
 /** `examples/tanstack`. */
 const needsTanstackApp = willRun("tanstack") || willRun("tanstack-warmup");
+/**
+ * Whether `--project=webkit-demo` was asked for by name. Declared only then,
+ * for the reason `webkitRequested` gives: WebKit is not installed in most
+ * places this runs.
+ */
+const webkitDemoRequested =
+  requestedProjects.has("webkit-demo") ||
+  process.env.VAL_E2E_WEBKIT_DEMO === "1";
+if (requestedProjects.has("webkit-demo")) {
+  process.env.VAL_E2E_WEBKIT_DEMO = "1";
+}
+/** `examples/demo`, the Studio with its server in the tab. */
+const needsDemoApp =
+  willRun("demo") || (webkitDemoRequested && willRun("webkit-demo"));
 
 /**
  * End-to-end tests for the Val Studio.
@@ -181,7 +196,7 @@ export default defineConfig({
       // fixed schedule of `waitForTimeout`s that adds up to ~40s of its own —
       // and it should not be able to turn a run red or fail a CI gate. Run it
       // explicitly with the `screens` project below.
-      testIgnore: ["http/**", "tanstack/**", "screens.spec.ts"],
+      testIgnore: ["http/**", "tanstack/**", "demo/**", "screens.spec.ts"],
       use: {
         launchOptions: {
           /**
@@ -249,6 +264,41 @@ export default defineConfig({
         },
       },
     },
+    {
+      /**
+       * `examples/demo`: the Studio with Val's server running in the tab. Its
+       * tests fail any request that should not have left it -- the demo's one
+       * promise. In the blocking `smoke` job.
+       */
+      name: "demo",
+      testMatch: "demo/**/*.spec.ts",
+      use: {
+        baseURL: `http://localhost:${DEMO_APP_PORT}`,
+        launchOptions: {
+          ...(existsSync(PREINSTALLED_CHROMIUM)
+            ? { executablePath: PREINSTALLED_CHROMIUM }
+            : {}),
+          args: ["--no-sandbox", "--disable-dev-shm-usage"],
+        },
+      },
+    },
+    /*
+     * The demo in Safari's engine, which every iPhone browser is -- and a demo
+     * link is opened on a phone as often as not. Only present when asked for
+     * by name: see `webkitDemoRequested`.
+     */
+    ...(webkitDemoRequested
+      ? [
+          {
+            name: "webkit-demo",
+            testMatch: "demo/**/*.spec.ts",
+            use: {
+              baseURL: `http://localhost:${DEMO_APP_PORT}`,
+              browserName: "webkit" as const,
+            },
+          },
+        ]
+      : []),
     /*
      * Publishing in Safari's engine: what an editor on an iPhone or a Mac
      * runs, and what `chromium-http` cannot speak for. The specs that publish
@@ -336,6 +386,17 @@ export default defineConfig({
             reuseExistingServer: true,
             timeout: 180_000,
             cwd: "./examples/tanstack",
+          },
+        ]
+      : []),
+    ...(needsDemoApp
+      ? [
+          {
+            command: "pnpm run dev",
+            url: `http://localhost:${DEMO_APP_PORT}`,
+            reuseExistingServer: true,
+            timeout: 180_000,
+            cwd: "./examples/demo",
           },
         ]
       : []),

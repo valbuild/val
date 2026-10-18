@@ -15,6 +15,7 @@ packages:
   - packages/eslint-plugin
   - examples/next
   - examples/tanstack
+  - examples/demo
   - packages/server/test/example-projects/*
 
 allowBuilds:

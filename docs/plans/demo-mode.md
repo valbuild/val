@@ -1,9 +1,10 @@
 # Demo mode: try the Studio with no account and no backend
 
-> **Status: decided, not started.** The backend is option B, the real server
-> in the tab (section 3); demo mode is switched on by an env var in the
-> template (section 6); one demo per tab. Section 8 is the build order. Section
-> 7 (the demo template and the Studio tour) is still to be discussed.
+> **Status: first version built** (section 9). The backend is option B, the
+> real server in the tab (section 3); demo mode is switched on by an env var in
+> the template (section 6); one demo per tab. The app is `examples/demo`,
+> hosted as its own Vercel project. Section 7 (the template and tour) has a
+> first draft to iterate on.
 
 The goal: someone opens a link to a demo site's `/val`, gets the real Studio
 with the page in the canvas beside it, edits content and sees the preview
@@ -151,8 +152,10 @@ Three tests keep it that way, each catching what the one before cannot:
    a Node builtin is reachable, naming the chain of files that reaches it.
 2. **The in-tab round trip** (jest). `createValClient` with the in-tab `fetch`,
    the real router, a memory-mode `ValServer`: read `/stat`, save a patch, read
-   it back, save on a stale parent and get the 409. Catches a change that
-   leaves the demo bundleable but no longer working.
+   it back, discard it, reload over the same storage. (Memory mode, like fs
+   mode, puts every save last rather than refusing a stale parent, and the
+   test pins that rather than the 409 this plan first assumed.) Catches a
+   change that leaves the demo bundleable but no longer working.
 3. **The demo e2e** (Playwright, in the blocking `smoke` job). Build
    `examples/tanstack` with the demo flag, open `/val`, edit a field, and see
    the canvas change -- with every request to `/api/val/*` other than the
@@ -441,3 +444,50 @@ validate` against `examples/next` afterwards, per `.claude/CLAUDE.md`: the
    tour.
 
 A changeset goes with the steps that change published packages (1--4).
+
+## 9. What was built (first version)
+
+| Piece                                                                          | Where                                                                                  |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| Browser-safe server entry, `createInTabValFetch`, `sessionStorage` patch store | `packages/server/src/browser/` (`@valbuild/server/browser`)                            |
+| The Node-only parts passed in, not imported                                    | `platform.ts`, `nodePlatform.ts`, `opsKind.ts`, `posixPath.ts`                         |
+| Request handling without the embedded Studio                                   | `ValRouterCore.ts` (`createValApiRouter` wraps it)                                     |
+| Import guard, round-trip test, `posixPath` against Node                        | `browser/noNodeFromBrowser.test.ts`, `browser/inTabFetch.test.ts`, `posixPath.test.ts` |
+| `/profiles` answers `[]` with local patches and no project                     | `ValServer.ts`                                                                         |
+| An optional `fetch` on the client                                              | `createValClient`                                                                      |
+| `<ValApp demo>`, `<ValProvider demo>`, `initValDemoServer`                     | `@valbuild/tanstack`, `@valbuild/tanstack/demo`                                        |
+| Studio: demo card, Publish explained, uploads refused, no Auto save, the tour  | `packages/ui/spa/demo/`, `ValShell`, `Shell`, `createValSystem` (`uploadsOff`)         |
+| The site and its content                                                       | `examples/demo` ("Northbeam Coffee")                                                   |
+| End to end, failing any request that leaves the tab                            | `e2e/demo/demo.spec.ts`, the `demo` project in the blocking `smoke` job                |
+
+Hosting: its own Vercel project, Root Directory `examples/demo`. A sub-path of
+`valbuild/web` was ruled out: the Studio hard-codes `/val` and `/api/val` in
+about forty places, and `web` serves its own Studio there. `vercel.json` runs
+`build:deploy` (Val's packages, then the app); Nitro writes Vercel's output.
+
+Things learned building it, recorded where they will be looked for:
+
+- **Nitro and the Studio's embedded files.** `@valbuild/ui/server` carries the
+  built Studio inline (tens of MB). Nitro's source maps over it run a build out
+  of memory, so the demo turns them off. And Nitro only copies a traced
+  package whose real path is under `node_modules`, which a pnpm workspace
+  package is not, so it has to be bundled rather than traced.
+- **The demo's server must not import Val's server.** Loading
+  `@valbuild/tanstack/server` evaluates all of it, and the TypeScript compiler
+  reads `__filename` as it loads, which a bundled ES module does not have.
+  Hence `@valbuild/tanstack/demo`, and the template importing the full server
+  only when it is not a demo.
+
+Follow-ups, roughly in order:
+
+1. **The in-tab chunk is 3.6 MB**, nearly all of it the TypeScript compiler,
+   which only publishing uses. Inject it into `prepare` the way the platform
+   injects the rest, and the chunk drops to about 200 KB.
+2. **Uploads are refused when tried**, with a message pointing at the gallery,
+   rather than the upload controls being disabled up front.
+3. **The tour is a sequence of cards.** The section 7 ideas (waiting for the
+   visitor to do the thing, a richer template) are open.
+4. **Text fields have no accessible name** (the label is not associated with
+   the input). Found writing the e2e test, which finds fields by
+   `data-val-studio-path` instead; not demo-specific.
+5. `webkit-demo` is declared but not in a CI job yet.

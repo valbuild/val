@@ -757,6 +757,31 @@ An excluded module is not an omission. `omittedModules` means the deadline was
 hit; a caller has to be able to tell "you told me not to" from "I ran out of
 time", because only one of them means retry.
 
+## Demo mode: Val's server in the browser
+
+`examples/demo` is the Studio with Val's real server running in the visitor's
+tab: `<ValApp demo>` starts `ValServer` in memory mode from
+`@valbuild/server/browser`, and the Studio's own client sends its requests
+there instead of over the network. No sign-in, nothing saved anywhere but
+`sessionStorage`. The why is in
+[`docs/plans/demo-mode.md`](../docs/plans/demo-mode.md).
+
+What that asks of everyone else, because the demo runs the same server code
+as production:
+
+- **`ValServer`, `ValRouterCore` and everything they import must bundle for a
+  browser.** Node-only code (`fs`, `node:http`, a mode's own `ValOps`, the
+  JWT) reaches the server through `ValServerPlatform` (`platform.ts`;
+  `nodePlatform` and `browser/browserPlatform` are the two). Ask which mode a
+  server is in with `isFsOps` / `isHttpOps` / `isMemoryOps`, never
+  `instanceof`, which imports the class. `posixPath` instead of `path`.
+  `src/browser/noNodeFromBrowser.test.ts` fails, naming the import chain, when
+  this is broken. A dynamic `import()` does not fix it: bundlers follow those.
+- **The Studio must reach the server only through its `ValClient`.** A new raw
+  `fetch` or upload URL is a request the demo cannot answer, and the `demo`
+  Playwright project (blocking `smoke` job) fails any request to `/api/val`
+  that is not a static file.
+
 ## Testing
 
 Run tests from root dir with:
@@ -786,9 +811,10 @@ pnpm test                              # jest
 pnpm run build                         # top-level: preconstruct + pnpm --filter @valbuild/ui build
 cd examples/next && pnpm run build     # next build for the example app
 cd examples/tanstack && pnpm run build # vite build for the TanStack example
+cd examples/demo && pnpm run build     # and for the demo
 ```
 
-Two more checks are the blocking `smoke` job — separate from the `e2e` matrix,
+Three more checks are the blocking `smoke` job — separate from the `e2e` matrix,
 which selects only `chromium` and `chromium-http` and does not block. They are
 the gate for "the Studio does not come up at all", on both frameworks and in an
 insecure context, which is the one class of failure that reaches every user at
@@ -796,6 +822,7 @@ once, so run them before pushing anything the Studio loads through:
 
 ```bash
 pnpm exec playwright test --project=tanstack                         # ~1 min
+pnpm exec playwright test --project=demo                             # ~1 min
 pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
   e2e/insecure-context.spec.ts                                       # ~4 min
 ```

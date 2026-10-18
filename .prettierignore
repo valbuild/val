@@ -20,6 +20,7 @@ packages/ui/storybook-static/
 .tmp
 examples/next*/.val/*
 examples/tanstack/.val/*
+examples/demo/.val/*
 
 pnpm-lock.yaml
 
@@ -36,3 +37,4 @@ debug/*/
 # Prettier does not reach a fixed point on it either — `--write` followed by
 # `--check` still reports it — so formatting it is both futile and pointless.
 examples/tanstack/src/routeTree.gen.ts
+examples/demo/src/routeTree.gen.ts
