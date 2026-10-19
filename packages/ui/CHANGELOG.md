@@ -1,5 +1,32 @@
 # @valbuild/ui
 
+## 0.146.4
+
+### Patch Changes
+
+- [#879](https://github.com/valbuild/val/pull/879) [`59ff6c3`](https://github.com/valbuild/val/commit/59ff6c367bc313b2bb7718b00c1641aaccab949d) Thanks [@freekh](https://github.com/freekh)! - Review changes now works on a phone. On anything narrower than 1024px the
+  compare dialog fills the screen and shows one side at a time, with the list of
+  changes in a drawer. Before, it squeezed the desktop layout into the screen
+  and every value wrapped one letter per line.
+
+  Reverting on a phone has its controls at the bottom of the screen: **Revert
+  all** and **Done** sit under the diff instead of above it, and each change has a
+  ↶ button at the end of its row, next to who made it. On any touch screen a
+  change's undo action and its authors are always shown, since there is no
+  hover to reveal them.
+
+- [#877](https://github.com/valbuild/val/pull/877) [`c31f609`](https://github.com/valbuild/val/commit/c31f609fdeed79aa0e139fa4f652ba0684e96ea3) Thanks [@freekh](https://github.com/freekh)! - The Studio has an unlinked page, `/val/adept`, for trying out dependency
+  upgrades on a hosted project: it computes a lockfile for the live site's
+  `package.json`, previews each kind of upgrade from it, and fetches the type
+  declarations and TypeScript compiler a typecheck would load. It only shows
+  results; nothing on it is staged or published. Nothing links to it yet.
+
+  For it, the server now forwards Val Build's `/adept/*` routes for a signed-in
+  Studio session: lockfiles, upgrades, their jobs, type bundles and the
+  compiler. Like everything else the Studio asks Val Build for, they go with the
+  project's own credential, and they are open at a proposal's address too,
+  since they publish nothing.
+
 ## 0.146.2
 
 ### Patch Changes
