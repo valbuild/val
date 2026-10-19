@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { SourcePath } from "@valbuild/core";
 import type { TopBarProposals } from "../shell/TopBar";
 import {
   useCurrentAuthorId,
@@ -19,6 +20,8 @@ import {
   type ProposalPublishPress,
 } from "../ValProvider";
 import { toast } from "../designSystem/sonner";
+import { useAllValidationErrors } from "../ValErrorProvider";
+import { useNavigation, VAL_ERRORS_ROUTE } from "../ValRouter";
 import { copyText } from "../../utils/copyText";
 import {
   ProposalsApiError,
@@ -125,6 +128,12 @@ export function useProposalsBar({
 } {
   const mode = useValMode();
   const here = useCurrentProposal();
+  // What a save would be refused for: Save offers them, as Publish does.
+  const allValidationErrors = useAllValidationErrors();
+  const validationErrorPaths = Object.keys(
+    allValidationErrors ?? {},
+  ) as SourcePath[];
+  const { navigate } = useNavigation();
   const { state, client, refresh } = useProposals({
     enabled: mode === "http",
     current: here?.name ?? null,
@@ -895,6 +904,17 @@ export function useProposalsBar({
 
   const proposals: TopBarProposals = {
     location,
+    ...(validationErrorPaths.length > 0
+      ? {
+          saveBlockedBy: {
+            errors: validationErrorPaths.length,
+            onShow: () =>
+              navigate(VAL_ERRORS_ROUTE, {
+                errorFields: validationErrorPaths,
+              }),
+          },
+        }
+      : {}),
     open: all.filter((p) => p.status === "open"),
     onOpenSite: () => {
       if (here === null) return;

@@ -217,6 +217,29 @@ export const Failed: SceneStory = {
   ),
 };
 
+/**
+ * Failed on a site with proposals: its changes left the site for a proposal
+ * of their own, so there is nothing to try again or discard here -- the one
+ * action is going to them.
+ */
+export const FailedMovedToProposal: SceneStory = {
+  render: () => (
+    <Scene indicator={{ kind: "failed", cause: "publish" }}>
+      <ToastOnMount
+        show={() =>
+          toast.error("Publishing broke the site", {
+            id: "story-failed-moved",
+            description:
+              "Its 3 changes are in the proposal “Changes from a publish that broke the site (17 Oct, 14:02 UTC)”, to be fixed and published there. The site could not be built from this change.",
+            duration: Infinity,
+            action: { label: "Open the proposal", onClick: () => undefined },
+          })
+        }
+      />
+    </Scene>
+  ),
+};
+
 // ---------------------------------------------------------------------------
 // Someone else's publish, and CI's.
 // ---------------------------------------------------------------------------

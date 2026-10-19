@@ -1208,7 +1208,7 @@ function ValShellBody({
      * different questions ("what is going out" and "what changed"), and this
      * one leads to that one by its Compare button.
      */
-    <ReviewRoute />
+    <ReviewRoute canPublishSelected={restoreDestination.kind === "proposal"} />
   ) : navigation.isErrorsView ? (
     <ValidationErrorsView />
   ) : navigation.isHistoryView ? (
@@ -1603,7 +1603,12 @@ function CompareView() {
  * could list a chain that is missing the last word — and this page's whole job
  * is to be the truth about what is going out.
  */
-function ReviewRoute() {
+function ReviewRoute({
+  canPublishSelected,
+}: {
+  /** On the site of a project with proposals: see `ReviewSurface`. */
+  canPublishSelected: boolean;
+}) {
   const val = useValSystem();
   useEffect(() => {
     if (val === null) return;
@@ -1643,6 +1648,7 @@ function ReviewRoute() {
            */
           onDiscardAll={discardAll.enabled ? discardAll.discardAll : undefined}
           discardAllDescription={discardAll.description}
+          canPublishSelected={canPublishSelected}
           portalContainer={portalContainer}
         />
       )}

@@ -8,6 +8,16 @@
 
 ## Current state / resume here
 
+> **2026-10-17: Phases 1–3 are on main** (val #861 and home #235 for 8.2,
+> then the removal). Built on top, on `claude/proposals-feature-design-ctgmbc`
+> in both repositories: hosted-publishing 8.2 step 2, Publish in a proposal
+> moving the site's conflicting pending changes into proposals of their own
+> (val `movesAtMerge`; home migration `1793800000`, `mergeMoves.ts`); and
+> Phase 4, Publish selected (see its "Built"; home migration `1793900000`);
+> and Phase 5 for managed projects (see its "Built"; `1794000000`). Next:
+> proposals for connected projects (decided 2026-10-17: they get them, and
+> keep held back until then), which Phase 6 waits on; Phase 7's docs.
+>
 > **2026-10-16, building Phases 1–3.** Landing order, decided: the 8.2 work
 > on `claude/proposals-feature-design-ctgmbc` goes to main first, in its own
 > PRs (with main merged in, `proposal_merge_commits` renumbered to
@@ -457,6 +467,37 @@ and a change written after the move that conflicts is moved; e2e on
 `chromium-http`: the same through the Studio, and a reload agrees
 (`reloadEquivalence`); the loop, end to end.
 
+**Built (2026-10-17).** Decided: the site's own Val server does the second
+step, rather than the Studio going to the proposal's address to publish it
+there. What it came to:
+
+- **Studio** (`review/publishSelected.ts`, `usePublishSelected`): Review's
+  selection bar has Publish selected, offered where a restore opens a
+  proposal (the site of a project with proposals). `planSelection` closes the
+  ticked rows into whole patch sets (`selectionClosure` in shared, which
+  shares `joinSharedChanges` with `changesToMove`), and the confirm names what
+  comes with it and whose it is. Then: save, `POST /publish-selected`, and the
+  proposal's Publish (`publishProposal`, content only), followed to Live by
+  the tracker every publish goes through. A failure after the move offers
+  **Open the proposal** as well as **Try again**.
+- **Val's server** (`/publish-selected`): prepares the selection over the
+  site's head exactly as a publish job of it is prepared (`buildSourcesOf`:
+  this build, the commits since it, the selection) and saves only what the
+  selection touched, into a `publish` proposal created on that head. The
+  head is content's `headCommitSha`, read before the chain, so a publish
+  landing in between makes the create refuse ("publish them again") rather
+  than revert it. On the site, the merge checks and press of a `publish`
+  proposal are answered with the 8.2 moves (`answersMovesFor`): it changes no
+  code, so the site's schemas are its own.
+- **Content**: the `publish` kind (migration `1793900000`), which names its
+  base and carries changes. It keeps its `setup` job: the merge does not need
+  the address, but a failed publish does, so its changes can be opened. That
+  answers open question 1.
+
+Not yet: a lost answer after the move (the changes are in the proposal and
+the Studio does not know its name) says the changes are no longer on the
+site, and the proposal is found in the list. The merge window (open question 2) is not measured yet.
+
 ### Phase 5 — a held-back publish goes to a proposal
 
 Today (hosted-publishing step 4) a publish that fails on its content puts its
@@ -507,6 +548,37 @@ Removed with it: `held_back_job_ids`, `heldBackPatches` / `heldBackOf`, the
 `discardHeldByPublish` path for held-back changes (a change in a RUNNING
 publish is still not discarded), `heldBackSource.ts`. Their model tests in
 `docs/publish-jobs` (`suite.ts` §4) are rewritten for the move.
+
+**Built, for managed projects (2026-10-17).** Decided: connected projects
+get proposals too (later; on GitHub a proposal is a pull request, 8.2
+decision 5), and until then they keep today's held-back behaviour rather than
+pausing. So rule 1 holds on managed sites now, and on connected ones once
+they have proposals; Phase 6 waits for that.
+
+- **Content** (`moveFailedPublish`, migration `1794000000`): in the
+  transaction that fails a job on its content, after the jobs sharing its
+  changes are interrupted, `JobTx.moveFailed` moves what `heldBackPatches`
+  would hold into a `held-back` proposal based on `job.base`, owned by the
+  first author and co-owned by the rest. Changes an active job holds stay.
+  `no-proposals` makes the runner hold them back, as before. The proposal
+  remembers its job (`held_back_job_id`), and the request status says where
+  the changes went (`movedTo`, with `actions: []`).
+- **Studio**: the failure toast says "Publishing broke the site", names the
+  proposal, and offers Open the proposal instead of Try again and Discard.
+- **Tests**: the handler tests pin both (held back without proposals, moved
+  with them), and the Postgres-against-memory differential test runs with
+  proposals on in both worlds. The model's suite (`docs/publish-jobs`) is of
+  a project without proposals and is unchanged; a model of the move is not
+  written yet.
+
+Found while building it: step 8.2's press reads `move-inputs` before it
+reaches the merge, so an edit made right after pressing Publish got there
+first and was refused as unsaved. The press now names the save it
+publishes (`MergeBody.save`, from `move-inputs`), and content lets a press
+that names its save go past later changes, which carry over.
+
+Not yet: removing `held_back_job_ids`, `heldBackPatches` and the held-back
+UI, which connected projects still use.
 
 ### Phase 6 — published comes first, and cash it in
 
@@ -562,8 +634,9 @@ Then simplify, in both:
 
 ## Open questions
 
-1. **Does a content-only merge read the overlay** the `setup` job writes?
-   Decides whether a `publish` proposal can skip setup.
+1. ~~**Does a content-only merge read the overlay** the `setup` job writes?~~
+   No, but a `publish` proposal keeps its setup anyway: a failed publish
+   leaves its changes in it, and they have to be openable (Phase 4, Built).
 2. **Is the merge window visible?** Measure before building the
    `publishingPatches` fallback.
 3. **Pausing on projects without proposals** (Phase 5) brings back, for them,

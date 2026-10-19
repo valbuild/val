@@ -1267,6 +1267,7 @@ export function Shell({
                     <ProposalSaveButton
                       location={proposals.location}
                       onSave={proposals.onSave}
+                      blockedBy={proposals.saveBlockedBy}
                       className="h-9 min-w-[5.5rem]"
                     />
                   </>

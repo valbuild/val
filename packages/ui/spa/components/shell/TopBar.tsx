@@ -55,6 +55,12 @@ export type TopBarProposals = {
   onNewProposal: () => void;
   onShowAllProposals: () => void;
   onSave: () => void;
+  /**
+   * Validation errors that would make the save fail: Save becomes "Fix N" and
+   * goes to them, as the site's Publish does. A save is refused with them --
+   * the proposal's address would serve content its schema says is invalid.
+   */
+  saveBlockedBy?: { errors: number; onShow: () => void };
   /** Build the proposal's staged files, so its address shows them. */
   onBuild?: () => void;
   /** Publish the proposal: merge it into the site. */
@@ -294,6 +300,7 @@ export function TopBar({
             <ProposalSaveButton
               location={proposalLocation}
               onSave={proposals.onSave}
+              blockedBy={proposals.saveBlockedBy}
             />
           ),
           build:

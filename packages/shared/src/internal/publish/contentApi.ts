@@ -394,6 +394,12 @@ export type PublishRequestStatus =
       actions: ("try-again" | "discard" | "re-run-build")[];
       /** The job that failed: what Discard is pressed on. */
       job: string;
+      /**
+       * Where its changes went, on a project with proposals: off the site,
+       * into a proposal of their own, where they are fixed and published.
+       * `actions` is then empty -- that proposal's Publish is the Try again.
+       */
+      movedTo?: { proposal: string; displayName: string; changes: number };
     }
   | { kind: "cancelled" }
   | { kind: "nothing-to-publish" };

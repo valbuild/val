@@ -697,11 +697,13 @@ Four things in there are load-bearing, and the first three were got wrong first:
    that was about to put them there. `savePatch`'s `uploadFiles` hook returns
    where it put them, and that merges over `fileLastUpdatedByPatchId`.
 2. **A gallery-backed field's gallery entry is written first.** `s.image(gallery)`
-   validates that the gallery HAS the path, so the field cannot go first. It
-   still reports one unresolved error afterwards, because the schema's copy of
-   the gallery is snapshotted at module evaluation and shows the _published_
-   gallery — that resolves when both patches publish, so it is reported rather
-   than refused.
+   validates that the gallery HAS the path, so the field cannot go first. The
+   schema's copy of the gallery is snapshotted at module evaluation, so a path
+   it does not have is an `image:check-gallery` marker (`file:` and `video:`
+   alike), one of `SCHEMA_SOURCE_FIXES`: it is answered against the gallery's
+   CURRENT Source, where the entry just written is. Without that, a picked
+   image uploaded since the build -- pending, saved in a proposal, or published
+   content-only, which never rebuilds -- could never be saved.
 3. **A remote ref's validation hash is computed from a schema that has to
    match what the validator will resolve.** For a gallery entry that is a
    SYNTHESIZED `SerializedImageSchema` carrying the record's `accept` and
