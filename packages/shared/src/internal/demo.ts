@@ -9,10 +9,20 @@
  * modules. See `docs/plans/demo-mode.md`.
  */
 export type ValDemoRuntime = {
-  /** Sends a Studio request to the in-tab server. Passed to `createValClient`. */
+  /**
+   * Sends a Studio request to the in-tab server. Passed to `createValClient`.
+   *
+   * The server holds its edits in memory, so starting the demo over is
+   * reloading the page: there is nothing stored to clear.
+   */
   fetch: (input: string, init: RequestInit) => Promise<Response>;
-  /** Forgets every edit, so the next load starts from the published content. */
-  reset: () => void;
+  /**
+   * Whether uploads work here. They need the demo's service worker, which
+   * relays the upload and the unpublished files to this tab's server, and a
+   * service worker needs a secure context. Where it cannot run the Studio
+   * refuses uploads before sending anything, and says why.
+   */
+  uploads: boolean;
 };
 
 /*

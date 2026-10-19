@@ -2,12 +2,20 @@ import { s, c } from "../../val.config";
 
 /**
  * Every image on the site, in one gallery. Pages pick from it with
- * `s.image(imagesVal)`, so swapping a photo in the demo is choosing another.
+ * `s.image(imagesVal)`, so swapping a photo is choosing another -- or
+ * uploading one, which adds it here.
  */
 export default c.define(
   "/src/content/images.val.ts",
   s.imagedir("/public/val/images", {
+    // `image/*` rather than a list, so a phone offers its camera as well as
+    // its photo library.
     accept: "image/*",
+    // Whatever is uploaded is converted to WebP and scaled to fit 2560px
+    // before it is sent: a photo straight off a phone is a few hundred KB
+    // rather than several MB. Where the browser cannot write WebP (Safari),
+    // it is scaled down as a JPEG instead.
+    encode: { type: "webp" },
     alt: s.string().minLength(3).describe("What the image shows"),
   }),
   {

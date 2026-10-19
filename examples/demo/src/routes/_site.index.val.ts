@@ -1,5 +1,6 @@
 import { s, c, tanstackRouter } from "../../val.config";
 import imagesVal from "../content/images.val";
+import videosVal from "../content/videos.val";
 
 /** The home page. Its one key is the URL it is served at: "/". */
 export default c.define(
@@ -35,6 +36,13 @@ export default c.define(
               : false,
           )
           .describe("Up to four short selling points"),
+        film: s.object({
+          heading: s.string().maxLength(60),
+          video: s
+            .video(videosVal)
+            .nullable()
+            .describe("Upload a video and it plays here, streamed"),
+        }),
         quote: s.object({
           text: s.string().multiline(),
           by: s.string(),
@@ -78,6 +86,12 @@ export default c.define(
           text: "We publish what we paid for every lot, so you can see where the money goes.",
         },
       ],
+      film: {
+        heading: "Monday mornings at the roastery",
+        video: {
+          path: "/public/val/videos/roastery-light_f27ba/master.m3u8",
+        },
+      },
       quote: {
         text: "The best cup of coffee I have had at home. I did not know a filter could taste like this.",
         by: "A very happy customer",

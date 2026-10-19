@@ -21,6 +21,7 @@
     "@valbuild/server": "workspace:*",
     "@valbuild/tanstack": "workspace:*",
     "@valbuild/ui": "workspace:*",
+    "hls.js": "1.7.3",
     "prettier": "~3.8.5",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

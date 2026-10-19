@@ -14,9 +14,10 @@ export function useValDemo(): ValDemoRuntime | null {
 }
 
 /**
- * What a person who tries to upload in the demo is told. The demo's server
- * runs in their tab and serves no files, so the bytes would have nowhere to
- * go -- but the gallery is full, and picking from it works.
+ * Why "Open in a new tab" is off in the demo, said where it is offered.
+ *
+ * A demo's edits are in this tab's memory, so another tab would show the site
+ * without them. The button stays, so the demo still shows that it exists.
  */
-export const DEMO_UPLOADS_OFF =
-  "Uploading is not part of the demo. Pick an image that is already in the gallery instead.";
+export const DEMO_NEW_TAB_OFF =
+  "Opens the page in a new tab, with your unpublished changes. Not in the demo: your changes live only in this tab.";

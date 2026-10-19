@@ -101,6 +101,24 @@ a {
   font-size: 1.2rem;
 }
 
+.film {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 0 clamp(1rem, 5vw, 4rem) 3rem;
+}
+
+.film h2 {
+  margin: 0 0 1rem;
+}
+
+.film video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 1rem;
+  background: var(--ink);
+}
+
 .quote {
   margin: 0;
   padding: 3rem clamp(1rem, 5vw, 4rem);

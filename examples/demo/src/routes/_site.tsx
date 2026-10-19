@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link, Outlet, createFileRoute } from "@tanstack/react-router";
 import { ValModulesClient, ValProvider } from "@valbuild/tanstack";
 import { config } from "../../val.config";
@@ -24,8 +25,22 @@ function SiteLayout() {
   );
 }
 
+/**
+ * Whether this page is in a frame: the Studio's canvas. Read after mounting,
+ * so the server's render and the first one in the browser agree.
+ */
+function useInFrame(): boolean {
+  const [inFrame, setInFrame] = useState(false);
+  useEffect(() => {
+    setInFrame(window.self !== window.top);
+  }, []);
+  return inFrame;
+}
+
 function Chrome({ children }: { children: React.ReactNode }) {
   const site = useVal(siteVal);
+  // In the canvas the Studio is already open around the page.
+  const inFrame = useInFrame();
   return (
     <>
       <header className="site-header">
@@ -43,9 +58,11 @@ function Chrome({ children }: { children: React.ReactNode }) {
       {children}
       <footer className="site-footer">
         <p>{site.footer}</p>
-        <p>
-          <a href="/val">Open the Studio</a>
-        </p>
+        {!inFrame && (
+          <p>
+            <a href="/val">Open the Studio</a>
+          </p>
+        )}
       </footer>
     </>
   );

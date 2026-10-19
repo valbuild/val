@@ -101,8 +101,16 @@ const BUILTINS = new Set(builtinModules);
  */
 const SERVER_ONLY = ["@valbuild/ui/server"];
 
+/**
+ * Builtins with a package of the same name that a browser bundle resolves
+ * instead. `buffer` is a declared dependency of this package for exactly that
+ * reason: Node answers it with its own, a bundler with the package.
+ */
+const BROWSER_PACKAGES = ["buffer"];
+
 function isNodeOnly(specifier: string): boolean {
   if (specifier.startsWith("node:")) return true;
+  if (BROWSER_PACKAGES.includes(specifier)) return false;
   if (SERVER_ONLY.includes(specifier)) return true;
   return BUILTINS.has(specifier.split("/")[0] ?? specifier);
 }

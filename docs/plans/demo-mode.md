@@ -1,10 +1,15 @@
 # Demo mode: try the Studio with no account and no backend
 
-> **Status: first version built** (section 9). The backend is option B, the
-> real server in the tab (section 3); demo mode is switched on by an env var in
-> the template (section 6); one demo per tab. The app is `examples/demo`,
-> hosted as its own Vercel project. Section 7 (the template and tour) has a
-> first draft to iterate on.
+> **Status: built, second round** (sections 9 and 10). The backend is option
+> B, the real server in the tab (section 3); demo mode is switched on by an
+> env var in the template (section 6); one demo per tab. The app is
+> `examples/demo`, hosted as its own Vercel project. Section 7 (the template
+> and tour) has a first draft to iterate on.
+>
+> Section 10 REVERSES two decisions made below: edits are held in memory only
+> (not `sessionStorage`), and uploads work -- images and video -- through a
+> service worker. Where the earlier sections say otherwise, they record what
+> was planned, not what is.
 
 The goal: someone opens a link to a demo site's `/val`, gets the real Studio
 with the page in the canvas beside it, edits content and sees the preview
@@ -449,14 +454,14 @@ A changeset goes with the steps that change published packages (1--4).
 
 | Piece                                                                          | Where                                                                                  |
 | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| Browser-safe server entry, `createInTabValFetch`, `sessionStorage` patch store | `packages/server/src/browser/` (`@valbuild/server/browser`)                            |
+| Browser-safe server entry, `createInTabValFetch` (memory only, see section 10) | `packages/server/src/browser/` (`@valbuild/server/browser`)                            |
 | The Node-only parts passed in, not imported                                    | `platform.ts`, `nodePlatform.ts`, `opsKind.ts`, `posixPath.ts`                         |
 | Request handling without the embedded Studio                                   | `ValRouterCore.ts` (`createValApiRouter` wraps it)                                     |
 | Import guard, round-trip test, `posixPath` against Node                        | `browser/noNodeFromBrowser.test.ts`, `browser/inTabFetch.test.ts`, `posixPath.test.ts` |
 | `/profiles` answers `[]` with local patches and no project                     | `ValServer.ts`                                                                         |
 | An optional `fetch` on the client                                              | `createValClient`                                                                      |
 | `<ValApp demo>`, `<ValProvider demo>`, `initValDemoServer`                     | `@valbuild/tanstack`, `@valbuild/tanstack/demo`                                        |
-| Studio: demo card, Publish explained, uploads refused, no Auto save, the tour  | `packages/ui/spa/demo/`, `ValShell`, `Shell`, `createValSystem` (`uploadsOff`)         |
+| Studio: demo card, Publish explained, upload caps, no Auto save, the tour      | `packages/ui/spa/demo/`, `ValShell`, `Shell`, `createValSystem` (`checkUpload`)        |
 | The site and its content                                                       | `examples/demo` ("Northbeam Coffee")                                                   |
 | End to end, failing any request that leaves the tab                            | `e2e/demo/demo.spec.ts`, the `demo` project in the blocking `smoke` job                |
 
@@ -483,11 +488,66 @@ Follow-ups, roughly in order:
 1. **The in-tab chunk is 3.6 MB**, nearly all of it the TypeScript compiler,
    which only publishing uses. Inject it into `prepare` the way the platform
    injects the rest, and the chunk drops to about 200 KB.
-2. **Uploads are refused when tried**, with a message pointing at the gallery,
-   rather than the upload controls being disabled up front.
+2. ~~Uploads are refused when tried~~ -- they work now; see section 10.
 3. **The tour is a sequence of cards.** The section 7 ideas (waiting for the
    visitor to do the thing, a richer template) are open.
 4. **Text fields have no accessible name** (the label is not associated with
    the input). Found writing the e2e test, which finds fields by
    `data-val-studio-path` instead; not demo-specific.
 5. `webkit-demo` is declared but not in a CI job yet.
+6. **Draft video in Safari is unverified.** Safari plays HLS itself rather
+   than through hls.js, and whether WebKit routes a `<video>`'s own requests
+   through a service worker has differed between versions. If it does not, an
+   UPLOADED video will not play in the canvas on an iPhone (published ones
+   are plain files and do). `--project=webkit-demo` is the check; it needs
+   WebKit installed, which this was not built with.
+
+## 10. Second round: memory only, uploads, video
+
+Decided after the first version was up:
+
+- **Edits are held in memory, and nothing else.** No `sessionStorage`: a
+  reload starts over, and **Start over** on the demo card is a reload. This
+  removed the stored patch store and the question of how to reset one
+  reliably. No "Leave this page?" prompt.
+- **Preview in a new tab stays, disabled**, with a tooltip saying what it does
+  and why it is off: another tab would not have this tab's edits. The canvas
+  half of the Preview button works as ever. (`DEMO_NEW_TAB_OFF`, in
+  `PreviewButton` and `FieldPathLink`.)
+- **Uploads work, video included.** The two kinds of request the browser makes
+  itself rather than through `ValClient` -- the upload `XMLHttpRequest` and an
+  `<img>`/`<video>` pointing at `/api/val/files/...?patch_id=` -- are caught by
+  a service worker (`demoServiceWorker.ts`, served by `initValDemoServer` at
+  `/api/val/demo-sw.js` with `Service-Worker-Allowed: /`) and relayed over
+  `postMessage` to the Studio tab, where the same in-tab server answers. So the
+  real routes answer: the upload, the `Range` requests a video seeks with, and
+  the draft HLS playlist rewrite. A request from the canvas frame is offered
+  to each Studio tab until one does not answer 404; patch ids are unique, so
+  only the tab that made a file can serve it. The Studio waits for the worker
+  to control the page before it starts (`startDemoRelay`), or its first images
+  would go past it. Where a worker cannot run (an insecure context),
+  `ValDemoRuntime.uploads` is false and an upload is refused with a sentence
+  saying so.
+- **A cap, measured after encoding.** Everything uploaded lives in the tab's
+  memory, so `checkDemoUpload` refuses an image over 10 MB, a video file over
+  100 MB and anything else over 25 MB -- measured on the bytes that would be
+  SENT, after an image is converted and scaled and a video made a stream. The
+  check is `createValSystem`'s `checkUpload`, which every upload passes
+  whichever field or panel started it.
+- **Images are encoded.** The template's gallery has `encode: { type: "webp" }`
+  and `accept: "image/*"`, so a phone offers its camera, and a photo goes up
+  as a 2560px WebP of a few hundred KB. Safari cannot write WebP from a canvas,
+  so `fallbackMimeType` (shared, beside the other encode decisions) scales a
+  JPEG or PNG down in its own format there instead -- before, Safari uploaded
+  every photo at the camera's full size.
+- **Video in the template.** `src/content/videos.val.ts` is an `s.videodir()`
+  with `stream: { type: "hls" }`, and the home page has a film section playing
+  one with `ValVideo` and hls.js. An uploaded video is converted to a stream in
+  the browser where WebCodecs can (not in Playwright's Chromium, which has no
+  H.264 -- the e2e test uploads a WebM, which goes up as it is).
+
+The e2e tests (`e2e/demo/demo.spec.ts`) cover each: a reload and Start over
+forget edits; the new-tab item is disabled with its tooltip; a 3200px JPEG
+shows in the canvas as a 2560px WebP; a video plays and seeks in the canvas.
+All of them fail on any `/api/val` request that leaves the browser, routed on
+the context so a request a service worker lets through is still caught.

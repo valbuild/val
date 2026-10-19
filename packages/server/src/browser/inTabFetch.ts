@@ -32,7 +32,10 @@ export function createInTabValFetch(
   valModules: ValModules,
   options: {
     config: ValConfig;
-    /** Where edits live. The demo passes a {@link SessionStoragePatchStore}. */
+    /**
+     * Where edits live. Memory by default, which is what the demo wants: the
+     * edits last as long as the tab's page does, and a reload starts over.
+     */
     patchStore?: ValPatchStore;
     /** The path the Studio's client calls. */
     route?: string;

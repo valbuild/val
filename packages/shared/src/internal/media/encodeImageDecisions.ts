@@ -143,6 +143,34 @@ export function isSkippedSource(
 }
 
 /**
+ * What to scale an image down to when the encoder cannot write the type asked
+ * for: the source's own format, when it is one every encoder can write.
+ *
+ * `canvas.toBlob` answers a type it cannot write with a PNG, and Safari cannot
+ * write WebP. Without this, `chooseEncoded` would rightly refuse that PNG and
+ * upload the original -- so the browser people take photos in would upload
+ * every photo at the camera's full size, the one case `maxWidth` exists for.
+ * Scaling it down as a JPEG keeps the half of `encode` this browser can do.
+ *
+ * Only when a downscale is needed: re-encoding a JPEG that already fits, as a
+ * JPEG, is a second generation of loss for a few percent. And never into a
+ * type `accept` refuses, for the reason `isMimeTypeAccepted` gives.
+ */
+export function fallbackMimeType(
+  sourceMimeType: string,
+  needsDownscale: boolean,
+  accept: string | undefined,
+): string | null {
+  if (!needsDownscale) {
+    return null;
+  }
+  if (sourceMimeType !== "image/jpeg" && sourceMimeType !== "image/png") {
+    return null;
+  }
+  return isMimeTypeAccepted(sourceMimeType, accept) ? sourceMimeType : null;
+}
+
+/**
  * Whether to upload what the encoder produced, or the file that was picked.
  *
  * Two ways the encoded bytes lose. They are not actually the type we asked for

@@ -762,8 +762,8 @@ time", because only one of them means retry.
 `examples/demo` is the Studio with Val's real server running in the visitor's
 tab: `<ValApp demo>` starts `ValServer` in memory mode from
 `@valbuild/server/browser`, and the Studio's own client sends its requests
-there instead of over the network. No sign-in, nothing saved anywhere but
-`sessionStorage`. The why is in
+there instead of over the network. No sign-in, and nothing saved anywhere:
+the edits are in the tab's memory, and a reload starts over. The why is in
 [`docs/plans/demo-mode.md`](../docs/plans/demo-mode.md).
 
 What that asks of everyone else, because the demo runs the same server code
@@ -778,9 +778,13 @@ as production:
   `src/browser/noNodeFromBrowser.test.ts` fails, naming the import chain, when
   this is broken. A dynamic `import()` does not fix it: bundlers follow those.
 - **The Studio must reach the server only through its `ValClient`.** A new raw
-  `fetch` or upload URL is a request the demo cannot answer, and the `demo`
-  Playwright project (blocking `smoke` job) fails any request to `/api/val`
-  that is not a static file.
+  `fetch` is a request the demo cannot answer, and the `demo` Playwright
+  project (blocking `smoke` job) fails any request to `/api/val` that is not a
+  static file. The two exceptions the browser makes itself -- the upload
+  `XMLHttpRequest` to `/api/val/upload/` and media at `/api/val/files/` -- are
+  answered by the demo's service worker (`packages/tanstack/src/demo/`), which
+  relays exactly those two prefixes to the tab. A new upload or file URL
+  outside them is a new prefix that worker has to learn.
 
 ## Testing
 

@@ -1,8 +1,13 @@
 import { createUIRequestHandler } from "@valbuild/ui/server";
 import type { ValServerGenericResult } from "@valbuild/shared/internal";
+import {
+  DEMO_SERVICE_WORKER_PATH,
+  DEMO_SERVICE_WORKER_SOURCE,
+} from "./demoServiceWorker";
 
 /**
- * The server half of a Val demo: the Studio's own files, and nothing else.
+ * The server half of a Val demo: the Studio's own files and the demo's service
+ * worker, and nothing else.
  *
  * In a demo the Studio runs Val's API in the visitor's tab
  * (`@valbuild/server/browser`, started by `<ValApp demo>`), so the app has no
@@ -34,6 +39,17 @@ export function initValDemoServer(): {
     const path = url.pathname.startsWith(route)
       ? url.pathname.slice(route.length)
       : null;
+    if (path === DEMO_SERVICE_WORKER_PATH) {
+      // The worker that relays uploads and files to the Studio's tab. See
+      // `DEMO_SERVICE_WORKER_SOURCE`.
+      return new Response(DEMO_SERVICE_WORKER_SOURCE, {
+        headers: {
+          "Content-Type": "text/javascript; charset=utf-8",
+          "Service-Worker-Allowed": "/",
+          "Cache-Control": "no-cache",
+        },
+      });
+    }
     if (path !== null && path.startsWith("/static")) {
       return toResponse(
         await uiRequestHandler(path.slice("/static".length), url.href),

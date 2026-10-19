@@ -187,7 +187,7 @@ of rules — every decision below lives in
 Changing what `encode` means anywhere else changes it for one of them only, and
 the symptom is a project whose images differ by who uploaded them.
 
-Four rules, each of which is a bug if dropped:
+Five rules, each of which is a bug if dropped:
 
 - **`accept` beats `encode`.** Validation checks the stored `mimeType` against
   `accept`, so converting under `accept: "image/png"` would upload a file the
@@ -196,6 +196,11 @@ Four rules, each of which is a bug if dropped:
   is the wrong size whatever it weighs. Measured: the 74-byte 8×8 fixture PNG
   becomes a **548-byte** WebP, while a 1200×900 gradient goes 155 KB → 12 KB.
 - **SVG, GIF and AVIF are never touched**, nor is a WebP that already fits.
+- **A browser that cannot write WebP still scales down.** `canvas.toBlob`
+  answers a type it cannot write with a PNG, and Safari cannot write WebP — so
+  the rule above refused it and every iPhone photo went up at the camera's
+  full size. When a downscale is needed, a JPEG or PNG source is now scaled
+  down in its own format instead (`fallbackMimeType`), `accept` permitting.
 - **Decoding is `createImageBitmap(file, {imageOrientation: "from-image"})`,
   never `new Image()`** — that flag is what applies EXIF rotation, and the WebP
   we write carries no EXIF, so the other path would silently rotate portrait

@@ -1322,10 +1322,9 @@ function ValShellBody({
             ? (startTour) => (
                 <DemoBanner
                   onStartTour={startTour}
-                  onReset={() => {
-                    demo.reset();
-                    window.location.reload();
-                  }}
+                  // The demo's edits live in this page's memory, so a reload
+                  // is a reset: there is nothing stored to clear.
+                  onReset={() => window.location.reload()}
                 />
               )
             : undefined
@@ -1389,8 +1388,8 @@ function ValShellBody({
         onNewPage={addPage}
         onDuplicatePage={duplicatePage}
         onRenamePage={renamePage}
-        // The demo uploads nothing: its server is in the tab. See `DEMO_UPLOADS_OFF`.
-        onUploadMedia={demo !== null ? undefined : uploadInto}
+        // Where the demo cannot relay uploads (see `ValDemoRuntime.uploads`).
+        onUploadMedia={demo !== null && !demo.uploads ? undefined : uploadInto}
         onPreview={openPreviewTab}
         // Also as an href, so the menu item is a link that can be copied. The URL
         // enables preview and redirects, so it is worth sending to someone.

@@ -21,7 +21,7 @@ export function DemoBanner({
   onReset,
   onStartTour,
 }: {
-  /** Forget every edit and load the demo again. */
+  /** Start over: the edits live in memory, so this reloads. */
   onReset: () => void;
   onStartTour: () => void;
 }) {
@@ -64,8 +64,8 @@ export function DemoBanner({
             </button>
           </div>
           <p className="mt-1 text-fg-secondary">
-            Edit anything. Your changes stay in this browser tab: nothing is
-            saved anywhere else, and closing the tab starts over.
+            Edit anything. Your changes stay in this page: nothing is saved
+            anywhere, and reloading starts over.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button size="xs" variant="secondary" onClick={onStartTour}>
@@ -74,7 +74,7 @@ export function DemoBanner({
             </Button>
             <Button size="xs" variant="secondary" onClick={onReset}>
               <RotateCcw size={14} className="mr-1" />
-              Reset demo
+              Start over
             </Button>
             <Button size="xs" asChild>
               <a

@@ -1,6 +1,7 @@
 import {
   chooseEncoded,
   ENCODE_DEFAULTS,
+  fallbackMimeType,
   fitWithin,
   isMimeTypeAccepted,
   isSkippedSource,
@@ -208,6 +209,27 @@ describe("isSkippedSource", () => {
   it("re-encodes the ordinary formats", () => {
     expect(isSkippedSource("image/png", "image/webp", false)).toBe(false);
     expect(isSkippedSource("image/jpeg", "image/webp", false)).toBe(false);
+  });
+});
+
+describe("fallbackMimeType", () => {
+  /** A camera photo in a browser whose canvas cannot write webp: Safari. */
+  it("scales a photo down as a JPEG when webp cannot be written", () => {
+    expect(fallbackMimeType("image/jpeg", true, "image/*")).toBe("image/jpeg");
+    expect(fallbackMimeType("image/png", true, undefined)).toBe("image/png");
+  });
+
+  it("leaves an image that already fits alone", () => {
+    expect(fallbackMimeType("image/jpeg", false, undefined)).toBeNull();
+  });
+
+  it("has nothing to fall back to for formats every encoder cannot write", () => {
+    expect(fallbackMimeType("image/heic", true, undefined)).toBeNull();
+    expect(fallbackMimeType("image/webp", true, undefined)).toBeNull();
+  });
+
+  it("never falls back into a type accept refuses", () => {
+    expect(fallbackMimeType("image/jpeg", true, "image/webp")).toBeNull();
   });
 });
 

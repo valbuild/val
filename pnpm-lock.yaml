@@ -131,6 +131,9 @@ importers:
       '@valbuild/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      hls.js:
+        specifier: 1.7.3
+        version: 1.7.3
       prettier:
         specifier: ~3.8.5
         version: 3.8.5
@@ -644,6 +647,9 @@ importers:
       '@valbuild/ui':
         specifier: workspace:*
         version: link:../ui
+      buffer:
+        specifier: ^6.0.3
+        version: 6.0.3
       chokidar:
         specifier: ^5.0.0
         version: 5.0.0

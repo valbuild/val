@@ -69,7 +69,8 @@ import {
 import type { ChainProgress } from "../utils/describePendingChangesStall";
 import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
-import { DEMO_UPLOADS_OFF, useValDemo } from "../demo/ValDemoContext";
+import { useValDemo } from "../demo/ValDemoContext";
+import { checkDemoUpload } from "../demo/demoUploads";
 import { SerializedPatchSet } from "../utils/PatchSets";
 import type { PublishRequestStatus } from "@valbuild/shared/internal";
 import { z } from "zod";
@@ -748,7 +749,12 @@ export function ValProvider({
       createValSystem(client, {
         writes: true,
         uploadSettings: getDirectFileUploadSettings,
-        ...(demo !== null ? { uploadsOff: DEMO_UPLOADS_OFF } : {}),
+        ...(demo !== null
+          ? {
+              checkUpload: (file: { data: string | null }) =>
+                checkDemoUpload(demo.uploads, file),
+            }
+          : {}),
         /*
          * A managed project's Publish is a request for a publish job, which
          * `usePublishSummary` asks for. Offered to every system: only the

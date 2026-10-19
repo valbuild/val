@@ -75,12 +75,15 @@ export function createValSystem(
     /** A press of Publish as a publish job, for a managed project. See `RequestPublish`. */
     requestPublish?: RequestPublish;
     /**
-     * Uploads are not offered here, and this is what to tell the person who
-     * tries: the demo, whose server runs in the tab and serves no files.
-     * Every upload answers it before anything is sent, whichever field or
-     * panel started it.
+     * A last say over each file, before anything is sent: a sentence to
+     * refuse it with, or null to send it. The demo's caps (`demoUploads.ts`),
+     * which every upload passes whichever field or panel started it. `data`
+     * is what would be sent, so an image is measured after it was encoded.
      */
-    uploadsOff?: string;
+    checkUpload?: (file: {
+      filePath: string;
+      data: string | null;
+    }) => string | null;
   },
 ): System {
   /**
@@ -172,8 +175,9 @@ export function createValSystem(
             metadata,
             onProgress,
           }) => {
-            if (options.uploadsOff !== undefined) {
-              return { status: "error", message: options.uploadsOff };
+            const refused = options.checkUpload?.({ filePath, data }) ?? null;
+            if (refused !== null) {
+              return { status: "error", message: refused };
             }
             const settings = await options.uploadSettings!();
             if (settings.status === "error") {

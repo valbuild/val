@@ -1,3 +1,8 @@
+/*
+ * Imported rather than global: under Node this is the built-in, and in a
+ * browser (the demo, `@valbuild/server/browser`) the `buffer` package.
+ */
+import { Buffer } from "buffer";
 import type { ValContentVersion, ValProposal } from "./proposal";
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {

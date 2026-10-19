@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ValImage, ValRichText } from "@valbuild/tanstack";
+import { ValImage, ValRichText, ValVideo } from "@valbuild/tanstack";
 import { useValRoute } from "../val/client";
 import pageVal from "./_site.index.val";
 import { NotFound } from "../components/NotFound";
@@ -34,6 +34,22 @@ function Home() {
           </article>
         ))}
       </section>
+      {page.film.video && (
+        <section className="film">
+          <h2>{page.film.heading}</h2>
+          {/*
+           * A stream: Safari plays HLS itself, and hls.js is loaded only in a
+           * browser that cannot.
+           */}
+          <ValVideo
+            src={page.film.video}
+            hls={() => import("hls.js")}
+            controls
+            muted
+            playsInline
+          />
+        </section>
+      )}
       <blockquote className="quote">
         <p>“{page.quote.text}”</p>
         <cite>{page.quote.by}</cite>

@@ -45,8 +45,8 @@ export function demoTourSteps({ destinations }: DemoTourProject): TourStep[] {
   if (destinations.includes("media")) {
     steps.push({
       id: "demo-media",
-      title: "Media — images in one place",
-      body: "Images live in a gallery, and a page picks from it. In the demo you pick from what is there; in your own project, uploads go to your repository or to Val's file storage.",
+      title: "Media — images and video in one place",
+      body: "Images and videos live in galleries, and a page picks from them. Upload your own — a photo from your phone works too. Images are converted and scaled down before they are sent, and a video becomes a stream, all in your browser.",
       target: "media",
       panel: "media",
     });
@@ -76,7 +76,7 @@ export function demoTourSteps({ destinations }: DemoTourProject): TourStep[] {
     {
       id: "demo-finish",
       title: "Your turn",
-      body: "Edit something on the page. The demo card has Reset to start over, and the way to create a project of your own.",
+      body: "Edit something on the page. The demo card has Start over, and the way to create a project of your own.",
       target: "demo",
     },
   );

@@ -9,4 +9,5 @@ export default modules(config, [
   { def: () => import("./src/content/site.val") },
   { def: () => import("./src/content/authors.val") },
   { def: () => import("./src/content/images.val") },
+  { def: () => import("./src/content/videos.val") },
 ]);

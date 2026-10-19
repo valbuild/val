@@ -7,10 +7,3 @@
  * entry passes the browser's.
  */
 export { createInTabValFetch, type InTabFetch } from "./inTabFetch";
-export {
-  SessionStoragePatchStore,
-  DEMO_PATCHES_STORAGE_KEY,
-  createDemoPatchStore,
-  resetDemoPatches,
-  type PatchStorage,
-} from "./sessionStoragePatchStore";

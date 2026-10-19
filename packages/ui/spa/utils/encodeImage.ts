@@ -1,6 +1,7 @@
 import {
   chooseEncoded,
   ENCODE_MIME_TYPE_OF,
+  fallbackMimeType,
   fitWithin,
   isMimeTypeAccepted,
   isSkippedSource,
@@ -42,6 +43,35 @@ function toBlob(
   quality: number,
 ): Promise<Blob | null> {
   return new Promise((resolve) => canvas.toBlob(resolve, mimeType, quality));
+}
+
+/** The canvas as a file of this type, or null when the original should win. */
+async function encodeCanvas(
+  canvas: HTMLCanvasElement,
+  file: File,
+  mimeType: string,
+  settings: EncodeSettings,
+  needsDownscale: boolean,
+): Promise<File | null> {
+  const blob = await toBlob(canvas, mimeType, settings.quality);
+  // The null check is `chooseEncoded`'s job too, but it answers a boolean and
+  // TypeScript cannot narrow `blob` through that, so it is asked here as well.
+  if (
+    !blob ||
+    !chooseEncoded({
+      originalSize: file.size,
+      encodedSize: blob.size,
+      encodedType: blob.type,
+      targetMimeType: mimeType,
+      needsDownscale,
+    })
+  ) {
+    return null;
+  }
+  const ext = mimeType === "image/jpeg" ? "jpg" : mimeType.split("/")[1];
+  return new File([blob], withExtension(file.name, ext ?? settings.type), {
+    type: mimeType,
+  });
 }
 
 /**
@@ -100,24 +130,31 @@ export async function encodeImage(
       return file;
     }
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const blob = await toBlob(canvas, targetMimeType, settings.quality);
-    // The null check is `chooseEncoded`'s job too, but it answers a boolean and
-    // TypeScript cannot narrow `blob` through that, so it is asked here as well.
-    if (
-      !blob ||
-      !chooseEncoded({
-        originalSize: file.size,
-        encodedSize: blob.size,
-        encodedType: blob.type,
-        targetMimeType,
-        needsDownscale,
-      })
-    ) {
-      return file;
+    const encoded = await encodeCanvas(
+      canvas,
+      file,
+      targetMimeType,
+      settings,
+      needsDownscale,
+    );
+    if (encoded === null) {
+      // The browser cannot write the type asked for (Safari and webp): scale
+      // it down in its own format instead. See `fallbackMimeType`.
+      const fallback = fallbackMimeType(file.type, needsDownscale, accept);
+      if (fallback === null) {
+        return file;
+      }
+      return (
+        (await encodeCanvas(
+          canvas,
+          file,
+          fallback,
+          settings,
+          needsDownscale,
+        )) ?? file
+      );
     }
-    return new File([blob], withExtension(file.name, settings.type), {
-      type: targetMimeType,
-    });
+    return encoded;
   } catch (err) {
     console.error("Could not re-encode image, uploading the original", err);
     return file;

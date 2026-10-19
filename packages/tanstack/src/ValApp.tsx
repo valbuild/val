@@ -6,6 +6,7 @@ import { cn, valPrefixedClass } from "./cssUtils";
 import { canvasDarkBg, canvasLightBg } from "./fallbackColors";
 import { ValScript } from "./ValScript";
 import type { ValDemoRuntime } from "@valbuild/shared/internal";
+import { startDemoRelay } from "./demo/demoRelayHost";
 
 /**
  * How often the embedded Studio announces itself to the opener.
@@ -33,10 +34,11 @@ export const ValApp = ({
    * Run the Studio as a demo: no sign-in, and no request leaves the tab.
    *
    * Val's own server is started here, in the browser, in memory mode, and the
-   * Studio's requests go to it instead of to `/api/val`. Edits last for the
-   * life of the tab (`sessionStorage`). Pair it with `initValDemoServer` on
-   * the API route, which serves the Studio's files and nothing else, and with
-   * `<ValProvider demo>` on the site so the canvas shows the edits.
+   * Studio's requests go to it instead of to `/api/val`. Edits live in memory:
+   * they last as long as this page does, and a reload starts over. Pair it
+   * with `initValDemoServer` on the API route, which serves the Studio's files
+   * and nothing else, and with `<ValProvider demo>` on the site so the canvas
+   * shows the edits.
    *
    * Set it from the build -- `demo={import.meta.env.VITE_VAL_DEMO === "true"}`
    * -- never from anything a visitor controls.
@@ -196,7 +198,7 @@ function useDemoServer(demo: boolean, config: ValConfig): boolean {
     if (!demo) return;
     let cancelled = false;
     void import("@valbuild/server/browser").then(
-      ({ createInTabValFetch, createDemoPatchStore, resetDemoPatches }) => {
+      async ({ createInTabValFetch }) => {
         if (cancelled) return;
         const modules = window.__VAL_MODULES__;
         if (!modules) {
@@ -205,13 +207,10 @@ function useDemoServer(demo: boolean, config: ValConfig): boolean {
           );
           return;
         }
-        const runtime: ValDemoRuntime = {
-          fetch: createInTabValFetch(modules, {
-            config,
-            patchStore: createDemoPatchStore(),
-          }),
-          reset: resetDemoPatches,
-        };
+        const fetch = createInTabValFetch(modules, { config });
+        const uploads = await startDemoRelay(fetch);
+        if (cancelled) return;
+        const runtime: ValDemoRuntime = { fetch, uploads };
         window.__VAL_DEMO__ = runtime;
         setReady(true);
       },
