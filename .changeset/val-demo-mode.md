@@ -11,6 +11,6 @@ Demo mode: run the Val Studio with no account and no backend (TanStack Start).
 
 Also:
 
-- `@valbuild/server/browser` is a new entry: Val's request handling, bundleable for a browser.
+- `@valbuild/server/browser` is a new entry: Val's request handling, bundleable for a browser. The TypeScript compiler, which only publishing and history need, is loaded when they ask for it, so a browser bundle of the server is about 140 KB rather than 3.6 MB.
 - `s.image({ encode })` now scales an image down in browsers that cannot write WebP (Safari), as a JPEG or PNG in the image's own format, instead of uploading it at full size.
 - `GET /profiles` answers with no profiles, rather than an error, when edits are stored locally and no project is configured.

@@ -75,7 +75,6 @@ import type { HistoryError } from "./history/HistoryError";
 import { historyErrorMessage } from "./history/HistoryError";
 import { getHistoricalPatchSet } from "./history/getHistoricalPatchSet";
 import { getModuleAtCommit } from "./history/getModuleAtCommit";
-import { getJsonEntryAtCommit } from "./history/getJsonEntryAtCommit";
 import { getSettings } from "./getSettings";
 import {
   forwardToStudioApi,
@@ -3763,6 +3762,10 @@ export const ValServer = (
         if (auth.error) {
           return { status: 401, json: { message: auth.error } };
         }
+        // Loaded here, not with the server: it parses a `.val.ts` with the
+        // TypeScript compiler. See `patch/ts/publishKit.ts`.
+        const { getJsonEntryAtCommit } =
+          await import("./history/getJsonEntryAtCommit");
         const res = await getJsonEntryAtCommit(
           serverOps,
           req.query.commit_sha,

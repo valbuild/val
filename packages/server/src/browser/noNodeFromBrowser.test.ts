@@ -37,12 +37,14 @@ function scannable(code: string): string {
   );
 }
 
-function specifiersOf(source: string): string[] {
+const DYNAMIC_IMPORT = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
+
+function specifiersOf(source: string, dynamic = true): string[] {
   const code = scannable(source);
   const found: string[] = [];
   const patterns = [
     /\bfrom\s*["']([^"']+)["']/g,
-    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
+    ...(dynamic ? [DYNAMIC_IMPORT] : []),
     /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
     /\bimport\s*["']([^"']+)["']/g,
   ];
@@ -72,7 +74,7 @@ function resolveRelative(from: string, specifier: string): string | null {
 
 type Reached = { file: string; via: string[] };
 
-function reachableFrom(entry: string): Map<string, Reached> {
+function reachableFrom(entry: string, dynamic = true): Map<string, Reached> {
   const reached = new Map<string, Reached>();
   const queue: Reached[] = [{ file: entry, via: [entry] }];
   while (queue.length > 0) {
@@ -80,7 +82,7 @@ function reachableFrom(entry: string): Map<string, Reached> {
     if (!current || reached.has(current.file)) continue;
     reached.set(current.file, current);
     const code = fs.readFileSync(current.file, "utf8");
-    for (const specifier of specifiersOf(code)) {
+    for (const specifier of specifiersOf(code, dynamic)) {
       const resolved = resolveRelative(current.file, specifier);
       if (resolved && !reached.has(resolved)) {
         queue.push({ file: resolved, via: [...current.via, resolved] });
@@ -139,6 +141,22 @@ describe("@valbuild/server/browser is browser-safe", () => {
     expect(files).toContain("ValRouterCore.ts");
     expect(files).toContain("ValOpsMemory.ts");
     expect(files).toContain("ValOps.ts");
+  });
+
+  test("the TypeScript compiler is loaded only when it is used", () => {
+    // Not a correctness rule like the one above: a size one. The compiler is
+    // most of the server's weight -- the demo's in-tab chunk was 3.6 MB with
+    // it -- and only publishing and the history reader use it, so they import
+    // it dynamically and a bundler splits it off (`patch/ts/publishKit.ts`).
+    // A static import of it anywhere below the entry puts it back.
+    const offenders: string[] = [];
+    for (const entry of reachableFrom(ENTRY, false).values()) {
+      const code = fs.readFileSync(entry.file, "utf8");
+      if (specifiersOf(code, false).includes("typescript")) {
+        offenders.push(trail(entry));
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   test("the Node entry is the other half", () => {

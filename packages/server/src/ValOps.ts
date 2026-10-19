@@ -40,8 +40,6 @@ import {
   applyPatch,
   deepClone,
 } from "@valbuild/core/patch";
-import { TSOps, insertValJsonEntry, removeValJsonEntry } from "./patch/ts/ops";
-import { analyzeValModule } from "./patch/ts/valModule";
 import type { HistoryError } from "./history/HistoryError";
 import type { PlanRefusalErrorT } from "@valbuild/shared/internal";
 import type {
@@ -51,11 +49,7 @@ import type {
   CommitPatch,
   HistoricalCommit,
 } from "./history/types";
-import {
-  analyzeJsonValuesEntries,
-  jsonValuesRecordKeys,
-  type JsonValuesEntry,
-} from "./patch/ts/jsonValuesModule";
+import type { JsonValuesEntry } from "./patch/ts/jsonValuesModule";
 import {
   applyJsonValuesEntryPatches,
   classifyJsonValuesOp,
@@ -69,8 +63,7 @@ import {
   type CurrentJsonEntries,
 } from "./patch/jsonValuesPatch";
 import { validateJsonValuesEntries } from "./validateJsonValues";
-import ts from "typescript";
-import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
+import type { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
 import { ParentPatchId } from "@valbuild/core";
 import type { ReifiedPreview } from "@valbuild/core";
@@ -108,13 +101,6 @@ const jsonOps = new JSONOps();
  * host.
  */
 const JSON_ENTRY_READ_CONCURRENCY = 8;
-const tsOps = new TSOps((document) => {
-  return pipe(
-    analyzeValModule(document),
-    result.map(({ source }) => source),
-  );
-});
-
 /**
  * `.jsonValues()` is only supported on a module's ROOT record/router. A nested
  * one is broken end to end (the `/json` endpoint keys entries by a single
@@ -1730,6 +1716,17 @@ export abstract class ValOps {
     options?: { continueOnError?: boolean },
   ): Promise<PreparedCommit> {
     const continueOnError = options?.continueOnError ?? false;
+    // The TypeScript compiler, loaded now rather than with the server: see
+    // `publishKit.ts`.
+    const {
+      tsOps,
+      parseValFile,
+      analyzeValModule,
+      analyzeJsonValuesEntries,
+      jsonValuesRecordKeys,
+      insertValJsonEntry,
+      removeValJsonEntry,
+    } = await import("./patch/ts/publishKit");
     const { patchesByModule, fileLastUpdatedByPatchId } = patchAnalysis;
     const patchedSourceFiles: Record<string, string | null> = {};
     const previousSourceFiles: Record<ModuleFilePath, string> = {};
@@ -1788,11 +1785,7 @@ export abstract class ValOps {
       }
       const sourceFile = sourceFileRes.data;
       previousSourceFiles[path] = sourceFile;
-      const originalSourceFile = ts.createSourceFile(
-        "<val>",
-        sourceFile,
-        ts.ScriptTarget.ES2015,
-      );
+      const originalSourceFile = parseValFile(sourceFile);
       let tsSourceFile = originalSourceFile;
       let tsChanged = false;
       let serializedSchema: SerializedSchema | undefined = undefined;

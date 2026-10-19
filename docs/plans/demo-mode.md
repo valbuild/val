@@ -485,9 +485,12 @@ Things learned building it, recorded where they will be looked for:
 
 Follow-ups, roughly in order:
 
-1. **The in-tab chunk is 3.6 MB**, nearly all of it the TypeScript compiler,
-   which only publishing uses. Inject it into `prepare` the way the platform
-   injects the rest, and the chunk drops to about 200 KB.
+1. ~~The in-tab chunk is 3.6 MB~~ -- now 136 KB. It was nearly all the
+   TypeScript compiler, which only publishing (`ValOps.prepare`) and the
+   history reader use; both now import it dynamically, through
+   `patch/ts/publishKit.ts`, and a bundler splits it into a chunk the demo
+   never fetches. `noNodeFromBrowser.test.ts` fails if it becomes statically
+   reachable again.
 2. ~~Uploads are refused when tried~~ -- they work now; see section 10.
 3. **The tour is a sequence of cards.** The section 7 ideas (waiting for the
    visitor to do the thing, a richer template) are open.
