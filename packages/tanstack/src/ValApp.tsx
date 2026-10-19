@@ -104,8 +104,16 @@ export const ValApp = ({
     };
   }, [inMessageMode, loadingTheme]);
 
-  if (loadingTheme !== null && isClientSIde) {
-    return (
+  /*
+   * The loading screen stays up until the Studio's stylesheet has loaded, as
+   * an overlay above the Studio mounting underneath it. It used to be rendered
+   * INSTEAD of the Studio and dropped at hydration, which was before the
+   * Studio's script had even been requested: the spinner went, an empty page
+   * stood there while the Studio downloaded, and then the Studio appeared.
+   * Same element in the server render and after, so it does not restart.
+   */
+  const loadingScreen =
+    loadingTheme === null || inMessageMode ? null : (
       <div
         style={{
           color: loadingTheme === "dark" ? "white" : "black",
@@ -114,8 +122,9 @@ export const ValApp = ({
           alignItems: "center",
           padding: "1rem",
           backgroundColor: loadingTheme === "dark" ? darkBg : lightBg,
-          minHeight: "100vh",
-          minWidth: "100%",
+          position: "fixed",
+          inset: 0,
+          zIndex: 2147483647,
         }}
       >
         <style>
@@ -147,12 +156,15 @@ export const ValApp = ({
         </svg>
       </div>
     );
+  if (isClientSIde && loadingScreen !== null) {
+    return loadingScreen;
   }
   if (inMessageMode) {
     return <div>Val Studio is disabled: in message mode</div>;
   }
   return (
     <>
+      {loadingScreen}
       <ValScript
         src={`${route}/static${UIVersion ? `/${UIVersion}` : ""}${VAL_APP_PATH}`}
       />
