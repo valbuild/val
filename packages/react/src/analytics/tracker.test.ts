@@ -242,6 +242,47 @@ test("stops when the site answers 410", async () => {
   expect(sent()).toHaveLength(1);
 });
 
+test("a page the visitor left before the script started still counts as the landing page view", async () => {
+  Object.defineProperty(document, "referrer", {
+    configurable: true,
+    get: () => "https://news.ycombinator.com/item?id=1",
+  });
+  // jsdom has no navigation timing; a browser always does.
+  const landing: PerformanceEntry = {
+    name: `${location.origin}/landing?utm_source=newsletter`,
+    entryType: "navigation",
+    startTime: 0,
+    duration: 0,
+    toJSON: () => ({}),
+  };
+  Reflect.set(performance, "getEntriesByType", (type: string) =>
+    type === "navigation" ? [landing] : [],
+  );
+  try {
+    tagged("/content/header.val.ts");
+    tracker = startValAnalytics();
+    await settle(3_100);
+    const views = sent().filter((b) => b.view);
+    expect(views.map((b) => [b.route, b.view])).toEqual([
+      [
+        "/landing",
+        {
+          device: "desktop",
+          ref: "news.ycombinator.com",
+          utm: { source: "newsletter" },
+        },
+      ],
+      // Where the visitor is now: a navigation within the site, no source.
+      ["/blogs/a", { device: "desktop" }],
+    ]);
+    // Nothing was being counted on the landing page.
+    expect(views[0].rendered).toEqual({});
+  } finally {
+    Reflect.deleteProperty(performance, "getEntriesByType");
+    Reflect.deleteProperty(document, "referrer");
+  }
+});
+
 test("restores history when stopped", () => {
   const pushState = history.pushState;
   tracker = startValAnalytics();

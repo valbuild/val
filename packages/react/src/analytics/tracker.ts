@@ -87,7 +87,7 @@ export function startValAnalytics(
 
   const viewTimers = new Map<Element, ReturnType<typeof setTimeout>>();
 
-  function pageView(first: boolean): AnalyticsPageView {
+  function pageView(first: boolean, url: URL | Location): AnalyticsPageView {
     const pageView: AnalyticsPageView = { device: deviceOf(innerWidth) };
     // A referrer is where the LOAD came from. A client-side navigation's
     // `document.referrer` is still that, so it is not a source again.
@@ -97,7 +97,7 @@ export function startValAnalytics(
     if (ref) {
       pageView.ref = ref;
     }
-    const utm = utmOf(location.search);
+    const utm = utmOf(url.search);
     if (utm) {
       pageView.utm = utm;
     }
@@ -280,7 +280,7 @@ export function startValAnalytics(
 
   function startPageView(first: boolean) {
     route = routeOf(location.pathname);
-    view = pageView(first);
+    view = pageView(first, location);
     viewSent = false;
     rendered.clear();
     viewed.clear();
@@ -348,7 +348,31 @@ export function startValAnalytics(
     attributeFilter: [ATTRIBUTE],
   });
 
-  startPageView(true);
+  /*
+   * The page the visitor LANDED on, if it is not the one they are on now.
+   *
+   * This starts after hydration, from a lazily loaded chunk, and a visitor
+   * can click through to another page before it does. That first page view
+   * still happened, and it is the one with the referrer -- often the most
+   * useful thing about a visit -- so it is sent on its own, with nothing
+   * counted on it (nothing was being counted yet), and the page they are on
+   * now starts as a navigation within the site.
+   */
+  const landing = landingUrl();
+  if (landing && routeOf(landing.pathname) !== routeOf(location.pathname)) {
+    for (const beacon of buildBeacons({
+      route: routeOf(landing.pathname),
+      cv: options.contentVersion,
+      view: pageView(true, landing),
+      rendered: [],
+      viewed: [],
+    })) {
+      send(beacon, false);
+    }
+    startPageView(false);
+  } else {
+    startPageView(true);
+  }
 
   function stop(sendFirst: boolean) {
     if (stopped) {
@@ -391,4 +415,20 @@ export function startValAnalytics(
     },
     stop: () => stop(true),
   };
+}
+
+/** The URL the document was loaded at, from the navigation timing entry. */
+function landingUrl(): URL | null {
+  if (typeof performance === "undefined" || !performance.getEntriesByType) {
+    return null;
+  }
+  const [entry] = performance.getEntriesByType("navigation");
+  if (!entry?.name) {
+    return null;
+  }
+  try {
+    return new URL(entry.name);
+  } catch {
+    return null;
+  }
 }

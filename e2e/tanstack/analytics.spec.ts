@@ -117,8 +117,13 @@ test.describe("analytics mode, for a visitor", () => {
       }
     });
     await page.goto("/");
-    await expect(page.getByText(TAGLINE)).toBeVisible();
-    // The router's own link: `pushState`, not a page load.
+    // Tagged content means the page has hydrated, so the click below is the
+    // router's: `pushState`, not a page load. Clicking at once also means the
+    // script may not have started yet -- then the landing page view is the
+    // one it sends for the page the visitor already left.
+    await expect(
+      page.locator("[data-val-path]", { hasText: TAGLINE }).first(),
+    ).toBeVisible();
     await page.getByRole("link", { name: "A post" }).click();
     await expect(page).toHaveURL(/\/posts\/hello-world$/);
     await expect
