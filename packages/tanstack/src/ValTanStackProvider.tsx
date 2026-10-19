@@ -354,6 +354,41 @@ export const ValTanStackProvider = (props: {
     setMountOverlay(hasValEnableCookie(document.cookie));
   }, []);
 
+  /**
+   * The analytics script, for a visitor and nobody else.
+   *
+   * `mountOverlay === false` is "known not to be an editor": no Val enable
+   * cookie, so no draft mode and no canvas. The Studio's own pages count
+   * nothing either. Loaded with a dynamic import after hydration, so a site
+   * with analytics off never downloads it, and one with it on downloads it
+   * off the critical path. It imports nothing from core, shared or zod.
+   */
+  React.useEffect(() => {
+    if (
+      !analytics ||
+      mountOverlay !== false ||
+      isCanvas ||
+      isValStudioPath(location.pathname)
+    ) {
+      return;
+    }
+    let cancelled = false;
+    let tracker: { stop(): void } | null = null;
+    import("@valbuild/react/analytics")
+      .then(({ startValAnalytics }) => {
+        if (!cancelled) {
+          tracker = startValAnalytics({ endpoint: `${route}/analytics` });
+        }
+      })
+      .catch((error) => {
+        console.warn("Val: could not load analytics", error);
+      });
+    return () => {
+      cancelled = true;
+      tracker?.stop();
+    };
+  }, [analytics, mountOverlay, isCanvas, route]);
+
   React.useEffect(() => {
     // Activate the Suspense gate after hydration. Inside a transition so
     // already-visible (static) content stays on screen while useValStega

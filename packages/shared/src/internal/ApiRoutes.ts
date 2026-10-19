@@ -271,6 +271,36 @@ const onlyOneIntQueryParam = onlyOneStringQueryParam
  */
 export const JSON_ENTRIES_BATCH_MAX = 100;
 
+/**
+ * Content analytics, wire format version 1: the beacon the browser script
+ * (`@valbuild/react/analytics`) sends to `POST /api/val/analytics`. Its
+ * `AnalyticsBeacon` type is written by hand there, because that code is on
+ * every visitor's page and must not load zod; `analytics/beacon.test.ts` in
+ * `@valbuild/react` checks that what it builds parses here.
+ */
+const AnalyticsPaths = z.record(z.string(), z.array(z.string()));
+export const AnalyticsBeacon = z.object({
+  v: z.literal(1),
+  route: z.string().max(512),
+  cv: z.string().optional(),
+  view: z
+    .object({
+      ref: z.string().optional(),
+      utm: z
+        .object({
+          source: z.string().max(100).optional(),
+          medium: z.string().max(100).optional(),
+          campaign: z.string().max(100).optional(),
+        })
+        .optional(),
+      device: z.enum(["phone", "tablet", "desktop"]),
+    })
+    .optional(),
+  rendered: AnalyticsPaths,
+  viewed: AnalyticsPaths,
+});
+export type AnalyticsBeacon = z.infer<typeof AnalyticsBeacon>;
+
 export const Api = {
   "/draft/enable": {
     GET: {
@@ -321,6 +351,22 @@ export const Api = {
             message: z.string(),
           }),
         }),
+      ]),
+    },
+  },
+  "/analytics": {
+    POST: {
+      // Parsed by the handler rather than here, so a beacon of a version this
+      // server does not know is ignored instead of refused.
+      req: { body: z.unknown() },
+      res: z.union([
+        // `counted` is false wherever nothing stores the counts -- every
+        // server but the hosted platform's, for now.
+        z.object({
+          status: z.literal(200),
+          json: z.object({ counted: z.boolean() }),
+        }),
+        z.object({ status: z.literal(400), json: GenericError }),
       ]),
     },
   },

@@ -61,4 +61,72 @@ test.describe("analytics mode, for a visitor", () => {
       "hydration errors",
     ).toEqual([]);
   });
+
+  test("the page sends what it rendered and what was viewed", async ({
+    page,
+  }) => {
+    // Playwright's browser says it is automated, and the script counts no
+    // automated browser. This one is standing in for a person.
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "webdriver", { get: () => false });
+    });
+    const problems = watchForProblems(page);
+    const firstBeacon = page.waitForRequest(
+      (request) =>
+        request.url().endsWith("/api/val/analytics") &&
+        request.method() === "POST",
+    );
+    await page.goto("/");
+    const request = await firstBeacon;
+    const response = await request.response();
+    expect(response?.status()).toBe(200);
+    expect(await response?.json()).toEqual({ counted: false });
+
+    const beacon = request.postDataJSON();
+    expect(beacon.v).toBe(1);
+    expect(beacon.route).toBe("/");
+    expect(beacon.view.device).toBe("desktop");
+    const site = "/src/content/site.val.ts";
+    // The tagline is at the top of the page: on screen from the start, so
+    // viewed well before the first beacon goes, about 3 s in.
+    const tagline = await page
+      .locator("[data-val-path]", { hasText: TAGLINE })
+      .first()
+      .getAttribute("data-val-path");
+    const taglinePath = tagline?.slice(`${site}?p=`.length);
+    expect(beacon.rendered[site]).toContain(taglinePath);
+    expect(beacon.viewed[site]).toContain(taglinePath);
+
+    expect(problems.thrown, "uncaught in the page").toEqual([]);
+    expect(problems.logged, "console errors").toEqual([]);
+  });
+
+  test("a client-side navigation is a page view of its own", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "webdriver", { get: () => false });
+    });
+    const beacons: { route: string; view?: unknown }[] = [];
+    page.on("request", (request) => {
+      if (
+        request.url().endsWith("/api/val/analytics") &&
+        request.method() === "POST"
+      ) {
+        beacons.push(request.postDataJSON());
+      }
+    });
+    await page.goto("/");
+    await expect(page.getByText(TAGLINE)).toBeVisible();
+    // The router's own link: `pushState`, not a page load.
+    await page.getByRole("link", { name: "A post" }).click();
+    await expect(page).toHaveURL(/\/posts\/hello-world$/);
+    await expect
+      .poll(() =>
+        beacons.find((b) => b.route === "/posts/hello-world" && b.view),
+      )
+      .toBeTruthy();
+    // The first page view went when the second began, not later.
+    expect(beacons.find((b) => b.route === "/" && b.view)).toBeTruthy();
+  });
 });
