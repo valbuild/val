@@ -42,6 +42,16 @@ import {
   validateTimes,
 } from "./videoDefaults";
 
+/**
+ * The route parameter names that say "this segment is a language".
+ *
+ * The two that TanStack's and Next's own i18n guides use. Deliberately not a
+ * wider guess (`language`, `country`, `region`): a name on this list that is
+ * NOT a language has to be given a schema to silence the check, and every name
+ * added is another route that has to do that for no reason.
+ */
+const LOCALE_ROUTE_PARAM_NAMES: readonly string[] = ["locale", "lang"];
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -397,6 +407,10 @@ export class RecordSchema<
       error,
       this.getRouteParamValidations(path, src),
     );
+    error = this.mergeValidationErrors(
+      error,
+      this.getUndescribedLocaleParamMarkers(path),
+    );
     for (const customValidationError of customValidationErrors) {
       error = this.appendValidationError(
         error,
@@ -603,6 +617,19 @@ export class RecordSchema<
       return "key";
     }
     return null;
+  }
+
+  protected override localeScopeName(): string {
+    // A router's key is a URL, not a language: what opens the scope is the
+    // locale PARAMETER in it, and "locale-keyed record" would send a reader
+    // looking for a key schema the module does not have.
+    if (
+      this.opensLocaleScope() === "key" &&
+      !(this.keySchema !== null && this.keySchema["isLocaleField"]())
+    ) {
+      return "router, whose URLs name the language";
+    }
+    return super.localeScopeName();
   }
 
   protected override localeScopeChildren(): {
@@ -1505,7 +1532,7 @@ export class RecordSchema<
         continue;
       }
       for (const [name, schema] of Object.entries(params)) {
-        if (!(name in values)) {
+        if (!Object.prototype.hasOwnProperty.call(values, name)) {
           continue;
         }
         const paramErrors = validateRouteParam(
@@ -1521,6 +1548,51 @@ export class RecordSchema<
       }
     }
     return error;
+  }
+
+  /**
+   * A marker for each `locale` or `lang` segment of this page's route that no
+   * route parameter schema describes.
+   *
+   * A router only checks a key's language when its module says which
+   * parameter is the language — `s.router(router, { locale: urlLocale, … },
+   * item)` — and that is written again in every route module. Forgetting it in
+   * one is silent: `/xx/blog/hello` validates and the page is in no language.
+   *
+   * A marker (`router:check-locale-param`) rather than an error, because
+   * whether it is a mistake depends on whether the project declares languages
+   * at all, which is in the settings module; `resolveSchemaSourceFixes`
+   * answers it. Any schema for the parameter is an answer — `{ lang:
+   * s.enum("typescript", "python") }` is how a `$lang` that is not a language
+   * says so.
+   */
+  private getUndescribedLocaleParamMarkers(path: SourcePath): ValidationErrors {
+    const [moduleFilePath, modulePath] = splitModuleFilePathAndModulePath(path);
+    if (modulePath) {
+      return false;
+    }
+    const pattern =
+      this.currentRouter?.getRoutePattern?.(moduleFilePath) ?? null;
+    if (pattern === null) {
+      return false;
+    }
+    const errors: ValidationError[] = [];
+    for (const { name, optional } of routeParamsOfPattern(pattern)) {
+      if (
+        !LOCALE_ROUTE_PARAM_NAMES.includes(name) ||
+        (this.routeParams !== null &&
+          Object.prototype.hasOwnProperty.call(this.routeParams, name))
+      ) {
+        continue;
+      }
+      errors.push({
+        message: `Did not check the route's '${name}' segment. This error (router:check-locale-param) should typically be processed by Val internally. Seeing this error most likely means you have a Val version mismatch.`,
+        value: { name, segment: optional ? `[[${name}]]` : `[${name}]` },
+        fixes: ["router:check-locale-param"],
+        schemaError: true,
+      });
+    }
+    return errors.length > 0 ? { [path]: errors } : false;
   }
 
   protected override executeCustomValidateAt(

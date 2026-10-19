@@ -121,26 +121,6 @@ export function NewPageForm({
     return buildFullPath(selectedRoute.routePattern, params);
   }, [selectedRoute, params]);
 
-  const isComplete = useMemo(() => {
-    if (!selectedRoute) return false;
-    return selectedRoute.routePattern.every((part) => {
-      if (part.type === "string-param" || part.type === "array-param") {
-        // An OPTIONAL segment (`[[category]]`, `[[...query]]`) may be left
-        // blank - that is the base route, which Next.js serves. Requiring a
-        // value made the base route impossible to create from here.
-        if (!params[part.paramName]) {
-          return part.optional;
-        }
-        return !errors[part.paramName];
-      }
-      return true;
-    });
-  }, [selectedRoute, params, errors]);
-
-  const alreadyExists =
-    !!selectedRoute && selectedRoute.existingKeys.includes(fullPath);
-  const disabled = !isComplete || alreadyExists;
-
   /**
    * The parameters with a closed set of values, picked from a list.
    *
@@ -163,6 +143,33 @@ export function NewPageForm({
     }
     return out;
   }, [selectedRoute, projectLocales]);
+
+  const isComplete = useMemo(() => {
+    if (!selectedRoute) return false;
+    return selectedRoute.routePattern.every((part) => {
+      if (part.type === "string-param" || part.type === "array-param") {
+        // An OPTIONAL segment (`[[category]]`, `[[...query]]`) may be left
+        // blank - that is the base route, which Next.js serves. Requiring a
+        // value made the base route impossible to create from here. Unless
+        // its schema says what leaving it out means and that is not allowed:
+        // a list of choices with no "left out" in it.
+        if (!params[part.paramName]) {
+          const picked = choicesByParam[part.paramName];
+          return (
+            part.optional &&
+            (picked === undefined ||
+              picked.choices.some((choice) => choice.value === ""))
+          );
+        }
+        return !errors[part.paramName];
+      }
+      return true;
+    });
+  }, [selectedRoute, params, errors, choicesByParam]);
+
+  const alreadyExists =
+    !!selectedRoute && selectedRoute.existingKeys.includes(fullPath);
+  const disabled = !isComplete || alreadyExists;
 
   // Focus the first dynamic input when the selected route changes.
   // We rely on autoFocus on render, so changing the key forces remount.

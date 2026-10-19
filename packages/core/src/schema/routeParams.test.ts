@@ -18,8 +18,22 @@ const urlLocale = s
   .locales({ nb: "nb-NO" }, { null: "en-US" });
 const page = s.object({ title: s.string() });
 
+/**
+ * The errors at a path, leaving out the "is this route's language segment
+ * described?" marker, which the project answers and the tests below it pin.
+ */
 function errorsAt(result: ValidationErrors, path: string): ValidationError[] {
-  return result ? (result[path as SourcePath] ?? []) : [];
+  return (result ? (result[path as SourcePath] ?? []) : []).filter(
+    (error) => !error.fixes?.includes("router:check-locale-param"),
+  );
+}
+
+/** The parameter names the undescribed-language-segment marker names. */
+function undescribedLocaleParams(result: ValidationErrors): unknown[] {
+  return Object.values(result || {})
+    .flat()
+    .filter((error) => error.fixes?.includes("router:check-locale-param"))
+    .map((error) => error.value);
 }
 
 /** The deferred "is this one of the project's languages?" checks, by path. */
@@ -203,6 +217,14 @@ describe("s.router(router, params, item)", () => {
           each.schemaError && each.message.includes("cannot set another"),
       ),
     ).toBe(true);
+    // Called what it is: the module has no key schema to go looking for.
+    expect(
+      errorsAt(result, MODULE).some((each) =>
+        each.message.includes(
+          "Move the locale field out of this router, whose URLs name the language",
+        ),
+      ),
+    ).toBe(true);
   });
 
   test("serializes the parameters, and validates the same once deserialized", () => {
@@ -358,5 +380,65 @@ describe("s.enum(...).locales(...)", () => {
       '.locales() does not say which language "nb" is',
       '.locales() names "sv", which is not one of this enum\'s values',
     ]);
+  });
+});
+
+describe("a route's language segment that no parameter schema describes", () => {
+  test("is marked for the project to answer, naming the segment", () => {
+    const forgotten = s.router(tanstackRouter, { slug: s.string() }, page);
+    expect(
+      undescribedLocaleParams(forgotten["executeValidate"](MODULE, {})),
+    ).toEqual([{ name: "locale", segment: "[[locale]]" }]);
+  });
+
+  test("is marked on a router with no parameters at all, and for Next's [lang]", () => {
+    expect(
+      undescribedLocaleParams(
+        s.router(tanstackRouter, page)["executeValidate"](MODULE, {}),
+      ),
+    ).toEqual([{ name: "locale", segment: "[[locale]]" }]);
+    expect(
+      undescribedLocaleParams(
+        s
+          .router(nextAppRouter, page)
+          ["executeValidate"]("/app/[lang]/news/page.val.ts" as SourcePath, {}),
+      ),
+    ).toEqual([{ name: "lang", segment: "[lang]" }]);
+  });
+
+  test("is not marked once the parameter has a schema, of any kind", () => {
+    const described = s.router(
+      tanstackRouter,
+      { locale: urlLocale, slug: s.string() },
+      page,
+    );
+    expect(
+      undescribedLocaleParams(described["executeValidate"](MODULE, {})),
+    ).toEqual([]);
+    const notALanguage = s.router(
+      tanstackRouter,
+      { lang: s.enum("typescript", "python") },
+      page,
+    );
+    expect(
+      undescribedLocaleParams(
+        notALanguage["executeValidate"](
+          "/src/routes/docs.$lang.val.ts" as SourcePath,
+          {},
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  test("other parameter names are left alone", () => {
+    expect(
+      undescribedLocaleParams(
+        s
+          .router(tanstackRouter, page)
+          [
+            "executeValidate"
+          ]("/src/routes/$country.shops.val.ts" as SourcePath, {}),
+      ),
+    ).toEqual([]);
   });
 });

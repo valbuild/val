@@ -1,4 +1,5 @@
 import type { SerializedSchema } from "@valbuild/core";
+import { enumLocaleTag } from "@valbuild/shared/internal";
 import { localeName } from "../../utils/localeName";
 
 /**
@@ -47,13 +48,8 @@ export function routeParamChoices(
   const canBeLeftOut = segmentIsOptional && schema.opt;
   if (schema.type === "enum") {
     const locales = schema.locales;
-    const tagOf = (value: string): string | undefined =>
-      locales !== undefined &&
-      Object.prototype.hasOwnProperty.call(locales, value)
-        ? locales[value]
-        : undefined;
     const choices: RouteParamChoice[] = schema.values.map((value) => {
-      const tag = tagOf(value);
+      const tag = enumLocaleTag(schema, value);
       return { value, label: tag === undefined ? value : named(tag, value) };
     });
     if (locales === undefined) {

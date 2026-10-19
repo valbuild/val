@@ -6,6 +6,7 @@ import {
   type Json,
   type JsonObject,
   type ModuleFilePath,
+  type SerializedEnumSchema,
   type SerializedSchema,
   type SourcePath,
   discriminatedUnionBranchOf,
@@ -75,17 +76,30 @@ export function localeMeantBy(
     return value === null ? null : localeOfValue(value, available);
   }
   if (schema.type === "enum" && schema.locales !== undefined) {
-    // An own property: a plain object inherits `toString` and the rest, and
-    // an enum value is allowed to be spelled like one.
-    const tag =
-      value === null
-        ? schema.nullLocale
-        : Object.prototype.hasOwnProperty.call(schema.locales, value)
-          ? schema.locales[value]
-          : undefined;
+    const tag = enumLocaleTag(schema, value);
     return tag === undefined ? null : localeOfValue(tag, available);
   }
   return null;
+}
+
+/**
+ * The tag an enum's `.locales(...)` maps a value to, as written — `null` is
+ * the `{ null }` mapping — or `undefined` where it maps none.
+ *
+ * An own property: a plain object inherits `toString` and the rest, and an
+ * enum value is allowed to be spelled like one.
+ */
+export function enumLocaleTag(
+  schema: SerializedEnumSchema,
+  value: string | null,
+): string | undefined {
+  if (value === null) {
+    return schema.nullLocale;
+  }
+  return schema.locales !== undefined &&
+    Object.prototype.hasOwnProperty.call(schema.locales, value)
+    ? schema.locales[value]
+    : undefined;
 }
 
 /**
@@ -121,7 +135,10 @@ function localeOfRouteKey(
     return null;
   }
   for (const [name, param] of Object.entries(schema.params)) {
-    if (isLocaleSchema(param) && name in values) {
+    if (
+      isLocaleSchema(param) &&
+      Object.prototype.hasOwnProperty.call(values, name)
+    ) {
       return localeMeantBy(param, values[name], available);
     }
   }

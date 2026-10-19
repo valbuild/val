@@ -160,12 +160,11 @@ function matchFrom(
   const remaining = urlSegments.length - urlIndex;
   if (segment.catchAll) {
     // Longest first: a catch-all is almost always last, where the only
-    // length that can match is "all of it".
+    // length that can match is "all of it". Empty segments are taken too — a
+    // trailing slash (`/docs/a/`) was always a valid catch-all URL, and
+    // refusing it now would turn existing keys into errors.
     for (let count = remaining; count >= 1; count--) {
       const taken = urlSegments.slice(urlIndex, urlIndex + count);
-      if (taken.some((each) => each === "")) {
-        continue;
-      }
       const matched = next(count, taken.join("/"));
       if (matched) {
         return matched;

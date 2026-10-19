@@ -103,6 +103,30 @@ describe("NewPageForm with a language in the URL", () => {
     expect(create).toHaveProperty("disabled", false);
   });
 
+  test("an optional segment whose schema cannot be left out has to be chosen too", () => {
+    // `{-$locale}` in the route, but no `{ null }` to say which language a
+    // URL without it is in: the router reports every such URL, so the form
+    // must not create one.
+    renderForm(
+      route("/[[locale]]/news/[slug]", {
+        locale: s
+          .enum("nb", "en")
+          .locales({ nb: "nb-NO", en: "en-US" })
+          ["executeSerialize"](),
+        slug,
+      }),
+    );
+    fireEvent.change(screen.getByPlaceholderText("slug"), {
+      target: { value: "hello" },
+    });
+    const create = screen.getByRole("button", { name: "Create" });
+    expect(create).toHaveProperty("disabled", true);
+    fireEvent.change(screen.getByRole("combobox", { name: "Language" }), {
+      target: { value: "en" },
+    });
+    expect(create).toHaveProperty("disabled", false);
+  });
+
   test("each parameter's description is shown where it is entered", () => {
     renderForm(route("/[[locale]]/news/[slug]", { locale: urlLocale, slug }));
     expect(

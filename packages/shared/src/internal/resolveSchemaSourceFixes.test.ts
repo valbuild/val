@@ -527,6 +527,45 @@ describe("locale:check-locale", () => {
   });
 });
 
+describe("router:check-locale-param", () => {
+  const route = "/src/routes/{-$locale}/blog.$slug.val.ts";
+  const forgotten = c.define(
+    route,
+    s.router(Internal.tanstackRouter, { slug: s.string() }, s.string()),
+    { "/blog/hello": "Hello" },
+  );
+
+  /** The module's own validation, resolved against the whole project. */
+  function validate(available: string[] | null) {
+    const settings = c.define(
+      "/settings.val.ts",
+      s.settings(),
+      available === null ? {} : { locales: { available } },
+    );
+    const snapshot = getTestData([settings, forgotten]);
+    const errors = Internal.getSchema(forgotten)?.["executeValidate"](
+      route as SourcePath,
+      Internal.getSource(forgotten),
+    );
+    return resolveSchemaSourceFixes(errors || {}, snapshot);
+  }
+
+  test("a translated project is told which segment, and what to write", () => {
+    const result = validate(["en-US", "nb-NO"]);
+    const [error] = result[route as SourcePath];
+    expect(error.message).toContain("'locale' segment ([[locale]])");
+    expect(error.message).toContain(
+      "s.router(router, { locale: urlLocale, … }, item)",
+    );
+    expect(error.fixes).toBeUndefined();
+  });
+
+  test("a project that declares no languages is not translated, so it resolves away", () => {
+    expect(validate(null)).toEqual({});
+    expect(validate([])).toEqual({});
+  });
+});
+
 /**
  * A marker error is one only the whole project can answer.
  *
@@ -541,6 +580,7 @@ describe("isSchemaSourceFixError", () => {
     "keyof:check-keys",
     "router:check-route",
     "locale:check-locale",
+    "router:check-locale-param",
     "record:fill-keys",
   ];
 

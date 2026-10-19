@@ -185,4 +185,13 @@ describe("optional segments", () => {
       slug: null,
     });
   });
+
+  test("a catch-all still accepts a trailing slash, as it did before optional segments", () => {
+    expect(
+      validateUrlAgainstPattern("/docs/a/", ["docs", "[...slug]"]).isValid,
+    ).toBe(true);
+    expect(
+      validateUrlAgainstPattern("/docs/", ["docs", "[[...slug]]"]).isValid,
+    ).toBe(true);
+  });
 });
