@@ -1,4 +1,5 @@
-import { s, c, tanstackRouter, urlLocale } from "../../val.config";
+import { s, c, tanstackRouter } from "../../val.config";
+import { urlLocale } from "../schemas/urlLocale";
 
 /*
  * A route whose URL names the language it is in:
@@ -8,7 +9,7 @@ import { s, c, tanstackRouter, urlLocale } from "../../val.config";
  * which has no prefix) and `/nb/news/…` (Norwegian). The second argument gives
  * each route parameter a schema, by the name the route file gives it:
  *
- * - `locale` is `urlLocale` from `val.config.ts`, an enum whose `.locales()`
+ * - `locale` is `urlLocale` from `src/schemas/urlLocale.ts`, an enum whose `.locales()`
  *   says `nb` is `nb-NO` and a URL without the segment is `en-US`. Each page is
  *   therefore in one language, checked against `locales.available` in
  *   `/settings.val.ts` — so `/sv/news/…` is an error, and so would be adding

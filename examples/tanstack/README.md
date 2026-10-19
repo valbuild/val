@@ -47,6 +47,7 @@ http://localhost:3458/api/val/enable?redirect_to=/
 | `src/routes/val/`                        | Val Studio, outside the site's layout                  |
 | `src/routes/api/val.$.ts`                | the Val API                                            |
 | `src/val/client.ts`, `src/val/server.ts` | the two halves of the wiring                           |
+| `src/schemas/`                           | schemas several modules share, such as `urlLocale`     |
 | `vite.config.ts`, `tsr.config.json`      | `routeFileIgnorePattern`, so `*.val.ts` is not a route |
 
 ### The schema showcase
@@ -64,7 +65,7 @@ http://localhost:3458/api/val/enable?redirect_to=/
 | `src/content/links.val.ts`                      | `externalPageRouter`: pages that are not in this app                                                                                                                                |
 | `src/content/kb.val.ts`                         | `.jsonValues()` + `c.json()`: one file per entry, `s.keyOf`, `s.route().include()`, `.multiline()`                                                                                  |
 | `src/content/translated.val.ts`                 | `s.locale()`, both ways: a locale-keyed record and a locale field                                                                                                                   |
-| `src/routes/_site.{-$locale}.news.$slug.val.ts` | `s.router(router, params, item)`: a schema per route parameter, an optional `{-$locale}` segment, and `s.enum().locales()` from `val.config.ts`                                     |
+| `src/routes/_site.{-$locale}.news.$slug.val.ts` | `s.router(router, params, item)`: a schema per route parameter, an optional `{-$locale}` segment, and `s.enum().locales()` from `src/schemas/urlLocale.ts`                          |
 | `src/content/access.val.ts`                     | `.readonly()` and `.hidden()`, which only the Studio enforces                                                                                                                       |
 | `src/routes/_site.index.val.ts`                 | the page-builder shapes: `s.discriminatedUnion` in an array, `.render({ as: "inline" })`, `s.code`, `s.datetime`, `s.number().min().max()`, `s.richtext` with `a` and `img` schemas |
 
