@@ -624,7 +624,17 @@ export function createValApiRouter<Res>(
           },
         };
       }
+      const resDef = apiEndpoint.res;
       if (res.status === 500) {
+        /*
+         * A failure the route declares goes out as declared, as a success
+         * does below. DELETE /patches says which change was not discarded and
+         * which publish holds it, and collapsed to its message the Studio
+         * could only say "Failed to delete patches" -- not why, nor offer to
+         * cancel that publish. Anything undeclared is still reduced to its
+         * message.
+         */
+        if (resDef?.safeParse(res).success) return res;
         return {
           status: 500,
           json: {
@@ -632,7 +642,6 @@ export function createValApiRouter<Res>(
           },
         };
       }
-      const resDef = apiEndpoint.res;
       if (resDef) {
         const responseResult = resDef.safeParse(res);
         if (!responseResult.success) {

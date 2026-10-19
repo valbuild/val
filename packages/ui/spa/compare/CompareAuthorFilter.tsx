@@ -14,7 +14,7 @@ import { UNKNOWN_AUTHOR } from "../utils/computeChangedSourcePaths";
  * "Whose changes am I looking at" — a row of the people in this publish.
  *
  * A row of avatars rather than a dropdown, because the set is small (the people
- * who happen to have staged something) and the useful gesture is recognising a
+ * who happen to have pending changes) and the useful gesture is recognising a
  * face and clicking it, not reading a list. It also makes the answer to "who
  * else is publishing right now" visible without any interaction, which is worth
  * having on a screen whose whole job is to be read before a publish.
@@ -31,7 +31,7 @@ export function CompareAuthorFilter({
   mode,
 }: {
   profiles: Record<string, Profile>;
-  /** Everyone with a staged change, in the order they should appear. */
+  /** Everyone with a pending change, in the order they should appear. */
   authorIds: string[];
   selected: string | null;
   onSelect: (authorId: string | null) => void;

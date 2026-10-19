@@ -67,7 +67,7 @@ import type {
  * `ComparePatchSets` already removed once.
  *
  * Which undo is offered follows from the basis, not from taste: against
- * Published the change you want gone is a staged patch, so it is DISCARDED;
+ * Published the change you want gone is a pending patch, so it is DISCARDED;
  * against a commit those changes already shipped, so the only way back is to
  * REVERT by writing the old value forward. See `CompareUndo`.
  *

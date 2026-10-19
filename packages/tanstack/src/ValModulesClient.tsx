@@ -1,9 +1,11 @@
-import type { ValModules } from "@valbuild/core";
+import type { Json, ModuleFilePath, ValModules } from "@valbuild/core";
 import { useEffect } from "react";
 
 declare global {
   interface Window {
     __VAL_MODULES__?: ValModules;
+    /** The Studio overlay's base where it is not the bundle's: `ValDraft.base`. */
+    __VAL_BASE__?: Record<ModuleFilePath, Json>;
   }
 }
 

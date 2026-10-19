@@ -191,6 +191,21 @@ const buildTargetResponse = z.object({
       flightServer: z.string(),
       serverFnBase: z.string(),
     }),
+    /*
+     * What the base layer is built from and what its chunks export, which
+     * `val publish` checks a project's layer against (`BuildTarget.base` in
+     * @valbuild/tanstack-build). Declared, because `z.object` DROPS a key it
+     * does not name: left out, they never reached the build, and every
+     * publish skipped both checks while saying the platform had not sent them.
+     * Optional, for a platform that predates them.
+     */
+    pins: z.record(z.string(), z.string()).optional(),
+    exports: z
+      .object({
+        worker: z.record(z.string(), z.array(z.string())),
+        browser: z.record(z.string(), z.array(z.string())),
+      })
+      .optional(),
   }),
   project: z.object({
     rev: z.string().nullable(),
@@ -355,6 +370,13 @@ const requestStatus: z.ZodType<PublishRequestStatus> = z.union([
     message: z.string(),
     actions: z.array(z.enum(["try-again", "discard", "re-run-build"])),
     job: z.string(),
+    movedTo: z
+      .object({
+        proposal: z.string(),
+        displayName: z.string(),
+        changes: z.number(),
+      })
+      .optional(),
   }),
   z.object({ kind: z.literal("cancelled") }),
   z.object({ kind: z.literal("nothing-to-publish") }),

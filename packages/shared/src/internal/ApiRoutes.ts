@@ -63,6 +63,9 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("files:check-remote"),
   z.literal("files:upload-remote"),
   z.literal("keyof:check-keys"),
+  z.literal("image:check-gallery"),
+  z.literal("file:check-gallery"),
+  z.literal("video:check-gallery"),
   z.literal("router:check-route"),
   z.literal("locale:check-locale"),
   z.literal("record:fill-keys"),
@@ -97,6 +100,23 @@ const notFoundResponse = z.object({
   }),
 });
 const GenericError = z.object({ message: z.string() });
+/**
+ * Why Val Build refused a write for the project's plan, as data: the `error` of
+ * its 403 (`refusalError` in valbuild/home's `billing/projectLimits.ts`).
+ *
+ * Every field but `code` is optional and every field is a plain string, so a
+ * newer Val Build that adds a code or a fix still parses: the Studio says an
+ * unknown one with Billing beside it rather than failing to read the answer.
+ */
+export const PlanRefusalError = z.object({
+  code: z.string(),
+  fix: z.string().optional(),
+  /** When it lifts by itself, as an ISO time, if it does. */
+  until: z.string().optional(),
+  /** The organization's Billing in Val Build. */
+  billingUrl: z.string().optional(),
+});
+export type PlanRefusalErrorT = z.infer<typeof PlanRefusalError>;
 
 /**
  * The header a request to `/admin/proxy` must carry. A cross-site form or
@@ -182,26 +202,15 @@ const StatProposal = z.object({
   branch: z.string(),
 });
 
-/**
- * A patch group: the set of patches one user has chosen to publish.
- *
- * Not a patch *set* — a patch set is computed from the schema and says which
- * patches must move together; a patch group is curated and says which ones this
- * user wants live. See `docs/independent-publish/PLAN.md`.
- */
-export const PatchGroup = z.object({
-  patchGroupId: z.string(),
-  authorId: z.string().nullable(),
-  createdAt: z.string(),
-  publishedAt: z.string().nullable(),
-  patchIds: z.array(PatchId),
-});
-export type PatchGroupT = z.infer<typeof PatchGroup>;
-
 const GenericPatchError = z.union([
   z.object({
     patchId: PatchId,
     message: z.string(),
+    /**
+     * The publish job that holds the patch, when that is why it was not
+     * deleted. Optional: only a discard of a change being published says it.
+     */
+    publishJobId: z.string().optional(),
   }),
   z.object({
     parentPatchId: z.string(),
@@ -679,6 +688,12 @@ export const Api = {
                * answer: a job that ends without sealing gives them back.
                */
               publishingPatches: z.array(PatchId).optional(),
+              /*
+               * Of `patches`, the ones a publish that failed on its content
+               * holds back from later publishes, until Try again or Discard.
+               * The Studio does not count these as ready to publish.
+               */
+              heldBackPatches: z.array(PatchId).optional(),
               /**
                * The newest commit, which is the PUBLISH head.
                *
@@ -743,6 +758,12 @@ export const Api = {
                * where its Save goes (valbuild/home `docs/proposals.md`).
                */
               proposal: StatProposal.optional(),
+              /**
+               * The branch History lists: the proposal's in a proposal, else
+               * the git mirror's or the one content reports for the project.
+               * Absent where there is no history to show.
+               */
+              historyBranch: z.string().optional(),
             }),
             z.object({
               type: z.literal("use-websocket"),
@@ -783,6 +804,12 @@ export const Api = {
                * answer: a job that ends without sealing gives them back.
                */
               publishingPatches: z.array(PatchId).optional(),
+              /*
+               * Of `patches`, the ones a publish that failed on its content
+               * holds back from later publishes, until Try again or Discard.
+               * The Studio does not count these as ready to publish.
+               */
+              heldBackPatches: z.array(PatchId).optional(),
               /**
                * The newest commit, which is the PUBLISH head.
                *
@@ -806,14 +833,6 @@ export const Api = {
                * highest version. Optional, for the same reason `headPatchId` is.
                */
               headVersion: z.number().optional(),
-              /**
-               * Every group on the branch and which listed patches it holds,
-               * read with the list and `headVersion`. What a Studio's view of
-               * the groups is taken from, so a stage or an unstage made in
-               * another browser reaches it with the next stat. Absent where
-               * the content service has no groups.
-               */
-              patchGroups: z.array(PatchGroup).optional(),
               commits: z.array(ValCommit),
               /**
                * The publishes the content service knows about.
@@ -870,6 +889,12 @@ export const Api = {
                * where its Save goes (valbuild/home `docs/proposals.md`).
                */
               proposal: StatProposal.optional(),
+              /**
+               * The branch History lists: the proposal's in a proposal, else
+               * the git mirror's or the one content reports for the project.
+               * Absent where there is no history to show.
+               */
+              historyBranch: z.string().optional(),
             }),
           ]),
         }),
@@ -1094,24 +1119,6 @@ export const Api = {
         body: z
           .object({
             /*
-             * Patches that are NOT being deleted but must lose their patch
-             * group membership because these are.
-             *
-             * Deleting a patch out of the middle of a patch set leaves every
-             * group holding the rest with a non-prefix intersection, and a
-             * prefix is the one invariant a group has. Which patches those are
-             * needs the content schema, so the client computes the forward
-             * closure and sends it; the content API drops the memberships
-             * without touching the patches.
-             *
-             * In the BODY while the ids to delete are in the query, because
-             * this list is unbounded in the same way and the query string is
-             * already chunked to fit. Optional throughout: `fs` mode has no
-             * groups, and a client that predates this is deleting correctly,
-             * just not repairing.
-             */
-            unstagePatchIds: z.array(PatchId).optional(),
-            /*
              * Answer with `{ deleted, headVersion }` rather than the bare id
              * array. Asked for rather than always sent, because the array is
              * what a Studio bundle from before this parses — and a tab left
@@ -1163,15 +1170,6 @@ export const Api = {
               patch: z.any(), // TODO: this should be Patch instead - we got a weird validation error: although input looks good, it still does not accept objects as values... Which it should do via the z.record(JSONValue) type
             }),
           ),
-          // Patch group membership. Sent with the patch itself, in one request, so
-          // there is no window in which a patch exists but belongs to no group.
-          // Absent means "the caller does not know about groups" - the server then
-          // behaves exactly as before.
-          patchGroupId: z.string().nullish(),
-          // What has to come with the patch: other patch ids that must join the
-          // same group for it to stay applicable. Computed on the client, which
-          // is the only side that has the schema needed to derive patch sets.
-          withPatchIds: z.array(PatchId).optional(),
         }),
         cookies: {
           val_session: z.string().optional(),
@@ -1201,12 +1199,33 @@ export const Api = {
             ),
           }),
         }),
+        /*
+         * Val Build refused the write for the project's plan: the Free week's
+         * changes are used, or a trial is over. Not the 400 above, because the
+         * patches are fine -- they are kept, and saved once the plan allows.
+         * `message` is Val Build's own sentence and `error` the same as data,
+         * so the Studio can put the fix beside it.
+         *
+         * The patches of the batch BEFORE the refused one were saved (the Free
+         * week can run out mid-batch), so this carries what a 200 does about
+         * them: the client marks those saved and keeps the rest.
+         */
+        z.object({
+          status: z.literal(403),
+          json: z.object({
+            type: z.literal("plan-refused"),
+            message: z.string(),
+            error: PlanRefusalError,
+            newPatchIds: z.array(PatchId),
+            parentRef: ParentRef,
+            headVersion: z.number().optional(),
+          }),
+        }),
         z.object({
           status: z.literal(200),
           json: z.object({
             newPatchIds: z.array(PatchId),
             parentRef: ParentRef,
-            patchGroupId: z.string().optional(),
             /**
              * The chain version the last of these patches made, comparable with
              * `headVersion` on `/stat`. A client keeps the highest version, so a
@@ -1223,15 +1242,6 @@ export const Api = {
         query: {
           patch_id: z.array(PatchId).optional(),
           exclude_patch_ops: onlyOneBooleanQueryParam.optional(),
-          /**
-           * Include the patch group annotation in the answer.
-           *
-           * Off by default because the client CHUNKS this request — a long
-           * chain is several round trips — and the groups are a property of the
-           * branch, identical in every chunk. Asking on each one is N identical
-           * lookups against the content API to learn the same thing.
-           */
-          include_patch_groups: onlyOneBooleanQueryParam.optional(),
         },
         cookies: {
           val_session: z.string().optional(),
@@ -1264,137 +1274,11 @@ export const Api = {
                 createdAt: z.string(),
                 authorId: z.string().nullable(),
                 appliedAt: z.object({ commitSha: z.string() }).nullable(),
-                // Which patch groups hold this patch. Optional so that FS mode, and
-                // any server that predates patch groups, can leave it out.
-                patchGroupIds: z.array(z.string()).optional(),
               }),
             ),
-            patchGroups: z.array(PatchGroup).optional(),
             baseSha: z.string(),
             error: GenericError.optional(),
             errors: z.record(PatchId, GenericError).optional(),
-          }),
-        }),
-      ]),
-    },
-  },
-  // Patch group membership. Both are idempotent set operations, and both take an
-  // already-closed set: the client computes the prefix closure (staging) or the
-  // forward closure (unstaging) because only the client has the schema needed to
-  // derive patch sets. See `docs/independent-publish/PLAN.md`.
-  "/patch-groups/~/patches": {
-    PUT: {
-      req: {
-        body: z
-          .object({
-            /**
-             * The group to stage into. Absent means the caller's open group on
-             * the branch, created if there is none — which is what the Studio
-             * sends, so a stage never has to wait for a group to exist.
-             */
-            patchGroupId: z.string().optional(),
-            /** What the user asked to stage. */
-            patchIds: z.array(PatchId),
-            /*
-             * What has to come with it, because the staged patches are written on
-             * top of it.
-             *
-             * The content API records membership as `explicit` or `dependency`
-             * and reads what it is not told about as a dependency — so folding
-             * the two halves into `patchIds` files the patch someone clicked as
-             * something the closure dragged in.
-             */
-            withPatchIds: z.array(PatchId).optional(),
-          })
-          .refine(
-            (body) =>
-              body.patchIds.length > 0 || (body.withPatchIds?.length ?? 0) > 0,
-            // Either half alone is a real request: a stage of only what came with
-            // it happens when the deferred queue's scope filter drops everything
-            // the user originally clicked.
-            "At least one patch id is required",
-          ),
-        cookies: {
-          val_session: z.string().optional(),
-        },
-      },
-      res: z.union([
-        unauthorizedResponse,
-        z.object({
-          status: z.literal(403),
-          json: GenericError,
-        }),
-        z.object({
-          // The group has already been published, so its membership is frozen.
-          status: z.literal(409),
-          json: GenericError,
-        }),
-        z.object({
-          status: z.literal(500),
-          json: GenericError,
-        }),
-        z.object({
-          status: z.literal(200),
-          json: z.object({
-            /** `null` for an unstage when the caller has no open group. */
-            patchGroupId: z.string().nullable(),
-            patchIds: z.array(PatchId),
-            /**
-             * The chain version the change committed at. The client keeps its
-             * own view of the change until a stat at least this new shows it.
-             * Absent from a content service that predates it.
-             */
-            headVersion: z.number().optional(),
-          }),
-        }),
-      ]),
-    },
-    DELETE: {
-      req: {
-        body: z
-          .object({
-            /** See the PUT. Absent with no open group is a no-op. */
-            patchGroupId: z.string().optional(),
-            /** What the user asked to unstage. */
-            patchIds: z.array(PatchId),
-            /** What has to go with it: everything built on top of it. */
-            withPatchIds: z.array(PatchId).optional(),
-          })
-          .refine(
-            (body) =>
-              body.patchIds.length > 0 || (body.withPatchIds?.length ?? 0) > 0,
-            "At least one patch id is required",
-          ),
-        cookies: {
-          val_session: z.string().optional(),
-        },
-      },
-      res: z.union([
-        unauthorizedResponse,
-        z.object({
-          status: z.literal(403),
-          json: GenericError,
-        }),
-        z.object({
-          status: z.literal(409),
-          json: GenericError,
-        }),
-        z.object({
-          status: z.literal(500),
-          json: GenericError,
-        }),
-        z.object({
-          status: z.literal(200),
-          json: z.object({
-            /** `null` for an unstage when the caller has no open group. */
-            patchGroupId: z.string().nullable(),
-            patchIds: z.array(PatchId),
-            /**
-             * The chain version the change committed at. The client keeps its
-             * own view of the change until a stat at least this new shows it.
-             * Absent from a content service that predates it.
-             */
-            headVersion: z.number().optional(),
           }),
         }),
       ]),
@@ -1442,33 +1326,6 @@ export const Api = {
           validate_binary_files: onlyOneBooleanQueryParam.optional(),
           exclude_patches: onlyOneBooleanQueryParam.optional(),
           apply_patches: onlyOneBooleanQueryParam.optional(),
-          /**
-           * Apply ONLY these patches, rather than everything pending.
-           *
-           * This is what makes a draft-mode render match the caller's staged
-           * view. Without it `/sources/~` replays every pending patch on the
-           * branch, so a server-rendered preview shows other people's
-           * unpublished work — the one thing independent publish is for.
-           *
-           * Omitted means everything pending, which is the behaviour every
-           * existing caller has and must keep. An EMPTY array is a different
-           * answer and is honoured as one: a group holding nothing renders
-           * base.
-           */
-          patch_id: z.array(PatchId).optional(),
-          /**
-           * Apply only the patches in the CALLER'S OWN patch groups.
-           *
-           * The server resolves them from the session, so a draft render does
-           * not have to know its own group ids — which it cannot, since it has
-           * no client state. This is what makes `fetchVal` in draft mode show
-           * the person their own staged work rather than everybody's.
-           *
-           * Ignored when `patch_id` is given: an explicit list is a caller that
-           * already knows what it wants, and silently intersecting the two
-           * would make the narrower one invisible.
-           */
-          own_patch_groups_only: onlyOneBooleanQueryParam.optional(),
         },
         cookies: {
           val_session: z.string().optional(),
@@ -1741,24 +1598,67 @@ export const Api = {
       ]),
     },
   },
+  /**
+   * Publish selected (`docs/plans/remove-patch-groups.md`, Phase 4), its first
+   * half, on the site's own server: the changes picked in Review, already
+   * closed into whole patch sets (`selectionClosure`), moved into a proposal
+   * of kind `publish` and saved there -- prepared over the site's head, which
+   * the proposal is based on, so a publish landing in between is refused
+   * rather than reverted. The second half is that proposal's Publish, pressed
+   * as any proposal's is (`publishProposal`); this server answers its checks
+   * and press with what the merge moves, as the proposal's own address would.
+   */
+  "/publish-selected": {
+    POST: {
+      req: {
+        body: z.object({
+          /** The changes to publish, whole patch sets, in any order: a move keeps the chain's. */
+          patchIds: z.array(PatchId).min(1),
+          /** What the merged proposal is listed as. */
+          displayName: z.string().min(1).max(200),
+          /** The press's own id: the same press sent again is the same proposal. */
+          requestId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({ status: z.literal(400), json: GenericError }),
+        /**
+         * Refused: the site moved (`headMoved`: pressing again prepares over
+         * the new head), a change went, or this deployment cannot.
+         */
+        z.object({
+          status: z.literal(409),
+          json: GenericError.extend({ headMoved: z.literal(true).optional() }),
+        }),
+        z.object({ status: z.literal(500), json: GenericError }),
+        /**
+         * The proposal was made and its changes moved into it, and the save
+         * there failed: they are safe in it, which `proposal` names.
+         */
+        z.object({
+          status: z.literal(502),
+          json: GenericError.extend({ proposal: z.string() }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            /** The proposal to publish next. */
+            proposal: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
   "/save": {
     POST: {
       req: {
         body: z.object({
           message: z.string().optional(),
           patchIds: z.array(PatchId),
-          /*
-           * The patch group this commit EMPTIES, if it empties one.
-           *
-           * Forwarded to the content API, which closes the group it names —
-           * and closes it unconditionally, without checking that the commit
-           * shipped all of it. So the client sends it only when the publish
-           * accounts for every patch the group still holds; a partial publish
-           * omits it and the group stays open with the rest in it.
-           *
-           * Optional, and absent in `fs` mode, which has no groups.
-           */
-          patchGroupId: z.string().optional(),
           /*
            * The newest commit this client knew about when it decided.
            *
@@ -1874,19 +1774,6 @@ export const Api = {
             headVersion: z.number().optional(),
           }),
         }),
-        /*
-         * The named patch group is not this caller's, or the lookup that would
-         * say so failed.
-         *
-         * Publishing may CLOSE a group, and closing somebody else's leaves
-         * their pending work in a closed group and in no open one. So `/save`
-         * runs the same ownership check stage and unstage do, and refuses the
-         * same way — see `refuseUnlessOwn`.
-         */
-        z.object({
-          status: z.literal(403),
-          json: GenericError,
-        }),
         z.object({
           status: z.literal(500),
           json: GenericError,
@@ -1906,7 +1793,6 @@ export const Api = {
               message: z.string(),
               publishRefusal: PublishRefusal,
             }),
-            /** A group that has already shipped. See the 403 above. */
             z.object({
               message: z.string(),
             }),
@@ -1927,22 +1813,6 @@ export const Api = {
             z.object({
               message: z.string(),
               headMoved: z.literal(true),
-            }),
-            /**
-             * The group this commit named has already been published.
-             *
-             * A third thing sharing 409, and flagged for the same reason
-             * `headMoved` is: read as a plain not-fast-forward it looks
-             * retryable, and it is the opposite — the id will never be writable
-             * again, so retrying reproduces it forever.
-             *
-             * It means this author published from somewhere else. The client
-             * forgets the id and falls back to the annotation, which is the
-             * same recovery a 409 on stage or unstage triggers.
-             */
-            z.object({
-              message: z.string(),
-              patchGroupPublished: z.literal(true),
             }),
           ]),
         }),
@@ -2259,15 +2129,6 @@ export const Api = {
             )
             .optional(),
           apply_patches: onlyOneBooleanQueryParam.optional(),
-          /**
-           * The caller's own staged work, and nobody else's.
-           *
-           * The same flag `/sources/~` takes, and for the same reason — a draft
-           * page renders both, so a scoped module beside an unscoped
-           * `jsonValues` entry showed one person's view and everybody's pending
-           * work on the same screen.
-           */
-          own_patch_groups_only: onlyOneBooleanQueryParam.optional(),
         },
         cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },

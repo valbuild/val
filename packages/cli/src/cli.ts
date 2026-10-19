@@ -47,7 +47,8 @@ async function main(): Promise<void> {
 
 
       Command: connect
-      Description: connect your local project to a Val Build project at admin.val.build
+      Description: open admin.val.build to connect this project, with its repository
+                   and val.config.ts project filled in
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
 

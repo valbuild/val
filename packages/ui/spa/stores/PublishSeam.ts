@@ -26,20 +26,6 @@ export type PublishPatches = (request: {
   patchIds: PatchId[];
   message?: string;
   /**
-   * The patch group this publish EMPTIES, if it empties one.
-   *
-   * Sent on to the content API, which closes the group it names — and closes it
-   * unconditionally, without checking that the commit shipped the whole thing.
-   * So this is present only when the publish accounts for every patch the group
-   * still holds; a partial publish sends nothing and leaves the group open with
-   * the rest of its patches in it, which is what its owner is still working on.
-   *
-   * Without it the group is emptied by the commit and never closed: the id gets
-   * reused across publishes instead of a new group per publish, and the
-   * "already published" refusal can never fire.
-   */
-  closesPatchGroupId?: string;
-  /**
    * The newest commit this client knew about when the publish was decided.
    *
    * Sent so the server can refuse a publish decided against a world somebody
@@ -153,16 +139,6 @@ export type PublishOutcome =
    * a commit is attempted, on a head the client named.
    */
   | { status: "head-moved"; message: string }
-  /**
-   * The group this publish named has already shipped.
-   *
-   * This author publishing from somewhere else — a group belongs to one person.
-   * Its own outcome rather than a `not-fast-forward`, because the two want
-   * opposite handling: that one is retryable once this client catches up, and
-   * this one never is. The id is dead, so the client forgets it and falls back
-   * to the annotation, the same recovery a 409 on stage or unstage triggers.
-   */
-  | { status: "group-published"; message: string }
   | {
       status: "patch-errors";
       message: string;
@@ -172,24 +148,7 @@ export type PublishOutcome =
   | { status: "network-error"; message: string };
 
 /** Throw patches away — `DELETE /patches`. */
-export type DiscardPatches = (
-  patchIds: PatchId[],
-  /**
-   * Which OTHER patches must lose their group membership because of this
-   * delete.
-   *
-   * Deleting a patch out of the middle of a patch set leaves every group that
-   * still holds the rest with a non-prefix intersection, and a prefix is the
-   * one invariant a group has. Deriving which patches those are needs the
-   * schema, so the client computes the forward closure and the content API
-   * drops those memberships without deleting the patches.
-   *
-   * Passed as a second argument rather than folded into `patchIds`, because
-   * they mean opposite things: the first list is deleted, the second is kept
-   * and merely unstaged.
-   */
-  unstagePatchIds?: PatchId[],
-) => Promise<
+export type DiscardPatches = (patchIds: PatchId[]) => Promise<
   | {
       status: "discarded";
       patchIds: PatchId[];
@@ -200,7 +159,16 @@ export type DiscardPatches = (
        */
       headVersion?: number;
     }
-  | { status: "error"; message: string }
+  | {
+      status: "error";
+      message: string;
+      /**
+       * The publish job holding a change that was not discarded, when that is
+       * why: it can be discarded once that publish ends, or after it is
+       * cancelled. Absent from a server that does not say.
+       */
+      publishJobId?: string;
+    }
 >;
 
 /**
@@ -255,7 +223,17 @@ export type PublishResult =
    * the server is unreachable or refused. Publishing anyway would ship the
    * project without the newest edit, which is the one the user is looking at.
    */
-  | { status: "refused"; reason: "unsaved-changes"; patchIds: PatchId[] }
+  | {
+      status: "refused";
+      reason: "unsaved-changes";
+      patchIds: PatchId[];
+      /**
+       * Val Build's sentence when the edits are held because it refused them
+       * for the project's plan: then no retry helps, and the reason (with its
+       * fix) is what to say, not the connection.
+       */
+      planRefusal?: string;
+    }
   /**
    * An edit landed while the gate was validating, so what was checked is not
    * what would be published.

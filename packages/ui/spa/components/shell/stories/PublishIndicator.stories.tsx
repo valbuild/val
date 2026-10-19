@@ -19,9 +19,9 @@ import {
  * through -- in Chrome, where the Studio builds the site in the tab, and in
  * Safari, where a builder tab does and reports back.
  *
- * It spins until every visitor gets the change, about a minute after "Live",
+ * It spins until every visitor gets the change, a few seconds after "Live",
  * once each edge's cache of the site's pointer has run out: Publishing N%,
- * then Reaching visitors N%, then Live. The step is behind it, on hover. It
+ * then Reaching edges N%, then Live. The step is behind it, on hover. It
  * spins for anyone's publish, not only this editor's. The list opens on a
  * click and never by itself, and the "Published" toast comes when it stops.
  */
@@ -210,6 +210,29 @@ export const Failed: SceneStory = {
             duration: Infinity,
             action: { label: "Try again", onClick: () => undefined },
             cancel: { label: "Discard changes", onClick: () => undefined },
+          })
+        }
+      />
+    </Scene>
+  ),
+};
+
+/**
+ * Failed on a site with proposals: its changes left the site for a proposal
+ * of their own, so there is nothing to try again or discard here -- the one
+ * action is going to them.
+ */
+export const FailedMovedToProposal: SceneStory = {
+  render: () => (
+    <Scene indicator={{ kind: "failed", cause: "publish" }}>
+      <ToastOnMount
+        show={() =>
+          toast.error("Publishing broke the site", {
+            id: "story-failed-moved",
+            description:
+              "Its 3 changes are in the proposal “Changes from a publish that broke the site (17 Oct, 14:02 UTC)”, to be fixed and published there. The site could not be built from this change.",
+            duration: Infinity,
+            action: { label: "Open the proposal", onClick: () => undefined },
           })
         }
       />

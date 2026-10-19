@@ -188,8 +188,6 @@ export function PatchErrorsDisplay() {
       query: {
         patch_id: [patchId as PatchId],
         exclude_patch_ops: false,
-        // This view reads one patch's ops, not group membership.
-        include_patch_groups: undefined,
       },
     });
     if (patchRes.status === 200) {

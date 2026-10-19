@@ -463,11 +463,12 @@ writes to a live store.
 
 **A write's parent is the head the server REPORTS, not the last id `/stat`
 listed.** The list (`/applicable/patches`) leaves out patches the running
-deployment already contains — their effect is in its base. Before patch groups
-that was harmless, because a publish shipped the whole pending chain, so the
-published patches were always a prefix. A group publish ships a subset, so a
-published patch can come AFTER one that is still pending, and the list then ends
-behind the real head. What it cost: another author left a change that nets to
+deployment already contains — their effect is in its base. That is harmless
+while a publish ships the whole pending chain, so the published patches are a
+prefix. A publish that ships a subset — patch groups did, until they were
+removed, and a publish that holds changes back still does — puts a published
+patch AFTER one that is still pending, and the list then ends behind the real
+head. What it cost: another author left a change that nets to
 nothing (it can never be published), somebody published later work, the deploy
 landed, and from then on every save in every Studio was refused with "something
 else keeps changing them first" — 409 on every retry, because the re-sync
@@ -1245,10 +1246,11 @@ Measured on a synthetic 60-module project, a three-read render went from 187ms
 to 70ms (2.7x); `packages/next/src/rsc/draftRead.perf.test.ts` prints it.
 
 **The memo is scoped to the REQUEST, and that is a correctness rule, not a
-tidiness one.** The body it holds is `own_patch_groups_only: true` — the
-caller's OWN unpublished patches, resolved from their session cookie. A memo
-that outlived the request would serve one author's staged edits to the next
-visitor, silently, as a draft rendering somebody else's half-finished sentence.
+tidiness one.** The body it holds is a draft — unpublished patches, read with
+the caller's session cookie. Every caller allowed to read drafts gets the same
+one (it was per author while patch groups existed), but whether a caller is
+allowed is decided per session, so a memo that outlived the request would hand
+the draft to the next visitor without asking.
 So the memo holds no module-level state: the box comes from React's `cache()` in
 an RSC and from a `WeakMap` keyed on the `Request` in TanStack Start, and when
 neither is available (`null`) it computes every time, which is what the code did

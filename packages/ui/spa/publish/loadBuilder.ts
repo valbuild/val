@@ -83,7 +83,7 @@ import type * as TanstackBuild from "@valbuild/tanstack-build";
 type Builder = typeof TanstackBuild;
 
 /**
- * What the Studio uses out of the builder package: four methods, each of which
+ * What the Studio uses out of the builder package: five methods, each of which
  * may answer later.
  *
  * Later because the builder runs in a worker (see {@link importBuilder}), so
@@ -104,6 +104,10 @@ export type StudioBuilder = {
     | Promise<ReturnType<Builder["rebakeGit"]>>;
   buildUserApp: Builder["buildUserApp"];
   publishArtifacts: Builder["publishArtifacts"];
+  /** A build's name, before building it: see `buildInputId`. */
+  buildInputId: Builder["buildInputId"];
+  /** A tree's Val modules, as one module to evaluate: see `bundleValModules`. */
+  bundleValModules: Builder["bundleValModules"];
 };
 
 export type BuilderLoader = () => Promise<StudioBuilder>;

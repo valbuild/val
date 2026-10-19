@@ -96,6 +96,9 @@ function isSkippableFixCode(fix: ValidationFix): boolean {
       // also took them off the publish gate, so a broken key published unseen.
       return false;
     case "keyof:check-keys":
+    case "image:check-gallery":
+    case "file:check-gallery":
+    case "video:check-gallery":
     case "router:check-route":
     case "locale:check-locale":
     case "record:fill-keys":

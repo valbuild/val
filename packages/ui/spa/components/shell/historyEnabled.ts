@@ -12,17 +12,18 @@
  *
  * - **`http`**, because `ValOpsFS` answers `not-supported-in-fs-mode`: local
  *   dev has git, not a commit archive.
- * - **A resolved branch**, because history is listed PER BRANCH. `gitBranch`
- *   is optional in `val.config` and the server fills in the one it resolved
- *   (see `clientConfig`), so null here means a project with no git mirror at
- *   all — `HistoryView` has no request to make there and says so.
+ * - **A branch**, because history is listed PER BRANCH. The server names the
+ *   one it lists (`historyBranch` on `/stat`): a proposal's, a git mirror's,
+ *   or the branch content reports for a managed project. Null here means a
+ *   project with none of them — `HistoryView` has no request to make there and
+ *   says so.
  *
  * A door that opens onto an apology should not be there, which is the rule the
  * comments at both call sites state and this makes true.
  */
 export function historyEnabledFor(deployment: {
   mode: "http" | "fs" | "unknown";
-  gitBranch: string | null;
+  historyBranch: string | null;
 }): boolean {
-  return deployment.mode === "http" && deployment.gitBranch !== null;
+  return deployment.mode === "http" && deployment.historyBranch !== null;
 }

@@ -2,7 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { initVal, modules } from "@valbuild/core";
-import type { SelectorSource, ValModule } from "@valbuild/core";
+import type { PatchId, SelectorSource, ValModule } from "@valbuild/core";
 import { createValApiRouter, createValServer } from "./ValRouter";
 import { encodeJwt } from "./jwt";
 import { fakeRequest } from "./fakeRequest";
@@ -331,7 +331,7 @@ describe("ValRouter", () => {
 
   describe("a route with an OPTIONAL body", () => {
     /*
-     * `DELETE /patches` grew an optional body (`unstagePatchIds`) and every
+     * `DELETE /patches` grew an optional body (`reportHeadVersion`) and every
      * caller that sent none started getting `400 Could not parse request body`.
      * The router called `req.json()` for any route that DECLARES a body, and a
      * real `Request` throws on an empty one — so the schema being `.optional()`
@@ -360,16 +360,101 @@ describe("ValRouter", () => {
     });
 
     test("is not a 400 when the body is sent", async () => {
-      expect((await deleteRequest({ unstagePatchIds: [] })).status).not.toBe(
-        400,
-      );
+      expect(
+        (await deleteRequest({ reportHeadVersion: true })).status,
+      ).not.toBe(400);
     });
 
     test("is still a 400 when the body is present and wrong", async () => {
       // Absent and malformed stay different answers: this one names the field.
       expect(
-        (await deleteRequest({ unstagePatchIds: "not-an-array" })).status,
+        (await deleteRequest({ reportHeadVersion: "not-true" })).status,
       ).toBe(400);
+    });
+  });
+
+  describe("what a Studio from before patch groups were removed still sends", () => {
+    /*
+     * Patch groups are gone, but a tab left open across a deploy still runs
+     * the old bundle, and that bundle still sends the group fields. They are
+     * STRIPPED, not refused: a 400 here is every edit from that tab failing
+     * with "invalid body data" until someone reloads, for fields that no
+     * longer mean anything. Each request below carries the fields an old
+     * Studio sent; none of them may be what decides the answer.
+     *
+     * The writes go to an fs-mode server, which stores under
+     * `${process.cwd()}/.val`, so cwd points at a scratch directory (see the
+     * preview cases above for why that matters).
+     */
+    let valRoot: string;
+    let cwdSpy: jest.SpyInstance<string, []>;
+    beforeEach(() => {
+      valRoot = fs.mkdtempSync(path.join(os.tmpdir(), "val-router-"));
+      cwdSpy = jest.spyOn(process, "cwd").mockReturnValue(valRoot);
+    });
+    afterEach(() => {
+      cwdSpy.mockRestore();
+      fs.rmSync(valRoot, { recursive: true, force: true });
+    });
+    const request = (method: string, pathAndQuery: string, json?: unknown) =>
+      onRoute(
+        fakeRequest({
+          method,
+          url: new URL(`http://localhost:3000/api/val${pathAndQuery}`),
+          ...(json !== undefined ? { json } : {}),
+          headers: new Headers({
+            Cookie: `val_session=${encodeJwt({}, "")}`,
+          }),
+        }),
+      );
+
+    test("PUT /patches with patchGroupId and withPatchIds", async () => {
+      const res = await request("PUT", "/patches", {
+        patches: [],
+        parentRef: { type: "head", headBaseSha: "0" },
+        patchGroupId: "22222222-2222-4222-8222-222222222222",
+        withPatchIds: ["33333333-3333-4333-8333-333333333333"],
+      });
+      expect(res.status).not.toBe(400);
+    });
+
+    test("DELETE /patches with unstagePatchIds", async () => {
+      const res = await request(
+        "DELETE",
+        "/patches?id=ba48c0ee-b0e0-4d31-a0e2-a5f7c17a1f3a",
+        { unstagePatchIds: ["ba48c0ee-b0e0-4d31-a0e2-a5f7c17a1f3a"] },
+      );
+      expect(res.status).not.toBe(400);
+    });
+
+    test("POST /save with patchGroupId", async () => {
+      const res = await request("POST", "/save", {
+        patchIds: [],
+        patchGroupId: "22222222-2222-4222-8222-222222222222",
+      });
+      expect(res.status).not.toBe(400);
+    });
+
+    test("GET /patches with include_patch_groups=true", async () => {
+      const res = await request("GET", "/patches?include_patch_groups=true");
+      expect(res.status).not.toBe(400);
+    });
+
+    test("PUT /sources/~ with own_patch_groups_only and patch_id", async () => {
+      const res = await request(
+        "PUT",
+        "/sources/~?own_patch_groups_only=true&patch_id=ba48c0ee-b0e0-4d31-a0e2-a5f7c17a1f3a",
+        {},
+      );
+      expect(res.status).not.toBe(400);
+    });
+
+    test("GET /json with own_patch_groups_only and patch_id", async () => {
+      const res = await request(
+        "GET",
+        "/json?path=/content/authors.val.ts&key=teddy&own_patch_groups_only=true&patch_id=ba48c0ee-b0e0-4d31-a0e2-a5f7c17a1f3a",
+      );
+      expect(res.status).not.toBe(400);
     });
   });
 
@@ -384,6 +469,86 @@ describe("ValRouter", () => {
    * Cloudflare Dynamic Worker does not have. `/authorize` is the route it
    * happened on, so it is the route this is written against.
    */
+  /*
+   * A failure the route declares reaches the Studio whole. Collapsed to its
+   * message, a discard content refused because a publish holds the change
+   * read "Failed to delete patches": not which change, nor which publish to
+   * cancel -- and the Studio could offer nothing.
+   */
+  describe("a 500 the route declares", () => {
+    const refusingDelete = async (json: {
+      message: string;
+      errors: { patchId: string; message: string; publishJobId?: string }[];
+    }) => {
+      const server = await createValServer(
+        modules(config, [
+          {
+            def: () =>
+              Promise.resolve({
+                default: c.define(
+                  "/content/authors.val.ts",
+                  authorsSchema,
+                  authorsSource,
+                ),
+              }),
+          },
+        ]),
+        route,
+        { disableCache: true },
+        config,
+        {
+          async isEnabled() {
+            return true;
+          },
+          async onDisable() {},
+          async onEnable() {},
+        },
+      );
+      const errors = json.errors.map((error) => ({
+        ...error,
+        patchId: error.patchId as PatchId,
+      }));
+      server["/patches"].DELETE = async () => ({
+        status: 500,
+        json: { message: json.message, errors },
+      });
+      return createValApiRouter(
+        route,
+        Promise.resolve(server),
+        (res) => res,
+      )(
+        fakeRequest({
+          method: "DELETE",
+          url: new URL("http://localhost:3000/api/val/patches?id=p1"),
+        }),
+      );
+    };
+
+    test("keeps which change was refused, and the publish holding it", async () => {
+      const res = await refusingDelete({
+        message: "Failed to delete patches",
+        errors: [
+          {
+            patchId: "p1",
+            message: "This change is being published right now.",
+            publishJobId: "J6",
+          },
+        ],
+      });
+      expect(res.status).toBe(500);
+      expect("json" in res ? res.json : undefined).toEqual({
+        message: "Failed to delete patches",
+        errors: [
+          {
+            patchId: "p1",
+            message: "This change is being published right now.",
+            publishJobId: "J6",
+          },
+        ],
+      });
+    });
+  });
+
   describe("an endpoint that throws", () => {
     test("answers 500 naming the route and the cause", async () => {
       const serverRes = await onRoute(

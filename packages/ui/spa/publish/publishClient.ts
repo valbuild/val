@@ -23,6 +23,7 @@
  *   one.
  */
 
+import { reportPlanRefusal } from "../utils/planRefusal";
 import {
   ArtifactsResponse,
   BuildTargetResponse,
@@ -169,6 +170,9 @@ export async function callJson(
     parsed = undefined;
   }
   if (!res.ok) {
+    // A publish the plan does not allow (a trial's 3 publishes, a trial that
+    // ended): the shell says it, with the next step. See `planRefusal`.
+    reportPlanRefusal(parsed);
     const message =
       typeof parsed === "object" &&
       parsed !== null &&

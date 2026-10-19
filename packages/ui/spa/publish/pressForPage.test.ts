@@ -10,6 +10,7 @@ import {
   askServerAbout,
   hasChange,
   newestUnpublished,
+  pendingNeedsBuild,
   followRequest,
   NOT_LOADED_MESSAGE,
   type PressedForPage,
@@ -989,17 +990,10 @@ describe("the page's last change", () => {
   });
 
   test("is the newest one not yet published, saved or not", () => {
-    expect(newestUnpublished(store(["p1", "p2", "p3"]), null)).toBe("p3");
-    expect(newestUnpublished(store(["p1", "p2"], ["p2"]), null)).toBe("p1");
-    expect(newestUnpublished(store(["p1"], ["p1"]), null)).toBeNull();
-    expect(newestUnpublished(store([]), null)).toBeNull();
-  });
-
-  test("is the editor's own, where the project has patch groups", () => {
-    // p1 is this editor's edit, not yet saved; p2 is another editor's, saved
-    // after it. Named p2, the tab would see it at once and press without p1.
-    expect(newestUnpublished(store(["p1", "p2"]), ["p1"])).toBe("p1");
-    expect(newestUnpublished(store(["p1", "p2"]), [])).toBeNull();
+    expect(newestUnpublished(store(["p1", "p2", "p3"]))).toBe("p3");
+    expect(newestUnpublished(store(["p1", "p2"], ["p2"]))).toBe("p1");
+    expect(newestUnpublished(store(["p1"], ["p1"]))).toBeNull();
+    expect(newestUnpublished(store([]))).toBeNull();
   });
 
   test("is there once the tab's chain has it, saved", () => {
@@ -1109,4 +1103,64 @@ test("following a queued merge claims its job by pressing it again, never as the
   });
   expect(followed).toEqual({ kind: "job", job });
   expect(asked).toBe(2);
+});
+
+/*
+ * Whether the press must open a builder tab. A page that cannot build (an
+ * iPhone, the overlay) opened one for every publish -- and a publish of
+ * content alone needs no build: the server puts it live on the build already
+ * there. A tab can only be opened in the tap, so the page decides before it
+ * knows, from what it is publishing: a file kept in the project (a local
+ * upload or a local file removed) is what makes a build. Text, and files kept
+ * remotely, do not.
+ */
+describe("whether a press needs a build", () => {
+  type Op = { op: string; remote?: boolean };
+  const store = (
+    records: Array<{ patchId: string; patch: Op[] }>,
+    shipped: string[] = [],
+  ) => ({
+    allRecords: () => records,
+    pendingAmong: (ids: Iterable<string>) =>
+      new Set([...ids].filter((id) => !shipped.includes(id))),
+  });
+
+  test("not for text alone", () => {
+    expect(
+      pendingNeedsBuild(store([{ patchId: "p1", patch: [{ op: "replace" }] }])),
+    ).toBe(false);
+  });
+
+  test("for a file kept in the project", () => {
+    expect(
+      pendingNeedsBuild(
+        store([
+          { patchId: "p1", patch: [{ op: "replace" }] },
+          {
+            patchId: "p2",
+            patch: [{ op: "replace" }, { op: "file", remote: false }],
+          },
+        ]),
+      ),
+    ).toBe(true);
+  });
+
+  test("not for a file kept remotely", () => {
+    expect(
+      pendingNeedsBuild(
+        store([{ patchId: "p1", patch: [{ op: "file", remote: true }] }]),
+      ),
+    ).toBe(false);
+  });
+
+  test("not for a file that is already published", () => {
+    expect(
+      pendingNeedsBuild(
+        store(
+          [{ patchId: "p1", patch: [{ op: "file", remote: false }] }],
+          ["p1"],
+        ),
+      ),
+    ).toBe(false);
+  });
 });

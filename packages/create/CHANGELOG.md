@@ -1,5 +1,15 @@
 # @valbuild/create
 
+## 0.144.5
+
+### Patch Changes
+
+- [#838](https://github.com/valbuild/val/pull/838) [`c15f366`](https://github.com/valbuild/val/commit/c15f366f8b71ba1f49e6a5fdc98026592247bb12) Thanks [@freekh](https://github.com/freekh)! - `npm create @valbuild` now also takes a feature's packages off `allowBuilds` in the template's `pnpm-workspace.yaml` when you leave that feature out. That is where the templates list the packages allowed to run build scripts now, because pnpm 11 no longer reads `pnpm.onlyBuiltDependencies` in `package.json`.
+
+- [#830](https://github.com/valbuild/val/pull/830) [`0ee047a`](https://github.com/valbuild/val/commit/0ee047a5c527f0122b4aa1aa167a0fbe4849fc37) Thanks [@freekh](https://github.com/freekh)! - `val connect` now opens [admin.val.build/new](https://admin.val.build/new?hosting=own) in your browser, on "your own hosting", with the GitHub repository and the `val.config.ts` project it found filled in. It says what it found, and prints the link too, for when no browser opens.
+
+  `npm create @valbuild` now ends by saying how to connect the new project: push it to GitHub, then pick it on admin.val.build/new or run `val connect`. `@valbuild/init` links to the same page, and now reads the GitHub repository from `origin` correctly.
+
 ## 0.142.0
 
 ### Minor Changes

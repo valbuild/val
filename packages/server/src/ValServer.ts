@@ -33,7 +33,6 @@ import {
   ValCookies,
   ValServerError,
   ValServerErrorStatus,
-  type PatchGroupT,
   parseJob,
 } from "@valbuild/shared/internal";
 import {
@@ -43,7 +42,7 @@ import {
   verifyJwt,
   type JwtFailureReason,
 } from "./jwt";
-import { clientConfig } from "./clientConfig";
+import { clientConfig, historyBranchOf } from "./clientConfig";
 import { z } from "zod";
 import { probeUrl } from "./linkCheck/probeUrl";
 import { parseRangeHeader } from "./httpRange";
@@ -158,8 +157,6 @@ export type CommitContext = {
   preparedCommit: PreparedCommit;
   message: string;
   authorId: AuthorId;
-  /** The patch group this commit empties, if it empties one. */
-  patchGroupId?: string;
   /**
    * The default: a git commit through the content API.
    *
@@ -1284,6 +1281,13 @@ export const ValServer = (
         const sourceMode = serverOps.sourceMode();
         // Spread like the two above: absent is "on the site".
         const proposal = serverOps.currentProposal();
+        const config = clientConfig(options);
+        const historyBranch = historyBranchOf({
+          mode,
+          proposal,
+          gitBranch: config.gitBranch ?? null,
+          projectBranch: serverOps.projectBranch(),
+        });
         return {
           status: 200,
           json: {
@@ -1294,10 +1298,11 @@ export const ValServer = (
             ...(sourceMode ? { sourceMode } : {}),
             ...(sourceMode ? { publishJobs: serverOps.publishesAsJobs() } : {}),
             ...(proposal ? { proposal } : {}),
+            ...(historyBranch ? { historyBranch } : {}),
             // Not `options.config` verbatim: in proxy mode the branch the
             // server resolved is filled in where the file did not name one.
             // See `clientConfig`.
-            config: clientConfig(options),
+            config,
           },
         };
       },
@@ -1671,192 +1676,10 @@ export const ValServer = (
         };
       },
     },
-    //#region patch groups
-    // Staging and unstaging patches. Both take an already-closed set of patch ids:
-    // the prefix closure (staging) or the forward closure (unstaging) is computed
-    // on the client, which is the only side that has the schema needed to derive
-    // patch sets. See `docs/independent-publish/PLAN.md`.
-    //
-    // In FS mode there is no shared store and exactly one author, so group
-    // membership lives in the client and these handlers simply acknowledge. The
-    // client already sends an explicit patch id list to `/save`, so a locally-held
-    // group is enough to publish a subset correctly.
-    "/patch-groups/~/patches": {
-      PUT: async (
-        req,
-      ): Promise<z.infer<Api["/patch-groups/~/patches"]["PUT"]["res"]>> => {
-        const auth = getAuth(req.cookies);
-        if (auth.error) {
-          return { status: 401, json: { message: auth.error } };
-        }
-        const { patchGroupId, patchIds } = req.body;
-        const withPatchIds = req.body.withPatchIds ?? [];
-        if (serverOps.patchesAreLocal) {
-          return {
-            status: 200,
-            json: {
-              patchGroupId: patchGroupId ?? null,
-              patchIds: [...patchIds, ...withPatchIds],
-            },
-          };
-        }
-        if (!("id" in auth) || !auth.id) {
-          return { status: 401, json: { message: "Unauthorized" } };
-        }
-        // A named group is checked here as well as by the content API. No name
-        // is the caller's own open group, which the content API resolves from
-        // the profile it is sent — there is nothing here to check it against.
-        if (patchGroupId !== undefined) {
-          const refusal = await refuseUnlessOwn(
-            serverOps,
-            patchGroupId,
-            auth.id,
-          );
-          if (refusal !== null) {
-            return {
-              status: refusal.status,
-              json: { message: refusal.message },
-            };
-          }
-        }
-        const res = await serverOps.stagePatches(
-          patchGroupId,
-          patchIds,
-          withPatchIds,
-          // Forwarded so the content API can refuse independently. This server
-          // has already refused a group that is not the caller's; sending the
-          // author means the check also holds for anything reaching the content
-          // API without coming through here.
-          auth.id as AuthorId,
-        );
-        if (res.error) {
-          return { status: res.status, json: { message: res.error.message } };
-        }
-        return {
-          status: 200,
-          json: {
-            patchGroupId: res.patchGroupId,
-            patchIds: res.patchIds,
-            ...(res.headVersion !== undefined
-              ? { headVersion: res.headVersion }
-              : {}),
-          },
-        };
-      },
-      DELETE: async (
-        req,
-      ): Promise<z.infer<Api["/patch-groups/~/patches"]["DELETE"]["res"]>> => {
-        const auth = getAuth(req.cookies);
-        if (auth.error) {
-          return { status: 401, json: { message: auth.error } };
-        }
-        const { patchGroupId, patchIds } = req.body;
-        const withPatchIds = req.body.withPatchIds ?? [];
-        if (serverOps.patchesAreLocal) {
-          return {
-            status: 200,
-            json: {
-              patchGroupId: patchGroupId ?? null,
-              patchIds: [...patchIds, ...withPatchIds],
-            },
-          };
-        }
-        if (!("id" in auth) || !auth.id) {
-          return { status: 401, json: { message: "Unauthorized" } };
-        }
-        // A named group is checked here as well as by the content API. No name
-        // is the caller's own open group, which the content API resolves from
-        // the profile it is sent — there is nothing here to check it against.
-        if (patchGroupId !== undefined) {
-          const refusal = await refuseUnlessOwn(
-            serverOps,
-            patchGroupId,
-            auth.id,
-          );
-          if (refusal !== null) {
-            return {
-              status: refusal.status,
-              json: { message: refusal.message },
-            };
-          }
-        }
-        const res = await serverOps.unstagePatches(
-          patchGroupId,
-          patchIds,
-          withPatchIds,
-          auth.id as AuthorId,
-        );
-        if (res.error) {
-          return { status: res.status, json: { message: res.error.message } };
-        }
-        return {
-          status: 200,
-          json: {
-            patchGroupId: res.patchGroupId,
-            patchIds: res.patchIds,
-            ...(res.headVersion !== undefined
-              ? { headVersion: res.headVersion }
-              : {}),
-          },
-        };
-      },
-    },
-
     //#region patches
     "/patches": {
       PUT: async (req): Promise<z.infer<Api["/patches"]["PUT"]["res"]>> => {
         const cookies = req.cookies;
-
-        /**
-         * Group membership travels WITH the patch, in one request.
-         *
-         * Atomic on purpose: the content API runs every refusal before its
-         * insert, so an invalid closure is a 400 with nothing written. Recording
-         * membership in a second call would let a patch exist outside its
-         * author's group whenever that call failed — and a patch outside your
-         * own group is one you cannot publish until a repair puts it back.
-         *
-         */
-        /*
-         * A membership is present if EITHER field is.
-         *
-         * The common case names no group: the content API resolves the author's
-         * open group, creating it if absent, so the client never has to hold an
-         * id across publishes. It still sends the closure, which is the part it
-         * alone can compute.
-         *
-         * `patchGroupId` is nullable, so an explicit `null` means "no group
-         * named" exactly as omitting it does — it is passed through as
-         * `undefined` rather than becoming a membership keyed by null.
-         */
-        const requestedPatchGroupId = req.body.patchGroupId ?? undefined;
-        const requestedWith = req.body.withPatchIds;
-        const patchGroup =
-          requestedPatchGroupId !== undefined || requestedWith !== undefined
-            ? {
-                ...(requestedPatchGroupId !== undefined
-                  ? { patchGroupId: requestedPatchGroupId }
-                  : {}),
-                withPatchIds: requestedWith ?? [],
-              }
-            : undefined;
-        if (patchGroup !== undefined && serverOps.patchesAreLocal) {
-          /*
-           * `fs` has no shared store and one author, so there is no group to
-           * join. Refused rather than acknowledged: answering 200 would tell the
-           * client its membership was recorded when it was dropped, and the
-           * client would then believe a publish is scoped when it is not.
-           */
-          return {
-            status: 400,
-            json: {
-              type: "patch-error",
-              message:
-                "Patch groups are not available in fs mode. Omit the patch group fields.",
-              errors: {},
-            },
-          };
-        }
         const auth = getAuth(cookies);
         if (auth.error) {
           return {
@@ -1881,23 +1704,22 @@ export const ValServer = (
         const authorId = "id" in auth ? (auth.id as AuthorId) : null;
         const newPatchIds: PatchId[] = [];
         /*
-         * The group the content API put these patches in.
-         *
-         * Every patch in one request has the same author and the same
-         * membership, so the last answer is the answer — they all land in the
-         * same group. Reported back because the client cannot learn it any
-         * other way: it names no group (the content API resolves the author's
-         * open one, creating it if absent), and the chain annotation is only
-         * re-read when a fetch has missing ids to ask for.
-         */
-        let patchGroupIdFromStore: string | undefined;
-        /*
          * The chain version the LAST patch made — the head this batch leaves.
          * The client keeps the highest version it has seen, so a `/stat` read
          * before this write cannot put its parent back behind it. Absent in
          * `fs` mode and from an older content API.
          */
         let headVersion: number | undefined;
+        /*
+         * What this request has saved so far: the whole answer to a save, and
+         * the saved part of one refused for the plan. One builder for both, so
+         * the client records a partly saved batch exactly as a saved one.
+         */
+        const savedSoFar = () => ({
+          newPatchIds,
+          parentRef,
+          ...(headVersion !== undefined ? { headVersion } : {}),
+        });
         for (const patch of patches) {
           const createPatchRes = await serverOps.createPatch(
             patch.path,
@@ -1906,7 +1728,6 @@ export const ValServer = (
             parentRef,
             sessionId,
             authorId,
-            patchGroup,
           );
           if (result.isErr(createPatchRes)) {
             if (createPatchRes.error.errorType === "patch-head-conflict") {
@@ -1916,6 +1737,23 @@ export const ValServer = (
                   type: "patch-head-conflict",
                   message:
                     "The change was written against a different starting point than the server has.",
+                },
+              };
+            } else if (createPatchRes.error.errorType === "plan-refused") {
+              /*
+               * Val Build refused it for the plan. Passed on as its 403 rather
+               * than a patch error: the patch is fine and the Studio keeps it,
+               * and the reason travels as data so the fix can sit beside it.
+               * The patches before this one in the batch ARE saved, and are
+               * reported as a 200 would report them.
+               */
+              return {
+                status: 403,
+                json: {
+                  type: "plan-refused",
+                  message: createPatchRes.error.error.message,
+                  error: createPatchRes.error.refusal,
+                  ...savedSoFar(),
                 },
               };
             } else {
@@ -1942,25 +1780,12 @@ export const ValServer = (
               patchId: createPatchRes.value.patchId,
             };
             newPatchIds.push(createPatchRes.value.patchId);
-            if (createPatchRes.value.patchGroupId !== undefined) {
-              patchGroupIdFromStore = createPatchRes.value.patchGroupId;
-            }
             headVersion = createPatchRes.value.headVersion;
           }
         }
         return {
           status: 200,
-          json: {
-            newPatchIds,
-            parentRef,
-            // Absent rather than null where there are no groups: `fs` mode and
-            // a content API that predates them both answer without one, and the
-            // client reads absence as "staging is not available here".
-            ...(patchGroupIdFromStore !== undefined
-              ? { patchGroupId: patchGroupIdFromStore }
-              : {}),
-            ...(headVersion !== undefined ? { headVersion } : {}),
-          },
+          json: savedSoFar(),
         };
       },
       GET: async (req): Promise<z.infer<Api["/patches"]["GET"]["res"]>> => {
@@ -2034,77 +1859,10 @@ export const ValServer = (
         }
         // TODO: we should sort by parentRef instead:
         patches.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-        /**
-         * Patch groups, ANNOTATED onto the chain rather than filtering it.
-         *
-         * The client computes a new patch's parent as the last id in this
-         * response, so a filtered chain would make every client name a parent
-         * that is not the real head and `POST /patches` would answer 409
-         * forever. Annotate, never filter.
-         *
-         * Absent — not empty — where there are no groups: `fs` mode, a content
-         * API that predates them, or a failed lookup. The client reads absence
-         * as "this deployment has no groups" and leaves staging off, which is
-         * the behaviour every project has today. An empty array would say
-         * "groups exist and hold nothing", which would turn the staging UI on
-         * with everything held.
-         */
-        let patchGroups: PatchGroupT[] | undefined;
-        if (
-          query.include_patch_groups === true &&
-          serverOps instanceof ValOpsHttp
-        ) {
-          /*
-           * FRESH, because this answer makes a CLOSING decision.
-           *
-           * The client adopts this annotation as its group membership and
-           * `emptiesOwnPatchGroup` then decides from it whether a publish may
-           * name the group — and the content API closes what it is named
-           * without checking. A one-second-old list is enough to get that
-           * wrong: the same author writing in a second tab joins the open
-           * group, the websocket pushes the chain immediately, so this tab's
-           * fetch for the missing patch lands well inside the cache window and
-           * reads a membership that is one patch short. It then publishes,
-           * names the group, and closes it with the other tab's work still in
-           * it — which leaves that tab wedged on 409 until a reload.
-           *
-           * `resolveOwnPatchScope` keeps the cache deliberately: that read
-           * decides what a draft render SHOWS, it is repeated once per
-           * `fetchVal` in a single render, and being a second stale there costs
-           * a patch appearing late rather than a group closing early.
-           */
-          const groupsRes = await serverOps.getPatchGroups({ fresh: true });
-          if (groupsRes.status === "ok" && groupsRes.patchGroups.length > 0) {
-            patchGroups = groupsRes.patchGroups;
-          } else if (groupsRes.status === "error") {
-            // Not fatal: the chain is what this endpoint is for, and staging
-            // simply stays off for this read rather than the whole review
-            // screen failing to load.
-            console.error(
-              "Val: could not read patch groups",
-              groupsRes.message,
-            );
-          }
-        }
-        const groupIdsByPatchId = new Map<PatchId, string[]>();
-        for (const group of patchGroups ?? []) {
-          for (const patchId of group.patchIds) {
-            const existing = groupIdsByPatchId.get(patchId);
-            if (existing) {
-              existing.push(group.patchGroupId);
-            } else {
-              groupIdsByPatchId.set(patchId, [group.patchGroupId]);
-            }
-          }
-        }
         return {
           status: 200,
           json: {
-            patches: patches.map((patch) => {
-              const patchGroupIds = groupIdsByPatchId.get(patch.patchId);
-              return patchGroupIds ? { ...patch, patchGroupIds } : patch;
-            }),
-            ...(patchGroups ? { patchGroups } : {}),
+            patches,
             baseSha: await serverOps.getBaseSha(),
           },
         };
@@ -2130,33 +1888,7 @@ export const ValServer = (
           };
         }
         const ids = query.id;
-        /*
-         * Which OTHER patches lose their group membership because these are
-         * going. Only the client can COMPUTE it — that needs the patch sets,
-         * which need the schema — but it is bounded here rather than trusted,
-         * because the content API strips those memberships from every group
-         * without an ownership check. See `boundUnstageClosure`.
-         *
-         * Only in `http` mode: `ValOpsFS` has no groups and ignores it, and the
-         * client does not send it there.
-         */
-        let unstagePatchIds: PatchId[] | undefined;
-        const requestedUnstage = req.body?.unstagePatchIds;
-        if (
-          serverOps instanceof ValOpsHttp &&
-          requestedUnstage !== undefined &&
-          requestedUnstage.length > 0
-        ) {
-          const chain = await serverOps.fetchPatches({
-            excludePatchOps: true,
-          });
-          unstagePatchIds = boundUnstageClosure(
-            chain.patches,
-            ids,
-            requestedUnstage,
-          );
-        }
-        const deleteRes = await serverOps.deletePatches(ids, unstagePatchIds);
+        const deleteRes = await serverOps.deletePatches(ids);
         if (deleteRes.errors && Object.keys(deleteRes.errors).length > 0) {
           console.error("Val: Failed to delete patches", deleteRes.errors);
           return {
@@ -2166,6 +1898,14 @@ export const ValServer = (
               errors: Object.entries(deleteRes.errors).map(([id, error]) => ({
                 patchId: id as PatchId,
                 ...error,
+                /*
+                 * Kept, so the Studio can say the change is being published
+                 * and offer to cancel that publish: content names the job.
+                 */
+                ...("publishJobId" in error &&
+                typeof error.publishJobId === "string"
+                  ? { publishJobId: error.publishJobId }
+                  : {}),
               })),
             },
           };
@@ -2273,20 +2013,6 @@ export const ValServer = (
         const { key, keys, offset, limit } = req.query;
         // Defaults to true, mirroring /sources/~. The Studio opts out.
         const applyPatches = req.query.apply_patches !== false;
-        /*
-         * Whose pending work this render may see.
-         *
-         * The same resolution `/sources/~` runs, through the same function: a
-         * draft page renders module content and `jsonValues` entries together,
-         * and this route used to apply every pending patch on the branch while
-         * the modules beside it were scoped — so one screen showed the caller's
-         * view and everybody's unpublished work at once.
-         */
-        const { ownPatchIds } = await resolveOwnPatchScope(serverOps, {
-          explicitPatchIds: undefined,
-          ownGroupsOnly: req.query.own_patch_groups_only === true,
-          authorId: ("id" in auth && auth.id) || undefined,
-        });
         const isWindow = offset !== undefined || limit !== undefined;
         const shapes = [key !== undefined, keys !== undefined, isWindow].filter(
           Boolean,
@@ -2309,7 +2035,6 @@ export const ValServer = (
         if (key !== undefined) {
           const res = await serverOps.getJsonEntry(moduleFilePath, key, {
             applyPatches,
-            patchIds: ownPatchIds,
           });
           if (res.status === "unauthorized") {
             return { status: 401, json: { message: res.message } };
@@ -2330,7 +2055,7 @@ export const ValServer = (
           keys !== undefined
             ? { keys }
             : { offset: offset as number, limit: limit as number },
-          { applyPatches, patchIds: ownPatchIds },
+          { applyPatches },
         );
         if (res.status === "unauthorized") {
           return { status: 401, json: { message: res.message } };
@@ -2396,104 +2121,10 @@ export const ValServer = (
           patches: [],
         };
         if (query.exclude_patches !== true) {
-          /**
-           * The caller's own groups, resolved from their session.
-           *
-           * A draft render cannot name its own group ids — it has no client
-           * state — so it asks for "mine" and the server works out which. Only
-           * when `patch_id` is absent: an explicit list is a caller that already
-           * knows what it wants.
-           *
-           * A group lookup that FAILS renders base rather than everything. Being
-           * shown only committed content while the content API is unreachable is
-           * a degraded preview; being shown another author's unpublished draft
-           * because a lookup failed is the bug this feature exists to prevent,
-           * and it would be silent.
-           */
-          const { ownPatchIds, scopeAlsoIncludesApplied } =
-            await resolveOwnPatchScope(serverOps, {
-              explicitPatchIds: query.patch_id,
-              ownGroupsOnly: query.own_patch_groups_only === true,
-              authorId: ("id" in auth && auth.id) || undefined,
-            });
-          const requestedPatchIds = query.patch_id ?? ownPatchIds;
-          if (scopeAlsoIncludesApplied) {
-            /*
-             * Scoped to this caller's groups, PLUS everything already
-             * committed.
-             *
-             * Filtered here rather than through `patchIds`, because the set is
-             * not knowable before the fetch: `appliedAt` lives on the patch,
-             * not on the group. One request either way — the whole chain is
-             * what the unscoped path fetches too — so this costs a filter, not
-             * a round trip.
-             *
-             * This also subsumes the empty-group case below: a caller holding
-             * nothing, on a branch with nothing applied, filters down to no
-             * patches, which is base.
-             */
-            const all = await serverOps.fetchPatches({
-              patchIds: undefined,
-              excludePatchOps: false,
-            });
-            /*
-             * Membership from THIS response when it carries one, not from the
-             * group list `resolveOwnPatchScope` read.
-             *
-             * That list is a separate request, remembered for a second
-             * (`ValOpsHttp.getPatchGroups`), so it can be older than the chain
-             * fetched here: an editor who saved and reloaded at once was
-             * rendered without the patch they had just written, because the
-             * list still had their group without it. The content service reads
-             * the chain and each patch's groups in one transaction, and
-             * `fetchPatches` folds that onto `patchGroups` -- so the patches
-             * and who owns them come from the same moment.
-             */
-            const own = ownPatchScopeFor(
-              all,
-              ("id" in auth && auth.id) || undefined,
-              ownPatchIds,
-            );
-            patchOps = {
-              ...all,
-              patches: scopedPatches(all.patches, own),
-            };
-          } else if (
-            requestedPatchIds !== undefined &&
-            requestedPatchIds.length === 0
-          ) {
-            /*
-             * A group that holds nothing renders base, and is handled HERE.
-             *
-             * `fetchPatches` cannot express it: both implementations read an
-             * empty `patchIds` as "no filter" and return the whole chain
-             * (`ValOpsFS`: `patchIds.length > 0 ? new Set(...) : null`;
-             * `ValOpsHttp`: an explicit `length === 0` branch that fetches all).
-             * That is the right default for every caller that has ever passed a
-             * list, since none of them can mean "none" — but it is the most
-             * dangerous possible reading of an EXPLICITLY empty group, which
-             * would render every unpublished patch on the branch instead of
-             * base.
-             *
-             * Answered before the call rather than by changing that shared
-             * default, which seven other call sites rely on.
-             */
-            patchOps = { patches: [] };
-          } else {
-            patchOps = await serverOps.fetchPatches({
-              /*
-               * The caller's patch group, when it named one.
-               *
-               * `undefined` means every pending patch, which is what every
-               * existing caller gets and has to keep getting. A draft-mode
-               * render that names its group gets base + that group instead, so
-               * a server-rendered preview shows the same thing the person
-               * editing is looking at rather than everybody's unpublished work.
-               */
-              patchIds: requestedPatchIds,
-              excludePatchOps: false,
-            });
-          }
+          patchOps = await serverOps.fetchPatches({
+            patchIds: undefined,
+            excludePatchOps: false,
+          });
         }
         // We check authorization here, because it is the first call to the backend
         if (patchOps.error && patchOps.unauthorized) {
@@ -2805,6 +2436,151 @@ export const ValServer = (
           branch: serverOps.projectBranch(),
           buildable: true,
         });
+      },
+    },
+    "/publish-selected": {
+      POST: async (req) => {
+        const auth = getAuth(req.cookies);
+        if (auth.error) {
+          return { status: 401, json: { message: auth.error } };
+        }
+        const profileId = profileOf(auth);
+        if (profileId === null) {
+          return { status: 401, json: { message: "Sign in to publish" } };
+        }
+        if (serverOps instanceof ValOpsHttp) {
+          await serverOps.learnProjectExpectation();
+        }
+        if (
+          !(serverOps instanceof ValOpsHttp) ||
+          serverOps.sourceMode() !== "managed" ||
+          !serverOps.publishesAsJobs() ||
+          serverOps.currentProposal() !== null
+        ) {
+          return {
+            status: 409,
+            json: {
+              message:
+                "Publish selected is for a site whose publishes are proposals: this deployment cannot.",
+            },
+          };
+        }
+        const refusal = serverOps.publishRefusal();
+        if (refusal) {
+          return { status: 409, json: { message: refusal.message } };
+        }
+        const { patchIds, displayName, requestId } = req.body;
+        /*
+         * The selection's content over the site's head, exactly as a publish
+         * job of it is prepared: this build's source, the commits since it,
+         * and the selection on top. Only what the selection touched is saved,
+         * so the proposal's save is the selection and nothing else.
+         */
+        const built = await buildSourcesOf(serverOps, patchIds, commit, {
+          binaries: false,
+        });
+        if ("status" in built) return built;
+        if (built.headCommitSha === undefined) {
+          return {
+            status: 409,
+            json: {
+              message:
+                "The content service does not say where the site's head is, which Publish selected needs: it is older than this Studio.",
+            },
+          };
+        }
+        const selected = new Set<string>(patchIds);
+        const prepared: PreparedCommit = {
+          ...built.withJob,
+          patchedSourceFiles: built.split.archive.patchedSourceFiles,
+          patchedBinaryFilesDescriptors:
+            built.split.archive.patchedBinaryFilesDescriptors,
+          moduleVersions: built.split.archive.modules,
+          appliedPatches: Object.fromEntries(
+            Object.entries(built.withJob.appliedPatches)
+              .map(([path, ids]) => [
+                path,
+                ids.filter((id) => selected.has(id)),
+              ])
+              .filter(([, ids]) => ids.length > 0),
+          ),
+        };
+        /*
+         * Moved and based in one transaction, on the head the selection was
+         * prepared over: content refuses the create when the site is no
+         * longer there, and nothing has moved.
+         */
+        const created = await serverOps.proposalsApi(
+          "",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              displayName,
+              kind: "publish",
+              patchIds,
+              requestId,
+              base: built.headCommitSha,
+            }),
+          },
+          profileId,
+        );
+        const createdBody = PublishProposalCreated.safeParse(
+          safeJson(created.body),
+        );
+        const createdError = ContentError.safeParse(safeJson(created.body));
+        if (created.status === 409) {
+          /*
+           * Content refuses a base that is not the site's head -- a publish
+           * landed in between, and pressing again prepares over the new one.
+           * Any other refusal is content's to put in words, and again would
+           * be refused the same way.
+           */
+          const message = createdError.success ? createdError.data.message : "";
+          return /base is not the site's head/.test(message)
+            ? {
+                status: 409,
+                json: {
+                  message:
+                    "The site was published while this was being prepared. Nothing was published: publish them again.",
+                  headMoved: true,
+                },
+              }
+            : {
+                status: 409,
+                json: {
+                  message:
+                    message ||
+                    "The changes could not be moved into a proposal to publish them.",
+                },
+              };
+        }
+        if (created.status !== 200 || !createdBody.success) {
+          return {
+            status: 500,
+            json: {
+              message: `The changes could not be moved into a proposal to publish them (${created.status}): ${created.body.slice(0, 300)}`,
+            },
+          };
+        }
+        const proposal = createdBody.data.proposal.name;
+        const saved = await serverOps.commit(
+          prepared,
+          `Publish selected: ${displayName}`,
+          profileId as AuthorId,
+          FILES_DIRECTORY,
+          undefined,
+          proposal,
+        );
+        if (saved.error) {
+          return {
+            status: 502,
+            json: {
+              message: `The changes are in a proposal, but could not be saved there: ${saved.error.message}`,
+              proposal,
+            },
+          };
+        }
+        return { status: 200, json: { proposal } };
       },
     },
     "/admin/status": {
@@ -3307,48 +3083,6 @@ export const ValServer = (
           };
         } else if (serverOps instanceof ValOpsHttp) {
           if (auth.error === undefined && auth.id) {
-            /*
-             * The group this commit CLOSES has to be the caller's.
-             *
-             * Stage and unstage go through `refuseUnlessOwn`; this route did
-             * not, and the content API's `postCommit` marks the group published
-             * on id alone with no author clause — so the id was trusted twice
-             * and checked nowhere. Any logged-in editor could name a colleague's
-             * open group and close it: their pending patches land in a closed
-             * group and in no open one, so a scoped draft render shows base for
-             * them, and their own tab still believes the group is open, so their
-             * next stage is refused with 409.
-             *
-             * Same hole as the stage/unstage one this branch already closed, one
-             * route over. The content API needs the same guard — this one is the
-             * convenience, that one is what actually holds.
-             */
-            if (body.patchGroupId !== undefined && body.patchGroupId !== null) {
-              const refusal = await refuseUnlessOwn(
-                serverOps,
-                body.patchGroupId,
-                auth.id,
-              );
-              if (refusal !== null) {
-                return {
-                  status: refusal.status,
-                  json: {
-                    message: refusal.message,
-                    /*
-                     * Flagged, because a bare 409 here reads as git refusing
-                     * the commit — which is retryable, and this is the
-                     * opposite. `refuseUnlessOwn` answers 409 for one reason
-                     * only: the group has already been published, so its id
-                     * will never be writable again and retrying reproduces
-                     * this forever. The client forgets the id instead.
-                     */
-                    ...(refusal.status === 409
-                      ? { patchGroupPublished: true as const }
-                      : {}),
-                  },
-                };
-              }
-            }
             const message =
               body.message ||
               "Val CMS update (" +
@@ -3376,13 +3110,6 @@ export const ValServer = (
                 auth.id as AuthorId,
                 FILES_DIRECTORY,
                 undefined,
-                /*
-                 * Forwarded verbatim, and only the client can decide it: the
-                 * content API closes the group it is named without checking
-                 * that the commit shipped all of it, and whether it did needs
-                 * the patch sets, which live in the browser.
-                 */
-                body.patchGroupId,
               );
             /*
              * A host may publish somewhere other than the repository.
@@ -3397,7 +3124,6 @@ export const ValServer = (
                   preparedCommit,
                   message,
                   authorId: auth.id as AuthorId,
-                  patchGroupId: body.patchGroupId,
                   commitToGit,
                 })
               : await commitToGit();
@@ -4495,306 +4221,6 @@ export type ValServerCallbacks = {
   onDisable: (success: boolean) => Promise<void>;
 };
 
-/**
- * Refuse to touch a group that is not the caller's.
- *
- * Exported for `patchGroupOwnership.test.ts`: this is the whole of the
- * authorization for stage and unstage, and nothing else in the process checks
- * it, so it is worth testing as a policy rather than only through a route.
- *
- * `getAuth` only proves a session EXISTS; it says nothing about whose
- * group this is. And the content API cannot decide either — every call
- * from here carries the app's API key, not the editor's identity — so if
- * this does not check, nothing does.
- *
- * `GET /patches?include_patch_groups=true` hands every editor the id and
- * author of every open group on the branch, so without this any logged-in
- * editor can unstage another author's patches (their next publish
- * silently ships less) or stage into their group (it silently ships
- * more). The 403 declared for this route in `ApiRoutes.ts` was
- * unreachable.
- *
- * Fails CLOSED: if the groups cannot be read, the mutation is refused
- * rather than allowed unverified.
- */
-
-/**
- * The patches a scoped draft render should apply: the caller's own group, plus
- * everything already committed.
- *
- * Scoping is about PENDING work. A published patch stays in the chain with
- * `appliedAt` set until the next deployment moves the base, and it is part of
- * everyone's view in that window — the unscoped path applies it. Dropping it
- * meant the moment somebody published, their own draft preview reverted the
- * field they had just shipped, and nobody else saw it either until the deploy
- * landed; anything written on top in that window is authored against content
- * already stale on `main`.
- *
- * Keyed on `appliedAt` rather than on the group's `publishedAt`, because a
- * PARTIAL publish leaves the group open with only some of its patches applied.
- * Those are committed too, and no flag on the group names them.
- *
- * `undefined` scope is unscoped and never reaches here; an EMPTY scope is a
- * caller holding nothing, and on a branch with nothing applied it correctly
- * filters down to no patches, which renders base.
- */
-export function scopedPatches<
-  T extends { patchId: PatchId; appliedAt: { commitSha: CommitSha } | null },
->(patches: T[], ownPatchIds: PatchId[] | undefined): T[] {
-  const own = new Set(ownPatchIds ?? []);
-  return patches.filter(
-    (patch) => own.has(patch.patchId) || patch.appliedAt !== null,
-  );
-}
-
-/**
- * Which of the client's `unstagePatchIds` this server is willing to forward.
- *
- * The forward closure of a discard is the client's to compute — it needs the
- * patch sets, which need the schema — and it was being forwarded verbatim. But
- * the content API removes those memberships from EVERY group with no ownership
- * check, so any logged-in editor could strip arbitrary patches out of any other
- * author's group by attaching them to a delete of one of their own throwaway
- * patches. That is the outcome the 403 on `/patch-groups` exists to prevent,
- * reached by a different door: their next publish silently ships less.
- *
- * Neither server can compute the true closure, but this one can BOUND it. A
- * patch can only be invalidated by a delete if it was written after that delete
- * — its paths were chosen against a view that had it — and if it is in the same
- * module, since a patch set never spans two. Anything outside those bounds was
- * not in the closure whatever the client says, so it is dropped rather than
- * refused: the delete is still correct, and refusing the whole request over an
- * over-broad extra would turn a discard into an error the user cannot act on.
- *
- * Exported for the test. Pure, and given the chain rather than fetching it, so
- * the ordering it depends on is visible in the test rather than mocked.
- */
-export function boundUnstageClosure(
-  /** The pending chain, in chain order, as `fetchPatches` returns it. */
-  chain: readonly { patchId: PatchId; path: ModuleFilePath }[],
-  deleted: readonly PatchId[],
-  requested: readonly PatchId[],
-): PatchId[] {
-  if (requested.length === 0) {
-    return [];
-  }
-  const positionOf = new Map<PatchId, number>();
-  const moduleOf = new Map<PatchId, ModuleFilePath>();
-  chain.forEach((entry, index) => {
-    positionOf.set(entry.patchId, index);
-    moduleOf.set(entry.patchId, entry.path);
-  });
-  const doomed = new Set(deleted);
-  return requested.filter((patchId) => {
-    // A patch being deleted anyway does not need its membership stripped
-    // separately, and naming one is how an over-broad list hides.
-    if (doomed.has(patchId)) return false;
-    const position = positionOf.get(patchId);
-    const moduleFilePath = moduleOf.get(patchId);
-    if (position === undefined || moduleFilePath === undefined) return false;
-    return deleted.some((deletedId) => {
-      const deletedPosition = positionOf.get(deletedId);
-      if (deletedPosition === undefined) return false;
-      return (
-        position > deletedPosition && moduleOf.get(deletedId) === moduleFilePath
-      );
-    });
-  });
-}
-
-/**
- * Which pending patches this caller may see, when they asked for "only mine".
- *
- * Shared by `/sources/~` and `/json`, and it has to be: a draft page renders
- * both, so two answers to "whose work is this" put one person's half-finished
- * edit on another person's preview through whichever route was not scoped. That
- * is exactly what happened — `/json` applied every pending patch on the branch
- * while the module content beside it was scoped.
- *
- * `undefined` means "apply everything", which is what every caller that does
- * not ask for scoping gets and must keep getting.
- */
-/** The patches in this author's OPEN groups: what a scoped draft shows. */
-export function ownPatchIdsIn(
-  patchGroups: PatchGroupT[],
-  authorId: string,
-): PatchId[] {
-  return patchGroups
-    .filter(
-      (group) => group.publishedAt === null && group.authorId === authorId,
-    )
-    .flatMap((group) => group.patchIds);
-}
-
-/**
- * Whose pending patches a scoped draft shows, taken from the SAME response as
- * the patches when it says, and from the list read beforehand only when not.
- *
- * See the call in `/sources/~`: the list read beforehand can be older than the
- * chain, and the response's membership cannot be.
- */
-export function ownPatchScopeFor(
-  fetched: { patchGroups?: PatchGroupT[] },
-  authorId: string | undefined,
-  remembered: PatchId[] | undefined,
-): PatchId[] | undefined {
-  if (fetched.patchGroups === undefined || authorId === undefined) {
-    return remembered;
-  }
-  return ownPatchIdsIn(fetched.patchGroups, authorId);
-}
-
-export async function resolveOwnPatchScope(
-  /*
-   * `ValOps`, not the two concrete stores: the one thing this needs is whether
-   * a content service holds the groups, and it asks that below with an
-   * `instanceof ValOpsHttp`. Naming the implementations here meant every new
-   * store had to be added to a list to be allowed to call a function that does
-   * not use it.
-   */
-  serverOps: ValOps,
-  opts: {
-    /** A caller that named a list already knows what it wants. */
-    explicitPatchIds: PatchId[] | undefined;
-    ownGroupsOnly: boolean;
-    /** `undefined` where there is no session to have one. */
-    authorId: string | undefined;
-  },
-): Promise<{
-  ownPatchIds: PatchId[] | undefined;
-  scopeAlsoIncludesApplied: boolean;
-}> {
-  let ownPatchIds: PatchId[] | undefined;
-  /** See where this is set: committed work is nobody's to hold back. */
-  let scopeAlsoIncludesApplied = false;
-  if (opts.explicitPatchIds === undefined && opts.ownGroupsOnly) {
-    if (serverOps instanceof ValOpsHttp && opts.authorId) {
-      const groupsRes = await serverOps.getPatchGroups();
-      if (groupsRes.status === "unsupported") {
-        /*
-         * A content API that PREDATES patch groups — the endpoint 404s.
-         *
-         * Unscoped, which is what those deployments do today and must
-         * keep doing. Reading this as a failure and rendering base
-         * would silently drop every pending patch from every draft
-         * preview on every existing http project — the exact opposite
-         * of "keeps working unchanged", and invisible to the reader.
-         */
-        ownPatchIds = undefined;
-      } else if (groupsRes.status === "error") {
-        /*
-         * We could not ask, and this deployment DOES have the endpoint.
-         * Render base rather than everything: a degraded preview is
-         * recoverable, showing another author's unpublished draft is
-         * not, and it would be silent.
-         */
-        ownPatchIds = [];
-      } else if (groupsRes.patchGroups.length === 0) {
-        /*
-         * The branch has no groups AT ALL, so this deployment is not
-         * using them — a content API that predates patch groups, or a
-         * project where nobody has staged anything since they existed.
-         *
-         * Unscoped, which is the behaviour every such project has
-         * today. Collapsing this into "your group is empty" would make
-         * every draft render base and silently drop all pending
-         * content, which is what happened before this branch: nothing
-         * writes a group yet, so EVERY project is in this state right
-         * now.
-         */
-        ownPatchIds = undefined;
-      } else {
-        /*
-         * Groups exist and none are this person's: they have staged
-         * nothing, and base is the honest answer. Distinct from the
-         * case above, which is why the two are not one expression.
-         */
-        ownPatchIds = ownPatchIdsIn(groupsRes.patchGroups, opts.authorId);
-        /*
-         * Scoping applies to PENDING work only. Anything already
-         * committed is part of everyone's view.
-         *
-         * A published patch stays in the chain with `appliedAt` set
-         * until the next deployment moves the base, and the unscoped
-         * path applies it. Filtering to open groups dropped it — so the
-         * moment someone published, their own draft preview reverted
-         * the field they had just shipped, and nobody else saw it
-         * either until the deploy landed. Anything written on top in
-         * that window is authored against content that is already
-         * stale on `main`.
-         *
-         * Unioned by `appliedAt` rather than by pulling in groups with
-         * a `publishedAt`, because a partial publish leaves the group
-         * OPEN with some of its patches applied — those are committed
-         * too, and no group flag names them.
-         */
-        scopeAlsoIncludesApplied = true;
-      }
-    } else {
-      /*
-       * fs mode, or a server with no groups: there is nothing to scope
-       * BY, and every pending patch is this one person's anyway. Left
-       * `undefined` so the existing "apply everything" path runs.
-       */
-      ownPatchIds = undefined;
-    }
-  }
-  return { ownPatchIds, scopeAlsoIncludesApplied };
-}
-
-export async function refuseUnlessOwn(
-  ops: ValOpsHttp,
-  patchGroupId: string,
-  authorId: string,
-): Promise<{ status: 403 | 409 | 500; message: string } | null> {
-  /*
-   * Never from the cache. This answers "is this group yours", and a group is at
-   * its youngest exactly when the question is asked — the first write creates
-   * it and the shell flushes its queued stages the moment the save response
-   * names it. A cached list fetched a few hundred milliseconds earlier does not
-   * contain it, and every one of those stages was refused and dropped.
-   */
-  const groupsRes = await ops.getPatchGroups({ fresh: true });
-  if (groupsRes.status !== "ok") {
-    return {
-      status: 500,
-      message:
-        "Could not verify that this patch group is yours, so it was not changed.",
-    };
-  }
-  const group = groupsRes.patchGroups.find(
-    (candidate) => candidate.patchGroupId === patchGroupId,
-  );
-  if (
-    group === undefined ||
-    group.authorId === null ||
-    group.authorId !== authorId
-  ) {
-    /*
-     * "Not found" and "not yours" are the SAME refusal on purpose: the route
-     * schema has no 404, and `GET /patches` already lists every group on the
-     * branch, so distinguishing them hides nothing and only adds a second
-     * message to keep consistent.
-     *
-     * A null author is a group written by an api key or a PAT. Nobody owns it,
-     * so nobody may stage into it — `null === null` must not read as a match.
-     */
-    return {
-      status: 403,
-      message: "You can only change your own patch group",
-    };
-  }
-  if (group.publishedAt !== null) {
-    /*
-     * Already shipped, so it can never be written again. The content API
-     * answers this too; refusing here saves the round trip and keeps the
-     * wording the same as every other refusal on this route.
-     */
-    return { status: 409, message: "Patch group is already published" };
-  }
-  return null;
-}
-
 function verifyCallbackReq(
   stateCookie: string | undefined,
   queryParams: Record<string, unknown>,
@@ -5259,10 +4685,19 @@ async function buildSourcesOf(
   serverOps: ValOpsHttp,
   patchIds: string[],
   commit: CommitSha | undefined,
+  /**
+   * Read the job's binary files back for a build. Off for a caller that only
+   * commits what was prepared, which names the files rather than carrying them.
+   */
+  options: { binaries: boolean } = { binaries: true },
 ): Promise<
   | { status: 409 | 500; json: { message: string } }
   | {
       split: ReturnType<typeof splitJobPrepare>;
+      /** The job's content, prepared: what a save of the job commits. */
+      withJob: PreparedCommit;
+      /** The branch's head the commits it was prepared over reach, at the least. */
+      headCommitSha: string | null | undefined;
       sourceFiles: Record<string, string | null>;
       binaryFiles: Record<string, string>;
       binaryFilesUnread: string[];
@@ -5327,12 +4762,16 @@ async function buildSourcesOf(
     jobPatchIds: patchIds,
   });
   // Read now, while the job's changes still hold their files.
-  const binaries = await readCommittedBinaryFiles(
-    serverOps,
-    split.archive.patchedBinaryFilesDescriptors,
-  );
+  const binaries = options.binaries
+    ? await readCommittedBinaryFiles(
+        serverOps,
+        split.archive.patchedBinaryFilesDescriptors,
+      )
+    : { files: {}, unread: [] };
   return {
     split,
+    withJob,
+    headCommitSha: chain.headCommitSha,
     sourceFiles: split.buildSourceFiles,
     binaryFiles: binaries.files,
     binaryFilesUnread: binaries.unread,
@@ -5395,5 +4834,20 @@ function jobPrepareAnswer(
       status: 502,
       json: { message: e instanceof Error ? e.message : String(e) },
     };
+  }
+}
+
+/** What `/publish-selected` reads from content's proposal create. */
+const PublishProposalCreated = z.object({
+  proposal: z.object({ name: z.string() }),
+});
+/** Content's refusal, in its words. */
+const ContentError = z.object({ message: z.string() });
+
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
   }
 }

@@ -11,6 +11,7 @@ import {
 } from "@valbuild/core";
 import {
   isSchemaSourceFixError,
+  keyOfRecordPath,
   resolveSchemaSourceFixes,
   resolveSchemaSourceFixForError,
 } from "./resolveSchemaSourceFixes";
@@ -574,5 +575,46 @@ describe("isSchemaSourceFixError", () => {
         fixes: ["image:check-remote"],
       }),
     ).toBe(false);
+  });
+});
+
+describe("gallery markers", () => {
+  const GALLERY = "/content/images.val.ts" as ModuleFilePath;
+  const PAGE = `/content/page.val.ts?p="hero"` as SourcePath;
+  const NEW = "/public/val/images/new.png";
+  const marker = Internal.media.galleryMarkerOf;
+  const error: ValidationError = {
+    message: `The gallery does not have an image at '${NEW}'.`,
+    value: { path: NEW, gallery: GALLERY, source: { path: NEW } },
+    fixes: ["image:check-gallery"],
+  };
+  const snapshotWith = (entries: Record<string, unknown>) => ({
+    schemas: {
+      [GALLERY]: { type: "record", item: { type: "object", items: {} } },
+    } as unknown as Record<ModuleFilePath, SerializedSchema>,
+    sources: { [GALLERY]: entries } as Record<ModuleFilePath, never>,
+  });
+
+  test("resolved when the gallery has the image now", () => {
+    expect(marker(error)).toEqual({
+      path: NEW,
+      gallery: GALLERY,
+      source: { path: NEW },
+    });
+    expect(
+      resolveSchemaSourceFixForError(error, snapshotWith({ [NEW]: {} })),
+    ).toEqual({ status: "resolved" });
+  });
+
+  test("remaining, as the field holds it, when the gallery does not", () => {
+    expect(
+      resolveSchemaSourceFixes({ [PAGE]: [error] }, snapshotWith({})),
+    ).toEqual({
+      [PAGE]: [{ message: error.message, value: { path: NEW } }],
+    });
+  });
+
+  test("the gallery is what the Studio re-checks the field against", () => {
+    expect(keyOfRecordPath(error)).toBe(GALLERY);
   });
 });

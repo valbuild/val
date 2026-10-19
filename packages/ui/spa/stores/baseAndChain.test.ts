@@ -145,6 +145,12 @@ function studioOnBundle(
     ) => Promise<Awaited<ReturnType<FetchPatches>> & { skipSaved?: true }>;
     /** Held until resolved, to keep a base fetch in flight. */
     baseGate?: () => Promise<void>;
+    /**
+     * The content the page serves when it is not the bundle's: a content
+     * version, published without a build, which the page hands in beside its
+     * modules (`window.__VAL_BASE__`).
+     */
+    served?: Commit;
   } = {},
 ) {
   const { c, s } = initVal();
@@ -205,9 +211,13 @@ function studioOnBundle(
       keywords: CONTENT_AT[bundle],
     }),
   ];
-  system.host.receive(modules);
+  const base =
+    options.served !== undefined
+      ? { [MODULE]: { keywords: CONTENT_AT[options.served] } }
+      : undefined;
+  system.host.receive(modules, base);
   // The bundle handing its modules in again, as HMR does.
-  const reintake = () => system.host.receive(modules);
+  const reintake = () => system.host.receive(modules, base);
   return Object.assign(system, { baseFetches, reintake });
 }
 
@@ -707,4 +717,50 @@ test("a swap drops loaded .jsonValues() entries, so they are read from the new b
     "Alpha, as the answering build has it",
   );
   system.dispose();
+});
+
+/**
+ * A CONTENT VERSION: content published without a build. The bundle still holds
+ * what it was built with, and the page serves something newer -- so the bundle
+ * is not the base, and a Studio that took it as one put the pre-publish text
+ * back on a draft page whenever its intake reached the page before its base
+ * was swapped. The page hands its base in with the modules, and the Studio
+ * starts from it.
+ */
+describe("the Studio's base, when the page serves content its bundle does not hold", () => {
+  test("the base the page hands in is the Studio's from the start, never the bundle's", async () => {
+    const seen: unknown[] = [];
+    const system = studioOnBundle("C0", { served: "C2" });
+    system.sourceStore.events.on("source:change", () => {
+      const peeked = system.sourceStore.peek(KEYWORDS);
+      seen.push("data" in peeked ? peeked.data : peeked.status);
+    });
+    expect(system.sourceStore.peek(KEYWORDS)).toMatchObject({
+      data: CONTENT_AT.C2,
+    });
+    expect(system.host.bundleBase()?.sourcesSha).toEqual(sourcesShaAt("C2"));
+
+    system.stat.receiveStat(statFor("C2"));
+    await settle(system);
+    expect(system.sourceStore.peek(KEYWORDS)).toMatchObject({
+      data: HEAD_PLUS_PENDING,
+    });
+    // C2 is what the page serves, so its base is already held: nothing to fetch.
+    expect(system.baseFetches).toEqual([]);
+    for (const value of seen) {
+      expect(value).not.toEqual(CONTENT_AT.C0);
+    }
+  });
+
+  test("an intake again, as HMR does, keeps it", async () => {
+    const system = studioOnBundle("C0", { served: "C2" });
+    system.stat.receiveStat(statFor("C2"));
+    await settle(system);
+    system.reintake();
+    await settle(system);
+    expect(system.sourceStore.peek(KEYWORDS)).toMatchObject({
+      data: HEAD_PLUS_PENDING,
+    });
+    expect(system.baseFetches).toEqual([]);
+  });
 });

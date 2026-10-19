@@ -25,6 +25,7 @@
  * is what keeps that true.
  */
 export * from "./build";
+export { buildInputId } from "./inputId";
 /*
  * Named rather than `export *`, because these modules also export things whose
  * names only make sense inside the build: `paths.ts` has a `resolve` and a
@@ -38,3 +39,4 @@ export * from "./contract";
 export * from "./artifacts";
 export * from "./gitTree";
 export * from "./wire";
+export { bundleValModules } from "./valModules";

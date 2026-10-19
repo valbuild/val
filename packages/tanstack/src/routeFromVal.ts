@@ -1,4 +1,4 @@
-import { ModuleFilePath, Internal, RecordSchema } from "@valbuild/core";
+import { Json, ModuleFilePath, Internal, RecordSchema } from "@valbuild/core";
 import {
   getPatternFromModuleFilePath,
   getTanStackRouterSourceFolder,
@@ -16,6 +16,120 @@ export function isJsonValuesRecordSchema(schema: unknown): boolean {
     schema instanceof RecordSchema &&
     schema["executeSerialize"]().jsonValues === true
   );
+}
+
+/**
+ * A whole `.jsonValues()` record, as `useVal` and `fetchVal` read it: with
+ * every entry's content. In the record's own source each entry is a lazy
+ * `c.json(() => import(...))` marker, so a reader that encodes that source
+ * renders every entry empty. (`useValKey` and `fetchValKey` read one entry,
+ * and load only that one.)
+ *
+ * `sourcesOf(modulePath)` are what the reader has before the bundle, the first
+ * that has the record winning: a draft view, then a snapshot (a proposal's saves, or the
+ * content version the site serves). An entry that is still a marker there is
+ * taken from a later source that has its content; the rest are named in
+ * `load`, for the reader to load from the bundle by key and hand to
+ * {@link fillJsonValuesRecord}.
+ *
+ * `null` when the selector is not a `.jsonValues()` module, or its record is
+ * not an object (a nullable record that is null): there is nothing to fill.
+ */
+export function jsonValuesRecordToFill(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  selector: any,
+  sourcesOf: (modulePath: ModuleFilePath) => (Json | undefined)[],
+): {
+  modulePath: ModuleFilePath;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  module: any;
+  record: Record<string, unknown>;
+  load: string[];
+} | null {
+  // Untyped, as `getJsonEntryStegaRoot`'s selector is: a module or a view of
+  // one, whichever source type it was defined with.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const module: any = Internal.resolveViewedModule(selector);
+  if (!module || !isJsonValuesRecordSchema(Internal.getSchema(module))) {
+    return null;
+  }
+  const modulePath = Internal.getValPath(module) as unknown as
+    | ModuleFilePath
+    | undefined;
+  if (!modulePath) {
+    return null;
+  }
+  const sources = sourcesOf(modulePath);
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+  const chosen = sources.find((source) => source !== undefined);
+  const base: unknown =
+    chosen !== undefined ? chosen : Internal.getSource(module);
+  if (!isRecord(base)) {
+    return null;
+  }
+  const record: Record<string, unknown> = {};
+  const load: string[] = [];
+  for (const [key, entry] of Object.entries(base)) {
+    if (!Internal.isJson(entry)) {
+      record[key] = entry;
+      continue;
+    }
+    const later = sources
+      .slice(sources.indexOf(chosen) + 1)
+      .map((source) =>
+        isRecord(source) && Object.prototype.hasOwnProperty.call(source, key)
+          ? source[key]
+          : undefined,
+      )
+      .find((content) => content !== undefined && !Internal.isJson(content));
+    if (later !== undefined) {
+      record[key] = later;
+    } else {
+      // Left as the marker until it is loaded: see `fillJsonValuesRecord`.
+      record[key] = entry;
+      load.push(key);
+    }
+  }
+  return { modulePath, module, record, load };
+}
+
+/**
+ * The record from {@link jsonValuesRecordToFill}, with the entries it named in
+ * `load` put in: `loaded[key]`, as the bundle's import of that entry gave it.
+ * An entry the bundle has no import for keeps its marker.
+ */
+export function fillJsonValuesRecord(
+  record: Record<string, unknown>,
+  loaded: Record<string, unknown>,
+): Record<string, unknown> {
+  const filled: Record<string, unknown> = { ...record };
+  for (const [key, content] of Object.entries(loaded)) {
+    if (content !== undefined) {
+      filled[key] = content;
+    }
+  }
+  return filled;
+}
+
+/**
+ * The bundle's import of one `.jsonValues()` entry, started: `undefined` when
+ * the module's own source has no marker for `key` to import from.
+ */
+export function bundledJsonEntryImport(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  module: any,
+  key: string,
+): (() => Promise<{ default: unknown }>) | undefined {
+  const source = module && Internal.getSource(module);
+  const marker =
+    typeof source === "object" && source !== null && !Array.isArray(source)
+      ? (source as Record<string, unknown>)[key]
+      : undefined;
+  if (!Internal.isJson(marker)) {
+    return undefined;
+  }
+  return Internal.getJsonImport(marker) ?? undefined;
 }
 
 /**

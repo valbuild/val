@@ -62,4 +62,22 @@ export type StudioLocation =
        * for now this always says so.
        */
       publishBlockedBy: string | null;
+      /**
+       * Its code: files are staged that its address does not serve a build
+       * of yet, a build is running, or the last one failed and why. `null`
+       * when there is nothing to build. valbuild/home
+       * `docs/hosted-publishing.md`, step 7.
+       */
+      code: ProposalCodeState | null;
     };
+
+/**
+ * "Build required", "Building…", or a failed build and why. `blocked`: this
+ * browser builds in a new tab (it cannot build here), and that tab has not
+ * been let open -- Build opens it.
+ */
+export type ProposalCodeState =
+  | { state: "required" }
+  | { state: "building" }
+  | { state: "blocked" }
+  | { state: "failed"; error: string };

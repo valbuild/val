@@ -107,7 +107,25 @@ export type HandoffIntent =
       merge?: string;
     }
   /** Update the site's dependencies: `runSiteUpdate`. */
-  | { kind: "update" };
+  | { kind: "update" }
+  /**
+   * Build a proposal's staged code and serve the build at its address: the
+   * proposal's Build, or the assistant's `build_proposal`, from a page that
+   * cannot build (`buildProposal`). Nothing goes live on the site. The tab is
+   * opened at the proposal's address, so it reads the proposal's files there.
+   */
+  | { kind: "build-proposal"; name: string };
+
+/**
+ * How a proposal build in a builder tab ended, as the tab reports it: the
+ * outcome of `buildProposal`, without the proposal it read back -- the page
+ * reads its own.
+ */
+export type HandedProposalBuild =
+  | { status: "built"; hash: string | null }
+  | { status: "nothing-staged" }
+  | { status: "already-built"; hash: string | null }
+  | { status: "failed"; message: string };
 
 /** Site -> tab. */
 export type ToTab =
@@ -185,7 +203,9 @@ export type ToSite =
    * update can end without deploying anything at all -- already current, or
    * refused by the platform -- and those are answers, not failed publishes.
    */
-  | { type: "update-done"; outcome: SiteUpdateOutcome };
+  | { type: "update-done"; outcome: SiteUpdateOutcome }
+  /** How a proposal build ended: see {@link HandedProposalBuild}. */
+  | { type: "proposal-built"; outcome: HandedProposalBuild };
 
 type Envelope<T> = { id: string; message: T };
 
@@ -263,6 +283,9 @@ export function forgetHandoffIntent(
   removeKeyed(storage, INTENT_PREFIX, id);
 }
 
+/** A proposal's name, as content makes them: 20 hex characters. */
+const PROPOSAL_NAME = /^[0-9a-f]{20}$/;
+
 /* Read back structurally: storage is the origin's, and anything may be there. */
 function asIntent(value: unknown): HandoffIntent | null {
   if (typeof value !== "object" || value === null || !("kind" in value)) {
@@ -273,6 +296,12 @@ function asIntent(value: unknown): HandoffIntent | null {
     const field: unknown = key in value ? Reflect.get(value, key) : undefined;
     return typeof field === "string" && field !== "" ? field : null;
   };
+  if (value.kind === "build-proposal") {
+    const name = text("name");
+    return name !== null && PROPOSAL_NAME.test(name)
+      ? { kind: "build-proposal", name }
+      : null;
+  }
   const requestId = text("requestId");
   const tab = text("tab");
   if (requestId === null || tab === null) return null;
@@ -643,6 +672,10 @@ function asToSite(message: unknown): ToSite | null {
     const outcome = asUpdateOutcome(message.outcome);
     return outcome === null ? null : { type: "update-done", outcome };
   }
+  if (message.type === "proposal-built" && "outcome" in message) {
+    const outcome = asHandedProposalBuild(message.outcome);
+    return outcome === null ? null : { type: "proposal-built", outcome };
+  }
   if (
     message.type === "done" &&
     "result" in message &&
@@ -664,6 +697,31 @@ function asRequestStatus(value: unknown): PublishRequestStatus | null {
     return parseRequestStatus({ request: value }).request;
   } catch {
     return null;
+  }
+}
+
+function asHandedProposalBuild(value: unknown): HandedProposalBuild | null {
+  if (typeof value !== "object" || value === null || !("status" in value))
+    return null;
+  const hash =
+    "hash" in value && typeof value.hash === "string" ? value.hash : null;
+  switch (value.status) {
+    case "built":
+      return { status: "built", hash };
+    case "already-built":
+      return { status: "already-built", hash };
+    case "nothing-staged":
+      return { status: "nothing-staged" };
+    case "failed":
+      return {
+        status: "failed",
+        message:
+          "message" in value && typeof value.message === "string"
+            ? value.message
+            : "The proposal could not be built.",
+      };
+    default:
+      return null;
   }
 }
 

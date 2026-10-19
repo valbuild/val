@@ -14,8 +14,8 @@ import {
   useCommittedPatches,
   usePendingClientSidePatchIds,
   useHasNetChanges,
-  useUnstagedPatchIds,
   usePendingServerSidePatchIds,
+  useHeldBackPatchIds,
   usePublishingPatchIds,
   usePublishSummary,
   useValMode,
@@ -23,7 +23,6 @@ import {
 } from "./ValProvider";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useValPortal } from "./ValPortalProvider";
-import { useOwnUnstagedPatchIds } from "./useOwnUnstagedPatchIds";
 import { useNavigation, VAL_ERRORS_ROUTE } from "./ValRouter";
 import {
   describePublishButton,
@@ -179,20 +178,27 @@ export function PublishButton({
    */
   const publishing = usePublishingPatchIds();
   /*
-   * Nor outside this tab's patch group, anyone's: Publish does not send those.
-   * Counted as work, an unstaged change beside a publishing one in the same
-   * module lit Publish up over nothing staged -- the module compares as
-   * changed, because of the change being published.
+   * Nor what a failed publish holds back: the next publish goes without them,
+   * so counted as work they lit Publish up over a press that sends nothing.
+   * See `heldBackPatches` in content's jobPlan.ts.
    */
-  const unstagedPatchIds = useUnstagedPatchIds();
+  const heldBack = useHeldBackPatchIds();
   const pendingServerSidePatchIds = useMemo(
     () =>
       unpublishedPatchIds.filter(
-        (patchId) => !publishing.has(patchId) && !unstagedPatchIds.has(patchId),
+        (patchId) => !publishing.has(patchId) && !heldBack.has(patchId),
       ),
-    [unpublishedPatchIds, publishing, unstagedPatchIds],
+    [unpublishedPatchIds, publishing, heldBack],
   );
-  // Counted on its own, so an unstaged change is never called "publishing".
+  const heldBackCount = useMemo(
+    () =>
+      unpublishedPatchIds.filter(
+        (patchId) => heldBack.has(patchId) && !publishing.has(patchId),
+      ).length,
+    [unpublishedPatchIds, heldBack, publishing],
+  );
+  // Counted on its own, so a change waiting to be sent is never called
+  // "publishing".
   const publishingCount = useMemo(
     () =>
       unpublishedPatchIds.filter((patchId) => publishing.has(patchId)).length,
@@ -200,9 +206,6 @@ export function PublishButton({
   );
   const pendingClientSidePatchIds = usePendingClientSidePatchIds();
   const hasNetChanges = useHasNetChanges();
-  // Only this user's own held patches: the message offers to stage them, and
-  // a colleague's change is not theirs to stage. See `useOwnUnstagedPatchIds`.
-  const heldChangeIds = useOwnUnstagedPatchIds();
   const mode = useValMode();
   const publishRefusal = usePublishRefusal();
   const portalContainer = useValPortal();
@@ -220,9 +223,9 @@ export function PublishButton({
     autoPublish,
     pendingServerSidePatchCount: pendingServerSidePatchIds.length,
     publishingCount,
+    heldBackCount,
     pendingClientSidePatchCount: pendingClientSidePatchIds.length,
     netChangesEmpty: !hasNetChanges,
-    unstagedChangeCount: heldChangeIds.size,
   });
   const saving = mode === "fs";
   /*

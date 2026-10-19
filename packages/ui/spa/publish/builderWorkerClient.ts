@@ -180,6 +180,30 @@ export function workerBuilder(options: {
       }
       return result.value;
     },
+    buildInputId: async (...args) => {
+      const result = await send({
+        type: "call",
+        id: nextId++,
+        method: "buildInputId",
+        args,
+      });
+      if (result.method !== "buildInputId") {
+        throw mismatch("buildInputId", result.method);
+      }
+      return result.value;
+    },
+    bundleValModules: async (...args) => {
+      const result = await send({
+        type: "call",
+        id: nextId++,
+        method: "bundleValModules",
+        args,
+      });
+      if (result.method !== "bundleValModules") {
+        throw mismatch("bundleValModules", result.method);
+      }
+      return result.value;
+    },
   };
   return ready.then(() => builder);
 }

@@ -724,7 +724,7 @@ sandbox. Point `--val-content-url` at the mock and the whole thing runs.
 
 ### What this costs, and what it buys
 
-Buys: durability, patch groups, verified authors, history, remote files and a
+Buys: durability, verified authors, history, remote files and a
 WebSocket stat — all of it Val's own production code rather than anything this
 platform maintains.
 

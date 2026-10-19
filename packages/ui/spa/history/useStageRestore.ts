@@ -1,5 +1,6 @@
 import {
   Internal,
+  type PatchId,
   type SerializedSchema,
   type SourcePath,
 } from "@valbuild/core";
@@ -14,12 +15,20 @@ import {
   isPlaylistFile,
   moduleFilePathOf,
 } from "./stageRestore";
+import type { LandResult } from "./restoreDestination";
 
 export type StageState =
   | { status: "idle" }
   | { status: "staging" }
   | { status: "staged" }
-  | { status: "error"; message: string };
+  /** Written, and moved into a new proposal the page is going to. */
+  | { status: "opening" }
+  | {
+      status: "error";
+      message: string;
+      /** Hand the written restore over again, when that is what failed. */
+      retry?: () => void;
+    };
 
 /**
  * Stage a restore: put an old value where someone pointed, as a pending change.
@@ -33,6 +42,11 @@ export type StageState =
 export function useStageRestore(
   to: SourcePath | null,
   apiBasePath: string,
+  /**
+   * Where the written patches go: this Studio's pending changes, or a new
+   * proposal (see `restoreDestination.ts`).
+   */
+  land: (patchIds: PatchId[]) => Promise<LandResult>,
 ): {
   state: StageState;
   stage: (args: {
@@ -45,8 +59,26 @@ export function useStageRestore(
   reset: () => void;
 } {
   const [state, setState] = useState<StageState>({ status: "idle" });
-  const { addAndUploadPatchWithFileOps, addModuleFilePatch } = useAddPatch(
-    to ?? ("" as SourcePath),
+  const { writeModulePatch } = useAddPatch(to ?? ("" as SourcePath));
+
+  /** Hand them over, and offer the hand-over again if that is what failed. */
+  const handOver = useCallback(
+    async (patchIds: PatchId[]): Promise<void> => {
+      const landed = await land(patchIds);
+      setState(
+        landed.status === "error"
+          ? {
+              status: "error",
+              message: landed.message,
+              retry: () => {
+                setState({ status: "staging" });
+                void handOver(patchIds);
+              },
+            }
+          : landed,
+      );
+    },
+    [land],
   );
 
   const stage = useCallback(
@@ -135,23 +167,20 @@ export function useStageRestore(
         });
       }
 
-      if (fileOps.length > 0) {
-        await addAndUploadPatchWithFileOps(
-          [...patch, ...fileOps],
-          // The subtype only decides how the store labels the upload; a restore
-          // can carry either, and "file" is the one that makes no claim.
-          "file",
-          (message) => setState({ status: "error", message }),
-          () => {},
-        );
-        setState({ status: "staged" });
+      const written = await writeModulePatch(
+        moduleFilePathOf(to),
+        [...patch, ...fileOps],
+        // The subtype only decides how the store labels the upload; a restore
+        // can carry either, and "file" is the one that makes no claim.
+        fileOps.length > 0 ? { fileType: "file" } : undefined,
+      );
+      if (written.status === "error") {
+        setState({ status: "error", message: written.message });
         return;
       }
-
-      addModuleFilePatch(moduleFilePathOf(to), patch, "object");
-      setState({ status: "staged" });
+      await handOver([written.patchId]);
     },
-    [to, apiBasePath, addAndUploadPatchWithFileOps, addModuleFilePatch],
+    [to, apiBasePath, writeModulePatch, handOver],
   );
 
   const fail = useCallback(

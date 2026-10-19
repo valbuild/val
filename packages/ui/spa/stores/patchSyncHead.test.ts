@@ -7,14 +7,11 @@ import type { PatchRecord } from "./types";
  * A write names the HEAD of the server's chain as its parent — the head the
  * server reports — and not the last patch this client was shown.
  *
- * The two differ for good once patch groups are in play. `/stat` lists the
- * pending chain minus what the running deployment already contains, and a
- * group publish can ship LATER patches while an earlier one stays pending:
- * another author's edit that nets to nothing can never be published at all.
- * The list then ends at that pending patch, the head is a published patch the
- * list leaves out, and a write naming the last listed id is refused on every
- * retry — a re-sync returns the same list. What fixed it in the Studio was
- * discarding the other author's change, which empties the list.
+ * The two can differ. `/stat` lists the pending chain minus what the running
+ * deployment already contains, and a publish could ship LATER patches while an
+ * earlier one stayed pending. The list then ends at that pending patch, the
+ * head is a published patch the list leaves out, and a write naming the last
+ * listed id is refused on every retry — a re-sync returns the same list.
  *
  * The fake server below keeps the chain the way the content service does: rows
  * in order, each either pending or published, a listing that hides the

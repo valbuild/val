@@ -15,6 +15,12 @@ import {
 } from "./historyParams";
 import type { RestoreMode } from "./RestoreModeContext";
 import { useStageRestore, type StageState } from "./useStageRestore";
+import {
+  restoreProposalName,
+  type RestoreDestination,
+} from "./restoreDestination";
+import { useLandRestore } from "./useLandRestore";
+import type { PatchId } from "@valbuild/core";
 import { useSchemaAtPath } from "../components/ValFieldProvider";
 import {
   explainStructuralErrors,
@@ -47,6 +53,8 @@ export type DirectedRestore = {
     schema: SerializedSchema,
   ) => void;
   stage: StageState;
+  /** Where a staged restore goes: here, or a new proposal. */
+  destination: RestoreDestination;
   confirm: () => void;
   clearTarget: () => void;
 };
@@ -67,6 +75,7 @@ export type DirectedRestore = {
  */
 export function useDirectedRestore(
   patchSet: HistoricalPatchSet | undefined,
+  destination: RestoreDestination,
 ): DirectedRestore {
   const { history, setHistory } = useHistoryParams();
   const [picked, setPicked] = useState<{
@@ -79,7 +88,19 @@ export function useDirectedRestore(
   const toPath =
     history.restore.mode === "confirming" ? history.restore.to : null;
 
-  const { state, stage, fail } = useStageRestore(toPath, "/api/val");
+  const landRestore = useLandRestore(destination);
+  const restoredAt = patchSet?.commit.createdAt ?? null;
+  const land = useCallback(
+    (patchIds: PatchId[]) =>
+      landRestore(
+        patchIds,
+        restoredAt === null
+          ? "Restore"
+          : restoreProposalName(restoredAt, "one"),
+      ),
+    [landRestore, restoredAt],
+  );
+  const { state, stage, fail } = useStageRestore(toPath, "/api/val", land);
   /*
    * The TARGET's schema, from the live system — the second gate at confirm.
    *
@@ -214,6 +235,7 @@ export function useDirectedRestore(
     toPath,
     restoreWholeModule,
     stage: state,
+    destination,
     confirm,
     clearTarget,
   };

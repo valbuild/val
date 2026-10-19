@@ -6,8 +6,16 @@ import type { DeploymentSummary } from "../components/shell/Deployments";
  * bar can draw one without importing the deploy feed's rules back.
  */
 
-/** How long a Cloudflare location may serve the build before the last one. */
-export const EDGE_CACHE_MS = 60_000;
+/**
+ * How long a Cloudflare location may serve the head before the last one.
+ *
+ * A bound, not a guess: each location keeps the project's head for a few
+ * seconds and never serves one older than this (valbuild/home,
+ * `platform/packages/loader/src/headCache.ts`, `HEAD_STALE_MS`). It was a
+ * minute while visitors read the head from KV, which caches for that long and
+ * says nothing about when every location has caught up.
+ */
+export const EDGE_CACHE_MS = 10_000;
 
 /**
  * Where the bar stands when the site goes live: past every step of the build
@@ -102,8 +110,13 @@ export function indicatorPercent(
 }
 
 /**
- * The indicator's words: Publishing, Reaching visitors, Live -- with the
+ * The indicator's words: Publishing, Reaching edges, Live -- with the
  * percentage while there is one. The step is behind it, on hover.
+ *
+ * "Reaching edges", decided with the plan (valbuild/home
+ * `docs/hosted-publishing.md`, step 10): the site is live, and the places it
+ * is served from have yet to pick it up -- for at most {@link EDGE_CACHE_MS},
+ * a bound the loader keeps rather than a guess.
  */
 export function describeIndicator(
   indicator: PublishIndicator,
@@ -115,7 +128,7 @@ export function describeIndicator(
     case "publishing":
       return `Publishing${suffix}`;
     case "reaching":
-      return `Reaching visitors${suffix}`;
+      return `Reaching edges${suffix}`;
     case "building":
       return indicator.count > 1
         ? `Building ${indicator.count} publishes`

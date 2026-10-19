@@ -47,7 +47,10 @@ import { NoSettingsModule, SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
 import { PublishState, TopBar, type TopBarProposals } from "./TopBar";
-import { ProposalSaveButton } from "../proposals/ProposalBar";
+import {
+  ProposalBuildButton,
+  ProposalSaveButton,
+} from "../proposals/ProposalBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
 import { StudioTour } from "./StudioTour";
@@ -342,6 +345,13 @@ export type ShellProps = {
   /** Its folded form, in the status bar. See `StatusBarProps.notice`. */
   statusNotice?: ReactNode;
   /**
+   * The plan's status -- a Hosted trial's days and publishes, a Free
+   * project's changes left -- where it fits: the top bar on a desktop, above
+   * the editor below that, where the bar has no room. A render prop because
+   * the shell is what knows the breakpoint. See `PlanStatusBar`.
+   */
+  renderPlanStatus?: (placement: "top-bar" | "column") => ReactNode;
+  /**
    * The past, beside the editor.
    *
    * A render prop rather than a node, because the shell is what knows the
@@ -546,6 +556,7 @@ export function Shell({
   editorOverride,
   notice,
   statusNotice,
+  renderPlanStatus,
   renderHistory,
   onPublish,
   publishSlot,
@@ -1056,8 +1067,13 @@ export function Shell({
       )}
     </PendingChangesGate>
   );
+  const columnPlanStatus =
+    breakpoint === "desktop" ? null : (renderPlanStatus?.("column") ?? null);
   const editorColumn = (
     <>
+      {columnPlanStatus === null ? null : (
+        <div className="mb-3">{columnPlanStatus}</div>
+      )}
       {notice === undefined || notice === null ? null : (
         <div className="mb-6">{notice}</div>
       )}
@@ -1150,6 +1166,9 @@ export function Shell({
           isLoading={isLoading}
           aiEnabled={aiEnabled}
           proposals={proposals}
+          planStatus={
+            breakpoint === "desktop" ? renderPlanStatus?.("top-bar") : undefined
+          }
           historyEnabled={historyEnabled}
           historyActive={historyActive}
           onOpenHistory={onOpenHistory}
@@ -1206,11 +1225,21 @@ export function Shell({
                */
               publishSlot={
                 proposals?.location.kind === "proposal" ? (
-                  <ProposalSaveButton
-                    location={proposals.location}
-                    onSave={proposals.onSave}
-                    className="h-9 min-w-[5.5rem]"
-                  />
+                  <>
+                    {proposals.onBuild !== undefined && (
+                      <ProposalBuildButton
+                        location={proposals.location}
+                        onBuild={proposals.onBuild}
+                        className="h-9"
+                      />
+                    )}
+                    <ProposalSaveButton
+                      location={proposals.location}
+                      onSave={proposals.onSave}
+                      blockedBy={proposals.saveBlockedBy}
+                      className="h-9 min-w-[5.5rem]"
+                    />
+                  </>
                 ) : (
                   publishSlot
                 )
@@ -1373,7 +1402,6 @@ export function Shell({
              * feed (`mode === "http"`); the panel was missed.
              */
             deployments={mode === "fs" ? undefined : deployments}
-            studioIsDeployer={studioIsDeployer}
             // Passed through as-is: absent means there is no session to end, and
             // the panel then shows no Sign out button rather than a dead one.
             onSignOut={onSignOut}

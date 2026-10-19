@@ -667,3 +667,76 @@ test("a builder whose new tab is blocked stays open and navigates instead", () =
   expect(calls).toEqual(["open /val _blank"]);
   expect(scope.location.href).toBe("/val");
 });
+
+/*
+ * A proposal's code built in a tab: the page that cannot build (Safari, an
+ * iPhone) hands the proposal's Build to a builder tab, as it hands a publish.
+ */
+describe("a proposal build handed to a tab", () => {
+  const NAME = "0123456789abcdef0123";
+
+  test("is stored for the tab by the hand-off id, naming the proposal", () => {
+    const storage = new Map<string, string>();
+    const store = {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => void storage.set(key, value),
+      removeItem: (key: string) => void storage.delete(key),
+      key: (index: number) => [...storage.keys()][index] ?? null,
+      get length() {
+        return storage.size;
+      },
+      clear: () => storage.clear(),
+    };
+    const site = openHandoff({
+      open,
+      intent: { kind: "build-proposal", name: NAME },
+      storage: store,
+    });
+    expect(storedHandoffIntent(site.id, store)?.intent).toEqual({
+      kind: "build-proposal",
+      name: NAME,
+    });
+    // Only a proposal's name: anything else stored under the kind is nothing to run.
+    storeHandoffIntent(
+      "other",
+      { kind: "build-proposal", name: "../../etc" },
+      store,
+    );
+    expect(storedHandoffIntent("other", store)).toBeNull();
+    site.close();
+  });
+
+  test("its ending reaches the site, and one that is not one is dropped", async () => {
+    const site = openHandoff({ open });
+    const heard: ToSite[] = [];
+    site.onMessage((message) => heard.push(message));
+    const tab = joinHandoff(site.id, () => undefined, { retryMs: 10 });
+    tab.report({
+      type: "proposal-built",
+      outcome: { status: "built", hash: "b1" },
+    });
+    tab.report({
+      type: "proposal-built",
+      outcome: { status: "failed", message: "The bundler stopped." },
+    });
+    const channel = new BroadcastChannel("val-publish-handoff");
+    channel.postMessage({
+      id: site.id,
+      message: { type: "proposal-built", outcome: { status: "shipped" } },
+    });
+    await until(
+      () => heard.filter((m) => m.type === "proposal-built").length === 2,
+    );
+    await wait(50);
+    expect(heard.filter((m) => m.type === "proposal-built")).toEqual([
+      { type: "proposal-built", outcome: { status: "built", hash: "b1" } },
+      {
+        type: "proposal-built",
+        outcome: { status: "failed", message: "The bundler stopped." },
+      },
+    ]);
+    channel.close();
+    tab.close();
+    site.close();
+  });
+});

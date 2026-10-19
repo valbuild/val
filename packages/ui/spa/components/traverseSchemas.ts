@@ -40,6 +40,15 @@ export function traverseSchemas(
     sourcePath: SourcePath,
     schema: SerializedSchema | undefined,
     source: Source,
+    /**
+     * This is an entry of a media directory (`s.imagedir()`, `s.videodir()`
+     * and the rest): its schema names only the fields the gallery edits, and
+     * the entry holds more by design (`hotspot`, a video's `poster`,
+     * `posterTime`, `startTime`, `endTime`, `captions`). Those are not
+     * missing schemas, so they are skipped rather than reported -- reported,
+     * they were one console error per field on every walk.
+     */
+    mediaEntry = false,
   ) => {
     if (Internal.isJson(source)) {
       // An un-loaded `.jsonValues()` entry is an opaque lazy marker
@@ -68,8 +77,16 @@ export function traverseSchemas(
           const sourceValue = (source as Record<string, Source>)[key];
           const schemaValue =
             schema.type === "record" ? schema.item : schema.items?.[key];
+          if (schemaValue === undefined && mediaEntry) {
+            continue;
+          }
           if (sourceValue !== undefined) {
-            go(sourcePathOfChild(sourcePath, key), schemaValue, sourceValue);
+            go(
+              sourcePathOfChild(sourcePath, key),
+              schemaValue,
+              sourceValue,
+              schema.type === "record" && schema.mediaType !== undefined,
+            );
           }
         }
       }

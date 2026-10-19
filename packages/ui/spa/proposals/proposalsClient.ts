@@ -1,4 +1,10 @@
 import { z } from "zod";
+import type { SerializedSchema } from "@valbuild/core";
+import type { JSONValue } from "@valbuild/core/patch";
+import {
+  JSONValue as JSONValueSchema,
+  type SchemaError,
+} from "@valbuild/shared/internal";
 import type {
   ProposalJobState,
   ProposalPerson,
@@ -27,6 +33,11 @@ const ProposalJson = z.object({
   displayName: z.string(),
   description: z.string().nullable().optional(),
   ownerId: z.string().nullable().optional(),
+  /**
+   * Everyone who owns it, `ownerId` first: the authors of changes moved into
+   * it together own it together (step 8.2). Absent from older content.
+   */
+  ownerIds: z.array(z.string()).optional(),
   status: z.enum([
     "open",
     "updating",
@@ -46,8 +57,34 @@ const ProposalJson = z.object({
   setup: Job.nullable().optional(),
   overlay: Job.nullable().optional(),
   renderCheck: Job.nullable().optional(),
+  /** Its own build, once one is made: the address serves it. */
+  built: z
+    .object({ hash: z.string(), inputs: z.string() })
+    .nullable()
+    .optional(),
+  /** What it holds of the project's code. Only on a read of one. */
+  staged: z
+    .object({
+      files: z.array(z.string()),
+      inputs: z.string().nullable(),
+      buildRequired: z.boolean(),
+    })
+    .optional(),
 });
 export type ProposalJson = z.infer<typeof ProposalJson>;
+
+const Staged = z.object({
+  files: z.array(z.string()),
+  inputs: z.string().nullable(),
+  buildRequired: z.boolean(),
+});
+/** A proposal's staged files, and whether its address needs a build of them. */
+export type ProposalStaged = z.infer<typeof Staged>;
+const FilesAnswer = z.object({
+  files: z.record(z.string(), z.string().nullable()),
+  staged: Staged,
+});
+const StagedAnswer = z.object({ commit: z.string(), staged: Staged });
 
 const ListAnswer = z.object({
   proposals: z.array(ProposalJson),
@@ -58,12 +95,135 @@ const MergeCheck = z.object({
   id: z.string(),
   ok: z.boolean(),
   message: z.string(),
+  /** What clears it, when something here does. Unknown actions are none. */
+  action: z
+    .string()
+    .optional()
+    .transform((action) =>
+      action === "update-from-site" ? action : undefined,
+    ),
 });
 export type MergeCheckJson = z.infer<typeof MergeCheck>;
 const MergeChecksAnswer = z.object({
   checks: z.array(MergeCheck),
   canMerge: z.boolean(),
 });
+
+/**
+ * Something the site and the proposal both changed since it started, as Val's
+ * merge reports it (valbuild/home `docs/hosted-publishing.md`, step 8.2).
+ * `invalid`: content the merge combined that its schema does not allow.
+ */
+const UpdateConflict = z.union([
+  z.object({
+    kind: z.literal("field"),
+    moduleFilePath: z.string(),
+    path: z.array(z.string()),
+    base: z.unknown(),
+    site: z.unknown(),
+    proposal: z.unknown(),
+  }),
+  z.object({
+    kind: z.literal("invalid"),
+    moduleFilePath: z.string(),
+    path: z.array(z.string()),
+    value: z.unknown(),
+    message: z.string(),
+  }),
+  /** A file both sides changed: a component, or a `.val.ts`'s schema. */
+  z.object({
+    kind: z.literal("code"),
+    file: z.string(),
+    base: z.string().nullable(),
+    site: z.string().nullable(),
+    proposal: z.string().nullable(),
+  }),
+]);
+export type UpdateConflict = z.infer<typeof UpdateConflict>;
+const UpdateContentAnswer = z.union([
+  z.object({ status: z.literal("updated"), commit: z.string() }),
+  z.object({ status: z.literal("up-to-date") }),
+  z.object({
+    status: z.literal("conflicts"),
+    conflicts: z.array(UpdateConflict),
+    /** Where the site and the proposal were: sent back with the decisions. */
+    siteHead: z.string().nullable(),
+    proposalHead: z.string().nullable(),
+  }),
+]);
+export type UpdateContentAnswer = z.infer<typeof UpdateContentAnswer>;
+/** A decision about one conflict: which side's value the proposal keeps. */
+export type UpdateResolution = {
+  moduleFilePath: string;
+  path: string[];
+  keep: "site" | "proposal";
+};
+/** The same for a file: which side's code the proposal keeps. */
+export type CodeResolution = { file: string; keep: "site" | "proposal" };
+/** Where the site and the proposal were when content conflicts were found. */
+export type ContentHeads = {
+  siteHead: string | null;
+  proposalHead: string | null;
+};
+
+/** Content's trees, for the builder tab to evaluate: see `MergeTrees`. */
+const MergeTreesAnswer = z.object({
+  base: z.string().nullable(),
+  siteHead: z.string().nullable(),
+  proposalHead: z.string().nullable(),
+  upToDate: z.boolean(),
+  builds: z.object({ base: z.string(), site: z.string() }),
+  trees: z.object({
+    site: z.record(z.string(), z.string()),
+    base: z.record(z.string(), z.string().nullable()),
+    proposal: z.record(z.string(), z.string().nullable()),
+  }),
+  modules: z.record(
+    z.string(),
+    z.object({
+      base: z.string().nullable(),
+      site: z.string().nullable(),
+      proposal: z.string().nullable(),
+    }),
+  ),
+  sources: z.record(z.string(), JSONValueSchema),
+});
+const UpdateCodeAnswer = z.union([
+  z.object({
+    status: z.literal("updated"),
+    commit: z.string(),
+    proposal: ProposalJson,
+  }),
+  z.object({ status: z.literal("up-to-date") }),
+  z.object({
+    status: z.literal("conflicts"),
+    conflicts: z.array(UpdateConflict),
+  }),
+  z.object({
+    status: z.literal("evaluate"),
+    id: z.string(),
+    files: z.record(z.string(), z.string().nullable()),
+    sources: z.record(z.string(), JSONValueSchema.nullable()),
+  }),
+]);
+export type UpdateCodeAnswer = z.infer<typeof UpdateCodeAnswer>;
+/** A module as evaluating its tree gave it: see `EvaluatedModule`. */
+export type EvaluatedModules = Record<
+  string,
+  {
+    schema: SerializedSchema;
+    written: JSONValue;
+    errors: SchemaError[];
+  }
+>;
+export type UpdateCodeRequest = {
+  siteHead: string | null;
+  proposalHead: string | null;
+  builds: { base: string; site: string };
+  evaluated: Record<"base" | "site" | "proposal", EvaluatedModules>;
+  resolutions: (UpdateResolution | CodeResolution)[];
+  merged?: { id: string; evaluated: EvaluatedModules };
+};
 
 /** An answer that was not a success: content's status and its words. */
 export class ProposalsApiError extends Error {
@@ -89,6 +249,22 @@ export class ProposalsApiError extends Error {
   }
 }
 
+/**
+ * Whether a refused content-only update is one the update with code makes:
+ * Val's server says the proposal or the site changed code (`needs-build`), or
+ * changed a `.jsonValues()` record in a way only the full merge reads
+ * (`needs-full-merge`).
+ */
+export function needsCodeUpdate(error: unknown): boolean {
+  return (
+    error instanceof ProposalsApiError &&
+    error.status === 409 &&
+    z
+      .object({ status: z.enum(["needs-build", "needs-full-merge"]) })
+      .safeParse(error.body).success
+  );
+}
+
 export type ProposalsClient = {
   list(): Promise<{ proposals: ProposalJson[]; siteUrl: string | null }>;
   get(name: string): Promise<ProposalJson>;
@@ -100,6 +276,12 @@ export type ProposalsClient = {
      * proposal the first one made rather than making a second.
      */
     requestId: string;
+    /**
+     * Pending changes on the site to move into it as it is made: all of them,
+     * or the create is refused. A restore on the site opens a proposal this
+     * way (valbuild/home `docs/hosted-publishing.md`, step 9).
+     */
+    patchIds?: string[];
   }): Promise<ProposalJson>;
   rename(name: string, displayName: string): Promise<ProposalJson>;
   close(name: string): Promise<ProposalJson>;
@@ -109,6 +291,60 @@ export type ProposalsClient = {
   mergeChecks(
     name: string,
   ): Promise<{ checks: MergeCheckJson[]; canMerge: boolean }>;
+  /**
+   * What it holds of the project's files -- every path its saves and
+   * stagings wrote, `null` for a delete -- and what is staged. Over the
+   * site's source, the proposal's project. valbuild/home
+   * `docs/hosted-publishing.md`, step 7.
+   */
+  files(name: string): Promise<z.infer<typeof FilesAnswer>>;
+  /** Stage files in it: change the project's code there. `null` deletes. */
+  stageFiles(
+    name: string,
+    files: Record<string, string | null>,
+    message?: string,
+  ): Promise<z.infer<typeof StagedAnswer>>;
+  /**
+   * Onto the site as it is now: its base build becomes the site's, and its
+   * staged code needs building again. The site-code check's action.
+   */
+  updateFromSite(name: string): Promise<ProposalJson>;
+  /**
+   * Update from the site for a proposal that changes only content: the
+   * site's published changes merged into it, at its own address. Conflicts
+   * come back for a person; the same call with their `resolutions`, and the
+   * heads the conflicts answer named, merges -- unless the site or the
+   * proposal moved since, when the conflicts come back as they are now.
+   * The published-since check's action.
+   */
+  updateContent(
+    name: string,
+    resolutions: UpdateResolution[],
+    heads?: ContentHeads,
+  ): Promise<UpdateContentAnswer>;
+  /**
+   * Update from the site with code: content's three trees, for the builder
+   * tab to evaluate (valbuild/home `docs/hosted-publishing.md`, step 8.2).
+   */
+  mergeTrees(name: string): Promise<z.infer<typeof MergeTreesAnswer>>;
+  /**
+   * The merge of those trees, at the proposal's own address: first the merge
+   * for the tab to evaluate (`evaluate`), then -- sent again with that
+   * evaluation as `merged` -- committed.
+   */
+  updateCode(name: string, body: UpdateCodeRequest): Promise<UpdateCodeAnswer>;
+  /**
+   * "Go back to this point" with the code: the files of the build the site
+   * served at `commit` (a commit of the site's history) staged in it, and that
+   * build served at its address. valbuild/home `docs/hosted-publishing.md`,
+   * step 9.
+   */
+  restoreCode(name: string, commit: string): Promise<ProposalJson>;
+  /** Serve a build of its staged files, uploaded as `publishId`, at its address. */
+  serveBuild(
+    name: string,
+    build: { publishId: string; inputs: string },
+  ): Promise<ProposalJson>;
 };
 
 export function createProposalsClient(options: {
@@ -165,6 +401,32 @@ export function createProposalsClient(options: {
     retrySetup: (name) => one(`${at(name)}/setup/retry`, "POST", {}),
     mergeChecks: async (name) =>
       MergeChecksAnswer.parse(await call(`${at(name)}/merge-checks`, "GET")),
+    files: async (name) =>
+      FilesAnswer.parse(await call(`${at(name)}/files`, "GET")),
+    stageFiles: async (name, files, message) =>
+      StagedAnswer.parse(
+        await call(`${at(name)}/files`, "POST", {
+          files,
+          ...(message !== undefined ? { message } : {}),
+        }),
+      ),
+    serveBuild: (name, build) => one(`${at(name)}/build`, "POST", build),
+    updateFromSite: (name) => one(`${at(name)}/update-from-site`, "POST", {}),
+    updateContent: async (name, resolutions, heads) =>
+      UpdateContentAnswer.parse(
+        await call(`${at(name)}/update-content`, "POST", {
+          resolutions,
+          ...heads,
+        }),
+      ),
+    restoreCode: (name, commit) =>
+      one(`${at(name)}/restore-code`, "POST", { commit }),
+    mergeTrees: async (name) =>
+      MergeTreesAnswer.parse(await call(`${at(name)}/merge-trees`, "GET")),
+    updateCode: async (name, body) =>
+      UpdateCodeAnswer.parse(
+        await call(`${at(name)}/update-code`, "POST", body),
+      ),
   };
 }
 
@@ -227,7 +489,9 @@ export function toSummary(
         ? json.status
         : "open",
     owner,
-    ownedByViewer: viewer !== null && json.ownerId === viewer,
+    ownedByViewer:
+      viewer !== null &&
+      (json.ownerIds ?? (json.ownerId ? [json.ownerId] : [])).includes(viewer),
     changes: json.changes ?? 0,
     updatedAt: json.updatedAt,
     ...(json.setup !== undefined ? { setup: jobState(json.setup) } : {}),

@@ -20,24 +20,19 @@ import { contextAs, openHttpStudio, type UserKey } from "./httpMode";
 export type Showing = {
   /** Every module's displayed source. */
   sources: Record<string, unknown>;
-  /** Pending changes on screen, which are the ones a publish would ship. */
-  staged: string[];
-  /** Pending changes held back from this user's view and publish. */
-  unstaged: string[];
+  /** Pending changes, which are the ones a publish would ship. */
+  pending: string[];
 };
 
 type Bag = {
   __VAL_STORES__?: {
     received: boolean;
     system: {
-      patchGroup(): readonly string[] | null;
       sourceStore: { allSources(): Record<string, unknown> };
       patchStore: {
         allRecords(): { patchId: string; appliedAt?: unknown }[];
-        unstagedPatchIds(): ReadonlySet<string>;
         pendingAmong(patchIds: Iterable<string>): Set<string>;
         chainSettled(): boolean;
-        patchGroupsSupported(): boolean;
       };
     };
   };
@@ -49,8 +44,6 @@ export function showing(page: Page): Promise<Showing> {
     const stores = (window as unknown as Bag).__VAL_STORES__;
     if (stores === undefined) throw new Error("no stores on this page");
     const { system } = stores;
-    const scope = system.patchGroup();
-    const inScope = scope === null ? null : new Set(scope);
     // The store's own answer to "has this shipped", which also counts what
     // this tab's publish shipped before any record says so — what a publish
     // from here would leave out.
@@ -62,41 +55,26 @@ export function showing(page: Page): Promise<Showing> {
     return {
       // Through JSON so the comparison is of values, not of identities.
       sources: JSON.parse(JSON.stringify(system.sourceStore.allSources())),
-      staged: pending.filter(
-        (patchId) => inScope === null || inScope.has(patchId),
-      ),
-      unstaged: [...system.patchStore.unstagedPatchIds()].sort(),
+      pending,
     };
   });
 }
 
-/**
- * Has the page finished taking the server's answer in?
- *
- * Compared before this, a fresh page can agree with a wrong one by accident:
- * unscoped, it shows everything, and only hides what it should once the group
- * annotation arrives.
- */
+/** Has the page finished taking the server's answer in? */
 function settled(page: Page): Promise<boolean> {
   return page.evaluate(() => {
     const stores = (window as unknown as Bag).__VAL_STORES__;
     if (stores === undefined || !stores.received) return false;
     const { system } = stores;
-    if (!system.patchStore.chainSettled()) return false;
-    if (system.patchStore.patchGroupsSupported()) {
-      return system.patchGroup() !== null;
-    }
-    return true;
+    return system.patchStore.chainSettled();
   });
 }
 
 /** The keys on which two snapshots differ, with both sides, for a failure. */
 function differences(live: Showing, fresh: Showing): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const key of ["staged", "unstaged"] as const) {
-    if (JSON.stringify(live[key]) !== JSON.stringify(fresh[key])) {
-      out[key] = { live: live[key], reload: fresh[key] };
-    }
+  if (JSON.stringify(live.pending) !== JSON.stringify(fresh.pending)) {
+    out.pending = { live: live.pending, reload: fresh.pending };
   }
   const modules = new Set([
     ...Object.keys(live.sources),
@@ -116,7 +94,7 @@ const marked = new WeakSet<Page>();
  * Remember that this page's state matters from here on.
  *
  * For a test whose live page holds something only a page that was NOT reloaded
- * can have — a local unstage, a held stage — so a reload under the test (see
+ * can have, so a reload under the test (see
  * {@link expectSameAsReload}) fails it rather than passing it.
  */
 export async function markLive(page: Page): Promise<void> {

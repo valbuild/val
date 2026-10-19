@@ -32,6 +32,7 @@ import { ProposalSwitcher } from "../proposals/ProposalSwitcher";
 import {
   ProposalMenu,
   ProposalPublishButton,
+  ProposalBuildButton,
   ProposalSaveButton,
 } from "../proposals/ProposalBar";
 import type { ProposalSummary, StudioLocation } from "../proposals/types";
@@ -49,6 +50,14 @@ export type TopBarProposals = {
   onNewProposal: () => void;
   onShowAllProposals: () => void;
   onSave: () => void;
+  /**
+   * Validation errors that would make the save fail: Save becomes "Fix N" and
+   * goes to them, as the site's Publish does. A save is refused with them --
+   * the proposal's address would serve content its schema says is invalid.
+   */
+  saveBlockedBy?: { errors: number; onShow: () => void };
+  /** Build the proposal's staged files, so its address shows them. */
+  onBuild?: () => void;
   /** Publish the proposal: merge it into the site. */
   onPublish: () => void;
   /**
@@ -196,6 +205,12 @@ export type TopBarProps = {
   aiEnabled?: boolean;
   /** Absent for a project without proposals: nothing here changes. */
   proposals?: TopBarProposals;
+  /**
+   * The plan's status, in the middle of the bar beside where you are: a
+   * Hosted trial's days and publishes, a Free project's changes left. Only
+   * on a desktop; the shell puts it above the editor below that.
+   */
+  planStatus?: ReactNode;
 };
 
 /** `blocked` means validation errors are stopping the publish. */
@@ -246,6 +261,7 @@ export function TopBar({
   aiEnabled = false,
   previewHref,
   proposals,
+  planStatus,
 }: TopBarProps) {
   const proposalLocation =
     proposals?.location.kind === "proposal" ? proposals.location : null;
@@ -294,8 +310,16 @@ export function TopBar({
             <ProposalSaveButton
               location={proposalLocation}
               onSave={proposals.onSave}
+              blockedBy={proposals.saveBlockedBy}
             />
           ),
+          build:
+            proposals.onBuild !== undefined ? (
+              <ProposalBuildButton
+                location={proposalLocation}
+                onBuild={proposals.onBuild}
+              />
+            ) : null,
           publish: (
             <ProposalPublishButton
               location={proposalLocation}
@@ -380,6 +404,7 @@ export function TopBar({
       {/* Where you are, in the middle of the bar. */}
       {layout === "centered" && (
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
+          {planStatus}
           {switcher}
           {inProposal !== null && (
             <>
@@ -438,6 +463,7 @@ export function TopBar({
                 isCanvasOpen={isCanvasOpen}
               />
             </span>
+            {inProposal?.build}
             <span data-val-tour="publish" className="inline-flex">
               {inProposal !== null
                 ? // In a proposal, Save is where Publish is on the site.

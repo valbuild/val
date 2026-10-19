@@ -23,7 +23,7 @@ import { build } from "rolldown";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { dirname, extname, join, resolve } from "node:path";
+import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import type { BuildTarget } from "../contract";
 import { nodeShims } from "./nodeShims";
 import { ASSET_BASE } from "../assets";
@@ -131,10 +131,136 @@ export interface VendorPlatform {
    * not built them.
    *
    * Only the export audit reads it, and only to check a named import against
-   * the chunk it will link to. Null means that check is skipped, which is the
-   * honest answer rather than a refusal -- see `baseChunkExports`.
+   * the chunk it will link to. Null means the audit reads what the platform
+   * said instead (`base.exports`), and skips a chunk the platform said nothing
+   * about, which is the honest answer rather than a refusal -- see
+   * `baseChunkExports`.
    */
   baseLayerDir: string | null;
+}
+
+/** A pinned package, bundled into the layer at a version the base set is not. */
+export interface PinSkew {
+  name: string;
+  /** What the base set was built from: `BuildTarget.base.pins`. */
+  pinned: string;
+  /** What the project's own install resolved, and the layer would carry. */
+  found: string;
+}
+
+/**
+ * A layer that would carry a pinned package at another version.
+ *
+ * Its own class because it is the one failure `buildVendorLayer` must NOT
+ * absorb. Every other build error drops the dependency that caused it and
+ * carries on (see `skipped`), which is right for a Vite plugin nobody imports
+ * and wrong here: dropping `@valbuild/tanstack` because its TanStack disagrees
+ * with the platform's turns "your lockfile is out of step" into "this import
+ * is not available", which names the wrong thing to fix.
+ */
+export class PinSkewError extends Error {
+  readonly skew: Array<PinSkew>;
+  constructor(skew: Array<PinSkew>, baseRev: string) {
+    // One entry per pinned package: a package bundled at two versions is two
+    // skews, and the same pin twice.
+    const pinned = [...new Map(skew.map((s) => [s.name, s.pinned])).entries()];
+    super(
+      `The project's install resolves ${skew
+        .map((s) => `${s.name} ${s.found}`)
+        .join(", ")}, but the base layer it builds against (${baseRev}) is ` +
+        `built from ${pinned.map(([name, version]) => `${name} ${version}`).join(", ")}. ` +
+        `These are shipped in lockstep with the base layer, and a copy at ` +
+        `another version links against the base layer's at runtime -- which ` +
+        `fails only when something first imports it, as "does not provide an ` +
+        `export named ...". Pin ${skew.length === 1 ? "it" : "them"} to the ` +
+        `base layer's version (in package.json, or with pnpm.overrides for a ` +
+        `transitive dependency) and reinstall.`,
+    );
+    this.name = "PinSkewError";
+    this.skew = skew;
+  }
+}
+
+/**
+ * The package a bundled module belongs to: the nearest package.json above it
+ * that has both a name and a version.
+ *
+ * Both, because packages ship nested package.json files that only set
+ * `"type"` -- `dist/esm/package.json` -- and the version is the point.
+ * Memoised per directory: a layer bundles thousands of modules from a few
+ * dozen packages.
+ */
+async function owningPackage(
+  id: string,
+  cache: Map<string, { name: string; version: string } | null>,
+): Promise<{ name: string; version: string } | null> {
+  const visited: Array<string> = [];
+  let dir = dirname(id);
+  let found: { name: string; version: string } | null = null;
+  for (;;) {
+    const cached = cache.get(dir);
+    if (cached !== undefined) {
+      found = cached;
+      break;
+    }
+    visited.push(dir);
+    const manifest = await readFile(join(dir, "package.json"), "utf8")
+      .then((text): unknown => JSON.parse(text))
+      .catch(() => null);
+    if (
+      typeof manifest === "object" &&
+      manifest !== null &&
+      "name" in manifest &&
+      "version" in manifest &&
+      typeof manifest.name === "string" &&
+      typeof manifest.version === "string"
+    ) {
+      found = { name: manifest.name, version: manifest.version };
+      break;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  for (const each of visited) cache.set(each, found);
+  return found;
+}
+
+/**
+ * Every pinned package the layer bundled at a version other than the pin.
+ *
+ * Read off the modules rolldown actually put in the chunks, rather than off
+ * the lockfile or the manifest: those say what a project ASKED for, and only
+ * the bundle says which copy a specifier resolved to from wherever it was
+ * imported -- `start-server-core` is never a project's direct dependency, and
+ * it is the package that caused the incident this exists for.
+ */
+async function pinSkewOf(
+  moduleIds: Iterable<string>,
+  pins: Record<string, string>,
+  cache: Map<string, { name: string; version: string } | null>,
+): Promise<Array<PinSkew>> {
+  const found = new Map<string, Set<string>>();
+  for (const id of moduleIds) {
+    // `\0`-prefixed virtual modules and the shims have no package.
+    if (!isAbsolute(id)) continue;
+    const owner = await owningPackage(id, cache);
+    if (!owner) continue;
+    const pinned = pins[owner.name];
+    if (pinned === undefined || owner.version === pinned) continue;
+    const versions = found.get(owner.name) ?? new Set<string>();
+    versions.add(owner.version);
+    found.set(owner.name, versions);
+  }
+  return [...found.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .flatMap(([name, versions]) =>
+      [...versions].sort().map((version) => ({
+        name,
+        pinned: pins[name]!,
+        found: version,
+      })),
+    );
 }
 
 /**
@@ -263,6 +389,8 @@ async function buildTargets(
     browser: {},
   };
   const digest = createHash("sha256");
+  /** Directory -> the package it belongs to, for the pin check. */
+  const packages = new Map<string, { name: string; version: string } | null>();
 
   for (const target of targetsFor(platform)) {
     const forTarget = Array.isArray(names) ? names : names[target.name];
@@ -291,7 +419,7 @@ async function buildTargets(
     // Node what each builtin exports, which is async, and a plugin's own hooks
     // have to stay synchronous.
     const shims = await nodeShims(target.name === "worker");
-    await build({
+    const result = await build({
       input: Object.fromEntries(forTarget.map((name) => [name, input[name]!])),
       platform: target.platform,
       plugins: [
@@ -401,6 +529,20 @@ async function buildTargets(
         handler(level, log);
       },
     });
+
+    // Before the import audit, which would otherwise report the same skew as
+    // a missing export -- true, and one step removed from the cause.
+    const pins = platform.base.pins;
+    if (pins) {
+      const skew = await pinSkewOf(
+        result.output.flatMap((item) =>
+          item.type === "chunk" ? item.moduleIds : [],
+        ),
+        pins,
+        packages,
+      );
+      if (skew.length) throw new PinSkewError(skew, platform.base.rev);
+    }
 
     for (const file of (await readdir(dir)).sort()) {
       const code = await readFile(join(dir, file), "utf8");
@@ -786,6 +928,13 @@ export async function auditableSpecifiers(
  * built, or the chunk re-exports from somewhere this does not follow. A check
  * that cannot be made has to say so rather than report an empty set, which
  * would fail every import into that chunk.
+ *
+ * Read from the built chunks when this checkout has them, and otherwise from
+ * what the platform SAID they export (`BuildTarget.base.exports`). The second
+ * is every build that is not the platform's own -- a project's CI publishing
+ * with `val publish` above all -- which is where the audit used to be skipped
+ * outright, and where a project's lockfile is least likely to agree with the
+ * platform's.
  */
 async function baseChunkExports(
   target: Target,
@@ -793,7 +942,15 @@ async function baseChunkExports(
   platform: VendorPlatform,
 ): Promise<Set<string> | null> {
   const dist = platform.baseLayerDir;
-  if (!dist) return null;
+  if (!dist) {
+    const chunk = specifier.slice(target.baseFrom.length).replace(/\.js$/, "");
+    const chunks = platform.base.exports?.[target.name];
+    // Own keys only: a chunk named like an Object.prototype member must not
+    // read back a function.
+    const listed =
+      chunks && Object.hasOwn(chunks, chunk) ? chunks[chunk] : undefined;
+    return listed ? new Set(listed) : null;
+  }
   const file = join(
     dist,
     target.name,
@@ -1237,7 +1394,10 @@ export async function buildVendorLayer(
       join(stubs, "out"),
       false,
       platform,
-    ).catch(() => null);
+    ).catch((error: unknown) => {
+      if (error instanceof PinSkewError) throw error;
+      return null;
+    });
 
     if (!built) {
       usable = [];
@@ -1266,6 +1426,8 @@ export async function buildVendorLayer(
             );
             worked[target.name] = true;
           } catch (error) {
+            // Not a reason to drop this dependency: see PinSkewError.
+            if (error instanceof PinSkewError) throw error;
             worked[target.name] = false;
             reasons.push(firstLine(String((error as Error)?.message ?? error)));
           }

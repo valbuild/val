@@ -1,0 +1,52 @@
+import { gitHubOwnerAndRepo } from "./gitRemote";
+
+describe("the GitHub repository origin points at", () => {
+  test("over ssh and https, with or without .git", () => {
+    expect(
+      gitHubOwnerAndRepo(
+        "origin\tgit@github.com:acme/site.git (fetch)\norigin\tgit@github.com:acme/site.git (push)\n",
+      ),
+    ).toEqual({ owner: "acme", repo: "site" });
+    expect(
+      gitHubOwnerAndRepo(
+        "origin\thttps://github.com/acme/my.site (fetch)\norigin\thttps://github.com/acme/my.site (push)\n",
+      ),
+    ).toEqual({ owner: "acme", repo: "my.site" });
+  });
+
+  test("origin, not another remote", () => {
+    expect(
+      gitHubOwnerAndRepo(
+        "fork\tgit@github.com:me/site.git (fetch)\norigin\tgit@github.com:acme/site.git (fetch)\n",
+      ),
+    ).toEqual({ owner: "acme", repo: "site" });
+  });
+
+  test("the ssh:// form, and https with a user in it", () => {
+    expect(
+      gitHubOwnerAndRepo("origin\tssh://git@github.com/acme/site.git (fetch)"),
+    ).toEqual({ owner: "acme", repo: "site" });
+    expect(
+      gitHubOwnerAndRepo("origin\thttps://me@github.com/acme/site.git (fetch)"),
+    ).toEqual({ owner: "acme", repo: "site" });
+  });
+
+  test("whatever the host's case", () => {
+    expect(
+      gitHubOwnerAndRepo("origin\thttps://GitHub.com/acme/site.git (fetch)"),
+    ).toEqual({ owner: "acme", repo: "site" });
+  });
+
+  test("none when origin is not on GitHub, or there is no origin", () => {
+    expect(
+      gitHubOwnerAndRepo("origin\tgit@gitlab.com:acme/site.git (fetch)\n"),
+    ).toBeNull();
+    expect(
+      gitHubOwnerAndRepo("origin\tgit@notgithub.com:acme/site.git (fetch)\n"),
+    ).toBeNull();
+    expect(
+      gitHubOwnerAndRepo("origin\t/srv/mirrors/github.com/acme/site (fetch)\n"),
+    ).toBeNull();
+    expect(gitHubOwnerAndRepo("")).toBeNull();
+  });
+});

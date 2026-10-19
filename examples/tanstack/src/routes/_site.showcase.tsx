@@ -1,9 +1,11 @@
+import { Suspense } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Internal, ValImage, ValRichText, ValVideo } from "@valbuild/tanstack";
-import { useVal, useValRoute } from "../val/client";
+import { useVal, useValKey, useValRoute } from "../val/client";
 import { NotFound } from "../components/NotFound";
 import pageVal from "./_site.showcase.val";
 import themeVal from "../content/theme.val";
+import layoutVal from "../content/layout.val";
 import galleryVal from "../content/gallery.val";
 import downloadsVal from "../content/downloads.val";
 import fontsVal from "../content/fonts.val";
@@ -29,6 +31,7 @@ export const Route = createFileRoute("/_site/showcase")({
 function Showcase() {
   const page = useValRoute(pageVal, {});
   const theme = useVal(themeVal);
+  const layout = useVal(layoutVal);
   const gallery = useVal(galleryVal);
   const downloads = useVal(downloadsVal);
   const fonts = useVal(fontsVal);
@@ -67,6 +70,35 @@ function Showcase() {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section>
+        <h2>s.int() and s.number()</h2>
+        <p>{page.notes.layout}</p>
+        <div
+          style={{
+            display: "grid",
+            gap: `${layout.gap}px`,
+            gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
+            lineHeight: layout.lineHeight,
+          }}
+        >
+          {Array.from({ length: layout.columns }, (_, i) => (
+            <div
+              key={i}
+              style={{
+                border: "1px solid currentColor",
+                opacity: layout.opacity / 100,
+                padding: "0.5rem",
+              }}
+            >
+              {"★".repeat(layout.rating)}
+              {"☆".repeat(Math.max(0, 5 - layout.rating))}
+              <br />
+              Card {i + 1}
+            </div>
+          ))}
+        </div>
       </section>
 
       <section>
@@ -201,6 +233,7 @@ function Showcase() {
       <section>
         <h2>.jsonValues()</h2>
         <p>{page.notes.kb}</p>
+        {/* `useVal` reads the whole record: every entry's file is loaded. */}
         <ul>
           {Object.entries(kb)
             .sort(([, a], [, b]) => a.order - b.order)
@@ -210,6 +243,10 @@ function Showcase() {
               </li>
             ))}
         </ul>
+        {/* `useValKey` reads one entry, and loads only that entry's file. */}
+        <Suspense fallback={null}>
+          <FeaturedArticle articleKey="what-is-val" />
+        </Suspense>
       </section>
 
       <section>
@@ -252,4 +289,22 @@ function fontFamilyOf(path: string): string {
     .split("/")
     .pop()
     ?.replace(/[^a-z0-9-]/gi, "-")}`;
+}
+
+/**
+ * One `.jsonValues()` entry, read by key. `useValKey` loads only this entry's
+ * `*.val.json`, where `useVal(kbVal)` above loads them all -- the reader to
+ * use for a page that shows one entry of a large record. It suspends until the
+ * entry has loaded, hence the `<Suspense>` around it.
+ */
+function FeaturedArticle({ articleKey }: { articleKey: string }) {
+  const article = useValKey(kbVal, articleKey);
+  if (article === undefined) {
+    return null;
+  }
+  return (
+    <p>
+      Featured: <strong>{article.title}</strong>
+    </p>
+  );
 }

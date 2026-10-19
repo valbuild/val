@@ -671,6 +671,17 @@ const PROJECT_SOURCE_OPTION = "        projectSource: FILES,\n";
 const PUBLISH_JOB_OPTION =
   "        ...(BUILT_FOR_JOB !== null ? { publishJob: BUILT_FOR_JOB } : {}),\n";
 
+/**
+ * The source with no publish job baked in: what a build's id is taken over
+ * (`buildInputId`), so builds of the same inputs for different jobs are the
+ * same build. The job only says where a commitless build sits in the content
+ * service's chain, and a content version the platform hands the server names
+ * its own job, which wins (`ValOpsHttp`).
+ */
+export function withoutBakedJob(text: string): string {
+  return text.replace(BUILT_FOR_JOB_LINE, "const BUILT_FOR_JOB = null;");
+}
+
 /** The publish job a record is wired for: see `BUILT_FOR_JOB` in the template. */
 export function bakedJob(files: Record<string, string>): string | undefined {
   const source = files[VAL_SERVER];

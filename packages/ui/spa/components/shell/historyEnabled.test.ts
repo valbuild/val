@@ -11,26 +11,32 @@ import { historyEnabledFor } from "./historyEnabled";
  */
 describe("whether this deployment has a history to show", () => {
   test("http with a resolved branch has one", () => {
-    expect(historyEnabledFor({ mode: "http", gitBranch: "main" })).toBe(true);
+    expect(historyEnabledFor({ mode: "http", historyBranch: "main" })).toBe(
+      true,
+    );
   });
 
   /* `ValOpsFS` answers `not-supported-in-fs-mode`: local dev has git, not a
    * commit archive. A branch name does not change that. */
   test("fs never has one, branch or no branch", () => {
-    expect(historyEnabledFor({ mode: "fs", gitBranch: "main" })).toBe(false);
-    expect(historyEnabledFor({ mode: "fs", gitBranch: null })).toBe(false);
+    expect(historyEnabledFor({ mode: "fs", historyBranch: "main" })).toBe(
+      false,
+    );
+    expect(historyEnabledFor({ mode: "fs", historyBranch: null })).toBe(false);
   });
 
-  /* Git is optional in proxy mode — a project can run on credentials alone —
-   * and history is listed per branch, so there is nothing to ask for. */
-  test("http without a git mirror does not", () => {
-    expect(historyEnabledFor({ mode: "http", gitBranch: null })).toBe(false);
+  /* History is listed per branch, so a deployment that names none has
+   * nothing to ask for. */
+  test("http without a branch does not", () => {
+    expect(historyEnabledFor({ mode: "http", historyBranch: null })).toBe(
+      false,
+    );
   });
 
   /* Before the mode is known, offering a door that may apologise is the worse
    * of the two mistakes. */
   test("an unknown mode does not", () => {
-    expect(historyEnabledFor({ mode: "unknown", gitBranch: "main" })).toBe(
+    expect(historyEnabledFor({ mode: "unknown", historyBranch: "main" })).toBe(
       false,
     );
   });

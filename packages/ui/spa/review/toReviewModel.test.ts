@@ -9,8 +9,8 @@ import { UNKNOWN_AUTHOR } from "../utils/computeChangedSourcePaths";
  * The half of the review page that can be wrong without the types noticing.
  *
  * Everything here is a decision rather than a translation: which module a row
- * lands under, what a patch set is CALLED in one line, whose work a stage
- * would drag in, and which of those a reader is warned about. The layout is
+ * lands under, what a patch set is CALLED in one line, and whose it is. The
+ * layout is
  * looked at in Storybook; this is the part that has to be argued with.
  */
 function patchSet(
@@ -66,11 +66,6 @@ function input(over: Partial<ReviewModelInput> = {}): ReviewModelInput {
     },
     mode: "http",
     currentAuthorId: "ada",
-    stagingEnabled: true,
-    stateOf: () => "staged",
-    stagePreview: () => [],
-    unstagePreview: () => [],
-    authorOf: () => null,
     isPageModule: () => false,
     describe: fallback,
     now: new Date("2026-09-20T12:00:00.000Z"),
@@ -303,85 +298,6 @@ describe("the one-line summary", () => {
   });
 });
 
-describe("what staging would drag in", () => {
-  const unstagedSet = patchSet(
-    "/m.val.ts",
-    ["x"],
-    [{ patchId: "p2", author: "ada", opType: "replace" }],
-  );
-
-  /*
-   * The prefix invariant, on the row and before the click. Named rather than
-   * counted, because "also publishes 2 changes" does not tell you whose.
-   */
-  test("names the other people it would publish", () => {
-    const model = toReviewModel(
-      input({
-        patchSets: [unstagedSet],
-        stateOf: () => "unstaged",
-        stagePreview: () => ["p1" as PatchId],
-        authorOf: () => "linus",
-      }),
-    );
-    expect(model.modules[0].rows[0].alsoStages).toEqual(["Linus Pauling"]);
-  });
-
-  /*
-   * Your OWN earlier work is not a warning. It is already yours to publish,
-   * and listing it reads as a caution about nothing — which is how a warning
-   * that matters gets skipped.
-   */
-  test("says nothing when the work it drags in is your own", () => {
-    const model = toReviewModel(
-      input({
-        patchSets: [unstagedSet],
-        stateOf: () => "unstaged",
-        stagePreview: () => ["p1" as PatchId],
-        authorOf: () => "ada",
-      }),
-    );
-    expect(model.modules[0].rows[0].alsoStages).toBeUndefined();
-  });
-
-  /* A staged row cannot drag anything in: it is already in the publish. */
-  test("is absent on a staged row", () => {
-    const model = toReviewModel(
-      input({
-        patchSets: [unstagedSet],
-        stateOf: () => "staged",
-        stagePreview: () => ["p1" as PatchId],
-        authorOf: () => "linus",
-      }),
-    );
-    expect(model.modules[0].rows[0].alsoStages).toBeUndefined();
-  });
-});
-
-describe("staging", () => {
-  /*
-   * Where the server cannot store groups, every row is staged — not "unknown".
-   * A publish there ships the chain, so saying anything else would describe a
-   * publish that does not exist.
-   */
-  test("every row is staged when the server has no groups", () => {
-    const model = toReviewModel(
-      input({
-        patchSets: [
-          patchSet(
-            "/m.val.ts",
-            ["x"],
-            [{ patchId: "p1", author: null, opType: "replace" }],
-          ),
-        ],
-        stagingEnabled: false,
-        stateOf: () => "unstaged",
-      }),
-    );
-    expect(model.stagingEnabled).toBe(false);
-    expect(model.modules[0].rows[0].staging).toBe("staged");
-  });
-});
-
 describe("the row id", () => {
   /*
    * The patch set's PATH, never a patch id in it. A set coalesces as more
@@ -436,8 +352,7 @@ describe("the source path a row is named by", () => {
  *
  * `PatchSets` inserts one entry per op, so a patch carrying two ops at the
  * same path lands in `patches` twice. Counting those entries told an editor
- * their one edit was "2 edits", and handed the same id twice to staging and
- * to the discard.
+ * their one edit was "2 edits".
  */
 describe("a multi-operation patch", () => {
   const twoOps = [
@@ -484,60 +399,4 @@ test("an author-less patch is bucketed under the shared sentinel", () => {
   expect(Object.keys(model.modules[0].rows[0].authors)).toEqual([
     UNKNOWN_AUTHOR,
   ]);
-});
-
-/**
- * Reverting a staged row names whose work would leave the publish with it.
- *
- * The mirror of `alsoStages`, and it was missing while that one was there: the
- * page warned about the cheaper direction and said nothing about the
- * destructive one. Deleting a row's patches means the later sets that were
- * built on them cannot stay in the publish, so they are unstaged.
- */
-describe("what a revert would take with it", () => {
-  const staged = [
-    patchSet(
-      "/content/page.val.ts",
-      ["title"],
-      [{ patchId: "p1", author: "ada", opType: "replace" }],
-    ),
-  ];
-
-  test("a staged row names the other people it would unstage", () => {
-    const model = toReviewModel(
-      input({
-        patchSets: staged,
-        unstagePreview: () => ["p9" as PatchId],
-        authorOf: () => "linus",
-      }),
-    );
-    expect(model.modules[0].rows[0].alsoUnstages).toEqual(["Linus Pauling"]);
-  });
-
-  /* Your own work is not a warning: it is already yours to drop. */
-  test("your own work is left out of the warning", () => {
-    const model = toReviewModel(
-      input({
-        patchSets: staged,
-        unstagePreview: () => ["p9" as PatchId],
-        authorOf: () => "ada",
-      }),
-    );
-    expect(model.modules[0].rows[0].alsoUnstages).toBeUndefined();
-  });
-
-  /* An unstaged row's revert takes nothing with it, so it carries neither. */
-  test("an unstaged row warns about staging instead", () => {
-    const model = toReviewModel(
-      input({
-        patchSets: staged,
-        stateOf: () => "unstaged",
-        stagePreview: () => ["p9" as PatchId],
-        unstagePreview: () => ["p9" as PatchId],
-        authorOf: () => "linus",
-      }),
-    );
-    expect(model.modules[0].rows[0].alsoStages).toEqual(["Linus Pauling"]);
-    expect(model.modules[0].rows[0].alsoUnstages).toBeUndefined();
-  });
 });

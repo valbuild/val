@@ -1,0 +1,19 @@
+{
+  "plan": "free",
+  "changes": {
+    "used": 850,
+    "limit": 1000,
+    "left": 150,
+    "warn": true,
+    "nextAt": null
+  },
+  "refused": {
+    "remoteFiles": {
+      "code": "plan:remote-files",
+      "fix": "upgrade",
+      "until": null
+    }
+  },
+  "trial": null,
+  "usage": null
+}
