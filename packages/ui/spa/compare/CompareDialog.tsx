@@ -18,7 +18,7 @@ import { cn } from "../components/designSystem/cn";
 import { useValPortal } from "../components/ValPortalProvider";
 import { CompareAuthorFilterMenu, authorsInModel } from "./CompareAuthorFilter";
 import { CompareAuthorsProvider } from "./CompareAuthorsContext";
-import { CompareUndoBar } from "./CompareUndoBar";
+import { CompareUndoBar, CompareUndoFooter } from "./CompareUndoBar";
 import { undoWords, type UndoTone } from "./undoWords";
 import {
   canUndo,
@@ -223,7 +223,17 @@ export function CompareDialog({
     }
   };
   const hidden = pane === undefined ? 0 : hiddenFieldCount(pane, authorFilter);
-  const isMobile = forceLayout === "mobile";
+  const narrow = useNarrowViewport();
+  /*
+   * The viewport decides, and a story can override it.
+   *
+   * This used to read `forceLayout` alone, so the phone form was reachable
+   * from Storybook and nowhere else: a real phone got the 260px rail and two
+   * columns side by side in 390px, which left each cell a few characters wide
+   * and wrapped every value one letter per line.
+   */
+  const isMobile =
+    forceLayout === undefined ? narrow : forceLayout === "mobile";
 
   /*
    * Bring the row a link named into view, once.
@@ -326,6 +336,7 @@ export function CompareDialog({
                     undoKind,
                     consequenceOfUndoing(rowId, model, currentAuthorId).ids,
                   ),
+                compact: isMobile,
               }
             : null,
       }}
@@ -358,7 +369,19 @@ export function CompareDialog({
            */
           onOpenAutoFocus={(event) => event.preventDefault()}
           className={cn(
-            "flex h-[85vh] max-h-[85vh] w-[95vw] max-w-[1200px] flex-col gap-0 overflow-hidden p-0",
+            "flex flex-col gap-0 overflow-hidden p-0",
+            !isMobile && "h-[85vh] max-h-[85vh] w-[95vw] max-w-[1200px]",
+            /*
+             * The whole screen on a phone. A floating box inside 85vh gave
+             * away a margin on every side of a screen that has none to spare,
+             * and the diff is the only thing anyone opened it to read. `dvh`
+             * rather than `vh`, so the bottom is not under the browser's
+             * toolbar on iOS.
+             */
+            isMobile &&
+              forceLayout === undefined &&
+              "h-dvh max-h-dvh w-screen max-w-none rounded-none border-0 sm:rounded-none",
+            // A phone-sized frame, for stories in a desktop-sized canvas.
             forceLayout === "mobile" && "h-[720px] w-[390px] max-w-[390px]",
           )}
         >
@@ -441,7 +464,7 @@ export function CompareDialog({
             </div>
             <BasisPicker model={model} onSelectBasis={onSelectBasis} />
           </header>
-          {undoing && undoKind !== null && (
+          {undoing && undoKind !== null && !isMobile && (
             <CompareUndoBar
               kind={undoKind}
               tone={tone}
@@ -554,6 +577,22 @@ export function CompareDialog({
                 )}
               </div>
             </div>
+          )}
+          {undoing && undoKind !== null && isMobile && (
+            <CompareUndoFooter
+              kind={undoKind}
+              tone={tone}
+              revertAll={model.undo?.all}
+              onRevertAll={onRevertAll}
+              portalContainer={portalContainer}
+              undoAll={{
+                onUndoAll: () => {
+                  onUndo?.(undoKind, allUndoableIds);
+                  setUndoing(false);
+                },
+              }}
+              onDone={() => setUndoing(false)}
+            />
           )}
         </DialogContent>
       </Dialog>
@@ -796,4 +835,37 @@ function nodeIdShown(
         walk(node.children ?? []),
     );
   return model.sections.some((section) => walk(section.nodes));
+}
+
+/**
+ * Below Tailwind's `lg`: too narrow for the nav rail beside two columns.
+ *
+ * `lg` and not the shell's own mobile breakpoint (768px), because the question
+ * is different. The shell asks whether there is room for its chrome; this asks
+ * whether 260px of nav and two value columns fit in 95% of the screen, and at
+ * 768px that leaves each column about 220px — a commit message or a long string
+ * is unreadable at that width. `CompareColumns` names `lg` for the same reason.
+ */
+const NARROW_QUERY = "(max-width: 1023px)";
+
+/**
+ * Whether the viewport is {@link NARROW_QUERY}, kept current as it resizes.
+ *
+ * Read synchronously on the first render, as `useShellBreakpoint` does: an
+ * effect would paint the desktop layout on a phone first and then swap it,
+ * and the swap remounts every cell of the diff.
+ */
+function useNarrowViewport(): boolean {
+  const [narrow, setNarrow] = useState(
+    () =>
+      typeof window !== "undefined" && window.matchMedia(NARROW_QUERY).matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia(NARROW_QUERY);
+    const onChange = () => setNarrow(query.matches);
+    onChange();
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  return narrow;
 }
