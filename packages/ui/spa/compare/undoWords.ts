@@ -40,6 +40,11 @@ export type UndoWords = {
   all: string;
   /** What the bar says while nothing is hovered. */
   hint: string;
+  /**
+   * The hint on a touch screen, which cannot hover. There the row's action is
+   * always showing, so the sentence names the button instead.
+   */
+  touchHint: string;
   /** The reassurance under the hint, when the tone has room for it. */
   reassurance: string;
   /** What the confirmation asks about one change with no dependents. */
@@ -55,6 +60,7 @@ const WORDS: Record<CompareUndoKind, UndoWords> = {
     shortMode: "Revert",
     all: "Revert all",
     hint: "Hover a change to put it back the way it was.",
+    touchHint: "Tap Revert on a change to put it back the way it was.",
     /*
      * Said because it is the thing that makes this mode safe to open, and the
      * thing nobody can tell by looking: these changes are pending, so reverting
@@ -72,6 +78,7 @@ const WORDS: Record<CompareUndoKind, UndoWords> = {
     shortMode: "Restore",
     all: "Restore all",
     hint: "Hover a change to bring the old value back.",
+    touchHint: "Tap Restore on a change to bring the old value back.",
     /*
      * The restore is itself a pending change, which is the whole reason this
      * mode is not frightening: it goes through the same review and publish as

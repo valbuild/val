@@ -70,7 +70,12 @@ export function CompareUndoBar({
        * line is the one part here that can afford its own row.
        */}
       <span className="order-last w-full min-w-0 text-xs text-fg-secondary sm:order-none sm:w-auto sm:flex-1">
-        {words.hint}
+        {/*
+         * Both in the markup, one shown: whether the device can hover is a
+         * media query, and CSS answers it without a render.
+         */}
+        <span className="touch:hidden">{words.hint}</span>
+        <span className="hidden touch:inline">{words.touchHint}</span>
         {/*
          * The reassurance only in the calm tone, and only because it is the
          * thing that makes the mode safe to open: whether what you are about to
@@ -220,6 +225,12 @@ export function RowQuickUndo({
           className={cn(
             "shrink-0 rounded px-1.5 py-0.5 text-[11px] transition-opacity",
             "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100",
+            /*
+             * Always showing on a touch screen. Hover never happens there, so
+             * the button was invisible: still tappable, but nothing said it
+             * was there.
+             */
+            "touch:opacity-100",
             "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
           )}
           aria-label={`${words.verb} this change`}

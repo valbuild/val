@@ -258,9 +258,13 @@ function RowAuthors({ authors }: { authors: CompareAuthorship | undefined }) {
    * `opacity` rather than mounting on hover, so the avatars do not change the
    * row's width as the cursor crosses it: a row that reflows under the pointer
    * is how you mis-click the row below.
+   *
+   * Always on a touch screen, which never hovers: there the avatars were
+   * unreachable, and still held their width at the end of the row, so the
+   * undo action beside them sat in the middle of it next to nothing.
    */
   return (
-    <span className="opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100">
+    <span className="opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100 touch:opacity-100">
       <FieldPatchAuthorsPure
         patchesByAuthorIds={authors}
         profilesByAuthorIds={ctx.profiles}
