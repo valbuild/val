@@ -88,6 +88,14 @@ describe("what may be reached", () => {
       "/publish-jobs/J1/discard",
       // Where "View run" goes, for a build CI reported failed.
       "/ci-runs/newest",
+      // adept, for /val/adept
+      "/adept/lockfile",
+      "/adept/upgrade",
+      "/adept/jobs/42",
+      "/adept/jobs/42/result",
+      "/adept/types/public/zod@3.25.76",
+      "/adept/types/public/@types/node@22.10.0",
+      "/adept/compiler/5.9.3",
     ];
     for (const path of allowed) {
       const { ops, restore } = opsWith((call) => ({
@@ -128,6 +136,15 @@ describe("what may be reached", () => {
       // Reporting a run is CI's, with its own token -- never a browser's.
       "/ci-runs",
       "/publish-requests/" + "x".repeat(101),
+      "/adept/stats",
+      "/adept/jobs",
+      "/adept/jobs/42/lockfile",
+      "/adept/jobs/../stats",
+      "/adept/types/public/../../stats",
+      "/adept/types/public/zod@3/../../jobs/1/result",
+      "/adept/types/public/.bin@1.0.0",
+      "/adept/types/p:acme/zod@3.25.76",
+      "/adept/compiler/../stats",
       "",
     ];
     for (const path of refused) {
