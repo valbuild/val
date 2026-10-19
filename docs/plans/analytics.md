@@ -207,10 +207,11 @@ Content-Type: text/plain;charset=UTF-8
 - A new field gets a new `v`. A receiver drops a version it does not know with
   a 204, so an old receiver never breaks a new site.
 
-**Known limit: array items are counted by index.** `"sections".0` is whatever
-is first today. Reordering a list moves its counts to other items. Record
-entries have stable keys. The dashboard says so on array items rather than
-pretending otherwise.
+**Array items are counted by position.** This is decided, not a gap.
+`"sections".0` is whatever is first that day, and reordering a list moves
+its counts to the item now in that place. Record entries have stable keys.
+The dashboard labels array items by position, so nobody reads a position's
+count as an item's.
 
 ---
 
