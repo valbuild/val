@@ -823,7 +823,8 @@ export async function handleExternalUpload(): Promise<FixHandlerResult> {
   };
 }
 
-// Fix handler registry. `keyof:check-keys`, `router:check-route`,
+// Fix handler registry. `keyof:check-keys`, the gallery markers
+// (`image:check-gallery` and the rest), `router:check-route`,
 // `locale:check-locale` and `record:fill-keys` are resolved upfront by the
 // shared resolveSchemaSourceFixes — they never reach this registry, so they're
 // excluded from the key set.
@@ -831,6 +832,9 @@ export const currentFixHandlers: Record<
   Exclude<
     ValidationFix,
     | "keyof:check-keys"
+    | "image:check-gallery"
+    | "file:check-gallery"
+    | "video:check-gallery"
     | "router:check-route"
     | "locale:check-locale"
     | "record:fill-keys"

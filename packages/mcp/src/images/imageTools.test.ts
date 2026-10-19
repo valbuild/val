@@ -187,13 +187,10 @@ describe("upload_image", () => {
       patch_id: expect.any(String),
     });
 
-    // Reported rather than hidden: the field's own check reads the PUBLISHED
-    // gallery, so until both changes are published it cannot see the entry
-    // that was written a moment ago. Saying so is the honest answer — and the
-    // alternative, refusing, would make a gallery-backed field unfillable.
-    expect(result.unresolvedValidationErrors).toMatch(
-      /gallery does not have an image/,
-    );
+    // The field's check is answered against the gallery as it is now, with
+    // the entry written a moment ago -- not the gallery its schema was built
+    // with, which does not have it yet. So nothing is left unresolved.
+    expect(result.unresolvedValidationErrors).toBeNull();
   });
 
   test("reads the image off disk when given a path", async () => {
