@@ -30,30 +30,68 @@ import webpEncSimdWasmUrl from "@jsquash/webp/codec/enc/webp_enc_simd.wasm?url";
  * letting the Emscripten glue find its own file with
  * `new URL("webp_enc.wasm", import.meta.url)` -- that URL is relative to
  * wherever the glue's chunk was served from, which is `/api/val/static`.
+ *
+ * One exception, which is the glue's and not worth working around: if
+ * instantiating the module we hand over THROWS, the glue logs it, rejects
+ * `init`, and then fetches its own URL anyway. In a build that URL is the same
+ * rewritten static-host address, so the cost is one extra download of the same
+ * bytes, after a failure that is already rare (a `LinkError`, or no memory for
+ * the instance). Stopping it means a hand-written `instantiateWasm` that never
+ * throws -- and one that does not call back leaves `init` pending forever,
+ * which would hang the upload instead.
  */
 
 /**
- * Loaded once per page, and only on success.
- *
- * A failure is forgotten, so the next upload asks again: a dropped connection
- * on the first photo should not mean JPEGs for the rest of the session.
+ * The compiled module, once per page. A failed download is forgotten, so the
+ * next upload asks again: a dropped connection on the first photo should not
+ * mean JPEGs for the rest of the session. A module that compiled is kept even
+ * when what follows fails -- the bytes are addressed by their hash, so fetching
+ * them again would fetch the same ones.
  */
-let loading: Promise<void> | null = null;
+let compiling: Promise<WebAssembly.Module> | null = null;
 
-function load(): Promise<void> {
-  if (loading === null) {
-    const attempt = instantiate();
+/**
+ * The instance, which IS let go when anything goes wrong with it: a failed
+ * `init`, or an `encode` that threw. Emscripten aborts on a failed allocation
+ * and every later call into that instance throws, so keeping it would turn one
+ * photo too big for memory into every upload falling back until a reload. The
+ * next upload instantiates again, from the compiled module, with no download.
+ */
+let initialising: Promise<unknown> | null = null;
+
+function compiled(): Promise<WebAssembly.Module> {
+  if (compiling === null) {
+    const attempt = compile();
     attempt.catch(() => {
-      if (loading === attempt) {
-        loading = null;
+      if (compiling === attempt) {
+        compiling = null;
       }
     });
-    loading = attempt;
+    compiling = attempt;
   }
-  return loading;
+  return compiling;
 }
 
-async function instantiate(): Promise<void> {
+function initialised(): Promise<unknown> {
+  if (initialising === null) {
+    /*
+     * `init(module)` is the call `encode.js` implements -- one argument that is
+     * a `WebAssembly.Module` -- and the one the package's README documents. Its
+     * `.d.ts` declares only the options form; this typechecks against that
+     * because a `WebAssembly.Module` has no properties of its own.
+     */
+    const attempt = compiled().then((module) => init(module));
+    attempt.catch(() => {
+      if (initialising === attempt) {
+        initialising = null;
+      }
+    });
+    initialising = attempt;
+  }
+  return initialising;
+}
+
+async function compile(): Promise<WebAssembly.Module> {
   /*
    * Which binary is chosen HERE, and has to be the one `init` chooses.
    *
@@ -75,14 +113,7 @@ async function instantiate(): Promise<void> {
    * says `application/octet-stream` would turn a good binary into a failure.
    * 345 KB is not worth that.
    */
-  const module = await WebAssembly.compile(await response.arrayBuffer());
-  /*
-   * `init(module)` is the call `encode.js` implements -- one argument that is
-   * a `WebAssembly.Module` -- and the one the package's README documents. Its
-   * `.d.ts` declares only the options form; this typechecks against that
-   * because a `WebAssembly.Module` has no properties of its own.
-   */
-  await init(module);
+  return WebAssembly.compile(await response.arrayBuffer());
 }
 
 /**
@@ -97,10 +128,19 @@ export async function encodeWebpWithWasm(
 ): Promise<Blob> {
   // Before `encode`, always: called uninitialised, `encode` runs `init()`
   // itself and fetches the glue's own bundle-relative URL.
-  await load();
-  const bytes = await encode(imageData, {
-    // libwebp's quality is 0-100.
-    quality: Math.round(quality * 100),
-  });
+  const instance = initialised();
+  await instance;
+  let bytes: ArrayBuffer;
+  try {
+    bytes = await encode(imageData, {
+      // libwebp's quality is 0-100.
+      quality: Math.round(quality * 100),
+    });
+  } catch (err) {
+    if (initialising === instance) {
+      initialising = null;
+    }
+    throw err;
+  }
   return new Blob([bytes], { type: "image/webp" });
 }

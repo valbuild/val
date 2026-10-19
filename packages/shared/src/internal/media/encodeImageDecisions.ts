@@ -163,8 +163,12 @@ export const WASM_ENCODED_MIME_TYPES = ["image/webp"];
  * Only then, and that is what keeps the WebAssembly lazy: a browser whose
  * canvas wrote the type is never asked to download an encoder, even when its
  * WebP then loses to the original on size -- a second encoder of the same
- * format would lose for the same reason. `null` counts as "not the type": it is
- * a canvas that could not serialize, and the pixels can still be read off it.
+ * format would lose for the same reason.
+ *
+ * `null` -- no blob at all -- is not "cannot write this type" either. It is a
+ * canvas that failed to serialize anything, under memory pressure for instance,
+ * and says nothing about WebP: a Chromium tab that hits it is still a browser
+ * that writes WebP, and must not start downloading an encoder because of it.
  */
 export function shouldEncodeWithWasm(input: {
   targetMimeType: string;
@@ -172,6 +176,7 @@ export function shouldEncodeWithWasm(input: {
 }): boolean {
   return (
     WASM_ENCODED_MIME_TYPES.includes(input.targetMimeType) &&
+    input.canvasOutputType !== null &&
     input.canvasOutputType !== input.targetMimeType
   );
 }

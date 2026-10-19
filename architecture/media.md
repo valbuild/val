@@ -187,7 +187,7 @@ of rules — every decision below lives in
 Changing what `encode` means anywhere else changes it for one of them only, and
 the symptom is a project whose images differ by who uploaded them.
 
-Six rules, each of which is a bug if dropped:
+Five rules, each of which is a bug if dropped:
 
 - **`accept` beats `encode`.** Validation checks the stored `mimeType` against
   `accept`, so converting under `accept: "image/png"` would upload a file the
@@ -223,20 +223,20 @@ Six rules, each of which is a bug if dropped:
   Two builds are hosted, with and without SIMD, and the one fetched must be
   the one `init` picks: both ask `wasm-feature-detect`'s `simd()`.
 
-- **The canvas is never bigger than the output.** iOS Safari refuses a canvas
-  over about 16.7 million pixels, and a 48 MP photo is three of those. When a
-  downscale is needed the file is decoded a second time straight at the target
-  size (`createImageBitmap` with `resizeWidth`/`resizeHeight`, keeping
-  `imageOrientation: "from-image"`), and the result is trusted only if it
-  comes back at exactly that size. That catches both ways it can go wrong: an
-  engine that ignores the options hands back the full size, and one that
-  resizes BEFORE it orients turns a portrait's target sideways. Either falls
-  back to scaling on the canvas, as before. The first, full-size decode stays
-  — it is how the target is known — but it is an `ImageBitmap`, not a canvas.
 - **Decoding is `createImageBitmap(file, {imageOrientation: "from-image"})`,
   never `new Image()`** — that flag is what applies EXIF rotation, and the WebP
   we write carries no EXIF, so the other path would silently rotate portrait
   photos. Where it is unavailable, nothing is re-encoded.
+
+  The canvas is already the output's size (`fitWithin`'s), so iOS's limit on
+  canvas area (about 16.7 million pixels) is not what a big photo runs into.
+  The one full-size buffer is that `ImageBitmap`, and whether a 48 MP one
+  fails on an iPhone has not been tried. Decoding straight at the target size
+  (`resizeWidth`/`resizeHeight`) was built once and taken out again: the target
+  comes from the source's size, so it was a SECOND decode on every downscaled
+  upload, in every browser, after the full-size one it meant to avoid. Avoiding
+  that bitmap would mean reading the size and EXIF orientation from the file's
+  header instead.
 
 `encode` is stripped in `getValidationBasis`: it says how bytes were produced,
 not whether the bytes that arrived are valid, so leaving it in would re-validate

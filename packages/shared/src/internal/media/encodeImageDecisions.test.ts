@@ -247,10 +247,15 @@ describe("shouldEncodeWithWasm", () => {
     ).toBe(true);
   });
 
-  it("asks for it when the canvas could not serialize at all", () => {
+  /*
+   * A canvas that handed back nothing failed for some other reason (memory),
+   * and that says nothing about whether it writes WebP -- so it must not be
+   * what sends a Chromium tab to download an encoder.
+   */
+  it("does not ask for it when the canvas handed back nothing", () => {
     expect(
       shouldEncodeWithWasm({ targetMimeType: webp, canvasOutputType: null }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   /*

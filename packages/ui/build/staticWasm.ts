@@ -36,11 +36,15 @@
  * ## One list, not one module per binary
  *
  * {@link STATIC_WASM} is every binary the Studio may load. Adding one is an
- * entry there, and the build, `verify-build.js` and the release's
- * `wasm:upload` all follow from it: the build writes the list into
- * {@link MANIFEST_FILE}, with how to find each file, and the uploader reads
- * nothing else. A `.wasm` the build emits that is NOT on the list fails the
- * build, because the alternative is the corrupted embed above.
+ * entry there, and the build and the release's `wasm:upload` follow from it:
+ * the build writes the list into {@link MANIFEST_FILE}, with how to find each
+ * file, and the uploader reads nothing else. A `.wasm` the build emits that is
+ * NOT on the list fails the build, because the alternative is the corrupted
+ * embed above.
+ *
+ * `verify-build.js` is the one deliberate second copy: it names the binaries
+ * the Studio needs, so an entry dropped from this list -- which would make the
+ * build pass and the manifest shorter -- fails there instead. Change both.
  *
  * ## Addressed by content, not by version
  *

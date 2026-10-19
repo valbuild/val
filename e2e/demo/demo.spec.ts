@@ -397,9 +397,9 @@ test.describe("WebP in a browser whose canvas cannot write it", () => {
     /*
      * A second photo, which a phone took held upright: its pixels are stored
      * sideways with an EXIF Orientation of 6. Two things at once: the encoder
-     * is not fetched again, and decoding straight to the target size -- what
-     * keeps a 48 MP photo under iOS's canvas limit -- did not undo the
-     * orientation. Undone, it comes out 2560x1600, or squashed.
+     * is not fetched again, and the pixels it is handed off the canvas are the
+     * oriented ones -- the WebP carries no EXIF, so an orientation lost on the
+     * way would come out 2560x1600.
      */
     await uploadHeroPhoto(
       page,

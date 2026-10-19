@@ -962,9 +962,7 @@ of those describe a file that was never uploaded.
 Things that will bite: `accept` beats `encode` (validation checks the stored
 mimeType against `accept`); a bigger WebP loses to the original unless the image
 was downscaled; SVG/GIF/AVIF are never converted; the produced type must be
-checked because `canvas.toBlob` silently falls back to PNG; and the canvas is
-target-sized (decoded straight at `fitWithin`'s size where `createImageBitmap`
-can), because iOS refuses a canvas over ~16.7 MP. `encode` is stripped
+checked because `canvas.toBlob` silently falls back to PNG. `encode` is stripped
 in `getValidationBasis` so it cannot re-validate published remote refs. See
 [architecture/media.md](../architecture/media.md).
 
