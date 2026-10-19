@@ -70,6 +70,7 @@ function SiteLayout() {
         >
           Nyheter
         </Link>
+        <Link to="/dashboard">Dashboard</Link>
         <a href="/val">Val Studio</a>
       </nav>
       {/*

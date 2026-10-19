@@ -11,6 +11,8 @@ export default modules(config, [
   { def: () => import("./src/routes/_site.showcase.val") },
   // A route whose URL names its language: `/news/…` and `/nb/news/…`.
   { def: () => import("./src/routes/_site.{-$locale}.news.$slug.val") },
+  // A page behind the site's own login. See src/auth/session.ts.
+  { def: () => import("./src/routes/_site.dashboard.val") },
   // Ordinary content modules live wherever you like.
   { def: () => import("./src/content/authors.val") },
   { def: () => import("./src/content/site.val") },

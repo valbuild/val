@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SiteRouteImport } from './routes/_site'
 import { Route as ValRouteRouteImport } from './routes/val/route'
 import { Route as SiteIndexRouteImport } from './routes/_site.index'
+import { Route as SiteDashboardRouteImport } from './routes/_site.dashboard'
+import { Route as SiteLoginRouteImport } from './routes/_site.login'
 import { Route as SiteShowcaseRouteImport } from './routes/_site.showcase'
 import { Route as ValIndexRouteImport } from './routes/val/index'
 import { Route as ValSplatRouteImport } from './routes/val/$'
@@ -32,6 +34,16 @@ const ValRouteRoute = ValRouteRouteImport.update({
 const SiteIndexRoute = SiteIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => SiteRoute,
+} as any)
+const SiteDashboardRoute = SiteDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => SiteRoute,
+} as any)
+const SiteLoginRoute = SiteLoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => SiteRoute,
 } as any)
 const SiteShowcaseRoute = SiteShowcaseRouteImport.update({
@@ -74,6 +86,8 @@ const SiteChar123LocaleChar125NewsSlugRoute =
 export interface FileRoutesByFullPath {
   '/val': typeof ValRouteRouteWithChildren
   '/': typeof SiteIndexRoute
+  '/dashboard': typeof SiteDashboardRoute
+  '/login': typeof SiteLoginRoute
   '/showcase': typeof SiteShowcaseRoute
   '/val/$': typeof ValSplatRoute
   '/val/': typeof ValIndexRoute
@@ -83,6 +97,8 @@ export interface FileRoutesByFullPath {
   '/{-$locale}/news/$slug': typeof SiteChar123LocaleChar125NewsSlugRoute
 }
 export interface FileRoutesByTo {
+  '/dashboard': typeof SiteDashboardRoute
+  '/login': typeof SiteLoginRoute
   '/showcase': typeof SiteShowcaseRoute
   '/val/$': typeof ValSplatRoute
   '/': typeof SiteIndexRoute
@@ -96,6 +112,8 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/val': typeof ValRouteRouteWithChildren
   '/_site': typeof SiteRouteWithChildren
+  '/_site/dashboard': typeof SiteDashboardRoute
+  '/_site/login': typeof SiteLoginRoute
   '/_site/showcase': typeof SiteShowcaseRoute
   '/val/$': typeof ValSplatRoute
   '/_site/': typeof SiteIndexRoute
@@ -110,6 +128,8 @@ export interface FileRouteTypes {
   fullPaths:
     | '/val'
     | '/'
+    | '/dashboard'
+    | '/login'
     | '/showcase'
     | '/val/$'
     | '/val/'
@@ -119,6 +139,8 @@ export interface FileRouteTypes {
     | '/{-$locale}/news/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/dashboard'
+    | '/login'
     | '/showcase'
     | '/val/$'
     | '/'
@@ -131,6 +153,8 @@ export interface FileRouteTypes {
     | '__root__'
     | '/val'
     | '/_site'
+    | '/_site/dashboard'
+    | '/_site/login'
     | '/_site/showcase'
     | '/val/$'
     | '/_site/'
@@ -168,6 +192,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof SiteIndexRouteImport
+      parentRoute: typeof SiteRoute
+    }
+    '/_site/dashboard': {
+      id: '/_site/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof SiteDashboardRouteImport
+      parentRoute: typeof SiteRoute
+    }
+    '/_site/login': {
+      id: '/_site/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof SiteLoginRouteImport
       parentRoute: typeof SiteRoute
     }
     '/_site/showcase': {
@@ -237,6 +275,8 @@ const ValRouteRouteWithChildren = ValRouteRoute._addFileChildren(
 )
 
 interface SiteRouteChildren {
+  SiteDashboardRoute: typeof SiteDashboardRoute
+  SiteLoginRoute: typeof SiteLoginRoute
   SiteShowcaseRoute: typeof SiteShowcaseRoute
   SiteIndexRoute: typeof SiteIndexRoute
   SiteDocsSplatRoute: typeof SiteDocsSplatRoute
@@ -245,6 +285,8 @@ interface SiteRouteChildren {
 }
 
 const SiteRouteChildren: SiteRouteChildren = {
+  SiteDashboardRoute: SiteDashboardRoute,
+  SiteLoginRoute: SiteLoginRoute,
   SiteShowcaseRoute: SiteShowcaseRoute,
   SiteIndexRoute: SiteIndexRoute,
   SiteDocsSplatRoute: SiteDocsSplatRoute,

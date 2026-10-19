@@ -337,7 +337,7 @@ export const ValTanStackProvider = (props: {
       setMountOverlay(false);
       return;
     }
-    setIsCanvas(isValCanvasFrame(location.search));
+    setIsCanvas(isValCanvasFrame(location.search, readParentPathname()));
     setMountOverlay(hasValEnableCookie(document.cookie));
   }, []);
 
@@ -988,6 +988,24 @@ function getPositionClassName(dropZone: string | null) {
 
 function isValStudioPath(pathname: string): boolean {
   return pathname.startsWith("/val");
+}
+
+/**
+ * The path of the window framing this document, or `null`.
+ *
+ * `null` for a top-level document, and for a parent on another origin: reading
+ * a cross-origin `location` throws, and a page on another origin is not the
+ * studio, whose canvas is always the same app. See `isValCanvasFrame`.
+ */
+function readParentPathname(): string | null {
+  try {
+    if (window.parent === window) {
+      return null;
+    }
+    return window.parent.location.pathname;
+  } catch {
+    return null;
+  }
 }
 
 // function ValIcon() {
