@@ -133,6 +133,7 @@ import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
 import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
+import { AdeptView } from "./AdeptView";
 
 /**
  * The Val studio on the floating shell.
@@ -1203,6 +1204,7 @@ function ValShellBody({
     !navigation.isErrorsView &&
     !navigation.isHistoryView &&
     !navigation.isReviewView &&
+    !navigation.isAdeptView &&
     selectionId === null &&
     navigation.currentSourcePath
       ? (navigation.currentSourcePath as SourcePath)
@@ -1230,6 +1232,9 @@ function ValShellBody({
      * property of it being a panel, and a route keeps it.
      */
     <HistoryView />
+  ) : navigation.isAdeptView ? (
+    // Unlinked: see VAL_ADEPT_ROUTE.
+    <AdeptView />
   ) : unlistedModulePath ? (
     <Module path={unlistedModulePath} showModuleGalleryChild={null} />
   ) : null;
