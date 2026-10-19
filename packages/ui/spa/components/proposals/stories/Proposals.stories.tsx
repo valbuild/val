@@ -103,6 +103,8 @@ type HarnessProps = {
   menuOpen?: boolean;
   dialog?: "new" | "close" | "rename" | "all" | null;
   newProblem?: NewProposalProblem | null;
+  /** Validation errors a save would be refused for. */
+  validationErrors?: number;
 };
 
 /**
@@ -117,6 +119,7 @@ function ProposalsShell({
   menuOpen = false,
   dialog: initialDialog = null,
   newProblem = null,
+  validationErrors = 0,
 }: HarnessProps) {
   const [theme, setTheme] = useState(initialTheme);
   const [location, setLocation] = useState<StudioLocation>(initialLocation);
@@ -170,6 +173,14 @@ function ProposalsShell({
   };
   const handlers: TopBarProposals = {
     location,
+    ...(validationErrors > 0
+      ? {
+          saveBlockedBy: {
+            errors: validationErrors,
+            onShow: () => console.log("show the validation errors"),
+          },
+        }
+      : {}),
     open: all.filter((p) => p.status === "open"),
     onOpenSite: () => setLocation({ kind: "site" }),
     onOpenProposal: goTo,
@@ -385,6 +396,15 @@ export const InAProposalReadyToPublish = shell({
 
 export const Saving = shell({
   location: inProposal({ save: { state: "saving" } }),
+});
+
+/**
+ * Unsaved changes the schema says are invalid: Save is "Fix 2" and goes to
+ * them, as the site's Publish does, instead of being refused by the server.
+ */
+export const SaveBlockedByValidationErrors = shell({
+  location: inProposal(),
+  validationErrors: 2,
 });
 
 /** A save that failed says why, before anything else. */
