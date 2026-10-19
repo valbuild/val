@@ -9,9 +9,9 @@ import pageVal from "./_site.dashboard.val";
  *
  * `beforeLoad` asks the server who is signed in and sends anyone who is not to
  * `/login`, carrying the whole `href` — query string included — so they come
- * back to exactly where they were. That matters to Val: in the Studio's canvas
- * the address carries `?val_canvas=1`, and a sign-in that came back without it
- * would land on the page as an ordinary visitor rather than as the canvas.
+ * back to exactly where they were. Val does not depend on that: a page in the
+ * Studio's canvas is the canvas wherever the site sends it, `?val_canvas=1` or
+ * not (see `isValCanvasFrame`).
  */
 export const Route = createFileRoute("/_site/dashboard")({
   beforeLoad: async ({ location }) => {
