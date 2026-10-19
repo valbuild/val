@@ -228,6 +228,7 @@ function RowQuickUndoControl({
       profiles={ctx.profiles}
       onConfirm={() => ctx.undo?.onQuickUndo(rowId)}
       portalContainer={ctx.portalContainer}
+      compact={ctx.undo.compact}
     />
   );
 }

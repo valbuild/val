@@ -18,7 +18,7 @@ import { cn } from "../components/designSystem/cn";
 import { useValPortal } from "../components/ValPortalProvider";
 import { CompareAuthorFilterMenu, authorsInModel } from "./CompareAuthorFilter";
 import { CompareAuthorsProvider } from "./CompareAuthorsContext";
-import { CompareUndoBar } from "./CompareUndoBar";
+import { CompareUndoBar, CompareUndoFooter } from "./CompareUndoBar";
 import { undoWords, type UndoTone } from "./undoWords";
 import {
   canUndo,
@@ -336,6 +336,7 @@ export function CompareDialog({
                     undoKind,
                     consequenceOfUndoing(rowId, model, currentAuthorId).ids,
                   ),
+                compact: isMobile,
               }
             : null,
       }}
@@ -463,7 +464,7 @@ export function CompareDialog({
             </div>
             <BasisPicker model={model} onSelectBasis={onSelectBasis} />
           </header>
-          {undoing && undoKind !== null && (
+          {undoing && undoKind !== null && !isMobile && (
             <CompareUndoBar
               kind={undoKind}
               tone={tone}
@@ -576,6 +577,22 @@ export function CompareDialog({
                 )}
               </div>
             </div>
+          )}
+          {undoing && undoKind !== null && isMobile && (
+            <CompareUndoFooter
+              kind={undoKind}
+              tone={tone}
+              revertAll={model.undo?.all}
+              onRevertAll={onRevertAll}
+              portalContainer={portalContainer}
+              undoAll={{
+                onUndoAll: () => {
+                  onUndo?.(undoKind, allUndoableIds);
+                  setUndoing(false);
+                },
+              }}
+              onDone={() => setUndoing(false)}
+            />
           )}
         </DialogContent>
       </Dialog>
