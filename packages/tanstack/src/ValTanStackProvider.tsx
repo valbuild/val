@@ -163,6 +163,18 @@ export const ValTanStackProvider = (props: {
    * is newer. `null` (a visitor, or draft mode off) renders as before.
    */
   draft?: ValDraft | null;
+  /**
+   * Turns content analytics on or off for this page, over `config.analytics`.
+   *
+   * For an app that decides at runtime -- a hosted site reads `VAL_ANALYTICS`
+   * on the server and passes it down from the root route's loader -- so it
+   * can be switched without a rebuild. Omitted, `config.analytics.enabled`
+   * decides.
+   *
+   * Must be constant for the lifetime of the page, and the same on the server
+   * and in the browser.
+   */
+  analytics?: boolean;
 }) => {
   // TODO: use config:
   const route = "/api/val";
@@ -206,6 +218,7 @@ export const ValTanStackProvider = (props: {
    * not a draft: it must not turn draft mode on or say the draft is synced.
    */
   const hasDraft = initialDraft !== null && initialDraft.draftMode !== false;
+  const analytics = props.analytics ?? props.config.analytics?.enabled ?? false;
   const snapshot = initialDraft?.snapshot;
   /*
    * The base the Studio's overlay must start from, where it is not the
@@ -654,8 +667,14 @@ export const ValTanStackProvider = (props: {
 
   React.useEffect(() => {
     if (!mountOverlay) {
-      SET_AUTO_TAG_JSX_ENABLED(false);
+      // A visitor: only analytics tags content, and only after hydration
+      // (`useEncodesEditTags`), so this cannot reach a component still
+      // hydrating either.
+      SET_AUTO_TAG_JSX_ENABLED(analytics);
     } else {
+      if (analytics) {
+        SET_AUTO_TAG_JSX_ENABLED(true);
+      }
       if (draftMode) {
         // Safe for a page rendered from a server draft too: what a component
         // renders while it hydrates has no edit tags to turn into attributes
@@ -719,7 +738,7 @@ export const ValTanStackProvider = (props: {
         };
       }
     }
-  }, [mountOverlay, draftMode, props.disableRefresh]);
+  }, [mountOverlay, draftMode, analytics, props.disableRefresh]);
 
   React.useEffect(() => {
     if (!mountOverlay) {
@@ -799,6 +818,7 @@ export const ValTanStackProvider = (props: {
       draftModeReady={draftModeReady.current?.promise}
       draftSourcesSynced={draftSourcesSynced}
       serverDraft={hasDraft}
+      analytics={analytics}
       snapshot={snapshot}
       suspend={suspendActive}
       store={valStore}

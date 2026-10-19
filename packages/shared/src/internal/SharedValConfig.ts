@@ -15,6 +15,7 @@ export const SharedValConfig: z.ZodSchema<
   gitCommit: z.string().optional(),
   gitBranch: z.string().optional(),
   defaultTheme: z.enum(["dark", "light"]).optional(),
+  analytics: z.object({ enabled: z.boolean().optional() }).optional(),
   ai: z
     .object({
       commitMessages: z

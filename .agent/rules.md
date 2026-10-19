@@ -608,7 +608,9 @@ HLS stream (`stream: { type: "hls" }`), rendered with `ValVideo`, and
 `s.videodir()` with an `s.video(videosVal)` field that picks from it, the set's
 entries holding default posters, times, focal point and captions that the field
 partly overrides, and an image gallery entry with a default focal point; and `s.fontdir()` with an
-`s.font(fontsVal)` field whose font the showcase sets its sample in. What it does NOT cover, and why: `.remote()` on media (and
+`s.font(fontsVal)` field whose font the showcase sets its sample in; and
+`analytics: { enabled: true }` in `val.config.ts`, so its content is tagged for
+every visitor after hydration (`e2e/tanstack/analytics.spec.ts`). What it does NOT cover, and why: `.remote()` on media (and
 `files: { remote: true }` in `val.config.ts`, which turns it on for every media
 schema) and `.external()` on a record, because both need credentials or an
 adapter a plain `pnpm dev` does not have — `examples/next` gates the remote one behind

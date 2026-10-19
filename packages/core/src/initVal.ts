@@ -109,6 +109,28 @@ export type ValConfig = {
   gitCommit?: string;
   gitBranch?: string;
   defaultTheme?: "dark" | "light";
+  analytics?: {
+    /**
+     * Count which content visitors see.
+     *
+     * With it on, content read through the client hooks carries its edit tags
+     * for every visitor, not only in draft mode, so each element that shows
+     * content has a `data-val-path` the analytics script can count. The tags
+     * are added in the browser after hydration, as draft mode does: the HTML
+     * the server sends is the same with it on or off.
+     *
+     * An app can override it at runtime, per request, with the `analytics`
+     * prop on `ValProvider` -- which is how a hosted site turns it on without
+     * a rebuild.
+     *
+     * @example
+     * const { s, c, val, config } = initVal({
+     *   project: "myorg/myproject",
+     *   analytics: { enabled: true },
+     * });
+     */
+    enabled?: boolean;
+  };
   ai?: {
     /**
      * The AI commit-message summariser.
