@@ -1,5 +1,33 @@
 # @valbuild/shared
 
+## 0.146.2
+
+### Patch Changes
+
+- [#871](https://github.com/valbuild/val/pull/871) [`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0) Thanks [@freekh](https://github.com/freekh)! - An image, file or video picked from a gallery is checked against the gallery as it is now. Picking one uploaded since the site was built (still unpublished, saved in a proposal, or published without a rebuild) used to fail with "The gallery does not have an image at …" and refuse the save. In a proposal, Save now reads "Fix N" and goes to the validation errors instead of being refused by the server, as Publish does on the site.
+
+- [#867](https://github.com/valbuild/val/pull/867) [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9) Thanks [@freekh](https://github.com/freekh)! - When a publish breaks a page on a site with proposals, its changes are no longer
+  held back on the site: they move into a proposal of their own, with any later
+  changes to the same pages, so everyone else keeps publishing. The Studio says
+  so — "Publishing broke the site" — and offers **Open the proposal**, where the
+  changes can be fixed and published. Sites without proposals hold the changes
+  back as before.
+
+- [#867](https://github.com/valbuild/val/pull/867) [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9) Thanks [@freekh](https://github.com/freekh)! - Publish only some of your changes: tick them in Review and press **Publish
+  selected**. On a site with proposals, Val moves them into a proposal of their
+  own and publishes it straight away; everything else stays unpublished, as it
+  was.
+
+  Some changes cannot be published apart — two edits to the same list, say — so
+  the confirm says what comes with your selection and whose it is before anything
+  moves. If the site is published while yours is being prepared, nothing is
+  published and you are asked to press it again. If publishing stops after the
+  changes have moved, they are safe in their proposal, and Review offers to open
+  it as well as to try again.
+
+- Updated dependencies [[`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0)]:
+  - @valbuild/core@0.146.2
+
 ## 0.146.0
 
 ### Minor Changes
