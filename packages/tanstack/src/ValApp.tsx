@@ -21,6 +21,20 @@ import { ValScript } from "./ValScript";
  */
 const VAL_READY_PING_MS = 100;
 
+/**
+ * Whether the Studio's stylesheet has loaded in this page. `val-css-loaded`
+ * fires once per page, so a `ValApp` that mounts again after it -- the `/val`
+ * route left and come back to -- must not wait for it a second time.
+ */
+let studioStylesLoaded = false;
+
+/**
+ * The longest the loading screen covers the page. Past it, whatever the Studio
+ * shows -- unstyled, or its own error -- is better than a spinner that never
+ * ends.
+ */
+const LOADING_SCREEN_MAX_MS = 15_000;
+
 export const ValApp = ({
   config,
   children,
@@ -56,6 +70,28 @@ export const ValApp = ({
       window.dispatchEvent(new CustomEvent("val-append-studio"));
     }
   });
+
+  /*
+   * Whether the loading screen still covers the page: until the Studio's
+   * stylesheet has loaded, or the wait runs out. Its own state rather than
+   * `loadingTheme`, which a new `config` sets again after the event has fired.
+   */
+  const [covering, setCovering] = useState(() => !studioStylesLoaded);
+  useEffect(() => {
+    if (!covering) {
+      return;
+    }
+    const onCssLoaded = () => {
+      studioStylesLoaded = true;
+      setCovering(false);
+    };
+    window.addEventListener("val-css-loaded", onCssLoaded);
+    const timeout = setTimeout(() => setCovering(false), LOADING_SCREEN_MAX_MS);
+    return () => {
+      window.removeEventListener("val-css-loaded", onCssLoaded);
+      clearTimeout(timeout);
+    };
+  }, [covering]);
 
   // this theme is used to avoid flickering
   const [loadingTheme, setLoadingTheme] = useState<string | null>(
@@ -110,10 +146,12 @@ export const ValApp = ({
    * INSTEAD of the Studio and dropped at hydration, which was before the
    * Studio's script had even been requested: the spinner went, an empty page
    * stood there while the Studio downloaded, and then the Studio appeared.
-   * Same element in the server render and after, so it does not restart.
+   * It is the first element both in the server render and after, so hydration
+   * keeps it rather than restarting it. Only with a theme to draw it in --
+   * `config.defaultTheme`, as the templates set -- as before.
    */
   const loadingScreen =
-    loadingTheme === null || inMessageMode ? null : (
+    !covering || loadingTheme === null || inMessageMode ? null : (
       <div
         style={{
           color: loadingTheme === "dark" ? "white" : "black",
