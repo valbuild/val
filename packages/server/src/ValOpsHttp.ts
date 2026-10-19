@@ -858,6 +858,26 @@ export class ValOpsHttp extends ValOps {
    * parsed -- what matters is that nothing with a `..`, a query or another
    * segment gets through.
    */
+  /**
+   * adept, through content: lockfiles, upgrades and type bundles, for the
+   * Studio's unlinked `/val/adept` page. A job is content's to scope to
+   * this project; a name and a version are matched, not passed, so nothing
+   * with a `..` reaches another of content's routes.
+   *
+   * Allowed at a proposal's address too: adept computes and publishes
+   * nothing, so there is nothing a proposal's Studio could move on the site.
+   */
+  private static adeptPathAllowed(path: string): boolean {
+    return (
+      /^\/adept\/(lockfile|upgrade|jobs\/\d{1,18}(\/result)?|compiler\/[0-9A-Za-z][0-9A-Za-z.+-]{0,63})$/.test(
+        path,
+      ) ||
+      /^\/adept\/types\/public\/(@[a-z0-9~-][a-z0-9._~-]{0,213}\/)?[a-z0-9~-][a-z0-9._~-]{0,213}@[0-9a-z][0-9a-z.+-]{0,63}$/i.test(
+        path,
+      )
+    );
+  }
+
   private static publishApiPathAllowed(path: string): boolean {
     // A merge's prepare is content's own, from the proposal's last save.
     if (/^\/publish-jobs\/[A-Za-z0-9_-]{1,100}\/merge-prepare$/.test(path)) {
@@ -884,22 +904,7 @@ export class ValOpsHttp extends ValOps {
     if (/^\/publish-requests(\/[A-Za-z0-9_-]{1,100})?$/.test(path)) {
       return true;
     }
-    /*
-     * adept, through content: lockfiles, upgrades and type bundles, for the
-     * Studio's unlinked `/val/adept` page. A job is content's to scope to
-     * this project; a name and a version are matched, not passed, so nothing
-     * with a `..` reaches another of content's routes.
-     */
-    if (
-      /^\/adept\/(lockfile|upgrade|jobs\/\d{1,18}(\/result)?|compiler\/[0-9A-Za-z][0-9A-Za-z.+-]{0,63})$/.test(
-        path,
-      ) ||
-      /^\/adept\/types\/public\/(@[a-z0-9~-][a-z0-9._~-]{0,213}\/)?[a-z0-9~-][a-z0-9._~-]{0,213}@[0-9a-z][0-9a-z.+-]{0,63}$/i.test(
-        path,
-      )
-    ) {
-      return true;
-    }
+    if (ValOpsHttp.adeptPathAllowed(path)) return true;
     if (
       /^\/publish-jobs\/(next|[A-Za-z0-9_-]{1,100}\/(steps|renew|cancel|discard))$/.test(
         path,
@@ -1012,6 +1017,7 @@ export class ValOpsHttp extends ValOps {
       return true;
     }
     if (/^\/publish\/[A-Za-z0-9_-]+\/artifacts$/.test(path)) return true;
+    if (ValOpsHttp.adeptPathAllowed(path)) return true;
     // Where its press is -- read only: a POST there is the site's Try again.
     if (
       method === "GET" &&
