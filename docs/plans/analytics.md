@@ -38,21 +38,37 @@ counts.
 ## 1. Analytics mode
 
 Today stega is decided per request: draft mode on → encode, otherwise not
-(`initValContent.ts`, `isEnabled = () => draftMode.isEnabled()`), and the
-client holds tags out of SSR and the hydration render because the auto-tag
-switch is process-wide and editors and visitors share a process
-(`useEncodesEditTags`, and quirks.md on why).
+(`initValContent.ts`, `isEnabled = () => draftMode.isEnabled()`). For a page
+rendered from a server-read draft, the client hooks already hold the tags out
+of the server's render and the hydration render, and add them in the render
+React does right after (`useEncodesEditTags`, via `useHydrated`). They do that
+because the server cannot be relied on to tag: whether the patched JSX runtime
+is the one it renders with depends on how the app was bundled.
 
-Analytics mode makes the answer the same for everyone: **encode always**. That
-removes the reason the client holds tags back, because the server encoded too,
-so the hydration render matches.
+Analytics mode is **that same rule, for every visitor**: no tags on the server
+or while a component hydrates, tags from the render after. An earlier draft of
+this plan encoded on the server too, and was wrong for that reason.
 
-| Where                                        | Today                                                 | With analytics on                                    |
-| -------------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------- |
-| `initValContent` (`tanstack/src/server`)     | `disabled: !draftMode`                                | `disabled: false`, `SET_AUTO_TAG_JSX_ENABLED(true)`  |
-| `useEncodesEditTags` (`tanstack/src/client`) | `draftMode && (!serverDraft \|\| hydrated)`           | `true`, including SSR and hydration                  |
-| `ValTanStackProvider`                        | `SET_AUTO_TAG_JSX_ENABLED(false)` without the overlay | leaves it on                                         |
-| The analytics script                         | —                                                     | mounted when on, and NOT in draft mode or the canvas |
+| Where                                        | Today                                                 | With analytics on                                      |
+| -------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------ |
+| `useEncodesEditTags` (`tanstack/src/client`) | `draftMode && (!serverDraft \|\| hydrated)`           | the same in draft mode; otherwise `hydrated`           |
+| `ValTanStackProvider`                        | `SET_AUTO_TAG_JSX_ENABLED(false)` without the overlay | `SET_AUTO_TAG_JSX_ENABLED(true)`                       |
+| `initValContent` (`tanstack/src/server`)     | `disabled: !draftMode`                                | **unchanged**: server reads stay untagged for visitors |
+| The analytics script                         | —                                                     | mounted when on, and NOT in draft mode or the canvas   |
+
+What follows from it:
+
+- **The content in the HTML a visitor is sent is the same with analytics on or
+  off**, and no edit tag reaches a crawler that does not run the page. Only the
+  setting itself differs, where it travels to the browser (the root route's
+  loader data on a hosted site), which is why `home` keys prerendered pages by
+  it.
+- **Content read with the client hooks is counted. Content read through a
+  loader or a server function is not**, the same way it is not
+  click-to-edit (quirks.md). The hooks are the recommended way to read content
+  anyway.
+- One extra render per component that reads content, right after hydration.
+  Draft mode already pays it.
 
 Analytics changes how content is **encoded**, never which content is read.
 Draft mode still decides published versus patched source.
@@ -64,14 +80,10 @@ Draft mode still decides published versus patched source.
 export const config = { project: "acme/site", analytics: { enabled: true } };
 ```
 
-`VAL_ANALYTICS=true|false` overrides it. In TanStack the env is read by the
-app's own `val.server.ts` and passed in as an option (`initValServer` and
-`initValContent` already take `apiKey` and `http` this way, because a
-separately bundled dependency cannot see `process.env`). On a hosted site the
-generated `val.server.ts` does it, which is what makes the switch one click.
-
-The flag reaches the client through the provider, from the same SSR pass, so
-server and client can never disagree about it.
+`<ValProvider analytics>` overrides it at runtime. A hosted site reads
+`VAL_ANALYTICS` on the server and passes it down from the root route's
+loader, which is what makes the switch one click with no rebuild. The value
+must be the same on the server and in the browser, and constant for the page.
 
 ### The leak warning
 
@@ -80,7 +92,8 @@ to `data-val-path`. Anything that does not go through it keeps the invisible
 characters: JSON-LD built with `dangerouslySetInnerHTML`, feeds and sitemaps
 built as strings, `encodeURIComponent(title)` in a share link, a string
 comparison in app code. Editors have lived with that in draft mode. With
-analytics on, crawlers and every visitor get it.
+analytics on, every visitor gets it after hydration, and so does any crawler
+that runs the page, Googlebot included. The server's HTML stays clean.
 
 A tag is about **1.5 KB** of invisible characters per string (measured, 60
 strings, `@vercel/stega` 1.1.0), so a leak is heavy as well as wrong.
@@ -90,7 +103,6 @@ change:
 
 - `document.title` and every `<meta>` `content`
 - `<script type="application/ld+json">` bodies
-- the dehydrated router state TanStack writes into the page
 - every attribute value, and text nodes not under an element that has `data-val-path`
 
 For each tag it finds, it decodes the path and logs:
@@ -177,6 +189,9 @@ Content-Type: text/plain;charset=UTF-8
   "v": 1,
   // location.pathname, never the query or the hash
   "route": "/blogs/my-post",
+  // the content version the page was rendered from: a hosted content
+  // version's id, or the build's own commit when the bundle's content is live
+  "cv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   // only on the first beacon of a page view; its presence IS the page view
   "view": {
     "ref": "news.ycombinator.com", // document.referrer's host, only if another site
@@ -207,11 +222,19 @@ Content-Type: text/plain;charset=UTF-8
 - A new field gets a new `v`. A receiver drops a version it does not know with
   a 204, so an old receiver never breaks a new site.
 
+**Every count is stored with the content version it was seen in** (`cv`).
+That answers "did the new hero do better than the old one" across a publish,
+and it is what makes positions safe to count, below. The page knows its own
+version: the readers already render from it (`snapshotForReaders`), so the
+provider hands its id to the script. The loader stamps the head it is serving
+when a beacon has none.
+
 **Array items are counted by position.** This is decided, not a gap.
 `"sections".0` is whatever is first that day, and reordering a list moves
 its counts to the item now in that place. Record entries have stable keys.
-The dashboard labels array items by position, so nobody reads a position's
-count as an item's.
+Because each count carries its content version, the dashboard can name the
+item that was at that position in that version, and labels the rest by
+position.
 
 ---
 
@@ -237,9 +260,12 @@ Self-hosted forwarding to Val's ingest, authenticated with the project's
   path splitter against `splitJoinedSourcePaths` on the same inputs; nothing
   sent in draft mode, in the canvas, with the enable cookie or with
   `navigator.webdriver`.
-- **Unit, `@valbuild/tanstack`**: with analytics on, SSR output carries
-  `data-val-path`, and the hydration render matches it (no mismatch warning);
-  with it off, today's behaviour is unchanged, byte for byte.
+- **Unit, `@valbuild/tanstack`**: with analytics on, the server's HTML is
+  identical to analytics off and carries no tag; hydrating it reports no
+  mismatch, and the render after carries the tags; draft mode is unchanged.
+- **e2e, `tanstack` project**: the HTML a visitor is sent names no content,
+  and after hydration the showcase's content has `data-val-path` and clean
+  text, a lazy component handed a string as a prop included.
 - **Leak warning**: a fixture page with JSON-LD, a title and a share link, each
   leaking one tag, and the warning naming all three.
 - **Bundle weight**: a test that the analytics entrypoint's import graph
@@ -260,9 +286,9 @@ Add "analytics" to the showcase list in `CLAUDE.md`.
 
 ## 7. Build order
 
-1. `analytics` in `ValConfig` and the TanStack options; the analytics mode in
-   `initValContent`, `useEncodesEditTags` and the provider, with the
-   hydration test.
+1. `analytics` in `ValConfig` and the provider; the analytics mode in
+   `useEncodesEditTags` and the provider, with the hydration test and an e2e
+   test on the showcase. **Built** in valbuild/val `claude/tanstack-analytics-mode`.
 2. `@valbuild/react/analytics`: counting, page views, sending, with its unit
    tests and the bundle-weight test.
 3. The `/api/val/analytics` route in `ValRouter` and the dev log; the showcase;
