@@ -167,7 +167,7 @@ new page view, because they were rendered on it.
 
 | Status | Meaning                                  | The script                             |
 | ------ | ---------------------------------------- | -------------------------------------- |
-| 204    | Counted, or deliberately dropped         | Carries on                             |
+| 2xx    | Counted, or deliberately dropped         | Carries on                             |
 | 410    | Analytics is off or paused for this site | Stops sending until the next full load |
 | 413    | Body too large                           | Drops it; a bug, not a retry           |
 
@@ -245,10 +245,12 @@ app (see `home`), so the app's handler never runs there.
 
 Everywhere else it does, so `createValApiRouter` gets the route (`ApiRoutes.ts`
 and `ValServer.ts`, as every endpoint does): it validates the body against the
-wire format and answers 204. In dev it also logs a one-line summary per beacon,
-which is how the showcase shows analytics working without a backend.
+wire format and answers `200 { counted: false }`, or ignores a version it does
+not know, and only a broken v1 beacon gets a 400. In local dev (`fs` mode) it
+also logs a line per beacon (`[val] analytics: / (page view): 12 rendered, 4
+viewed`), which is how the showcase shows analytics working without a backend.
 Self-hosted forwarding to Val's ingest, authenticated with the project's
-`VAL_API_KEY`, is the later step that turns that 204 into a count.
+`VAL_API_KEY`, is the later step that turns `counted` true.
 
 ---
 
@@ -290,7 +292,8 @@ Add "analytics" to the showcase list in `CLAUDE.md`.
    `useEncodesEditTags` and the provider, with the hydration test and an e2e
    test on the showcase. **Built** in valbuild/val `claude/tanstack-analytics-mode`.
 2. `@valbuild/react/analytics`: counting, page views, sending, with its unit
-   tests and the bundle-weight test.
+   tests and the bundle-weight test. **Built**, with step 3, in
+   `claude/analytics-browser-script`.
 3. The `/api/val/analytics` route in `ValRouter` and the dev log; the showcase;
    the e2e test.
 4. The leak warning.
