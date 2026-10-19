@@ -1,5 +1,15 @@
 # @valbuild/shared
 
+## 0.146.4
+
+### Patch Changes
+
+- [#870](https://github.com/valbuild/val/pull/870) [`81f2e80`](https://github.com/valbuild/val/commit/81f2e803c4cefdf58bbe6856c06e98ace95a8e0b) Thanks [@freekh](https://github.com/freekh)! - The canvas works on a page behind your site's own login.
+
+  A site with its own sign-in (a dashboard, an intranet, a members' area) can be edited in the canvas. The canvas is a frame on the same origin as the Studio, so it sends your site's cookies like any other tab: if you are signed in to the site, the canvas shows the page signed in as you.
+
+  If you were not signed in, the site redirected the canvas to its login page, and the canvas then broke. That page mounted Val's whole overlay inside the canvas, a Studio inside the Studio. The canvas stayed on "Preview is not ready yet" through the sign-in and after it, until you pressed Reload. Now a page shown in the Studio's canvas counts as the canvas wherever it navigated to, so you can sign in inside the canvas and keep editing.
+
 ## 0.146.2
 
 ### Patch Changes
