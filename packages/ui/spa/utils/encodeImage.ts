@@ -6,6 +6,7 @@ import {
   isMimeTypeAccepted,
   isSkippedSource,
   NEVER_ENCODED,
+  shouldEncodeWithWasm,
   withExtension,
   type EncodeSettings,
 } from "@valbuild/shared/internal";
@@ -25,6 +26,12 @@ import {
  * lives in `@valbuild/shared/internal` instead, because the MCP image tool
  * makes the same ones against `sharp` in a Node process — and `s.image({
  * encode })` has to mean one thing whichever side of the wire ran it.
+ *
+ * Three encoders are tried, in order, on the same drawn canvas: the canvas's
+ * own, libwebp in WebAssembly where the canvas cannot write WebP (Safari; see
+ * `webpWasm.ts`), and the source's own format, scaled down, where that could
+ * not be loaded either. Each is the next one's fallback, and the original file
+ * is the last.
  */
 
 export {
@@ -45,17 +52,19 @@ function toBlob(
   return new Promise((resolve) => canvas.toBlob(resolve, mimeType, quality));
 }
 
-/** The canvas as a file of this type, or null when the original should win. */
-async function encodeCanvas(
-  canvas: HTMLCanvasElement,
+/**
+ * Encoded bytes as the file to upload, or null when the original should win.
+ *
+ * The null check is `chooseEncoded`'s job too, but it answers a boolean and
+ * TypeScript cannot narrow `blob` through that, so it is asked here as well.
+ */
+function chosenFile(
+  blob: Blob | null,
   file: File,
   mimeType: string,
   settings: EncodeSettings,
   needsDownscale: boolean,
-): Promise<File | null> {
-  const blob = await toBlob(canvas, mimeType, settings.quality);
-  // The null check is `chooseEncoded`'s job too, but it answers a boolean and
-  // TypeScript cannot narrow `blob` through that, so it is asked here as well.
+): File | null {
   if (
     !blob ||
     !chooseEncoded({
@@ -72,6 +81,72 @@ async function encodeCanvas(
   return new File([blob], withExtension(file.name, ext ?? settings.type), {
     type: mimeType,
   });
+}
+
+/**
+ * The drawn canvas as WebP, by libwebp in WebAssembly; null when that cannot
+ * be loaded or fails.
+ *
+ * The pixels are read off the canvas that was already drawn, so the decode,
+ * the orientation and the resize are exactly the ones the canvas's own encoder
+ * was handed. The import is dynamic so that the encoder's JavaScript is a chunk
+ * of its own, and is only requested here.
+ */
+async function encodeWithWasm(
+  ctx: CanvasRenderingContext2D,
+  quality: number,
+): Promise<Blob | null> {
+  try {
+    const { encodeWebpWithWasm } = await import("./webpWasm");
+    const pixels = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+    return await encodeWebpWithWasm(pixels, quality);
+  } catch (err) {
+    console.warn(
+      "Could not encode WebP with WebAssembly, falling back to the canvas",
+      err,
+    );
+    return null;
+  }
+}
+
+/**
+ * The image decoded straight at `target`, or null where this engine cannot.
+ *
+ * iOS Safari refuses a canvas larger than about 16.7 million pixels, which a
+ * 48 MP photo is three times over -- so decoding at the size we will encode at
+ * is what lets the canvas be target-sized from the start. The full-size bitmap
+ * the caller already has is not a canvas, and is only how `target` was known.
+ *
+ * Trusted only when it comes back at exactly `target`, which catches both ways
+ * this goes wrong. An engine that ignores `resizeWidth`/`resizeHeight` hands
+ * back the full size. An engine that resizes BEFORE applying the EXIF
+ * orientation would scale a portrait photo's sideways pixels to portrait
+ * dimensions and then turn them, handing back the target with its sides
+ * swapped -- the one way a resize could undo `imageOrientation`. (A square
+ * target cannot tell the two orders apart, and does not need to: there a
+ * uniform scale and a quarter turn commute.) Either way the caller scales on
+ * the canvas instead, as it did before this existed.
+ */
+async function decodeAt(
+  file: File,
+  target: { width: number; height: number },
+): Promise<ImageBitmap | null> {
+  let sized: ImageBitmap;
+  try {
+    sized = await createImageBitmap(file, {
+      imageOrientation: "from-image",
+      resizeWidth: target.width,
+      resizeHeight: target.height,
+      resizeQuality: "high",
+    });
+  } catch {
+    return null;
+  }
+  if (sized.width === target.width && sized.height === target.height) {
+    return sized;
+  }
+  sized.close();
+  return null;
 }
 
 /**
@@ -110,6 +185,7 @@ export async function encodeImage(
     return file;
   }
   let bitmap: ImageBitmap | undefined;
+  let sized: ImageBitmap | null = null;
   try {
     bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
     const target = fitWithin(
@@ -122,43 +198,75 @@ export async function encodeImage(
     if (isSkippedSource(file.type, targetMimeType, needsDownscale)) {
       return file;
     }
+    const width = target?.width ?? bitmap.width;
+    const height = target?.height ?? bitmap.height;
+    if (target !== null) {
+      sized = await decodeAt(file, target);
+      if (sized !== null) {
+        // Nothing reads the full-size pixels again; let them go before the
+        // canvas is allocated, which is the peak.
+        bitmap.close();
+      }
+    }
     const canvas = document.createElement("canvas");
-    canvas.width = target?.width ?? bitmap.width;
-    canvas.height = target?.height ?? bitmap.height;
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       return file;
     }
-    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const encoded = await encodeCanvas(
-      canvas,
+    ctx.drawImage(sized ?? bitmap, 0, 0, width, height);
+
+    const canvasBlob = await toBlob(canvas, targetMimeType, settings.quality);
+    const encoded = chosenFile(
+      canvasBlob,
       file,
       targetMimeType,
       settings,
       needsDownscale,
     );
-    if (encoded === null) {
-      // The browser cannot write the type asked for (Safari and webp): scale
-      // it down in its own format instead. See `fallbackMimeType`.
-      const fallback = fallbackMimeType(file.type, needsDownscale, accept);
-      if (fallback === null) {
-        return file;
-      }
-      return (
-        (await encodeCanvas(
-          canvas,
-          file,
-          fallback,
-          settings,
-          needsDownscale,
-        )) ?? file
-      );
+    if (encoded !== null) {
+      return encoded;
     }
-    return encoded;
+    if (
+      shouldEncodeWithWasm({
+        targetMimeType,
+        canvasOutputType: canvasBlob?.type ?? null,
+      })
+    ) {
+      const fromWasm = chosenFile(
+        await encodeWithWasm(ctx, settings.quality),
+        file,
+        targetMimeType,
+        settings,
+        needsDownscale,
+      );
+      if (fromWasm !== null) {
+        return fromWasm;
+      }
+    }
+    // Nothing wrote the type asked for (or what was written lost to the
+    // original): scale it down in its own format instead, when it needs it.
+    // See `fallbackMimeType`.
+    const fallback = fallbackMimeType(file.type, needsDownscale, accept);
+    if (fallback === null) {
+      return file;
+    }
+    return (
+      chosenFile(
+        await toBlob(canvas, fallback, settings.quality),
+        file,
+        fallback,
+        settings,
+        needsDownscale,
+      ) ?? file
+    );
   } catch (err) {
     console.error("Could not re-encode image, uploading the original", err);
     return file;
   } finally {
+    // Closing twice is harmless, and the full-size bitmap may already be.
     bitmap?.close();
+    sized?.close();
   }
 }

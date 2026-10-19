@@ -1,4 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
+import { createRequire } from "node:module";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { makeJpeg, withExifOrientation } from "./photo";
 
 /**
  * The demo: the real Studio, with Val's server running in the tab.
@@ -166,27 +170,7 @@ test.describe("uploads in the demo", () => {
       await page.evaluate(() => navigator.serviceWorker.controller !== null),
     ).toBe(true);
 
-    // A camera-sized JPEG, made in the page so there is no fixture to keep.
-    const jpeg = await page.evaluate(async () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 3200;
-      canvas.height = 2000;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("no 2d context");
-      const gradient = ctx.createLinearGradient(0, 0, 3200, 2000);
-      gradient.addColorStop(0, "#3b2314");
-      gradient.addColorStop(1, "#d9a25b");
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, 3200, 2000);
-      const blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/jpeg", 0.95),
-      );
-      if (!blob) throw new Error("no jpeg");
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-      let binary = "";
-      for (const byte of bytes) binary += String.fromCharCode(byte);
-      return btoa(binary);
-    });
+    const jpeg = await makeJpeg(page, { width: 3200, height: 2000 });
     await page
       .locator(`[data-val-studio-path$='"hero"."image"']`)
       .first()
@@ -195,7 +179,7 @@ test.describe("uploads in the demo", () => {
       .setInputFiles({
         name: "photo.jpg",
         mimeType: "image/jpeg",
-        buffer: Buffer.from(jpeg, "base64"),
+        buffer: jpeg,
       });
 
     const hero = canvas(page).locator("img.hero-image");
@@ -241,6 +225,233 @@ test.describe("uploads in the demo", () => {
         }),
     );
     expect(seekedTo).toBeCloseTo(2, 0);
+    expect(escaped).toEqual([]);
+  });
+});
+
+/**
+ * Where a request for libwebp's WebAssembly went, by path.
+ *
+ * Its URL is not under `/api/val` in a built Studio: the build points it at the
+ * static host (`DEFAULT_STATIC_HOST`, `packages/ui/build/staticWasm.ts`), so
+ * `refuseTheNetwork` never sees it -- and must not refuse it if it did: the
+ * one place it may come from is the network. In development the Studio is
+ * served by Vite, and the file comes from `/api/val/static/…`, which is let
+ * through as the Studio's own. Either way it is answered here: from Vite as it
+ * is, and from `node_modules` for the static host, where a binary is uploaded
+ * at release and a test cannot wait for that.
+ */
+async function serveWebpWasm(context: BrowserContext): Promise<string[]> {
+  const fetched: string[] = [];
+  await context.route(/\/webp_enc(_simd)?(-[\w-]{8})?\.wasm(\?|$)/, (route) => {
+    const url = new URL(route.request().url());
+    /*
+     * Under Vite's dev server, `import url from "….wasm?url"` is itself a
+     * request -- for a module whose one export is the URL string. It carries
+     * no binary, and a built Studio has no such request at all.
+     */
+    if (route.request().resourceType() === "script") {
+      return route.continue();
+    }
+    fetched.push(url.pathname);
+    if (url.hostname === "localhost") {
+      return route.continue();
+    }
+    const simd = url.pathname.includes("webp_enc_simd");
+    return route.fulfill({
+      body: fs.readFileSync(
+        path.join(
+          path.dirname(
+            createRequire(
+              path.join(process.cwd(), "packages/ui/package.json"),
+            ).resolve("@jsquash/webp/package.json"),
+          ),
+          "codec/enc",
+          simd ? "webp_enc_simd.wasm" : "webp_enc.wasm",
+        ),
+      ),
+      contentType: "application/wasm",
+      // What the real host sends: the Studio fetches it cross-origin.
+      headers: {
+        "access-control-allow-origin": "*",
+        "cross-origin-resource-policy": "cross-origin",
+      },
+    });
+  });
+  return fetched;
+}
+
+/** Upload a photo to the home page's hero image, and wait for it to show. */
+async function uploadHeroPhoto(
+  page: Page,
+  name: string,
+  jpeg: Buffer,
+): Promise<void> {
+  const hero = canvas(page).locator("img.hero-image");
+  const before = await hero.getAttribute("src");
+  await page
+    .locator(`[data-val-studio-path$='"hero"."image"']`)
+    .first()
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles({ name, mimeType: "image/jpeg", buffer: jpeg });
+  await expect(hero).not.toHaveAttribute("src", before ?? "", {
+    timeout: 30_000,
+  });
+  await expect(hero).toHaveAttribute("src", /\.webp\?patch_id=/, {
+    timeout: 30_000,
+  });
+  await expect
+    .poll(() => hero.evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .toBeGreaterThan(0);
+}
+
+/** What the hero image's file is, read the way the page reads it. */
+async function heroFile(page: Page) {
+  return canvas(page)
+    .locator("img.hero-image")
+    .evaluate(async (img: HTMLImageElement) => {
+      const response = await fetch(img.src);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const ascii = (from: number, to: number) =>
+        String.fromCharCode(...bytes.subarray(from, to));
+      // Which corner the red square is in, so a test can tell which way up.
+      const draw = document.createElement("canvas");
+      draw.width = img.naturalWidth;
+      draw.height = img.naturalHeight;
+      const ctx = draw.getContext("2d");
+      if (!ctx) throw new Error("no 2d context");
+      ctx.drawImage(img, 0, 0);
+      const isRed = (x: number, y: number) => {
+        const [r, g, b] = ctx.getImageData(x, y, 1, 1).data;
+        return r > 200 && g < 80 && b < 80;
+      };
+      return {
+        contentType: response.headers.get("content-type"),
+        // RIFF....WEBP: the bytes are a WebP, whatever the name says.
+        magic: `${ascii(0, 4)}${ascii(8, 12)}`,
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+        redCorner: isRed(10, 10)
+          ? "top-left"
+          : isRed(img.naturalWidth - 10, 10)
+            ? "top-right"
+            : "neither",
+      };
+    });
+}
+
+test.describe("WebP in a browser whose canvas cannot write it", () => {
+  /*
+   * Safari, as far as the encoder can tell: asked for WebP, `toBlob` answers
+   * with a PNG and no error. Faked rather than run in WebKit because whether
+   * a given WebKit build writes WebP is the platform's choice, not ours, and
+   * this has to fail the same way on every CI runner.
+   */
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      const toBlob = HTMLCanvasElement.prototype.toBlob;
+      HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {
+        if (type === "image/webp") {
+          return toBlob.call(this, callback, "image/png");
+        }
+        return toBlob.call(this, callback, type, quality);
+      };
+    });
+  });
+
+  test("a photo is encoded to WebP with WebAssembly, and the encoder is fetched once", async ({
+    page,
+    context,
+  }) => {
+    const escaped = await refuseTheNetwork(context);
+    const wasm = await serveWebpWasm(context);
+    await openDemo(page);
+    await closeTour(page);
+    // Proves the fake: without it this test proves nothing about Safari.
+    expect(
+      await page.evaluate(
+        () =>
+          new Promise<string | undefined>((resolve) => {
+            const canvas = document.createElement("canvas");
+            canvas.width = canvas.height = 1;
+            canvas.toBlob((blob) => resolve(blob?.type), "image/webp");
+          }),
+      ),
+    ).toBe("image/png");
+
+    await uploadHeroPhoto(
+      page,
+      "photo.jpg",
+      await makeJpeg(page, { width: 3200, height: 2000 }),
+    );
+    expect(await heroFile(page)).toEqual({
+      contentType: "image/webp",
+      magic: "RIFFWEBP",
+      width: 2560,
+      height: 1600,
+      redCorner: "top-left",
+    });
+    expect(wasm).toHaveLength(1);
+
+    /*
+     * A second photo, which a phone took held upright: its pixels are stored
+     * sideways with an EXIF Orientation of 6. Two things at once: the encoder
+     * is not fetched again, and decoding straight to the target size -- what
+     * keeps a 48 MP photo under iOS's canvas limit -- did not undo the
+     * orientation. Undone, it comes out 2560x1600, or squashed.
+     */
+    await uploadHeroPhoto(
+      page,
+      "portrait.jpg",
+      withExifOrientation(
+        await makeJpeg(page, { width: 3200, height: 2000 }),
+        6,
+      ),
+    );
+    expect(await heroFile(page)).toEqual({
+      contentType: "image/webp",
+      magic: "RIFFWEBP",
+      width: 1600,
+      height: 2560,
+      // A quarter turn clockwise takes the top-left corner to the top-right.
+      redCorner: "top-right",
+    });
+    expect(wasm).toHaveLength(1);
+    expect(escaped).toEqual([]);
+  });
+});
+
+test.describe("WebP in a browser whose canvas can write it", () => {
+  test("never downloads the WebAssembly encoder, nor its JavaScript", async ({
+    page,
+    context,
+  }) => {
+    const escaped = await refuseTheNetwork(context);
+    const wasm = await serveWebpWasm(context);
+    const encoderCode: string[] = [];
+    context.on("request", (request) => {
+      if (/webpWasm|jsquash/.test(request.url())) {
+        encoderCode.push(request.url());
+      }
+    });
+    await openDemo(page);
+    await closeTour(page);
+
+    await uploadHeroPhoto(
+      page,
+      "photo.jpg",
+      await makeJpeg(page, { width: 3200, height: 2000 }),
+    );
+    expect(await heroFile(page)).toEqual({
+      contentType: "image/webp",
+      magic: "RIFFWEBP",
+      width: 2560,
+      height: 1600,
+      redCorner: "top-left",
+    });
+    expect(wasm).toEqual([]);
+    expect(encoderCode).toEqual([]);
     expect(escaped).toEqual([]);
   });
 });

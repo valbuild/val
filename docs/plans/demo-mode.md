@@ -537,9 +537,12 @@ Decided after the first version was up:
 - **Images are encoded.** The template's gallery has `encode: { type: "webp" }`
   and `accept: "image/*"`, so a phone offers its camera, and a photo goes up
   as a 2560px WebP of a few hundred KB. Safari cannot write WebP from a canvas,
-  so `fallbackMimeType` (shared, beside the other encode decisions) scales a
-  JPEG or PNG down in its own format there instead -- before, Safari uploaded
-  every photo at the camera's full size.
+  so there the Studio encodes the canvas's pixels with libwebp in WebAssembly
+  (`shouldEncodeWithWasm`, `utils/webpWasm.ts`), fetched once from the static
+  host -- which a demo may reach: it is not `/api/val`. Only if that cannot be
+  loaded does `fallbackMimeType` scale a JPEG or PNG down in its own format
+  instead. Before either, Safari uploaded every photo at the camera's full
+  size.
 - **Video in the template.** `src/content/videos.val.ts` is an `s.videodir()`
   with `stream: { type: "hls" }`, and the home page has a film section playing
   one with `ValVideo` and hls.js. An uploaded video is converted to a stream in
