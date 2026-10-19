@@ -65,8 +65,8 @@ export function checkDemoUpload(
   uploads: boolean,
   file: { data: string | null },
 ): string | null {
-  if (!uploads) return DEMO_UPLOADS_OFF;
   if (file.data === null) return null;
+  if (!uploads) return DEMO_UPLOADS_OFF;
   const size = dataUrlSize(file.data);
   if (size === null) return null;
   const kind = kindOf(size.mimeType);

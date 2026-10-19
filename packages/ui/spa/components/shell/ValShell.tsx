@@ -23,6 +23,7 @@ import { PublishState } from "./TopBar";
 import {
   ShellBreakpoint,
   ShellData,
+  ShellDestination,
   ShellExternalPage,
   ShellMediaGallery,
   ShellValidationError,
@@ -220,6 +221,14 @@ function ValShellBody({
   const demo = useValDemo();
   const [demoTourPending] = useState(
     () => demo !== null && !readDemoTourSeen(),
+  );
+  const buildDemoTourSteps = useMemo(
+    () =>
+      demo === null
+        ? undefined
+        : (project: { destinations: readonly ShellDestination[] }) =>
+            demoTourSteps({ ...project, uploads: demo.uploads }),
+    [demo],
   );
   const { resolvedTheme, setTheme, themeStyle } = useTheme();
   /**
@@ -1314,7 +1323,7 @@ function ValShellBody({
         renderSettings={renderSettings}
         renderExternalPages={renderExternalPages}
         tourEnabled={demo !== null || isTourOffered(studioSettings)}
-        buildTourSteps={demo !== null ? demoTourSteps : undefined}
+        buildTourSteps={buildDemoTourSteps}
         autoStartTour={demoTourPending}
         onTourClose={demo !== null ? writeDemoTourSeen : undefined}
         renderDemoBanner={

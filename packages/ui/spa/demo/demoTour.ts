@@ -17,9 +17,17 @@ import type { ShellDestination } from "../components/shell/types";
 export type DemoTourProject = {
   /** The destinations the rail offers. See `availableDestinations`. */
   destinations: readonly ShellDestination[];
+  /**
+   * Whether this browser can upload in the demo (`ValDemoRuntime.uploads`).
+   * The Media step invites an upload only where one can be made.
+   */
+  uploads: boolean;
 };
 
-export function demoTourSteps({ destinations }: DemoTourProject): TourStep[] {
+export function demoTourSteps({
+  destinations,
+  uploads,
+}: DemoTourProject): TourStep[] {
   const steps: TourStep[] = [
     {
       id: "demo-welcome",
@@ -46,7 +54,9 @@ export function demoTourSteps({ destinations }: DemoTourProject): TourStep[] {
     steps.push({
       id: "demo-media",
       title: "Media — images and video in one place",
-      body: "Images and videos live in galleries, and a page picks from them. Upload your own — a photo from your phone works too. Images are converted and scaled down before they are sent, and a video becomes a stream, all in your browser.",
+      body: uploads
+        ? "Images and videos live in galleries, and a page picks from them. Upload your own — a photo from your phone works too. Images are converted and scaled down before they are sent, and a video becomes a stream, all in your browser."
+        : "Images and videos live in galleries, and a page picks from them. Pick another one for any image on the page. In your own project, you upload new ones here too.",
       target: "media",
       panel: "media",
     });

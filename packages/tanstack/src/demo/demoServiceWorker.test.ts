@@ -1,4 +1,5 @@
 import {
+  DEMO_CLAIM_MESSAGE,
   DEMO_RELAY_MESSAGE,
   DEMO_SERVICE_WORKER_SOURCE,
 } from "./demoServiceWorker";
@@ -27,7 +28,7 @@ type FetchEvent = {
 function studio(
   id: string,
   path: string,
-  answer: (message: { url: string; method: string }) => {
+  answer: (message: { url: string; method: string; body: string | null }) => {
     status: number;
     body: string | null;
   },
@@ -37,7 +38,16 @@ function studio(
     id,
     url: `https://demo.example${path}`,
     asked,
-    postMessage: (message, transfer) => {
+    postMessage: (sent, transfer) => {
+      // Received the way a browser delivers it: a structured clone, with the
+      // buffers in the transfer list moved rather than copied -- which
+      // detaches them on the sending side. (The port is used as it is: a
+      // browser hands it over as `event.ports`, not inside the message.)
+      const message: unknown = structuredClone(sent, {
+        transfer: transfer.filter(
+          (t): t is ArrayBuffer => t instanceof ArrayBuffer,
+        ),
+      });
       if (
         typeof message !== "object" ||
         message === null ||
@@ -51,7 +61,15 @@ function studio(
       asked.push(message.url);
       const port = transfer[0];
       if (!(port instanceof MessagePort)) throw new Error("no port");
-      const res = answer({ url: message.url, method: message.method });
+      const received =
+        "body" in message && message.body instanceof ArrayBuffer
+          ? new TextDecoder().decode(message.body)
+          : null;
+      const res = answer({
+        url: message.url,
+        method: message.method,
+        body: received,
+      });
       const body =
         res.body === null ? null : new TextEncoder().encode(res.body).buffer;
       port.postMessage({
@@ -149,6 +167,67 @@ describe("the demo's service worker", () => {
     });
     expect(res?.status).toBe(200);
     expect(seen).toBe("POST");
+  });
+
+  test("from a canvas frame, an upload's body reaches every Studio tab it is offered to", async () => {
+    // A body can be transferred once. Every tab after the first has to get a
+    // copy taken BEFORE the first transfer, or the copy throws on a detached
+    // buffer and the upload never reaches the tab that has the patch.
+    const without = studio("a", "/val", () => ({ status: 404, body: null }));
+    let seen: string | null = null;
+    const withIt = studio("b", "/val/~/y", ({ body }) => {
+      seen = body;
+      return { status: 200, body: "{}" };
+    });
+    const frame: FakeClient = {
+      id: "frame",
+      url: "https://demo.example/journal?val_canvas=1",
+      postMessage: () => {
+        throw new Error("a frame is never asked");
+      },
+    };
+    const fetch = load([frame, without, withIt]);
+    const res = await fetch("/api/val/upload/patches/p/files", "frame", {
+      method: "POST",
+      body: "the bytes",
+    });
+    expect(res?.status).toBe(200);
+    expect(seen).toBe("the bytes");
+  });
+
+  test("takes a page under its control when the page asks: a hard reload is not", async () => {
+    let claims = 0;
+    let onMessage:
+      | ((event: {
+          data: unknown;
+          waitUntil: (work: Promise<unknown>) => void;
+        }) => void)
+      | undefined;
+    const self = {
+      location: { origin: "https://demo.example" },
+      skipWaiting: () => undefined,
+      addEventListener: (type: string, listener: never) => {
+        if (type === "message") onMessage = listener;
+      },
+      clients: {
+        claim: async () => {
+          claims++;
+        },
+      },
+    };
+    new Function("self", DEMO_SERVICE_WORKER_SOURCE)(self);
+    const waited: Promise<unknown>[] = [];
+    onMessage?.({
+      data: { type: "unrelated" },
+      waitUntil: (w) => waited.push(w),
+    });
+    expect(claims).toBe(0);
+    onMessage?.({
+      data: { type: DEMO_CLAIM_MESSAGE },
+      waitUntil: (w) => waited.push(w),
+    });
+    await Promise.all(waited);
+    expect(claims).toBe(1);
   });
 
   test("says the Studio is not open, rather than hanging, when it is not", async () => {

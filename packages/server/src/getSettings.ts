@@ -10,8 +10,14 @@ import { z } from "zod";
  * alone, so `process.env.VAL_CONTENT_URL` here is whatever it was when the
  * chunk was built -- usually nothing. A caller that knows the content url has
  * to be able to say so.
+ *
+ * And guarded, because this module runs in a browser too (the demo's in-tab
+ * server, `@valbuild/server/browser`): a bundler that does not replace
+ * `process.env` leaves a `process` that is not defined there.
  */
-const defaultHost = process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
+const defaultHost =
+  (typeof process === "undefined" ? undefined : process.env.VAL_CONTENT_URL) ||
+  DEFAULT_CONTENT_HOST;
 
 const SettingsSchema = z.object({
   publicProjectId: z.string(),

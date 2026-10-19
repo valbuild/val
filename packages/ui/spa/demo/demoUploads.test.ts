@@ -70,5 +70,6 @@ describe("checkDemoUpload", () => {
 
   test("always lets a delete through: it is how a failed upload rolls back", () => {
     expect(checkDemoUpload(true, { data: null })).toBeNull();
+    expect(checkDemoUpload(false, { data: null })).toBeNull();
   });
 });

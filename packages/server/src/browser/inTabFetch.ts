@@ -72,9 +72,13 @@ export function createInTabValFetch(
       typeof window === "undefined"
         ? "http://localhost"
         : window.location.origin;
-    const url =
-      input instanceof Request ? input.url : new URL(String(input), base).href;
-    return handle(new Request(url, input instanceof Request ? input : init));
+    // A `Request` already has an absolute URL, and `init` overrides what it
+    // carries, as it does for `fetch`. Only a string or URL is resolved.
+    return handle(
+      input instanceof Request
+        ? new Request(input, init)
+        : new Request(new URL(String(input), base).href, init),
+    );
   };
 }
 

@@ -1,4 +1,5 @@
 import {
+  DEMO_CLAIM_MESSAGE,
   DEMO_RELAY_MESSAGE,
   DEMO_SERVICE_WORKER_PATH,
 } from "./demoServiceWorker";
@@ -102,10 +103,14 @@ export async function startDemoRelay(fetch: InTabFetch): Promise<boolean> {
     await container.register(`/api/val${DEMO_SERVICE_WORKER_PATH}`, {
       scope: "/",
     });
-    await container.ready;
+    const registration = await container.ready;
     if (!container.controller) {
-      // The first visit: the worker claims this page when it activates.
-      await new Promise<void>((resolve) => {
+      // Not controlled yet. On a first visit the worker claims this page when
+      // it activates. After a hard reload (Shift+Reload) it has activated
+      // already and a browser deliberately leaves the page uncontrolled, so
+      // the page asks it to claim -- or this would wait out the timeout and
+      // start with uploads off.
+      const controlled = new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, 10_000);
         container.addEventListener(
           "controllerchange",
@@ -116,6 +121,8 @@ export async function startDemoRelay(fetch: InTabFetch): Promise<boolean> {
           { once: true },
         );
       });
+      registration.active?.postMessage({ type: DEMO_CLAIM_MESSAGE });
+      await controlled;
     }
     return container.controller !== null;
   } catch (err) {

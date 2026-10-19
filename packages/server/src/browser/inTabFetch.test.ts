@@ -98,6 +98,20 @@ describe("the in-tab server", () => {
     expect(res.json).toEqual({ profiles: [] });
   });
 
+  test("takes a Request, and init overrides it, as fetch does", async () => {
+    const fetch = inTab();
+    const asRequest = await fetch(
+      new Request("http://localhost/api/val/profiles"),
+    );
+    expect(asRequest.status).toBe(200);
+    // The method comes from `init`, not from the Request it was given.
+    const overridden = await fetch(
+      new Request("http://localhost/api/val/profiles"),
+      { method: "DELETE" },
+    );
+    expect(overridden.status).not.toBe(200);
+  });
+
   test("saves an edit on the head and serves it back", async () => {
     const client = clientOf(inTab());
     const { baseSha } = await stat(client);

@@ -60,7 +60,7 @@ export const ValApp = ({
   demo?: boolean;
 }) => {
   const route = "/api/val"; // TODO: make configurable
-  const demoReady = useDemoServer(demo === true, config);
+  const demoStart = useDemoServer(demo === true, config);
   const [inMessageMode, setInMessageMode] = useState<boolean>();
   const isClientSIde = inMessageMode === undefined;
   useConfigStorageSave(config);
@@ -218,7 +218,15 @@ export const ValApp = ({
   if (inMessageMode) {
     return <div>Val Studio is disabled: in message mode</div>;
   }
-  if (demo && !demoReady) {
+  if (demo && demoStart.status === "failed") {
+    return (
+      <>
+        <DemoStartFailed failure={demoStart} />
+        {children}
+      </>
+    );
+  }
+  if (demo && demoStart.status !== "ready") {
     // The Studio reads `window.__VAL_DEMO__` when its script starts, so the
     // server it talks to has to be there first. The modules are registered
     // by a child (`ValModulesClient`), whose effect has run by then.
@@ -242,32 +250,119 @@ export const ValApp = ({
  * Loaded on demand: `@valbuild/server/browser` is the whole request-handling
  * half of the server, and only a demo should download it.
  */
-function useDemoServer(demo: boolean, config: ValConfig): boolean {
-  const [ready, setReady] = useState(false);
+type DemoStart =
+  | { status: "starting" }
+  | { status: "ready" }
+  | {
+      status: "failed";
+      /** What happened, for the person looking at the page. */
+      message: string;
+      /** The error itself, for whoever they report it to. */
+      details: string | null;
+      /** Whether loading the page again can help. */
+      retryable: boolean;
+    };
+
+function useDemoServer(demo: boolean, config: ValConfig): DemoStart {
+  const [start, setStart] = useState<DemoStart>({ status: "starting" });
   useEffect(() => {
     if (!demo) return;
     let cancelled = false;
-    void import("@valbuild/server/browser").then(
-      async ({ createInTabValFetch }) => {
-        if (cancelled) return;
-        const modules = window.__VAL_MODULES__;
-        if (!modules) {
-          console.error(
-            "Val: the demo needs the project's modules. Render <ValModulesClient modules={valModules} /> inside <ValApp demo>.",
-          );
-          return;
-        }
-        const fetch = createInTabValFetch(modules, { config });
-        const uploads = await startDemoRelay(fetch);
-        if (cancelled) return;
-        const runtime: ValDemoRuntime = { fetch, uploads };
-        window.__VAL_DEMO__ = runtime;
-        setReady(true);
-      },
-    );
+    const run = async (): Promise<DemoStart> => {
+      const { createInTabValFetch } = await import("@valbuild/server/browser");
+      const modules = window.__VAL_MODULES__;
+      if (!modules) {
+        return {
+          status: "failed",
+          message:
+            "This demo was built without its content. Render <ValModulesClient modules={valModules} /> inside <ValApp demo>.",
+          details: null,
+          retryable: false,
+        };
+      }
+      const fetch = createInTabValFetch(modules, { config });
+      const uploads = await startDemoRelay(fetch);
+      const runtime: ValDemoRuntime = { fetch, uploads };
+      window.__VAL_DEMO__ = runtime;
+      return { status: "ready" };
+    };
+    run()
+      .catch((err: unknown): DemoStart => {
+        console.error("Val: the demo could not start", err);
+        return {
+          status: "failed",
+          // Most often the server's code did not download: the page is fine,
+          // and loading it again fetches it again.
+          message: "The demo could not start: part of it did not load.",
+          details: err instanceof Error ? err.message : String(err),
+          retryable: true,
+        };
+      })
+      .then((result) => {
+        if (!cancelled) setStart(result);
+      });
     return () => {
       cancelled = true;
     };
   }, [demo, config]);
-  return ready;
+  return start;
+}
+
+/**
+ * Said on the page, not only in the console: without it a demo that failed
+ * to start is a site with no Studio and no reason given. Plain styles, since
+ * the Studio's stylesheet is exactly what has not loaded.
+ */
+function DemoStartFailed({
+  failure,
+}: {
+  failure: Extract<DemoStart, { status: "failed" }>;
+}) {
+  return (
+    <div
+      role="alert"
+      style={{
+        position: "fixed",
+        left: "1rem",
+        right: "1rem",
+        bottom: "1rem",
+        maxWidth: "28rem",
+        margin: "0 auto",
+        padding: "1rem",
+        borderRadius: "0.75rem",
+        background: "white",
+        color: "black",
+        boxShadow: "0 8px 30px rgba(0, 0, 0, 0.2)",
+        fontFamily: "system-ui, sans-serif",
+        fontSize: "0.875rem",
+        lineHeight: 1.4,
+        zIndex: 2147483647,
+      }}
+    >
+      <p style={{ margin: 0 }}>{failure.message}</p>
+      {failure.retryable && (
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          style={{
+            marginTop: "0.75rem",
+            padding: "0.375rem 0.75rem",
+            borderRadius: "0.375rem",
+            border: "1px solid #ccc",
+            background: "#f4f4f4",
+            font: "inherit",
+            cursor: "pointer",
+          }}
+        >
+          Try again
+        </button>
+      )}
+      {failure.details !== null && (
+        <details style={{ marginTop: "0.75rem", color: "#555" }}>
+          <summary style={{ cursor: "pointer" }}>Details</summary>
+          <code style={{ wordBreak: "break-word" }}>{failure.details}</code>
+        </details>
+      )}
+    </div>
+  );
 }

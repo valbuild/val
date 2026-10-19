@@ -11,6 +11,16 @@ export const DEMO_SERVICE_WORKER_PATH = "/demo-sw.js";
 export const DEMO_RELAY_MESSAGE = "val-demo-request";
 
 /**
+ * What a page sends the worker to be taken under its control now.
+ *
+ * `clients.claim()` runs when the worker activates, which is once. A page
+ * loaded after that with a hard reload (Shift+Reload) is deliberately NOT
+ * controlled by an active worker, and nothing would claim it -- so the page
+ * asks.
+ */
+export const DEMO_CLAIM_MESSAGE = "val-demo-claim";
+
+/**
  * The demo's service worker, as the source it is served as.
  *
  * In a demo, Val's server runs in the Studio's tab (`@valbuild/server/browser`)
@@ -48,6 +58,12 @@ const TIMEOUT_MS = 60000;
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "${DEMO_CLAIM_MESSAGE}") {
+    event.waitUntil(self.clients.claim());
+  }
 });
 
 self.addEventListener("fetch", (event) => {
@@ -104,8 +120,9 @@ async function relay(request, clientId) {
   const body = hasBody ? await request.arrayBuffer() : null;
   let last = null;
   for (const studio of studios) {
-    // A body can be transferred once, so each tab after the first gets a copy.
-    const copy = body && studio !== studios[0] ? body.slice(0) : body;
+    // A body can be transferred once, and transferring it detaches it, so
+    // every tab is given a copy and the original is never sent.
+    const copy = body ? body.slice(0) : null;
     const answer = await ask(
       studio,
       {
