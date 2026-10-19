@@ -1,5 +1,26 @@
 # @valbuild/tanstack
 
+## 0.146.3
+
+### Patch Changes
+
+- [#873](https://github.com/valbuild/val/pull/873) [`289b2f3`](https://github.com/valbuild/val/commit/289b2f3dc6503393697d09ba3ed802b569a914c9) Thanks [@freekh](https://github.com/freekh)! - Opening the Studio no longer flashes an empty page. The loading screen now stays
+  up until the Studio is ready to be seen, instead of disappearing as soon as the
+  page loaded and leaving a blank page while the Studio downloaded.
+
+## 0.146.2
+
+### Patch Changes
+
+- Updated dependencies [[`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9)]:
+  - @valbuild/core@0.146.2
+  - @valbuild/shared@0.146.2
+  - @valbuild/server@0.146.2
+  - @valbuild/ui@0.146.2
+  - @valbuild/language-server@0.146.2
+  - @valbuild/mcp@0.146.2
+  - @valbuild/react@0.146.2
+
 ## 0.146.1
 
 ### Patch Changes

@@ -558,7 +558,10 @@ describe("ImagesSchema", () => {
       expect(result).toBe(false);
     });
 
-    test("a ref the gallery does not have is a membership error", () => {
+    test("a ref the gallery as built does not have is a membership marker, for the project to answer", () => {
+      // The schema holds the gallery as it was evaluated; whether the gallery
+      // has the image NOW is the gallery module's current Source, which only
+      // a project-wide snapshot has (`resolveSchemaSourceFixes`).
       const missing = REF.replace("remote.webp", "other.webp");
       const result = fieldOf(true)["executeValidate"]("path" as SourcePath, {
         path: missing,
@@ -567,7 +570,12 @@ describe("ImagesSchema", () => {
         path: [
           {
             message: `The gallery does not have an image at '${missing}'.`,
-            value: { path: missing },
+            value: {
+              path: missing,
+              gallery: "/content/gallery.val.ts",
+              source: { path: missing },
+            },
+            fixes: ["image:check-gallery"],
           },
         ],
       });
