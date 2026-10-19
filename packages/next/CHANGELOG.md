@@ -1,5 +1,13 @@
 # @valbuild/next
 
+## 0.146.3
+
+### Patch Changes
+
+- [#873](https://github.com/valbuild/val/pull/873) [`289b2f3`](https://github.com/valbuild/val/commit/289b2f3dc6503393697d09ba3ed802b569a914c9) Thanks [@freekh](https://github.com/freekh)! - Opening the Studio no longer flashes an empty page. The loading screen now stays
+  up until the Studio is ready to be seen, instead of disappearing as soon as the
+  page loaded and leaving a blank page while the Studio downloaded.
+
 ## 0.146.2
 
 ### Patch Changes
