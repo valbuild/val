@@ -3,6 +3,7 @@ import {
   GalleryImageSource,
   ImageSource,
   galleryKeyOf,
+  galleryMarker,
   isRemoteMediaPath,
 } from "../source/media";
 import { getValPath, ModulePath, SourcePath } from "../val";
@@ -341,10 +342,7 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
         return {
           [path]: [
             ...customValidationErrors,
-            {
-              message: `The gallery does not have an image at '${src.path}'.`,
-              value: src,
-            },
+            galleryMarker("image", src, this.galleryModulePath()),
           ],
         } as ValidationErrors;
       }
@@ -451,6 +449,11 @@ export class ImageSchema<Src extends ImageSource | null> extends Schema<Src> {
    * alt — it carries its own — so it only needs the entry keys and the
    * dimensions, and a gallery of any alt shape can back it.
    */
+  /** The module path of the gallery this field points at. */
+  private galleryModulePath(): string {
+    return Object.keys(this.moduleMetadata)[0] ?? "";
+  }
+
   private galleryEntries(): Record<
     string,
     ImagedirEntryMetadata<AltSource>

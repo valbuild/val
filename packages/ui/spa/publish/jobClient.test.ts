@@ -1,4 +1,5 @@
 import { createStudioJobClient } from "./jobClient";
+import { onPlanRefusal } from "../utils/planRefusal";
 
 /*
  * A merge's job is prepared by content, from the proposal's last save --
@@ -71,6 +72,43 @@ describe("preparing a job", () => {
 });
 
 /*
+ * A merge that changes only content goes live on the live build (valbuild/home
+ * `docs/hosted-publishing.md`, step 8): content answers its prepare with a job
+ * nobody builds, and says so. The tab must keep the saying, or it reads a job
+ * with no step as one it has lost.
+ */
+test("a merge that changes only content is answered as one nobody builds, and says so", async () => {
+  const fetchImpl: typeof fetch = async () =>
+    new Response(
+      JSON.stringify({
+        job: {
+          id: "J9",
+          step: null,
+          base: "c1",
+          patches: ["merge:p1"],
+          contentOnly: true,
+        },
+        sourceFiles: { "src/a.val.ts": "export default 1;" },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  const prepared = await createStudioJobClient({
+    api: "/api/val",
+    fetchImpl,
+  }).prepare(
+    { id: "J9", step: "prepare", base: "c1", patches: ["merge:p1"] },
+    "tab-1",
+  );
+  expect(prepared.job).toEqual({
+    id: "J9",
+    step: null,
+    base: "c1",
+    patches: ["merge:p1"],
+    contentOnly: true,
+  });
+});
+
+/*
  * Publish in a proposal is pressed by a person -- content records who asked
  * for the merge -- so it goes through the proposals proxy, which carries the
  * editor's session. What comes back is a press's answer like any other.
@@ -103,5 +141,40 @@ test("a merge is pressed through the proposals proxy, and answered as a press", 
   expect(pressed).toEqual({
     request: { kind: "publishing" },
     job: { id: "J9", step: "prepare", base: "c1", patches: ["merge:p1"] },
+  });
+});
+
+/*
+ * A press the plan does not allow -- a trial's 3 publishes, a trial that
+ * ended -- is refused with a 403 whose body says why as data. The shell
+ * listens for it (`onPlanRefusal`) to say so with the next step beside it.
+ */
+describe("a press Val Build refuses for the plan", () => {
+  test("is told to the shell, and still thrown with Val Build's sentence", async () => {
+    const body = {
+      statusCode: 403,
+      message: "website's trial includes 3 publishes, and they are used.",
+      error: {
+        code: "trial-publishes",
+        fix: "add-card",
+        billingUrl: "https://admin.val.build/~/acme?section=billing",
+      },
+    };
+    const fetchImpl: typeof fetch = async () =>
+      new Response(JSON.stringify(body), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      });
+    const heard: string[] = [];
+    const stop = onPlanRefusal((refusal) => heard.push(refusal.code));
+    try {
+      const client = createStudioJobClient({ api: "/api/val", fetchImpl });
+      await expect(client.press("r1", "tab-1")).rejects.toThrow(
+        "website's trial includes 3 publishes, and they are used.",
+      );
+    } finally {
+      stop();
+    }
+    expect(heard).toEqual(["trial-publishes"]);
   });
 });

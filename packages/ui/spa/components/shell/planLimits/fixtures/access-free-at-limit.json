@@ -1,0 +1,24 @@
+{
+  "plan": "free",
+  "changes": {
+    "used": 1000,
+    "limit": 1000,
+    "left": 0,
+    "warn": false,
+    "nextAt": "2026-10-14T12:00:00.000Z"
+  },
+  "refused": {
+    "edit": {
+      "code": "limit:changes",
+      "fix": "upgrade",
+      "until": "2026-10-14T12:00:00.000Z"
+    },
+    "remoteFiles": {
+      "code": "plan:remote-files",
+      "fix": "upgrade",
+      "until": null
+    }
+  },
+  "trial": null,
+  "usage": null
+}

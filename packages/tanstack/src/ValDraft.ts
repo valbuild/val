@@ -28,6 +28,16 @@ export type ValDraft = {
    */
   snapshot?: Record<ModuleFilePath, Json>;
   /**
+   * The Source the server's draft starts from where it is not the bundle's: a
+   * content version -- content published without a build -- with a
+   * proposal's saves over it, as stored (`.jsonValues()` markers and all).
+   * The Studio's overlay starts from it, by `window.__VAL_BASE__`: after a
+   * content-only publish the bundle still holds the text from before it, and
+   * a draft page took that text back whenever the overlay's bundle reached
+   * it first. Sent with a draft only -- the overlay runs in draft mode alone.
+   */
+  base?: Record<ModuleFilePath, Json>;
+  /**
    * `false` when no draft was read -- draft mode is off -- and this carries
    * only the {@link snapshot}. Absent: a draft, as it always was.
    */

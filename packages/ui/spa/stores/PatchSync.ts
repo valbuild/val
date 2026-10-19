@@ -5,6 +5,7 @@ import { StoreBus } from "./StoreBus";
 import type { PatchRecord, SystemEvent } from "./types";
 import type { PatchStore } from "./PatchStore";
 import { noopActivity, type ActivitySink } from "./activity";
+import type { PlanRefusalErrorT } from "@valbuild/shared/internal";
 
 /**
  * `PUT /patches`, as a seam.
@@ -18,6 +19,8 @@ import { noopActivity, type ActivitySink } from "./activity";
  * - `conflict` (409) — our parent is no longer the head. Someone else wrote.
  *   Retryable, and the only branch that needs the chain re-synced first.
  * - `rejected` (400) — the patches are permanently bad. NOT retryable.
+ * - `refused` (403) — Val Build refused them for the project's plan. The
+ *   patches are fine and are KEPT; they are sent again later, not in a loop.
  * - `network-error` — retryable, and says nothing about the patches.
  * - `unparseable-response` — retryable, but usually permanent: reported after a
  *   couple of attempts instead of retried in silence.
@@ -32,92 +35,20 @@ export type SavePatches = (request: {
   patches: { path: ModuleFilePath; patchId: PatchId; patch: Patch }[];
   parentRef: ParentRef;
   sessionId?: string | null;
-  patchGroup?: PatchGroupMembership;
 }) => Promise<SaveResult>;
 
-/**
- * Which patch group a write joins, and what it drags in with it.
- *
- * `withPatchIds` is what has to come with them: the patches that share a patch
- * set with the ones being written and must therefore move with them. Sending the group's
- * current membership instead would be a no-op — the server set-unions it — and
- * would miss the case the feature exists for: another author's array insert
- * has to join your group when you edit that array, or your op lands on the
- * wrong element.
- */
-export type PatchGroupMembership = {
-  /**
-   * Deliberately absent on the write path.
-   *
-   * The server resolves "this author's open group on this branch, creating it
-   * if absent" when no id is named — `patchGroupId ?? null` triggers
-   * `getOrCreateOpen`. Naming one from the client means holding an id across
-   * publishes, and a published group is refused: the stale id would fail the
-   * write and lose the save. The server always knows which group is current;
-   * the client does not.
-   *
-   * Explicit stage and unstage DO name one, because they act on a specific
-   * group rather than on whichever is open.
-   */
-  patchGroupId?: string;
-  withPatchIds: PatchId[];
+/** What the server says about patches it took. */
+export type SavedPatches = {
+  newPatchIds: PatchId[];
+  parentRef: ParentRef;
+  headVersion?: number;
 };
-
-/**
- * Who can answer "which group does this write join, and what comes with it".
- *
- * A seam, like `savePatches` and `resyncChain`, and for the same reason: the
- * closure needs patch sets, which need the schema, and neither is visible from
- * here. Whatever holds that knowledge registers itself.
- *
- * `undefined` — the resolver is absent, or answers `undefined` — means write
- * without a group, which is exactly what this client did before groups existed
- * and what `fs` mode and any content API without them keep doing.
- */
-export type PatchGroupResolver = (
-  patchIds: PatchId[],
-) => Promise<PatchGroupMembership | undefined>;
-
-/**
- * What `PatchSync` itself asks before each save: the membership the write
- * carries, and who to tell once the save is over.
- *
- * Separate from {@link PatchGroupResolver}, which is the system's seam to the
- * shell, because the second half is not the shell's business. A save moves
- * group membership on the server — the write, and its closure, join the
- * author's group — and so does a stage or unstage. The system orders the two:
- * a group change made while a save is on the wire is sent after that save is
- * answered, or it could land first and have the save's union put back what it
- * took out. `release` is how it learns the save is over.
- */
-export type WriteMembership = {
-  patchGroup: PatchGroupMembership | undefined;
-  /**
-   * Called exactly once, when the save is over whatever happened to it:
-   * answered (saved, rejected, conflict, an error), thrown, or never sent
-   * because the sync was stopped after the resolver answered.
-   */
-  release(): void;
-};
-
-export type WriteMembershipResolver = (
-  patchIds: PatchId[],
-) => Promise<WriteMembership>;
 
 export type SaveResult =
   | {
       status: "saved";
       newPatchIds: PatchId[];
       parentRef: ParentRef;
-      /**
-       * Which group the server put these patches in, where it has groups.
-       *
-       * The write names no group, so this is the ONLY way the client learns the
-       * id of the group its own first write created — see
-       * `PatchStore.ownPatchGroupId`. Absent in `fs` mode and against a content
-       * API that predates groups.
-       */
-      patchGroupId?: string;
       /**
        * The chain version the last of these made. See
        * {@link PatchSync.headVersion}. Absent in `fs` mode and from a
@@ -148,7 +79,24 @@ export type SaveResult =
    * edit over a transient.
    */
   | { status: "unparseable-response"; message: string }
-  | { status: "unauthorized"; message: string };
+  | { status: "unauthorized"; message: string }
+  /**
+   * Val Build refused the write for the project's plan: the Free week's
+   * changes are used, or a trial is over.
+   *
+   * Not `rejected`, which drops the patches: these are good, and saving them
+   * is a matter of the plan allowing it. Not retried like a network error
+   * either, because asking again a second later gets the same answer — see
+   * {@link REFUSED_RETRY_MS} and {@link PatchSync.resume}.
+   *
+   * `saved` is the part of the batch the server took before it refused: the
+   * week can run out in the middle of one.
+   */
+  | {
+      status: "refused";
+      saved: SavedPatches;
+      refusal: { message: string; error: PlanRefusalErrorT };
+    };
 
 /**
  * Bring the chain back in step with the server, after a conflict.
@@ -169,6 +117,44 @@ export type ResyncChain = () => Promise<void>;
  * a blip. The retry continues either way — this only decides when someone is told.
  */
 export const SAVE_STUCK_AFTER_ATTEMPTS = 2;
+
+/**
+ * How long a save refused for the plan waits before it is sent again by itself:
+ * the first time. Each refusal after it doubles the wait, up to
+ * {@link REFUSED_RETRY_MAX_MS}.
+ *
+ * A refusal lifts by something happening elsewhere -- an owner adds a card or
+ * upgrades, or the oldest changes leave the Free week -- and the shell calls
+ * {@link PatchSync.resume} when Val Build says editing is open again. This
+ * timer is for when nothing tells it: a Studio with no shell listening, or a
+ * refusal that lifts between two of the shell's questions. It backs off
+ * because a trial that ended does not lift by itself, and every retry is a
+ * write the content service has to refuse.
+ */
+export const REFUSED_RETRY_MS = 60_000;
+export const REFUSED_RETRY_MAX_MS = 30 * 60_000;
+
+/**
+ * When to send a refused save again: at the moment the refusal says it lifts
+ * (the Free week's oldest change leaving it), or on the backoff when it names
+ * none -- never sooner than {@link REFUSED_RETRY_MS}.
+ */
+export function refusedRetryMs(
+  until: string | undefined,
+  consecutive: number,
+  now: number,
+): number {
+  const backoff = Math.min(
+    REFUSED_RETRY_MS * 2 ** Math.max(0, consecutive - 1),
+    REFUSED_RETRY_MAX_MS,
+  );
+  const at = until === undefined ? NaN : Date.parse(until);
+  if (!Number.isFinite(at)) return backoff;
+  return Math.min(
+    Math.max(at - now + 1_000, REFUSED_RETRY_MS),
+    REFUSED_RETRY_MAX_MS,
+  );
+}
 
 /**
  * Has the write queue failed for long enough to stop waiting on it?
@@ -209,7 +195,13 @@ export type SyncState =
         | "unauthorized";
       message: string;
       attempt: number;
-    };
+    }
+  /**
+   * Val Build refused these for the project's plan. They are kept, held, and
+   * sent again after {@link REFUSED_RETRY_MS} or on {@link PatchSync.resume};
+   * an edit made meanwhile joins them rather than being sent to be refused.
+   */
+  | { status: "refused"; patches: PatchId[]; message: string };
 
 /**
  * The write-back loop.
@@ -249,8 +241,8 @@ export type SyncState =
  * guaranteed 409.
  *
  * The head is what the last stat REPORTED (`headPatchId`), and not the last id
- * it listed — see `chainHeadOf` in `@valbuild/shared` for why the two differ for
- * good once patch groups are in play. The parent is a fact about the whole
+ * it listed — see `chainHeadOf` in `@valbuild/shared` for why the two can
+ * differ. The parent is a fact about the whole
  * chain, so it is taken from the server rather than inferred from what this
  * client is shown.
  *
@@ -301,6 +293,9 @@ function sameState(a: SyncState, b: SyncState): boolean {
   }
   if (a.status === "retrying" && b.status === "retrying") {
     return a.attempt === b.attempt && a.reason === b.reason;
+  }
+  if (a.status === "refused" && b.status === "refused") {
+    return a.message === b.message;
   }
   return true;
 }
@@ -364,6 +359,22 @@ export class PatchSync {
   private attempt = 0;
   /** See {@link reportStuck}: one report per spell of failure, not per attempt. */
   private reportedStuck = false;
+  /**
+   * Saving is held because Val Build refused it for the plan. While held, a
+   * flush sends nothing: every write would be refused, one per keystroke.
+   */
+  private refused: { message: string } | null = null;
+  /** Bumped per refusal and per resume, so only the latest timed retry runs. */
+  private refusals = 0;
+  /** Refusals in a row since the last save went through; sets the backoff. */
+  private consecutiveRefusals = 0;
+  /**
+   * The refusal last reported, by code and fix. Reported again only when it
+   * changes, or after the shell resumed: the timed retry is refused the same
+   * way until the plan changes, and a dismissed notice must not come back on
+   * every retry.
+   */
+  private reportedRefusal: string | null = null;
   private state: SyncState = { status: "in-sync" };
   private stopped = false;
 
@@ -535,19 +546,6 @@ export class PatchSync {
    * LOCAL head: that includes patches the server has never seen, and naming one
    * of those as a parent is a guaranteed 409.
    */
-  /**
-   * Set by whatever can compute the closure — see {@link PatchGroupResolver}.
-   *
-   * Registered after construction, like `PatchStore.setParentRefSource`, for the
-   * same reason: the thing that knows the answer is built later than the sync
-   * that needs it.
-   */
-  private patchGroupResolver: WriteMembershipResolver | undefined;
-
-  setPatchGroupResolver(resolver: WriteMembershipResolver | undefined): void {
-    this.patchGroupResolver = resolver;
-  }
-
   currentParentRef(): ParentRef | null {
     if (this.baseSha === null) {
       return null;
@@ -602,6 +600,14 @@ export class PatchSync {
       if (this.stopped) {
         return;
       }
+      if (this.refused !== null) {
+        this.setState({
+          status: "refused",
+          patches: records.map((record) => record.patchId),
+          message: this.refused.message,
+        });
+        return;
+      }
       const save = this.savePatches;
       if (save === undefined) {
         // Nowhere to write. Reported as pending rather than retrying, because
@@ -648,59 +654,17 @@ export class PatchSync {
       this.setState({ status: "saving", patches: patchIds });
       this.activity.work("patch:save", undefined, batch.length);
       this.events.emit({ type: "patch:save", patches: patchIds, parentRef });
-      /*
-       * Resolved per BATCH, against the chain as it stands now.
-       *
-       * Not at create time: a patch is written some time after it is made, and
-       * a patch set can coalesce in between — another author's insert can make
-       * two previously separate sets into one. The closure that matters is the
-       * one true when the write goes out, since that is what the server unions
-       * into the group.
-       */
-      /*
-       * AWAITED. The closure needs a grouping that contains the patch being
-       * saved, and this flush runs synchronously off `patch:create` — so a
-       * resolver that answered from already-rendered state would always be one
-       * grouping behind and send an empty closure.
-       */
-      const membership = await this.patchGroupResolver?.(patchIds);
-      const patchGroup = membership?.patchGroup;
-      let result: SaveResult;
-      try {
-        /*
-         * The await above opened a window that did not exist before it.
-         *
-         * `setState({ status: "saving" })` and `save(...)` used to run in the
-         * same tick, so the only `stopped` check that mattered was the one after
-         * `save` returned. Now a sync disposed during the resolver's worker round
-         * trip would still issue the PUT — and the post-save check would then
-         * skip `markSaved` and `recordOwnPatchGroup`, leaving the server holding
-         * a patch this client never recorded as saved.
-         */
-        if (this.stopped) {
-          return;
-        }
-        result = await save({
-          patches: batch.map((record) => ({
-            path: record.moduleFilePath,
-            patchId: record.patchId,
-            patch: record.patch,
-          })),
-          parentRef,
-          // The batch's session, not the system's: a session belongs to the
-          // patches that were made in it.
-          sessionId: session ?? this.sessionId,
-          ...(patchGroup ? { patchGroup } : {}),
-        });
-      } finally {
-        /*
-         * As soon as the answer is in, and before it is handled: a conflict's
-         * re-sync and backoff can take seconds, and the group changes waiting
-         * on this save have nothing to wait for once the server has answered.
-         * A `finally`, so a throw or a stop cannot leave them waiting for ever.
-         */
-        membership?.release();
-      }
+      const result = await save({
+        patches: batch.map((record) => ({
+          path: record.moduleFilePath,
+          patchId: record.patchId,
+          patch: record.patch,
+        })),
+        parentRef,
+        // The batch's session, not the system's: a session belongs to the
+        // patches that were made in it.
+        sessionId: session ?? this.sessionId,
+      });
       if (this.stopped) {
         return;
       }
@@ -721,44 +685,50 @@ export class PatchSync {
     if (result.status === "saved") {
       this.attempt = 0;
       this.reportedStuck = false;
-      const lastSaved = result.newPatchIds[result.newPatchIds.length - 1];
-      if (result.headVersion !== undefined) {
-        // Versioned: our last patch is the head as of this version, unless a
-        // stat at a later version has already said otherwise.
-        if (
-          lastSaved !== undefined &&
-          (this.headVersion === undefined ||
-            result.headVersion >= this.headVersion)
-        ) {
-          this.statHeadPatchId = lastSaved;
-          this.headVersion = result.headVersion;
-        }
-      } else {
-        if (this.savedNotInStat.length === 0) {
-          this.savedOnHead =
-            parentRef.type === "patch" ? parentRef.patchId : null;
-        }
-        this.savedNotInStat.push(...result.newPatchIds);
-      }
-      // The ids the SERVER named, not the ids we sent — see `markSaved`.
-      this.patchStore.markSaved(result.newPatchIds);
-      if (result.patchGroupId !== undefined) {
-        // Before the event, so anything woken by `patch:saved` already sees the
-        // group its patches landed in.
-        this.patchStore.recordOwnPatchGroup(result.patchGroupId);
-      }
-      this.events.emit({
-        type: "patch:saved",
-        patches: result.newPatchIds,
-        parentRef: result.parentRef,
-        ...(result.headVersion !== undefined
-          ? { headVersion: result.headVersion }
-          : {}),
-      });
+      this.reportedRefusal = null;
+      this.consecutiveRefusals = 0;
+      this.recordSaved(result, parentRef);
       // Keep looping. More may have been created while this request was in
       // flight, and the loop's own emptiness check is what terminates it — a
       // second condition here would be a second place to get it wrong.
       return false;
+    }
+    if (result.status === "refused") {
+      this.attempt = 0;
+      this.reportedStuck = false;
+      if (result.saved.newPatchIds.length > 0) {
+        this.recordSaved(result.saved, parentRef);
+      }
+      this.refused = { message: result.refusal.message };
+      const held = this.patchStore
+        .unsavedRecords()
+        .map((record) => record.patchId);
+      this.setState({
+        status: "refused",
+        patches: held,
+        message: result.refusal.message,
+      });
+      const said = `${result.refusal.error.code}:${result.refusal.error.fix ?? ""}`;
+      if (this.reportedRefusal !== said) {
+        this.reportedRefusal = said;
+        this.events.emit({
+          type: "patch:save-refused",
+          patches: held,
+          refusal: result.refusal,
+        });
+      }
+      this.consecutiveRefusals++;
+      const refusal = ++this.refusals;
+      void this.sleep(
+        refusedRetryMs(
+          result.refusal.error.until,
+          this.consecutiveRefusals,
+          Date.now(),
+        ),
+      ).then(() => {
+        if (refusal === this.refusals) this.retryRefused();
+      });
+      return true;
     }
     if (result.status === "rejected") {
       this.reportedStuck = false;
@@ -835,6 +805,69 @@ export class PatchSync {
     }
     await this.sleep(this.backoffMs(this.attempt));
     return this.stopped;
+  }
+
+  /**
+   * The bookkeeping for patches the server took: what this sync names as the
+   * head next, the store's saved marks, and `patch:saved`.
+   *
+   * Shared by a save and by a refusal that took part of its batch first.
+   */
+  private recordSaved(saved: SavedPatches, parentRef: ParentRef): void {
+    const lastSaved = saved.newPatchIds[saved.newPatchIds.length - 1];
+    if (saved.headVersion !== undefined) {
+      // Versioned: our last patch is the head as of this version, unless a
+      // stat at a later version has already said otherwise.
+      if (
+        lastSaved !== undefined &&
+        (this.headVersion === undefined ||
+          saved.headVersion >= this.headVersion)
+      ) {
+        this.statHeadPatchId = lastSaved;
+        this.headVersion = saved.headVersion;
+      }
+    } else {
+      if (this.savedNotInStat.length === 0) {
+        this.savedOnHead =
+          parentRef.type === "patch" ? parentRef.patchId : null;
+      }
+      this.savedNotInStat.push(...saved.newPatchIds);
+    }
+    // The ids the SERVER named, not the ids we sent — see `markSaved`.
+    this.patchStore.markSaved(saved.newPatchIds);
+    this.events.emit({
+      type: "patch:saved",
+      patches: saved.newPatchIds,
+      parentRef: saved.parentRef,
+      ...(saved.headVersion !== undefined
+        ? { headVersion: saved.headVersion }
+        : {}),
+    });
+  }
+
+  /**
+   * Send what a plan refusal held back.
+   *
+   * Called by the shell when Val Build says editing has become allowed (a
+   * card was added, the week moved on), so the edits made meanwhile go up
+   * without waiting for the timed retry. Nothing to do when no refusal is
+   * holding the queue, or once the sync is disposed.
+   */
+  resume(): void {
+    if (this.refused === null) return;
+    // Val Build said editing is open: a refusal after this is news, even one
+    // like the last, and the backoff starts over.
+    this.reportedRefusal = null;
+    this.consecutiveRefusals = 0;
+    this.retryRefused();
+  }
+
+  /** Send the held edits again: the timed retry, and {@link resume}. */
+  private retryRefused(): void {
+    if (this.refused === null || this.stopped) return;
+    this.refused = null;
+    this.refusals++;
+    void this.flush();
   }
 
   /**

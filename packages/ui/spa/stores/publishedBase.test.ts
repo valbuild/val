@@ -248,10 +248,10 @@ describe("peekBase counts what has shipped", () => {
     expect(system.sourceStore.peekBase(TAGS)).toMatchObject({
       data: ["shipped"],
     });
-    // And a rebuild does not lose it: hiding a pending edit replays the chain
-    // onto the pre-deploy base.
-    await edit(system, "pending");
-    system.setPatchGroup([]);
+    // And a rebuild does not lose it: dropping a pending edit replays the
+    // chain onto the pre-deploy base.
+    const pending = await edit(system, "pending");
+    system.patchStore.drop([pending]);
     expect(system.sourceStore.peek(TAGS)).toMatchObject({
       data: ["shipped"],
     });

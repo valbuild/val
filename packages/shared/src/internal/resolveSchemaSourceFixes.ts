@@ -322,6 +322,9 @@ export type ResolvedFix =
  */
 export const SCHEMA_SOURCE_FIXES: ValidationFix[] = [
   "keyof:check-keys",
+  "image:check-gallery",
+  "file:check-gallery",
+  "video:check-gallery",
   "router:check-route",
   "locale:check-locale",
   "record:fill-keys",
@@ -333,8 +336,9 @@ export function isSchemaSourceFixError(error: ValidationError): boolean {
 }
 
 /**
- * The record a `keyof:check-keys` error resolves against, or null for any other
- * error — including a malformed marker, which
+ * The record a `keyof:check-keys` error resolves against -- or a gallery
+ * marker's (`image:check-gallery` and the rest): its gallery module -- or null
+ * for any other error, including a malformed marker, which
  * {@link resolveSchemaSourceFixForError} reports and this has nothing to say
  * about.
  *
@@ -343,6 +347,12 @@ export function isSchemaSourceFixError(error: ValidationError): boolean {
  * to the referenced record can invalidate the module holding the reference.
  */
 export function keyOfRecordPath(error: ValidationError): SourcePath | null {
+  // A gallery-backed field's marker reads its gallery the same way: the
+  // record whose keys say whether the field's path is there.
+  const gallery = Internal.media.galleryMarkerOf(error);
+  if (gallery !== null) {
+    return gallery.gallery as SourcePath;
+  }
   if (!(error.fixes ?? []).includes("keyof:check-keys")) {
     return null;
   }
@@ -366,6 +376,43 @@ export function resolveSchemaSourceFixForError(
   snapshot: SchemaSourceSnapshot,
 ): ResolvedFix | null {
   const fixes = error.fixes ?? [];
+  const gallery = Internal.media.galleryMarkerOf(error);
+  if (gallery !== null) {
+    // The gallery as it is now -- with what a pending change, a save in a
+    // proposal or a content-only publish added -- not as the schema was built.
+    const entries = getKeyOfRecordAt(
+      gallery.gallery as SourcePath,
+      snapshot,
+    ).source;
+    const has =
+      typeof entries === "object" &&
+      entries !== null &&
+      !Array.isArray(entries) &&
+      Internal.media.galleryKeyOf(gallery.path, (key) => key in entries) !==
+        null;
+    if (has) {
+      return { status: "resolved" };
+    }
+    return {
+      status: "remaining",
+      error: { ...error, value: gallery.source, fixes: undefined },
+    };
+  }
+  if (
+    fixes.includes("image:check-gallery") ||
+    fixes.includes("file:check-gallery") ||
+    fixes.includes("video:check-gallery")
+  ) {
+    return {
+      status: "remaining",
+      error: {
+        ...error,
+        message: `${error.message} The gallery could not be read from this error. ${TYPE_ERROR_MESSAGE}`,
+        typeError: true,
+        fixes: undefined,
+      },
+    };
+  }
   if (fixes.includes("keyof:check-keys")) {
     if (!error.value) {
       return {

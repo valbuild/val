@@ -89,15 +89,15 @@ describe("this editor's publish", () => {
 
   test("Live is not the end: it spins until every edge has it", () => {
     const own = liveAt(10_000);
-    const indicator = publishIndicator({ own, now: 10_000 + 20_000 });
+    const indicator = publishIndicator({ own, now: 10_000 + 4_000 });
     expect(indicator).toEqual({
       kind: "reaching",
       mine: true,
       everywhereAt: 10_000 + EDGE_CACHE_MS,
     });
     expect(isInFlight(indicator)).toBe(true);
-    expect(explainIndicator(indicator, 30_000)).toBe(
-      "Live. Every visitor sees your changes within 40s.",
+    expect(explainIndicator(indicator, 14_000)).toBe(
+      "Live. Every visitor sees your changes within 6s.",
     );
   });
 
@@ -107,7 +107,7 @@ describe("this editor's publish", () => {
     expect(indicatorPercent(indicator, EDGE_CACHE_MS / 2)).toBe(94);
     expect(indicatorPercent(indicator, EDGE_CACHE_MS - 1)).toBe(99);
     expect(describeIndicator(indicator, EDGE_CACHE_MS / 2)).toBe(
-      "Reaching visitors 94%",
+      "Reaching edges 94%",
     );
   });
 
@@ -250,7 +250,7 @@ describe("another editor's publish", () => {
         own: idle,
         deployments: [row({ updatedAt: new Date(50_000).toISOString() })],
         studioIsDeployer: true,
-        now: 70_000,
+        now: 55_000,
       }),
     ).toEqual({
       kind: "reaching",
@@ -397,7 +397,7 @@ describe("whose job it is", () => {
       running: null,
     });
     expect(
-      publishIndicator({ own: liveAt(10_000), jobs, now: 20_000 }),
+      publishIndicator({ own: liveAt(10_000), jobs, now: 15_000 }),
     ).toMatchObject({ kind: "reaching", mine: true });
   });
 });

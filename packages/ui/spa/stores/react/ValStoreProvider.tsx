@@ -6,7 +6,6 @@ import type {
   ValModules,
 } from "@valbuild/core";
 import type { System } from "../createSystem";
-import type { PatchGroupT } from "@valbuild/shared/internal";
 import { ValSystemProvider } from "./SystemContext";
 
 /**
@@ -68,10 +67,6 @@ export function ValStoreProvider({
     sourcesSha?: string;
     /** See {@link StatSnapshot.schemaSha}. Which schema that build runs. */
     schemaSha?: string;
-    /** See {@link StatSnapshot.patchGroups}. Who holds what. */
-    patchGroups?: PatchGroupT[];
-    /** See {@link StatSnapshot.profileId}. Who is asking. */
-    profileId?: string | null;
   } | null;
   children: ReactNode;
 }) {
@@ -112,7 +107,9 @@ export function ValStoreProvider({
        * The failures are not lost: `HostStore.receive` records the ones that
        * could not serialize and the dev banner names them.
        */
-      system.host.receive(modules);
+      // With the base the page serves, where it is not the bundle's: see
+      // `HostStore.receive`.
+      system.host.receive(modules, window.__VAL_BASE__);
       setReceived(true);
     })();
     return () => {
@@ -155,10 +152,6 @@ export function ValStoreProvider({
       sourcesSha: stat.sourcesSha,
       // Which schema that build runs. See `SchemaFreshnessWatch`.
       schemaSha: stat.schemaSha,
-      // Who holds what, and who is asking, so the scope follows the server's
-      // groups. See `PatchStore.receiveStatGroups`.
-      patchGroups: stat.patchGroups,
-      profileId: stat.profileId,
     });
   }, [system, stat, received]);
 

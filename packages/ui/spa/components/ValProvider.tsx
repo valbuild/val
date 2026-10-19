@@ -1,11 +1,17 @@
 import { createRequestPublish } from "../publish/requestPublish";
 import { createStudioJobClient } from "../publish/jobClient";
 import { randomUUID } from "../utils/randomUUID";
+import {
+  createProposalsClient,
+  sameStudioPageAt,
+} from "../proposals/proposalsClient";
+import { waitForAddress } from "../proposals/useProposals";
 import { isTransientPublishError } from "../publish/publishClient";
 import {
   createPublishJobs,
   isSettled,
   publishingPatchIds,
+  heldBackPatchIds,
   type PublishJobs,
   type PublishJobsState,
   type TrackedPublish,
@@ -22,6 +28,7 @@ import { runStudioJob } from "../publish/runStudioJob";
 import { PUBLISH_TAB_ID } from "../publish/tabId";
 import { canBuildHere } from "../publish/handoff";
 import { toast } from "./designSystem/sonner";
+import { describeChangesWithoutModule } from "../utils/describeChangesWithoutModule";
 import React, {
   createContext,
   Dispatch,
@@ -59,15 +66,16 @@ import {
 import { isJsonArray } from "../utils/isJsonArray";
 import { readableProfilesError } from "../utils/readableProfilesError";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
-import { newestUnpublished, pressedAlready } from "../publish/pressForPage";
+import {
+  newestUnpublished,
+  pendingNeedsBuild,
+  pressedAlready,
+} from "../publish/pressForPage";
 import type { ChainProgress } from "../utils/describePendingChangesStall";
 import type { PublishResult } from "../stores/PublishSeam";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { SerializedPatchSet } from "../utils/PatchSets";
-import type {
-  PatchGroupT,
-  PublishRequestStatus,
-} from "@valbuild/shared/internal";
+import type { PublishRequestStatus } from "@valbuild/shared/internal";
 import { z } from "zod";
 import {
   ValEnrichedDeployment,
@@ -122,8 +130,7 @@ import {
   type AISession,
   AITool,
 } from "../hooks/useAIWebSocket";
-import { concatModulePath, isPathWithin } from "../utils/sourcePath";
-import { touchedSourcePaths } from "../stores/SourceStore";
+import { concatModulePath } from "../utils/sourcePath";
 
 export type { AITool };
 
@@ -202,6 +209,13 @@ type ValContextValue = {
    */
   proposal: { name: string; branch: string } | null;
   /**
+   * The branch History lists, or `null` where there is none to list: the
+   * proposal's in a proposal, else the site's -- the git mirror's, or the one
+   * content reports for a managed project. From `/stat`, falling back to
+   * `config.gitBranch` from a server that predates the field.
+   */
+  historyBranch: string | null;
+  /**
    * Ask `/stat` now rather than when its wait runs out. A save at a proposal's
    * address moves the base the server answers with; see `useStatus`.
    */
@@ -266,6 +280,12 @@ type ValContextValue = {
    * or `undefined` before it has. See `reportedAt` on `publishingPatchIds`.
    */
   serverPublishingReportedAt: number | undefined;
+  /**
+   * The changes a publish that failed on its content holds back from later
+   * publishes, until Try again or Discard, as content said (`heldBackPatches`
+   * on `/stat` and the socket). Pending, and not ready to publish.
+   */
+  serverHeldBackPatchIds: ReadonlySet<string>;
   /**
    * Whether a press of Publish is a publish job here: every managed project,
    * and a connected one hosted on the platform (the server says, on `/stat`).
@@ -644,12 +664,6 @@ export function ValProvider({
   /** Which schema that build runs. See `SchemaFreshnessWatch`. */
   const statSchemaSha =
     "data" in stat && stat.data ? stat.data.schemaSha : undefined;
-  /**
-   * Who holds what, read with the chain. The source of this client's view of
-   * the groups — see `PatchStore.receiveStatGroups`.
-   */
-  const statPatchGroups =
-    "data" in stat && stat.data ? stat.data.patchGroups : undefined;
   const storeStat = useMemo(
     () =>
       baseSha !== undefined && statPatches !== undefined
@@ -663,8 +677,6 @@ export function ValProvider({
             headVersion: statHeadVersion,
             sourcesSha: statSourcesSha,
             schemaSha: statSchemaSha,
-            patchGroups: statPatchGroups,
-            profileId: statProfileId,
           }
         : null,
     [
@@ -677,8 +689,6 @@ export function ValProvider({
       statHeadVersion,
       statSourcesSha,
       statSchemaSha,
-      statPatchGroups,
-      statProfileId,
     ],
   );
 
@@ -767,6 +777,11 @@ export function ValProvider({
     ),
     useCallback(() => system.patchStore.chainVersion(), [system]),
     useCallback(() => system.patchStore.chainVersion(), [system]),
+  );
+  // From `contentHolds`, as what is publishing is: see `ContentHolds`.
+  const serverHeldBackPatchIds = useMemo(
+    () => new Set<string>(contentHolds?.heldBackPatches ?? []),
+    [contentHolds],
   );
   // From `contentHolds`, not the stat: see `ContentHolds`.
   const serverPublishingPatchIds = useMemo(() => {
@@ -1056,8 +1071,11 @@ export function ValProvider({
   const deployRef = useRef(deploy.deploy);
   deployRef.current = deploy.deploy;
   const handoffRef = useRef(handoff);
+  const refreshStatRef = useRef(refreshStat);
+  refreshStatRef.current = refreshStat;
   handoffRef.current = handoff;
   const onPublishSettled = useRef<(request: TrackedPublish) => void>(() => {});
+  const onNeedsBuilder = useRef<(jobId: string) => void>(() => {});
   /** "Published" toasts waiting for the edge window to end. */
   const liveToasts = useRef(new Set<ReturnType<typeof setTimeout>>());
   useEffect(() => {
@@ -1101,6 +1119,12 @@ export function ValProvider({
           onPhase,
           // A connected tab takes work it cannot build, and says so.
           canBuild: canBuildHere,
+          /*
+           * Managed, where only a tab builds: a page that cannot pressed a
+           * publish it guessed needs no build (`pendingNeedsBuild`), and one
+           * that does after all is given back for a builder tab.
+           */
+          buildsElsewhere: !connectedJobsRef.current,
         });
       },
       /*
@@ -1115,8 +1139,20 @@ export function ValProvider({
         !atProposalRef.current &&
         (connectedJobsRef.current ||
           canBuildHere() ||
-          handoffRef.current.active()),
+          handoffRef.current.active() ||
+          /*
+           * A page that cannot build, waiting on a press of its own that it
+           * made without a builder tab (one of content alone): when its turn
+           * comes, its job is this page's to take, and nobody else's.
+           */
+          jobs
+            .get()
+            .requests.some(
+              (request) =>
+                !isSettled(request.status) && request.handedOffAt === undefined,
+            )),
       onSettled: (request) => onPublishSettled.current(request),
+      onNeedsBuilder: (jobId) => onNeedsBuilder.current(jobId),
     });
     return jobs;
   }, [handsOffPublish]);
@@ -1137,17 +1173,50 @@ export function ValProvider({
       patchIds: pressed.patchIds,
       ...(pressed.replaces !== null ? { replaces: pressed.replaces } : {}),
       ...(pressed.merge !== undefined ? { merge: pressed.merge } : {}),
+      viaTab: true,
     });
+  /*
+   * A publish this page pressed without a builder tab -- it guessed one of
+   * content alone -- whose job needs a build after all: only a tap may open
+   * the tab, so the editor is asked for one. The tab presses the same request
+   * again, finds it pressed, and builds its job.
+   */
+  onNeedsBuilder.current = (jobId) => {
+    const open = publishJobs
+      .get()
+      .requests.filter((request) => !isSettled(request.status));
+    const request =
+      open.find((candidate) => candidate.jobId === jobId) ?? open.at(-1);
+    if (request === undefined) return;
+    toast("This publish needs a build", {
+      id: `needs-builder:${request.requestId}`,
+      description:
+        "It changes something the live site cannot show without one, and this browser builds in a tab of its own.",
+      duration: Infinity,
+      action: {
+        label: "Build in a new tab",
+        onClick: () => {
+          handoffRef.current.prepare(true, {
+            requestId: request.requestId,
+            after: null,
+            // A merge's tab presses the merge again, not the site's changes.
+            ...(request.merge !== undefined ? { merge: request.merge } : {}),
+          });
+        },
+      },
+    });
+  };
   onPublishSettled.current = (request) => {
     const status = request.status;
     const id = `publish:${request.requestId}`;
+    toast.dismiss(`needs-builder:${request.requestId}`);
     // A publish a builder tab handed to content: the card's last word.
     handoffRef.current.settled(request.requestId, status);
     if (status.kind === "live") {
       markObserved(status.commit);
       /*
        * Not at Live: at the end of the edge window, when every visitor gets
-       * the change. Until then the status bar spins "Reaching visitors", and
+       * the change. Until then the status bar spins "Reaching edges", and
        * this is the announcement that it stopped. See `EDGE_CACHE_MS`.
        */
       const settledAt = request.settledAt ?? Date.now();
@@ -1165,6 +1234,12 @@ export function ValProvider({
       return;
     }
     if (status.kind !== "failed") return;
+    /*
+     * What the failure holds back is content's to say, and with no socket
+     * (or one that missed it) the next `/stat` could be twenty minutes away.
+     * Until it says, `heldBackPatchIds` holds this press's changes back.
+     */
+    refreshStatRef.current();
     /*
      * After the seal (connected): the change is published, and CI's build of
      * it failed. Nothing to try again or discard -- the next publish builds
@@ -1191,6 +1266,43 @@ export function ValProvider({
               .catch((e: unknown) =>
                 system.status.reportError(
                   "The build's run could not be found",
+                  e instanceof Error ? e.message : String(e),
+                ),
+              );
+          },
+        },
+      });
+      return;
+    }
+    /*
+     * It broke a page, and on a project with proposals its changes have left
+     * the site: they are in a proposal of their own, which is where they are
+     * fixed and published (its Publish is the Try again). Nothing here to try
+     * again or discard, so the one action is going there.
+     */
+    if (status.movedTo !== undefined) {
+      const moved = status.movedTo;
+      toast.error("Publishing broke the site", {
+        id,
+        description: `${
+          moved.changes === 1
+            ? "Its change is"
+            : `Its ${moved.changes} changes are`
+        } in the proposal “${moved.displayName}”, to be fixed and published there. ${status.message}`,
+        duration: Infinity,
+        action: {
+          label: "Open the proposal",
+          onClick: () => {
+            const client = createProposalsClient({ api: "/api/val" });
+            void waitForAddress(client, moved.proposal)
+              .then((origin) =>
+                window.location.assign(
+                  sameStudioPageAt(origin, window.location),
+                ),
+              )
+              .catch((e: unknown) =>
+                system.status.reportError(
+                  "The proposal could not be opened",
                   e instanceof Error ? e.message : String(e),
                 ),
               );
@@ -1232,20 +1344,24 @@ export function ValProvider({
                  * for that edit. Where the try again stays on this page, it
                  * is only the save autosave was about to make.
                  */
-                const after = newestUnpublished(
-                  system.patchStore,
-                  system.patchGroup(),
-                );
+                const after = newestUnpublished(system.patchStore);
                 void system.patchSync.flush().catch(() => undefined);
                 if (
-                  handoffRef.current.prepare(true, {
-                    tryAgainOf: request.requestId,
-                    after,
-                    // A merge's try again presses the merge: see `tryAgain`.
-                    ...(request.merge !== undefined
-                      ? { merge: request.merge }
-                      : {}),
-                  })
+                  handoffRef.current.prepare(
+                    // A merge's files come from content: see `pressMerge`.
+                    // Connected, every change is deployed: see `needsBuild`.
+                    request.merge !== undefined ||
+                      statSourceMode !== "managed" ||
+                      pendingNeedsBuild(system.patchStore),
+                    {
+                      tryAgainOf: request.requestId,
+                      after,
+                      // A merge's try again presses the merge: see `tryAgain`.
+                      ...(request.merge !== undefined
+                        ? { merge: request.merge }
+                        : {}),
+                    },
+                  )
                 ) {
                   return;
                 }
@@ -1422,6 +1538,7 @@ export function ValProvider({
         observedPublishJobs,
         serverPublishingPatchIds,
         serverPublishingReportedAt: contentHoldsAt,
+        serverHeldBackPatchIds,
         publishesAsJobs,
         profileId: statProfileId,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
@@ -1432,6 +1549,10 @@ export function ValProvider({
         sourceMode:
           "data" in stat && stat.data ? (stat.data.sourceMode ?? null) : null,
         proposal,
+        historyBranch:
+          "data" in stat && stat.data
+            ? (stat.data.historyBranch ?? stat.data.config.gitBranch ?? null)
+            : null,
         refreshStat,
         profileAuthError:
           profilesData.status === "auth-error" ? profilesData.error : null,
@@ -1833,17 +1954,115 @@ export function useDeletePatches() {
       // a chain long enough to matter is long enough to exceed a URL limit.
       for (let i = 0; i < patchIds.length; i += 100) {
         const batch = patchIds.slice(i, i + 100);
-        void val.system.discard(batch).then((res) => {
-          if (res.status === "failed") {
-            console.error("Val: could not discard patches", res.message);
-          }
-        });
+        const discard = () =>
+          val.system.discard(batch).then((res) => {
+            if (res.status === "discarded") return;
+            if (res.publishJobId === undefined) {
+              val.system.status.reportError("Not discarded", res.message);
+              return;
+            }
+            const publishJobId = res.publishJobId;
+            /*
+             * A publish holds the change. Discarding it from under the publish
+             * would publish a page without the change it was built with, so
+             * the server refuses -- and the two ways on are to let the publish
+             * end, or to stop it. "Cancel publish" stops it and then does the
+             * discard that was asked for, so the button finishes the job
+             * rather than leading to the same refusal again.
+             */
+            toast.error("Being published right now", {
+              id: `discard-held:${publishJobId}`,
+              description: res.message,
+              duration: Infinity,
+              action: {
+                label: "Cancel publish",
+                onClick: () => {
+                  void createStudioJobClient({ api: "/api/val" })
+                    .cancel(publishJobId)
+                    .then((cancelled) => {
+                      if (cancelled) return discard();
+                      val.system.status.reportError(
+                        "The publish could not be cancelled",
+                        "It is already going live. Discard the change once it is published.",
+                      );
+                    })
+                    .catch((e: unknown) =>
+                      val.system.status.reportError(
+                        "The publish could not be cancelled",
+                        e instanceof Error ? e.message : String(e),
+                      ),
+                    );
+                },
+              },
+              cancel: { label: "Wait", onClick: () => {} },
+            });
+          });
+        void discard();
       }
     },
     [val],
   );
   return { deletePatches };
 }
+
+/**
+ * Tell the editor about unpublished changes to files the project no longer has,
+ * with Discard beside the message.
+ *
+ * A renamed or deleted `.val` file leaves its unpublished changes behind. They
+ * no longer hold the editor (see `withoutModule` on `source:patch-apply`), but
+ * they cannot be shown or published either, and only the editor knows whether
+ * the file is coming back. So: one toast, kept until it is acted on, updated in
+ * place as the set changes and gone when it is empty.
+ */
+export function useChangesWithoutModuleNotice(): void {
+  const val = useValSystem();
+  const { deletePatches } = useDeletePatches();
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (val === null) return () => {};
+      const offChain = val.system.patchStore.events.on("patch:chain", onChange);
+      const offHead = val.system.patchStore.events.on("patch:head", onChange);
+      return () => {
+        offChain();
+        offHead();
+      };
+    },
+    [val],
+  );
+  // A string, so the snapshot is equal by value and the effect below runs once
+  // per change of the set rather than once per event.
+  const getSnapshot = useCallback(
+    () =>
+      val === null
+        ? "[]"
+        : JSON.stringify(val.system.patchStore.changesWithoutModule()),
+    [val],
+  );
+  const key = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  useEffect(() => {
+    if (val === null) return;
+    const changes = val.system.patchStore.changesWithoutModule();
+    const notice = describeChangesWithoutModule(changes);
+    if (notice === null) {
+      toast.dismiss(CHANGES_WITHOUT_MODULE_TOAST);
+      return;
+    }
+    const patchIds = changes.map((change) => change.patchId);
+    toast.error(notice.title, {
+      id: CHANGES_WITHOUT_MODULE_TOAST,
+      description: notice.description,
+      duration: Infinity,
+      action: {
+        label: "Discard",
+        onClick: () => deletePatches(patchIds),
+      },
+      cancel: { label: "Keep", onClick: () => {} },
+    });
+  }, [val, key, deletePatches]);
+}
+
+const CHANGES_WITHOUT_MODULE_TOAST = "changes-without-module";
 
 export function useAIContext() {
   const {
@@ -1919,136 +2138,6 @@ export function useDeployments() {
  * Asynchronous for the same reason: the grouping is in the worker realm, so
  * there is no synchronous answer to give.
  */
-/**
- * The patch groups on this branch, or `undefined` where there are none.
- *
- * Re-read whenever the chain moves, because that is when the annotation
- * arrives: `GET /patches` carries the groups alongside the patches, so a save
- * landing or a stat arriving is also when membership can have changed.
- *
- * `undefined` and `[]` are different answers and both reach callers unchanged.
- * `undefined` means this deployment has no groups and staging must stay off;
- * `[]` means groups exist and this branch's hold nothing.
- */
-/**
- * Every pending patch id, oldest first — the order they are applied in.
- *
- * The prefix invariant is only meaningful in chain order, so the staging
- * provider takes this rather than deriving it from the patch sets, whose own
- * ordering is newest-first for display.
- */
-export function useChainOrder(): PatchId[] {
-  const val = useValSystem();
-  const chainVersion = useChainVersion();
-  /*
-   * Read during render, not from an effect.
-   *
-   * An effect fills this AFTER the first paint, so the first render answers
-   * `[]` — and an empty chain order makes `indexPatchSets` throw for every
-   * patch set it is handed, which the staging provider catches by turning
-   * staging off "for this render". The result was an error logged on every
-   * mount and the feature quietly disabled, with nothing failing.
-   *
-   * `chainVersion` is what makes this correct rather than merely early: it
-   * bumps on every movement of the chain, so the memo is recomputed exactly
-   * when `allRecords()` would answer differently.
-   */
-  const previous = useRef<PatchId[]>([]);
-  return useMemo(() => {
-    if (val === null) return previous.current;
-    const next = val.system.patchStore.allRecords().map((r) => r.patchId);
-    const current = previous.current;
-    // Identity kept when the chain has not actually reordered: this feeds the
-    // patch-set index, and a fresh array on every chain movement would reindex
-    // on every keystroke.
-    if (
-      current.length === next.length &&
-      current.every((id, i) => id === next[i])
-    ) {
-      return current;
-    }
-    previous.current = next;
-    return next;
-  }, [val, chainVersion]);
-}
-
-/**
- * Moved by every change to the patch GROUPS. See `PatchStore`'s `bumpGroups`.
- *
- * Not `chainVersion`, in both directions. The groups move without the chain
- * moving — a stage or unstage touches no patch, and a save can learn the id of
- * the group it just created while the chain is exactly as it was — so keying on
- * the chain left those changes unobserved. And the chain moves once per
- * keystroke batch without the groups moving at all, so keying on it also meant
- * re-reading them constantly for nothing.
- */
-export function useGroupsVersion(): number {
-  const val = useValSystem();
-  const subscribe = useCallback(
-    (onChange: () => void) => {
-      if (val === null) return () => {};
-      return val.system.patchStore.events.on("patch:groups", onChange);
-    },
-    [val],
-  );
-  const getSnapshot = useCallback(
-    () => (val === null ? 0 : val.system.patchStore.groupsVersion()),
-    [val],
-  );
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-}
-
-export function usePatchGroups(): PatchGroupT[] | undefined {
-  const val = useValSystem();
-  const groupsVersion = useGroupsVersion();
-  /*
-   * Read during render rather than from an effect, and identity is the store's
-   * job now: `PatchStore` only moves `groupsVersion` when the annotation
-   * actually says something different, so an unchanged annotation is the same
-   * array and this memo does not even re-run. That matters because it feeds the
-   * `useMemo` deciding whether the staging controls repaint.
-   */
-  return useMemo(() => {
-    void groupsVersion;
-    if (val === null) return undefined;
-    return val.system.patchStore.groups();
-  }, [val, groupsVersion]);
-}
-
-/**
- * The id of the group this client's own writes are joining, where one is known.
- *
- * Learned from the save response — see `PatchStore.ownPatchGroupId`. Separate
- * from {@link usePatchGroups} because it carries no membership: it says which
- * group to stage INTO, not what is in it.
- */
-export function useOwnPatchGroupId(): string | undefined {
-  const val = useValSystem();
-  const groupsVersion = useGroupsVersion();
-  return useMemo(() => {
-    void groupsVersion;
-    if (val === null) return undefined;
-    return val.system.patchStore.ownGroupId();
-  }, [val, groupsVersion]);
-}
-
-/**
- * Whether this deployment has patch groups at all.
- *
- * Not the same question as "do I have a group", and asking the second in place
- * of the first is what turned staging off after a publish — see
- * `PatchStore.patchGroupsSeen`.
- */
-export function usePatchGroupsSupported(): boolean {
-  const val = useValSystem();
-  const groupsVersion = useGroupsVersion();
-  return useMemo(() => {
-    void groupsVersion;
-    if (val === null) return false;
-    return val.system.patchStore.patchGroupsSupported();
-  }, [val, groupsVersion]);
-}
-
 export function usePatchSets():
   | {
       status: "success";
@@ -2253,45 +2342,7 @@ export function useNoOpSourcePaths(
     void sourcesVersion;
     void chainVersion;
     const store = val.system.sourceStore;
-    /*
-     * Modules with a HELD patch, which are never no-ops.
-     *
-     * `peek` answers with the scoped source, so a module whose only pending
-     * patch is unstaged reads exactly like one whose pending patch was undone
-     * — and the review screen files it under "reverted", tells its author the
-     * content matches what is published, and offers only Discard. That is the
-     * screen a held change has to be put BACK from, so getting this wrong
-     * strands the change with no way to re-stage it.
-     *
-     * A held patch's two sides are not equal. They only look equal because we
-     * are hiding it.
-     */
-    const heldPaths: SourcePath[] = [];
-    for (const record of val.system.patchStore.recordsFor([
-      ...val.system.patchStore.unstagedPatchIds(),
-    ])) {
-      heldPaths.push(...touchedSourcePaths(record));
-    }
-    /*
-     * Per PATH, not per module.
-     *
-     * Excluding every path in a module that has any held patch is too coarse: a
-     * field the user typed back to its original, in a module that also happens
-     * to carry somebody else's held insert, never reaches the comparison and is
-     * listed as a live change it is not.
-     *
-     * A path is skipped when a held patch touches it, or touches something
-     * inside it — the second because a held change to `?items/0/title` is
-     * hidden from `?items` too, so `?items` compares equal for the same reason
-     * and would be misread the same way.
-     */
-    const hiddenAt = (path: SourcePath) =>
-      heldPaths.some(
-        (heldPath) =>
-          isPathWithin(heldPath, path) || isPathWithin(path, heldPath),
-      );
     for (const path of paths) {
-      if (hiddenAt(path)) continue;
       const after = store.peek(path);
       const before = store.peekBase(path);
       // Only a settled pair can be compared. Anything still loading is not
@@ -2329,7 +2380,6 @@ export function useHasNetChanges(): boolean {
   const chainVersion = useChainVersion();
   const committed = useCommittedPatches();
   const publishing = usePublishingPatchIds();
-  const unstaged = useUnstagedPatchIds();
 
   /*
    * Read off the CHAIN, not off the patch sets.
@@ -2350,9 +2400,8 @@ export function useHasNetChanges(): boolean {
       val.system.patchStore.allRecords(),
       committed,
       publishing,
-      unstaged,
     );
-  }, [val, chainVersion, committed, publishing, unstaged]);
+  }, [val, chainVersion, committed, publishing]);
 
   return useMemo(() => {
     // As in the loop below: what is not known yet counts as a change. `false`
@@ -2552,80 +2601,26 @@ export function useCurrentPatchIds(): PatchId[] {
 }
 
 /**
- * Pending patches this client has UNSTAGED, because they are outside its patch
- * group.
+ * How many pending changes there are — what Publish would ship.
  *
- * Not the same question as "is anything pending" or "does anything change".
- * An unstaged patch is not applied, so the scoped source equals base and every
- * comparison against base reads it as an undone edit — which is why anything
- * that wants to tell those two apart has to ask this instead.
- *
- * Empty wherever there is no scope: `fs` mode and any content API without
- * groups leave nothing unstaged.
+ * Committed patches are subtracted. A published patch stays in the chain in
+ * `http` mode until the new commit comes back, and counting it would have
+ * Review offer work that is already in a commit.
  */
-export function useUnstagedPatchIds(): ReadonlySet<PatchId> {
+export function usePendingChangeCount(): number {
   const val = useValSystem();
   const chainVersion = useChainVersion();
-  const groupsVersion = useGroupsVersion();
-  return useMemo(() => {
-    if (val === null) return new Set<PatchId>();
-    void chainVersion;
-    void groupsVersion;
-    /*
-     * COPIED, so identity tracks content.
-     *
-     * `PatchStore.unstagedPatchIds()` returns `this.unstagedIds` itself — one Set,
-     * mutated in place — so handing that reference out made this memo's result
-     * referentially identical forever, however much the held set changed. Any
-     * consumer keying its own memo on it then computed once and never again,
-     * which is what made Publish keep offering to stage a change the user had
-     * already staged.
-     *
-     * The copy is made inside this memo, so it is rebuilt only when the chain
-     * or the groups actually move — a new identity per CHANGE, not per render.
-     */
-    return new Set(val.system.patchStore.unstagedPatchIds());
-  }, [val, chainVersion, groupsVersion]);
-}
-
-/**
- * How many pending changes are THIS user's own — what Publish would ship.
- *
- * Review's badge sits beside Publish and is read as "how much is waiting for
- * me", so it counts the scoped set rather than the chain. On a shared branch
- * the chain also holds other people's pending work, which this client can
- * neither publish nor discard, and putting that on the badge asks the reader to
- * go and do something about somebody else's edit.
- *
- * Unscoped — `fs` mode, or a content API without patch groups — is the whole
- * chain, which is the same number as before and still the right one: there is
- * only one author there.
- *
- * Committed patches are subtracted in both branches. A published patch stays in
- * the chain in `http` mode until the new commit comes back, and counting it
- * would have Review offer work that is already in a commit.
- */
-export function useOwnPendingChangeCount(): number {
-  const val = useValSystem();
-  const chainVersion = useChainVersion();
-  // The scope moves without the chain moving — a stage touches no patch — so
-  // both versions are dependencies. See `PatchStore.notifyGroupsChanged`.
-  const groupsVersion = useGroupsVersion();
   const committed = useCommittedPatches();
   return useMemo(() => {
     if (val === null) return 0;
     void chainVersion;
-    void groupsVersion;
-    const scope = val.system.patchGroup();
-    const inScope = scope === null ? null : new Set(scope);
     let count = 0;
     for (const record of val.system.patchStore.allRecords()) {
       if (committed.has(record.patchId)) continue;
-      if (inScope !== null && !inScope.has(record.patchId)) continue;
       count++;
     }
     return count;
-  }, [val, chainVersion, groupsVersion, committed]);
+  }, [val, chainVersion, committed]);
 }
 
 export type PendingPatch = {
@@ -2795,9 +2790,35 @@ export function usePublishingPatchIds(): ReadonlySet<string> {
   );
 }
 
+/**
+ * The changes a failed publish holds back: pending, and not ready to publish.
+ * See {@link ValContextValue.serverHeldBackPatchIds}.
+ */
+export function useHeldBackPatchIds(): ReadonlySet<string> {
+  const {
+    publishJobsState,
+    serverHeldBackPatchIds,
+    serverPublishingReportedAt,
+  } = useContext(ValContext);
+  return useMemo(
+    () =>
+      heldBackPatchIds(
+        publishJobsState,
+        serverHeldBackPatchIds,
+        serverPublishingReportedAt,
+      ),
+    [publishJobsState, serverHeldBackPatchIds, serverPublishingReportedAt],
+  );
+}
+
 /** See {@link ValContextValue.handoff}. */
 export function useSiteHandoffState(): UseSiteHandoff {
   return useContext(ValContext).handoff;
+}
+
+/** This page's own presses: see {@link PublishJobsState}. */
+export function usePublishJobsState(): PublishJobsState {
+  return useContext(ValContext).publishJobsState;
 }
 
 /**
@@ -2819,6 +2840,11 @@ export function useStudioDeployState(): UseStudioDeploy {
  */
 export function useCurrentProposal(): { name: string; branch: string } | null {
   return useContext(ValContext).proposal;
+}
+
+/** See `historyBranch` on the context: `null` where History has nothing to list. */
+export function useHistoryBranch(): string | null {
+  return useContext(ValContext).historyBranch;
 }
 
 export function usePublishRefusal(): string | null {
@@ -3004,24 +3030,33 @@ export function usePublishSummary() {
    */
   const buildsInTab = useStudioBuildsInTab();
   const { state: deployState } = useContext(ValContext).deploy;
-  const { handoff, publishJobs, publishesAsJobs, publishJobsState } =
-    useContext(ValContext);
+  const { handoff, publishJobs, publishesAsJobs } = useContext(ValContext);
   /*
-   * A publish this tab is not doing anything for: content verifying it, CI
-   * building it, or a press queued behind another. The progress still reads
-   * it as running, and says so -- but it must not hold the button. A press
-   * now starts another job, or joins the one that has its changes, and the
-   * wait for CI is minutes, in which an editor must be able to publish what
-   * they wrote next. Only this tab's own work holds it: its build, its
-   * upload, the press itself.
+   * A build does not hold the button where publishes are jobs. The press is a
+   * request, and content queues it behind the one being built: this tab takes
+   * it when its build ends, or another free tab does sooner. So an editor can
+   * publish what they wrote next while the last publish is still building,
+   * here or anywhere else, and the wait for CI -- minutes -- never stops
+   * them. Only the press itself holds it (`isPublishing`).
+   *
+   * Without jobs the build follows the commit in this page and the deploy
+   * refuses a second one, so a press then would commit a change and leave it
+   * saved and not live: the build still holds the button there.
    */
-  const latestRequest = publishJobsState.requests.at(-1);
-  const waitingElsewhere =
-    deployState.status === "running" &&
-    publishJobsState.running === null &&
-    latestRequest !== undefined &&
-    !isSettled(latestRequest.status);
-  const busyHere = deployState.status === "running" && !waitingElsewhere;
+  const busyHere = deployState.status === "running" && !publishesAsJobs;
+  /*
+   * Whether a page that cannot build needs a builder tab for this publish.
+   * Managed, not for one of content alone, which goes live on the build
+   * already live -- a guess at what the server decides (`pendingNeedsBuild`),
+   * and a job that needs a build after all asks for the tab with one more
+   * tap. Connected, always: every change there is deployed, and the tab
+   * builds it sooner than CI does.
+   */
+  const sourceMode = useSourceMode();
+  const needsBuild = (): boolean =>
+    sourceMode !== "managed" ||
+    val === null ||
+    pendingNeedsBuild(val.system.patchStore);
   const publish = useCallback(
     async (summary: string): Promise<PagePublishResult> => {
       /*
@@ -3033,10 +3068,8 @@ export function usePublishSummary() {
        */
       const handedOff =
         handoff.active() ||
-        handoff.prepare(buildsInTab, {
-          after: val
-            ? newestUnpublished(val.system.patchStore, val.system.patchGroup())
-            : null,
+        handoff.prepare(buildsInTab && needsBuild(), {
+          after: val ? newestUnpublished(val.system.patchStore) : null,
         });
       /*
        * And the tab presses, not this page: on an iPhone this page is paused
@@ -3204,13 +3237,23 @@ export function usePublishSummary() {
    * `useProposalPublish`, which finds it once the tab says what it pressed.
    */
   const publishProposal = useCallback(
-    async (proposalName: string): Promise<ProposalPublishPress> => {
-      /*
-       * Built in a tab, always: a merge is a managed publish, whatever this
-       * address's own saves are -- they are commits, and build nothing, so
-       * `buildsInTab` is false here.
+    async (
+      proposalName: string,
+      /**
+       * Whether the merge will build (`mergeNeedsBuild`). A page that cannot
+       * build opens a builder tab at the press only for one that will: a merge
+       * of content alone, or of code already built, goes live on a build the
+       * site or the proposal already has, and this page presses it itself.
+       * One that needs a build after all asks for the tab with another tap
+       * (`onNeedsBuilder`).
        */
-      if (handoff.prepare(true, { merge: proposalName })) {
+      options: { needsBuild: boolean } = { needsBuild: true },
+    ): Promise<ProposalPublishPress> => {
+      /*
+       * Not `buildsInTab`: this address's own saves are commits, and build
+       * nothing, but a merge is a managed publish of the site.
+       */
+      if (handoff.prepare(options.needsBuild, { merge: proposalName })) {
         return { status: "handed-off" };
       }
       const lock = beginSiteOperation("publish");
@@ -3278,11 +3321,12 @@ export function usePublishSummary() {
     async (
       proposalName: string,
       failedRequestId: string,
+      options: { needsBuild: boolean } = { needsBuild: true },
     ): Promise<ProposalPublishPress> => {
       toast.dismiss(`publish:${failedRequestId}`);
-      // In a tab, always: see `publishProposal`.
+      // In a tab only for a merge that builds: see `publishProposal`.
       if (
-        handoff.prepare(true, {
+        handoff.prepare(options.needsBuild, {
           tryAgainOf: failedRequestId,
           merge: proposalName,
         })
@@ -3363,9 +3407,7 @@ export function usePublishSummary() {
      * is sent now, while the page still runs.
      */
     preparePublish: (): boolean => {
-      const after = val
-        ? newestUnpublished(val.system.patchStore, val.system.patchGroup())
-        : null;
+      const after = val ? newestUnpublished(val.system.patchStore) : null;
       /*
        * Before the tab opens, not after: on an iPhone this page is paused the
        * moment it does, and a save not yet sent then never is. Started here,
@@ -3373,7 +3415,7 @@ export function usePublishSummary() {
        * flushes as well, so nothing is sent that would not have been.
        */
       void val?.system.patchSync.flush().catch(() => undefined);
-      return handoff.prepare(buildsInTab, { after });
+      return handoff.prepare(buildsInTab && needsBuild(), { after });
     },
     /**
      * Whether the project wants AI to write its commit messages.

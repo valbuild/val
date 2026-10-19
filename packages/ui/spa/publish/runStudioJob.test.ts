@@ -316,3 +316,29 @@ test("a job content puts live without a build is handed off at prepare, unbuilt,
   expect(deployed).toBe(false);
   expect(steps).toEqual([]);
 });
+
+test("managed, a tab that cannot build gives a job that needs one back -- unreported, for a tab that can", async () => {
+  /*
+   * An iPhone runs its own publish now, so a publish of content alone opens no
+   * tab. One that needs a build after all cannot be built here: it is left
+   * for a builder tab, which the editor opens with one more tap -- not said to
+   * need no build, which for a managed project is a refusal.
+   */
+  const { client, steps } = fakeClient();
+  let deployed = 0;
+  const result = await runStudioJob({
+    client,
+    job,
+    tab: "ada",
+    deploy: async () => {
+      deployed++;
+      return uploaded;
+    },
+    onPhase: () => {},
+    canBuild: () => false,
+    buildsElsewhere: true,
+  });
+  expect(result).toEqual({ status: "needs-builder", jobId: "J1" });
+  expect(deployed).toBe(0);
+  expect(steps).toEqual([]);
+});

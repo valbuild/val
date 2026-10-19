@@ -225,9 +225,8 @@ type ChainEntry = {
  * `appliedAt` is `null` for a patch the server knows about and has not
  * committed, and `undefined` for one created locally, which by definition has
  * not — so BOTH mean "still pending" and only a commit sha means shipped.
- * Writing `appliedAt !== null` catches the local case as applied, which makes
- * every patch this tab just wrote unconditionally visible and defeats the whole
- * scope. It did, briefly.
+ * Writing `appliedAt !== null` catches the local case as applied, which counts
+ * every patch this tab just wrote as published.
  */
 function isApplied(record: PatchRecord): boolean {
   return record.appliedAt !== null && record.appliedAt !== undefined;
@@ -266,6 +265,15 @@ export class SourceStore {
    * and re-intake silently discarded the user's pending edits.
    */
   private chains = new Map<ModuleFilePath, ChainEntry[]>();
+
+  /**
+   * Whether the project's modules have arrived.
+   *
+   * Intake is the whole project at once, so after it a module that is not
+   * loaded is a module the project does not have. Before it, the same thing
+   * only means "not yet".
+   */
+  private intakeSeen = false;
 
   /**
    * How far each module's source has moved. THE comparator for reads.
@@ -526,7 +534,7 @@ export class SourceStore {
           type: "source:patch-apply",
           success: [],
           failed: [],
-          unstaged: [],
+          withoutModule: [],
           modules,
         });
       }
@@ -667,7 +675,7 @@ export class SourceStore {
       type: "source:patch-apply",
       success: [],
       failed: [],
-      unstaged: [],
+      withoutModule: [],
       modules: [moduleFilePath],
     });
   }
@@ -1669,118 +1677,26 @@ export class SourceStore {
   }
 
   /**
-   * Which patches the reader is allowed to see, or `null` for all of them.
-   *
-   * This is what makes "staged is the truth" true rather than aspirational: the
-   * studio, the preview and every field read `base + your patch group`, not
-   * `base + everything anybody has pending`.
-   *
-   * `null` is not the same as "the empty set" and the distinction is load
-   * bearing. `null` means nothing is scoping this store — fs mode, or a content
-   * API without patch groups — and every patch applies, which is the behaviour
-   * this store had before groups existed. An empty Set means a group that holds
-   * nothing, and then base is what you see.
-   *
-   * Unstaged patches stay in `chains`. They are not dropped, because they are not
-   * gone: unstaging is reversible, another author is still working on them, and
-   * re-staging has to be able to put them back without re-fetching. So the chain
-   * remains the whole truth and this is a filter over it.
-   */
-  private visiblePatchIds: Set<PatchId> | null = null;
-
-  /**
-   * Whether this patch is in the reader's view.
-   *
-   * The one place the filter is interpreted, so "no scope means everything"
-   * cannot drift between the call sites that replay a chain.
-   */
-  private isVisible(record: PatchRecord): boolean {
-    if (this.visiblePatchIds === null) {
-      return true;
-    }
-    /*
-     * Scoping is about PENDING work. Anything already committed is part of
-     * everyone's view, whatever the scope says.
-     *
-     * A published patch stays in the chain with `appliedAt` set until the next
-     * deployment moves the base, so between publish and deploy it is live
-     * content that no group holds — the publisher's own group was CLOSED by the
-     * publish, and nobody else's ever held it. Filtering it out made the Studio
-     * disagree with the server (`scopedPatches` applies it), count live content
-     * as unstaged, and — after a reload — hide the author's own just-shipped change
-     * from them.
-     *
-     * `prefixViolations` in `createSystem` already treats applied as shipped;
-     * this is the same rule at the other end of the same feature.
-     */
-    if (isApplied(record)) {
-      return true;
-    }
-    return this.visiblePatchIds.has(record.patchId);
-  }
-
-  /**
-   * Scope every module's source to these patches, and rebuild what moved.
-   *
-   * Rebuilds rather than un-applies, for the reason `dropFromChains` explains: a
-   * JSON patch is not invertible, so "stop showing this patch" can only mean
-   * recompute base + the patches still visible.
-   *
-   * Only modules whose VISIBLE set actually changed are rebuilt. Staging one
-   * patch in one module must not bump the revision of every module in the
-   * project — every field in the studio would repaint, and the wake would say
-   * "external change" about modules where nothing changed at all.
-   */
-  /**
-   * These patches have SHIPPED, so they apply regardless of scope.
+   * These patches have SHIPPED: their records say so from here on.
    *
    * The chain holds its own reference to each `PatchRecord`, so marking one
-   * applied in `PatchStore` is invisible here — `isVisible` would go on reading
-   * the record it was given. This updates the entries and rebuilds whatever
-   * moved, which is the only way the news reaches the screen before the deploy
-   * that moves the base.
-   *
-   * Reuses `setVisiblePatchIds` for the rebuild rather than repeating it: the
-   * question "which modules changed, and what do they look like now" has one
-   * correct answer and one implementation of it. The scope is passed back
-   * unchanged, so the only thing that can differ is what these records now say
-   * about themselves.
+   * applied in `PatchStore` is invisible here. The displayed value does not
+   * move — the patch was already applied — but {@link peekBase} does: it counts
+   * shipped patches as published. Its readers — the "before" side of a compare
+   * — subscribe per path, so without a wake they keep the pre-publish snapshot
+   * until something else happens to touch the path.
    */
   markApplied(patchIds: readonly PatchId[]): void {
     if (patchIds.length === 0) return;
     const applied = new Set(patchIds);
-    /*
-     * Which entries were UNSTAGED and are now visible, worked out BEFORE the
-     * records are touched.
-     *
-     * `setVisiblePatchIds` decides what to rebuild by comparing `isVisible`
-     * against the entry it already holds — so updating the records first would
-     * make it compare the new state with itself and rebuild nothing at all.
-     */
-    const nowVisible: ModuleFilePath[] = [];
-    const touched: SourcePath[] = [];
-    /*
-     * Where a patch that was already on screen has now shipped.
-     *
-     * The displayed value does not move, but {@link peekBase} does: it counts
-     * shipped patches as published. Its readers — the "before" side of a
-     * compare — subscribe per path, so without a wake they keep the pre-publish
-     * snapshot until something else happens to touch the path.
-     */
-    const shippedVisible = new Set<ModuleFilePath>();
+    const shippedModules = new Set<ModuleFilePath>();
     const shippedTouched: SourcePath[] = [];
     for (const [moduleFilePath, chain] of this.chains) {
-      let differs = false;
       for (const entry of chain) {
         if (!applied.has(entry.record.patchId)) continue;
         if (isApplied(entry.record)) continue;
-        if (!this.isVisible(entry.record)) {
-          differs = true;
-          touched.push(...touchedSourcePaths(entry.record));
-        } else {
-          shippedVisible.add(moduleFilePath);
-          shippedTouched.push(...touchedSourcePaths(entry.record));
-        }
+        shippedModules.add(moduleFilePath);
+        shippedTouched.push(...touchedSourcePaths(entry.record));
         entry.record = {
           ...entry.record,
           appliedAt: { commitSha: APPLIED_ELSEWHERE_SHA },
@@ -1790,118 +1706,17 @@ export class SourceStore {
           (this.appliedVersions.get(moduleFilePath) ?? 0) + 1,
         );
       }
-      if (differs) nowVisible.push(moduleFilePath);
     }
     if (shippedTouched.length > 0) {
       // No `bump`: the displayed value did not move, which is the reason
       // `promoteToBase` does not bump either. A reader of `peek` re-reads the
       // same object and does not re-render.
-      this.wakeListeners(shippedVisible, [
+      this.wakeListeners(shippedModules, [
         {
           origin: "external",
           creatorFieldId: undefined,
           paths: shippedTouched,
         },
-      ]);
-    }
-    if (nowVisible.length === 0) {
-      // Every one of them was already on screen. The records are now honest
-      // about why, which is all this had to change.
-      return;
-    }
-    this.rebuildModules(nowVisible, touched);
-  }
-
-  setVisiblePatchIds(patchIds: readonly PatchId[] | null): void {
-    const next = patchIds === null ? null : new Set(patchIds);
-    const changed: ModuleFilePath[] = [];
-    const touched: SourcePath[] = [];
-    for (const [moduleFilePath, chain] of this.chains) {
-      let differs = false;
-      for (const entry of chain) {
-        const wasVisible = this.isVisible(entry.record);
-        const nowVisible =
-          next === null ||
-          isApplied(entry.record) ||
-          next.has(entry.record.patchId);
-        if (wasVisible !== nowVisible) {
-          differs = true;
-          // Whichever direction it moved, the paths that patch touches are the
-          // ones whose displayed value is about to change.
-          touched.push(...touchedSourcePaths(entry.record));
-        }
-      }
-      if (differs) {
-        changed.push(moduleFilePath);
-      }
-    }
-    this.visiblePatchIds = next;
-    if (changed.length === 0) {
-      return;
-    }
-    this.rebuildModules(changed, touched);
-  }
-
-  /**
-   * Put these modules back to base and replay whatever is visible now.
-   *
-   * Shared by {@link setVisiblePatchIds} and {@link markApplied}, which change
-   * different halves of the same question — one moves the scope, the other
-   * moves what a record says about itself — and both then need exactly this.
-   */
-  private rebuildModules(
-    changed: readonly ModuleFilePath[],
-    touched: SourcePath[],
-  ): void {
-    const rebuilt: ModuleFilePath[] = [];
-    for (const moduleFilePath of changed) {
-      const base = this.baseSources[moduleFilePath];
-      if (base === undefined) {
-        // Not loaded, so there is no source to rebuild. The filter still moved,
-        // and the replay when it loads will honour it.
-        continue;
-      }
-      this.activity.work("source:rebuild-module", moduleFilePath);
-      this.sources[moduleFilePath] = deepClone(base as JSONValue);
-      const baseEntries = this.baseJsonEntries.get(moduleFilePath);
-      if (baseEntries !== undefined) {
-        this.jsonEntries.set(
-          moduleFilePath,
-          new Map(
-            [...baseEntries].map(([key, value]) => [
-              key,
-              deepClone(value as JSONValue),
-            ]),
-          ),
-        );
-      }
-      this.bump(moduleFilePath);
-      rebuilt.push(moduleFilePath);
-    }
-    if (rebuilt.length === 0) {
-      return;
-    }
-    // Same ordering as a drop, and for the same reason: consumers see the
-    // modules go back to base and THEN the visible patches land, rather than
-    // watching patches land on a value that still appeared to contain them.
-    this.events.emit({ type: "source:patch-drop", modules: rebuilt });
-    for (const moduleFilePath of rebuilt) {
-      const chain = this.chains.get(moduleFilePath);
-      if (chain === undefined || chain.length === 0) continue;
-      this.applyEntries(
-        chain.map((entry) => ({
-          record: entry.record,
-          // `external` for the reason a drop uses it: the author of a patch that
-          // just became visible or invisible is a reader who must be woken, not
-          // the one suppression exists to spare.
-          origin: "external",
-          creatorFieldId: undefined,
-        })),
-      );
-    }
-    if (touched.length > 0) {
-      this.wakeListeners(new Set(rebuilt), [
-        { origin: "external", creatorFieldId: undefined, paths: touched },
       ]);
     }
   }
@@ -2023,6 +1838,7 @@ export class SourceStore {
   }
 
   receive(sources: Record<ModuleFilePath, Json>): void {
+    this.intakeSeen = true;
     // Cloned so the caller cannot keep a handle on what the store now owns and
     // mutate it from outside.
     for (const [moduleFilePath, source] of Object.entries(sources)) {
@@ -2084,6 +1900,12 @@ export class SourceStore {
       if (chain === undefined || chain.length === 0) continue;
       this.applyEntries(chain);
     }
+    // And the chains of modules the project does not have, which were waiting
+    // for this intake to say so. See `withoutModule` in `applyEntries`.
+    const withoutModule = [...this.chains].flatMap(([moduleFilePath, chain]) =>
+      this.sources[moduleFilePath] === undefined ? chain : [],
+    );
+    this.applyEntries(withoutModule);
     // And wake everyone reading these modules.
     //
     // Intake replaces the value at EVERY path in the module, and `bump` above has
@@ -2414,7 +2236,7 @@ export class SourceStore {
     if (entries.length === 0) return;
     const success: PatchId[] = [];
     const failed: { patchId: PatchId; message: string }[] = [];
-    const unstaged: PatchId[] = [];
+    const withoutModule: PatchId[] = [];
     const touched: SourcePath[] = [];
     const changedModules = new Set<ModuleFilePath>();
 
@@ -2426,24 +2248,6 @@ export class SourceStore {
       paths: SourcePath[];
     }[] = [];
     for (const { record, origin, creatorFieldId } of entries) {
-      /*
-       * A patch outside the reader's group is in the chain but not in the view.
-       *
-       * Enforced HERE rather than only at the call sites that replay a chain,
-       * because an unstaged patch reaches this method by several routes — a fresh
-       * `receive`, a module loading late, a drop rebuilding its neighbours — and
-       * every one of them would otherwise re-land it. It stays in `chains`: it
-       * is unstaged, not gone, and re-staging has to be able to put it back.
-       *
-       * REPORTED, not silently skipped. `chainSettled` waits for every patch in
-       * the chain to be accounted for as applied or failed, so an unstaged patch that
-       * says nothing reads as "still working" and the editor holds every field
-       * inert for as long as the tab is open.
-       */
-      if (!this.isVisible(record)) {
-        unstaged.push(record.patchId);
-        continue;
-      }
       const raw = this.sources[record.moduleFilePath];
       /**
        * Applied to the SUBSTITUTED module, not the raw one.
@@ -2464,6 +2268,18 @@ export class SourceStore {
           ? undefined
           : this.substitutedSource(record.moduleFilePath, raw);
       if (current === undefined || raw === undefined) {
+        /*
+         * Once the project's modules are in, a module that is not among them
+         * is not coming: its file was renamed or deleted with this change
+         * still unpublished. That is an answer, and saying nothing held the
+         * editor on "Loading unpublished changes…" for the life of the tab.
+         * If the file does come back, the intake that brings it replays this
+         * chain, and the patch applies.
+         */
+        if (this.intakeSeen) {
+          withoutModule.push(record.patchId);
+          continue;
+        }
         // The module is not loaded, so there is nothing to apply the patch to
         // yet. Not a failure: `receive()` rebuilds from base + chain, so this
         // patch lands as soon as the module arrives.
@@ -2512,13 +2328,11 @@ export class SourceStore {
     // otherwise have to defend against an event whose payloads are all empty.
     // Reached whenever every record targeted a module that is not loaded —
     // which is a deferral rather than a loss.
-    //
-    // `unstaged` counts as something happening, and leaving it out of this guard is
-    // what made the first version of this fix useless: a replay in which EVERY
-    // patch was unstaged — the normal case for a reader scoped to a small group —
-    // returned here, the event was never emitted, and `chainSettled` waited
-    // forever on patches it was never told about.
-    if (success.length === 0 && failed.length === 0 && unstaged.length === 0) {
+    if (
+      success.length === 0 &&
+      failed.length === 0 &&
+      withoutModule.length === 0
+    ) {
       return;
     }
 
@@ -2530,7 +2344,7 @@ export class SourceStore {
       type: "source:patch-apply",
       success,
       failed,
-      unstaged,
+      withoutModule,
       modules: [...changedModules],
     });
 
@@ -2677,10 +2491,6 @@ function samePeek(a: SourcePeek, b: SourcePeek): boolean {
  * (`/test.val.ts?"field"`), so each op path is converted and qualified with the
  * module. `move`/`copy` change two places, so both ends are reported.
  *
- * Exported for `useNoOpSourcePaths`, which needs to know WHICH paths an unstaged
- * patch hides rather than only which module it is in — excluding the whole
- * module misclassifies a genuinely reverted field that happens to share a
- * module with somebody else's unstaged change.
  */
 export function touchedSourcePaths(record: PatchRecord): SourcePath[] {
   const paths: SourcePath[] = [];

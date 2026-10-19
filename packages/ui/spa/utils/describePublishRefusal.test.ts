@@ -29,6 +29,20 @@ describe("describePublishRefusal", () => {
     ).toContain("already in progress");
   });
 
+  test("changes held for the plan give its reason, and no retry that cannot help", () => {
+    const said = describePublishRefusal({
+      status: "refused",
+      reason: "unsaved-changes",
+      patchIds: ["p1" as PatchId],
+      planRefusal:
+        "site has used this week's 1,000 changes on the Free plan. An owner can upgrade to Pro: https://admin.val.build/orgs/acme/billing",
+    });
+    expect(said.message).toContain("plan");
+    expect(said.details).toContain("upgrade to Pro");
+    expect(said.details).toContain("changes are kept");
+    expect(said.details).not.toMatch(/connection|try again/i);
+  });
+
   test("unsaved changes say nothing was lost", () => {
     const said = describePublishRefusal({
       status: "refused",

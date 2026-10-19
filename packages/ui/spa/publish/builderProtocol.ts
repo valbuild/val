@@ -21,6 +21,14 @@ export type BuilderCall =
   | {
       method: "publishArtifacts";
       args: Parameters<typeof TanstackBuild.publishArtifacts>;
+    }
+  | {
+      method: "buildInputId";
+      args: Parameters<typeof TanstackBuild.buildInputId>;
+    }
+  | {
+      method: "bundleValModules";
+      args: Parameters<typeof TanstackBuild.bundleValModules>;
     };
 
 /** Studio -> worker. */
@@ -44,6 +52,14 @@ export type BuilderResult =
   | {
       method: "publishArtifacts";
       value: Awaited<ReturnType<typeof TanstackBuild.publishArtifacts>>;
+    }
+  | {
+      method: "buildInputId";
+      value: Awaited<ReturnType<typeof TanstackBuild.buildInputId>>;
+    }
+  | {
+      method: "bundleValModules";
+      value: Awaited<ReturnType<typeof TanstackBuild.bundleValModules>>;
     };
 
 /** Worker -> Studio. */

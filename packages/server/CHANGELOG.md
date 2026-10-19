@@ -1,5 +1,195 @@
 # @valbuild/server
 
+## 0.146.2
+
+### Patch Changes
+
+- [#871](https://github.com/valbuild/val/pull/871) [`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0) Thanks [@freekh](https://github.com/freekh)! - An image, file or video picked from a gallery is checked against the gallery as it is now. Picking one uploaded since the site was built (still unpublished, saved in a proposal, or published without a rebuild) used to fail with "The gallery does not have an image at …" and refuse the save. In a proposal, Save now reads "Fix N" and goes to the validation errors instead of being refused by the server, as Publish does on the site.
+
+- [#867](https://github.com/valbuild/val/pull/867) [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9) Thanks [@freekh](https://github.com/freekh)! - Publishing a proposal is no longer blocked by other people's unpublished changes
+  on the same pages. When Publish is pressed in a proposal, Val works out which of
+  those changes conflict with it: those move into a new proposal, named "Moved when
+  “…” was published", which the people who wrote them own together; the rest stay
+  unpublished on the site, where they were. The Publish dialog says beforehand how
+  many changes will move and whose they are.
+
+  If someone changes those pages while the proposal is being published, the
+  publish stops and asks you to press Publish again, so nothing moves on an
+  outdated plan.
+
+- [#867](https://github.com/valbuild/val/pull/867) [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9) Thanks [@freekh](https://github.com/freekh)! - Publish only some of your changes: tick them in Review and press **Publish
+  selected**. On a site with proposals, Val moves them into a proposal of their
+  own and publishes it straight away; everything else stays unpublished, as it
+  was.
+
+  Some changes cannot be published apart — two edits to the same list, say — so
+  the confirm says what comes with your selection and whose it is before anything
+  moves. If the site is published while yours is being prepared, nothing is
+  published and you are asked to press it again. If publishing stops after the
+  changes have moved, they are safe in their proposal, and Review offers to open
+  it as well as to try again.
+
+- Updated dependencies [[`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9)]:
+  - @valbuild/core@0.146.2
+  - @valbuild/shared@0.146.2
+  - @valbuild/ui@0.146.2
+
+## 0.146.1
+
+### Patch Changes
+
+- Updated dependencies [[`2db91a5`](https://github.com/valbuild/val/commit/2db91a5d2a280727eb2b1064e853a03be283289f)]:
+  - @valbuild/ui@0.146.1
+
+## 0.146.0
+
+### Minor Changes
+
+- [#861](https://github.com/valbuild/val/pull/861) [`89b0fa8`](https://github.com/valbuild/val/commit/89b0fa82a3ae0d8ccd5d0282c1034f1f40cc4e26) Thanks [@freekh](https://github.com/freekh)! - Proposals can be brought up to date with the site, like a pull request.
+
+  - **Update from the site** merges what was published on the site since a proposal started into the proposal, field by field. Where the site and the proposal changed the same field, the Publish dialog shows both and asks which to keep.
+  - **With code:** a proposal that changes code, or a site whose code changed since the proposal started, is updated too. The Studio runs each version's schemas in the tab, and the merged code is built before it can be published.
+  - Publish offers **Update from the site** whenever the site has moved under the proposal.
+
+- [#864](https://github.com/valbuild/val/pull/864) [`f0c7d27`](https://github.com/valbuild/val/commit/f0c7d27846c21f81ff6ce79c579185150bc0d063) Thanks [@freekh](https://github.com/freekh)! - Patch groups are removed. **Publish** now publishes every pending change, and
+  the Review list shows everyone's pending changes in one list. To keep changes
+  out of a publish, move them to a proposal.
+
+  Draft reads no longer send `own_patch_groups_only`, `patch_id` or
+  `include_patch_groups`, and the server no longer has the patch-group routes or
+  fields. A content host that still sends them is fine: they are ignored.
+
+### Patch Changes
+
+- Updated dependencies [[`89b0fa8`](https://github.com/valbuild/val/commit/89b0fa82a3ae0d8ccd5d0282c1034f1f40cc4e26), [`f0c7d27`](https://github.com/valbuild/val/commit/f0c7d27846c21f81ff6ce79c579185150bc0d063)]:
+  - @valbuild/ui@0.146.0
+  - @valbuild/shared@0.146.0
+
+## 0.145.1
+
+### Patch Changes
+
+- Updated dependencies [[`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7)]:
+  - @valbuild/shared@0.145.1
+  - @valbuild/ui@0.145.1
+
+## 0.145.0
+
+### Minor Changes
+
+- [#859](https://github.com/valbuild/val/pull/859) [`f085be0`](https://github.com/valbuild/val/commit/f085be0eb5bdc195e9d8cdb15dd5f8acfdabe23c) Thanks [@freekh](https://github.com/freekh)! - An edit Val Build refuses to save because of the project's plan — the Free plan's 1,000 changes a week are used, or a Hosted trial has ended — is now kept in the Studio instead of being reverted.
+
+  - `PUT /patches` answers such a save with a `403` of type `plan-refused`, carrying Val Build's reason and fix as data and which patches of the request it did save. It used to answer `400 patch-error`, which the Studio reads as a bad patch and drops.
+  - The Studio keeps the refused edits and any made after them, shows the plan notice with **Upgrade** or **Add a card** beside it, and saves them by itself once the plan allows it: as soon as Val Build says editing is open again (an owner added a card, the week moved on), and otherwise by trying again now and then. A publish or a restore that meets held edits says why, in Val Build's words, instead of suggesting the connection.
+  - The MCP write tools answer a refused write as `forbidden`, with Val Build's sentence, instead of `internal`.
+
+### Patch Changes
+
+- Updated dependencies [[`b6cb939`](https://github.com/valbuild/val/commit/b6cb9395d8bdcd5182e9c6ba84f5284930de2fa5), [`f085be0`](https://github.com/valbuild/val/commit/f085be0eb5bdc195e9d8cdb15dd5f8acfdabe23c), [`dda5c52`](https://github.com/valbuild/val/commit/dda5c523698395c6dfb96ae8e39dae04307ec332), [`ac0bb7c`](https://github.com/valbuild/val/commit/ac0bb7cb5a99df022b198326a5f8a0cf61e45388)]:
+  - @valbuild/core@0.145.0
+  - @valbuild/shared@0.145.0
+  - @valbuild/ui@0.145.0
+
+## 0.144.12
+
+### Patch Changes
+
+- Updated dependencies [[`2193e3a`](https://github.com/valbuild/val/commit/2193e3ae133cd05dd73d0937dde7c15c88417f71)]:
+  - @valbuild/ui@0.144.12
+
+## 0.144.11
+
+### Patch Changes
+
+- Updated dependencies [[`c606395`](https://github.com/valbuild/val/commit/c60639571f9e836726dfef38e6bd0defc503d726)]:
+  - @valbuild/ui@0.144.11
+
+## 0.144.10
+
+### Patch Changes
+
+- Updated dependencies [[`0a061c1`](https://github.com/valbuild/val/commit/0a061c124408aa127c5042c9e3a602d7dd9daf13)]:
+  - @valbuild/ui@0.144.10
+
+## 0.144.9
+
+### Patch Changes
+
+- [#846](https://github.com/valbuild/val/pull/846) [`c44b561`](https://github.com/valbuild/val/commit/c44b5611cf9e557b6b744704703dbff0cb8b23b0) Thanks [@freekh](https://github.com/freekh)! - History is shown for projects hosted by Val Build and inside a proposal, where it lists the proposal's own saves. On the site of a project with proposals, a restore — one field, one module, or "Put everything back" — opens a new proposal with the restored values in it, so it is reviewed there before it is published.
+
+  History also reads a hosted project's first commit, which has no parent: "Go back to this point" failed on it.
+
+  "Go back to this point" on the site brings back the code as well as the content: the proposal it opens stages the files of the build the site served then, and serves that build at once.
+
+- Updated dependencies [[`c44b561`](https://github.com/valbuild/val/commit/c44b5611cf9e557b6b744704703dbff0cb8b23b0), [`a2125af`](https://github.com/valbuild/val/commit/a2125af79d2b2401c40bce3d8fcf0431bb101cbf)]:
+  - @valbuild/ui@0.144.9
+  - @valbuild/shared@0.144.9
+
+## 0.144.8
+
+### Patch Changes
+
+- [#844](https://github.com/valbuild/val/pull/844) [`b67c03e`](https://github.com/valbuild/val/commit/b67c03ee1876803c31098098ae0becf3f4ad6ade) Thanks [@freekh](https://github.com/freekh)! - Publishing a proposal now says what blocks it, and what to do about it:
+
+  - When the site's code changed after a proposal with code changes started, the Publish dialog offers **Update from the site**. It moves the proposal onto the site as it is now, and its code then needs building again ("Build required").
+  - When someone published changes to the same page since the proposal started, the dialog names the fields each side changed.
+
+- Updated dependencies [[`6fd8f79`](https://github.com/valbuild/val/commit/6fd8f791a83d37f95dc3ae12bd8025ccf81e4a7c), [`b67c03e`](https://github.com/valbuild/val/commit/b67c03ee1876803c31098098ae0becf3f4ad6ade)]:
+  - @valbuild/ui@0.144.8
+
+## 0.144.7
+
+### Patch Changes
+
+- [#842](https://github.com/valbuild/val/pull/842) [`45ee083`](https://github.com/valbuild/val/commit/45ee0831393345dab08093575d4ed652e20e1229) Thanks [@freekh](https://github.com/freekh)! - In a proposal on a hosted project, the Studio's assistant can now change the project's code, not only its content:
+
+  - `list_files` and `read_file` read the project's code. In a proposal they read the proposal's version of it.
+  - `write_files` stages whole files in the proposal, or deletes them.
+  - `build_proposal` builds those files in the tab, so the proposal's preview shows them. Nothing is published: the site changes only when the proposal is published.
+
+  The top bar shows **Build required** while staged code is not in the preview yet, and the same button builds it. A failed build says why on the button, and pressing it again builds again.
+
+  On the site itself, code is never changed directly. A code change asked for there is refused, and New proposal opens so the change can be made in one.
+
+- Updated dependencies [[`45ee083`](https://github.com/valbuild/val/commit/45ee0831393345dab08093575d4ed652e20e1229)]:
+  - @valbuild/ui@0.144.7
+
+## 0.144.6
+
+### Patch Changes
+
+- Updated dependencies [[`4e237c9`](https://github.com/valbuild/val/commit/4e237c9b66e059344fa4c800587c572d125aa8f9)]:
+  - @valbuild/ui@0.144.6
+
+## 0.144.5
+
+### Patch Changes
+
+- [#839](https://github.com/valbuild/val/pull/839) [`39e8db3`](https://github.com/valbuild/val/commit/39e8db34cf56c6c43ffff0d3acfe8e0839fa55a9) Thanks [@freekh](https://github.com/freekh)! - A publish that breaks a page no longer stops everyone else publishing. On val.build, the changes it had are held back: the Publish button says how many, and publishes go without them until someone presses Try again or Discard on the failed publish.
+
+  Publish can be pressed while this tab is still building the last publish. The new publish waits its turn and is built when the current one ends.
+
+  Discarding a change that is being published now says so, instead of failing silently. From there you can cancel the publish, which then discards the change, or wait for the publish to end.
+
+- Updated dependencies [[`39e8db3`](https://github.com/valbuild/val/commit/39e8db34cf56c6c43ffff0d3acfe8e0839fa55a9)]:
+  - @valbuild/ui@0.144.5
+  - @valbuild/shared@0.144.5
+
+## 0.144.4
+
+### Patch Changes
+
+- Updated dependencies [[`e70a261`](https://github.com/valbuild/val/commit/e70a261ed8c0938b635214721fc4e445704b1f1f)]:
+  - @valbuild/shared@0.144.4
+  - @valbuild/ui@0.144.4
+
+## 0.144.3
+
+### Patch Changes
+
+- Updated dependencies [[`99fcac5`](https://github.com/valbuild/val/commit/99fcac527f2d5ba37c4b132ef08189b955d69e51), [`0e09e9c`](https://github.com/valbuild/val/commit/0e09e9cdac4918bdfa1c01a92a8968a516f8c0c6)]:
+  - @valbuild/ui@0.144.3
+
 ## 0.144.2
 
 ### Patch Changes

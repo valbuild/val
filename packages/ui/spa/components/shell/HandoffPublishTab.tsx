@@ -25,7 +25,6 @@ import {
   whenReady,
 } from "../../publish/pressForPage";
 import { useValSystem } from "../../stores/react/SystemContext";
-import { usePatchGroupScope } from "./ValShell";
 import {
   deployPercent,
   describeDeployPhase,
@@ -139,12 +138,6 @@ type GoingLive =
 export function HandoffPublishTab({ id }: { id: string }) {
   const { state, deploy } = useStudioDeployState();
   const val = useValSystem();
-  /*
-   * Scoped to the editor's own patch group, as the page that opened this is:
-   * the gate below is the page's gate, and unscoped it checked every pending
-   * change -- another editor's invalid one refused this editor's publish.
-   */
-  usePatchGroupScope();
   /** Read by the press, which outlives the render it started in. */
   const valRef = useRef(val);
   valRef.current = val;
@@ -526,10 +519,7 @@ export function HandoffPublishTab({ id }: { id: string }) {
           return (
             current !== null &&
             current.system.host.initializedAt() !== null &&
-            current.system.patchStore.chainSettled() &&
-            // Scoped, where the project has groups: see `usePatchGroupScope`.
-            (!current.system.patchStore.patchGroupsSupported() ||
-              current.system.patchGroup() !== null)
+            current.system.patchStore.chainSettled()
           );
         }));
       /*
@@ -667,6 +657,9 @@ export function HandoffPublishTab({ id }: { id: string }) {
           },
         });
       } else startUpdate();
+    } else if (intent.kind === "build-proposal") {
+      // `HandoffProposalBuildTab`'s, which `ValStudio` mounts for it instead.
+      setWaiting({ kind: "cancelled", message: NO_INTENT_MESSAGE });
     } else {
       ownPending.current = true;
       void press(intent);

@@ -1,5 +1,6 @@
 import {
   GalleryVideoSource,
+  galleryMarker,
   isHlsVideo,
   isRemoteMediaPath,
   VideoSource,
@@ -308,12 +309,7 @@ export class VideoSchema<
     }
     const entry = gallery.entries === null ? null : gallery.entries[src.path];
     if (entry === undefined) {
-      return [
-        {
-          message: `The set does not have a video at '${src.path}'.`,
-          value: src,
-        },
-      ];
+      return [galleryMarker("video", src, gallery.modulePath)];
     }
     // The poster and the captions are the field's own files, and live where
     // the set keeps its videos. The video itself is the set's to move.

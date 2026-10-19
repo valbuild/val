@@ -284,29 +284,29 @@ test.describe("the deploy feed", () => {
     await expect(
       list.getByText("Set the name to Waiting to go out"),
     ).toBeVisible();
-    await expect(list.getByText(/^Queued ·/)).toBeVisible();
+    // The row says when it started and nothing about how it is going: the
+    // bar's one status does (valbuild/home docs/hosted-publishing.md, step 10).
+    await expect(list.getByText(/^Started /)).toBeVisible();
   });
 
-  test("a build reported by CI moves the row through its states", async ({
+  test("a build reported by CI moves the status through its states", async ({
     page,
   }) => {
     await openHttpStudio(page);
     const commitSha = await publishOne(page, "Being built");
-    const list = await openDeployList(page);
 
     const deployment = await mock.deployment({
       commitSha,
       deploymentState: "pending",
     });
-    await expect(list.getByText(/^Building ·/)).toBeVisible();
+    await expect.poll(() => summaryLabel(page)).toBe("Building");
 
     await mock.deployment({
       deploymentId: deployment.deployment.deploymentId,
       deploymentState: "success",
     });
-    // Built, not live: a green build is not the same as the site answering with
-    // the commit, and this app is still serving the one it booted with.
-    await expect(list.getByText(/^Built ·/)).toBeVisible();
+    // Finished: nothing is building any more.
+    await expect.poll(() => summaryLabel(page)).toBe("Live");
   });
 
   /**
@@ -331,8 +331,6 @@ test.describe("the deploy feed", () => {
         message: "a commit the site is serving still read as building",
       })
       .toBe("Live");
-    const list = await openDeployList(page);
-    await expect(list.getByText(/^Live ·/)).toBeVisible();
   });
 
   /**
@@ -361,8 +359,6 @@ test.describe("the deploy feed", () => {
         message: "a failed build did not reach the status bar",
       })
       .toBe("Build failed");
-    const list = await openDeployList(page);
-    await expect(list.getByText(/^Build failed ·/)).toBeVisible();
   });
 
   /**
@@ -381,23 +377,24 @@ test.describe("the deploy feed", () => {
   }) => {
     await openHttpStudio(page);
     const commitSha = await publishOne(page, "Deployed off-socket");
-    const list = await openDeployList(page);
 
     const deployment = await mock.deployment({
       commitSha,
       deploymentState: "pending",
       broadcast: false,
     });
-    await expect(list.getByText(/^Building ·/)).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect
+      .poll(() => summaryLabel(page), { timeout: 30_000 })
+      .toBe("Building");
 
     await mock.deployment({
       deploymentId: deployment.deployment.deploymentId,
       deploymentState: "success",
       broadcast: false,
     });
-    await expect(list.getByText(/^Built ·/)).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(() => summaryLabel(page), { timeout: 30_000 })
+      .toBe("Live");
   });
 
   /**
@@ -415,7 +412,6 @@ test.describe("the deploy feed", () => {
   }) => {
     await openHttpStudio(page);
     const commitSha = await publishOne(page, "Deployed twice");
-    const list = await openDeployList(page);
 
     await mock.deployment({
       commitSha,
@@ -431,8 +427,11 @@ test.describe("the deploy feed", () => {
       broadcast: false,
     });
 
-    await expect(list.getByText(/^Built ·/)).toBeVisible({ timeout: 30_000 });
-    expect(await summaryLabel(page)).toBe("Live");
+    // Read in the wrong order, the pending build would win and the bar would
+    // stay on Building.
+    await expect
+      .poll(() => summaryLabel(page), { timeout: 30_000 })
+      .toBe("Live");
   });
 });
 

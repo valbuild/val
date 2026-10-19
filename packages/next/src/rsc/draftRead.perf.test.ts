@@ -190,8 +190,6 @@ describe("draft-mode fetchVal cost", () => {
             validate_binary_files: false,
             exclude_patches: false,
             apply_patches: undefined,
-            patch_id: undefined,
-            own_patch_groups_only: true,
           },
           cookies: { val_session: encodeJwt({}, "") },
         });

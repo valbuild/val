@@ -188,6 +188,7 @@ import {
   GALLERY_DEFAULT_GROUPS,
   galleryEntryOf,
   galleryKeyOf,
+  galleryMarkerOf,
   HLS_MIME_TYPE,
   isHlsVideo,
   isRemoteMediaPath,
@@ -211,6 +212,12 @@ export {
 } from "./schema/record";
 export { type SerializedStringSchema, StringSchema } from "./schema/string";
 export { type SerializedNumberSchema, NumberSchema } from "./schema/number";
+import {
+  nearestAllowedNumber,
+  isOnStep,
+  stepOrigin,
+} from "./schema/numberRules";
+export type { NumberRules } from "./schema/numberRules";
 export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";
 export { type SerializedImageSchema, ImageSchema } from "./schema/image";
 export { type SerializedFileSchema, FileSchema } from "./schema/file";
@@ -318,7 +325,13 @@ export {
   type PreviewScope,
   previewScope,
 } from "./preview";
-export { type InlineRender, type FieldRender, isInlineRender } from "./render";
+export {
+  type InlineRender,
+  type FieldRender,
+  type SliderRender,
+  type NumberRender,
+  isInlineRender,
+} from "./render";
 export type {
   ValRouter,
   ExternalPageRouter,
@@ -437,6 +450,7 @@ const Internal = {
     galleriesOf,
     galleryEntryOf,
     galleryKeyOf,
+    galleryMarkerOf,
     GALLERY_DEFAULT_GROUPS,
     isHlsVideo,
     HLS_MIME_TYPE,
@@ -457,6 +471,11 @@ const Internal = {
   rejectScheme,
   schemeOf,
   UNSAFE_URL_SCHEMES,
+  number: {
+    nearestAllowedNumber,
+    isOnStep,
+    stepOrigin,
+  },
   color: {
     parseColor,
     formatColor,

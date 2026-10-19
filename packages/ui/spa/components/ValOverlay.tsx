@@ -43,7 +43,9 @@ import {
   useValMode,
   useSiteHandoffState,
   useShallowModulesAtPaths,
+  usePublishJobsState,
 } from "./ValProvider";
+import { ownPublishCard } from "../publish/ownPublishCard";
 import { useAllValidationErrors } from "./ValErrorProvider";
 import { useSchemaAtPath, useValConfig, useSchemas } from "./ValFieldProvider";
 import { useAssistantAvailability } from "../hooks/useAssistantAvailability";
@@ -1412,6 +1414,18 @@ function ValMenu({
   const { isAIChatEnabled: isChatEnabled } = useAIChatActions();
   const sourcePathResult = useValRouterSourcePathFromCurrentPathname();
   const handoff = useSiteHandoffState();
+  /*
+   * A publish this page made itself -- one of content alone, which opens no
+   * builder tab -- has no tab's card to follow it, so it gets one of its own.
+   */
+  const publishJobsState = usePublishJobsState();
+  const [dismissedPublishes, setDismissedPublishes] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const own =
+    handoff.state === null
+      ? ownPublishCard(publishJobsState, dismissedPublishes)
+      : null;
   const publishPopoverSide =
     dropZone === "val-menu-center-bottom"
       ? "top"
@@ -1489,6 +1503,30 @@ function ValMenu({
               handoff.state.kind === "running"
                 ? undefined
                 : handoff.dismiss
+            }
+          />
+        </div>
+      )}
+      {own !== null && (
+        <div className={handoffCardPositionClassName(dropZone)}>
+          <PublishHandoffCard
+            state={own.card}
+            onReload={() => window.location.reload()}
+            onBuildInTab={() => {
+              // In the tap: only a tap may open a tab. It presses the same
+              // request again, finds it pressed, and builds its job.
+              handoff.prepare(true, {
+                requestId: own.requestId,
+                after: null,
+              });
+            }}
+            onDismiss={
+              own.card.kind === "publishing"
+                ? undefined
+                : () =>
+                    setDismissedPublishes(
+                      (prev) => new Set([...prev, own.requestId]),
+                    )
             }
           />
         </div>
