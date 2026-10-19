@@ -30,13 +30,22 @@ import { ModuleFilePath } from "./ModuleFilePath";
 
 // A render is static config, so unlike a `preview` it travels WHOLE — this
 // is the field the editor reads the layout from. See `core/src/render.ts`.
-// Only array, record and keyOf carry one, and `{ as: "inline" }` is all it
-// says. A stale `render` on any other schema is stripped here, harmlessly.
+// Array, record and keyOf carry `{ as: "inline" }`; number carries
+// `{ as: "slider", ... }`. A stale `render` on any other schema is stripped here, harmlessly.
 // NB: these z.objects STRIP unknown keys, so a render variant that is not
 // declared here is silently dropped in transit — add it here when it is added
 // to `render.ts`.
 const InlineRender = z.object({ as: z.literal("inline") });
 const FieldRender = InlineRender.optional();
+// The other render, and the only one a leaf takes: `s.number()` / `s.int()`.
+const NumberRender = z
+  .object({
+    as: z.literal("slider"),
+    min: z.number(),
+    max: z.number(),
+    step: z.number().optional(),
+  })
+  .optional();
 
 /**
  * The fields EVERY serialized schema carries, in one place.
@@ -114,8 +123,11 @@ export const SerializedNumberSchema: z.ZodType<SerializedNumberSchemaT> =
       .object({
         max: z.number().optional(),
         min: z.number().optional(),
+        integer: z.boolean().optional(),
+        step: z.number().optional(),
       })
       .optional(),
+    render: NumberRender,
     opt: z.boolean(),
   });
 

@@ -1,5 +1,67 @@
 # @valbuild/tanstack-build
 
+## 0.146.0
+
+### Minor Changes
+
+- [#861](https://github.com/valbuild/val/pull/861) [`89b0fa8`](https://github.com/valbuild/val/commit/89b0fa82a3ae0d8ccd5d0282c1034f1f40cc4e26) Thanks [@freekh](https://github.com/freekh)! - Proposals can be brought up to date with the site, like a pull request.
+
+  - **Update from the site** merges what was published on the site since a proposal started into the proposal, field by field. Where the site and the proposal changed the same field, the Publish dialog shows both and asks which to keep.
+  - **With code:** a proposal that changes code, or a site whose code changed since the proposal started, is updated too. The Studio runs each version's schemas in the tab, and the merged code is built before it can be published.
+  - Publish offers **Update from the site** whenever the site has moved under the proposal.
+
+## 0.145.1
+
+### Patch Changes
+
+- [#860](https://github.com/valbuild/val/pull/860) [`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7) Thanks [@freekh](https://github.com/freekh)! - `val publish` now refuses to build a site whose installed TanStack disagrees with the platform's. A project's CI builds its dependency layer from its own `node_modules`, and a lockfile two patches away from the platform's `@tanstack/*` used to publish fine and then fail on the first request that reached the mismatched code — typically signing in — with "does not provide an export named …". The build now stops with a message naming the package, the version the project resolved and the version the platform carries, and the fix is to pin the package to that version (with `pnpm.overrides` for a transitive one) and reinstall.
+
+  The same build also checks every import a dependency takes from the platform's React and TanStack against what the platform says those modules export, which until now ran only in the platform's own checkout.
+
+  Both checks use what the platform reports about itself, so they run once the platform does; until then `val publish` builds as before and says in its output that the check was skipped. They run in the `@valbuild/tanstack-build` the project has installed, so upgrade it alongside `@valbuild/cli`.
+
+- [#860](https://github.com/valbuild/val/pull/860) [`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7) Thanks [@freekh](https://github.com/freekh)! - A server function's validator no longer ships to the browser. TanStack Start removes `createServerFn().validator(...)` and `.inputValidator(...)` from client code, because a validator only ever runs on the server; the Val build replaced the handler but left the validator in, so its code — and anything it imported — reached every visitor's bundle. Both spellings are handled: TanStack Start 1.169 removed `.inputValidator()`, and 1.168 has both.
+
+## 0.144.4
+
+### Patch Changes
+
+- [#835](https://github.com/valbuild/val/pull/835) [`e70a261`](https://github.com/valbuild/val/commit/e70a261ed8c0938b635214721fc4e445704b1f1f) Thanks [@freekh](https://github.com/freekh)! - A build is now named by what it was built from rather than by what it produced, so publishing the same project files again reuses the build the site already has. When that build is still held, the Studio skips building and uploading it.
+
+## 0.144.2
+
+### Patch Changes
+
+- [#832](https://github.com/valbuild/val/pull/832) [`ab0ea20`](https://github.com/valbuild/val/commit/ab0ea2046e3872c4955f34b363881f76d48d1b1e) Thanks [@freekh](https://github.com/freekh)! - A site served by Val's platform can now be given its content separately from its build. When the platform hands a TanStack app a content version (`VAL_CONTENT`) that differs from what the build bundles, Val renders that content, in the Studio and in draft mode too. It reads it the way it already reads a proposal's saved content.
+
+  Nothing changes for an app that is not given one, and nothing hands one over yet. This is the reading side of publishing content without rebuilding the site.
+
+  A version too large for one environment variable can name others under `refs` (`"env://VAL_CONTENT_1"`), each holding one module's Source or one file's text. Only `refs` is resolved, never a string inside your content, and only variables named `VAL_CONTENT_<n>` are read.
+
+  At a proposal's address, a proposal's saved content is shown over the content version the site serves, so modules the proposal did not change show what the site shows rather than what the build bundles.
+
+  When Val's platform puts a publish live without building the site, because it changed only content, the Studio shows it being checked and going live instead of "Building".
+
+## 0.144.0
+
+### Patch Changes
+
+- [#827](https://github.com/valbuild/val/pull/827) [`1272b14`](https://github.com/valbuild/val/commit/1272b1408cf55fefccdce442352c208a7f69f44b) Thanks [@freekh](https://github.com/freekh)! - Publishing to Val's platform, through `val publish` or the Studio, now handles a stylesheet that imports other stylesheets, and fonts installed as packages:
+
+  ```css
+  /* src/styles.css */
+  @import "tailwindcss";
+  @import "./theme/theme.css";
+
+  /* src/theme/theme.css */
+  @import "@fontsource-variable/inter";
+  ```
+
+  Before this, the platform's build passed `@import "./theme/theme.css"` on to Tailwind without resolving it, and publishing stopped with `Tailwind asked for './theme/theme.css', which this build does not carry`. A font package such as `@fontsource-variable/inter` was built as code, failed, and was skipped.
+
+  - A stylesheet's own `@import`s are inlined where they were written, the same way `vite build` handles them. That covers relative files and stylesheets that dependencies ship. `layer()`, `supports()` and media conditions are kept, and a stylesheet imported twice is only included once.
+  - The files a dependency's stylesheet points at with `url(...)`, such as a font package's `.woff2` files, are published with the site and served from it.
+
 ## 0.142.0
 
 ### Patch Changes

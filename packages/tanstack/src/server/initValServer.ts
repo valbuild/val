@@ -5,6 +5,7 @@ import {
   type CommitContext,
   type CommitResult,
   type ValPatchStore,
+  type ValContentVersion,
   type ValProposal,
 } from "@valbuild/server";
 import { VERSION } from "../version";
@@ -89,6 +90,14 @@ export type ValHttpMode = {
    * should set it.
    */
   proposal?: ValProposal;
+  /**
+   * The content version the site serves, when the platform says it differs
+   * from the one this build bundles (`VAL_CONTENT`; read it with
+   * `contentFromEnv`). Its Source replaces the bundle's for what it holds, on
+   * every read, and its publish is this server's position. Ignored at a
+   * proposal's address. Nothing else should set it.
+   */
+  contentVersion?: ValContentVersion;
 };
 
 /**

@@ -395,6 +395,7 @@ export function toDeployments(
         ? profilesByAuthorId[deployment.creator]?.fullName
         : undefined,
       timestamp: formatRelativeTime(deployment.updatedAt, now),
+      started: formatRelativeTime(deployment.createdAt, now),
       updatedAt: deployment.updatedAt,
       isLive: observedCommitShas.has(deployment.commitSha),
     }),

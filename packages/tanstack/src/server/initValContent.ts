@@ -25,15 +25,20 @@ import {
 import {
   createValServer,
   ValServer,
+  layeredSnapshot,
   proposalSnapshot,
+  proposalSnapshotForReaders,
   type ValPatchStore,
 } from "@valbuild/server";
 import { VERSION } from "../version";
 import {
+  bundledJsonEntryImport,
+  fillJsonValuesRecord,
   getJsonEntryStegaRoot,
   getValRouteUrlFromVal,
   initValRouteFromVal,
   isJsonValuesRecordSchema,
+  jsonValuesRecordToFill,
 } from "../routeFromVal";
 import { valDraftMode, type ValDraftMode } from "./valDraftMode";
 import type { ValDraft } from "../ValDraft";
@@ -153,21 +158,6 @@ async function loadDraftSources(
       // The server-side read uses the legacy "server applies patches"
       // path, same as the Next package's.
       apply_patches: undefined,
-      /*
-       * The caller's own staged work, and nobody else's.
-       *
-       * A draft render cannot name its group ids — it has no client
-       * state — so it asks for "mine" and the server resolves them from
-       * the session. Without this a preview shows base + every pending
-       * patch on the branch, so one person's half-finished edit appears
-       * in another person's draft.
-       *
-       * `patch_id` stays `undefined`: naming an explicit list is for a
-       * caller that already knows what it wants, and it would override
-       * the resolution rather than intersect with it.
-       */
-      patch_id: undefined,
-      own_patch_groups_only: true,
     },
     cookies: {
       [VAL_SESSION_COOKIE]: sessionCookie,
@@ -262,13 +252,10 @@ export const initFetchValStega =
           if (modules) {
             return stegaEncode(selector, {
               disabled: !enabled,
-              getModule: (path) => {
-                const module = modules[path as ModuleFilePath];
-                if (module) {
-                  return module.source;
-                }
-                return snapshot?.[path as ModuleFilePath];
-              },
+              getModule: await withJsonValuesEntries(selector, (path) => [
+                modules[path]?.source,
+                snapshot?.[path],
+              ]),
             });
           }
         }
@@ -276,23 +263,104 @@ export const initFetchValStega =
       // At a proposal's address, its saved Source rather than the bundle's.
       return stegaEncode(selector, {
         disabled: !enabled,
-        ...(snapshot !== undefined
-          ? { getModule: (path: string) => snapshot[path as ModuleFilePath] }
-          : {}),
+        getModule: await withJsonValuesEntries(selector, (path) => [
+          snapshot?.[path],
+        ]),
       });
     };
-    return exec().catch((err) => {
+    return exec().catch(async (err) => {
       console.error("Val: failed to fetch ", err);
       return stegaEncode(selector, {
-        ...(snapshot !== undefined
-          ? { getModule: (path: string) => snapshot[path as ModuleFilePath] }
-          : {}),
+        getModule: await withJsonValuesEntries(selector, (path) => [
+          snapshot?.[path],
+        ]).catch(() => (path: string) => snapshot?.[path as ModuleFilePath]),
       });
     });
   };
 
+/**
+ * `getModule` for `stegaEncode`, with a whole `.jsonValues()` record's entries
+ * filled in: its own source holds only lazy markers, so the entries no draft or
+ * snapshot has are imported from the bundle, together. Every other module, and
+ * a selector that is not such a record, reads the first of `sourcesOf` that has
+ * it, as before. `fetchValKey` is the reader for one entry.
+ */
+async function withJsonValuesEntries(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  selector: any,
+  sourcesOf: (path: ModuleFilePath) => (Json | undefined)[],
+): Promise<(path: string) => Json | undefined> {
+  const first = (path: string) =>
+    sourcesOf(path as ModuleFilePath).find((source) => source !== undefined);
+  const plan = jsonValuesRecordToFill(selector, sourcesOf);
+  if (plan === null) {
+    return first;
+  }
+  const loaded = Object.fromEntries(
+    await Promise.all(
+      plan.load.map(async (key) => {
+        const thunk = bundledJsonEntryImport(plan.module, key);
+        return [key, thunk ? (await thunk()).default : undefined] as const;
+      }),
+    ),
+  );
+  const filled = fillJsonValuesRecord(plan.record, loaded) as Json;
+  return (path) => (path === plan.modulePath ? filled : first(path));
+}
+
 /** A proposal's saved Source, by module: see `ValProposal` in `@valbuild/server`. */
 type Snapshot = Record<ModuleFilePath, Json>;
+
+/**
+ * What the readers render over the bundle: a proposal's saves over the
+ * content version the site serves (`layeredSnapshot` in @valbuild/server),
+ * either alone, or nothing.
+ */
+export function snapshotForReaders(
+  http:
+    | Pick<ValHttpMode, "proposal" | "contentVersion" | "projectSource">
+    | undefined,
+): Snapshot | undefined {
+  const source = layeredSnapshot(http?.proposal, http?.contentVersion);
+  return source !== undefined
+    ? proposalSnapshotForReaders(source, http?.projectSource)
+    : undefined;
+}
+
+/**
+ * What the server's own draft starts from, where it is not the bundle's: the
+ * layers `ValOpsHttp` puts over it (`siteSnapshotSources`, then
+ * `snapshotSources`), in the same form, so the Studio that starts from it
+ * holds the base the server reports. See `ValDraft.base`.
+ */
+export function draftBase(
+  http: Pick<ValHttpMode, "proposal" | "contentVersion"> | undefined,
+): Snapshot | undefined {
+  const layered = layeredSnapshot(http?.proposal, http?.contentVersion);
+  return layered !== undefined ? proposalSnapshot(layered) : undefined;
+}
+
+/**
+ * Where an isolate says which content version it applied, for the platform
+ * serving it to read back after a render (valbuild/home: the loader answers it
+ * as a header). A Val that predates content versions never sets it, which is
+ * how the platform tells that an app cannot be served a version its build does
+ * not bundle -- an unknown option is otherwise ignored, silently.
+ */
+export const CONTENT_APPLIED_GLOBAL = "__VAL_CONTENT_APPLIED";
+
+/**
+ * Name the content version this isolate renders, when it renders one -- at a
+ * proposal's address too, where it is under the proposal's saves.
+ */
+export function markContentApplied(
+  http: Pick<ValHttpMode, "proposal" | "contentVersion"> | undefined,
+): void {
+  if (http?.contentVersion === undefined) {
+    return;
+  }
+  Reflect.set(globalThis, CONTENT_APPLIED_GLOBAL, http.contentVersion.id);
+}
 
 /** What `fetchValDraft` reads: the tree, the entries, and the patches' ops. */
 export type DraftValServer = {
@@ -323,6 +391,8 @@ export const initFetchValDraft =
     getDraftSourcesScope: GetDraftSourcesScope,
     /** A proposal's saved Source; see `ValDraft.snapshot`. */
     snapshot?: Snapshot,
+    /** What the server's draft starts from; see `ValDraft.base`. */
+    base?: Snapshot,
   ) =>
   async (): Promise<ValDraft | null> => {
     // At a proposal's address the page needs the snapshot whatever draft mode
@@ -362,7 +432,11 @@ export const initFetchValDraft =
           sources[path as ModuleFilePath] = source;
         }
       }
-      return { sources, ...(snapshot !== undefined ? { snapshot } : {}) };
+      return {
+        sources,
+        ...(snapshot !== undefined ? { snapshot } : {}),
+        ...(base !== undefined ? { base } : {}),
+      };
     } catch (err) {
       // Published content, as before this existed: a draft page that renders
       // the site is a degraded preview, one that fails to render is an outage.
@@ -412,7 +486,6 @@ async function withDraftJsonEntries(
     query: {
       patch_id: appliedPatchIds,
       exclude_patch_ops: false,
-      include_patch_groups: undefined,
     },
     cookies,
   });
@@ -451,7 +524,6 @@ async function withDraftJsonEntries(
         offset: undefined,
         limit: undefined,
         apply_patches: true,
-        own_patch_groups_only: true,
       },
       cookies,
     });
@@ -578,8 +650,11 @@ const initFetchValRouteStega =
           url,
         );
       }
-      const content = await resolveDraftOrCommittedEntry(draft, () =>
-        loadJsonEntryContent(source, url),
+      const content = await resolveDraftOrCommittedEntry(
+        draft.status === "unavailable" && path
+          ? snapshotJsonEntry(snapshot, path as unknown as ModuleFilePath, url)
+          : draft,
+        () => loadJsonEntryContent(source, url),
       );
       if (content === undefined) {
         return null as RouteValueOf<T>;
@@ -670,6 +745,44 @@ export type DraftJsonEntry =
  * ask). Returning `undefined` means "render nothing"; both callers turn that into
  * a null/undefined result.
  */
+/**
+ * What a proposal's snapshot says about one `.jsonValues()` entry: its saved
+ * content, `absent` when the proposal removed it, or `unavailable` -- not at
+ * a proposal, or an entry the proposal did not save, which is the build's.
+ *
+ * The snapshot carries saved entries as content in place of their markers
+ * (`proposalSnapshotForReaders` in @valbuild/server). The same rule as the
+ * browser's `draftJsonEntry`, so the server's render and the hydrated page
+ * agree.
+ */
+export function snapshotJsonEntry(
+  snapshot: Snapshot | undefined,
+  moduleFilePath: ModuleFilePath,
+  key: string,
+): DraftJsonEntry {
+  const source = snapshot?.[moduleFilePath];
+  if (source === null) {
+    // A nullable record the proposal saved as null: it has no entries.
+    return { status: "absent" };
+  }
+  if (
+    source === undefined ||
+    typeof source !== "object" ||
+    Array.isArray(source)
+  ) {
+    return { status: "unavailable" };
+  }
+  // Own keys only: an entry may be named `toString`.
+  if (!Object.prototype.hasOwnProperty.call(source, key)) {
+    return { status: "absent" };
+  }
+  const entry: unknown = (source as Record<string, unknown>)[key];
+  if (Internal.isJson(entry)) {
+    return { status: "unavailable" };
+  }
+  return { status: "content", content: entry };
+}
+
 export async function resolveDraftOrCommittedEntry(
   draft: DraftJsonEntry,
   loadCommitted: () => Promise<unknown | undefined>,
@@ -708,15 +821,6 @@ async function loadDraftJsonEntry(
       offset: undefined,
       limit: undefined,
       apply_patches: true,
-      /*
-       * Scoped the same way the module content beside it is.
-       *
-       * A draft page renders both, and this call was unscoped — so one page
-       * showed base + the caller's group for its modules and base + EVERY
-       * pending patch on the branch for any `jsonValues` entry, including other
-       * authors' half-finished edits. See the same flag on `/sources/~` above.
-       */
-      own_patch_groups_only: true,
     },
     cookies: {
       [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,
@@ -759,6 +863,8 @@ export const initFetchValKeyStega =
     getCookies: () => Promise<{
       get(name: string): { name: string; value: string } | undefined;
     }>,
+    /** A proposal's saved Source; see `ValDraft.snapshot`. */
+    snapshot?: Snapshot,
   ) =>
   async <T extends ResolvableModule>(
     selector: T,
@@ -787,8 +893,11 @@ export const initFetchValKeyStega =
         key,
       );
     }
-    const content = await resolveDraftOrCommittedEntry(draft, () =>
-      loadJsonEntryContent(source, key),
+    const content = await resolveDraftOrCommittedEntry(
+      draft.status === "unavailable" && moduleFilePath
+        ? snapshotJsonEntry(snapshot, moduleFilePath, key)
+        : draft,
+      () => loadJsonEntryContent(source, key),
     );
     if (content === undefined) {
       // deleted in the draft state, a missing key, or a transport marker with no
@@ -990,10 +1099,9 @@ export function initValContent(
     throw new Error("Could not get @valbuild/tanstack package version");
   }
   const draftSourcesScope = createTanStackRequestScope();
-  const snapshot: Snapshot | undefined =
-    opts?.http?.proposal !== undefined
-      ? proposalSnapshot(opts.http.proposal)
-      : undefined;
+  const snapshot = snapshotForReaders(opts?.http);
+  const base = draftBase(opts?.http);
+  markContentApplied(opts?.http);
   const draftMode = opts?.draftMode ?? valDraftMode();
   const isEnabled = () => draftMode.isEnabled();
 
@@ -1047,6 +1155,7 @@ export function initValContent(
       valServerPromise,
       isEnabled,
       requestCookies,
+      snapshot,
     ),
     fetchValRouteStega: initFetchValRouteStega(
       config,
@@ -1074,6 +1183,7 @@ export function initValContent(
       requestCookies,
       draftSourcesScope,
       snapshot,
+      base,
     ),
   };
 }

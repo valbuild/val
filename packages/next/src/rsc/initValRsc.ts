@@ -12,6 +12,7 @@ import {
   ValConfig,
   ValModules,
   Internal,
+  type Json,
   type ResolvableModule,
   SourceObject,
 } from "@valbuild/core";
@@ -25,10 +26,13 @@ import {
 import { createValServer, ValServer } from "@valbuild/server";
 import { VERSION } from "../version";
 import {
+  bundledJsonEntryImport,
+  fillJsonValuesRecord,
   getJsonEntryStegaRoot,
   getValRouteUrlFromVal,
   initValRouteFromVal,
   isJsonValuesRecordSchema,
+  jsonValuesRecordToFill,
 } from "../routeFromVal";
 
 SET_RSC(true);
@@ -120,21 +124,6 @@ async function loadDraftSources(
       exclude_patches: false,
       // RSC pre-render uses the legacy "server applies patches" path.
       apply_patches: undefined,
-      /*
-       * The caller's own staged work, and nobody else's.
-       *
-       * A draft render cannot name its group ids — it has no client
-       * state — so it asks for "mine" and the server resolves them from
-       * the session. Without this a preview shows base + every pending
-       * patch on the branch, so one person's half-finished edit appears
-       * in another person's draft.
-       *
-       * `patch_id` stays `undefined`: naming an explicit list is for a
-       * caller that already knows what it wants, and it would override
-       * the resolution rather than intersect with it.
-       */
-      patch_id: undefined,
-      own_patch_groups_only: true,
     },
     cookies: {
       [VAL_SESSION_COOKIE]: sessionCookie,
@@ -227,25 +216,57 @@ export const initFetchValStega =
           if (modules) {
             return stegaEncode(selector, {
               disabled: !enabled,
-              getModule: (path) => {
-                const module = modules[path as ModuleFilePath];
-                if (module) {
-                  return module.source;
-                }
-              },
+              getModule: await withJsonValuesEntries(selector, (path) => [
+                modules[path]?.source,
+              ]),
             });
           }
         }
       }
       return stegaEncode(selector, {
         disabled: !enabled,
+        getModule: await withJsonValuesEntries(selector, () => []),
       });
     };
-    return exec().catch((err) => {
+    return exec().catch(async (err) => {
       console.error("Val: failed to fetch ", err);
-      return stegaEncode(selector, {});
+      return stegaEncode(selector, {
+        getModule: await withJsonValuesEntries(selector, () => []).catch(
+          () => () => undefined,
+        ),
+      });
     });
   };
+
+/**
+ * `getModule` for `stegaEncode`, with a whole `.jsonValues()` record's entries
+ * filled in: its own source holds only lazy markers, so the entries the draft
+ * does not have are imported from the bundle, together. Every other module,
+ * and a selector that is not such a record, reads the first of `sourcesOf`
+ * that has it, as before. `fetchValKey` is the reader for one entry.
+ */
+async function withJsonValuesEntries(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  selector: any,
+  sourcesOf: (path: ModuleFilePath) => (Json | undefined)[],
+): Promise<(path: string) => Json | undefined> {
+  const first = (path: string) =>
+    sourcesOf(path as ModuleFilePath).find((source) => source !== undefined);
+  const plan = jsonValuesRecordToFill(selector, sourcesOf);
+  if (plan === null) {
+    return first;
+  }
+  const loaded = Object.fromEntries(
+    await Promise.all(
+      plan.load.map(async (key) => {
+        const thunk = bundledJsonEntryImport(plan.module, key);
+        return [key, thunk ? (await thunk()).default : undefined] as const;
+      }),
+    ),
+  );
+  const filled = fillJsonValuesRecord(plan.record, loaded) as Json;
+  return (path) => (path === plan.modulePath ? filled : first(path));
+}
 
 function getHost(headers: { get(name: string): string | null } | undefined) {
   // TODO: does NextJs have a way to determine this?
@@ -474,15 +495,6 @@ async function loadDraftJsonEntry(
       offset: undefined,
       limit: undefined,
       apply_patches: true,
-      /*
-       * Scoped the same way the module content beside it is.
-       *
-       * A draft page renders both, and this call was unscoped — so one page
-       * showed base + the caller's group for its modules and base + EVERY
-       * pending patch on the branch for any `jsonValues` entry, including other
-       * authors' half-finished edits. See the same flag on `/sources/~` above.
-       */
-      own_patch_groups_only: true,
     },
     cookies: {
       [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,

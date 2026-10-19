@@ -1,5 +1,201 @@
 # @valbuild/cli
 
+## 0.146.2
+
+### Patch Changes
+
+- Updated dependencies [[`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9)]:
+  - @valbuild/core@0.146.2
+  - @valbuild/shared@0.146.2
+  - @valbuild/server@0.146.2
+  - @valbuild/language-server@0.146.2
+
+## 0.146.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.146.1
+  - @valbuild/language-server@0.146.1
+
+## 0.146.0
+
+### Patch Changes
+
+- Updated dependencies [[`89b0fa8`](https://github.com/valbuild/val/commit/89b0fa82a3ae0d8ccd5d0282c1034f1f40cc4e26), [`f0c7d27`](https://github.com/valbuild/val/commit/f0c7d27846c21f81ff6ce79c579185150bc0d063)]:
+  - @valbuild/server@0.146.0
+  - @valbuild/shared@0.146.0
+  - @valbuild/tanstack-build@0.146.0
+  - @valbuild/language-server@0.146.0
+
+## 0.145.1
+
+### Patch Changes
+
+- [#860](https://github.com/valbuild/val/pull/860) [`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7) Thanks [@freekh](https://github.com/freekh)! - `val publish` now refuses to build a site whose installed TanStack disagrees with the platform's. A project's CI builds its dependency layer from its own `node_modules`, and a lockfile two patches away from the platform's `@tanstack/*` used to publish fine and then fail on the first request that reached the mismatched code — typically signing in — with "does not provide an export named …". The build now stops with a message naming the package, the version the project resolved and the version the platform carries, and the fix is to pin the package to that version (with `pnpm.overrides` for a transitive one) and reinstall.
+
+  The same build also checks every import a dependency takes from the platform's React and TanStack against what the platform says those modules export, which until now ran only in the platform's own checkout.
+
+  Both checks use what the platform reports about itself, so they run once the platform does; until then `val publish` builds as before and says in its output that the check was skipped. They run in the `@valbuild/tanstack-build` the project has installed, so upgrade it alongside `@valbuild/cli`.
+
+- [#860](https://github.com/valbuild/val/pull/860) [`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7) Thanks [@freekh](https://github.com/freekh)! - `val publish` and the Studio now tell Val Build which version of the platform's React and TanStack a build was made against. If the platform is updated while a build is running — a project's CI can take several minutes — that build is no longer published onto a platform it was never checked against: the publish stops with a message saying the platform was updated and to build again, and the next build is checked against what it will run on. A build published with `val publish --artifacts` was made elsewhere and does not say, and publishes as before.
+- Updated dependencies [[`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7), [`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7), [`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7)]:
+  - @valbuild/tanstack-build@0.145.1
+  - @valbuild/shared@0.145.1
+  - @valbuild/language-server@0.145.1
+  - @valbuild/server@0.145.1
+
+## 0.145.0
+
+### Patch Changes
+
+- Updated dependencies [[`b6cb939`](https://github.com/valbuild/val/commit/b6cb9395d8bdcd5182e9c6ba84f5284930de2fa5), [`f085be0`](https://github.com/valbuild/val/commit/f085be0eb5bdc195e9d8cdb15dd5f8acfdabe23c)]:
+  - @valbuild/core@0.145.0
+  - @valbuild/shared@0.145.0
+  - @valbuild/server@0.145.0
+  - @valbuild/language-server@0.145.0
+
+## 0.144.12
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.144.12
+  - @valbuild/language-server@0.144.12
+
+## 0.144.11
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.144.11
+  - @valbuild/language-server@0.144.11
+
+## 0.144.10
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.144.10
+  - @valbuild/language-server@0.144.10
+
+## 0.144.9
+
+### Patch Changes
+
+- Updated dependencies [[`c44b561`](https://github.com/valbuild/val/commit/c44b5611cf9e557b6b744704703dbff0cb8b23b0)]:
+  - @valbuild/server@0.144.9
+  - @valbuild/shared@0.144.9
+  - @valbuild/language-server@0.144.9
+
+## 0.144.8
+
+### Patch Changes
+
+- Updated dependencies [[`b67c03e`](https://github.com/valbuild/val/commit/b67c03ee1876803c31098098ae0becf3f4ad6ade)]:
+  - @valbuild/server@0.144.8
+  - @valbuild/language-server@0.144.8
+
+## 0.144.7
+
+### Patch Changes
+
+- Updated dependencies [[`45ee083`](https://github.com/valbuild/val/commit/45ee0831393345dab08093575d4ed652e20e1229)]:
+  - @valbuild/server@0.144.7
+  - @valbuild/language-server@0.144.7
+
+## 0.144.6
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.144.6
+  - @valbuild/language-server@0.144.6
+
+## 0.144.5
+
+### Patch Changes
+
+- [#830](https://github.com/valbuild/val/pull/830) [`0ee047a`](https://github.com/valbuild/val/commit/0ee047a5c527f0122b4aa1aa167a0fbe4849fc37) Thanks [@freekh](https://github.com/freekh)! - `val connect` now opens [admin.val.build/new](https://admin.val.build/new?hosting=own) in your browser, on "your own hosting", with the GitHub repository and the `val.config.ts` project it found filled in. It says what it found, and prints the link too, for when no browser opens.
+
+  `npm create @valbuild` now ends by saying how to connect the new project: push it to GitHub, then pick it on admin.val.build/new or run `val connect`. `@valbuild/init` links to the same page, and now reads the GitHub repository from `origin` correctly.
+
+- Updated dependencies [[`39e8db3`](https://github.com/valbuild/val/commit/39e8db34cf56c6c43ffff0d3acfe8e0839fa55a9)]:
+  - @valbuild/server@0.144.5
+  - @valbuild/shared@0.144.5
+  - @valbuild/language-server@0.144.5
+
+## 0.144.4
+
+### Patch Changes
+
+- Updated dependencies [[`e70a261`](https://github.com/valbuild/val/commit/e70a261ed8c0938b635214721fc4e445704b1f1f)]:
+  - @valbuild/tanstack-build@0.144.4
+  - @valbuild/shared@0.144.4
+  - @valbuild/language-server@0.144.4
+  - @valbuild/server@0.144.4
+
+## 0.144.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.144.3
+  - @valbuild/language-server@0.144.3
+
+## 0.144.2
+
+### Patch Changes
+
+- Updated dependencies [[`ab0ea20`](https://github.com/valbuild/val/commit/ab0ea2046e3872c4955f34b363881f76d48d1b1e), [`44a5636`](https://github.com/valbuild/val/commit/44a5636955e005a40f2e6c8544e5cf4378fd0fdf)]:
+  - @valbuild/server@0.144.2
+  - @valbuild/shared@0.144.2
+  - @valbuild/tanstack-build@0.144.2
+  - @valbuild/language-server@0.144.2
+
+## 0.144.1
+
+### Patch Changes
+
+- Updated dependencies [[`a641bb0`](https://github.com/valbuild/val/commit/a641bb0286756339252c53e9230d766c23fcccc6)]:
+  - @valbuild/server@0.144.1
+  - @valbuild/language-server@0.144.1
+
+## 0.144.0
+
+### Patch Changes
+
+- [#788](https://github.com/valbuild/val/pull/788) [`a84271c`](https://github.com/valbuild/val/commit/a84271c534822071c1e428cf9990602459682d25) Thanks [@freekh](https://github.com/freekh)! - Fixes to `npx val validate` for `s.imagedir()` and `s.filedir()`, and the `s.image(galleryVal)` / `s.file(filesVal)` fields that use them:
+
+  - **`--fix` now updates every field that uses an uploaded image or file.** When `--fix` moves an entry of an `s.imagedir(dir).remote()` or `s.filedir(dir, options).remote()` to Val Remote, the entry's key changes from the local path to the remote URL. Fields that held the old path were left pointing at it, and reported "The gallery does not have an image at …" with nothing to fix it. Now `s.image(galleryVal)` and `s.file(filesVal)` fields, and images in rich text (`s.richtext({ img: s.image(galleryVal) })`), are updated in the same run. The VS Code extension's "upload to Val Remote" updates them in the same edit, including fields inside `.jsonValues()` entries, which live in their own `*.val.json` files.
+  - **A field that uses an image or file from a `.remote()` gallery is no longer reported as "Expected local image, but found remote".** The gallery decides whether its files are on Val Remote; the field only has to name a file the gallery has. Before, `--fix` would download the file and point the field at a path the gallery did not have.
+  - **Images uploaded through a field into a `.remote()` gallery.** When you upload an image through an `s.image(galleryVal)` field in Val Studio, the field stores the remote URL and the gallery stores the image under its local path. Validation now accepts this, and `useVal` / `fetchVal` now fill in the image's `width`, `height` and `mimeType` from the gallery for it, as they do for every other gallery image.
+  - **Errors in a gallery's keys are reported.** A remote URL in a gallery that is not `.remote()`, a remote URL that is not valid, or one outside the gallery's `dir` was silently ignored by `npx val validate`. It is now reported as an error. `--fix` does not change it: you decide whether the key or the gallery's options are wrong.
+  - **A file is no longer reported as valid when it still has an error.** When `--fix` fixed one error in a file and another error was left, the file could be printed as "✔ valid".
+
+- [#827](https://github.com/valbuild/val/pull/827) [`1272b14`](https://github.com/valbuild/val/commit/1272b1408cf55fefccdce442352c208a7f69f44b) Thanks [@freekh](https://github.com/freekh)! - Publishing to Val's platform, through `val publish` or the Studio, now handles a stylesheet that imports other stylesheets, and fonts installed as packages:
+
+  ```css
+  /* src/styles.css */
+  @import "tailwindcss";
+  @import "./theme/theme.css";
+
+  /* src/theme/theme.css */
+  @import "@fontsource-variable/inter";
+  ```
+
+  Before this, the platform's build passed `@import "./theme/theme.css"` on to Tailwind without resolving it, and publishing stopped with `Tailwind asked for './theme/theme.css', which this build does not carry`. A font package such as `@fontsource-variable/inter` was built as code, failed, and was skipped.
+
+  - A stylesheet's own `@import`s are inlined where they were written, the same way `vite build` handles them. That covers relative files and stylesheets that dependencies ship. `layer()`, `supports()` and media conditions are kept, and a stylesheet imported twice is only included once.
+  - The files a dependency's stylesheet points at with `url(...)`, such as a font package's `.woff2` files, are published with the site and served from it.
+
+- Updated dependencies [[`a84271c`](https://github.com/valbuild/val/commit/a84271c534822071c1e428cf9990602459682d25), [`860ab2b`](https://github.com/valbuild/val/commit/860ab2b87333daf95a48215b0e4a1b44f441c878), [`1272b14`](https://github.com/valbuild/val/commit/1272b1408cf55fefccdce442352c208a7f69f44b)]:
+  - @valbuild/core@0.144.0
+  - @valbuild/shared@0.144.0
+  - @valbuild/server@0.144.0
+  - @valbuild/language-server@0.144.0
+  - @valbuild/tanstack-build@0.144.0
+
 ## 0.143.1
 
 ### Patch Changes

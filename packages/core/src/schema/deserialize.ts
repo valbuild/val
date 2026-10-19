@@ -91,6 +91,8 @@ function deserializeSchemaImpl(
         false,
         false,
         serialized.description,
+        null,
+        serialized.render ?? null,
       );
     case "object":
       return new ObjectSchema(

@@ -4,7 +4,7 @@
 import "./__suspense-test-setup__"; // must come first — polyfills TextEncoder for @valbuild/shared
 import React from "react";
 import { act, render, screen } from "@testing-library/react";
-import { initVal, ModuleFilePath } from "@valbuild/core";
+import { initVal, type Json, ModuleFilePath } from "@valbuild/core";
 import { raw } from "@valbuild/react/stega";
 import { initValClient } from "./initValClient";
 import { ValExternalStore, ValOverlayProvider } from "../ValOverlayContext";
@@ -115,5 +115,90 @@ describe("useValKey draft state", () => {
       store.update(path, { "/a": { _type: "json" } });
     });
     expect(shown()).toBe("published A");
+  });
+});
+
+/*
+ * At a proposal's address the server sends its snapshot with the entries the
+ * proposal saved filled in (`proposalSnapshotForReaders` in
+ * @valbuild/server). A reviewer who is not editing sees those -- the same
+ * entries the server rendered, so hydration changes nothing.
+ */
+describe("useValKey at a proposal's address", () => {
+  const snapshotTree = (snapshot: Record<ModuleFilePath, Json>) =>
+    React.createElement(ValOverlayProvider, {
+      store: new ValExternalStore(),
+      suspend: false,
+      draftMode: false,
+      snapshot,
+      children: React.createElement(React.Suspense, {
+        fallback: React.createElement("span", { "data-testid": "fallback" }),
+        children: React.createElement(Show, { entryKey: "/a" }),
+      }),
+    });
+
+  it("renders the entry the proposal saved, not the build's", async () => {
+    await act(async () => {
+      render(snapshotTree({ [path]: { "/a": { title: "saved A" } } }));
+    });
+    expect(shown()).toBe("saved A");
+  });
+
+  it("renders nothing for a record the proposal saved as null", async () => {
+    await act(async () => {
+      render(snapshotTree({ [path]: null }));
+    });
+    expect(shown()).toBe("nothing");
+  });
+
+  it("renders the build's entry where the proposal saved none", async () => {
+    await act(async () => {
+      render(snapshotTree({ [path]: { "/a": { _type: "json" } } }));
+    });
+    expect(shown()).toBe("published A");
+  });
+});
+
+/*
+ * After a content-only publish the server renders a draft page's entries from
+ * the content version (`snapshotJsonEntry`), and the Studio's overlay sends the
+ * module with markers in place of entries it has not loaded. A marker is "the
+ * draft view cannot say", so the page has to fall back the way the server did
+ * -- to the snapshot, then the build -- or hydration swaps the published entry
+ * for the build's older one.
+ */
+describe("useValKey in draft mode over a content version", () => {
+  const draftTree = (store: ValExternalStore) =>
+    React.createElement(ValOverlayProvider, {
+      store,
+      suspend: false,
+      draftMode: true,
+      snapshot: { [path]: { "/a": { title: "content version A" } } },
+      children: React.createElement(React.Suspense, {
+        fallback: React.createElement("span", { "data-testid": "fallback" }),
+        children: React.createElement(Show, { entryKey: "/a" }),
+      }),
+    });
+
+  it("renders the content version's entry while the overlay has only a marker", async () => {
+    const store = new ValExternalStore();
+    await act(async () => {
+      render(draftTree(store));
+    });
+    await act(async () => {
+      store.update(path, { "/a": { _type: "json" } });
+    });
+    expect(shown()).toBe("content version A");
+  });
+
+  it("still renders the overlay's entry once it has one", async () => {
+    const store = new ValExternalStore();
+    await act(async () => {
+      render(draftTree(store));
+    });
+    await act(async () => {
+      store.update(path, { "/a": { title: "edited A" } });
+    });
+    expect(shown()).toBe("edited A");
   });
 });

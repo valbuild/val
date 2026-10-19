@@ -25,6 +25,15 @@ export function describePublishRefusal(refusal: Refusal): {
     case "already-publishing":
       return { message: "A publish is already in progress." };
     case "unsaved-changes":
+      if (refusal.planRefusal !== undefined) {
+        // Held for the plan: trying again cannot help, and the connection is
+        // fine. Val Build's sentence says what can (and names Billing).
+        return {
+          message:
+            "Cannot publish: Val Build is not saving this project's latest changes, because of its plan.",
+          details: `${refusal.planRefusal}\n\nNothing was published, and your changes are kept.`,
+        };
+      }
       return {
         message: "Cannot publish: your latest changes could not be saved.",
         details:

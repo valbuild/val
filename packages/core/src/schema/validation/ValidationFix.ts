@@ -31,6 +31,16 @@ export const ValidationFix = [
   "videos:check-remote",
   "videos:upload-remote",
   "keyof:check-keys",
+  // A gallery-backed field (`s.image(gallery)`, `s.file(gallery)`,
+  // `s.video(set)`) whose path the gallery as this schema was BUILT does not
+  // have. Schema-source markers (`SCHEMA_SOURCE_FIXES`), like the keyOf one:
+  // the schema holds the gallery as it was evaluated, and an entry added since
+  // -- in a pending change, a proposal, or a content-only publish that never
+  // rebuilt the site -- is only in the gallery's current Source, which only a
+  // project-wide snapshot has.
+  "image:check-gallery",
+  "file:check-gallery",
+  "video:check-gallery",
   "router:check-route",
   "locale:check-locale",
   "images:check-unique-folder",

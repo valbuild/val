@@ -51,7 +51,7 @@ export type StudioJobClient = {
   renew(jobId: string, tab: string): Promise<boolean>;
   cancel(jobId: string): Promise<boolean>;
   /** Discard a failed job's changes; answers what another job still holds. */
-  discard(jobId: string, unstagePatchIds?: string[]): Promise<string[]>;
+  discard(jobId: string): Promise<string[]>;
   /**
    * Connected: the newest CI run the branch's workflow reported -- where
    * "View run" goes for a build that failed. `null` when none was reported.
@@ -160,14 +160,8 @@ export function createStudioJobClient(options: {
       parseRenew(await proxy(job(jobId, "renew"), "POST", { tab })).renewed,
     cancel: async (jobId) =>
       parseCancel(await proxy(job(jobId, "cancel"), "POST", {})).cancelled,
-    discard: async (jobId, unstagePatchIds) =>
-      parseDiscard(
-        await proxy(
-          job(jobId, "discard"),
-          "POST",
-          unstagePatchIds ? { unstagePatchIds } : {},
-        ),
-      ).stillHeld,
+    discard: async (jobId) =>
+      parseDiscard(await proxy(job(jobId, "discard"), "POST", {})).stillHeld,
     newestCiRun: async () =>
       parseNewestCiRun(await proxy("/ci-runs/newest", "GET")).run,
   };
@@ -186,6 +180,13 @@ export const MergePrepareAnswer = z.object({
       step: z.enum(["prepare", "build", "upload"]).nullable(),
       base: z.string().nullable(),
       patches: z.array(z.string()),
+      /*
+       * A merge that changes only content goes live on the live build, and
+       * this tab builds nothing (valbuild/home `docs/hosted-publishing.md`,
+       * step 8). Dropped by an object that did not name it, and the tab then
+       * read a job nobody builds as one it had lost.
+       */
+      contentOnly: z.literal(true).optional(),
     })
     .nullable(),
   sourceFiles: z.record(z.string(), z.string().nullable()),

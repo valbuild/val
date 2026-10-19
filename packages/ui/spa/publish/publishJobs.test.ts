@@ -6,6 +6,7 @@ import type { StudioJobClient } from "./jobClient";
 import {
   createPublishJobs,
   publishingPatchIds,
+  heldBackPatchIds,
   heldByContent,
   type PublishJobsState,
   type TrackedPublish,
@@ -706,6 +707,55 @@ test("a job that ended here is not taken again when content hands it back", asyn
   expect(runs).toBe(1);
 });
 
+test("a job that needs a builder tab is given back for one, and not taken here again", async () => {
+  const { client } = fakeClient({ next: async () => job("J1") });
+  let runs = 0;
+  const needsBuilder: string[] = [];
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => {
+      runs++;
+      return { status: "needs-builder", jobId: j.id };
+    },
+    takesQueuedWork: () => true,
+    onNeedsBuilder: (jobId) => needsBuilder.push(jobId),
+  });
+  jobs.start();
+  await flush();
+  jobs.nudge();
+  await flush();
+  jobs.stop();
+  expect(needsBuilder).toEqual(["J1"]);
+  expect(runs).toBe(1);
+});
+
+test("the press whose job needs a builder tab says so, for the overlay's card", async () => {
+  const { client } = fakeClient();
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => ({ status: "needs-builder", jobId: j.id }),
+    takesQueuedWork: () => false,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: job("J1"),
+  });
+  await flush();
+  expect(jobs.get().requests[0]).toMatchObject({ needsBuilder: true });
+  // The builder tab presses it again, and the card is the tab's from then.
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: null,
+    viaTab: true,
+  });
+  expect(jobs.get().requests[0]?.needsBuilder).toBeUndefined();
+  expect(jobs.get().requests[0]?.viaTab).toBe(true);
+});
+
 test("a job CI builds is handed off unbuilt, and shown as CI's", async () => {
   const { client } = fakeClient();
   const jobs = createPublishJobs({
@@ -722,6 +772,29 @@ test("a job CI builds is handed off unbuilt, and shown as CI's", async () => {
   });
   await flush();
   expect(jobs.get().requests[0]).toMatchObject({ builtBy: "ci" });
+});
+
+test("a job content puts live without a build is handed off unbuilt, and shown as nobody's build", async () => {
+  const { client } = fakeClient();
+  const jobs = createPublishJobs({
+    client,
+    tab: "ada",
+    build: async (j) => ({
+      status: "handed-off",
+      jobId: j.id,
+      built: false,
+      contentOnly: true,
+    }),
+    takesQueuedWork: () => false,
+    now: () => 1_000,
+  });
+  jobs.track({
+    requestId: "r1",
+    request: { kind: "publishing" },
+    job: job("J1"),
+  });
+  await flush();
+  expect(jobs.get().requests[0]).toMatchObject({ builtBy: "none" });
 });
 
 test("a press queued behind the job being built is not handed off with it", async () => {
@@ -835,6 +908,65 @@ describe("publishingPatchIds with what content reports", () => {
       const sealed = failedAt(10_000, ["re-run-build"]);
       expect([...publishingPatchIds(sealed, ["p1"], 5_000)]).toEqual(["p1"]);
     });
+  });
+});
+
+/*
+ * A publish that broke a page holds its changes back. Content says which, and
+ * until it does, a press of this tab's that just failed holds its own back:
+ * given back by `publishingPatchIds` at once and counted as pending, they lit
+ * Publish up over a press that would send nothing.
+ */
+describe("heldBackPatchIds", () => {
+  const failedAt = (
+    settledAt: number,
+    actions: Extract<PublishRequestStatus, { kind: "failed" }>["actions"] = [
+      "try-again",
+      "discard",
+    ],
+  ): PublishJobsState => ({
+    requests: [
+      {
+        requestId: "r1",
+        pressedAt: 0,
+        settledAt,
+        status: {
+          kind: "failed",
+          message: "The page did not render.",
+          actions,
+          job: "J1",
+        },
+        patchIds: ["p1"],
+      },
+    ],
+    running: null,
+  });
+  const nothingPressedHere = { requests: [], running: null };
+
+  test("what content says is held back, from any tab", () => {
+    expect([...heldBackPatchIds(nothingPressedHere, ["p1"], 5_000)]).toEqual([
+      "p1",
+    ]);
+  });
+
+  test("a press of ours that failed after content last spoke", () => {
+    expect([...heldBackPatchIds(failedAt(10_000), [], 5_000)]).toEqual(["p1"]);
+  });
+
+  test("not once content has spoken since: it decides, and may hold nothing", () => {
+    expect(heldBackPatchIds(failedAt(10_000), [], 15_000).size).toBe(0);
+  });
+
+  test("not a failed merge, which holds nothing back", () => {
+    expect(
+      heldBackPatchIds(failedAt(10_000, ["try-again"]), [], 5_000).size,
+    ).toBe(0);
+  });
+
+  test("not after the seal: a build CI failed has published them", () => {
+    expect(
+      heldBackPatchIds(failedAt(10_000, ["re-run-build"]), [], 5_000).size,
+    ).toBe(0);
   });
 });
 

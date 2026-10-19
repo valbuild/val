@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { GitCompareArrows, History, Info, Undo2 } from "lucide-react";
+import { GitCompareArrows, History, Undo2, Upload } from "lucide-react";
 import { Button } from "../components/designSystem/button";
 import {
   Popover,
@@ -7,29 +7,47 @@ import {
   PopoverTrigger,
 } from "../components/designSystem/popover";
 import { Checkbox } from "../components/designSystem/checkbox";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/designSystem/tooltip";
 import { cn } from "../components/designSystem/cn";
 import { FieldPatchAuthorsPure } from "../components/FieldPatchAuthors";
 import { CompareAuthorFilterMenu } from "../compare/CompareAuthorFilter";
 import { undoWords } from "../compare/undoWords";
 import { UNKNOWN_AUTHOR } from "../utils/computeChangedSourcePaths";
 import type { ReviewModel, ReviewModuleGroup, ReviewRow } from "./types";
+import type { PublishSelectedState } from "./usePublishSelected";
+
+/**
+ * Publish selected, for the bar: what a selection publishes, and where the
+ * last one is. Absent where it is not offered -- in a proposal, whose own
+ * Publish ships what it holds, and on a project with no proposals.
+ */
+export type ReviewPublishSelected = {
+  /**
+   * What publishing these rows publishes: whole patch sets, so possibly more
+   * than was ticked, and whose the rest is.
+   */
+  plan: (rowIds: string[]) => {
+    count: number;
+    added: number;
+    addedAuthors: (string | null)[];
+  };
+  state: PublishSelectedState;
+  onPublish: (rowIds: string[]) => void;
+  onRetry: () => void;
+  onOpenProposal: () => void;
+  onDismiss: () => void;
+};
 
 /**
  * The words, from the one place that owns them.
  *
  * `undoWords` documents the trap and it applies here too: the mechanic called
- * `discard` is the one an editor reads as **Revert** — dropping a staged patch
+ * `discard` is the one an editor reads as **Revert** — dropping a pending patch
  * that never shipped — and `revert` against a commit is what they read as
  * **Restore**. This page shows both, three inches apart, so taking the labels
  * from anywhere else is how they end up saying the same word for the two
  * opposite things.
  */
-const STAGED = undoWords("discard");
+const PENDING = undoWords("discard");
 const COMMITTED = undoWords("revert");
 
 /**
@@ -41,48 +59,38 @@ const COMMITTED = undoWords("revert");
  * - `ComparePatchSets` (`/val/compare`) answers **what changed** — every patch
  *   set expanded into its before and after, which is the right shape when you
  *   are checking a value.
- * - This answers **what is going out** — one line per patch set, whose it is,
- *   and which half of the publish it is in. Nothing is expanded, because a
- *   publish decision is made over the whole list and a list of diffs cannot be
- *   read whole.
+ * - This answers **what is going out** — one line per patch set, and whose it
+ *   is. Nothing is expanded, because a publish decision is made over the whole
+ *   list and a list of diffs cannot be read whole.
  *
  * The diff is one button away rather than absent: `onCompare` opens the compare
- * dialog over the STAGED set, which is the same question this page is asking,
+ * dialog over the pending set, which is the same question this page is asking,
  * answered in detail. There is deliberately no per-row way into it — a publish
- * ships the staged set as a unit, and a per-row dialog would be a one-pane
+ * ships the pending set as a unit, and a per-row dialog would be a one-pane
  * compare whose nav had a single entry in it.
  *
- * ## Two sections, and a checkbox that is not either of them
+ * ## The checkbox is a selection
  *
- * Staged-ness is the SECTION a row sits in; the checkbox is a SELECTION of
- * rows to act on. They were one control at first — a ticked box meant staged —
- * and that cannot carry both meanings at once: "is this going out" and "am I
- * about to change that" have different answers, and a single tick makes each
- * one look like the other. Splitting them also gives the bulk actions somewhere
- * to live, which is what makes staging twelve rows one gesture instead of
- * twelve.
- *
- * A consequence worth stating: acting on a selection MOVES rows between the two
- * sections, so the thing you just ticked jumps. That is correct — the sections
- * are the truth about the publish — and it is why the action bar reports what
- * it did rather than leaving you to find the rows again.
+ * The checkbox picks rows to act on — Revert, and Publish selected where it
+ * is offered — which is why the bar beside it exists. It says nothing about
+ * whether a row is going out: every row on this page is, with the next
+ * publish, unless it is published on its own first.
  */
 export function ReviewView({
   model,
   initialSelection,
   onCompare,
   onRestore,
-  onStage,
-  onUnstage,
   onDiscard,
   onDiscardAll,
   discardAllDescription,
+  publishSelected,
   portalContainer = null,
 }: {
   model: ReviewModel;
   /** Rows selected on arrival. For stories, and for a future "mine" default. */
   initialSelection?: string[];
-  /** Open the compare dialog over what is staged. */
+  /** Open the compare dialog over what is pending. */
   onCompare: () => void;
   /**
    * Go to the history page, to bring back a value that was published.
@@ -94,8 +102,6 @@ export function ReviewView({
    * reason, as `historyEnabled` on the top bar.
    */
   onRestore?: () => void;
-  onStage: (rowIds: string[]) => void;
-  onUnstage: (rowIds: string[]) => void;
   onDiscard: (rowIds: string[]) => void;
   /**
    * Revert everything pending.
@@ -116,6 +122,8 @@ export function ReviewView({
    * that turns it on.
    */
   discardAllDescription?: string;
+  /** Publishing only the selected rows. See {@link ReviewPublishSelected}. */
+  publishSelected?: ReviewPublishSelected;
   /** Where popups portal to, inside the shadow root. See `ValPortalProvider`. */
   portalContainer?: HTMLElement | null;
 }) {
@@ -151,20 +159,6 @@ export function ReviewView({
     [model.modules, authorFilter],
   );
   const rows = useMemo(() => modules.flatMap((group) => group.rows), [modules]);
-  const stagedGroups = sectionOf(modules, "staged");
-  const unstagedGroups = sectionOf(modules, "unstaged");
-  const stagedCount = stagedGroups.reduce(
-    (total, group) => total + group.rows.length,
-    0,
-  );
-  const unstagedCount = rows.length - stagedCount;
-  /*
-   * The whole publish, never the filtered view: what Compare would open is
-   * not narrowed by who you are reading.
-   */
-  const stagedTotal = allRows.filter(
-    (row) => row.staging !== "unstaged",
-  ).length;
   const picked = [...selected];
 
   const toggle = (rowId: string, next: boolean): void =>
@@ -174,7 +168,7 @@ export function ReviewView({
       else out.delete(rowId);
       return out;
     });
-  /** Run a bulk action and clear, since the rows it acted on have moved. */
+  /** Run a bulk action and clear, since the rows it acted on are gone. */
   const act = (run: (ids: string[]) => void): void => {
     run(picked);
     setSelected(new Set());
@@ -234,38 +228,10 @@ export function ReviewView({
            * `secondary`, not the accent: the primary action here is Publish,
            * which the shell owns, and a second filled button beside it would
            * compete with the thing this page exists to lead to.
-           *
-           * "staged" only where staging exists. Without patch groups there is
-           * no staged half to compare — the compare view shows the whole
-           * pending chain, which is what this button opens and what it should
-           * therefore say. It was "Compare staged changes" in both, which made
-           * a button that works perfectly well in fs mode read as one that
-           * belongs to a feature fs mode does not have.
            */}
-          {/*
-           * Off when there is nothing staged, because the dialog compares the
-           * PUBLISH and an empty publish has no diff. It opens on the staged
-           * half alone, so with everything unstaged it would open onto "pick
-           * something on the left" over a list with nothing in it — which
-           * reads as the dialog being broken rather than as the publish being
-           * empty. Disabled rather than hidden: the control is the one way in,
-           * and a button that vanishes teaches nothing about why.
-           */}
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={onCompare}
-            disabled={stagedTotal === 0}
-            title={
-              stagedTotal === 0
-                ? "Nothing is staged, so there is nothing to compare."
-                : undefined
-            }
-          >
+          <Button size="sm" variant="secondary" onClick={onCompare}>
             <GitCompareArrows size={13} aria-hidden />
-            {model.stagingEnabled
-              ? "Compare staged changes"
-              : "Compare changes"}
+            Compare changes
           </Button>
         </div>
       </header>
@@ -286,10 +252,26 @@ export function ReviewView({
         }}
         selected={selected}
         onSelect={setSelected}
-        onStage={() => act(onStage)}
-        onUnstage={() => act(onUnstage)}
         onDiscard={() => act(onDiscard)}
+        publishSelected={
+          publishSelected === undefined
+            ? undefined
+            : {
+                ...publishSelected,
+                onPublish: () => act(publishSelected.onPublish),
+              }
+        }
+        portalContainer={portalContainer}
       />
+      {publishSelected !== undefined &&
+        publishSelected.state.kind !== "idle" && (
+          <PublishSelectedStatus
+            state={publishSelected.state}
+            onRetry={publishSelected.onRetry}
+            onOpenProposal={publishSelected.onOpenProposal}
+            onDismiss={publishSelected.onDismiss}
+          />
+        )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
         {/*
@@ -313,64 +295,17 @@ export function ReviewView({
             }.`}
           </p>
         ) : (
-          <>
-            {/*
-             * "Staged" / "Unstaged", the same two words the compare dialog's
-             * sections use and the same two the buttons in the bar use. This page
-             * said "In this publish" and "Held back", which named the same two
-             * facts in a third vocabulary — so an editor who pressed Unstage had
-             * to work out for themselves that the row would turn up under "Held
-             * back". What the two MEAN is behind the info icon — see `Section`.
-             */}
-            <Section
-              title="Staged"
-              /*
-               * An fs project SAVES. There is nothing outside the editor's own
-               * machine to publish to, and the button that finishes the job
-               * says "Save" — so "Publish ships these" there names an act the
-               * Studio does not offer.
-               */
-              explanation={
-                model.mode === "fs"
-                  ? "Save writes these to the files on disk. Everything you edit is staged unless you take it out, and nothing else is written."
-                  : "Publish ships these, and only these. A change is staged by default; take one out and it stays pending until somebody stages it again."
-              }
-              count={stagedCount}
-              groups={stagedGroups}
-              model={model}
-              selected={selected}
-              onToggle={toggle}
-              onDiscard={(id) => onDiscard([id])}
-              emptyNote={
-                model.mode === "fs"
-                  ? "Nothing to save."
-                  : "Nothing staged — Publish has nothing to ship."
-              }
-              portalContainer={portalContainer}
-            />
-            {/*
-             * The unstaged section exists even when it is empty, because its absence
-             * and its emptiness mean the same thing on screen and different things
-             * in fact: "everything is going out" is worth reading, and a section
-             * that vanishes leaves the reader to infer it from a count.
-             */}
-            <Section
-              title="Unstaged"
-              explanation={
-                model.mode === "fs"
-                  ? "Unstaged, so the next save leaves them alone. They stay pending, and stay yours — nothing writes them until you stage them again."
-                  : "Unstaged, so the next publish leaves them alone. They stay pending and can be staged again — by you, or by whoever publishes next, so this is not a way to keep work private."
-              }
-              count={unstagedCount}
-              groups={unstagedGroups}
+          modules.map((group) => (
+            <ModuleGroup
+              key={group.id}
+              group={group}
               model={model}
               selected={selected}
               onToggle={toggle}
               onDiscard={(id) => onDiscard([id])}
               portalContainer={portalContainer}
-              muted
             />
-          </>
+          ))
         )}
       </div>
     </div>
@@ -399,30 +334,7 @@ function filterByAuthor(
 
 /** What this publish is, in one line — the whole of it, filter or no. */
 function publishSummary(rows: ReviewRow[]): string {
-  const staged = rows.filter((row) => row.staging !== "unstaged").length;
-  const unstaged = rows.length - staged;
-  if (unstaged === 0) {
-    return `${staged} ${staged === 1 ? "change" : "changes"} staged`;
-  }
-  return `${staged} staged · ${unstaged} unstaged`;
-}
-
-function sectionOf(
-  modules: ReviewModuleGroup[],
-  which: "staged" | "unstaged",
-): ReviewModuleGroup[] {
-  return modules
-    .map((group) => ({
-      ...group,
-      // `partial` is in flight towards staged, so it belongs with the staged
-      // rows: a row halfway into the publish is in the publish.
-      rows: group.rows.filter((row) =>
-        which === "unstaged"
-          ? row.staging === "unstaged"
-          : row.staging !== "unstaged",
-      ),
-    }))
-    .filter((group) => group.rows.length > 0);
+  return `${rows.length} ${rows.length === 1 ? "change" : "changes"}`;
 }
 
 /**
@@ -446,9 +358,9 @@ function SelectionBar({
   onAuthorFilter,
   selected,
   onSelect,
-  onStage,
-  onUnstage,
   onDiscard,
+  publishSelected,
+  portalContainer,
 }: {
   model: ReviewModel;
   /** The rows the filter is letting through — what "Select all" means. */
@@ -459,9 +371,9 @@ function SelectionBar({
   onAuthorFilter: (next: string | null) => void;
   selected: ReadonlySet<string>;
   onSelect: (next: ReadonlySet<string>) => void;
-  onStage: () => void;
-  onUnstage: () => void;
   onDiscard: () => void;
+  publishSelected?: ReviewPublishSelected;
+  portalContainer: HTMLElement | null;
 }) {
   const count = selected.size;
   const allShown = rows.length > 0 && rows.every((row) => selected.has(row.id));
@@ -512,31 +424,9 @@ function SelectionBar({
         >
           {count === 0 ? "Nothing selected" : `${count} selected`}
         </span>
-        {model.stagingEnabled && (
-          <>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={count === 0}
-              onClick={onStage}
-            >
-              Stage
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={count === 0}
-              onClick={onUnstage}
-            >
-              Unstage
-            </Button>
-          </>
-        )}
         {/*
-         * Red, and the only red on the page. Reverting a staged change throws
-         * away work that exists nowhere else; Stage and Unstage move a row
-         * between two halves of a publish and can be pressed back. A screen
-         * that shouts at all three teaches people to ignore the shouting.
+         * Red, and the only red on the page: reverting a pending change throws
+         * away work that exists nowhere else.
          */}
         <Button
           size="sm"
@@ -544,11 +434,178 @@ function SelectionBar({
           disabled={count === 0}
           onClick={onDiscard}
         >
-          {STAGED.verb}
+          {PENDING.verb}
         </Button>
+        {publishSelected !== undefined && (
+          <PublishSelected
+            model={model}
+            rowIds={[...selected]}
+            publishSelected={publishSelected}
+            portalContainer={portalContainer}
+          />
+        )}
       </div>
     </div>
   );
+}
+
+/**
+ * Publishing the ticked rows and nothing else, behind a confirm that says
+ * what comes with them.
+ *
+ * A row is a patch set, and a patch set that shares a change with another
+ * cannot go without it, so a selection can publish more than was ticked --
+ * often someone else's. That is said BEFORE anything moves, by name, and
+ * confirming publishes it too: the one thing this must never do is publish a
+ * colleague's change the person did not see coming.
+ */
+function PublishSelected({
+  model,
+  rowIds,
+  publishSelected,
+  portalContainer,
+}: {
+  model: ReviewModel;
+  rowIds: string[];
+  publishSelected: ReviewPublishSelected;
+  portalContainer: HTMLElement | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const busy = publishSelected.state.kind === "publishing";
+  const plan = open ? publishSelected.plan(rowIds) : null;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={rowIds.length === 0 || busy}
+        >
+          <Upload size={13} aria-hidden />
+          Publish selected
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        container={portalContainer}
+        align="end"
+        className="z-[9001] flex w-72 flex-col gap-3"
+      >
+        {plan !== null && (
+          <>
+            <div>
+              <p className="text-xs font-semibold text-fg-primary">
+                {`Publish ${changes(plan.count)}?`}
+              </p>
+              {plan.added > 0 ? (
+                <p className="mt-1 text-xs text-fg-secondary">
+                  {`${plan.added === 1 ? "This change" : `These ${plan.added} changes`} by ${namesOf(model, plan.addedAuthors)} ${plan.added === 1 ? "comes" : "come"} with it: ${plan.added === 1 ? "it changes" : "they change"} the same thing, and cannot be published apart.`}
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-fg-secondary">
+                  The rest stays unpublished.
+                </p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setOpen(false);
+                  publishSelected.onPublish(rowIds);
+                }}
+              >
+                {`Publish ${changes(plan.count)}`}
+              </Button>
+            </div>
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Where the last Publish selected is: under way, published, or stopped --
+ * and then what can be done about it. Try again where it can help; Open the
+ * proposal once the changes are in one, because they are safe there and that
+ * is where publishing them can be finished.
+ */
+function PublishSelectedStatus({
+  state,
+  onRetry,
+  onOpenProposal,
+  onDismiss,
+}: {
+  state: PublishSelectedState;
+  onRetry: () => void;
+  onOpenProposal: () => void;
+  onDismiss: () => void;
+}) {
+  if (state.kind === "idle") return null;
+  return (
+    <div
+      role="status"
+      className={cn(
+        "flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border-primary px-6 py-3 text-sm",
+        state.kind === "failed" ? "bg-bg-error-secondary" : "bg-bg-secondary",
+      )}
+    >
+      {state.kind === "publishing" && (
+        <span className="text-fg-secondary">{`Publishing ${changes(state.count)}…`}</span>
+      )}
+      {state.kind === "published" && (
+        <span className="text-fg-primary">{`${capitalized(changes(state.count))} published.`}</span>
+      )}
+      {state.kind === "failed" && (
+        <span className="min-w-0 text-fg-primary">
+          {`${capitalized(changes(state.count))} could not be published. ${state.message}`}
+        </span>
+      )}
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        {state.kind === "failed" && state.proposal !== null && (
+          <Button size="sm" variant="secondary" onClick={onOpenProposal}>
+            Open the proposal
+          </Button>
+        )}
+        {state.kind === "failed" && state.canRetry && (
+          <Button size="sm" onClick={onRetry}>
+            Try again
+          </Button>
+        )}
+        {state.kind !== "publishing" && (
+          <Button size="sm" variant="ghost" onClick={onDismiss}>
+            Close
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function changes(count: number): string {
+  return count === 1 ? "1 change" : `${count} changes`;
+}
+
+function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** "Kari", "Kari and Bo", "you": who wrote what comes with a selection. */
+function namesOf(model: ReviewModel, authorIds: (string | null)[]): string {
+  const names = authorIds.map((id) =>
+    id === null
+      ? "someone else"
+      : id === model.currentAuthorId
+        ? "you"
+        : (model.profiles[id]?.fullName ?? "someone else"),
+  );
+  const unique = [...new Set(names)];
+  return unique.length <= 1
+    ? (unique[0] ?? "someone else")
+    : `${unique.slice(0, -1).join(", ")} and ${unique[unique.length - 1]}`;
 }
 
 /**
@@ -577,7 +634,7 @@ function RevertAll({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button className="text-sm text-fg-secondary underline underline-offset-2 hover:text-fg-primary">
-          {STAGED.all}
+          {PENDING.all}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -587,7 +644,7 @@ function RevertAll({
       >
         <div>
           <p className="text-xs font-semibold text-fg-primary">
-            {`${STAGED.all}?`}
+            {`${PENDING.all}?`}
           </p>
           <p className="mt-1 text-xs text-fg-secondary">
             {description ??
@@ -606,7 +663,7 @@ function RevertAll({
               onConfirm();
             }}
           >
-            {STAGED.all}
+            {PENDING.all}
           </Button>
         </div>
       </PopoverContent>
@@ -618,112 +675,9 @@ function EmptyReview() {
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-16">
       <p className="text-sm text-fg-tertiary">
-        Nothing is staged. Changes you make show up here before they publish.
+        Nothing is pending. Changes you make show up here before they publish.
       </p>
     </div>
-  );
-}
-
-function Section({
-  title,
-  explanation,
-  count,
-  groups,
-  model,
-  selected,
-  onToggle,
-  onDiscard,
-  emptyNote,
-  muted = false,
-  portalContainer,
-}: {
-  title: string;
-  /**
-   * What being in this section MEANS, behind the info icon.
-   *
-   * On demand rather than under the heading, and the swap is what makes the
-   * text worth reading: as a permanent subtitle it had to be short enough not
-   * to cost two lines above every list — "Not in this publish." — which is a
-   * restatement of the heading rather than an explanation of it. Asked for, it
-   * has room to say the thing an editor actually needs: that unstaged work
-   * stays pending, and that somebody else publishing will take it.
-   */
-  explanation: string;
-  count: number;
-  groups: ReviewModuleGroup[];
-  model: ReviewModel;
-  selected: ReadonlySet<string>;
-  onToggle: (rowId: string, next: boolean) => void;
-  onDiscard: (rowId: string) => void;
-  /**
-   * What an empty section means, when that is worth a line.
-   *
-   * Optional, and Unstaged passes none: the count beside the heading already
-   * reads `UNSTAGED 0`, so "Nothing held back." underneath is the same fact in
-   * a second sentence. Staged keeps one because an empty Staged is a PROBLEM —
-   * Publish would do nothing — and a zero alone does not say that.
-   */
-  emptyNote?: string;
-  muted?: boolean;
-  /** Where the tooltip portals to, inside the shadow root. */
-  portalContainer: HTMLElement | null;
-}) {
-  return (
-    <section
-      className={cn(
-        "mb-10 last:mb-0",
-        /*
-         * A rule between the two halves, not just two headings.
-         *
-         * The sections are the truth about the publish — staging a row moves
-         * it across this line — so the line has to be visible enough that the
-         * move is legible as a move. Two headings alone read as one long list
-         * with labels in it.
-         */
-        muted && "border-t border-border-primary pt-8",
-      )}
-    >
-      <div className="mb-4 flex items-center gap-1.5">
-        <h2
-          className={cn(
-            "text-xs font-semibold uppercase tracking-wider",
-            muted ? "text-fg-tertiary" : "text-fg-secondary",
-          )}
-        >
-          {title}
-        </h2>
-        <span className="text-xs tabular-nums text-fg-tertiary">{count}</span>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              aria-label={`What ${title.toLowerCase()} means`}
-              className="rounded text-fg-tertiary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
-            >
-              <Info size={12} aria-hidden />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent container={portalContainer} className="max-w-72">
-            <p className="text-xs">{explanation}</p>
-          </TooltipContent>
-        </Tooltip>
-      </div>
-      {groups.length === 0
-        ? emptyNote !== undefined && (
-            <p className="text-sm text-fg-tertiary">{emptyNote}</p>
-          )
-        : groups.map((group) => (
-            <ModuleGroup
-              key={group.id}
-              group={group}
-              model={model}
-              selected={selected}
-              onToggle={onToggle}
-              onDiscard={onDiscard}
-              muted={muted}
-              portalContainer={portalContainer}
-            />
-          ))}
-    </section>
   );
 }
 
@@ -733,7 +687,6 @@ function ModuleGroup({
   selected,
   onToggle,
   onDiscard,
-  muted,
   portalContainer,
 }: {
   group: ReviewModuleGroup;
@@ -741,18 +694,12 @@ function ModuleGroup({
   selected: ReadonlySet<string>;
   onToggle: (rowId: string, next: boolean) => void;
   onDiscard: (rowId: string) => void;
-  muted: boolean;
   portalContainer: HTMLElement | null;
 }) {
   return (
     <div className="mb-6 last:mb-0">
       <div className="mb-2 flex min-w-0 items-baseline gap-2">
-        <h3
-          className={cn(
-            "truncate text-sm font-medium",
-            muted ? "text-fg-secondary" : "text-fg-primary",
-          )}
-        >
+        <h3 className="truncate text-sm font-medium text-fg-primary">
           {group.description.title}
         </h3>
         {/*
@@ -898,11 +845,6 @@ function Row({
               ? "the whole module"
               : row.trail.join(" › ")}
           </span>
-          {row.staging === "partial" && (
-            <span className="shrink-0 rounded-full border border-border-primary px-1.5 text-[10px] uppercase tracking-wider text-fg-tertiary">
-              Partly staged
-            </span>
-          )}
         </div>
         <div className="mt-0.5 flex min-w-0 items-baseline gap-2 text-xs text-fg-tertiary">
           <span className="truncate">{row.summary}</span>
@@ -911,31 +853,6 @@ function Row({
             {row.patchCount} {row.patchCount === 1 ? "edit" : "edits"}
           </span>
         </div>
-        {row.alsoUnstages !== undefined && row.alsoUnstages.length > 0 && (
-          /*
-           * The mirror of the line below, and the destructive half of the
-           * pair. Reverting deletes this row's patches, and a later patch set
-           * cannot stay in the publish without predecessors that have gone —
-           * so somebody else's staged work leaves with it. "Unstages" and not
-           * anything stronger: their work is still there, still theirs, and
-           * can be staged again.
-           */
-          <p className="mt-0.5 truncate text-xs text-fg-warning-primary">
-            {`Reverting this also unstages work by ${row.alsoUnstages.join(", ")}`}
-          </p>
-        )}
-        {row.alsoStages !== undefined && row.alsoStages.length > 0 && (
-          /*
-           * Said on the row rather than at confirm time, because it changes
-           * whether you stage it at all. A later patch set cannot publish
-           * without its predecessors — the prefix invariant — so including this
-           * row includes somebody else's work, and the names are the part that
-           * makes that a decision rather than a surprise.
-           */
-          <p className="mt-0.5 truncate text-xs text-fg-warning-primary">
-            {`Staging this also publishes work by ${row.alsoStages.join(", ")}`}
-          </p>
-        )}
       </div>
       <span className="shrink-0">
         <FieldPatchAuthorsPure
@@ -970,7 +887,7 @@ function Row({
        */}
       <button
         onClick={onDiscard}
-        aria-label={`${STAGED.verb} ${row.description.title}`}
+        aria-label={`${PENDING.verb} ${row.description.title}`}
         className={cn(
           "shrink-0 rounded p-1 text-fg-tertiary transition-opacity",
           "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100",

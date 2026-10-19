@@ -1,6 +1,6 @@
 import type { ValConfig } from "@valbuild/core";
 import { Api } from "@valbuild/shared/internal";
-import { clientConfig } from "./clientConfig";
+import { clientConfig, historyBranchOf } from "./clientConfig";
 
 /**
  * Which branch the Studio is told about.
@@ -136,5 +136,64 @@ describe("the resolved branch reaches the Studio", () => {
     expect(parsed.data.json).toHaveProperty("config.gitBranch");
     if (!("config" in parsed.data.json)) return;
     expect(parsed.data.json.config.gitBranch).toBe("release/2026-09");
+  });
+});
+
+describe("the branch History lists", () => {
+  const site = { proposal: null, gitBranch: null, projectBranch: null };
+
+  test("a managed project's, which has no git mirror, is the branch content reports", () => {
+    expect(
+      historyBranchOf({ ...site, mode: "http", projectBranch: "main" }),
+    ).toBe("main");
+  });
+
+  test("the git mirror's wins over the project's", () => {
+    expect(
+      historyBranchOf({
+        ...site,
+        mode: "http",
+        gitBranch: "release/2026-09",
+        projectBranch: "main",
+      }),
+    ).toBe("release/2026-09");
+  });
+
+  test("in a proposal it is the proposal's, so its history is its own saves", () => {
+    expect(
+      historyBranchOf({
+        mode: "http",
+        proposal: { branch: "val/p/0123456789abcdef0123" },
+        gitBranch: "main",
+        projectBranch: "main",
+      }),
+    ).toBe("val/p/0123456789abcdef0123");
+  });
+
+  test("none in fs mode, and none where nothing names one", () => {
+    expect(historyBranchOf({ ...site, mode: "fs", gitBranch: "main" })).toBe(
+      null,
+    );
+    expect(historyBranchOf({ ...site, mode: "http" })).toBe(null);
+  });
+
+  test("survives the /stat response schema", () => {
+    const parsed = Api["/stat"].POST.res.safeParse({
+      status: 200,
+      json: {
+        type: "did-change",
+        profileId: null,
+        config: {},
+        mode: "http",
+        baseSha: "base",
+        schemaSha: "schema",
+        sourcesSha: "sources",
+        patches: [],
+        historyBranch: "main",
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.json).toHaveProperty("historyBranch", "main");
   });
 });

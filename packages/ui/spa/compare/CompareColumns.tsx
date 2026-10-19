@@ -144,7 +144,7 @@ function SideHeading({
        *
        * A commit has ONE author, so naming them in the header is the whole
        * attribution for that side — the per-row avatars on the right answer a
-       * different question (who staged this particular change) and would be
+       * different question (who made this particular change) and would be
        * wrong here. "Published" has no byline: it is the accumulation of many
        * commits and no single person made it.
        */}

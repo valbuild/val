@@ -76,7 +76,6 @@ function row(
     authors,
     lastUpdated: minutesAgo(12),
     patchCount: 1,
-    staging: "staged",
     ...extra,
   };
 }
@@ -134,7 +133,6 @@ export const PROFILES: Record<string, Profile> = {
 };
 
 export const reviewModel: ReviewModel = {
-  stagingEnabled: true,
   profiles: PROFILES,
   mode: "http",
   /* Ada is looking, so the author filter leads with her and says "(you)". */
@@ -195,23 +193,12 @@ export const reviewModel: ReviewModel = {
      * same segments, spelled for someone who has never seen a Next route.
      */
     group("/app/blogs/[blog]/page.val.ts", named("Blog posts", "Pages"), [
-      /*
-       * Unstaged, and it pulls somebody else's work in if you stage it.
-       *
-       * Both states on one row on purpose: this is the case the page exists
-       * to make legible, and it is the one a flat list of diffs cannot show
-       * at all.
-       */
       row(
         "blogs-getting-started",
         named("Getting started with Val", "/blogs/getting-started"),
         ["/blogs/getting-started", "title"],
         "Text changed",
         by("profile-ada", "replace", 20),
-        {
-          staging: "unstaged",
-          alsoStages: ["Linus Pauling"],
-        },
       ),
       row(
         "blogs-renamed",
@@ -219,7 +206,6 @@ export const reviewModel: ReviewModel = {
         ["/blogs/history-and-restore"],
         "Page renamed",
         by("profile-linus", "move", 90),
-        { staging: "unstaged" },
       ),
     ]),
     group("/content/media.val.ts", unnamed("media"), [
@@ -245,41 +231,8 @@ export const emptyReviewModel: ReviewModel = {
   modules: [],
 };
 
-/**
- * fs mode, where the server cannot store patch groups.
- *
- * Stage and Unstage are gone rather than present and inert — the rule
- * `PatchStaging.enabled` already states. Revert still works, because dropping
- * a patch does not need a group to put it in.
- */
-export const noStagingReviewModel: ReviewModel = {
+/** fs mode, where an author-less change is named "Local changes". */
+export const fsReviewModel: ReviewModel = {
   ...reviewModel,
-  stagingEnabled: false,
-  /* fs mode, which is also what an author-less change is named by. */
   mode: "fs",
-  modules: reviewModel.modules.map((moduleGroup) => ({
-    ...moduleGroup,
-    rows: moduleGroup.rows.map((entry) => ({
-      ...entry,
-      staging: "staged" as const,
-      alsoStages: undefined,
-    })),
-  })),
-};
-
-/** One patch set mid-flight, so the third checkbox state is on screen. */
-export const partialStagingReviewModel: ReviewModel = {
-  ...reviewModel,
-  modules: reviewModel.modules.map((moduleGroup) =>
-    moduleGroup.moduleFilePath === "/content/authors.val.ts"
-      ? {
-          ...moduleGroup,
-          rows: moduleGroup.rows.map((entry) =>
-            entry.id === "authors-kimmid"
-              ? { ...entry, staging: "partial" as const }
-              : entry,
-          ),
-        }
-      : moduleGroup,
-  ),
 };

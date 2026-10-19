@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ModuleFilePath, SourcePath, type PatchId } from "@valbuild/core";
+import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { ValCanvasElement } from "@valbuild/shared/internal";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
@@ -7,7 +7,16 @@ import { CanvasFrame } from "./canvas/CanvasFrame";
 import { canvasFallbackRoute } from "./canvasFallbackRoute";
 import { SaveState } from "./StatusBar";
 import { RemoteFilesCard, UploadsOffChip } from "./RemoteFilesNotice";
-import { ReadOnlyCard, usePlanAccess } from "./ReadOnlyNotice";
+import {
+  useStudioAccess,
+  type StudioAccessState,
+} from "./planLimits/useStudioAccess";
+import { useResumeRefusedSaves } from "./planLimits/useResumeRefusedSaves";
+import { usePlanNotice } from "./planLimits/usePlanNotice";
+import { useRefusalToastRefresh } from "./planLimits/useRefusalToastRefresh";
+import { PlanNoticeCard } from "./planLimits/PlanNoticeCard";
+import { PlanStatusBar } from "./planLimits/PlanStatusBar";
+import { planToastAction } from "./planLimits/planCopy";
 import { useRemoteFiles } from "../ValRemoteProvider";
 import { useSteadySaveState } from "./useSteadySaveState";
 import { PublishState } from "./TopBar";
@@ -38,16 +47,7 @@ import { useRenamePage } from "../useRenamePage";
 import { PublishButton } from "../PublishButton";
 import { ValidationErrorsView } from "../ValidationErrors";
 import { ComparePatchSets, CompareLoading } from "../ComparePatchSets";
-import {
-  PatchStagingProvider,
-  type PatchGroupChange,
-} from "../PatchStagingProvider";
-
-import { useCurrentPatchGroup } from "../useCurrentPatchGroup";
-import type { SerializedPatchSet } from "../../utils/PatchSets";
 import { isPathWithin } from "../../utils/sourcePath";
-import { pendingPatchSets } from "../../utils/computeChangedSourcePaths";
-import type { Profile } from "../ValProvider";
 import { cn } from "../designSystem/cn";
 import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
 import { PublishHandoffCard, handoffCardInStudio } from "./PublishHandoff";
@@ -56,7 +56,6 @@ import { LoginDialog } from "../LoginDialog";
 import { PatchErrorsDialog } from "../PatchErrorsDialog";
 import { GlobalErrors } from "../GlobalErrors";
 import { TransientErrorToasts } from "../TransientErrorToasts";
-import { PatchGroupWidenedToasts } from "../PatchGroupWidenedToasts";
 import { Toaster } from "../designSystem/sonner";
 import { useTheme } from "../ValThemeProvider";
 import {
@@ -83,10 +82,8 @@ import { useHistoricalCommit } from "../../history/useHistoricalCommit";
 import {
   useAllPatchErrors,
   useAuthenticationState,
-  useCommittedPatches,
   useConnectionStatus,
   useProfilesError,
-  useChainOrder,
   usePatchSets,
   usePendingClientSidePatchIds,
   useProfilesByAuthorId,
@@ -97,14 +94,17 @@ import {
   useOtherPublishJobs,
   useStudioIsDeployer,
   useHasNetChanges,
-  useOwnPendingChangeCount,
+  usePendingChangeCount,
   useInitialPatchesApplied,
   usePatchFetchError,
   usePendingChangesProgress,
   useValMode,
   useAutoPublish,
   useCurrentProposal,
+  useHistoryBranch,
   useReportError,
+  useChangesWithoutModuleNotice,
+  useGlobalTransientErrors,
 } from "../ValProvider";
 import {
   useFilePatchIds,
@@ -138,6 +138,38 @@ import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 export function ValShell() {
   const shellData = useShellData();
   const authenticationState = useAuthenticationState();
+  /**
+   * What the project's plan allows, from Val Build: the organization's
+   * read-only state and the project's own limits. See `planLimits/`. Asked
+   * only where the Studio is connected to Val Build (the same test that
+   * mounts its web components): elsewhere the proxy has nothing to forward
+   * to, and answers 404. Here rather than in the body because the toasts
+   * below use it too, to put the next step beside a refused write.
+   */
+  const project = useValConfig()?.project;
+  const valBuildConnected =
+    authenticationState !== "login-required" &&
+    shellData.status === "success" &&
+    shellData.data.webComponentsUrl !== undefined;
+  const studioAccess = useStudioAccess(valBuildConnected ? project : undefined);
+  const { access } = studioAccess;
+  useResumeRefusedSaves(access);
+  const toastActionFor = useCallback(
+    (error: { message: string; details?: string }) => {
+      const action =
+        planToastAction(access, error.details) ??
+        planToastAction(access, error.message);
+      if (action === null) return undefined;
+      return {
+        label: action.label,
+        onClick: () => {
+          if (action.external) window.open(action.href, "_blank", "noopener");
+          else window.location.assign(action.href);
+        },
+      };
+    },
+    [access],
+  );
 
   if (authenticationState === "login-required") {
     return (
@@ -149,10 +181,9 @@ export function ValShell() {
 
   return (
     <>
-      <ValShellBody state={shellData} />
+      <ValShellBody state={shellData} studioAccess={studioAccess} />
       <Toaster />
-      <TransientErrorToasts />
-      <PatchGroupWidenedToasts />
+      <TransientErrorToasts actionFor={toastActionFor} />
       <PatchErrorsDialog />
       <GlobalErrors />
     </>
@@ -165,7 +196,13 @@ export function ValShell() {
  * navigation to load, and asking for them only produces failing requests
  * behind the login dialog.
  */
-function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
+function ValShellBody({
+  state,
+  studioAccess,
+}: {
+  state: ReturnType<typeof useShellData>;
+  studioAccess: StudioAccessState;
+}) {
   const { resolvedTheme, setTheme, themeStyle } = useTheme();
   /**
    * The outline colours to hand the canvas frame.
@@ -236,21 +273,36 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
       />
     ) : undefined;
   /**
-   * The organization's plan has made the Studio read-only (a trial that is
-   * over, a payment failed past its grace): said above everything, because
-   * nothing typed here can be saved. See `ReadOnlyNotice`. Asked only where
-   * the Studio is connected to Val Build (the same test that mounts its web
-   * components): elsewhere the proxy has nothing to forward to, and answers
-   * 404.
+   * The plan: one notice above everything, most pressing first -- the
+   * organization made the Studio read-only (a failed payment), a save or a
+   * publish Val Build refuses, an upload it refuses, a Hosted month running
+   * out -- and a compact status (a trial's days, Free's changes) in the top
+   * bar. Each with the next step beside it. See `planLimits/planNotices.ts`.
    */
   const project = useValConfig()?.project;
-  const valBuildConnected =
-    state.status === "success" && state.data.webComponentsUrl !== undefined;
-  const planAccess = usePlanAccess(valBuildConnected ? project : undefined);
+  const hasNetChanges = useHasNetChanges();
+  const pendingChangeCount = usePendingChangeCount();
+  const plan = usePlanNotice(studioAccess, {
+    project: project?.split("/")[1] || null,
+    changesWaiting: hasNetChanges ? pendingChangeCount : 0,
+  });
+  /*
+   * A refused save, publish or upload reports an error. One whose words are
+   * Val Build's refusal (they name its Billing) asks `/access` again, so the
+   * notice that explains it appears. See `useRefusalToastRefresh`.
+   */
+  const { globalTransientErrors } = useGlobalTransientErrors();
+  useRefusalToastRefresh(globalTransientErrors, studioAccess);
   const editorNotices = [
-    planAccess?.access === "read-only" ? (
-      <ReadOnlyCard key="read-only" access={planAccess} />
-    ) : null,
+    plan.notice === null ? null : (
+      <PlanNoticeCard
+        key={`plan-${plan.notice.id}`}
+        notice={plan.notice}
+        onDismiss={() => {
+          if (plan.notice !== null) plan.dismiss(plan.notice);
+        }}
+      />
+    ),
     remoteFilesNotice === undefined ? null : (
       <div key="remote-files">{remoteFilesNotice}</div>
     ),
@@ -259,6 +311,13 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     editorNotices.length === 0 ? undefined : (
       <div className="flex flex-col gap-3">{editorNotices}</div>
     );
+  const planStatusValue = plan.status;
+  const planStatus =
+    planStatusValue === null
+      ? undefined
+      : (placement: "top-bar" | "column") => (
+          <PlanStatusBar status={planStatusValue} placement={placement} />
+        );
   const remoteFilesStatusNotice =
     remoteFiles.status === "inactive" && remoteNoticeDismissed ? (
       <UploadsOffChip onClick={() => setRemoteNoticeDismissed(false)} />
@@ -303,20 +362,16 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    * wrong.
    */
   const pendingChangesLoaded = useInitialPatchesApplied();
-  const hasNetChanges = useHasNetChanges();
-  const ownPendingChanges = useOwnPendingChangeCount();
-  usePatchGroupWrites();
-  usePatchGroupScope();
-  usePatchGroupIdentity();
+  // Changes left behind by a renamed or deleted file: told, with Discard.
+  useChangesWithoutModuleNotice();
   const portalContainer = useValPortal();
   const discardAll = useDiscardAll();
   /*
    * The branch history is listed under, which decides whether History is
-   * offered at all. `val.config` may not name one and the server fills in the
-   * branch it resolved, so this is null only for a deployment that has
-   * neither.
+   * offered at all: the proposal's in a proposal, else the site's (see
+   * `useHistoryBranch`). Null only for a deployment with no history.
    */
-  const shellGitBranch = useValConfig()?.gitBranch ?? null;
+  const shellHistoryBranch = useHistoryBranch();
   // Only read when the wait has already gone on too long — see
   // `PendingChangesGate`.
   const pendingChangesProgress = usePendingChangesProgress();
@@ -1073,8 +1128,9 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
     proposals: proposalsBar,
     dialogs: proposalDialogs,
     notice: proposalNotice,
+    restoreDestination,
   } = useProposalsBar({
-    unsaved: hasNetChanges ? ownPendingChanges : 0,
+    unsaved: hasNetChanges ? pendingChangeCount : 0,
     portalContainer,
     onCompare: openSiteCompare,
   });
@@ -1134,7 +1190,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
      * different questions ("what is going out" and "what changed"), and this
      * one leads to that one by its Compare button.
      */
-    <ReviewRoute />
+    <ReviewRoute canPublishSelected={restoreDestination.kind === "proposal"} />
   ) : navigation.isErrorsView ? (
     <ValidationErrorsView />
   ) : navigation.isHistoryView ? (
@@ -1171,6 +1227,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
    */
   const restore = useDirectedRestore(
     commitState?.status === "success" ? commitState.patchSet : undefined,
+    restoreDestination,
   );
 
   const renderHistory = history.commitSha
@@ -1241,6 +1298,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         tourEnabled={isTourOffered(studioSettings)}
         editorOverride={overrideEditor}
         notice={shellNotice}
+        renderPlanStatus={planStatus}
         statusNotice={remoteFilesStatusNotice}
         publishSlot={<PublishButton />}
         publishState={publishState}
@@ -1250,20 +1308,10 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
         onAutoSaveChange={setAutoPublish}
         pendingChanges={data.pendingChanges ?? 0}
         /*
-         * THIS user's own pending changes, not the chain's.
-         *
-         * The badge sits beside Publish and is read as "how much is waiting for
-         * me", so it counts the scoped set. On a shared branch the chain also
-         * holds other people's pending work, which this client can neither
-         * publish nor discard — putting that on the badge asks the reader to go
-         * and do something about somebody else's edit. Unscoped (`fs`, or a
-         * content API without groups) this is the whole chain, which is the same
-         * number as before and still the right one: there is one author there.
-         *
-         * Still zeroed when the pending patches cancel out, so Review does not
-         * put a number on changes that will not ship. The button itself stays:
-         * that view is where Discard is, and where a held change is staged again,
-         * and Publish is disabled until one of those happens.
+         * Zeroed when the pending patches cancel out, so Review does not put a
+         * number on changes that will not ship. The button itself stays: that
+         * view is where Discard is, and Publish is disabled until something
+         * changes.
          */
         reviewCount={
           inProposal
@@ -1271,7 +1319,7 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
               ? siteChanges.changeCount
               : 0
             : hasNetChanges
-              ? ownPendingChanges
+              ? pendingChangeCount
               : 0
         }
         /*
@@ -1352,13 +1400,15 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
          *
          * And false without a resolved branch, for the same reason rather than
          * a second one: history is listed PER BRANCH, so `HistoryView` has no
-         * request to make and says so. `gitBranch` is optional in
-         * `val.config` and the server fills in the one it resolved, so this is
-         * the deployment that has neither — a git-less http project. Offering
-         * the button there is the dead affordance this comment exists to
-         * forbid.
+         * request to make and says so. The server names the branch it lists
+         * -- a proposal's, a git mirror's or a managed project's -- so this
+         * is the deployment that has none. Offering the button there is the
+         * dead affordance this comment exists to forbid.
          */
-        historyEnabled={historyEnabledFor({ mode, gitBranch: shellGitBranch })}
+        historyEnabled={historyEnabledFor({
+          mode,
+          historyBranch: shellHistoryBranch,
+        })}
         historyActive={navigation.isHistoryView}
         onOpenHistory={() => navigation.navigate(VAL_HISTORY_ROUTE)}
         onMentionField={(sourcePath) =>
@@ -1417,21 +1467,21 @@ function ValShellBody({ state }: { state: ReturnType<typeof useShellData> }) {
 function HistoryView() {
   const config = useValConfig();
   const { history, setHistory } = useHistoryParams();
-  const branch = config?.gitBranch ?? null;
+  const branch = useHistoryBranch();
   const { state, loadMore } = useCommitList(branch);
   /*
-   * `gitBranch` is optional in ValConfig, and history is listed per branch, so
-   * without one there is nothing to ask for. Said out loud rather than left as
-   * a spinner: the hook has no request to make, so it would otherwise sit on
-   * "Reading the history…" forever. `config` being undefined is the different,
-   * transient case - it is still loading - and keeps the spinner.
+   * History is listed per branch, and the server names none for a project
+   * with no history to list. Said out loud rather than left as a spinner: the
+   * hook has no request to make, so it would otherwise sit on "Reading the
+   * history…" forever. `config` being undefined is the different, transient
+   * case - it is still loading - and keeps the spinner.
    */
   if (config !== undefined && branch === null) {
     return (
       <PanelEmptyState>
-        This project has no <code>gitBranch</code> configured, and history is
-        listed per branch. Set one in <code>val.config</code> to see what has
-        been published.
+        This project has no history to show here. History is listed per branch,
+        and this deployment names none: set <code>gitBranch</code> in{" "}
+        <code>val.config</code> if it publishes to git.
       </PanelEmptyState>
     );
   }
@@ -1501,223 +1551,13 @@ function CompareView() {
     );
   }
   return (
-    <StagedCompare
+    <ComparePatchSets
       patchSets={patchSetsResult.data}
       profilesByAuthorIds={profilesByAuthorIds}
       mode={mode}
-      publishCount={publishCount}
+      canDiscard
+      reloadKey={publishCount}
     />
-  );
-}
-
-/**
- * Scope the client to this user's group, once, as soon as the server's answer
- * is known.
- *
- * At shell level rather than in the review screen, because publish must be
- * scoped whether or not that screen was ever opened — otherwise the first
- * publish of a session ships the whole pending chain. The builder tab, which
- * renders instead of the shell, calls it too: its press runs the same gate.
- *
- * The SEED runs once. After it, the scope moves on the user's own stages and
- * unstages, on this tab's writes, and on members the server has put in this
- * user's open group that this tab never decided about — a write from another
- * tab or device, adopted by the system itself whenever the annotation or the
- * group id moves (`adoptOwnGroupMembers` in `createSystem`). Nothing repairs
- * the group when patch sets coalesce — see `PatchStagingProvider` for why that
- * is the policy — so this hook has no other job.
- */
-export function usePatchGroupScope(): void {
-  const val = useValSystem();
-  const group = useCurrentPatchGroup();
-  const scoped = val?.system.patchGroup() ?? null;
-
-  useEffect(() => {
-    if (val === null || !group.enabled) return;
-    if (scoped !== null) return;
-    // `seed`, not `set`: the annotation is routinely older than the last thing
-    // the user typed, and scoping to it verbatim hides their own writes.
-    val.system.seedPatchGroup([...group.members]);
-  }, [val, group.enabled, group.members, scoped]);
-}
-
-/**
- * Make every write carry this user's patch group.
- *
- * Registered from the SHELL, not from the compare view, and that is the point:
- * writes happen while somebody is editing, which is exactly when the review
- * screen is closed. Registering it there would mean a patch joins a group only
- * if you happened to have Compare open when you typed.
- *
- * The closure is computed here because here is where both halves are visible —
- * the patch sets (which need the schema) and the group. `PatchSync` can see
- * neither, which is why it takes a resolver rather than working it out.
- */
-/**
- * Move this client's patch group, locally and on the server.
- *
- * Shared by the review screen's controls and by the automatic repair, because
- * they must do exactly the same thing: the repair is a stage the user did not
- * click, and a second implementation of "stage" is how the two come to disagree
- * about what was persisted.
- */
-function usePatchGroupChange(
-  patchGroupId: string | undefined,
-): (next: Set<PatchId>, change: PatchGroupChange) => void {
-  const val = useValSystem();
-  return useCallback(
-    (next: Set<PatchId>, change: PatchGroupChange) => {
-      if (val === null) return;
-      const current = val.system.patchGroup();
-      if (current !== null && sameMembers(current, next)) {
-        /*
-         * Nothing moved. Worth checking because this runs from a repair that
-         * fires on every recomputation of the patch-set index, from two places
-         * — the shell and the review screen — and a no-op that still sent a
-         * request would put one on the wire per keystroke batch.
-         */
-        return;
-      }
-      /*
-       * Scoped locally FIRST, so the screen answers immediately, and persisted
-       * after.
-       *
-       * If the persist fails, nothing corrects the local scope — a KNOWN GAP,
-       * spelled out where the failure is handled (`sendPatchGroupChange` in
-       * `createSystem`) and in `docs/independent-publish/DESIGN.md`.
-       */
-      val.system.setPatchGroup([...next]);
-      /*
-       * Both halves go. The server unions on stage and removes on unstage, so
-       * sending only what the user asked for would leave the group holding a
-       * suffix of a patch set — the shape the prefix invariant exists to
-       * prevent.
-       */
-      if (change.requested.length === 0 && change.alsoMoved.length === 0)
-        return;
-      /*
-       * `patchGroupId` is `undefined` in two windows the review screen is
-       * perfectly usable in: before this author's first write on a branch, and
-       * after every publish, since a publish closes the group and the next one
-       * is created by the next write. This used to return here, so a stage made
-       * in either window moved the screen and persisted nothing. It is sent
-       * with no id instead, and the content API stages it into the caller's
-       * open group, creating one if there is none.
-       */
-      val.system.persistPatchGroupChange(patchGroupId, {
-        type: change.type,
-        // What the user clicked, told apart from what moved with it: the
-        // content API stores the distinction and cannot infer it.
-        patchIds: change.requested,
-        withPatchIds: change.alsoMoved,
-      });
-    },
-    [val, patchGroupId],
-  );
-}
-
-function sameMembers(a: readonly PatchId[], b: ReadonlySet<PatchId>): boolean {
-  if (a.length !== b.size) return false;
-  for (const patchId of a) {
-    if (!b.has(patchId)) return false;
-  }
-  return true;
-}
-
-/**
- * Make every write carry this user's patch group.
- *
- * Registered from the SHELL, not from the compare view, and that is the point:
- * writes happen while somebody is editing, which is exactly when the review
- * screen is closed. Registering it there would mean a patch joins a group only
- * if you happened to have Compare open when you typed.
- *
- * The closure itself is `System.computeWriteClosure`, not something computed
- * here. It has to be: the flush runs synchronously off `patch:create`, so
- * anything derived from already-rendered patch sets is one grouping behind and
- * cannot contain the patch being saved — which made `withPatchIds` empty in
- * the normal case. The system awaits a grouping that covers the batch.
- *
- * All this hook decides is WHETHER to send a group at all.
- */
-function usePatchGroupWrites(): void {
-  const val = useValSystem();
-  const group = useCurrentPatchGroup();
-
-  useEffect(() => {
-    if (val === null) return;
-    if (!group.enabled) {
-      // No groups on this deployment. Writing with no group is what every
-      // client did before groups existed.
-      val.system.setPatchGroupResolver(undefined);
-      return;
-    }
-    /*
-     * No group id is sent, even when we know one. The server resolves this
-     * author's open group and creates it if absent, so a fresh branch
-     * bootstraps on the first write — and no stale id survives a publish to
-     * fail the next one.
-     */
-    val.system.setPatchGroupResolver(async (patchIds) => ({
-      withPatchIds: await val.system.computeWriteClosure(patchIds),
-    }));
-  }, [val, group.enabled]);
-}
-
-/**
- * Tell the system which group is this user's.
- *
- * `publish` has to tell the content API which group its commit empties, and
- * the scope needs to know whose group it follows before a stat has named the
- * user.
- */
-function usePatchGroupIdentity(): void {
-  const val = useValSystem();
-  const group = useCurrentPatchGroup();
-
-  /*
-   *
-   * Set from here because resolving "which group is mine" needs the author id
-   * and the chain annotation, and `useCurrentPatchGroup` is the one place that
-   * decision is made. The system holding a second copy of the reasoning is how
-   * the two come to disagree about whose group is being closed.
-   */
-  useEffect(() => {
-    if (val === null) return;
-    val.system.setOwnPatchGroupId(
-      group.enabled ? group.patchGroupId : undefined,
-    );
-  }, [val, group.enabled, group.patchGroupId]);
-}
-
-/**
- * The compare view, scoped to this user's patch group.
- *
- * Staging is only offered where it can do something: the provider is handed
- * `enabled: false` unless this deployment actually has groups, and there the
- * review screen renders exactly the flat list it always did.
- */
-function StagedCompare({
-  patchSets,
-  profilesByAuthorIds,
-  mode,
-  publishCount,
-}: {
-  patchSets: SerializedPatchSet;
-  profilesByAuthorIds: Record<string, Profile>;
-  mode: "fs" | "http" | "unknown";
-  publishCount: number;
-}) {
-  return (
-    <StagingScope patchSets={patchSets}>
-      <ComparePatchSets
-        patchSets={patchSets}
-        profilesByAuthorIds={profilesByAuthorIds}
-        mode={mode}
-        canDiscard
-        reloadKey={publishCount}
-      />
-    </StagingScope>
   );
 }
 
@@ -1729,7 +1569,12 @@ function StagedCompare({
  * could list a chain that is missing the last word — and this page's whole job
  * is to be the truth about what is going out.
  */
-function ReviewRoute() {
+function ReviewRoute({
+  canPublishSelected,
+}: {
+  /** On the site of a project with proposals: see `ReviewSurface`. */
+  canPublishSelected: boolean;
+}) {
   const val = useValSystem();
   useEffect(() => {
     if (val === null) return;
@@ -1744,119 +1589,36 @@ function ReviewRoute() {
    * because Restore and the History button are two doors to one page, and a
    * door that opens onto an apology should not be there.
    */
-  const reviewGitBranch = useValConfig()?.gitBranch ?? null;
+  const reviewHistoryBranch = useHistoryBranch();
   return (
     <ReviewLoader>
       {(patchSets) => (
-        <StagingScope patchSets={patchSets}>
-          <ReviewSurface
-            patchSets={patchSets}
-            /*
-             * The same test the top bar's History button uses, from the same
-             * function — see `historyEnabledFor` for why the two doors to
-             * that page cannot be allowed to answer differently.
-             */
-            onRestore={
-              historyEnabledFor({ mode, gitBranch: reviewGitBranch })
-                ? () => navigation.navigate(VAL_HISTORY_ROUTE)
-                : undefined
-            }
-            /*
-             * Only while there is something a revert could take back. Same
-             * test the shell's own Discard all uses — a committed patch is in
-             * a commit and cannot be dropped from here, so a page whose rows
-             * have all shipped would otherwise offer a button that confirms
-             * and does nothing.
-             */
-            onDiscardAll={
-              discardAll.enabled ? discardAll.discardAll : undefined
-            }
-            discardAllDescription={discardAll.description}
-            portalContainer={portalContainer}
-          />
-        </StagingScope>
+        <ReviewSurface
+          patchSets={patchSets}
+          /*
+           * The same test the top bar's History button uses, from the same
+           * function — see `historyEnabledFor` for why the two doors to
+           * that page cannot be allowed to answer differently.
+           */
+          onRestore={
+            historyEnabledFor({ mode, historyBranch: reviewHistoryBranch })
+              ? () => navigation.navigate(VAL_HISTORY_ROUTE)
+              : undefined
+          }
+          /*
+           * Only while there is something a revert could take back. Same
+           * test the shell's own Discard all uses — a committed patch is in
+           * a commit and cannot be dropped from here, so a page whose rows
+           * have all shipped would otherwise offer a button that confirms
+           * and does nothing.
+           */
+          onDiscardAll={discardAll.enabled ? discardAll.discardAll : undefined}
+          discardAllDescription={discardAll.description}
+          canPublishSelected={canPublishSelected}
+          portalContainer={portalContainer}
+        />
       )}
     </ReviewLoader>
-  );
-}
-
-/**
- * The staging provider, around whatever is reading it.
- *
- * Shared by `/val/compare` and `/val/review` because both of them ARE the
- * staging UI — one shows it per diff row, the other per patch set — and the
- * scope logic below is not a thing to have two copies of. Without this wrapper
- * `PatchStaging.enabled` is false, every row answers "staged", and the review
- * page's two sections collapse into one with no way to tell.
- */
-function StagingScope({
-  patchSets,
-  children,
-}: {
-  patchSets: SerializedPatchSet;
-  children: React.ReactNode;
-}) {
-  const val = useValSystem();
-  const group = useCurrentPatchGroup();
-  const chainOrder = useChainOrder();
-  /*
-   * Indexed over the PENDING half, the same half the page shows.
-   *
-   * `stageClosure` walks each patch set and pulls in every predecessor of
-   * whatever is staged, which is exactly right for pending work — a patch
-   * cannot ship without the ones it was built on. A shipped patch is already
-   * in a commit, so it is not a predecessor that needs bringing along; it is
-   * one the page has just promised cannot be staged or unstaged from here.
-   * Indexing the unfiltered sets let the closure reach one anyway and put it
-   * in the next group request, because a source path edited on both sides of
-   * a publish has its committed and pending patches in ONE set — which is the
-   * ordinary state of things now that a shipped patch stays in the chain
-   * until the deploy moves the base.
-   *
-   * Filtered here rather than in `ReviewLoader` because the loader feeds the
-   * surface too, and `ReviewSurface` does its own filtering for its own
-   * reasons; one more caller of the same helper is cheaper than a second
-   * definition of "pending".
-   */
-  const committedPatchIds = useCommittedPatches();
-  const pending = useMemo(
-    () => pendingPatchSets(patchSets, committedPatchIds),
-    [patchSets, committedPatchIds],
-  );
-
-  /**
-   * What this client is scoped to, which is the LOCAL truth.
-   *
-   * Two things made the annotation alone wrong as the provider's `group`.
-   * Nothing re-reads it after a stage or unstage — `PatchStore` refreshes
-   * groups only when it fetches missing patch ids — so a toggle moved the
-   * server and nothing on screen. And until the first toggle the system was
-   * never scoped at all, so `publish` shipped the whole pending chain
-   * including other authors' patches, which is the failure this feature exists
-   * to prevent.
-   *
-   * So the system holds it, `onChange` moves it, and the annotation seeds it —
-   * the seeding itself lives in `usePatchGroupScope`, at shell level, because
-   * publish must be scoped whether or not this screen was ever opened.
-   */
-  const scoped = val?.system.patchGroup() ?? null;
-  const members = useMemo(
-    () => (scoped === null ? group.members : new Set(scoped)),
-    [scoped, group.members],
-  );
-
-  const onChange = usePatchGroupChange(group.patchGroupId);
-
-  return (
-    <PatchStagingProvider
-      enabled={group.enabled}
-      patchSets={pending}
-      chainOrder={chainOrder}
-      group={members}
-      onChange={onChange}
-    >
-      {children}
-    </PatchStagingProvider>
   );
 }
 

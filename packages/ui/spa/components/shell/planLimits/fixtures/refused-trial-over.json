@@ -1,0 +1,9 @@
+{
+  "statusCode": 403,
+  "message": "website's trial has ended, so its Studio is read-only. An owner can add a card to carry on: https://admin.val.build/~/acme?section=billing",
+  "error": {
+    "code": "trial-over",
+    "fix": "add-card",
+    "billingUrl": "https://admin.val.build/~/acme?section=billing"
+  }
+}

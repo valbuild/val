@@ -2,6 +2,7 @@ import {
   FileSource,
   GalleryFileSource,
   galleryKeyOf,
+  galleryMarker,
   isRemoteMediaPath,
 } from "../source/media";
 export type { FileMetadata } from "../source/file";
@@ -264,10 +265,11 @@ export class FileSchema<Src extends FileSource | null> extends Schema<Src> {
         return {
           [path]: [
             ...customValidationErrors,
-            {
-              message: `The gallery does not have a file at '${src.path}'.`,
-              value: src,
-            },
+            galleryMarker(
+              "file",
+              src,
+              Object.keys(this.moduleMetadata)[0] ?? "",
+            ),
           ],
         } as ValidationErrors;
       }

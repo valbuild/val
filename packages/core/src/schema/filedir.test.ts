@@ -456,7 +456,7 @@ describe("FilesSchema", () => {
       expect(result).toBe(false);
     });
 
-    test("a ref the gallery does not have is a membership error", () => {
+    test("a ref the gallery as built does not have is a membership marker, for the project to answer", () => {
       const missing = REF.replace("remote.pdf", "other.pdf");
       const result = fieldOf()["executeValidate"]("path" as SourcePath, {
         path: missing,
@@ -465,7 +465,12 @@ describe("FilesSchema", () => {
         path: [
           {
             message: `The gallery does not have a file at '${missing}'.`,
-            value: { path: missing },
+            value: {
+              path: missing,
+              gallery: "/content/files.val.ts",
+              source: { path: missing },
+            },
+            fixes: ["file:check-gallery"],
           },
         ],
       });

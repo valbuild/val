@@ -1,0 +1,47 @@
+{
+  "plan": "hosted",
+  "changes": null,
+  "refused": {},
+  "trial": {
+    "status": "running-with-card",
+    "daysLeft": 9,
+    "endsAt": "2026-10-18T12:00:00.000Z"
+  },
+  "usage": {
+    "meters": [
+      {
+        "meter": "siteRequests",
+        "used": 0,
+        "included": 1000000,
+        "share": 0
+      },
+      {
+        "meter": "renderMs",
+        "used": 0,
+        "included": 20000000,
+        "share": 0
+      },
+      {
+        "meter": "filesStored",
+        "used": 0,
+        "included": 10000000000,
+        "share": 0
+      },
+      {
+        "meter": "fileReads",
+        "used": 0,
+        "included": 2000000,
+        "share": 0
+      },
+      {
+        "meter": "fileUploads",
+        "used": 0,
+        "included": 50000,
+        "share": 0
+      }
+    ],
+    "warn": [],
+    "out": [],
+    "resetsAt": "2026-11-01T00:00:00.000Z"
+  }
+}

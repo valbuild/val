@@ -44,6 +44,16 @@ export type HandoffState =
   /** The browser refused to open the tab. The changes are kept. */
   | { kind: "blocked" }
   /**
+   * This page publishing by itself: one of content alone, which needs no
+   * build, so no tab was opened for it. See `ownPublishCard`.
+   */
+  | { kind: "publishing" }
+  /**
+   * This page's publish turned out to need a build after all: a tab has to
+   * build it, and only a tap may open one.
+   */
+  | { kind: "needs-builder" }
+  /**
    * `message` is the sentence; `details` the technical text, folded away.
    * `studioCannotHelp`: the Studio would fail the same way -- the browser
    * refused what any tab needs -- so the card offers no way there.
@@ -75,6 +85,7 @@ export function PublishHandoffCard({
   onShowTab,
   onReload,
   onOpenStudio,
+  onBuildInTab,
   onDismiss,
   className,
 }: {
@@ -82,6 +93,8 @@ export function PublishHandoffCard({
   onShowTab?: () => void;
   onReload?: () => void;
   onOpenStudio?: () => void;
+  /** For `needs-builder`: open the builder tab, in the tap. */
+  onBuildInTab?: () => void;
   onDismiss?: () => void;
   className?: string;
 }) {
@@ -116,6 +129,15 @@ export function PublishHandoffCard({
                 icon={<RotateCw size={12} />}
               >
                 Reload to see it
+              </CardButton>
+            )}
+            {state.kind === "needs-builder" && onBuildInTab && (
+              <CardButton
+                onClick={onBuildInTab}
+                primary
+                icon={<ExternalLink size={12} />}
+              >
+                Build in a new tab
               </CardButton>
             )}
             {(state.kind === "blocked" ||
@@ -153,7 +175,10 @@ function HandoffIcon({ state }: { state: HandoffState }) {
     case "opening":
     case "running":
     case "checking":
+    case "publishing":
       return <Loader2 size={16} className="animate-spin text-fg-secondary" />;
+    case "needs-builder":
+      return <AlertTriangle size={16} className="text-fg-secondary" />;
     case "live":
       return <CheckCircle2 size={16} className="text-fg-brand-primary" />;
     case "blocked":
@@ -175,6 +200,10 @@ function handoffTitle(state: HandoffState): string {
       return `Live after ${seconds(state.ms)}`;
     case "blocked":
       return "Publishing needs the Studio";
+    case "publishing":
+      return "Publishing";
+    case "needs-builder":
+      return "This publish needs a build";
     case "failed":
       return "Not published";
   }
@@ -192,6 +221,10 @@ function handoffBody(state: HandoffState): string {
       return "Your change is on the site. This page still shows the version it loaded with.";
     case "blocked":
       return "Your browser blocked the Studio tab that builds the site. Your changes are kept and nothing is lost.";
+    case "publishing":
+      return "Putting your change live. You can keep working here.";
+    case "needs-builder":
+      return "It changes something the live site cannot show without one, and the build runs in a Studio tab. Your changes are kept.";
     case "failed":
       return state.message;
   }

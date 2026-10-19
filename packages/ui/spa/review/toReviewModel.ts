@@ -1,7 +1,6 @@
-import type { ModuleFilePath, PatchId, SourcePath } from "@valbuild/core";
+import type { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { Internal } from "@valbuild/core";
 import type { Profile } from "../components/ValProvider";
-import type { RowStagingState } from "../components/PatchStagingProvider";
 import type { SerializedPatchSet, PatchSetMetadata } from "../utils/PatchSets";
 import type { CompareAuthorship } from "../compare/types";
 import type { Description } from "../utils/describePath";
@@ -16,8 +15,8 @@ import type { ReviewModel, ReviewModuleGroup, ReviewRow } from "./types";
  * Pure, and split from the hook that feeds it for the reason `shellDataMapping`
  * gives: importing the hook pulls in `ValProvider`, which pulls in the
  * validation worker, which jest cannot load. This is also the half that can be
- * wrong in a way the types will not catch — the grouping, the summaries, whose
- * work a stage would drag in — so it is the half worth testing.
+ * wrong in a way the types will not catch — the grouping, the summaries — so
+ * it is the half worth testing.
  *
  * Everything that needs a store is passed in as a function. `describe` is the
  * one that costs something: a `Description` needs a schema, a source and a
@@ -29,14 +28,6 @@ export type ReviewModelInput = {
   profiles: Record<string, Profile>;
   mode: "fs" | "http" | "unknown";
   currentAuthorId: string | null;
-  stagingEnabled: boolean;
-  /** What half of the publish this patch set is in. */
-  stateOf: (patchIds: readonly PatchId[]) => RowStagingState;
-  /** What staging these would additionally pull in — the prefix invariant. */
-  stagePreview: (patchIds: readonly PatchId[]) => PatchId[];
-  /** What REVERTING these would push out of the publish — the same invariant. */
-  unstagePreview: (patchIds: readonly PatchId[]) => PatchId[];
-  authorOf: (patchId: PatchId) => string | null;
   /**
    * Whether this module's keys are URLs of the site.
    *
@@ -94,7 +85,6 @@ export function toReviewModel(input: ReviewModelInput): ReviewModel {
   }
   return {
     modules: [...groups.values()],
-    stagingEnabled: input.stagingEnabled,
     profiles: input.profiles,
     mode: input.mode,
     currentAuthorId: input.currentAuthorId,
@@ -128,11 +118,9 @@ function toRow(
    *
    * A patch carrying two ops at the same path lands in `patches` twice, so a
    * plain map gives the same id twice — which reads out as "2 edits" for one
-   * edit, and hands every id twice to `stateOf`, `stagePreview` and the
-   * discard. The set is the unit staging moves; the op is not.
+   * edit. The set is the unit a selection picks; the op is not.
    */
-  const patchIds = [...new Set(patchSet.patches.map((patch) => patch.patchId))];
-  const staging = input.stagingEnabled ? input.stateOf(patchIds) : "staged";
+  const patchIds = new Set(patchSet.patches.map((patch) => patch.patchId));
   return {
     id: reviewRowId(patchSet),
     description: input.describe(reviewSourcePath(patchSet)),
@@ -140,11 +128,7 @@ function toRow(
     summary: summaryOf(patchSet),
     authors: authorshipOf(patchSet),
     lastUpdated: patchSet.lastUpdated,
-    patchCount: patchIds.length,
-    staging,
-    ...(staging === "unstaged"
-      ? { alsoStages: namesOf(input.stagePreview(patchIds), input) }
-      : { alsoUnstages: namesOf(input.unstagePreview(patchIds), input) }),
+    patchCount: patchIds.size,
   };
 }
 
@@ -247,31 +231,4 @@ function authorshipOf(patchSet: PatchSetMetadata): CompareAuthorship {
     });
   }
   return authorship;
-}
-
-/**
- * Whose work a staging move would carry with it, by name.
- *
- * One function for both directions, because the argument is the same one: the
- * prefix invariant says a later patch set cannot publish without its
- * predecessors, so ticking a row can drag somebody else's work INTO the
- * publish and reverting one can push somebody else's OUT. Named rather than
- * counted, because "also moves 2 changes" does not tell you whose — and it is
- * the names that make it a decision rather than a surprise.
- *
- * This person's own work is left out of both. It is already theirs to publish
- * or to drop, and listing it reads as a warning about nothing.
- */
-function namesOf(
-  movedPatchIds: readonly PatchId[],
-  input: ReviewModelInput,
-): string[] | undefined {
-  const names: string[] = [];
-  for (const patchId of movedPatchIds) {
-    const authorId = input.authorOf(patchId);
-    if (authorId === null || authorId === input.currentAuthorId) continue;
-    const name = input.profiles[authorId]?.fullName ?? authorId;
-    if (!names.includes(name)) names.push(name);
-  }
-  return names.length > 0 ? names : undefined;
 }

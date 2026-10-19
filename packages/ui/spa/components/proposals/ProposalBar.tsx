@@ -1,5 +1,7 @@
 import {
   AlertTriangle,
+  ExternalLink,
+  Hammer,
   GitCompare,
   Link2,
   Loader2,
@@ -31,26 +33,44 @@ type InProposal = Extract<StudioLocation, { kind: "proposal" }>;
 export function ProposalSaveButton({
   location,
   onSave,
+  blockedBy,
   className,
 }: {
   location: InProposal;
   onSave: () => void;
+  /**
+   * Validation errors a save would be refused for. With unsaved changes the
+   * button is "Fix N" and goes to them, as the site's Publish is -- pressing
+   * Save only to be told the content is invalid was the alternative.
+   */
+  blockedBy?: { errors: number; onShow: () => void };
   className?: string;
 }) {
   const saving = location.save.state === "saving";
   const failed = location.save.state === "failed" ? location.save : null;
+  const blocked =
+    !saving &&
+    location.unsaved > 0 &&
+    blockedBy !== undefined &&
+    blockedBy.errors > 0
+      ? blockedBy
+      : null;
   const canSave = location.unsaved > 0 && !saving;
   return (
     <button
       type="button"
-      onClick={onSave}
+      onClick={blocked !== null ? blocked.onShow : onSave}
       disabled={!canSave}
       title={
-        failed !== null ? `${failed.error}. Press to try again.` : undefined
+        blocked !== null
+          ? `${blocked.errors} validation ${blocked.errors === 1 ? "error" : "errors"} to fix before saving. Press to see ${blocked.errors === 1 ? "it" : "them"}.`
+          : failed !== null
+            ? `${failed.error}. Press to try again.`
+            : undefined
       }
       className={cn(
         "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium",
-        failed !== null
+        failed !== null || blocked !== null
           ? "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover"
           : "bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover",
         "disabled:bg-bg-disabled disabled:text-fg-disabled",
@@ -59,17 +79,91 @@ export function ProposalSaveButton({
     >
       {saving ? (
         <Loader2 size={14} className="shrink-0 animate-spin" />
-      ) : failed !== null ? (
+      ) : failed !== null || blocked !== null ? (
         <AlertTriangle size={14} className="shrink-0" />
       ) : (
         <Save size={14} className="shrink-0" />
       )}
       <span className="truncate">
-        {saving ? "Saving…" : failed !== null ? "Save failed" : "Save"}
+        {saving
+          ? "Saving…"
+          : blocked !== null
+            ? `Fix ${blocked.errors > 9 ? "9+" : blocked.errors}`
+            : failed !== null
+              ? "Save failed"
+              : "Save"}
       </span>
-      {!saving && failed === null && location.unsaved > 0 && (
-        <span className="tabular-nums opacity-80">{location.unsaved}</span>
+      {!saving &&
+        failed === null &&
+        blocked === null &&
+        location.unsaved > 0 && (
+          <span className="tabular-nums opacity-80">{location.unsaved}</span>
+        )}
+    </button>
+  );
+}
+
+/**
+ * Build, in a proposal with staged files: what makes its address show them
+ * (valbuild/home `docs/hosted-publishing.md`, step 7). Shown only while there
+ * is something to build -- "Build required" is the button itself -- and a
+ * failed build says so on it, with the reason, and builds again when pressed.
+ */
+export function ProposalBuildButton({
+  location,
+  onBuild,
+  className,
+}: {
+  location: InProposal;
+  onBuild: () => void;
+  className?: string;
+}) {
+  const code = location.code;
+  if (code === null) return null;
+  const building = code.state === "building";
+  const blocked = code.state === "blocked";
+  const failed = code.state === "failed" ? code : null;
+  return (
+    <button
+      type="button"
+      onClick={onBuild}
+      disabled={building}
+      title={
+        failed !== null
+          ? `The build failed: ${failed.error}. Press to build again.`
+          : building
+            ? "Building the proposal's code, so its preview shows it."
+            : blocked
+              ? "This browser builds the proposal in a new tab, and did not let it open. Press to open it."
+              : "Code has changed in this proposal. Build it so the preview shows the change."
+      }
+      className={cn(
+        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium",
+        failed !== null
+          ? "border-transparent bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover"
+          : "border-border-proposal text-fg-primary hover:bg-bg-proposal-soft",
+        "disabled:text-fg-disabled",
+        className,
       )}
+    >
+      {building ? (
+        <Loader2 size={14} className="shrink-0 animate-spin" />
+      ) : failed !== null ? (
+        <AlertTriangle size={14} className="shrink-0" />
+      ) : blocked ? (
+        <ExternalLink size={14} className="shrink-0" />
+      ) : (
+        <Hammer size={14} className="shrink-0" />
+      )}
+      <span className="truncate">
+        {building
+          ? "Building…"
+          : failed !== null
+            ? "Build failed"
+            : blocked
+              ? "Open the tab to build"
+              : "Build required"}
+      </span>
     </button>
   );
 }

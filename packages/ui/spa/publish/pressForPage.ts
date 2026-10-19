@@ -48,7 +48,10 @@ export const CHANGE_TIMEOUT_MS = 5 * 60_000;
 export const PRESS_RETRY_MS: readonly number[] = [1_000, 3_000, 9_000];
 
 /** The intents a tab presses for: everything but an update. */
-export type PressIntent = Exclude<HandoffIntent, { kind: "update" }>;
+export type PressIntent = Exclude<
+  HandoffIntent,
+  { kind: "update" } | { kind: "build-proposal" }
+>;
 /** How often a queued press asks for its job. */
 export const QUEUED_EVERY_MS = 3_000;
 
@@ -102,28 +105,41 @@ type ChainOf = {
  * The newest change a page has not published, or `null`: what a builder tab
  * must see on the server before it presses (see `HandoffIntent`). Saved or
  * not -- one made just before the tap usually is not.
- *
- * Of the editor's own patch group, where the project has groups (`scope`,
- * `system.patchGroup()`): that is what the press publishes. Another editor's
- * saved change after this one's unsaved edit would otherwise be the one
- * named, already on the server, and the tab would press without the edit.
- * `null` scope: the whole chain.
  */
-export function newestUnpublished(
-  store: ChainOf,
-  scope: readonly string[] | null,
-): string | null {
-  const inScope = scope === null ? null : new Set(scope);
-  const ids = store
-    .allRecords()
-    .map((record) => record.patchId)
-    .filter((patchId) => inScope === null || inScope.has(patchId));
+export function newestUnpublished(store: ChainOf): string | null {
+  const ids = store.allRecords().map((record) => record.patchId);
   const pending = store.pendingAmong(ids);
   for (let i = ids.length - 1; i >= 0; i--) {
     const id = ids[i];
     if (id !== undefined && pending.has(id)) return id;
   }
   return null;
+}
+
+/**
+ * Whether publishing what the page has not published needs a build: one of
+ * its changes adds or removes a file kept in the project. A page that cannot
+ * build has to open a builder tab in the tap, before anything else knows, and
+ * only then -- text, and files kept remotely, go live on the build already
+ * there (valbuild/home `docs/hosted-publishing.md`, a content-only publish),
+ * and a tab for them opened, did nothing, and closed. The server decides; this
+ * is the page's guess at it, and a publish the server builds after all is
+ * handed to a tab then, at one more tap.
+ */
+export function pendingNeedsBuild(store: {
+  allRecords(): readonly {
+    patchId: string;
+    patch: readonly { op: string; remote?: boolean }[];
+  }[];
+  pendingAmong(patchIds: Iterable<string>): Set<string>;
+}): boolean {
+  const records = store.allRecords();
+  const pending = store.pendingAmong(records.map((record) => record.patchId));
+  return records.some(
+    (record) =>
+      pending.has(record.patchId) &&
+      record.patch.some((op) => op.op === "file" && op.remote !== true),
+  );
 }
 
 /** Where the server says a change is: see `PatchStore.serverStateOf`. */

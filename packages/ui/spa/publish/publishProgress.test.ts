@@ -142,6 +142,19 @@ test("a job CI builds is building after the hand-off, not being checked", () => 
   });
 });
 
+test("a job that goes live without a build is being checked after the hand-off, not building", () => {
+  const view = publishProgress(
+    idle,
+    jobs({ kind: "publishing" }, { handedOffAt: 5_000, builtBy: "none" }),
+    6_000,
+  );
+  expect(view).toMatchObject({
+    status: "running",
+    phase: { kind: "verifying" },
+    phaseStartedAt: 5_000,
+  });
+});
+
 test("a job built in this tab never goes backwards, from the press to Live", () => {
   const publishing: PublishRequestStatus = { kind: "publishing" };
   const runningDeploy = (phase: DeployPhase): StudioDeployState => ({

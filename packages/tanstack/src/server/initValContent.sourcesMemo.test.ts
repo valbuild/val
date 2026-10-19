@@ -151,9 +151,8 @@ describe("fetchVal draft sources are read once per request", () => {
   });
 
   test("a SECOND request reads again — the memo never outlives one", async () => {
-    // The memoised body carries the caller's own unpublished patches
-    // (`own_patch_groups_only`), so a memo shared between requests would show
-    // one author's staged edit to the next visitor.
+    // The memoised body is a draft, read with the caller's session: a memo
+    // shared between requests would hand it to the next visitor unasked.
     const { server, calls } = fakeValServer();
 
     await readerFor(server, oneRequestScope(), "session-alice")(greeting);
@@ -180,9 +179,7 @@ describe("fetchVal draft sources are read once per request", () => {
   });
 
   test("the one call keeps the draft query semantics", async () => {
-    // Each of these was decided for a reason recorded beside it in the reader;
-    // `own_patch_groups_only` in particular is what keeps one author's
-    // unpublished work out of another's preview.
+    // Each of these was decided for a reason recorded beside it in the reader.
     const { server, calls } = fakeValServer();
     await readerFor(server, oneRequestScope())(greeting);
 
@@ -193,8 +190,6 @@ describe("fetchVal draft sources are read once per request", () => {
       validate_binary_files: false,
       exclude_patches: false,
       apply_patches: undefined,
-      patch_id: undefined,
-      own_patch_groups_only: true,
     });
     expect(calls[0].session).toBe("session-alice");
   });

@@ -17,7 +17,7 @@ type Versions = {
   };
 };
 import type { ValPatchStore } from "./ValOpsMemory";
-import type { ValProposal } from "./proposal";
+import type { ValContentVersion, ValProposal } from "./proposal";
 import type { CommitContext, CommitResult } from "./ValServer";
 
 export type ValApiOptions = ValServerOverrides & ValConfig & Versions;
@@ -174,6 +174,14 @@ type ValServerOverrides = Partial<{
    * and the snapshot that replaces the bundle's Source for what it saved.
    */
   proposal?: ValProposal;
+  /**
+   * The content version the site serves, when a platform says it differs from
+   * the one this build bundles (`VAL_CONTENT`; read it with `contentFromEnv`).
+   * See {@link ValContentVersion}: its Source replaces the bundle's for what
+   * it holds, and its publish is this server's position. Ignored at a
+   * proposal's address.
+   */
+  contentVersion?: ValContentVersion;
   /**
    * The base url of Val.
    *
@@ -608,7 +616,17 @@ export function createValApiRouter<Res>(
           },
         };
       }
+      const resDef = apiEndpoint.res;
       if (res.status === 500) {
+        /*
+         * A failure the route declares goes out as declared, as a success
+         * does below. DELETE /patches says which change was not discarded and
+         * which publish holds it, and collapsed to its message the Studio
+         * could only say "Failed to delete patches" -- not why, nor offer to
+         * cancel that publish. Anything undeclared is still reduced to its
+         * message.
+         */
+        if (resDef?.safeParse(res).success) return res;
         return {
           status: 500,
           json: {
@@ -616,7 +634,6 @@ export function createValApiRouter<Res>(
           },
         };
       }
-      const resDef = apiEndpoint.res;
       if (resDef) {
         const responseResult = resDef.safeParse(res);
         if (!responseResult.success) {

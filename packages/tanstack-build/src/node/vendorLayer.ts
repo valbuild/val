@@ -23,9 +23,10 @@ import { build } from "rolldown";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import type { BuildTarget } from "../contract";
 import { nodeShims } from "./nodeShims";
+import { ASSET_BASE } from "../assets";
 import { parseAstAsync } from "rolldown/parseAst";
 
 /**
@@ -130,10 +131,136 @@ export interface VendorPlatform {
    * not built them.
    *
    * Only the export audit reads it, and only to check a named import against
-   * the chunk it will link to. Null means that check is skipped, which is the
-   * honest answer rather than a refusal -- see `baseChunkExports`.
+   * the chunk it will link to. Null means the audit reads what the platform
+   * said instead (`base.exports`), and skips a chunk the platform said nothing
+   * about, which is the honest answer rather than a refusal -- see
+   * `baseChunkExports`.
    */
   baseLayerDir: string | null;
+}
+
+/** A pinned package, bundled into the layer at a version the base set is not. */
+export interface PinSkew {
+  name: string;
+  /** What the base set was built from: `BuildTarget.base.pins`. */
+  pinned: string;
+  /** What the project's own install resolved, and the layer would carry. */
+  found: string;
+}
+
+/**
+ * A layer that would carry a pinned package at another version.
+ *
+ * Its own class because it is the one failure `buildVendorLayer` must NOT
+ * absorb. Every other build error drops the dependency that caused it and
+ * carries on (see `skipped`), which is right for a Vite plugin nobody imports
+ * and wrong here: dropping `@valbuild/tanstack` because its TanStack disagrees
+ * with the platform's turns "your lockfile is out of step" into "this import
+ * is not available", which names the wrong thing to fix.
+ */
+export class PinSkewError extends Error {
+  readonly skew: Array<PinSkew>;
+  constructor(skew: Array<PinSkew>, baseRev: string) {
+    // One entry per pinned package: a package bundled at two versions is two
+    // skews, and the same pin twice.
+    const pinned = [...new Map(skew.map((s) => [s.name, s.pinned])).entries()];
+    super(
+      `The project's install resolves ${skew
+        .map((s) => `${s.name} ${s.found}`)
+        .join(", ")}, but the base layer it builds against (${baseRev}) is ` +
+        `built from ${pinned.map(([name, version]) => `${name} ${version}`).join(", ")}. ` +
+        `These are shipped in lockstep with the base layer, and a copy at ` +
+        `another version links against the base layer's at runtime -- which ` +
+        `fails only when something first imports it, as "does not provide an ` +
+        `export named ...". Pin ${skew.length === 1 ? "it" : "them"} to the ` +
+        `base layer's version (in package.json, or with pnpm.overrides for a ` +
+        `transitive dependency) and reinstall.`,
+    );
+    this.name = "PinSkewError";
+    this.skew = skew;
+  }
+}
+
+/**
+ * The package a bundled module belongs to: the nearest package.json above it
+ * that has both a name and a version.
+ *
+ * Both, because packages ship nested package.json files that only set
+ * `"type"` -- `dist/esm/package.json` -- and the version is the point.
+ * Memoised per directory: a layer bundles thousands of modules from a few
+ * dozen packages.
+ */
+async function owningPackage(
+  id: string,
+  cache: Map<string, { name: string; version: string } | null>,
+): Promise<{ name: string; version: string } | null> {
+  const visited: Array<string> = [];
+  let dir = dirname(id);
+  let found: { name: string; version: string } | null = null;
+  for (;;) {
+    const cached = cache.get(dir);
+    if (cached !== undefined) {
+      found = cached;
+      break;
+    }
+    visited.push(dir);
+    const manifest = await readFile(join(dir, "package.json"), "utf8")
+      .then((text): unknown => JSON.parse(text))
+      .catch(() => null);
+    if (
+      typeof manifest === "object" &&
+      manifest !== null &&
+      "name" in manifest &&
+      "version" in manifest &&
+      typeof manifest.name === "string" &&
+      typeof manifest.version === "string"
+    ) {
+      found = { name: manifest.name, version: manifest.version };
+      break;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  for (const each of visited) cache.set(each, found);
+  return found;
+}
+
+/**
+ * Every pinned package the layer bundled at a version other than the pin.
+ *
+ * Read off the modules rolldown actually put in the chunks, rather than off
+ * the lockfile or the manifest: those say what a project ASKED for, and only
+ * the bundle says which copy a specifier resolved to from wherever it was
+ * imported -- `start-server-core` is never a project's direct dependency, and
+ * it is the package that caused the incident this exists for.
+ */
+async function pinSkewOf(
+  moduleIds: Iterable<string>,
+  pins: Record<string, string>,
+  cache: Map<string, { name: string; version: string } | null>,
+): Promise<Array<PinSkew>> {
+  const found = new Map<string, Set<string>>();
+  for (const id of moduleIds) {
+    // `\0`-prefixed virtual modules and the shims have no package.
+    if (!isAbsolute(id)) continue;
+    const owner = await owningPackage(id, cache);
+    if (!owner) continue;
+    const pinned = pins[owner.name];
+    if (pinned === undefined || owner.version === pinned) continue;
+    const versions = found.get(owner.name) ?? new Set<string>();
+    versions.add(owner.version);
+    found.set(owner.name, versions);
+  }
+  return [...found.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .flatMap(([name, versions]) =>
+      [...versions].sort().map((version) => ({
+        name,
+        pinned: pins[name]!,
+        found: version,
+      })),
+    );
 }
 
 /**
@@ -262,6 +389,8 @@ async function buildTargets(
     browser: {},
   };
   const digest = createHash("sha256");
+  /** Directory -> the package it belongs to, for the pin check. */
+  const packages = new Map<string, { name: string; version: string } | null>();
 
   for (const target of targetsFor(platform)) {
     const forTarget = Array.isArray(names) ? names : names[target.name];
@@ -290,7 +419,7 @@ async function buildTargets(
     // Node what each builtin exports, which is async, and a plugin's own hooks
     // have to stay synchronous.
     const shims = await nodeShims(target.name === "worker");
-    await build({
+    const result = await build({
       input: Object.fromEntries(forTarget.map((name) => [name, input[name]!])),
       platform: target.platform,
       plugins: [
@@ -400,6 +529,20 @@ async function buildTargets(
         handler(level, log);
       },
     });
+
+    // Before the import audit, which would otherwise report the same skew as
+    // a missing export -- true, and one step removed from the cause.
+    const pins = platform.base.pins;
+    if (pins) {
+      const skew = await pinSkewOf(
+        result.output.flatMap((item) =>
+          item.type === "chunk" ? item.moduleIds : [],
+        ),
+        pins,
+        packages,
+      );
+      if (skew.length) throw new PinSkewError(skew, platform.base.rev);
+    }
 
     for (const file of (await readdir(dir)).sort()) {
       const code = await readFile(join(dir, file), "utf8");
@@ -785,6 +928,13 @@ export async function auditableSpecifiers(
  * built, or the chunk re-exports from somewhere this does not follow. A check
  * that cannot be made has to say so rather than report an empty set, which
  * would fail every import into that chunk.
+ *
+ * Read from the built chunks when this checkout has them, and otherwise from
+ * what the platform SAID they export (`BuildTarget.base.exports`). The second
+ * is every build that is not the platform's own -- a project's CI publishing
+ * with `val publish` above all -- which is where the audit used to be skipped
+ * outright, and where a project's lockfile is least likely to agree with the
+ * platform's.
  */
 async function baseChunkExports(
   target: Target,
@@ -792,7 +942,15 @@ async function baseChunkExports(
   platform: VendorPlatform,
 ): Promise<Set<string> | null> {
   const dist = platform.baseLayerDir;
-  if (!dist) return null;
+  if (!dist) {
+    const chunk = specifier.slice(target.baseFrom.length).replace(/\.js$/, "");
+    const chunks = platform.base.exports?.[target.name];
+    // Own keys only: a chunk named like an Object.prototype member must not
+    // read back a function.
+    const listed =
+      chunks && Object.hasOwn(chunks, chunk) ? chunks[chunk] : undefined;
+    return listed ? new Set(listed) : null;
+  }
   const file = join(
     dist,
     target.name,
@@ -911,10 +1069,40 @@ async function auditBaseExports(
   );
 }
 
-/** Bare specifiers that point at a stylesheet rather than a module. */
+/**
+ * A stylesheet's bare `@import`s -- `@import "@fontsource-variable/inter";` --
+ * which name a package's stylesheet whether or not they end in `.css`.
+ *
+ * Not `tailwindcss`, which Tailwind resolves from its own inlined sheets, and
+ * not a URL. Comments are stripped first, so an `@import` in a comment does not
+ * pull a package in.
+ */
+function cssImportSpecifiersOf(css: string) {
+  const found: Array<string> = [];
+  const code = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const match of code.matchAll(
+    /@import\s+(?:url\(\s*)?(["'])([^"']+)\1/g,
+  )) {
+    const specifier = match[2]!;
+    if (/^[./]/.test(specifier)) continue;
+    if (/^tailwindcss(\/|$)/.test(specifier)) continue;
+    if (/^([a-z]+:)?\/\//i.test(specifier)) continue;
+    found.push(specifier);
+  }
+  return found;
+}
+
+/**
+ * Bare specifiers that point at a stylesheet rather than a module: a `.css`
+ * file a module imports, or anything a stylesheet `@import`s.
+ */
 export function cssSpecifiersOf(files: Record<string, string>) {
   const found = new Set<string>();
   for (const [path, code] of Object.entries(files)) {
+    if (/\.css$/.test(path)) {
+      for (const specifier of cssImportSpecifiersOf(code)) found.add(specifier);
+      continue;
+    }
     if (!/\.(tsx?|jsx?|mjs|cjs)$/.test(path)) continue;
     for (const match of code.matchAll(
       /(?:from|import)\s*["']([^"'.][^"']*\.css)["']/g,
@@ -990,6 +1178,14 @@ export function layerDepsOf(
     }
     specifiers.add(specifier);
   }
+  // A package a STYLESHEET imports -- a font, typically -- is a stylesheet
+  // and its files, with no JS entry to build. Left in, it is built as code,
+  // fails, and is reported as skipped on every publish.
+  for (const specifier of cssSpecifiersOf(files)) {
+    const pkg = packageOf(specifier);
+    if (declared.has(pkg) && ![...specifiers].some((s) => packageOf(s) === pkg))
+      cssOnly.add(pkg);
+  }
 
   // A declared dependency nothing imports still gets an entry, so that a
   // project can add one and import it from the studio without a CI round-trip.
@@ -1031,20 +1227,89 @@ const STUB_DIR = ".platform-vendor-stubs";
 export async function collectDependencyCss(
   dir: string,
   specifiers: Array<string>,
+  /**
+   * Where the files a stylesheet points at with `url(...)` go, base64, keyed
+   * by the content-addressed name the rewritten `url()` now uses. Pass it to
+   * the build as `dependencyAssets`, which publishes them under `/_app/a/`.
+   *
+   * Without it the stylesheets are carried as they are, and a relative `url()`
+   * in one -- every font package's -- points at nothing once it is served.
+   */
+  assets?: Record<string, string>,
 ) {
   if (specifiers.length === 0) return {};
   const require = createRequire(join(resolve(dir), "package.json"));
 
   const css: Record<string, string> = {};
   for (const specifier of specifiers) {
+    let file: string;
     try {
-      css[specifier] = await readFile(require.resolve(specifier), "utf8");
+      file = require.resolve(specifier);
     } catch {
       // Left out rather than fatal: the builder reports the unresolved import
       // itself, naming the specifier, which is the better error.
+      continue;
     }
+    if (!file.endsWith(".css")) continue;
+    css[specifier] = await readDependencyStylesheet(file, assets, new Set());
   }
   return css;
+}
+
+/** `url(...)` with a relative target, quoted or not. */
+const RELATIVE_URL = /url\(\s*(["']?)(?![a-z]+:|\/|#)([^"')]+)\1\s*\)/gi;
+
+/**
+ * A dependency's stylesheet, made self-contained.
+ *
+ * Its own relative `@import`s are inlined -- they point into the package, which
+ * the browser build will never see -- and, given `assets`, every relative
+ * `url()` is read, published as a content-addressed asset and pointed at it.
+ * Names follow `resolveAsset`'s: the first 16 hex of the base64's SHA-256, and
+ * the file's own extension.
+ */
+async function readDependencyStylesheet(
+  file: string,
+  assets: Record<string, string> | undefined,
+  seen: Set<string>,
+): Promise<string> {
+  seen.add(file);
+  const base = dirname(file);
+  let css = await readFile(file, "utf8");
+
+  const imports = [
+    ...css.matchAll(/@import\s+(?:url\(\s*)?(["'])(\.{1,2}\/[^"']+)\1[^;]*;/g),
+  ];
+  for (const match of imports) {
+    const target = join(base, match[2]!);
+    const inlined = seen.has(target)
+      ? ""
+      : await readDependencyStylesheet(target, assets, seen).catch(() => null);
+    // A missing file stays an import, so the builder names it.
+    if (inlined !== null) css = css.replace(match[0], inlined);
+  }
+
+  if (!assets) return css;
+  const rewrites = new Map<string, string>();
+  for (const match of css.matchAll(RELATIVE_URL)) {
+    const reference = match[2]!.trim();
+    if (rewrites.has(reference)) continue;
+    const path = join(base, reference.split(/[?#]/)[0]!);
+    let base64: string;
+    try {
+      base64 = (await readFile(path)).toString("base64");
+    } catch {
+      continue; // left as written: a 404 in the browser, and no worse than before
+    }
+    const hash = createHash("sha256").update(base64).digest("hex").slice(0, 16);
+    const name = `${hash}${extname(path).toLowerCase()}`;
+    assets[name] = base64;
+    rewrites.set(reference, `${ASSET_BASE}${name}`);
+  }
+  return css.replace(RELATIVE_URL, (whole, _quote, reference: string) => {
+    const url = rewrites.get(reference.trim());
+    return url ? `url(${url})` : whole;
+  });
 }
 
 export async function buildVendorLayer(
@@ -1129,7 +1394,10 @@ export async function buildVendorLayer(
       join(stubs, "out"),
       false,
       platform,
-    ).catch(() => null);
+    ).catch((error: unknown) => {
+      if (error instanceof PinSkewError) throw error;
+      return null;
+    });
 
     if (!built) {
       usable = [];
@@ -1158,6 +1426,8 @@ export async function buildVendorLayer(
             );
             worked[target.name] = true;
           } catch (error) {
+            // Not a reason to drop this dependency: see PinSkewError.
+            if (error instanceof PinSkewError) throw error;
             worked[target.name] = false;
             reasons.push(firstLine(String((error as Error)?.message ?? error)));
           }

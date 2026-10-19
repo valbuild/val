@@ -597,7 +597,8 @@ Two things follow, and they are the ones that get forgotten:
 The showcase covers, as of writing: every `s.*` factory except `s.union`
 (deprecated); `describe` / `preview` / `render` (on an array) /
 `validate` / `nullable` / `readonly` / `hidden`; `minLength` / `maxLength` /
-`min` / `max` / `regexp` / `multiline` on strings and numbers, `from` / `to` on
+`min` / `max` / `regexp` / `multiline` on strings and numbers, `s.int()` with
+`step` and `render({ as: "slider" })` (and a slider on `s.number()`), `from` / `to` on
 dates, `include` / `exclude` on routes; `s.record(key, item)` and the
 three-argument `s.router(router, key, item)` so a KEY can carry its own
 description; `s.router(router, params, item)` with a schema per route
@@ -698,11 +699,13 @@ Four things in there are load-bearing, and the first three were got wrong first:
    that was about to put them there. `savePatch`'s `uploadFiles` hook returns
    where it put them, and that merges over `fileLastUpdatedByPatchId`.
 2. **A gallery-backed field's gallery entry is written first.** `s.image(gallery)`
-   validates that the gallery HAS the path, so the field cannot go first. It
-   still reports one unresolved error afterwards, because the schema's copy of
-   the gallery is snapshotted at module evaluation and shows the _published_
-   gallery — that resolves when both patches publish, so it is reported rather
-   than refused.
+   validates that the gallery HAS the path, so the field cannot go first. The
+   schema's copy of the gallery is snapshotted at module evaluation, so a path
+   it does not have is an `image:check-gallery` marker (`file:` and `video:`
+   alike), one of `SCHEMA_SOURCE_FIXES`: it is answered against the gallery's
+   CURRENT Source, where the entry just written is. Without that, a picked
+   image uploaded since the build -- pending, saved in a proposal, or published
+   content-only, which never rebuilds -- could never be saved.
 3. **A remote ref's validation hash is computed from a schema that has to
    match what the validator will resolve.** For a gallery entry that is a
    SYNTHESIZED `SerializedImageSchema` carrying the record's `accept` and
@@ -1149,7 +1152,11 @@ version is on npm:
 1. Ask the user whether to update the templates now, proposing that we do.
 2. Bump the `@valbuild/*` dependencies in EVERY template's `package.json`,
    install in each so its lock file follows, and open a PR on the templates
-   repository. Its `AGENTS.md` has the per-template checks.
+   repository. Its `AGENTS.md` has the per-template checks. Bump
+   `minimumReleaseAgeExclude` in each template's `pnpm-workspace.yaml` with
+   them: it names the exact version of every `@valbuild/*` package in that
+   template's lock file, and a list left on the previous release makes a fresh
+   `pnpm install` refuse the new one for a day after it is published.
 3. **Test it out** — do not ship the bump on a green typecheck alone. Run each
    template against the new version, open `/val`, and check that the Studio
    loads and that an edit can be made and saved. Breakage from a release shows

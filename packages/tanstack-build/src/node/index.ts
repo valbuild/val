@@ -21,6 +21,8 @@ export {
   cssSpecifiersOf,
   layerDepsOf,
   packageOf,
+  PinSkewError,
+  type PinSkew,
   type VendorLayer,
   type VendorPlatform,
 } from "./vendorLayer";

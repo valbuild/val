@@ -1,5 +1,5 @@
 import type { BuildOutput } from "@valbuild/tanstack-build";
-import { StudioPublishClient } from "./publishClient";
+import { StudioPublishClient, StudioPublishError } from "./publishClient";
 import { StudioBuilder } from "./loadBuilder";
 import { DeployPhase, runStudioDeploy } from "./runStudioDeploy";
 
@@ -55,6 +55,7 @@ const buildOutput: BuildOutput = {
   cssCode: "",
   linksOwnCss: false,
   hash: "build-hash",
+  outputHash: "build-output",
   vendorRev: "base-1",
   timings: { server: 1, client: 1, tailwind: 0, total: 2 },
   warnings: [],
@@ -87,6 +88,9 @@ function builder(calls: string[] = [], overrides: Partial<StudioBuilder> = {}) {
       calls.push("publishArtifacts");
       return [{ key: "server", body: "x", sha256: "sha", bytes: 1 }];
     },
+    // A name that shows what it was taken over.
+    buildInputId: async (input: { extraInputs?: Record<string, string> }) =>
+      `id ${JSON.stringify(input.extraInputs ?? {})}`,
     ...overrides,
   };
   // The Studio uses five things out of a package that exports dozens, and a
@@ -95,7 +99,10 @@ function builder(calls: string[] = [], overrides: Partial<StudioBuilder> = {}) {
   return fake as unknown as StudioBuilder;
 }
 
-function client(overrides: Partial<StudioPublishClient> = {}) {
+function client(
+  overrides: Partial<StudioPublishClient> = {},
+  holds: string[] = [],
+): StudioPublishClient {
   const base: StudioPublishClient = {
     buildTarget: async () => target,
     projectSource: async () => dataRoutes,
@@ -131,7 +138,25 @@ function client(overrides: Partial<StudioPublishClient> = {}) {
     }),
     upload: async () => undefined,
   };
-  return { ...base, ...overrides };
+  const merged = { ...base, ...overrides };
+  return {
+    ...merged,
+    /*
+     * As content answers a build declared by name that it does not hold --
+     * which is every build here, unless a test says content holds it. So the
+     * tests below see the build they always did.
+     */
+    declare: async (body) => {
+      if (body.byReference && !holds.includes(body.buildHash)) {
+        throw new StudioPublishError(
+          409,
+          "This project does not hold that build, so it has to be built and sent.",
+          { details: [{ code: "BUILD_NOT_HELD" }] },
+        );
+      }
+      return merged.declare(body);
+    },
+  };
 }
 
 const deploy = (
@@ -147,6 +172,46 @@ const deploy = (
   });
 
 describe("a publish from the Studio", () => {
+  test("names a build shipped with the live stylesheet by it too", async () => {
+    // The tab could not compile this project's stylesheet, so it ships the
+    // live site's: an input the build never saw, which its name has to cover.
+    const declared: string[] = [];
+    await deploy({
+      liveStylesheet: async () => "body{color:red}",
+      client: client({
+        declare: async (body) => {
+          declared.push(body.buildHash);
+          return client().declare(body);
+        },
+      }),
+    });
+    expect(declared).toEqual([`id {"liveStylesheet":"body{color:red}"}`]);
+  });
+
+  test("names a build by the live files it carries", async () => {
+    const declared: string[] = [];
+    await deploy({
+      loadBuilder: async () =>
+        builder([], {
+          buildUserApp: async (input) => ({
+            ...buildOutput,
+            cssCode: "built",
+            hash: `built ${JSON.stringify(input.extraInputs ?? {})}`,
+          }),
+        }),
+      client: client({
+        publicFiles: async () => ({
+          carried: [{ key: "public/logo.svg", sha256: "s1", bytes: 3 }],
+        }),
+        declare: async (body) => {
+          declared.push(body.buildHash);
+          return client().declare(body);
+        },
+      }),
+    });
+    expect(declared).toEqual([`built {"carried:public/logo.svg":"s1"}`]);
+  });
+
   test("goes live", async () => {
     await expect(deploy()).resolves.toEqual({
       status: "live",
@@ -890,5 +955,106 @@ describe("a Studio older than the site", () => {
         target: { ...target, project: { ...target.project, rev: "layer-2" } },
       }),
     ).resolves.toMatchObject({ status: "live" });
+  });
+});
+
+describe("a build content already holds (step 3)", () => {
+  /*
+   * A build is named by its inputs, so the tab names it before building and
+   * asks content for it by that name. Held, nothing is built or uploaded: the
+   * same inputs are the same build.
+   */
+  test("is published by name, and not built", async () => {
+    const calls: string[] = [];
+    const declared: unknown[] = [];
+    const result = await deploy({
+      loadBuilder: async () => builder(calls),
+      client: client(
+        {
+          declare: async (body) => {
+            declared.push(body);
+            return {
+              publishId: "pub_1",
+              state: "ready",
+              project: { publicProjectId: "p", siteUrl: "https://site.test" },
+              uploads: [],
+              have: ["server", "client"],
+            };
+          },
+        },
+        ["id {}"],
+      ),
+    });
+    expect(result).toMatchObject({ status: "live" });
+    expect(calls).not.toContain("buildUserApp");
+    expect(calls).not.toContain("publishArtifacts");
+    expect(declared).toEqual([
+      {
+        buildHash: "id {}",
+        commit: "c".repeat(40),
+        branch: "main",
+        layerRev: "layer-1",
+        // The build's, which content has: nothing was built to ask.
+        linksOwnCss: null,
+        artifacts: [],
+        byReference: true,
+      },
+    ]);
+  });
+
+  test("for a job, stops once it is confirmed, as a built one does", async () => {
+    const result = await deploy({
+      until: "confirmed",
+      client: client({}, ["id {}"]),
+    });
+    expect(result).toEqual({ status: "uploaded", publishId: "pub_1" });
+  });
+
+  test("is built when content does not hold it", async () => {
+    const calls: string[] = [];
+    const phases: DeployPhase[] = [];
+    const result = await deploy(
+      { loadBuilder: async () => builder(calls) },
+      phases,
+    );
+    expect(result).toMatchObject({ status: "live" });
+    expect(calls).toContain("buildUserApp");
+    // Back to building after asking, so the step shown is the one running.
+    const asked = phases.findIndex(({ kind }) => kind === "declaring");
+    expect(phases[asked + 1]).toEqual({ kind: "building" });
+  });
+
+  test("is built when its name cannot be worked out", async () => {
+    const calls: string[] = [];
+    const result = await deploy({
+      loadBuilder: async () =>
+        builder(calls, {
+          buildInputId: async () => {
+            throw new Error("no name");
+          },
+        }),
+    });
+    expect(result).toMatchObject({ status: "live" });
+    expect(calls).toContain("buildUserApp");
+  });
+
+  test("a failure after content took it is that publish's, and not built again", async () => {
+    const calls: string[] = [];
+    const result = await deploy({
+      loadBuilder: async () => builder(calls),
+      client: client(
+        {
+          verify: async () => ({
+            state: "failed",
+            ok: false,
+            problems: [{ code: "RENDER", message: "did not render" }],
+            previewUrl: null,
+          }),
+        },
+        ["id {}"],
+      ),
+    });
+    expect(result).toMatchObject({ status: "failed" });
+    expect(calls).not.toContain("buildUserApp");
   });
 });

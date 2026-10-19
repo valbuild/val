@@ -28,11 +28,24 @@ export type StudioJobResult =
   /**
    * The tab's part is done, and content has the job. `built`: this tab built
    * and uploaded it. `false` is a job whose build is CI's -- a connected
-   * project's, where the tab's part is the prepare alone.
+   * project's, where the tab's part is the prepare alone -- or, with
+   * `contentOnly`, a job nobody builds: its content goes live on the build
+   * already live.
    */
-  | { status: "handed-off"; jobId: string; built: boolean }
+  | {
+      status: "handed-off";
+      jobId: string;
+      built: boolean;
+      contentOnly?: true;
+    }
   /** The job is no longer this tab's. Nothing to report. */
   | { status: "lost"; jobId: string }
+  /**
+   * A managed job that needs a build, prepared by a tab that cannot run the
+   * builder (`buildsElsewhere`). Not reported: its lease lapses, it goes back
+   * to the queue, and a builder tab -- opened with one more tap -- takes it.
+   */
+  | { status: "needs-builder"; jobId: string }
   /** A step failed, and was reported as failed. */
   | { status: "failed"; jobId: string; message: string };
 
@@ -59,6 +72,13 @@ export async function runStudioJob(options: {
    * managed job never reaches a tab that cannot -- it is handed to one that can.
    */
   canBuild?: () => boolean;
+  /**
+   * Managed, and a tab that cannot build: an iPhone, or the overlay, running
+   * its own publish so that one of content alone needs no tab. A job that
+   * needs a build after all is given back (`needs-builder`) rather than said
+   * to need none -- content refuses that for a managed job, which has no CI.
+   */
+  buildsElsewhere?: boolean;
 }): Promise<StudioJobResult> {
   const { client, job, tab, onPhase } = options;
   let lost = false;
@@ -94,9 +114,18 @@ export async function runStudioJob(options: {
       return { status: "failed", jobId: job.id, message };
     }
     if (lost || prepared.job === null) return lostResult;
-    // Content's already: nothing for this tab to build (connected).
+    /*
+     * Content's already: nothing for this tab to build. Connected, CI builds
+     * it; managed and `contentOnly`, nobody does -- its content goes live on
+     * the build already live.
+     */
     if (prepared.job.step === null) {
-      return { status: "handed-off", jobId: job.id, built: false };
+      return {
+        status: "handed-off",
+        jobId: job.id,
+        built: false,
+        ...(prepared.job.contentOnly ? { contentOnly: true } : {}),
+      };
     }
     if (prepared.job.step !== "build") return lostResult;
 
@@ -105,6 +134,9 @@ export async function runStudioJob(options: {
      * this tab cannot run the builder. Said, not attempted -- content seals
      * the job without a build, and CI builds the push.
      */
+    if (options.buildsElsewhere && !(options.canBuild?.() ?? true)) {
+      return { status: "needs-builder", jobId: job.id };
+    }
     if (!prepared.buildable || !(options.canBuild?.() ?? true)) {
       onPhase({ kind: "handing-off" });
       const handed = await client.step(job.id, {

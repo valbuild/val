@@ -15,6 +15,8 @@ export default modules(config, [
   { def: () => import("./src/content/authors.val") },
   { def: () => import("./src/content/site.val") },
   { def: () => import("./src/content/theme.val") },
+  // `s.int()` and `s.number()`, with min/max/step and the slider render.
+  { def: () => import("./src/content/layout.val") },
   // Media: the two collections first, then the fields that point into them.
   { def: () => import("./src/content/gallery.val") },
   { def: () => import("./src/content/downloads.val") },

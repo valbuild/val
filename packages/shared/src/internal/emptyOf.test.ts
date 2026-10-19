@@ -130,3 +130,17 @@ describe("emptyOf", () => {
     ).toThrow(/no variants/);
   });
 });
+
+describe("emptyOf, for a number", () => {
+  test("is 0 when 0 is allowed", () => {
+    expect(emptyOf(s.int()["executeSerialize"]())).toBe(0);
+    expect(emptyOf(s.number().min(-5).max(5)["executeSerialize"]())).toBe(0);
+  });
+
+  test("is the nearest allowed value when 0 is not", () => {
+    // 0 would be an error the moment the item is added.
+    expect(emptyOf(s.int().min(1).max(5)["executeSerialize"]())).toBe(1);
+    expect(emptyOf(s.int().min(3).step(4)["executeSerialize"]())).toBe(3);
+    expect(emptyOf(s.int().max(-2)["executeSerialize"]())).toBe(-2);
+  });
+});

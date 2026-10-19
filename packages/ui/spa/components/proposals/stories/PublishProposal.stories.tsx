@@ -94,6 +94,166 @@ export const BlockedByUnpublishedChanges = at({
   unsaved: 0,
 });
 
+/**
+ * Someone changed the same field on the site since: blocked, naming the field
+ * and who (valbuild/home `docs/hosted-publishing.md`, step 8).
+ */
+export const BlockedByTheSameField = at({
+  kind: "ready",
+  checks: [
+    {
+      id: "published-since",
+      ok: false,
+      message:
+        "Kari Nordmann changed hero › title on /content/home.val.ts after this proposal started, and this proposal changes it too",
+    },
+    PASSING[1]!,
+  ],
+  changes: 15,
+  unsaved: 0,
+});
+
+/**
+ * The site's code changed under the proposal's code: Update from the site is
+ * offered beside the reason, which moves it onto the site and asks for a
+ * build (step 8).
+ */
+export const BlockedByTheSitesCode: Story = {
+  args: {
+    state: {
+      kind: "ready",
+      checks: [
+        ...PASSING,
+        {
+          id: "site-code",
+          ok: false,
+          message:
+            "The site's code changed after this proposal started, so the code changed here has to be built on the site as it is now. Update from the site, then build it",
+          action: "update-from-site",
+        },
+      ],
+      changes: 4,
+      unsaved: 0,
+    },
+    onUpdateFromSite: () => console.log("update from the site"),
+  },
+};
+
+/** Updating from the site, from that check. */
+export const UpdatingFromTheSite: Story = {
+  args: {
+    ...BlockedByTheSitesCode.args,
+    updating: true,
+  },
+};
+
+/**
+ * A page the site published since, in a proposal that changes only content:
+ * Update from the site merges it in (step 8.2).
+ */
+export const BlockedByAPageTheSitePublished: Story = {
+  args: {
+    state: {
+      kind: "ready",
+      checks: [
+        {
+          id: "published-since",
+          ok: false,
+          message:
+            "Kari Nordmann changed hero › subtitle on /content/home.val.ts after this proposal started",
+          action: "update-from-site",
+        },
+        PASSING[1]!,
+      ],
+      changes: 3,
+      unsaved: 0,
+    },
+    onUpdateFromSite: (checkId: string) =>
+      console.log("update from the site", checkId),
+  },
+};
+
+/**
+ * The update found what both changed: each is decided here, and the update
+ * then merges with those decisions. The same value on both sides is a
+ * conflict too -- an easy one.
+ */
+export const UpdateConflicts: Story = {
+  args: {
+    ...BlockedByAPageTheSitePublished.args,
+    state: {
+      kind: "ready",
+      checks:
+        BlockedByAPageTheSitePublished.args?.state?.kind === "ready"
+          ? BlockedByAPageTheSitePublished.args.state.checks
+          : [],
+      changes: 3,
+      unsaved: 0,
+      conflicts: [
+        {
+          kind: "field",
+          moduleFilePath: "/content/home.val.ts",
+          path: ["hero", "title"],
+          site: "Spring sale",
+          proposal: "Summer sale",
+        },
+        {
+          kind: "field",
+          moduleFilePath: "/content/home.val.ts",
+          path: ["hero", "image"],
+          site: { path: "/public/val/beach.png", alt: "A beach" },
+          proposal: { path: "/public/val/sale.png", alt: "A big sale" },
+        },
+        {
+          kind: "field",
+          moduleFilePath: "/content/home.val.ts",
+          path: ["cta"],
+          site: "Shop now",
+          proposal: "Shop now",
+        },
+      ],
+    },
+    onResolve: (keep: ("site" | "proposal")[]) => console.log("keep", keep),
+    onCancelUpdate: () => console.log("not now"),
+  },
+};
+
+/**
+ * The update with code: a component both changed, and a schema the site
+ * changed while this proposal changed the same file's.
+ */
+export const UpdateCodeConflicts: Story = {
+  args: {
+    ...UpdateConflicts.args,
+    state: {
+      kind: "ready",
+      checks:
+        BlockedByAPageTheSitePublished.args?.state?.kind === "ready"
+          ? BlockedByAPageTheSitePublished.args.state.checks
+          : [],
+      changes: 3,
+      unsaved: 0,
+      conflicts: [
+        {
+          kind: "code",
+          file: "src/components/Hero.tsx",
+          base: "export function Hero() {\n  return <h1>Sale</h1>;\n}\n",
+          site: 'export function Hero() {\n  return <h1 className="big">Sale</h1>;\n}\n',
+          proposal:
+            "export function Hero() {\n  return (\n    <h1>Summer</h1>\n  );\n}\n",
+        },
+        {
+          kind: "code",
+          file: "src/components/Banner.tsx",
+          base: "export const Banner = () => null;\n",
+          site: null,
+          proposal: "export const Banner = () => <p>New</p>;\n",
+        },
+      ],
+    },
+  },
+};
+
 /** Each step, as it runs. */
 export const Saving = at({ kind: "publishing", step: "saving" });
 export const Building = at({ kind: "publishing", step: "building" });

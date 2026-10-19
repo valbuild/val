@@ -161,11 +161,107 @@ const proposal = (() => {
   };
 })();
 `;
+/**
+ * THE CONTENT VERSION the site serves, when it differs from the one this build
+ * bundles (\`VAL_CONTENT\`). See valbuild/home \`docs/hosted-publishing.md\`,
+ * step 2. A constant for the same reason as {@link PROPOSAL_BLOCK}, and it
+ * arrives in files wired before it the same way: {@link rebakeContent}.
+ */
+const CONTENT_BLOCK = `/*
+ * THE CONTENT VERSION the site serves, when the platform says it differs from
+ * the one this build bundles (\`VAL_CONTENT\`: its id, the publish that made
+ * it, and the Source and Val files that differ). Val reads that Source instead
+ * of the bundle's and names that publish as its position. valbuild/home
+ * \`docs/hosted-publishing.md\`, step 2.
+ *
+ * Parsed here, like the proposal above, because this file is compiled against
+ * whatever @valbuild/tanstack the PROJECT installed. One from before content
+ * versions ignores the \`contentVersion\` key below and serves the bundle --
+ * and never says it applied the version, which is how the platform knows not
+ * to serve this build a version it does not bundle. A version that does not
+ * parse is thrown, not served as the bundle.
+ *
+ * A version too large for one variable names others under \`refs\`
+ * (\`"env://VAL_CONTENT_1"\`), each holding one module's Source or one file's
+ * text. Only \`refs\` is resolved, never a string inside Source, and only
+ * \`VAL_CONTENT_<n>\` is read: Source is text editors write, and resolving a
+ * reference in there would read \`VAL_SECRET\` into a page. The same rules as
+ * \`contentFromEnv\` in @valbuild/server.
+ */
+const contentVersion = (() => {
+  const handed = secret("VAL_CONTENT");
+  if (!handed) return undefined;
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+  const parsed: unknown = JSON.parse(handed);
+  if (!isRecord(parsed)) throw new Error("Val: VAL_CONTENT is not an object");
+  const id = parsed.id;
+  if (typeof id !== "string" || id === "") {
+    throw new Error("Val: VAL_CONTENT has no id");
+  }
+  const where = "Val: content version " + id;
+  const nullableString = (key: string): string | null => {
+    const value = parsed[key] ?? null;
+    if (value !== null && typeof value !== "string") {
+      throw new Error(where + ": " + key + " must be a string or null");
+    }
+    return value;
+  };
+  const record = (value: unknown, name: string): Record<string, unknown> => {
+    const found = value ?? {};
+    if (!isRecord(found)) throw new Error(where + ": " + name + " must be an object");
+    return found;
+  };
+  const job = nullableString("job");
+  const commit = nullableString("commit");
+  const modules: Record<string, unknown> = { ...record(parsed.modules, "modules") };
+  const filesIn = record(parsed.files, "files");
+  const files: Record<string, string> = {};
+  for (const [path, text] of Object.entries(filesIn)) {
+    if (typeof text === "string") files[path] = text;
+  }
+  const refs = record(parsed.refs, "refs");
+  const read = (kind: string, path: string, ref: unknown): string => {
+    const at = where + ": refs." + kind + "[" + path + "]";
+    if (typeof ref !== "string" || !ref.startsWith("env://")) {
+      throw new Error(at + " is " + String(ref) + ": only env://VAL_CONTENT_<n> is read");
+    }
+    const name = ref.slice("env://".length);
+    if (!/^VAL_CONTENT_[0-9]+$/.test(name)) {
+      throw new Error(at + " names " + name + ": only VAL_CONTENT_<n> is read");
+    }
+    const value = secret(name);
+    if (value === undefined) {
+      throw new Error(at + " names " + name + ", which is not set");
+    }
+    return value;
+  };
+  for (const [path, ref] of Object.entries(record(refs.modules, "refs.modules"))) {
+    if (Object.prototype.hasOwnProperty.call(modules, path)) {
+      throw new Error(where + ": " + path + " is in modules and refs.modules");
+    }
+    modules[path] = JSON.parse(read("modules", path, ref));
+  }
+  for (const [path, ref] of Object.entries(record(refs.files, "refs.files"))) {
+    if (Object.prototype.hasOwnProperty.call(filesIn, path)) {
+      throw new Error(where + ": " + path + " is in files and refs.files");
+    }
+    files[path] = read("files", path, ref);
+  }
+  if (job === null && commit === null) {
+    throw new Error(where + " must name a job or a commit, or it would be placed at the build it runs in");
+  }
+  return { id, job, commit, modules, files };
+})();
+`;
 /** Where {@link PROPOSAL_BLOCK} goes: right after this line. */
 const SERVED_BUILD_LINE = 'const servedBuild = secret("VAL_BUILD");\n';
 /** And the option that hands it to Val, after the build's. */
 const PROPOSAL_OPTION =
   "        ...(proposal !== undefined ? { proposal } : {}),\n";
+/** And the content version's, after the proposal's. */
+const CONTENT_OPTION =
+  "        ...(contentVersion !== undefined ? { contentVersion } : {}),\n";
 const PUBLISH_BUILD_OPTION =
   "        ...(servedBuild !== undefined ? { publishBuild: servedBuild } : {}),\n";
 
@@ -297,7 +393,7 @@ const valProject = secret("VAL_PROJECT");
  * Ignored by a @valbuild/tanstack that predates it.
  */
 const servedBuild = secret("VAL_BUILD");
-${PROPOSAL_BLOCK}const valConfig = {
+${PROPOSAL_BLOCK}${CONTENT_BLOCK}const valConfig = {
   ...config,
   ...(valProject !== undefined ? { project: valProject } : {}),
 };
@@ -364,7 +460,7 @@ const http =
         projectSource: FILES,
         ...(BUILT_FOR_JOB !== null ? { publishJob: BUILT_FOR_JOB } : {}),
         ...(servedBuild !== undefined ? { publishBuild: servedBuild } : {}),
-${PROPOSAL_OPTION}      }
+${PROPOSAL_OPTION}${CONTENT_OPTION}      }
     : undefined;
 
 const { valApiHandler, draftMode } = initValServer(
@@ -575,6 +671,17 @@ const PROJECT_SOURCE_OPTION = "        projectSource: FILES,\n";
 const PUBLISH_JOB_OPTION =
   "        ...(BUILT_FOR_JOB !== null ? { publishJob: BUILT_FOR_JOB } : {}),\n";
 
+/**
+ * The source with no publish job baked in: what a build's id is taken over
+ * (`buildInputId`), so builds of the same inputs for different jobs are the
+ * same build. The job only says where a commitless build sits in the content
+ * service's chain, and a content version the platform hands the server names
+ * its own job, which wins (`ValOpsHttp`).
+ */
+export function withoutBakedJob(text: string): string {
+  return text.replace(BUILT_FOR_JOB_LINE, "const BUILT_FOR_JOB = null;");
+}
+
 /** The publish job a record is wired for: see `BUILT_FOR_JOB` in the template. */
 export function bakedJob(files: Record<string, string>): string | undefined {
   const source = files[VAL_SERVER];
@@ -607,6 +714,32 @@ function rebakeProposal(source: string): string {
       PUBLISH_BUILD_OPTION,
       () => PUBLISH_BUILD_OPTION + PROPOSAL_OPTION,
     );
+}
+
+/**
+ * `source` able to serve a content version: {@link CONTENT_BLOCK} and its
+ * option added after the proposal's, to a file wired before they existed.
+ * Idempotent, and only where both places are exactly as generated -- a file
+ * somebody edited is left as it is, and serves the bundle's content.
+ */
+function rebakeContent(source: string): string {
+  if (source.includes("const contentVersion = (() => {")) return source;
+  const once = (needle: string) => {
+    const at = source.indexOf(needle);
+    return at !== -1 && source.indexOf(needle, at + 1) === -1;
+  };
+  if (!once(PROPOSAL_BLOCK) || !once(PROPOSAL_OPTION)) return source;
+  const withBlock = source.replace(
+    PROPOSAL_BLOCK,
+    () => PROPOSAL_BLOCK + CONTENT_BLOCK,
+  );
+  // The option once, whatever left it there: two would hand Val the same key twice.
+  return withBlock.includes(CONTENT_OPTION)
+    ? withBlock
+    : withBlock.replace(
+        PROPOSAL_OPTION,
+        () => PROPOSAL_OPTION + CONTENT_OPTION,
+      );
 }
 
 /** `source` with its job set, or `source` itself when it cannot carry one. */
@@ -702,7 +835,7 @@ export function rebakeGit(
   const withJob = job === undefined ? withGit : rebakeJob(withGit, job);
   return {
     ...files,
-    [VAL_SERVER]: rebakeProposal(withJob),
+    [VAL_SERVER]: rebakeContent(rebakeProposal(withJob)),
   };
 }
 

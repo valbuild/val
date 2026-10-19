@@ -38,7 +38,7 @@ import {
 import { TSOps, insertValJsonEntry, removeValJsonEntry } from "./patch/ts/ops";
 import { analyzeValModule } from "./patch/ts/valModule";
 import type { HistoryError } from "./history/HistoryError";
-import type { PatchGroupT } from "@valbuild/shared/internal";
+import type { PlanRefusalErrorT } from "@valbuild/shared/internal";
 import type {
   AffectedFile,
   StoredModuleVersion,
@@ -159,7 +159,30 @@ export type ValOpsOptions = {
    * the next save's prepare -- starts from it, and the SHAs describe it.
    */
   snapshotSources?: Sources;
+  /**
+   * Source the SITE serves over what the modules evaluate to, beneath
+   * {@link snapshotSources}: a content version (`ValContentVersion` in
+   * `./proposal`), the content published since the build. Applied the same
+   * way, and what a proposal's saves are compared against
+   * ({@link ValOps.siteSourcesUnderSnapshot}) -- the site, not the bundle.
+   */
+  siteSnapshotSources?: Sources;
+  /**
+   * The `.jsonValues()` entries the same snapshot saved, by module and key:
+   * their content is in their own files, not in {@link snapshotSources}, which
+   * holds markers. The baseline those entries are read from, as a save in
+   * this instance would leave them (`proposalJsonEntries` in `./proposal`).
+   */
+  snapshotJsonEntries?: Map<ModuleFilePath, Map<string, JSONValue>>;
 };
+/**
+ * What a save told this instance a `.jsonValues()` entry holds: its content --
+ * JSON `null` included -- or that it was deleted. See `adoptedJsonEntries`.
+ */
+type AdoptedJsonEntry =
+  | { kind: "content"; content: JSONValue }
+  | { kind: "deleted" };
+
 // #region ValOps
 export abstract class ValOps {
   /** Sources from val modules, immutable (without patches or anything)  */
@@ -198,6 +221,13 @@ export abstract class ValOps {
    */
   private siteSourcesBeforeSnapshot: Sources | null = null;
   /**
+   * The same modules as the bundle evaluated them, imports and all: where a
+   * `.jsonValues()` entry the snapshot did not save is read from. Not
+   * {@link siteSourcesBeforeSnapshot}, whose markers may have come as JSON
+   * from a content version, with no import behind them.
+   */
+  private bundleSourcesBeforeSnapshot: Sources | null = null;
+  /**
    * What a save has told us each `.jsonValues()` entry now holds.
    *
    * The entry twin of {@link sources}, and it has to be separate because an
@@ -208,7 +238,9 @@ export abstract class ValOps {
    * unlike a module source there is nothing to re-extract, because the memo was
    * never holding the content in the first place.
    *
-   * `null` for an entry the commit deleted.
+   * `deleted` for an entry the commit deleted: tagged, not `null`, because an
+   * entry's content may itself be JSON `null` (a nullable item), and a saved
+   * `null` read back as "deleted" would report the entry missing.
    *
    * Never cleared: it describes what is on disk. A host rebuild makes a new
    * instance, which is the right reset. Bounded by the project's entry count,
@@ -216,7 +248,7 @@ export abstract class ValOps {
    */
   private adoptedJsonEntries = new Map<
     ModuleFilePath,
-    Map<string, JSONValue | null>
+    Map<string, AdoptedJsonEntry>
   >();
 
   constructor(
@@ -232,6 +264,14 @@ export abstract class ValOps {
     this.modulesErrors = null;
     this.shaEntries = null;
     this.shaModuleErrors = null;
+    for (const [moduleFilePath, entries] of options?.snapshotJsonEntries ??
+      []) {
+      const adopted = new Map<string, AdoptedJsonEntry>();
+      for (const [entryKey, content] of entries) {
+        adopted.set(entryKey, { kind: "content", content });
+      }
+      this.adoptedJsonEntries.set(moduleFilePath, adopted);
+    }
   }
 
   // #region stat
@@ -338,18 +378,42 @@ export abstract class ValOps {
        * being served, and a base SHA that still described the bundle would
        * say the snapshot's content was the bundle's.
        */
-      if (this.options?.snapshotSources) {
+      const siteLayer = this.options?.siteSnapshotSources;
+      const snapshotLayer = this.options?.snapshotSources;
+      /*
+       * The bundle's own Source for every module either layer replaces: a
+       * replaced `.jsonValues()` module's markers came as JSON, and an entry
+       * neither layer saved is read through the bundle's marker, which still
+       * has its `import()`.
+       */
+      if (siteLayer || snapshotLayer) {
+        const bundle: Sources = {};
+        for (const moduleFilePath of Object.keys({
+          ...siteLayer,
+          ...snapshotLayer,
+        })) {
+          const path = moduleFilePath as ModuleFilePath;
+          const bundled = extracted.sources[path];
+          if (bundled !== undefined) {
+            bundle[path] = bundled;
+          }
+        }
+        this.bundleSourcesBeforeSnapshot = bundle;
+      }
+      // What a proposal is compared against: the site, only where there is a proposal.
+      if (snapshotLayer) {
         const site: Sources = {};
-        for (const moduleFilePath of Object.keys(
-          this.options.snapshotSources,
-        )) {
-          const source = extracted.sources[moduleFilePath as ModuleFilePath];
+        for (const moduleFilePath of Object.keys(snapshotLayer)) {
+          const path = moduleFilePath as ModuleFilePath;
+          const source = siteLayer?.[path] ?? extracted.sources[path];
           if (source !== undefined) {
-            site[moduleFilePath as ModuleFilePath] = source;
+            site[path] = source;
           }
         }
         this.siteSourcesBeforeSnapshot = site;
-        this.promoteCommittedSources(this.options.snapshotSources);
+      }
+      if (siteLayer || snapshotLayer) {
+        this.promoteCommittedSources({ ...siteLayer, ...snapshotLayer });
       }
       return {
         baseSha: this.baseSha,
@@ -453,9 +517,13 @@ export abstract class ValOps {
       }
       const adopted =
         this.adoptedJsonEntries.get(moduleFilePath) ??
-        new Map<string, JSONValue | null>();
+        new Map<string, AdoptedJsonEntry>();
       for (const [entryKey, content] of Object.entries(entries)) {
-        adopted.set(entryKey, content);
+        // A commit's `null` is a deleted entry: see `patchedJsonEntries`.
+        adopted.set(
+          entryKey,
+          content === null ? { kind: "deleted" } : { kind: "content", content },
+        );
       }
       this.adoptedJsonEntries.set(moduleFilePath, adopted);
     }
@@ -570,7 +638,7 @@ export abstract class ValOps {
     moduleFilePath: ModuleFilePath,
     entryKey: string,
     /** Passed straight through — see {@link getJsonEntries}. */
-    opts?: { applyPatches?: boolean; patchIds?: PatchId[] },
+    opts?: { applyPatches?: boolean },
   ): Promise<
     | { status: "success"; content: JSONValue | null }
     | { status: "not-found"; message: string }
@@ -622,15 +690,6 @@ export abstract class ValOps {
     selector: { keys: string[] } | { offset: number; limit: number },
     opts?: {
       applyPatches?: boolean;
-      /**
-       * Only these pending patches, or every one when `undefined`.
-       *
-       * A draft render is scoped to the caller's own groups, and a page renders
-       * `jsonValues` entries beside module content — so without this the two
-       * halves of one page disagreed about whose unpublished work they showed.
-       * `undefined` is what every other caller passes and must keep getting.
-       */
-      patchIds?: PatchId[];
     },
   ): Promise<
     | {
@@ -689,10 +748,9 @@ export abstract class ValOps {
           message: `Could not fetch patches: ${JSON.stringify(patchOps.errors)}`,
         };
       }
-      modulePatches = scopedModulePatches(
+      modulePatches = draftModulePatches(
         patchOps.patches,
         moduleFilePath,
-        opts?.patchIds,
         patchOps.commits,
       ).map((p) => ({ patchId: p.patchId, patch: p.patch }));
       try {
@@ -759,15 +817,30 @@ export abstract class ValOps {
            * The BASELINE only. Pending patches replay over it below exactly as
            * they do over the thunk's answer.
            */
-          const adopted = this.adoptedJsonEntries.get(moduleFilePath);
-          if (adopted !== undefined && adopted.has(entryKey)) {
-            const content = adopted.get(entryKey);
+          const adopted = this.adoptedJsonEntries
+            .get(moduleFilePath)
+            ?.get(entryKey);
+          if (adopted !== undefined) {
             return {
               entryKey,
-              baseContent: content === null ? undefined : content,
+              baseContent:
+                adopted.kind === "deleted" ? undefined : adopted.content,
             };
           }
-          const thunk = Internal.getJsonImport(marker);
+          /*
+           * A snapshot's marker came as JSON, with no import behind it: the
+           * entry the proposal did not save is the build's, behind the marker
+           * the module evaluated to.
+           */
+          const siteMarker =
+            this.bundleSourcesBeforeSnapshot?.[moduleFilePath]?.[
+              entryKey as keyof Sources[ModuleFilePath]
+            ];
+          const thunk =
+            Internal.getJsonImport(marker) ??
+            (Internal.isJson(siteMarker)
+              ? Internal.getJsonImport(siteMarker)
+              : undefined);
           if (!thunk) {
             return { entryKey, baseContent: null };
           }
@@ -2495,32 +2568,18 @@ export abstract class ValOps {
     parentRef: ParentRef,
     sessionId: string | null,
     authorId: AuthorId | null,
-    /**
-     * Which patch group this patch joins, recorded in the SAME request.
-     *
-     * Atomic on purpose. The content API runs every refusal before its insert,
-     * so an invalid closure is a 400 with nothing written. Recording membership
-     * in a second call would let a patch exist outside its author's group if
-     * that call failed — and a patch outside your own group is one you cannot
-     * publish until a repair puts it back.
-     *
-     * Optional: `fs` mode has no groups, and a client that predates them sends
-     * nothing.
-     */
-    patchGroup?: PatchGroupMembership,
   ): Promise<
     result.Result<
       {
         error?: undefined;
         patchId: PatchId;
         createdAt: string;
-        /** See {@link SaveSourceFilePatchResult} — absent where there are no groups. */
-        patchGroupId?: string;
         /** See {@link SaveSourceFilePatchResult}. */
         headVersion?: number;
       },
       | { errorType: "other"; error: GenericErrorMessage }
       | { errorType: "patch-head-conflict" }
+      | PlanRefusedError
     >
   > {
     const saveRes = await this.saveSourceFilePatch(
@@ -2530,9 +2589,13 @@ export abstract class ValOps {
       parentRef,
       authorId,
       sessionId,
-      patchGroup,
     );
     if (result.isErr(saveRes)) {
+      if (saveRes.error.errorType === "plan-refused") {
+        // The project's plan, not a failure: the Studio keeps the edit and
+        // sends it again later, so an error line here would be one a minute.
+        return result.err(saveRes.error);
+      }
       console.error(
         `Could not save source patch at path: '${path}'. Error: ${saveRes.error.errorType === "other" ? saveRes.error.message : saveRes.error.errorType}`,
       );
@@ -2544,11 +2607,6 @@ export abstract class ValOps {
     return result.ok({
       patchId,
       createdAt: new Date().toISOString(),
-      // Spread rather than assigned: absent has to stay distinguishable from a
-      // group whose id is undefined, all the way to the client.
-      ...(saveRes.value.patchGroupId !== undefined
-        ? { patchGroupId: saveRes.value.patchGroupId }
-        : {}),
       ...(saveRes.value.headVersion !== undefined
         ? { headVersion: saveRes.value.headVersion }
         : {}),
@@ -2719,8 +2777,8 @@ export abstract class ValOps {
    * Almost everything the routes branch on comes from this one fact, which is
    * why it is a named property rather than an `instanceof`. If this server owns
    * the store then there is no content service to authenticate to (so an absent
-   * or unverifiable session is anonymous rather than a 401), no shared store for
-   * a patch group to separate authors in, no deployments to report, and a
+   * or unverifiable session is anonymous rather than a 401), no deployments to
+   * report, and a
    * "publish" writes what the host does with it rather than pushing a commit. If
    * it does not, every one of those is the content service's and this server is
    * relaying.
@@ -2769,7 +2827,6 @@ export abstract class ValOps {
     parentRef: ParentRef | null,
     authorId: AuthorId | null,
     sessionId: string | null,
-    patchGroup?: PatchGroupMembership,
   ): Promise<SaveSourceFilePatchResult>;
   protected abstract getSourceFile(
     path: string,
@@ -2995,39 +3052,9 @@ export type GenericErrorMessage = {
   details?: unknown;
 };
 
-/**
- * The patch group a newly created patch joins.
- *
- * `withPatchIds` is the CLOSURE the client computed — the patches that share
- * a patch set with this one and must move with it. It is not derived here and
- * must not be: the closure needs the content schema, and the service that
- * stores groups does not have it. One implementation of that rule, on the side
- * that can actually compute it.
- *
- * Membership rows are stamped with `coreVersion` on the content side, the same
- * stamp the patch row itself carries, so which client wrote a row stays legible
- * after the fact.
- */
-export type PatchGroupMembership = {
-  /**
-   * Absent means "the author's open group, created if absent" — the content API
-   * resolves it. The client does not hold an id across publishes, because a
-   * published group is refused and the stale id would lose the write.
-   */
-  patchGroupId?: string;
-  withPatchIds: PatchId[];
-};
-
 export type SaveSourceFilePatchResult = result.Result<
   {
     patchId: PatchId;
-    /**
-     * The group the patch ended up in, where the store has groups at all.
-     *
-     * Absent in `fs` mode and against a content API that predates groups. The
-     * client uses it to learn the id of the group its own first write created.
-     */
-    patchGroupId?: string;
     /**
      * The chain version this write made — see
      * {@link OrderedPatches.headVersion}. Absent in `fs` mode and against a
@@ -3037,7 +3064,23 @@ export type SaveSourceFilePatchResult = result.Result<
   },
   | ({ errorType: "other" } & GenericErrorMessage)
   | { errorType: "patch-head-conflict" }
+  | PlanRefusedError
 >;
+
+/**
+ * The content API refused a write for the project's plan (a 403 that says why
+ * as data), as opposed to refusing the patch.
+ *
+ * Its own error rather than an `other`: an `other` becomes a 400, and the
+ * Studio drops a patch it is told is bad. This one is good, and is saved once
+ * the plan allows it. `error` has the same shape as `other`'s so a caller that
+ * only wants a sentence reads it the same way.
+ */
+export type PlanRefusedError = {
+  errorType: "plan-refused";
+  error: GenericErrorMessage;
+  refusal: PlanRefusalErrorT;
+};
 
 export type PatchAnalysis = {
   patchesByModule: {
@@ -3192,31 +3235,14 @@ export type PatchReadError =
     };
 
 /**
- * The patches a json entry render should apply, out of the whole chain.
- *
- * Three rules, and the second is the one that was missing. A draft page renders
- * `jsonValues` entries beside module content, and only the modules were scoped
- * — so one screen showed the caller's own view for its modules and base plus
- * EVERY pending patch on the branch for the entries beside them, including
- * another author's half-finished edit rendered as though it were live.
+ * The patches a json entry render should apply, out of the whole chain:
  *
  * 1. this module's, since the chain is branch-wide;
- * 2. this caller's, when they asked to be scoped. `undefined` is "everything",
- *    which is what every unscoped caller gets and must keep getting;
- * 3. a patch published after this build is kept whatever the scope: it is
- *    nobody's to hold back, and this build does not have it. One already in
- *    the build is dropped. `draftOverlay` decides which is which, from
- *    `commits`.
- *
- * Filtered here rather than by asking `fetchPatches` for a list, and that is
- * load-bearing: both implementations read an empty `patchIds` as "no filter"
- * and return the whole chain. That is the right default for a caller that
- * cannot mean "none", and the most dangerous possible reading of a group that
- * is genuinely empty — it would render every unpublished patch on the branch
- * instead of base. It costs no round trip either: the whole chain is what the
- * unscoped path fetches anyway.
+ * 2. a patch published after this build is kept: this build does not have it.
+ *    One already in the build is dropped. `draftOverlay` decides which is
+ *    which, from `commits`.
  */
-export function scopedModulePatches<
+export function draftModulePatches<
   T extends {
     path: ModuleFilePath;
     patchId: PatchId;
@@ -3225,19 +3251,11 @@ export function scopedModulePatches<
 >(
   patches: T[],
   moduleFilePath: ModuleFilePath,
-  patchIds: PatchId[] | undefined,
   /** The commits content says came after this build: see `draftOverlay`. */
   commits?: Pick<ValCommit, "commitSha">[],
 ): T[] {
-  const scope = patchIds && new Set(patchIds);
   return draftOverlay(
-    patches.filter(
-      (patch) =>
-        patch.path === moduleFilePath &&
-        (patch.appliedAt !== null ||
-          scope === undefined ||
-          scope.has(patch.patchId)),
-    ),
+    patches.filter((patch) => patch.path === moduleFilePath),
     commits,
   );
 }
@@ -3321,13 +3339,14 @@ export type OrderedPatches = {
    */
   headVersion?: number;
   /**
-   * Every group on the branch and which of these patches each holds, read in
-   * the same transaction as the list and {@link headVersion}.
-   *
-   * Absent where the content service has no groups, or predates sending them
-   * here. Only `ValOpsHttp` fills it.
+   * The branch's last commit, `null` when it has none: what the commits this
+   * answer lists bring a build up to at the least, because the content
+   * service reads it before them. What Publish selected names as its
+   * proposal's base, so a publish landing in between is refused rather than
+   * reverted. Only `ValOpsHttp` fills it, and only from an unfiltered read
+   * (`fetchPatches` without `patchIds`); absent from an older content service.
    */
-  patchGroups?: PatchGroupT[];
+  headCommitSha?: string | null;
   /**
    * Of these patches, the ones a publish job that is still running holds. A
    * Studio does not offer Publish over them, on any tab or device. Reported
@@ -3336,6 +3355,13 @@ export type OrderedPatches = {
    * service. Only `ValOpsHttp` fills it.
    */
   publishingPatches?: PatchId[];
+  /**
+   * Of these patches, the ones a publish that failed on its content holds back
+   * from later publishes, until Try again or Discard: they are pending, and
+   * not ready to publish. Absent where publishing is not done in jobs, and
+   * from an older content service. Only `ValOpsHttp` fills it.
+   */
+  heldBackPatches?: PatchId[];
   error?: GenericErrorMessage;
   errors?: PatchReadError[];
   unauthorized?: boolean;
@@ -3352,10 +3378,12 @@ export type OrderedPatchesMetadata = {
   headPatchId?: OrderedPatches["headPatchId"];
   /** See {@link OrderedPatches.headVersion}. */
   headVersion?: OrderedPatches["headVersion"];
-  /** See {@link OrderedPatches.patchGroups}. */
-  patchGroups?: OrderedPatches["patchGroups"];
+  /** See {@link OrderedPatches.headCommitSha}. */
+  headCommitSha?: OrderedPatches["headCommitSha"];
   /** See {@link OrderedPatches.publishingPatches}. */
   publishingPatches?: OrderedPatches["publishingPatches"];
+  /** See {@link OrderedPatches.heldBackPatches}. */
+  heldBackPatches?: OrderedPatches["heldBackPatches"];
   error?: GenericErrorMessage;
   errors?: OrderedPatches["errors"];
   unauthorized?: boolean;

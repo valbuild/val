@@ -1,5 +1,243 @@
 # @valbuild/ui
 
+## 0.146.2
+
+### Patch Changes
+
+- [#871](https://github.com/valbuild/val/pull/871) [`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0) Thanks [@freekh](https://github.com/freekh)! - An image, file or video picked from a gallery is checked against the gallery as it is now. Picking one uploaded since the site was built (still unpublished, saved in a proposal, or published without a rebuild) used to fail with "The gallery does not have an image at …" and refuse the save. In a proposal, Save now reads "Fix N" and goes to the validation errors instead of being refused by the server, as Publish does on the site.
+
+- [#867](https://github.com/valbuild/val/pull/867) [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9) Thanks [@freekh](https://github.com/freekh)! - When a publish breaks a page on a site with proposals, its changes are no longer
+  held back on the site: they move into a proposal of their own, with any later
+  changes to the same pages, so everyone else keeps publishing. The Studio says
+  so — "Publishing broke the site" — and offers **Open the proposal**, where the
+  changes can be fixed and published. Sites without proposals hold the changes
+  back as before.
+
+- [#867](https://github.com/valbuild/val/pull/867) [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9) Thanks [@freekh](https://github.com/freekh)! - Publishing a proposal is no longer blocked by other people's unpublished changes
+  on the same pages. When Publish is pressed in a proposal, Val works out which of
+  those changes conflict with it: those move into a new proposal, named "Moved when
+  “…” was published", which the people who wrote them own together; the rest stay
+  unpublished on the site, where they were. The Publish dialog says beforehand how
+  many changes will move and whose they are.
+
+  If someone changes those pages while the proposal is being published, the
+  publish stops and asks you to press Publish again, so nothing moves on an
+  outdated plan.
+
+- [#867](https://github.com/valbuild/val/pull/867) [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9) Thanks [@freekh](https://github.com/freekh)! - Publish only some of your changes: tick them in Review and press **Publish
+  selected**. On a site with proposals, Val moves them into a proposal of their
+  own and publishes it straight away; everything else stays unpublished, as it
+  was.
+
+  Some changes cannot be published apart — two edits to the same list, say — so
+  the confirm says what comes with your selection and whose it is before anything
+  moves. If the site is published while yours is being prepared, nothing is
+  published and you are asked to press it again. If publishing stops after the
+  changes have moved, they are safe in their proposal, and Review offers to open
+  it as well as to try again.
+
+## 0.146.1
+
+### Patch Changes
+
+- [#865](https://github.com/valbuild/val/pull/865) [`2db91a5`](https://github.com/valbuild/val/commit/2db91a5d2a280727eb2b1064e853a03be283289f) Thanks [@freekh](https://github.com/freekh)! - The Studio no longer fills the browser console with `Schema not found for …`
+  errors on projects with an `s.imagedir()` or `s.videodir()`. The fields an
+  entry holds beside the ones the gallery edits (an image's `hotspot`, a video's
+  `poster`, `posterTime`, `startTime`, `endTime` and `captions`) were reported as
+  missing schemas on every change, thousands of times per page.
+
+## 0.146.0
+
+### Minor Changes
+
+- [#861](https://github.com/valbuild/val/pull/861) [`89b0fa8`](https://github.com/valbuild/val/commit/89b0fa82a3ae0d8ccd5d0282c1034f1f40cc4e26) Thanks [@freekh](https://github.com/freekh)! - Proposals can be brought up to date with the site, like a pull request.
+
+  - **Update from the site** merges what was published on the site since a proposal started into the proposal, field by field. Where the site and the proposal changed the same field, the Publish dialog shows both and asks which to keep.
+  - **With code:** a proposal that changes code, or a site whose code changed since the proposal started, is updated too. The Studio runs each version's schemas in the tab, and the merged code is built before it can be published.
+  - Publish offers **Update from the site** whenever the site has moved under the proposal.
+
+- [#864](https://github.com/valbuild/val/pull/864) [`f0c7d27`](https://github.com/valbuild/val/commit/f0c7d27846c21f81ff6ce79c579185150bc0d063) Thanks [@freekh](https://github.com/freekh)! - Patch groups are removed. **Publish** now publishes every pending change, and
+  the Review list shows everyone's pending changes in one list. To keep changes
+  out of a publish, move them to a proposal.
+
+  Draft reads no longer send `own_patch_groups_only`, `patch_id` or
+  `include_patch_groups`, and the server no longer has the patch-group routes or
+  fields. A content host that still sends them is fine: they are ignored.
+
+## 0.145.1
+
+### Patch Changes
+
+- [#860](https://github.com/valbuild/val/pull/860) [`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7) Thanks [@freekh](https://github.com/freekh)! - `val publish` and the Studio now tell Val Build which version of the platform's React and TanStack a build was made against. If the platform is updated while a build is running — a project's CI can take several minutes — that build is no longer published onto a platform it was never checked against: the publish stops with a message saying the platform was updated and to build again, and the next build is checked against what it will run on. A build published with `val publish --artifacts` was made elsewhere and does not say, and publishes as before.
+
+## 0.145.0
+
+### Minor Changes
+
+- [#859](https://github.com/valbuild/val/pull/859) [`f085be0`](https://github.com/valbuild/val/commit/f085be0eb5bdc195e9d8cdb15dd5f8acfdabe23c) Thanks [@freekh](https://github.com/freekh)! - An edit Val Build refuses to save because of the project's plan — the Free plan's 1,000 changes a week are used, or a Hosted trial has ended — is now kept in the Studio instead of being reverted.
+
+  - `PUT /patches` answers such a save with a `403` of type `plan-refused`, carrying Val Build's reason and fix as data and which patches of the request it did save. It used to answer `400 patch-error`, which the Studio reads as a bad patch and drops.
+  - The Studio keeps the refused edits and any made after them, shows the plan notice with **Upgrade** or **Add a card** beside it, and saves them by itself once the plan allows it: as soon as Val Build says editing is open again (an owner added a card, the week moved on), and otherwise by trying again now and then. A publish or a restore that meets held edits says why, in Val Build's words, instead of suggesting the connection.
+  - The MCP write tools answer a refused write as `forbidden`, with Val Build's sentence, instead of `internal`.
+
+- [#858](https://github.com/valbuild/val/pull/858) [`dda5c52`](https://github.com/valbuild/val/commit/dda5c523698395c6dfb96ae8e39dae04307ec332) Thanks [@freekh](https://github.com/freekh)! - The Studio now says what a project's Val Build plan allows, before a save is refused and when one is, with the next step beside it.
+
+  - **Hosted trial:** the top bar shows the days left, how many of the trial's 3 publishes are used and how much of the trial's usage is gone, with **Add a card**. When the 3 publishes are used, editing carries on and a notice says a card is needed to publish again. When the trial has ended, the Studio is read-only and the notice says until when the site keeps running.
+  - **Free:** from 800 changes in 7 days the top bar shows how many are left this week (publishing is never limited), with **Upgrade to Pro**. At 1,000 the notice says when editing opens again, in your own time zone.
+  - **Hosted usage:** past 80% of a month's included usage, and once traffic or storage is used up, the notice says what happens and offers **Allow extra usage** on the project's page.
+  - **Remote files on Free:** an image or file upload Val Build refuses says that remote files are part of Pro, with **Upgrade to Pro**.
+
+  Owners get the button that fixes it. Everyone else is told who the owners are, by name, and can email them from the notice. A refused save, publish or upload makes the Studio ask Val Build again, so the right notice appears straight away, and the error toast of a refused write gets **Open Billing** (or **Ask an owner**) beside it.
+
+### Patch Changes
+
+- [#851](https://github.com/valbuild/val/pull/851) [`b6cb939`](https://github.com/valbuild/val/commit/b6cb9395d8bdcd5182e9c6ba84f5284930de2fa5) Thanks [@freekh](https://github.com/freekh)! - New `s.int()` for whole numbers, `.step()` on `s.int()` and `s.number()`, and a slider for both:
+
+  ```ts
+  s.object({
+    columns: s.int().min(1).max(6),
+    opacity: s
+      .int()
+      .min(0)
+      .max(100)
+      .step(5)
+      .render({ as: "slider", min: 0, max: 100 }),
+    lineHeight: s.number().render({ as: "slider", min: 1, max: 2, step: 0.1 }),
+  });
+  ```
+
+  - `.min()`, `.max()` and `.step()` are rules the validator checks. A step is counted from `min`, or from 0 when there is none.
+  - `.render({ as: "slider", min, max, step? })` is how the field is edited: a slider, with a box beside it for typing an exact value. `min` and `max` are required. The slider's step defaults to the schema's `.step()`, then to 1.
+  - The slider can only produce values the schema accepts. A slider outside `.min()`/`.max()`, with a step that is not a multiple of `.step()`, or with decimals on an `s.int()` throws where the schema is defined.
+  - A value outside the slider's range is still valid content. The field says it is out of the slider's reach and offers "Set to" the nearest stop. A value that breaks a rule offers "Round to" the nearest allowed value.
+  - Fixed: `.min(0)` and `.max(0)` on `s.number()` were ignored.
+  - A new item of a number schema starts at the nearest allowed value instead of `0`, so `s.int().min(1)` starts at 1.
+
+- [#856](https://github.com/valbuild/val/pull/856) [`ac0bb7c`](https://github.com/valbuild/val/commit/ac0bb7cb5a99df022b198326a5f8a0cf61e45388) Thanks [@freekh](https://github.com/freekh)! - The Studio's read-only notice no longer speaks of an organization's trial. On Val Build an organization has no trial of its own any more, and a whole organization's Studio is read-only only after a failed payment, so the notice says that, with **Update payment** for an owner. A read-only reason the Studio does not know is still shown, with Billing for an owner.
+
+## 0.144.12
+
+### Patch Changes
+
+- [#854](https://github.com/valbuild/val/pull/854) [`2193e3a`](https://github.com/valbuild/val/commit/2193e3ae133cd05dd73d0937dde7c15c88417f71) Thanks [@freekh](https://github.com/freekh)! - On an iPhone or in Safari, **Publish** in a proposal opens a builder tab only when the merge has something to build. A proposal of content alone, or one whose code is already built, is now published from the page itself. A merge that turns out to need a build asks for the tab with one more tap, and that tap now publishes the proposal rather than the site's own pending changes.
+
+## 0.144.11
+
+### Patch Changes
+
+- [#852](https://github.com/valbuild/val/pull/852) [`c606395`](https://github.com/valbuild/val/commit/c60639571f9e836726dfef38e6bd0defc503d726) Thanks [@freekh](https://github.com/freekh)! - A proposal's code can be built from every browser, an iPhone included. Where the Studio cannot build itself (Safari, and every browser on iOS), **Build** hands the build to a builder tab at the proposal's address, as Publish does, and follows it to the end. If the browser does not let the tab open — the assistant's `build_proposal` is not a tap — the button becomes **Open the tab to build**.
+
+## 0.144.10
+
+### Patch Changes
+
+- [#849](https://github.com/valbuild/val/pull/849) [`0a061c1`](https://github.com/valbuild/val/commit/0a061c124408aa127c5042c9e3a602d7dd9daf13) Thanks [@freekh](https://github.com/freekh)! - An unpublished change to a `.val` file that has since been renamed or deleted no longer holds the Studio on "Loading unpublished changes…". The Studio now names the file and offers **Discard** beside the message. If the file comes back, the change applies again.
+
+## 0.144.9
+
+### Patch Changes
+
+- [#846](https://github.com/valbuild/val/pull/846) [`c44b561`](https://github.com/valbuild/val/commit/c44b5611cf9e557b6b744704703dbff0cb8b23b0) Thanks [@freekh](https://github.com/freekh)! - History is shown for projects hosted by Val Build and inside a proposal, where it lists the proposal's own saves. On the site of a project with proposals, a restore — one field, one module, or "Put everything back" — opens a new proposal with the restored values in it, so it is reviewed there before it is published.
+
+  History also reads a hosted project's first commit, which has no parent: "Go back to this point" failed on it.
+
+  "Go back to this point" on the site brings back the code as well as the content: the proposal it opens stages the files of the build the site served then, and serves that build at once.
+
+- [#848](https://github.com/valbuild/val/pull/848) [`a2125af`](https://github.com/valbuild/val/commit/a2125af79d2b2401c40bce3d8fcf0431bb101cbf) Thanks [@freekh](https://github.com/freekh)! - The deployments list says when each publish started, and nothing about how it went: the status bar's one status (Live, Building, Reaching edges) says where the site is. "Reaching visitors" is now "Reaching edges".
+
+## 0.144.8
+
+### Patch Changes
+
+- [#844](https://github.com/valbuild/val/pull/844) [`6fd8f79`](https://github.com/valbuild/val/commit/6fd8f791a83d37f95dc3ae12bd8025ccf81e4a7c) Thanks [@freekh](https://github.com/freekh)! - Publishing a proposal that changes only content no longer builds the site. Its content goes live on the build the site already serves, the way a content-only publish on the site does.
+
+- [#844](https://github.com/valbuild/val/pull/844) [`b67c03e`](https://github.com/valbuild/val/commit/b67c03ee1876803c31098098ae0becf3f4ad6ade) Thanks [@freekh](https://github.com/freekh)! - Publishing a proposal now says what blocks it, and what to do about it:
+
+  - When the site's code changed after a proposal with code changes started, the Publish dialog offers **Update from the site**. It moves the proposal onto the site as it is now, and its code then needs building again ("Build required").
+  - When someone published changes to the same page since the proposal started, the dialog names the fields each side changed.
+
+## 0.144.7
+
+### Patch Changes
+
+- [#842](https://github.com/valbuild/val/pull/842) [`45ee083`](https://github.com/valbuild/val/commit/45ee0831393345dab08093575d4ed652e20e1229) Thanks [@freekh](https://github.com/freekh)! - In a proposal on a hosted project, the Studio's assistant can now change the project's code, not only its content:
+
+  - `list_files` and `read_file` read the project's code. In a proposal they read the proposal's version of it.
+  - `write_files` stages whole files in the proposal, or deletes them.
+  - `build_proposal` builds those files in the tab, so the proposal's preview shows them. Nothing is published: the site changes only when the proposal is published.
+
+  The top bar shows **Build required** while staged code is not in the preview yet, and the same button builds it. A failed build says why on the button, and pressing it again builds again.
+
+  On the site itself, code is never changed directly. A code change asked for there is refused, and New proposal opens so the change can be made in one.
+
+## 0.144.6
+
+### Patch Changes
+
+- [#840](https://github.com/valbuild/val/pull/840) [`4e237c9`](https://github.com/valbuild/val/commit/4e237c9b66e059344fa4c800587c572d125aa8f9) Thanks [@freekh](https://github.com/freekh)! - On val.build, "Reaching visitors" after a publish now takes about 10 seconds instead of a minute. Visitors read the published site from a cache the platform refreshes every few seconds, so when the indicator stops, everyone sees the change.
+
+## 0.144.5
+
+### Patch Changes
+
+- [#839](https://github.com/valbuild/val/pull/839) [`39e8db3`](https://github.com/valbuild/val/commit/39e8db34cf56c6c43ffff0d3acfe8e0839fa55a9) Thanks [@freekh](https://github.com/freekh)! - A publish that breaks a page no longer stops everyone else publishing. On val.build, the changes it had are held back: the Publish button says how many, and publishes go without them until someone presses Try again or Discard on the failed publish.
+
+  Publish can be pressed while this tab is still building the last publish. The new publish waits its turn and is built when the current one ends.
+
+  Discarding a change that is being published now says so, instead of failing silently. From there you can cancel the publish, which then discards the change, or wait for the publish to end.
+
+## 0.144.4
+
+### Patch Changes
+
+- [#835](https://github.com/valbuild/val/pull/835) [`e70a261`](https://github.com/valbuild/val/commit/e70a261ed8c0938b635214721fc4e445704b1f1f) Thanks [@freekh](https://github.com/freekh)! - A build is now named by what it was built from rather than by what it produced, so publishing the same project files again reuses the build the site already has. When that build is still held, the Studio skips building and uploading it.
+
+## 0.144.3
+
+### Patch Changes
+
+- [#833](https://github.com/valbuild/val/pull/833) [`99fcac5`](https://github.com/valbuild/val/commit/99fcac527f2d5ba37c4b132ef08189b955d69e51) Thanks [@freekh](https://github.com/freekh)! - A draft page no longer flips back to the text from before a content-only publish.
+
+  After content was published without a build, the Studio's overlay on a draft page started from the text compiled into the build, which still held the old content, and handed it to the page. Depending on which arrived first, an editor reloading the page saw the new text, then the old, then the new again, in a freshly opened tab and long after the publish. Visitors were not affected.
+
+  The page now hands the overlay the content it serves (`ValDraft.base`, from the content version and any proposal's saves), and the overlay starts from that instead of the build's text, so the two never disagree.
+
+  The same holds for `.jsonValues()` entries: where the overlay has not loaded an entry, `useValKey` and `useValRoute` now fall back to the content version's entry, as the server did, before the build's.
+
+- [#833](https://github.com/valbuild/val/pull/833) [`0e09e9c`](https://github.com/valbuild/val/commit/0e09e9cdac4918bdfa1c01a92a8968a516f8c0c6) Thanks [@freekh](https://github.com/freekh)! - Publishing only text from an iPhone, or from the overlay on a site, no longer opens a builder tab.
+
+  A page that cannot build a site (every iOS browser, and the overlay) used to open a tab to build every publish. A publish that changes only content goes live on the build already there, so that tab did its first step and closed. The page now publishes it itself. A tab still opens, during the tap, when the publish adds or removes a file kept in the project. If the server decides the publish needs a build after all, a **Build in a new tab** button finishes that same publish.
+
+  The overlay now shows a card for a publish it makes itself: **Publishing**, then **Live after** a few seconds, or why it failed. If the publish needs a build after all, the card offers **Build in a new tab**.
+
+## 0.144.2
+
+### Patch Changes
+
+- [#832](https://github.com/valbuild/val/pull/832) [`ab0ea20`](https://github.com/valbuild/val/commit/ab0ea2046e3872c4955f34b363881f76d48d1b1e) Thanks [@freekh](https://github.com/freekh)! - A site served by Val's platform can now be given its content separately from its build. When the platform hands a TanStack app a content version (`VAL_CONTENT`) that differs from what the build bundles, Val renders that content, in the Studio and in draft mode too. It reads it the way it already reads a proposal's saved content.
+
+  Nothing changes for an app that is not given one, and nothing hands one over yet. This is the reading side of publishing content without rebuilding the site.
+
+  A version too large for one environment variable can name others under `refs` (`"env://VAL_CONTENT_1"`), each holding one module's Source or one file's text. Only `refs` is resolved, never a string inside your content, and only variables named `VAL_CONTENT_<n>` are read.
+
+  At a proposal's address, a proposal's saved content is shown over the content version the site serves, so modules the proposal did not change show what the site shows rather than what the build bundles.
+
+  When Val's platform puts a publish live without building the site, because it changed only content, the Studio shows it being checked and going live instead of "Building".
+
+- [#829](https://github.com/valbuild/val/pull/829) [`44a5636`](https://github.com/valbuild/val/commit/44a5636955e005a40f2e6c8544e5cf4378fd0fdf) Thanks [@freekh](https://github.com/freekh)! - Val Studio now shows errors in a gallery's keys, and does not publish them. A remote URL in an `s.imagedir()`, `s.filedir()` or `s.videodir()` gallery that is not `.remote()`, a remote URL that is not valid, or one outside the gallery's directory was hidden in the Studio and did not stop a publish, because it was treated as something saving would repair. Nothing repairs it, so the entry's tile is now marked with the error and publishing waits until it is fixed. `npx val validate` already reports these errors.
+
+## 0.144.0
+
+### Patch Changes
+
+- [#788](https://github.com/valbuild/val/pull/788) [`a84271c`](https://github.com/valbuild/val/commit/a84271c534822071c1e428cf9990602459682d25) Thanks [@freekh](https://github.com/freekh)! - Fixes to `npx val validate` for `s.imagedir()` and `s.filedir()`, and the `s.image(galleryVal)` / `s.file(filesVal)` fields that use them:
+
+  - **`--fix` now updates every field that uses an uploaded image or file.** When `--fix` moves an entry of an `s.imagedir(dir).remote()` or `s.filedir(dir, options).remote()` to Val Remote, the entry's key changes from the local path to the remote URL. Fields that held the old path were left pointing at it, and reported "The gallery does not have an image at …" with nothing to fix it. Now `s.image(galleryVal)` and `s.file(filesVal)` fields, and images in rich text (`s.richtext({ img: s.image(galleryVal) })`), are updated in the same run. The VS Code extension's "upload to Val Remote" updates them in the same edit, including fields inside `.jsonValues()` entries, which live in their own `*.val.json` files.
+  - **A field that uses an image or file from a `.remote()` gallery is no longer reported as "Expected local image, but found remote".** The gallery decides whether its files are on Val Remote; the field only has to name a file the gallery has. Before, `--fix` would download the file and point the field at a path the gallery did not have.
+  - **Images uploaded through a field into a `.remote()` gallery.** When you upload an image through an `s.image(galleryVal)` field in Val Studio, the field stores the remote URL and the gallery stores the image under its local path. Validation now accepts this, and `useVal` / `fetchVal` now fill in the image's `width`, `height` and `mimeType` from the gallery for it, as they do for every other gallery image.
+  - **Errors in a gallery's keys are reported.** A remote URL in a gallery that is not `.remote()`, a remote URL that is not valid, or one outside the gallery's `dir` was silently ignored by `npx val validate`. It is now reported as an error. `--fix` does not change it: you decide whether the key or the gallery's options are wrong.
+  - **A file is no longer reported as valid when it still has an error.** When `--fix` fixed one error in a file and another error was left, the file could be printed as "✔ valid".
+
 ## 0.143.1
 
 ### Patch Changes

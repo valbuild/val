@@ -1,4 +1,10 @@
-import { proposalSnapshot, type ValProposal } from "./proposal";
+import {
+  proposalJsonEntries,
+  layeredSnapshot,
+  proposalSnapshot,
+  type ValContentVersion,
+  type ValProposal,
+} from "./proposal";
 import {
   type PatchId,
   type ModuleFilePath,
@@ -22,7 +28,6 @@ import {
   ValOpsOptions,
   WithGenericError,
   SaveSourceFilePatchResult,
-  type PatchGroupMembership,
   SchemaSha,
   OrderedPatchesMetadata,
   OrderedPatches,
@@ -30,6 +35,16 @@ import {
   type PublishRefusal,
 } from "./ValOps";
 import { z } from "zod";
+import {
+  mergeContent,
+  type ContentMergeResult,
+} from "./proposalMerge/mergeContent";
+import { updateWithCode } from "./proposalMerge/updateCode";
+import {
+  MoveInputs,
+  movesAtMerge,
+  type MergeMoves,
+} from "./proposalMerge/movesAtMerge";
 import { fromError } from "zod-validation-error";
 import type { HistoryError } from "./history/HistoryError";
 import type {
@@ -44,10 +59,10 @@ import {
   Patch,
   ValCommit,
   ValDeployment,
-  PatchGroup,
-  type PatchGroupT,
   JSONValue as JSONValueSchema,
   PatchId as PatchIdSchema,
+  SerializedSchema as SerializedSchemaSchema,
+  PlanRefusalError,
 } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import {
@@ -56,6 +71,9 @@ import {
 } from "@valbuild/shared/internal";
 
 const textEncoder = new TextEncoder();
+
+/** The body of the content API's 403 for a write the project's plan refuses. */
+const PlanRefusedBody = z.object({ error: PlanRefusalError });
 
 const PatchId = z.string().refine((s): s is PatchId => !!s); // TODO: validate
 const CommitSha = z.string().refine((s): s is CommitSha => !!s); // TODO: validate
@@ -92,28 +110,8 @@ const GetApplicablePatches = z.object({
           commitSha: z.string(),
         })
         .nullable(),
-      /**
-       * The groups this patch is a member of. Read in the SAME transaction as
-       * the list and its `headVersion`, which is the point: see
-       * `OrderedPatches.patchGroups`. Optional for an older content service.
-       */
-      patchGroupIds: z.array(z.string()).optional(),
     }),
   ),
-  /**
-   * The groups on the branch, without their members — those are on the
-   * patches above. Optional for a content service that predates groups.
-   */
-  patchGroups: z
-    .array(
-      z.object({
-        patchGroupId: z.string(),
-        authorId: z.string().nullable(),
-        createdAt: z.string(),
-        publishedAt: z.string().nullable(),
-      }),
-    )
-    .optional(),
   /**
    * The head of the chain. See `OrderedPatches.headPatchId`. Optional because
    * a content service that predates it sends nothing.
@@ -124,8 +122,12 @@ const GetApplicablePatches = z.object({
    * Optional for the same reason.
    */
   headVersion: z.number().optional(),
+  /** The branch's last commit. See `OrderedPatches.headCommitSha`. */
+  headCommitSha: z.string().nullable().optional(),
   /** Of `patches`, the ones a running publish holds. See `OrderedPatches.publishingPatches`. */
   publishingPatches: z.array(PatchIdSchema).optional(),
+  /** Of `patches`, the ones a failed publish holds back. See `OrderedPatches.heldBackPatches`. */
+  heldBackPatches: z.array(PatchIdSchema).optional(),
   commits: z
     .array(
       z.object({
@@ -224,13 +226,6 @@ const FilesResponse = z.object({
 const SavePatchResponse = z.object({
   patchId: PatchId,
   /**
-   * Which group the content API put this patch in.
-   *
-   * Optional: a content API that predates patch groups does not send one, and
-   * absence has to keep meaning "no groups here" rather than failing the save.
-   */
-  patchGroupId: z.string().optional(),
-  /**
    * The chain version this write made, comparable with `headVersion` on the
    * listing. Optional: a content service that predates it sends nothing.
    */
@@ -243,6 +238,8 @@ const DeletePatchesResponse = z.object({
       z.object({
         message: z.string(),
         patchId: PatchId,
+        /** The publish job holding it, when that is why it was not deleted. */
+        publishJobId: z.string().optional(),
       }),
     )
     .optional(),
@@ -358,7 +355,8 @@ const CommitPatchesResponse = z.object({
  */
 const CommitModulesResponse = z.object({
   commitSha: z.string(),
-  parentCommitSha: z.string(),
+  // Null for a project's first commit: a hosted one's first publish has none.
+  parentCommitSha: z.string().nullable(),
   /**
    * Whether an `asOf` read covered the whole project.
    *
@@ -412,53 +410,10 @@ const CommitAffectedFilesResponse = z.object({
 });
 // #endregion history wire schemas
 
-/*
- * The shared schema, not a copy of it.
- *
- * This re-declared `PatchGroup` field for field while the file already imported
- * `PatchGroupT` from the same module — so a field added on one side and not the
- * other would have `getPatchGroups()` return a `PatchGroupT[]` silently missing
- * it, with no type error anywhere.
- */
-const PatchGroupsResponse = z.object({
-  patchGroups: z.array(PatchGroup),
-});
-
-const PatchGroupMutationResponse = z.object({
-  /** `null` for an unstage of `~` when the caller has no open group. */
-  patchGroupId: z.string().nullable(),
-  patchIds: z.array(PatchId),
-  /** The chain version the change committed at. Absent from an older `home`. */
-  headVersion: z.number().optional(),
-});
-export type PatchGroupMutationResult =
-  | {
-      patchIds: PatchId[];
-      patchGroupId: string | null;
-      headVersion?: number;
-      status?: undefined;
-      error?: undefined;
-    }
-  | {
-      patchIds: PatchId[];
-      status: 403 | 409 | 500;
-      error: GenericErrorMessage;
-    };
 const NonceResponse = z.object({
   nonce: z.string(),
   url: z.string(),
 });
-
-/**
- * How long a patch-group lookup is reused. See `ValOpsHttp.patchGroupsCache`.
- *
- * Sized to cover one server render, not to be a cache: several `fetchVal` calls
- * in one request share an answer, and the next request asks again.
- */
-const PATCH_GROUPS_CACHE_MS = 1000;
-
-/** The content API's id for "the caller's open group on the branch". */
-const OWN_OPEN_GROUP = "~";
 
 export class ValOpsHttp extends ValOps {
   private readonly authHeaders:
@@ -494,6 +449,8 @@ export class ValOpsHttp extends ValOps {
   private readonly publishBuild: string | null;
   /** See `proposal` on {@link ValApiOptions}; `null` on the site. */
   private readonly proposal: ValProposal | null;
+  /** See `contentVersion` on {@link ValApiOptions}; `null` at a proposal's address. */
+  private readonly contentVersion: ValContentVersion | null;
 
   /** Did the host hand over the running build's source? See `projectSource`. */
   embedsSource(): boolean {
@@ -596,12 +553,38 @@ export class ValOpsHttp extends ValOps {
       publishBuild?: string;
       /** See `proposal` on {@link ValApiOptions}. */
       proposal?: ValProposal;
+      /** See `contentVersion` on {@link ValApiOptions}. */
+      contentVersion?: ValContentVersion;
     },
   ) {
+    /*
+     * What replaces the bundle's Source: the content version the site serves,
+     * and a proposal's saves over it at its address. Two layers rather than
+     * one, because the version is the SITE -- what a proposal is compared
+     * against -- and the proposal is what is being proposed.
+     */
+    const snapshot = layeredSnapshot(
+      options?.proposal,
+      options?.contentVersion,
+    );
     super(
       valModules,
-      options?.proposal
-        ? { ...options, snapshotSources: proposalSnapshot(options.proposal) }
+      options && snapshot
+        ? {
+            ...options,
+            ...(options.proposal !== undefined
+              ? { snapshotSources: proposalSnapshot(options.proposal) }
+              : {}),
+            ...(options.contentVersion !== undefined
+              ? {
+                  siteSnapshotSources: proposalSnapshot(options.contentVersion),
+                }
+              : {}),
+            snapshotJsonEntries: proposalJsonEntries(
+              snapshot,
+              options.projectSource,
+            ),
+          }
         : options,
     );
     this.authHeaders =
@@ -610,16 +593,27 @@ export class ValOpsHttp extends ValOps {
         : { Authorization: `Bearer ${auth.apiKey}` };
     this.root = options?.root ?? "";
     this.proposal = options?.proposal ?? null;
+    this.contentVersion =
+      this.proposal === null ? (options?.contentVersion ?? null) : null;
     /*
      * In a proposal, the text its saves wrote over the text the build was made
      * from: the next save patches the last one's `.val.ts`, not the base's.
+     * The same for a content version: the next publish patches what the last
+     * one published, not what the build bundles.
      */
     this.projectSource =
-      this.proposal !== null
-        ? { ...(options?.projectSource ?? {}), ...this.proposal.files }
+      snapshot !== undefined
+        ? { ...(options?.projectSource ?? {}), ...snapshot.files }
         : (options?.projectSource ?? null);
     this.publishJob = options?.publishJob ?? null;
-    this.publishBuild = options?.publishBuild ?? null;
+    /*
+     * Not with a content version: the content service places a build by the
+     * build first (`getApplicablePatchesAndCommits`), and this build bundles an
+     * older version than it serves -- placed there, the version's own changes
+     * would be replayed over a snapshot that already holds them.
+     */
+    this.publishBuild =
+      this.contentVersion === null ? (options?.publishBuild ?? null) : null;
     this.mirrorsSourceFiles = git !== null || this.projectSource !== null;
   }
   /**
@@ -954,10 +948,34 @@ export class ValOpsHttp extends ValOps {
     if (path === "") return method === "GET" || method === "POST";
     const one = /^\/[0-9a-f]{20}$/.test(path);
     if (one) return method === "GET" || method === "PATCH";
-    if (method === "GET") return /^\/[0-9a-f]{20}\/merge-checks$/.test(path);
+    if (method === "GET")
+      return /^\/[0-9a-f]{20}\/(merge-checks|files|merge-trees)$/.test(path);
     return (
       method === "POST" &&
-      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge)$/.test(path)
+      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|build|update-from-site|restore-code)$/.test(
+        path,
+      )
+    );
+  }
+
+  /**
+   * A write to a proposal's FILES -- staging code, serving a build of it
+   * (valbuild/home `docs/hosted-publishing.md`, step 7), or moving it onto the
+   * site's code (step 8, "Update from the site") -- is made by the
+   * proposal's own server and nobody else's: the file tools act on the
+   * proposal the Studio is open in (P11), and the site's files change only
+   * when a proposal is merged. The proposal it names, or `null` when this
+   * path is not such a write.
+   */
+  private static proposalFilesWrite(
+    method: string,
+    path: string,
+  ): string | null {
+    if (method !== "POST") return null;
+    return (
+      /^\/([0-9a-f]{20})\/(files|build|update-from-site|restore-code)$/.exec(
+        path,
+      )?.[1] ?? null
     );
   }
 
@@ -996,12 +1014,55 @@ export class ValOpsHttp extends ValOps {
     profileId: string | null,
   ): Promise<{ status: number; body: string; contentType: string }> {
     const json = "application/json";
+    const updating = /^\/([0-9a-f]{20})\/update-content$/.exec(path)?.[1];
+    if (updating !== undefined && init.method === "POST") {
+      return this.updateContentFromSite(updating, init.body, profileId);
+    }
+    const withCode = /^\/([0-9a-f]{20})\/update-code$/.exec(path)?.[1];
+    if (withCode !== undefined && init.method === "POST") {
+      return this.updateCodeFromSite(withCode, init.body, profileId);
+    }
+    /*
+     * Publish, and the checks before it, at the proposal's own address: Val
+     * says which of the site's pending changes the merge moves, from this
+     * build's schemas (step 8.2). Anywhere else they go to content as they
+     * are, and the site's pending changes block as they always did.
+     */
+    const checking = /^\/([0-9a-f]{20})\/merge-checks$/.exec(path)?.[1];
+    if (
+      checking !== undefined &&
+      init.method === "GET" &&
+      (await this.answersMovesFor(checking, profileId))
+    ) {
+      return this.mergeChecksWithMoves(checking, profileId);
+    }
+    const pressing = /^\/([0-9a-f]{20})\/merge$/.exec(path)?.[1];
+    if (
+      pressing !== undefined &&
+      init.method === "POST" &&
+      (await this.answersMovesFor(pressing, profileId))
+    ) {
+      return this.pressMergeWithMoves(pressing, init.body, profileId);
+    }
     if (!ValOpsHttp.proposalsApiAllowed(init.method, path)) {
       return {
         status: 403,
         contentType: json,
         body: JSON.stringify({
           message: `'${init.method} ${path}' is not part of the proposals API.`,
+        }),
+      };
+    }
+    const writes = ValOpsHttp.proposalFilesWrite(init.method, path);
+    if (writes !== null && writes !== this.proposal?.name) {
+      return {
+        status: 403,
+        contentType: json,
+        body: JSON.stringify({
+          message:
+            this.proposal === null
+              ? "The site's files are changed in a proposal: open one, and change them there."
+              : "Files are changed in the proposal this Studio is open in, not in another.",
         }),
       };
     }
@@ -1027,6 +1088,413 @@ export class ValOpsHttp extends ValOps {
       body: await res.text(),
       contentType: res.headers.get("Content-Type") ?? json,
     };
+  }
+
+  /**
+   * Update from the site, for a proposal that changes only content
+   * (valbuild/home `docs/hosted-publishing.md`, step 8.2, slice 1a): content
+   * hands over the three versions of every module the proposal saved, this
+   * server merges them under its own build's schemas -- the same on all
+   * three sides, which is what "content only" means -- and content commits
+   * the merge on the proposal's branch.
+   *
+   * Answered here rather than forwarded, at `POST /<name>/update-content`, and
+   * only by the proposal's own server: the schemas it merges under are this
+   * build's. A conflict comes back for a person to resolve, and the same call
+   * with their `resolutions` merges.
+   */
+  private async updateContentFromSite(
+    name: string,
+    body: string | undefined,
+    profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    const answer = (status: number, value: unknown) => ({
+      status,
+      contentType: json,
+      body: JSON.stringify(value),
+    });
+    if (this.proposal?.name !== name) {
+      return answer(403, {
+        message:
+          "A proposal is updated from the site at its own address, where its build is.",
+      });
+    }
+    let parsedBody: unknown;
+    try {
+      parsedBody = body === undefined || body === "" ? {} : JSON.parse(body);
+    } catch {
+      return answer(400, { message: "The update's body is not JSON." });
+    }
+    const request = UpdateContentBody.safeParse(parsedBody);
+    if (!request.success) {
+      return answer(400, {
+        message: `Invalid update: ${fromError(request.error).toString()}`,
+      });
+    }
+    const content = (path: string, init: RequestInit = {}) =>
+      fetch(`${this.contentUrl}/v1/${this.project}/proposals/${name}${path}`, {
+        ...init,
+        headers: {
+          ...this.authHeaders,
+          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+          ...(init.body === undefined ? {} : { "Content-Type": json }),
+        },
+      });
+    const read = await content("/merge-inputs");
+    if (!read.ok) {
+      return {
+        status: read.status,
+        contentType: json,
+        body: await read.text(),
+      };
+    }
+    const inputs = MergeInputs.safeParse(await read.json());
+    if (!inputs.success) {
+      return answer(502, {
+        message: `Content answered the merge's inputs in a shape this Val does not read: ${fromError(inputs.error).toString()}`,
+      });
+    }
+    if (inputs.data.upToDate) return answer(200, { status: "up-to-date" });
+    if (!inputs.data.contentOnly.ok || inputs.data.siteHead === null) {
+      return answer(409, {
+        status: "needs-build",
+        message: inputs.data.contentOnly.ok
+          ? "The site has no commit to update from."
+          : inputs.data.contentOnly.reason,
+      });
+    }
+    const modules: Parameters<typeof mergeContent>[0]["modules"] = {};
+    const withoutText: ModuleFilePath[] = [];
+    for (const [path, module] of Object.entries(inputs.data.modules)) {
+      const moduleFilePath = path as ModuleFilePath;
+      if (module.text === null) {
+        withoutText.push(moduleFilePath);
+        continue;
+      }
+      modules[moduleFilePath] = {
+        base: module.base,
+        site: module.site,
+        proposal: module.proposal,
+        text: module.text,
+      };
+    }
+    // Decisions are about the values a person was shown. When the site or
+    // the proposal moved since, they would settle values nobody saw, so the
+    // merge is done again without them: what still conflicts is shown again.
+    const { siteHead, proposalHead } = request.data;
+    const decidedHere =
+      siteHead === undefined ||
+      (siteHead === inputs.data.siteHead &&
+        proposalHead === inputs.data.proposalHead);
+    const merged: ContentMergeResult =
+      withoutText.length > 0
+        ? { status: "needs-full-merge", modules: withoutText }
+        : mergeContent({
+            modules,
+            schemas: await this.getSchemas(),
+            resolutions: decidedHere ? request.data.resolutions : [],
+          });
+    if (merged.status === "conflicts") {
+      return answer(200, {
+        status: "conflicts",
+        conflicts: merged.conflicts,
+        siteHead: inputs.data.siteHead,
+        proposalHead: inputs.data.proposalHead,
+      });
+    }
+    if (merged.status === "needs-full-merge") {
+      return answer(409, {
+        status: "needs-full-merge",
+        modules: merged.modules,
+        message: `${merged.modules.join(", ")} changed both here and on the site in a way this version cannot merge yet.`,
+      });
+    }
+    const written = await content("/merge-from-site", {
+      method: "POST",
+      body: JSON.stringify({
+        siteHead: inputs.data.siteHead,
+        proposalHead: inputs.data.proposalHead,
+        files: merged.files,
+        modules: merged.modules,
+      }),
+    });
+    const text = await written.text();
+    if (!written.ok) {
+      return { status: written.status, contentType: json, body: text };
+    }
+    return updatedAnswer(text);
+  }
+
+  /**
+   * Whether this server says what a merge of `name` moves: at the proposal's
+   * own address, whose schemas are the ones it publishes; and on the site, for
+   * Publish selected's proposal, which changes no code -- so the site's
+   * schemas are its own -- and has no address to be published from.
+   */
+  private async answersMovesFor(
+    name: string,
+    profileId: string | null,
+  ): Promise<boolean> {
+    if (this.proposal !== null) return this.proposal.name === name;
+    const read = await this.proposalContent(name, profileId)("");
+    if (!read.ok) return false;
+    const kind = ProposalKindAnswer.safeParse(
+      await read.json().catch(() => null),
+    );
+    return kind.success && kind.data.proposal.kind === "publish";
+  }
+
+  /** Content's proposals API for one proposal, as the person asking. */
+  private proposalContent(name: string, profileId: string | null) {
+    return (path: string, init: RequestInit = {}) =>
+      fetch(`${this.contentUrl}/v1/${this.project}/proposals/${name}${path}`, {
+        ...init,
+        headers: {
+          ...this.authHeaders,
+          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+          ...(init.body === undefined
+            ? {}
+            : { "Content-Type": "application/json" }),
+        },
+      });
+  }
+
+  /**
+   * Which of the site's pending changes a merge of this proposal moves
+   * (`movesAtMerge`), or `null` when content could not say what is pending:
+   * then nothing is claimed, and the site's pending changes block the merge.
+   */
+  private async mergeMovesOf(
+    name: string,
+    profileId: string | null,
+  ): Promise<
+    | (MergeMoves & { authors: string[][]; save: string | null | undefined })
+    | null
+  > {
+    const read = await this.proposalContent(name, profileId)("/move-inputs");
+    if (!read.ok) return null;
+    const inputs = MoveInputs.safeParse(await read.json().catch(() => null));
+    if (!inputs.success) return null;
+    return {
+      ...movesAtMerge(inputs.data, await this.getSchemas()),
+      save: inputs.data.save,
+    };
+  }
+
+  /**
+   * The merge checks, with `pending-on-site` answered by what the merge
+   * moves rather than by whether anything is pending: the conflicting
+   * changes move to a proposal of their own when it is published, and the
+   * rest stay, so neither blocks it.
+   */
+  private async mergeChecksWithMoves(
+    name: string,
+    profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    const read = await this.proposalContent(name, profileId)("/merge-checks");
+    const text = await read.text();
+    const answer = { status: read.status, contentType: json, body: text };
+    if (!read.ok) return answer;
+    const parsed = MergeChecksAnswer.safeParse(parseJsonOrNull(text));
+    if (!parsed.success) return answer;
+    const pending = parsed.data.checks.find(
+      (check) => check.id === "pending-on-site",
+    );
+    if (pending === undefined || pending.ok) return answer;
+    const moves = await this.mergeMovesOf(name, profileId);
+    if (moves === null) return answer;
+    const moving = moves.groups.flat().length;
+    const names = [...new Set(moves.authors.flat())];
+    const checks = parsed.data.checks.map((check) =>
+      check.id !== "pending-on-site"
+        ? check
+        : {
+            ...check,
+            ok: true,
+            blockers: [],
+            message:
+              moving === 0
+                ? "Unpublished changes on these pages do not conflict with this proposal, and stay unpublished"
+                : `${moving === 1 ? "1 unpublished change" : `${moving} unpublished changes`} by ${namesOf(names)} ${moving === 1 ? "conflicts" : "conflict"} with this proposal, and ${moving === 1 ? "moves" : "move"} to ${moves.groups.length === 1 ? "a new proposal" : "new proposals"} when it is published`,
+            moves: moves.groups.map((group, at) => ({
+              patchIds: group,
+              authors: moves.authors[at] ?? [],
+            })),
+          },
+    );
+    const othersOk = parsed.data.checks.every(
+      (check) => check.ok || check.id === "pending-on-site",
+    );
+    return {
+      status: 200,
+      contentType: json,
+      body: JSON.stringify({
+        ...parsed.data,
+        checks,
+        canMerge: parsed.data.canMerge || othersOk,
+      }),
+    };
+  }
+
+  /** Publish in a proposal, carrying the moves (`MergeBody.moves` in content). */
+  private async pressMergeWithMoves(
+    name: string,
+    body: string | undefined,
+    profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    const content = this.proposalContent(name, profileId);
+    const forward = async (sent: string | undefined) => {
+      const res = await content("/merge", {
+        method: "POST",
+        ...(sent === undefined ? {} : { body: sent }),
+      });
+      return {
+        status: res.status,
+        contentType: res.headers.get("Content-Type") ?? json,
+        body: await res.text(),
+      };
+    };
+    let pressed: unknown;
+    try {
+      pressed = body === undefined || body === "" ? {} : JSON.parse(body);
+    } catch {
+      return forward(body);
+    }
+    if (typeof pressed !== "object" || pressed === null) return forward(body);
+    const moves = await this.mergeMovesOf(name, profileId);
+    if (moves === null) return forward(body);
+    return forward(
+      JSON.stringify({
+        /*
+         * The save the moves were worked out against is the one this press
+         * publishes: named, so a change written after the press -- which the
+         * Studio lets an editor make at once -- continues in a new proposal
+         * rather than refusing it as unsaved.
+         */
+        ...(typeof moves.save === "string" ? { save: moves.save } : {}),
+        ...pressed,
+        moves: {
+          siteHead: moves.siteHead,
+          considered: moves.considered,
+          groups: moves.groups,
+        },
+      }),
+    );
+  }
+
+  /**
+   * Update from the site, for a proposal with code (valbuild/home
+   * `docs/hosted-publishing.md`, step 8.2, slice 1b), at
+   * `POST /<name>/update-code`. The builder tab has read content's trees
+   * (`GET /<name>/merge-trees`, forwarded) and evaluated them; this reads the
+   * trees again -- the tab's evaluation is of the trees content has, or it is
+   * of nothing -- and does the text (`updateWithCode`). The first call
+   * answers the merge for the tab to evaluate; the second, with that
+   * evaluation, commits it on the proposal's branch, staging its code.
+   *
+   * Only at the proposal's own address, as every write to its files is.
+   */
+  private async updateCodeFromSite(
+    name: string,
+    body: string | undefined,
+    profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    const answer = (status: number, value: unknown) => ({
+      status,
+      contentType: json,
+      body: JSON.stringify(value),
+    });
+    if (this.proposal?.name !== name) {
+      return answer(403, {
+        message:
+          "A proposal is updated from the site at its own address, where its files are written.",
+      });
+    }
+    let parsedBody: unknown;
+    try {
+      parsedBody = body === undefined || body === "" ? {} : JSON.parse(body);
+    } catch {
+      return answer(400, { message: "The update's body is not JSON." });
+    }
+    const request = UpdateCodeBody.safeParse(parsedBody);
+    if (!request.success) {
+      return answer(400, {
+        message: `Invalid update: ${fromError(request.error).toString()}`,
+      });
+    }
+    const content = (path: string, init: RequestInit = {}) =>
+      fetch(`${this.contentUrl}/v1/${this.project}/proposals/${name}${path}`, {
+        ...init,
+        headers: {
+          ...this.authHeaders,
+          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+          ...(init.body === undefined ? {} : { "Content-Type": json }),
+        },
+      });
+    const read = await content("/merge-trees");
+    if (!read.ok) {
+      return {
+        status: read.status,
+        contentType: json,
+        body: await read.text(),
+      };
+    }
+    const trees = MergeTrees.safeParse(await read.json());
+    if (!trees.success) {
+      return answer(502, {
+        message: `Content answered the merge's trees in a shape this Val does not read: ${fromError(trees.error).toString()}`,
+      });
+    }
+    const { siteHead, proposalHead, builds } = request.data;
+    if (
+      trees.data.siteHead !== siteHead ||
+      trees.data.proposalHead !== proposalHead ||
+      trees.data.builds.base !== builds.base ||
+      trees.data.builds.site !== builds.site
+    ) {
+      return answer(409, {
+        status: "moved",
+        message:
+          "The site or this proposal changed while this update was being made. Update from the site again.",
+      });
+    }
+    if (trees.data.upToDate) return answer(200, { status: "up-to-date" });
+    if (siteHead === null) {
+      return answer(409, { message: "The site has no commit to update from." });
+    }
+    const merged = updateWithCode({
+      trees: trees.data,
+      evaluated: request.data.evaluated,
+      resolutions: request.data.resolutions,
+      ...(request.data.merged ? { merged: request.data.merged } : {}),
+    });
+    if (merged.status === "stale") {
+      return answer(409, {
+        status: "stale",
+        message:
+          "What was checked is not this update any more. Update from the site again.",
+      });
+    }
+    if (merged.status !== "merged") return answer(200, merged);
+    const written = await content("/merge-from-site", {
+      method: "POST",
+      body: JSON.stringify({
+        siteHead,
+        proposalHead,
+        files: merged.files,
+        modules: merged.modules,
+        code: { build: builds.site, staged: merged.staged },
+      }),
+    });
+    const text = await written.text();
+    if (!written.ok) {
+      return { status: written.status, contentType: json, body: text };
+    }
+    return updatedAnswer(text);
   }
 
   /**
@@ -1250,14 +1718,14 @@ export class ValOpsHttp extends ValOps {
         appliedPatches: PatchId[];
         /** Of `patches`, the ones a running publish holds. See {@link OrderedPatches.publishingPatches}. */
         publishingPatches?: PatchId[];
+        /** Of `patches`, the ones a failed publish holds back. See {@link OrderedPatches.heldBackPatches}. */
+        heldBackPatches?: PatchId[];
         /** The head of the chain. See {@link OrderedPatchesMetadata.headPatchId}. */
         headPatchId?: PatchId | null;
         /** The chain version of that head. See {@link OrderedPatchesMetadata.headVersion}. */
         headVersion?: number;
         /** The newest commit, which is the publish head. */
         headCommitSha?: string;
-        /** Who holds what, at `headVersion`. See {@link OrderedPatches.patchGroups}. */
-        patchGroups?: PatchGroupT[];
       }
     | {
         type: "error";
@@ -1353,6 +1821,10 @@ export class ValOpsHttp extends ValOps {
       ...(allPatchData.publishingPatches !== undefined
         ? { publishingPatches: allPatchData.publishingPatches }
         : {}),
+      // Absent from a content service that does not say, as above.
+      ...(allPatchData.heldBackPatches !== undefined
+        ? { heldBackPatches: allPatchData.heldBackPatches }
+        : {}),
       /*
        * The CHAIN head, not the publish head below. Spread: absent is a content
        * service that does not report it, which is not the same as `null`.
@@ -1362,15 +1834,6 @@ export class ValOpsHttp extends ValOps {
         : {}),
       ...(allPatchData.headVersion !== undefined
         ? { headVersion: allPatchData.headVersion }
-        : {}),
-      /*
-       * Who holds what, read with the list and its version. On every stat, so
-       * a Studio's view of the groups is never older than its view of the
-       * chain — which is what lets a stage made in another browser show here
-       * without a reload. See `OrderedPatches.patchGroups`.
-       */
-      ...(allPatchData.patchGroups !== undefined
-        ? { patchGroups: allPatchData.patchGroups }
         : {}),
       /*
        * The PUBLISH head, which is not `commitSha`.
@@ -1408,6 +1871,18 @@ export class ValOpsHttp extends ValOps {
           ? { commit: this.proposal.commit }
           : {}),
       };
+    }
+    /*
+     * A content version sits where the publish that made it does: its job,
+     * which content places exactly, or its commit, once nothing else says.
+     */
+    if (this.contentVersion !== null) {
+      if (this.contentVersion.job !== null) {
+        return { job: this.contentVersion.job };
+      }
+      if (this.contentVersion.commit !== null) {
+        return { commit: this.contentVersion.commit };
+      }
     }
     if (this.git) {
       return { branch: this.git.branch, commit: this.git.commit };
@@ -1760,49 +2235,25 @@ export class ValOpsHttp extends ValOps {
               });
             }
           }
-          /*
-           * Membership, folded from the per-patch annotation onto the groups.
-           *
-           * From THIS response and not from `GET /patch-groups`, because only
-           * this one is consistent with the list and the version beside it:
-           * the content service reads all three in one transaction. A group
-           * list fetched separately can be older or newer than the chain it is
-           * shown with — and the Studio decides what an editor sees, and what
-           * a publish ships, from the pair.
-           *
-           * A group holding none of the listed patches is still listed, with
-           * no members: "groups exist and you hold nothing here" is a real
-           * answer, and different from "this content service has no groups".
-           */
-          let patchGroups: PatchGroupT[] | undefined;
-          if (data.patchGroups !== undefined) {
-            const members = new Map<string, PatchId[]>();
-            for (const patch of data.patches) {
-              for (const groupId of patch.patchGroupIds ?? []) {
-                const list = members.get(groupId) ?? [];
-                list.push(patch.patchId as PatchId);
-                members.set(groupId, list);
-              }
-            }
-            patchGroups = data.patchGroups.map((group) => ({
-              ...group,
-              patchIds: members.get(group.patchGroupId) ?? [],
-            }));
-          }
           return {
             commits,
             deployments,
             patches,
             errors,
-            ...(patchGroups !== undefined ? { patchGroups } : {}),
             ...(data.headPatchId !== undefined
               ? { headPatchId: data.headPatchId }
               : {}),
             ...(data.headVersion !== undefined
               ? { headVersion: data.headVersion }
               : {}),
+            ...(data.headCommitSha !== undefined
+              ? { headCommitSha: data.headCommitSha }
+              : {}),
             ...(data.publishingPatches !== undefined
               ? { publishingPatches: data.publishingPatches }
+              : {}),
+            ...(data.heldBackPatches !== undefined
+              ? { heldBackPatches: data.heldBackPatches }
               : {}),
           } as ExcludePatchOps extends true
             ? OrderedPatchesMetadata
@@ -1863,413 +2314,6 @@ export class ValOpsHttp extends ValOps {
     }
   }
 
-  // #region patch groups
-  /**
-   * Add patches to a patch group.
-   *
-   * The set arrives closed by the client — `withPatchIds` is the prefix closure
-   * over the patch sets the staged patches belong to. We forward it and do not
-   * second-guess it: deriving the closure needs the content schema, which this
-   * process does have but content.val.build does not, and having two
-   * implementations of the rule would be worse than having one.
-   *
-   * Membership rows are stamped with `coreVersion` on the content side — the
-   * same stamp the patch row carries — so which client wrote a row stays
-   * legible after the fact.
-   */
-  async stagePatches(
-    /**
-     * The group to stage into, or `undefined` for the caller's open group on
-     * this branch — `~` on the content API, which creates it if there is none.
-     */
-    patchGroupId: string | undefined,
-    /** What the user asked to stage. */
-    patchIds: PatchId[],
-    /**
-     * What has to come with it, because the staged patches are written on top
-     * of it.
-     *
-     * The content API stores each membership row as `explicit` or `dependency`
-     * and treats what it is not told about as a dependency. Folding the two
-     * halves into `patchIds` therefore files the patch somebody clicked as one
-     * the closure dragged in — the exact opposite of what happened, and the
-     * only record anywhere of what the author chose.
-     */
-    withPatchIds: PatchId[],
-    /**
-     * WHO is asking, so the content API can refuse a group that is not theirs.
-     *
-     * Every call from this class carries the app's API key, which says which
-     * PROJECT is calling and nothing about which editor. Without this the
-     * content API cannot tell one of a project's editors from another, so the
-     * only check on stage and unstage is the one in `ValServer` — and anything
-     * reaching the content API by another route (an API key, a PAT) has none at
-     * all.
-     *
-     * `null` where there is no session. The content API refuses rather than
-     * treating that as a match: a group written by an api key has a null author
-     * too, and `null === null` must not read as ownership.
-     */
-    authorId: AuthorId | null,
-  ): Promise<PatchGroupMutationResult> {
-    return this.mutatePatchGroup(
-      "POST",
-      // Encoded: patchGroupId arrives in a request body, so an unencoded value
-      // like "../../commit" would reach a different endpoint carrying this
-      // project's auth headers.
-      `patch-groups/${encodeURIComponent(patchGroupId ?? OWN_OPEN_GROUP)}/patches`,
-      {
-        patchIds,
-        withPatchIds,
-        coreVersion: Internal.VERSION.core,
-        ...this.ownGroupBranch(),
-      },
-      authorId,
-    );
-  }
-
-  /**
-   * Remove patches from a patch group.
-   *
-   * The set arrives closed FORWARDS by the client: unstaging a patch also
-   * unstages everything built on top of it within its patch sets, and that is
-   * what `withPatchIds` carries.
-   */
-  async unstagePatches(
-    /** See {@link stagePatches}. With no open group, there is nothing to remove. */
-    patchGroupId: string | undefined,
-    /** What the user asked to unstage. */
-    patchIds: PatchId[],
-    /** What has to go with it: everything built on top of it. */
-    withPatchIds: PatchId[],
-    /** See {@link stagePatches} — the content API's half of the ownership check. */
-    authorId: AuthorId | null,
-  ): Promise<PatchGroupMutationResult> {
-    return this.mutatePatchGroup(
-      "DELETE",
-      `patch-groups/${encodeURIComponent(patchGroupId ?? OWN_OPEN_GROUP)}/patches`,
-      { patchIds, withPatchIds, ...this.ownGroupBranch() },
-      authorId,
-    );
-  }
-
-  /**
-   * Every patch group on this branch, with what each holds.
-   *
-   * Read rather than mutated, and used to answer "which pending patches is THIS
-   * person allowed to see". A draft render that skips this shows base + every
-   * pending patch on the branch, including work other people have not
-   * published — which is what independent publish exists to prevent.
-   *
-   * A failure is an empty list rather than a throw, and the caller decides what
-   * that means. For a draft render the honest fallback is "show nothing
-   * pending" rather than "show everything": being shown your own committed
-   * content when the group lookup is down is a worse experience than being
-   * shown somebody else's unpublished draft is a bug.
-   */
-  /**
-   * The last group lookup, and when it was made.
-   *
-   * A draft render calls `getPatchGroups` once per `fetchVal`, in series with
-   * the whole-chain fetch, and a page that calls `fetchVal` several times pays
-   * the round trip several times. Groups are per branch and change rarely, so a
-   * short window removes the multiplier without letting a stage go unseen for
-   * meaningfully longer than one render.
-   *
-   * Deliberately short. This is a read whose staleness decides whose draft
-   * content someone sees, so it is a per-request de-duplication rather than a
-   * cache: a second render a second later asks again.
-   */
-  private patchGroupsCache: {
-    at: number;
-    res:
-      | { status: "ok"; patchGroups: PatchGroupT[] }
-      | { status: "unsupported" };
-  } | null = null;
-
-  /**
-   * Forget the remembered group list, after a write through this server.
-   *
-   * A write changes membership -- a save joins its author's group, a delete or
-   * an unstage leaves it -- and the window above is long enough for the next
-   * render to be served the list from before it: an editor who saved and
-   * reloaded inside a second was shown their draft without the change they had
-   * just made. Called once the write has answered, so a read that started
-   * while it was in flight cannot leave the old list behind it.
-   *
-   * Only this instance's writes. Another instance's write is still seen at
-   * most one window late, which is what the window is for.
-   */
-  private forgetPatchGroups(): void {
-    this.patchGroupsCache = null;
-  }
-
-  async getPatchGroups(options?: {
-    /**
-     * Ask the content API even if a recent answer is remembered.
-     *
-     * For the checks that DECIDE something rather than render something.
-     * `refuseUnlessOwn` reads this list to say whether a group is yours, and a
-     * group is at its youngest exactly when that matters: the first write
-     * creates it, the save response names it, and the shell flushes its queued
-     * stages immediately — well inside the cache window. Served from a list
-     * fetched before the group existed, every one of those was refused 403 and
-     * dropped, so the queue that exists to survive the post-publish window
-     * persisted nothing in the flow it was built for.
-     *
-     * Not solved by shortening the window: the cache sits on this instance,
-     * which outlives the request, so "recent" is recent for the whole server
-     * and not for one render.
-     */
-    fresh?: boolean;
-  }): Promise<
-    | { status: "ok"; patchGroups: PatchGroupT[] }
-    | { status: "unsupported" }
-    | { status: "error"; message: string }
-  > {
-    const now = Date.now();
-    if (
-      options?.fresh !== true &&
-      this.patchGroupsCache !== null &&
-      now - this.patchGroupsCache.at < PATCH_GROUPS_CACHE_MS
-    ) {
-      return this.patchGroupsCache.res;
-    }
-    const res = await this.fetchPatchGroups();
-    /*
-     * ANSWERS are cached; failures are not.
-     *
-     * A transient failure held for a second is replayed to every caller in it,
-     * and the callers are not equivalent: `refuseUnlessOwn` turns it into a 500
-     * that refuses the stage, a scoped draft render falls back to base and
-     * drops every pending patch on the page, and `GET /patches` omits the
-     * annotation. One flaky request became a second of all three. The point of
-     * this cache is to collapse the several `fetchVal` calls in one render into
-     * one round trip, and an error is exactly the case worth retrying inside
-     * that window rather than the case worth remembering.
-     *
-     * `unsupported` is cached with `ok` deliberately: it is a real answer about
-     * the deployment — this content API predates patch groups — and it will not
-     * change between two renders.
-     */
-    if (res.status === "ok" || res.status === "unsupported") {
-      this.patchGroupsCache = { at: now, res };
-    }
-    return res;
-  }
-
-  private async fetchPatchGroups(): Promise<
-    | { status: "ok"; patchGroups: PatchGroupT[] }
-    | { status: "unsupported" }
-    | { status: "error"; message: string }
-  > {
-    /*
-     * A proposal has no patch groups: its changes are one unit, saved
-     * together, and the content service answers 404 for groups on its branch.
-     * "Unsupported" is exactly that answer, and it is what makes a draft in a
-     * proposal show all of the proposal's changes rather than one person's.
-     */
-    if (this.proposal !== null) {
-      return { status: "unsupported" };
-    }
-    try {
-      /*
-       * `branch` is REQUIRED by the endpoint, which answers 400 without it.
-       *
-       * Same two params every other read here sends (`fetchPatchesInternal`,
-       * `saveSourceFilePatch`): groups are per branch, so a request without one
-       * is not merely under-specified, it is rejected.
-       */
-      const branch = this.ownBranch();
-      const params = new URLSearchParams(
-        branch !== undefined ? [["branch", branch]] : [],
-      );
-      const res = await fetch(
-        `${this.contentUrl}/v1/${this.project}/patch-groups?${params}`,
-        { headers: this.authHeaders },
-      );
-      if (res.status === 404) {
-        /*
-         * The endpoint is not there, which is a content API that PREDATES patch
-         * groups — not a failure.
-         *
-         * The distinction decides what a draft render shows, and collapsing it
-         * into "error" is not a small mistake: a caller that reads an error as
-         * "could not ask" renders BASE, so every existing http deployment would
-         * silently drop all pending content from every draft preview. "There
-         * are no groups here" has to mean unscoped, which is exactly the
-         * behaviour those projects have today.
-         */
-        return { status: "unsupported" };
-      }
-      if (!res.ok) {
-        return {
-          status: "error",
-          message:
-            res.status === 401
-              ? "Could not read patch groups: unauthorized. Verify that the val api keys are correct."
-              : `Could not read patch groups. HTTP error: ${res.status} ${res.statusText}`,
-        };
-      }
-      const parsed = PatchGroupsResponse.safeParse(await res.json());
-      if (!parsed.success) {
-        return {
-          status: "error",
-          message: `Could not parse patch groups response. Error: ${fromError(
-            parsed.error,
-          )}`,
-        };
-      }
-      return { status: "ok", patchGroups: parsed.data.patchGroups };
-    } catch (err) {
-      return {
-        status: "error",
-        message: `Could not read patch groups. Error: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      };
-    }
-  }
-
-  /**
-   * Which branch `~` means, where this build knows: the branch it reads
-   * `applicable/patches` on, so the group staged into is the group listed.
-   * Without one the content API uses the project's own, as it does for reads.
-   */
-  private ownGroupBranch(): { branch?: string } {
-    const branch = this.ownBranch();
-    return branch !== undefined ? { branch } : {};
-  }
-
-  private async mutatePatchGroup(
-    method: "POST" | "DELETE",
-    path: string,
-    body: Record<string, unknown>,
-    /**
-     * WHO is asking. Sent as `x-val-profile-id`, which is what the content API
-     * reads to decide whether this group is the caller's.
-     *
-     * `this.authHeaders` is the app's API key, and that names the PROJECT, not
-     * the person — so without this the content API cannot resolve a profile
-     * and refuses every stage and unstage with
-     * "Cannot resolve the caller's profile". The group endpoints are the only
-     * ones here that need it, because they are the only ones whose answer
-     * depends on which of a project's editors is calling.
-     *
-     * Omitted when there is no session rather than sent empty: the content API
-     * treats an unidentified caller as a refusal, which is what we want, and an
-     * empty header would be a different and less obvious way to say it.
-     *
-     * A PAT already identifies a person, so `authHeaders` carries the identity
-     * on its own there and this adds nothing.
-     */
-    authorId: AuthorId | null,
-  ): Promise<PatchGroupMutationResult> {
-    if (this.proposal !== null) {
-      return {
-        status: 409,
-        patchIds: [],
-        error: {
-          message:
-            "A proposal's changes are saved together, so there is nothing to stage or unstage in one.",
-        },
-      };
-    }
-    try {
-      return await this.mutatePatchGroupRequest(method, path, body, authorId);
-    } finally {
-      this.forgetPatchGroups();
-    }
-  }
-
-  private async mutatePatchGroupRequest(
-    method: "POST" | "DELETE",
-    path: string,
-    body: Record<string, unknown>,
-    authorId: AuthorId | null,
-  ): Promise<PatchGroupMutationResult> {
-    try {
-      const res = await fetch(`${this.contentUrl}/v1/${this.project}/${path}`, {
-        method,
-        headers: {
-          ...this.authHeaders,
-          ...(authorId !== null ? { "x-val-profile-id": authorId } : {}),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) {
-        const parsed = PatchGroupMutationResponse.safeParse(await res.json());
-        if (parsed.success) {
-          return {
-            patchIds: parsed.data.patchIds,
-            patchGroupId: parsed.data.patchGroupId,
-            ...(parsed.data.headVersion !== undefined
-              ? { headVersion: parsed.data.headVersion }
-              : {}),
-          };
-        }
-        return {
-          status: 500,
-          patchIds: [],
-          error: {
-            message: `Could not parse patch group response. Error: ${fromError(
-              parsed.error,
-            )}`,
-          },
-        };
-      }
-      // 403 (not your group) and 409 (already published) are meaningful to the
-      // client, so they are passed through rather than flattened to a 500.
-      if (res.status === 403 || res.status === 409) {
-        // `home` answers these with a JSON body, so `res.text()` put the literal
-        // `{"message":"..."}` in front of the user. Every other branch in this
-        // class unwraps it; this one now does too.
-        return {
-          status: res.status,
-          patchIds: [],
-          error: {
-            message: getErrorMessageFromUnknownJson(
-              await res.json().catch(() => undefined),
-              `Could not update patch group. HTTP error: ${res.status} ${res.statusText}`,
-            ),
-          },
-        };
-      }
-      // A 401 here is the app's own credentials failing, not the user's, so it gets
-      // the same wording as every other call in this class rather than an opaque
-      // 500 that sends the user looking at their own session.
-      if (res.status === 401) {
-        return {
-          status: 500,
-          patchIds: [],
-          error: {
-            message:
-              "Although your user is authorized, the application has authorization issues. Contact the developers on your team and ask them to verify the api keys.",
-          },
-        };
-      }
-      return {
-        status: 500,
-        patchIds: [],
-        error: {
-          message: `Could not update patch group. HTTP error: ${res.status} ${res.statusText}`,
-        },
-      };
-    } catch (err) {
-      return {
-        status: 500,
-        patchIds: [],
-        error: {
-          message: `Could not update patch group (connection error?): ${
-            err instanceof Error ? err.message : JSON.stringify(err)
-          }`,
-        },
-      };
-    }
-  }
-  // #endregion
-
   protected async saveSourceFilePatch(
     path: ModuleFilePath,
     patch: PatchT,
@@ -2277,7 +2321,6 @@ export class ValOpsHttp extends ValOps {
     parentRef: ParentRefT,
     authorId: AuthorId | null,
     sessionId: string | null,
-    patchGroup?: PatchGroupMembership,
   ): Promise<SaveSourceFilePatchResult> {
     const baseSha = await this.getBaseSha();
     return fetch(`${this.contentUrl}/v1/${this.project}/patches`, {
@@ -2304,25 +2347,6 @@ export class ValOpsHttp extends ValOps {
             ? { commit: this.git.commit, branch: this.git.branch }
             : {}),
         coreVersion: Internal.VERSION.core,
-        /*
-         * Group membership in the SAME request as the patch.
-         *
-         * The content API runs every refusal before its insert, so an invalid
-         * closure is a 400 with nothing written. Spread rather than sent as
-         * nulls: a client with no group omits the fields entirely, which is
-         * what an older content API expects to see.
-         */
-        ...(patchGroup
-          ? {
-              // Only when the caller named one. Omitted, the content API
-              // resolves this author's open group and creates it if absent,
-              // which is what every write wants.
-              ...(patchGroup.patchGroupId !== undefined
-                ? { patchGroupId: patchGroup.patchGroupId }
-                : {}),
-              withPatchIds: patchGroup.withPatchIds,
-            }
-          : {}),
       }),
     })
       .then(async (res): Promise<SaveSourceFilePatchResult> => {
@@ -2331,20 +2355,6 @@ export class ValOpsHttp extends ValOps {
           if (parsed.success) {
             return result.ok({
               patchId: parsed.data.patchId,
-              /*
-               * Passed back to the client, which cannot learn it any other way.
-               *
-               * A write names no group — the content API resolves this author's
-               * open group and CREATES it if absent — so on a fresh branch the
-               * group comes into existence here and nowhere else. The chain
-               * annotation is only re-read when a fetch has missing ids to ask
-               * for, and a patch this client made is never missing, so without
-               * this the tab that bootstrapped the group would never learn its
-               * id and every stage would be a no-op.
-               */
-              ...(parsed.data.patchGroupId !== undefined
-                ? { patchGroupId: parsed.data.patchGroupId }
-                : {}),
               ...(parsed.data.headVersion !== undefined
                 ? { headVersion: parsed.data.headVersion }
                 : {}),
@@ -2366,6 +2376,21 @@ export class ValOpsHttp extends ValOps {
         if (res.headers.get("Content-Type")?.includes("application/json")) {
           const json = await res.json();
           const message = getErrorMessageFromUnknownJson(json, "Unknown error");
+          /*
+           * Refused for the plan: the patch is fine, and the reason comes as
+           * data. Kept apart from every other error, which the Studio is told
+           * is a bad patch and drops. A 403 without a refusal in it (a
+           * credential missing the write scope) is still one of those.
+           */
+          const refusal =
+            res.status === 403 ? PlanRefusedBody.safeParse(json) : null;
+          if (refusal?.success) {
+            return result.err({
+              errorType: "plan-refused",
+              error: { message },
+              refusal: refusal.data.error,
+            });
+          }
           return result.err({
             errorType: "other",
             message,
@@ -2387,8 +2412,7 @@ export class ValOpsHttp extends ValOps {
             e instanceof Error ? e.message : e.toString()
           }`,
         });
-      })
-      .finally(() => this.forgetPatchGroups());
+      });
   }
 
   /**
@@ -2790,19 +2814,7 @@ export class ValOpsHttp extends ValOps {
     };
   }
 
-  override async deletePatches(
-    patchIds: PatchId[],
-    /**
-     * Patches that are NOT deleted but must lose their group membership.
-     *
-     * Deleting a patch out of the middle of a patch set leaves every group
-     * still holding the rest with a non-prefix intersection — the patches after
-     * the hole were written against a view that had it. The content API cannot
-     * work out which those are (it has no schema), so the client sends the
-     * forward closure and it drops those memberships without deleting anything.
-     */
-    unstagePatchIds?: PatchId[],
-  ): Promise<
+  override async deletePatches(patchIds: PatchId[]): Promise<
     | {
         deleted: PatchId[];
         errors?: undefined;
@@ -2822,12 +2834,7 @@ export class ValOpsHttp extends ValOps {
         ...this.authHeaders,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        patchIds,
-        ...(unstagePatchIds !== undefined && unstagePatchIds.length > 0
-          ? { unstagePatchIds }
-          : {}),
-      }),
+      body: JSON.stringify({ patchIds }),
     })
       .then(async (res) => {
         if (res.ok) {
@@ -2881,8 +2888,7 @@ export class ValOpsHttp extends ValOps {
             }`,
           },
         };
-      })
-      .finally(() => this.forgetPatchGroups());
+      });
   }
 
   async commit(
@@ -2892,20 +2898,11 @@ export class ValOpsHttp extends ValOps {
     filesDirectory: string,
     newBranch?: string,
     /**
-     * The patch group this commit EMPTIES, if it empties one.
-     *
-     * The content API closes the group it is given — and closes it WITHOUT
-     * checking that the commit shipped all of it, so a caller that names a
-     * group still holding work takes those patches out of every group and
-     * leaves their author unable to publish them. The client therefore sends it
-     * only when the publish accounts for everything the group still holds.
-     *
-     * Omitting it is not neutral: the commit still empties the group (the
-     * content API drops applied ids from every group), but `published_at` is
-     * never set, so the id is reused across publishes instead of a new group
-     * per publish and the "already published" refusal can never fire.
+     * A save into this proposal rather than this server's own branch: the
+     * site's server saving Publish selected's proposal (`/publish-selected`),
+     * which has no address of its own to save from.
      */
-    patchGroupId?: string,
+    intoProposal?: string,
   ): Promise<
     | {
         isNotFastForward?: boolean;
@@ -2931,32 +2928,20 @@ export class ValOpsHttp extends ValOps {
        * route: the site's `/commit` refuses a proposal's patches, which is
        * the line that keeps them off the site until a merge.
        */
+      const proposalName = intoProposal ?? this.proposal?.name;
       const commitUrl =
-        this.proposal !== null
-          ? `${this.contentUrl}/v1/${this.project}/proposals/${this.proposal.name}/save`
+        proposalName !== undefined
+          ? `${this.contentUrl}/v1/${this.project}/proposals/${proposalName}/save`
           : `${this.contentUrl}/v1/${this.project}/commit`;
       const res = await fetch(commitUrl, {
         method: "POST",
         headers: {
           ...this.authHeaders,
           /*
-           * WHO is publishing — the same `x-val-profile-id` stage and unstage
-           * send, and for the same reason: `this.authHeaders` is the app's API
-           * key, which names the PROJECT and not the person.
-           *
-           * Closing a group is an ownership decision, so the content API
-           * refuses a commit that names a `patchGroupId` it cannot attribute:
-           * without this header `profileId` is `undefined` there and every
-           * group-closing publish is 403 "Cannot resolve the caller's profile".
-           * That is the NORMAL full publish, not an edge — `publish` names the
-           * group whenever the commit empties it.
-           *
-           * Sent on every commit rather than only when a group is named. The
-           * committer is a person either way, `committer` in the body already
-           * says so, and a header that appears only on some commits is one more
-           * conditional for a reader of either repo to reconstruct. It changes
-           * nothing else: the content API reads it as an identity claim beside
-           * the app's key and derives no scope from it.
+           * WHO is publishing: `this.authHeaders` is the app's API key, which
+           * names the PROJECT and not the person. The content API reads it as
+           * an identity claim beside the app's key and derives no scope from
+           * it; `committer` in the body says the same.
            */
           "x-val-profile-id": committer,
           "Content-Type": "application/json",
@@ -3000,7 +2985,6 @@ export class ValOpsHttp extends ValOps {
           committer,
           message,
           newBranch,
-          ...(patchGroupId !== undefined ? { patchGroupId } : {}),
         }),
       });
       if (res.ok) {
@@ -3312,4 +3296,184 @@ export class ValOpsHttp extends ValOps {
     return result.ok(Buffer.from(await res.arrayBuffer()));
   }
   // #endregion history
+}
+
+/**
+ * Content's answer to a merge it committed, as the Studio is answered: what
+ * content says, marked updated. Content has written the merge by then, so an
+ * answer that cannot be read says so rather than failing as though nothing
+ * happened.
+ */
+function updatedAnswer(text: string): {
+  status: number;
+  body: string;
+  contentType: string;
+} {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return {
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message:
+          "The proposal was updated from the site, but content's answer could not be read. Reload to see the proposal as it is now.",
+      }),
+    };
+  }
+  return {
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ status: "updated", ...parsed }),
+  };
+}
+
+/** What the Studio sends to update a proposal from the site: its decisions. */
+const UpdateContentBody = z.object({
+  /**
+   * Where the site and the proposal were when the conflicts the
+   * `resolutions` decide were found: the conflicts answer says. Absent with
+   * no decisions.
+   */
+  siteHead: z.string().nullable().optional(),
+  proposalHead: z.string().nullable().optional(),
+  resolutions: z
+    .array(
+      z.union([
+        z.object({
+          moduleFilePath: z.string().transform((p) => p as ModuleFilePath),
+          path: z.array(z.string()),
+          keep: z.enum(["site", "proposal"]),
+        }),
+        z.object({
+          moduleFilePath: z.string().transform((p) => p as ModuleFilePath),
+          path: z.array(z.string()),
+          value: JSONValueSchema,
+        }),
+      ]),
+    )
+    .default([]),
+});
+
+/** A module, as the builder tab's evaluation of its tree gave it. */
+const EvaluatedModules = z.record(
+  z.string().transform((p) => p as ModuleFilePath),
+  z.object({
+    schema: SerializedSchemaSchema,
+    written: JSONValueSchema,
+    errors: z.array(
+      z.object({ path: z.array(z.string()), message: z.string() }),
+    ),
+  }),
+);
+
+/** What the builder tab sends to update a proposal with code from the site. */
+const UpdateCodeBody = z.object({
+  siteHead: z.string().nullable(),
+  proposalHead: z.string().nullable(),
+  builds: z.object({ base: z.string(), site: z.string() }),
+  evaluated: z.object({
+    base: EvaluatedModules,
+    site: EvaluatedModules,
+    proposal: EvaluatedModules,
+  }),
+  resolutions: z
+    .array(
+      z.union([
+        z.object({
+          moduleFilePath: z.string().transform((p) => p as ModuleFilePath),
+          path: z.array(z.string()),
+          keep: z.enum(["site", "proposal"]),
+        }),
+        z.object({
+          moduleFilePath: z.string().transform((p) => p as ModuleFilePath),
+          path: z.array(z.string()),
+          value: JSONValueSchema,
+        }),
+        z.object({ file: z.string(), keep: z.enum(["site", "proposal"]) }),
+        z.object({ file: z.string(), text: z.string() }),
+      ]),
+    )
+    .default([]),
+  /** The tab's evaluation of the merge the first call answered. */
+  merged: z.object({ id: z.string(), evaluated: EvaluatedModules }).optional(),
+});
+
+/** Content's `GET /proposals/:name/move-inputs`. */
+/** The one thing `answersMovesFor` reads from content's `GET /proposals/:name`. */
+const ProposalKindAnswer = z.object({
+  proposal: z.object({ kind: z.string() }),
+});
+/** Content's `GET /proposals/:name/merge-checks`, as far as it is changed here. */
+const MergeChecksAnswer = z
+  .object({
+    checks: z.array(
+      z.object({ id: z.string(), ok: z.boolean() }).passthrough(),
+    ),
+    canMerge: z.boolean(),
+  })
+  .passthrough();
+
+/** "Kari", "Kari and Bo", "Kari, Bo and 2 more". */
+function namesOf(names: string[]): string {
+  return names.length <= 2
+    ? names.join(" and ")
+    : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+}
+
+/** Content's `GET /proposals/:name/merge-trees`. */
+const MergeTrees = z.object({
+  base: z.string().nullable(),
+  siteHead: z.string().nullable(),
+  proposalHead: z.string().nullable(),
+  upToDate: z.boolean(),
+  builds: z.object({ base: z.string(), site: z.string() }),
+  trees: z.object({
+    site: z.record(z.string(), z.string()),
+    base: z.record(z.string(), z.string().nullable()),
+    proposal: z.record(z.string(), z.string().nullable()),
+  }),
+  modules: z.record(
+    z.string(),
+    z.object({
+      base: z.string().nullable(),
+      site: z.string().nullable(),
+      proposal: z.string().nullable(),
+    }),
+  ),
+  sources: z.record(z.string(), JSONValueSchema),
+});
+
+/** Content's `GET /proposals/:name/merge-inputs`. */
+const MergeInputs = z.object({
+  base: z.string().nullable(),
+  siteHead: z.string().nullable(),
+  proposalHead: z.string().nullable(),
+  upToDate: z.boolean(),
+  contentOnly: z.union([
+    z.object({ ok: z.literal(true) }),
+    z.object({ ok: z.literal(false), reason: z.string() }),
+  ]),
+  modules: z.record(
+    z.string(),
+    z.object({
+      base: JSONValueSchema.nullable(),
+      site: JSONValueSchema.nullable(),
+      proposal: JSONValueSchema.nullable(),
+      text: z.string().nullable(),
+    }),
+  ),
+});
+
+/** `JSON.parse`, or `null` for a body that is not JSON: an answer passed on as it came. */
+function parseJsonOrNull(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }

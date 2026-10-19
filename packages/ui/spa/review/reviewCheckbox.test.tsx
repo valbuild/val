@@ -34,8 +34,7 @@ jest.mock("../components/FieldPatchAuthors", () => ({
  */
 /*
  * `ValProvider` mounts a `TooltipProvider` in the Studio; a test mounts no
- * provider at all, and Radix throws rather than degrading — which is how the
- * section headings' info tooltips broke this file the moment they were added.
+ * provider at all, and Radix throws rather than degrading.
  */
 function review() {
   return (
@@ -44,8 +43,6 @@ function review() {
         model={reviewModel}
         onCompare={() => undefined}
         onRestore={() => undefined}
-        onStage={() => undefined}
-        onUnstage={() => undefined}
         onDiscard={() => undefined}
         onDiscardAll={() => undefined}
       />

@@ -1,5 +1,251 @@
 # @valbuild/tanstack
 
+## 0.146.3
+
+### Patch Changes
+
+- [#873](https://github.com/valbuild/val/pull/873) [`289b2f3`](https://github.com/valbuild/val/commit/289b2f3dc6503393697d09ba3ed802b569a914c9) Thanks [@freekh](https://github.com/freekh)! - Opening the Studio no longer flashes an empty page. The loading screen now stays
+  up until the Studio is ready to be seen, instead of disappearing as soon as the
+  page loaded and leaving a blank page while the Studio downloaded.
+
+## 0.146.2
+
+### Patch Changes
+
+- Updated dependencies [[`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9)]:
+  - @valbuild/core@0.146.2
+  - @valbuild/shared@0.146.2
+  - @valbuild/server@0.146.2
+  - @valbuild/ui@0.146.2
+  - @valbuild/language-server@0.146.2
+  - @valbuild/mcp@0.146.2
+  - @valbuild/react@0.146.2
+
+## 0.146.1
+
+### Patch Changes
+
+- Updated dependencies [[`2db91a5`](https://github.com/valbuild/val/commit/2db91a5d2a280727eb2b1064e853a03be283289f)]:
+  - @valbuild/ui@0.146.1
+  - @valbuild/react@0.146.1
+  - @valbuild/server@0.146.1
+  - @valbuild/language-server@0.146.1
+  - @valbuild/mcp@0.146.1
+
+## 0.146.0
+
+### Minor Changes
+
+- [#864](https://github.com/valbuild/val/pull/864) [`f0c7d27`](https://github.com/valbuild/val/commit/f0c7d27846c21f81ff6ce79c579185150bc0d063) Thanks [@freekh](https://github.com/freekh)! - Patch groups are removed. **Publish** now publishes every pending change, and
+  the Review list shows everyone's pending changes in one list. To keep changes
+  out of a publish, move them to a proposal.
+
+  Draft reads no longer send `own_patch_groups_only`, `patch_id` or
+  `include_patch_groups`, and the server no longer has the patch-group routes or
+  fields. A content host that still sends them is fine: they are ignored.
+
+### Patch Changes
+
+- Updated dependencies [[`89b0fa8`](https://github.com/valbuild/val/commit/89b0fa82a3ae0d8ccd5d0282c1034f1f40cc4e26), [`f0c7d27`](https://github.com/valbuild/val/commit/f0c7d27846c21f81ff6ce79c579185150bc0d063)]:
+  - @valbuild/ui@0.146.0
+  - @valbuild/server@0.146.0
+  - @valbuild/shared@0.146.0
+  - @valbuild/react@0.146.0
+  - @valbuild/language-server@0.146.0
+  - @valbuild/mcp@0.146.0
+
+## 0.145.1
+
+### Patch Changes
+
+- Updated dependencies [[`a45f595`](https://github.com/valbuild/val/commit/a45f595a5e20b009d4110bbef8ebdc08b2d731d7)]:
+  - @valbuild/shared@0.145.1
+  - @valbuild/ui@0.145.1
+  - @valbuild/language-server@0.145.1
+  - @valbuild/mcp@0.145.1
+  - @valbuild/react@0.145.1
+  - @valbuild/server@0.145.1
+
+## 0.145.0
+
+### Patch Changes
+
+- Updated dependencies [[`b6cb939`](https://github.com/valbuild/val/commit/b6cb9395d8bdcd5182e9c6ba84f5284930de2fa5), [`f085be0`](https://github.com/valbuild/val/commit/f085be0eb5bdc195e9d8cdb15dd5f8acfdabe23c), [`dda5c52`](https://github.com/valbuild/val/commit/dda5c523698395c6dfb96ae8e39dae04307ec332), [`ac0bb7c`](https://github.com/valbuild/val/commit/ac0bb7cb5a99df022b198326a5f8a0cf61e45388)]:
+  - @valbuild/core@0.145.0
+  - @valbuild/shared@0.145.0
+  - @valbuild/ui@0.145.0
+  - @valbuild/server@0.145.0
+  - @valbuild/mcp@0.145.0
+  - @valbuild/language-server@0.145.0
+  - @valbuild/react@0.145.0
+
+## 0.144.12
+
+### Patch Changes
+
+- [#854](https://github.com/valbuild/val/pull/854) [`2193e3a`](https://github.com/valbuild/val/commit/2193e3ae133cd05dd73d0937dde7c15c88417f71) Thanks [@freekh](https://github.com/freekh)! - `useVal` and `fetchVal` on a whole `.jsonValues()` record now give every entry's content. They gave each entry back empty in production, on the server and in the browser, because the record holds only a lazy import for each entry; content showed up only where a draft or a hosted content version supplied it. They now load every entry the record names, together. `useValKey` and `fetchValKey` still load only the entry they are asked for, which is the reader to use when a page shows one entry of a large record.
+- Updated dependencies [[`2193e3a`](https://github.com/valbuild/val/commit/2193e3ae133cd05dd73d0937dde7c15c88417f71)]:
+  - @valbuild/ui@0.144.12
+  - @valbuild/react@0.144.12
+  - @valbuild/server@0.144.12
+  - @valbuild/language-server@0.144.12
+  - @valbuild/mcp@0.144.12
+
+## 0.144.11
+
+### Patch Changes
+
+- Updated dependencies [[`c606395`](https://github.com/valbuild/val/commit/c60639571f9e836726dfef38e6bd0defc503d726)]:
+  - @valbuild/ui@0.144.11
+  - @valbuild/react@0.144.11
+  - @valbuild/server@0.144.11
+  - @valbuild/language-server@0.144.11
+  - @valbuild/mcp@0.144.11
+
+## 0.144.10
+
+### Patch Changes
+
+- Updated dependencies [[`0a061c1`](https://github.com/valbuild/val/commit/0a061c124408aa127c5042c9e3a602d7dd9daf13)]:
+  - @valbuild/ui@0.144.10
+  - @valbuild/react@0.144.10
+  - @valbuild/server@0.144.10
+  - @valbuild/language-server@0.144.10
+  - @valbuild/mcp@0.144.10
+
+## 0.144.9
+
+### Patch Changes
+
+- Updated dependencies [[`c44b561`](https://github.com/valbuild/val/commit/c44b5611cf9e557b6b744704703dbff0cb8b23b0), [`a2125af`](https://github.com/valbuild/val/commit/a2125af79d2b2401c40bce3d8fcf0431bb101cbf)]:
+  - @valbuild/ui@0.144.9
+  - @valbuild/server@0.144.9
+  - @valbuild/shared@0.144.9
+  - @valbuild/react@0.144.9
+  - @valbuild/language-server@0.144.9
+  - @valbuild/mcp@0.144.9
+
+## 0.144.8
+
+### Patch Changes
+
+- Updated dependencies [[`6fd8f79`](https://github.com/valbuild/val/commit/6fd8f791a83d37f95dc3ae12bd8025ccf81e4a7c), [`b67c03e`](https://github.com/valbuild/val/commit/b67c03ee1876803c31098098ae0becf3f4ad6ade)]:
+  - @valbuild/ui@0.144.8
+  - @valbuild/server@0.144.8
+  - @valbuild/react@0.144.8
+  - @valbuild/language-server@0.144.8
+  - @valbuild/mcp@0.144.8
+
+## 0.144.7
+
+### Patch Changes
+
+- Updated dependencies [[`45ee083`](https://github.com/valbuild/val/commit/45ee0831393345dab08093575d4ed652e20e1229)]:
+  - @valbuild/ui@0.144.7
+  - @valbuild/server@0.144.7
+  - @valbuild/react@0.144.7
+  - @valbuild/language-server@0.144.7
+  - @valbuild/mcp@0.144.7
+
+## 0.144.6
+
+### Patch Changes
+
+- Updated dependencies [[`4e237c9`](https://github.com/valbuild/val/commit/4e237c9b66e059344fa4c800587c572d125aa8f9)]:
+  - @valbuild/ui@0.144.6
+  - @valbuild/react@0.144.6
+  - @valbuild/server@0.144.6
+  - @valbuild/language-server@0.144.6
+  - @valbuild/mcp@0.144.6
+
+## 0.144.5
+
+### Patch Changes
+
+- Updated dependencies [[`39e8db3`](https://github.com/valbuild/val/commit/39e8db34cf56c6c43ffff0d3acfe8e0839fa55a9)]:
+  - @valbuild/ui@0.144.5
+  - @valbuild/server@0.144.5
+  - @valbuild/shared@0.144.5
+  - @valbuild/react@0.144.5
+  - @valbuild/language-server@0.144.5
+  - @valbuild/mcp@0.144.5
+
+## 0.144.4
+
+### Patch Changes
+
+- Updated dependencies [[`e70a261`](https://github.com/valbuild/val/commit/e70a261ed8c0938b635214721fc4e445704b1f1f)]:
+  - @valbuild/shared@0.144.4
+  - @valbuild/ui@0.144.4
+  - @valbuild/language-server@0.144.4
+  - @valbuild/mcp@0.144.4
+  - @valbuild/react@0.144.4
+  - @valbuild/server@0.144.4
+
+## 0.144.3
+
+### Patch Changes
+
+- [#833](https://github.com/valbuild/val/pull/833) [`99fcac5`](https://github.com/valbuild/val/commit/99fcac527f2d5ba37c4b132ef08189b955d69e51) Thanks [@freekh](https://github.com/freekh)! - A draft page no longer flips back to the text from before a content-only publish.
+
+  After content was published without a build, the Studio's overlay on a draft page started from the text compiled into the build, which still held the old content, and handed it to the page. Depending on which arrived first, an editor reloading the page saw the new text, then the old, then the new again, in a freshly opened tab and long after the publish. Visitors were not affected.
+
+  The page now hands the overlay the content it serves (`ValDraft.base`, from the content version and any proposal's saves), and the overlay starts from that instead of the build's text, so the two never disagree.
+
+  The same holds for `.jsonValues()` entries: where the overlay has not loaded an entry, `useValKey` and `useValRoute` now fall back to the content version's entry, as the server did, before the build's.
+
+- Updated dependencies [[`99fcac5`](https://github.com/valbuild/val/commit/99fcac527f2d5ba37c4b132ef08189b955d69e51), [`0e09e9c`](https://github.com/valbuild/val/commit/0e09e9cdac4918bdfa1c01a92a8968a516f8c0c6)]:
+  - @valbuild/ui@0.144.3
+  - @valbuild/react@0.144.3
+  - @valbuild/server@0.144.3
+  - @valbuild/language-server@0.144.3
+  - @valbuild/mcp@0.144.3
+
+## 0.144.2
+
+### Patch Changes
+
+- [#832](https://github.com/valbuild/val/pull/832) [`ab0ea20`](https://github.com/valbuild/val/commit/ab0ea2046e3872c4955f34b363881f76d48d1b1e) Thanks [@freekh](https://github.com/freekh)! - A site served by Val's platform can now be given its content separately from its build. When the platform hands a TanStack app a content version (`VAL_CONTENT`) that differs from what the build bundles, Val renders that content, in the Studio and in draft mode too. It reads it the way it already reads a proposal's saved content.
+
+  Nothing changes for an app that is not given one, and nothing hands one over yet. This is the reading side of publishing content without rebuilding the site.
+
+  A version too large for one environment variable can name others under `refs` (`"env://VAL_CONTENT_1"`), each holding one module's Source or one file's text. Only `refs` is resolved, never a string inside your content, and only variables named `VAL_CONTENT_<n>` are read.
+
+  At a proposal's address, a proposal's saved content is shown over the content version the site serves, so modules the proposal did not change show what the site shows rather than what the build bundles.
+
+  When Val's platform puts a publish live without building the site, because it changed only content, the Studio shows it being checked and going live instead of "Building".
+
+- Updated dependencies [[`ab0ea20`](https://github.com/valbuild/val/commit/ab0ea2046e3872c4955f34b363881f76d48d1b1e), [`44a5636`](https://github.com/valbuild/val/commit/44a5636955e005a40f2e6c8544e5cf4378fd0fdf)]:
+  - @valbuild/server@0.144.2
+  - @valbuild/shared@0.144.2
+  - @valbuild/ui@0.144.2
+  - @valbuild/language-server@0.144.2
+  - @valbuild/mcp@0.144.2
+  - @valbuild/react@0.144.2
+
+## 0.144.1
+
+### Patch Changes
+
+- [#824](https://github.com/valbuild/val/pull/824) [`a641bb0`](https://github.com/valbuild/val/commit/a641bb0286756339252c53e9230d766c23fcccc6) Thanks [@freekh](https://github.com/freekh)! - `.jsonValues()` entries saved in a proposal now show at the proposal's address. Before, the page kept showing the entry as it was when the site was last built, and the Studio there showed every entry of a saved `.jsonValues()` module as empty.
+- Updated dependencies [[`a641bb0`](https://github.com/valbuild/val/commit/a641bb0286756339252c53e9230d766c23fcccc6)]:
+  - @valbuild/server@0.144.1
+  - @valbuild/language-server@0.144.1
+  - @valbuild/mcp@0.144.1
+
+## 0.144.0
+
+### Patch Changes
+
+- Updated dependencies [[`a84271c`](https://github.com/valbuild/val/commit/a84271c534822071c1e428cf9990602459682d25), [`860ab2b`](https://github.com/valbuild/val/commit/860ab2b87333daf95a48215b0e4a1b44f441c878)]:
+  - @valbuild/core@0.144.0
+  - @valbuild/shared@0.144.0
+  - @valbuild/server@0.144.0
+  - @valbuild/ui@0.144.0
+  - @valbuild/language-server@0.144.0
+  - @valbuild/mcp@0.144.0
+  - @valbuild/react@0.144.0
+
 ## 0.143.1
 
 ### Patch Changes

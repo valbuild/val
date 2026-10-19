@@ -83,6 +83,7 @@ async function importsOf(path: string, code: string): Promise<Array<string>> {
 }
 
 import { isCssModule, transformCssModule } from "./cssModules";
+import { expandCssImports, type CssImportContext } from "./cssImports";
 
 export interface CssResult {
   /** Concatenated stylesheet in evaluation order, or '' when there is none. */
@@ -136,6 +137,15 @@ export async function collectCss(
   const contributing: Array<string> = [];
   const modules: Record<string, Record<string, string>> = {};
   const warnings: Array<string> = [];
+  // `@import`s inside the sheets. `seen` is the walk's own `visited`, so a
+  // stylesheet reached both from a module and from another sheet is emitted
+  // once, wherever it is reached first.
+  const imports: CssImportContext = {
+    files,
+    dependencyCss,
+    seen: visited,
+    warnings,
+  };
 
   async function walk(path: string) {
     if (visited.has(path)) return;
@@ -150,7 +160,7 @@ export async function collectCss(
         warnings.push(...scoped.warnings);
         sheets.push(scoped.css);
       } else {
-        sheets.push(text);
+        sheets.push(expandCssImports(bare, text, imports));
       }
       contributing.push(bare);
       return;
@@ -171,7 +181,9 @@ export async function collectCss(
         const bare = withoutQuery(source);
         if (isCss(bare) && bare in dependencyCss && !visited.has(bare)) {
           visited.add(bare);
-          sheets.push(dependencyCss[bare]!);
+          sheets.push(
+            expandCssImports(bare, dependencyCss[bare]!, imports, true),
+          );
           contributing.push(bare);
           continue;
         }

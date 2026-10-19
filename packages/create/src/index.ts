@@ -156,9 +156,9 @@ ${chalk.cyan("Next steps:")}
   ${chalk.cyan("cd")} ${chalk.white(projectName)}
   ${chalk.cyan(`${commands.run} dev`)}
 ${mcpStep}
-${chalk.bold("Optionally run:")}
-  ${chalk.cyan(`${commands.valCli} connect`)}  
-${chalk.bold("to connect your project to Val Build")}
+${chalk.bold("To edit it in production, connect it to Val Build:")}
+  push it to GitHub, then pick it on ${chalk.underline("https://admin.val.build/new?hosting=own")}
+  or run ${chalk.cyan(`${commands.valCli} connect`)} in the project
 
 ${chalk.bold("Need help?")} Join our community on Discord: ${chalk.underline(
     "https://discord.gg/cZzqPvaX8k",

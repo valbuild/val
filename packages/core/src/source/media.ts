@@ -12,6 +12,7 @@
  */
 
 import { splitRemoteRef } from "../remote/splitRemoteRef";
+import type { ValidationError } from "../schema/validation/ValidationError";
 import type { SerializedFileSchema } from "../schema/file";
 import type { SerializedImageSchema } from "../schema/image";
 import type { SerializedVideoSchema } from "../schema/video";
@@ -356,6 +357,62 @@ export function galleryKeyOf(
     }
   }
   return null;
+}
+
+/**
+ * A gallery-backed field whose path the gallery, as the schema holds it, does
+ * not have: the `image:check-gallery` (`file:`, `video:`) marker.
+ *
+ * The schema holds the gallery as it was EVALUATED -- in a built site, the
+ * gallery as it was built. An entry added since (a pending change, a save in
+ * a proposal, a content-only publish that never rebuilt the site) is only in
+ * the gallery's current Source, so whether the field is wrong is a question
+ * for a project-wide snapshot (`resolveSchemaSourceFixes`), as a keyOf's key
+ * is. The message is the answer when the gallery does not have it either, so
+ * a consumer that does not resolve markers reports what it always did.
+ */
+export function galleryMarker(
+  media: "image" | "file" | "video",
+  source: { path: string },
+  galleryModulePath: string,
+): ValidationError {
+  const what =
+    media === "image"
+      ? "The gallery does not have an image"
+      : media === "file"
+        ? "The gallery does not have a file"
+        : "The set does not have a video";
+  return {
+    message: `${what} at '${source.path}'.`,
+    value: { path: source.path, gallery: galleryModulePath, source },
+    fixes: [`${media}:check-gallery`],
+  };
+}
+
+/** A {@link galleryMarker}'s fields, or `null` for any other error. */
+export function galleryMarkerOf(error: ValidationError): {
+  path: string;
+  gallery: string;
+  source: unknown;
+} | null {
+  const fixes = error.fixes ?? [];
+  if (
+    !fixes.includes("image:check-gallery") &&
+    !fixes.includes("file:check-gallery") &&
+    !fixes.includes("video:check-gallery")
+  ) {
+    return null;
+  }
+  const value = error.value;
+  if (typeof value !== "object" || value === null) return null;
+  const path = "path" in value ? value.path : undefined;
+  const gallery = "gallery" in value ? value.gallery : undefined;
+  if (typeof path !== "string" || typeof gallery !== "string") return null;
+  return {
+    path,
+    gallery,
+    source: "source" in value ? value.source : undefined,
+  };
 }
 
 /**

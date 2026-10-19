@@ -11,8 +11,9 @@ import { config } from "../../val.config";
  */
 const {
   useValStega: useVal,
+  useValKeyStega: useValKey,
   useValRouteStega: useValRoute,
   useValRouteUrl,
 } = initValClient(config);
 
-export { useVal, useValRoute, useValRouteUrl };
+export { useVal, useValKey, useValRoute, useValRouteUrl };

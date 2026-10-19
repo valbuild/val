@@ -52,9 +52,11 @@ export type ContentPublishApi = {
    *
    * ## What is deliberately not here
    *
-   * No loader URL, no `vendorRev`, no `x-platform-project`. This service holds
-   * the operator relationship with the build platform and calls it; a publisher
-   * talks to this API and nothing else. The one exception is the presigned
+   * No loader URL, no `x-platform-project`. This service holds the operator
+   * relationship with the build platform and calls it; a publisher talks to
+   * this API and nothing else. A publisher does say which base layer it built
+   * against (`baseRev` below) -- a fact about its build, which this service
+   * forwards -- but never addresses the platform itself. The one exception is the presigned
    * upload URL, which points at object storage -- bytes do not travel through
    * here.
    *
@@ -76,6 +78,18 @@ export type ContentPublishApi = {
         /** Which dependency layer this was built against, sent or not. */
         layerRev: string | null;
         /**
+         * Which BASE layer -- the platform's React and TanStack -- this was
+         * built against: `base.rev` of the build target the build used.
+         *
+         * Content forwards it to the build platform as the build's own, and
+         * the platform refuses a new build whose base layer it no longer
+         * serves: one deployed while the build ran, which the build's layer
+         * was never checked against. Left out when it is not known -- a build
+         * made elsewhere and published with `--artifacts` -- which publishes
+         * as every build did before.
+         */
+        baseRev?: string | null;
+        /**
          * Whether the app links its own CSS.
          *
          * Build metadata the loader needs and no artifact carries, so it has to
@@ -89,6 +103,15 @@ export type ContentPublishApi = {
           sha256: string;
           bytes: number;
         }[];
+        /**
+         * The build this project already holds under `buildHash`, declared by
+         * name: `artifacts` is sent empty and filled in from that build, and
+         * `linksOwnCss` is the build's. A build is named by its inputs, so a
+         * publisher that knows the name before building can skip the build.
+         * 409 with `BUILD_NOT_HELD` when no complete build has that name:
+         * build it, and declare its artifacts.
+         */
+        byReference?: boolean;
       };
       res: {
         publishId: string;
@@ -319,8 +342,6 @@ export type ContentPublishApi = {
   };
   "/publish-jobs/:jobId/discard": {
     POST: {
-      /** The forward closure, as `DELETE /patches` takes it. */
-      body: { unstagePatchIds?: string[] };
       /** Changes it could not discard: another job in flight holds them. */
       res: { stillHeld: string[] };
     };
@@ -373,6 +394,12 @@ export type PublishRequestStatus =
       actions: ("try-again" | "discard" | "re-run-build")[];
       /** The job that failed: what Discard is pressed on. */
       job: string;
+      /**
+       * Where its changes went, on a project with proposals: off the site,
+       * into a proposal of their own, where they are fixed and published.
+       * `actions` is then empty -- that proposal's Publish is the Try again.
+       */
+      movedTo?: { proposal: string; displayName: string; changes: number };
     }
   | { kind: "cancelled" }
   | { kind: "nothing-to-publish" };
@@ -386,4 +413,10 @@ export type PublishTabJob = {
   base: string | null;
   /** The changes its build is to include, on top of `base`. */
   patches: string[];
+  /**
+   * Its content goes live on the build already live: content's prepare found
+   * it changes only Val content, which that build shows, so nothing is built
+   * for it. Set on the answer that hands it over (`step: null`).
+   */
+  contentOnly?: true;
 };
