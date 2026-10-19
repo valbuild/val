@@ -1124,6 +1124,31 @@ The fix is on the site, not the Studio: set an explicit background on `body`.
 A page that paints its own background is opaque in both contexts and none of
 the above applies. Neither Tailwind v3 nor v4 preflight sets one for you.
 
+## `?val_canvas` marks only the first document in the canvas
+
+The Studio loads the canvas at `/page?val_canvas=1`, and the provider used to
+read only that parameter to decide whether it was the canvas. But the frame
+navigates on its own, and every full-page navigation loses the parameter. The
+case that showed it is a site with its own login: a signed-out canvas is
+redirected to `/login`, and that document mounted Val's whole overlay inside
+the canvas, a Studio in the Studio. It never posted `ready`, so the canvas sat
+on "Preview is not ready yet" through the sign-in and after it. A client-side
+navigation back to the page did not help either, because the provider decides
+once per document.
+
+`isValCanvasFrame` now also takes the parent's path: a document framed by
+`/val` on the same origin is the canvas, whatever its own address says. The
+parameter remains for the document the Studio loads. Pinned by
+`e2e/tanstack/signedInPreview.spec.ts` against `/dashboard` in
+`examples/tanstack`.
+
+The site's cookies are not the problem. The canvas is a same-origin frame, so
+it is sent `HttpOnly` and `SameSite=Lax`/`Strict` cookies like any tab. What
+does block it is a site that forbids being framed: `X-Frame-Options: DENY`,
+or `Content-Security-Policy: frame-ancestors 'none'`, both common on
+dashboards. The canvas then shows a refused frame and reaches "No answer from
+the page". `SAMEORIGIN` / `frame-ancestors 'self'` allow it.
+
 ## `suspend` is three waits, and a route only gets one chance
 
 `suspend` on `ValProvider` exists for one situation: a route that exists only in

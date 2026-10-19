@@ -64,6 +64,7 @@ function SiteLayout() {
           Docs
         </Link>
         <Link to="/showcase">Showcase</Link>
+        <Link to="/dashboard">Dashboard</Link>
         <a href="/val">Val Studio</a>
       </nav>
       {/*
