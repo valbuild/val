@@ -143,14 +143,54 @@ export function isSkippedSource(
 }
 
 /**
- * What to scale an image down to when the encoder cannot write the type asked
- * for: the source's own format, when it is one every encoder can write.
+ * The types the Studio can write with WebAssembly when the canvas cannot.
  *
- * `canvas.toBlob` answers a type it cannot write with a PNG, and Safari cannot
- * write WebP. Without this, `chooseEncoded` would rightly refuse that PNG and
- * upload the original -- so the browser people take photos in would upload
- * every photo at the camera's full size, the one case `maxWidth` exists for.
- * Scaling it down as a JPEG keeps the half of `encode` this browser can do.
+ * libwebp, compiled to WebAssembly (`@jsquash/webp`, loaded by
+ * `packages/ui/spa/utils/webpWasm.ts`). One entry because `encode` has one
+ * `type`; a second type is a second encoder to host, not a second string here.
+ */
+export const WASM_ENCODED_MIME_TYPES = ["image/webp"];
+
+/**
+ * Whether to encode the canvas's pixels with WebAssembly, given what the
+ * canvas's own encoder handed back.
+ *
+ * `canvas.toBlob` answers a type it cannot write with a PNG instead of an error,
+ * and Safari -- the browser people take their photos in -- cannot write WebP.
+ * The pixels on that canvas are already decoded, oriented and scaled, so the
+ * only thing missing is the encoder, and libwebp in WebAssembly is that.
+ *
+ * Only then, and that is what keeps the WebAssembly lazy: a browser whose
+ * canvas wrote the type is never asked to download an encoder, even when its
+ * WebP then loses to the original on size -- a second encoder of the same
+ * format would lose for the same reason.
+ *
+ * `null` -- no blob at all -- is not "cannot write this type" either. It is a
+ * canvas that failed to serialize anything, under memory pressure for instance,
+ * and says nothing about WebP: a Chromium tab that hits it is still a browser
+ * that writes WebP, and must not start downloading an encoder because of it.
+ */
+export function shouldEncodeWithWasm(input: {
+  targetMimeType: string;
+  canvasOutputType: string | null;
+}): boolean {
+  return (
+    WASM_ENCODED_MIME_TYPES.includes(input.targetMimeType) &&
+    input.canvasOutputType !== null &&
+    input.canvasOutputType !== input.targetMimeType
+  );
+}
+
+/**
+ * What to scale an image down to when nothing could write the type asked for:
+ * the source's own format, when it is one every canvas can write.
+ *
+ * The second fallback, after {@link shouldEncodeWithWasm}: it is what a browser
+ * whose canvas cannot write WebP gets when the WebAssembly encoder could not be
+ * loaded either (offline, a blocked host, a failed instantiation). Without it,
+ * `chooseEncoded` would rightly refuse the canvas's PNG and upload the original
+ * -- every photo at the camera's full size, the one case `maxWidth` exists
+ * for. Scaling it down as a JPEG keeps the half of `encode` this browser can do.
  *
  * Only when a downscale is needed: re-encoding a JPEG that already fits, as a
  * JPEG, is a second generation of loss for a few percent. And never into a

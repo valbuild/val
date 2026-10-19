@@ -6,6 +6,7 @@ import {
   isMimeTypeAccepted,
   isSkippedSource,
   resolveEncodeSettings,
+  shouldEncodeWithWasm,
 } from "./encodeImageDecisions";
 
 /**
@@ -230,6 +231,51 @@ describe("fallbackMimeType", () => {
 
   it("never falls back into a type accept refuses", () => {
     expect(fallbackMimeType("image/jpeg", true, "image/webp")).toBeNull();
+  });
+});
+
+describe("shouldEncodeWithWasm", () => {
+  const webp = "image/webp";
+
+  /** Safari: `toBlob(cb, "image/webp")` hands back a PNG and no error. */
+  it("asks for WebAssembly when the canvas wrote something else", () => {
+    expect(
+      shouldEncodeWithWasm({
+        targetMimeType: webp,
+        canvasOutputType: "image/png",
+      }),
+    ).toBe(true);
+  });
+
+  /*
+   * A canvas that handed back nothing failed for some other reason (memory),
+   * and that says nothing about whether it writes WebP -- so it must not be
+   * what sends a Chromium tab to download an encoder.
+   */
+  it("does not ask for it when the canvas handed back nothing", () => {
+    expect(
+      shouldEncodeWithWasm({ targetMimeType: webp, canvasOutputType: null }),
+    ).toBe(false);
+  });
+
+  /*
+   * The one that keeps the download lazy: Chromium and Firefox write WebP, so
+   * they must never fetch an encoder -- including when their WebP lost to the
+   * original on size, which a second WebP encoder would not change.
+   */
+  it("never asks for it when the canvas wrote the type", () => {
+    expect(
+      shouldEncodeWithWasm({ targetMimeType: webp, canvasOutputType: webp }),
+    ).toBe(false);
+  });
+
+  it("has no WebAssembly encoder for any other type", () => {
+    expect(
+      shouldEncodeWithWasm({
+        targetMimeType: "image/avif",
+        canvasOutputType: "image/png",
+      }),
+    ).toBe(false);
   });
 });
 

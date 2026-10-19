@@ -196,15 +196,47 @@ Five rules, each of which is a bug if dropped:
   is the wrong size whatever it weighs. Measured: the 74-byte 8×8 fixture PNG
   becomes a **548-byte** WebP, while a 1200×900 gradient goes 155 KB → 12 KB.
 - **SVG, GIF and AVIF are never touched**, nor is a WebP that already fits.
-- **A browser that cannot write WebP still scales down.** `canvas.toBlob`
-  answers a type it cannot write with a PNG, and Safari cannot write WebP — so
-  the rule above refused it and every iPhone photo went up at the camera's
-  full size. When a downscale is needed, a JPEG or PNG source is now scaled
-  down in its own format instead (`fallbackMimeType`), `accept` permitting.
+- **A browser that cannot write WebP gets WebP from WebAssembly, and a JPEG
+  only if that fails.** `canvas.toBlob` answers a type it cannot write with a
+  PNG, and Safari cannot write WebP — so the rule above refused it and every
+  iPhone photo went up at the camera's full size. Now, when the canvas hands
+  back anything but WebP (`shouldEncodeWithWasm`), the pixels already on that
+  canvas — decoded, oriented, resized — are read with `getImageData` and
+  encoded by libwebp compiled to WebAssembly (`@jsquash/webp`, in
+  `utils/webpWasm.ts`) at the same `quality`, and judged by `chooseEncoded`
+  exactly as the canvas's output is. Only when that cannot be loaded or throws
+  does the older fallback run: a JPEG or PNG source scaled down in its own
+  format (`fallbackMimeType`), `accept` permitting, then the original.
+
+  WebP first because it is what the schema asked for — and under
+  `accept: "image/webp"` it is the only conversion allowed at all, so without
+  it Safari uploaded such a field's photos at full size. The JPEG fallback
+  stays because it is the half of `encode` every canvas can do: offline, or
+  with the static host blocked, a bigger file beats a failed upload.
+
+  The WebAssembly is lazy: its JavaScript is a chunk of its own and the binary
+  is fetched only on that path, once per page, so a browser whose canvas
+  writes WebP never downloads either (`e2e/demo/demo.spec.ts` pins both). It
+  is served from the static host beside rolldown's, content-addressed, for
+  the same reason — see `build/staticWasm.ts` — and `init` is handed a module
+  we compiled ourselves, never left to find its file relative to the bundle.
+  Two builds are hosted, with and without SIMD, and the one fetched must be
+  the one `init` picks: both ask `wasm-feature-detect`'s `simd()`.
+
 - **Decoding is `createImageBitmap(file, {imageOrientation: "from-image"})`,
   never `new Image()`** — that flag is what applies EXIF rotation, and the WebP
   we write carries no EXIF, so the other path would silently rotate portrait
   photos. Where it is unavailable, nothing is re-encoded.
+
+  The canvas is already the output's size (`fitWithin`'s), so iOS's limit on
+  canvas area (about 16.7 million pixels) is not what a big photo runs into.
+  The one full-size buffer is that `ImageBitmap`, and whether a 48 MP one
+  fails on an iPhone has not been tried. Decoding straight at the target size
+  (`resizeWidth`/`resizeHeight`) was built once and taken out again: the target
+  comes from the source's size, so it was a SECOND decode on every downscaled
+  upload, in every browser, after the full-size one it meant to avoid. Avoiding
+  that bitmap would mean reading the size and EXIF orientation from the file's
+  header instead.
 
 `encode` is stripped in `getValidationBasis`: it says how bytes were produced,
 not whether the bytes that arrived are valid, so leaving it in would re-validate
