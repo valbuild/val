@@ -124,6 +124,7 @@ export type ValConfig = {
      * a rebuild.
      *
      * @example
+     * import { initVal } from "@valbuild/core";
      * const { s, c, val, config } = initVal({
      *   project: "myorg/myproject",
      *   analytics: { enabled: true },
