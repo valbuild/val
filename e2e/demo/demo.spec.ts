@@ -3,6 +3,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { makeJpeg, withExifOrientation } from "./photo";
+import { withoutWebCodecs } from "../tanstack/serverState";
 
 /**
  * The demo: the real Studio, with Val's server running in the tab.
@@ -194,11 +195,15 @@ test.describe("uploads in the demo", () => {
 
   test("a video plays in the page, and seeks", async ({ page, context }) => {
     const escaped = await refuseTheNetwork(context);
+    // Uploaded as it is, never converted to a stream: whether this browser can
+    // convert depends on the machine (a CI runner's Chromium can encode H.264,
+    // a local one could not), and a stream of H.264 is not something every
+    // Chromium can then play. Without WebCodecs it is the same path
+    // everywhere, as in `e2e/tanstack/video.spec.ts`. Seeking is the part that
+    // needs the relay to answer `Range` requests.
+    await withoutWebCodecs(page);
     await openDemo(page);
     await closeTour(page);
-    // The WebM is uploaded as it is: Playwright's Chromium has no H.264, so it
-    // cannot make a stream (see `e2e/tanstack/video.spec.ts`). Seeking is the
-    // part that needs the relay to answer `Range` requests.
     await page
       .locator(`[data-val-studio-path$='"film"."video"']`)
       .first()
