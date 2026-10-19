@@ -28,6 +28,8 @@ export type CreatableRouter = {
   existingKeys: string[];
   /** The router key schema's description, if it has one. */
   keyDescription?: string;
+  /** The router's route parameter schemas, by name. See `AvailableRoute`. */
+  routeParams?: Record<string, SerializedSchema>;
   /**
    * The URL schemes the router allows, where it narrowed them.
    *
@@ -124,6 +126,7 @@ export function collectCreatableRouters(
       patternString: patternStringOf(routePattern),
       existingKeys,
       keyDescription: schema.key?.description,
+      ...(schema.params ? { routeParams: schema.params } : {}),
       ...(schema.routerSchemes ? { schemes: schema.routerSchemes } : {}),
     };
     if (isExternalRouter(schema.router)) {

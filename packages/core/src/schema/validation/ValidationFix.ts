@@ -43,6 +43,13 @@ export const ValidationFix = [
   "video:check-gallery",
   "router:check-route",
   "locale:check-locale",
+  // A page router whose route has a `locale` or `lang` segment that no
+  // `s.router(router, { locale: … }, item)` schema describes. A marker, like
+  // the one above: whether that is a mistake depends on whether the project
+  // declares languages at all, which is in the settings module. Never fatal --
+  // a project that had a `[locale]` route before route params existed must
+  // still load.
+  "router:check-locale-param",
   "images:check-unique-folder",
   "files:check-unique-folder",
   "images:check-all-files",

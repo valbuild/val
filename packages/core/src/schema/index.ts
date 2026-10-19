@@ -176,6 +176,14 @@ export abstract class Schema<Src extends SelectorSource> {
   }
 
   /**
+   * What to call this node in a message about the scope it opens: "object" for
+   * one with a locale field, "locale-keyed record" for a record keyed by one.
+   */
+  protected localeScopeName(): string {
+    return this.opensLocaleScope() === "key" ? "locale-keyed record" : "object";
+  }
+
+  /**
    * The child schemas a locale scope reaches, by the path segment that reaches
    * them.
    *
@@ -271,9 +279,7 @@ export abstract class Schema<Src extends SelectorSource> {
             nested.path,
           )} cannot set another. Move the ${
             nested.kind === "key" ? "locale-keyed record" : "locale field"
-          } out of this ${
-            opened === "key" ? "locale-keyed record" : "object"
-          }, or take the outer one away.`,
+          } out of this ${this.localeScopeName()}, or take the outer one away.`,
           schemaError: true,
         });
       }
