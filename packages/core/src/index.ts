@@ -188,7 +188,6 @@ import {
   GALLERY_DEFAULT_GROUPS,
   galleryEntryOf,
   galleryKeyOf,
-  galleryMarker,
   galleryMarkerOf,
   HLS_MIME_TYPE,
   isHlsVideo,
