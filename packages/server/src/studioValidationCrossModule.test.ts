@@ -28,7 +28,12 @@ describe("the Studio's full check, across modules", () => {
     },
   );
   const imagesVal = c.define(IMAGES, s.imagedir("/public/val/images", {}), {
-    "/public/val/images/a.png": { width: 1, height: 1, mimeType: "image/png" },
+    "/public/val/images/a.png": {
+      width: 1,
+      height: 1,
+      mimeType: "image/png",
+      alt: null,
+    },
   });
   const pageVal = c.define(
     PAGE,
@@ -85,7 +90,7 @@ describe("the Studio's full check, across modules", () => {
       ...sources,
       [IMAGES]: {
         ...(sources[IMAGES] as object),
-        [NEW]: { width: 1, height: 1, mimeType: "image/png" },
+        [NEW]: { width: 1, height: 1, mimeType: "image/png", alt: null },
       },
       [PAGE]: { author: "ada", hero: { path: NEW } },
     };
