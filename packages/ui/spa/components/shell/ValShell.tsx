@@ -11,6 +11,7 @@ import {
   useStudioAccess,
   type StudioAccessState,
 } from "./planLimits/useStudioAccess";
+import { publishRefused } from "./planLimits/studioAccess";
 import { useResumeRefusedSaves } from "./planLimits/useResumeRefusedSaves";
 import { usePlanNotice } from "./planLimits/usePlanNotice";
 import { useRefusalToastRefresh } from "./planLimits/useRefusalToastRefresh";
@@ -363,11 +364,14 @@ function ValShellBody({
    * Only where the Studio builds the site (a managed project: a connected
    * project's dependencies are its repository's) and only for someone who
    * could publish it: anyone who can publish may update, and nobody else is
-   * shown a button that would be refused. A plan that has gone read-only is
-   * the one way to be unable to publish today.
+   * shown a button that would be refused: not where the organization is
+   * read-only, nor where the project's plan refuses a publish. Before Val
+   * Build has answered, it is offered; the publish itself is refused with the
+   * reason if the answer turns out to be no.
    */
   const siteUpdateEnabled =
-    studioIsDeployer && planAccess?.access !== "read-only";
+    studioIsDeployer &&
+    (studioAccess.access === null || !publishRefused(studioAccess.access));
   const siteUpdate = useSiteUpdate({ deploy, enabled: siteUpdateEnabled });
   const reloadStudio = useCallback(() => window.location.reload(), []);
   const handoff = useSiteHandoffState();

@@ -129,6 +129,18 @@ export function editRefused(access: StudioAccess): boolean {
   );
 }
 
+/**
+ * Whether the answer refuses publishing: the organization is read-only, or
+ * the project's plan refuses the publish write. A site update IS a publish,
+ * so this is also what decides whether the Studio offers one.
+ */
+export function publishRefused(access: StudioAccess): boolean {
+  return (
+    access.plan?.access === "read-only" ||
+    access.limits?.refused.publish !== undefined
+  );
+}
+
 /** Val Build's trial: 3 publishes, and 10% of a month's included usage. */
 export const TRIAL_PUBLISHES = 3;
 export const TRIAL_USAGE_SHARE = 0.1;
