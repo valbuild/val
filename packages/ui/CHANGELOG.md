@@ -1,5 +1,11 @@
 # @valbuild/ui
 
+## 0.148.1
+
+### Patch Changes
+
+- [#888](https://github.com/valbuild/val/pull/888) [`fff5681`](https://github.com/valbuild/val/commit/fff5681b9ac9a24b873ba74ca636240d83404e46) Thanks [@freekh](https://github.com/freekh)! - The Studio opens pages whose route has an optional segment, such as TanStack Start's `{-$locale}`. A browser percent-encodes `{` and `}` in an address, and the Studio read the module path back without decoding it, so every page of a site with its language in the URL showed "This page can no longer be found", including pages the Studio had just linked to.
+
 ## 0.148.0
 
 ### Minor Changes
