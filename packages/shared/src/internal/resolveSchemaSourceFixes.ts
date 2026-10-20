@@ -327,6 +327,7 @@ export const SCHEMA_SOURCE_FIXES: ValidationFix[] = [
   "video:check-gallery",
   "router:check-route",
   "locale:check-locale",
+  "router:check-locale-param",
   "record:fill-keys",
 ];
 
@@ -519,6 +520,38 @@ export function resolveSchemaSourceFixForError(
         message: `'${locale}' is not one of this project's languages: ${available
           .map((each) => `'${each}'`)
           .join(", ")}`,
+        fixes: undefined,
+      },
+    };
+  }
+
+  if (fixes.includes("router:check-locale-param")) {
+    const value = error.value;
+    const { name, segment } =
+      typeof value === "object" && value !== null
+        ? (value as { name?: unknown; segment?: unknown })
+        : {};
+    if (typeof name !== "string" || typeof segment !== "string") {
+      return {
+        status: "remaining",
+        error: {
+          ...error,
+          message: `Expected route locale parameter validation error to have a 'value' with 'name' and 'segment'. ${TYPE_ERROR_MESSAGE}`,
+          typeError: true,
+          fixes: undefined,
+        },
+      };
+    }
+    // A project that declares no languages is not translated, and a
+    // `[locale]` segment there is the app's own business.
+    if (declaredLocales(snapshot).length === 0) {
+      return { status: "resolved" };
+    }
+    return {
+      status: "remaining",
+      error: {
+        ...error,
+        message: `This route has a '${name}' segment (${segment}), but nothing says which of the project's languages it can be, so its pages are not in any language and '/xx/…' validates. Give the parameter a locale schema: s.router(router, { ${name}: urlLocale, … }, item), where urlLocale is an s.enum(…).locales({ … }) or s.locale(). If '${name}' is not a language here, give it a schema of its own instead, e.g. { ${name}: s.enum(…) }.`,
         fixes: undefined,
       },
     };

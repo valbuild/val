@@ -67,6 +67,7 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("video:check-gallery"),
   z.literal("router:check-route"),
   z.literal("locale:check-locale"),
+  z.literal("router:check-locale-param"),
   z.literal("record:fill-keys"),
   z.literal("images:check-unique-folder"),
   z.literal("files:check-unique-folder"),

@@ -70,7 +70,12 @@ export function CompareUndoBar({
        * line is the one part here that can afford its own row.
        */}
       <span className="order-last w-full min-w-0 text-xs text-fg-secondary sm:order-none sm:w-auto sm:flex-1">
-        {words.hint}
+        {/*
+         * Both in the markup, one shown: whether the device can hover is a
+         * media query, and CSS answers it without a render.
+         */}
+        <span className="touch:hidden">{words.hint}</span>
+        <span className="hidden touch:inline">{words.touchHint}</span>
         {/*
          * The reassurance only in the calm tone, and only because it is the
          * thing that makes the mode safe to open: whether what you are about to
@@ -85,58 +90,11 @@ export function CompareUndoBar({
 
       <span className="flex shrink-0 items-center gap-2">
         {revertAll !== undefined && onRevertAll !== undefined && (
-          <span className="flex items-center gap-1.5">
-            <button
-              onClick={onRevertAll}
-              className="text-xs text-fg-secondary underline underline-offset-2 hover:text-fg-primary"
-            >
-              {revertAll.label}
-            </button>
-            {/*
-             * The modules that will be left behind, NAMED.
-             *
-             * A count told an editor something would not go back without
-             * saying what — unactionable at the exact moment they are deciding
-             * whether to undo a bad publish. `revertAll` already returns a
-             * `RevertPlan.blocked` carrying a reason per module, and this is
-             * that list.
-             */}
-            {revertAll.blocked !== undefined &&
-              revertAll.blocked.length > 0 && (
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button className="flex items-center gap-1 rounded border border-border-warning-primary px-1.5 py-0.5 text-xs text-fg-warning-primary">
-                      <AlertTriangle size={11} aria-hidden />
-                      {`${revertAll.blocked.length} cannot`}
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    container={portalContainer}
-                    align="end"
-                    className="z-[9001] w-[320px] p-0"
-                  >
-                    <div className="border-b border-border-primary px-3 py-2 text-xs font-medium text-fg-secondary">
-                      These will not be put back
-                    </div>
-                    <ul className="flex flex-col gap-2 p-3">
-                      {revertAll.blocked.map((entry) => (
-                        <li key={entry.moduleFilePath} className="min-w-0">
-                          <div className="truncate font-mono text-xs text-fg-primary">
-                            {entry.moduleFilePath}
-                          </div>
-                          <div className="text-xs text-fg-tertiary">
-                            {entry.reason}
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="border-t border-border-primary px-3 py-2 text-xs text-fg-tertiary">
-                      Everything else in the commit still goes back.
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              )}
-          </span>
+          <RevertAllLink
+            revertAll={revertAll}
+            onRevertAll={onRevertAll}
+            portalContainer={portalContainer}
+          />
         )}
         <Button size="sm" variant="ghost" onClick={onCancel}>
           <X size={13} aria-hidden />
@@ -153,6 +111,168 @@ export function CompareUndoBar({
         )}
       </span>
     </div>
+  );
+}
+
+/**
+ * Undo mode on a phone: the same controls as {@link CompareUndoBar}, at the
+ * BOTTOM of the screen.
+ *
+ * At the top they cost two rows (the controls, then the hint wrapped across
+ * two lines) between the header and the diff, a third of a phone's height
+ * spent on the mode before any change was showing. At the bottom the diff
+ * starts where it does when you are only reading, and the two buttons sit
+ * where a thumb already is.
+ *
+ * No hint. On a touch screen every row's ↶ is always showing, so a sentence
+ * telling you to look for it explains something already in front of you. The
+ * reassurance stays, for the reason it is in the bar: it is the one thing on
+ * this screen nobody can tell by looking.
+ *
+ * "Done", not "Cancel". Each revert happens when it is confirmed, so leaving
+ * the mode cancels nothing, and a button saying it does would make an editor
+ * think the reverts they just made are about to be undone.
+ */
+export function CompareUndoFooter({
+  kind,
+  onDone,
+  onRevertAll,
+  revertAll,
+  undoAll,
+  tone,
+  portalContainer,
+}: {
+  kind: CompareUndoKind;
+  onDone: () => void;
+  onRevertAll?: () => void;
+  revertAll?: {
+    label: string;
+    blocked?: { moduleFilePath: string; reason: string }[];
+  };
+  undoAll?: { onUndoAll: () => void };
+  tone: UndoTone;
+  portalContainer?: HTMLElement | null;
+}) {
+  const words = undoWords(kind);
+  return (
+    <div className="flex shrink-0 flex-col gap-2 border-t border-border-brand-primary bg-bg-secondary px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
+      <div className="flex min-w-0 items-baseline gap-2 text-xs">
+        {/*
+         * The short name: "Restore from this version" and its reassurance do
+         * not share a line at 390px, and the button that opened the mode
+         * already used the short one.
+         */}
+        <span className="flex shrink-0 items-center gap-1.5 font-medium text-fg-primary">
+          <Undo2 size={13} aria-hidden />
+          {words.shortMode}
+        </span>
+        {tone === "calm" && (
+          // Wrapped, not truncated: it is the sentence that says reverting
+          // here is safe, and the half that a truncation cut was the half
+          // that said why.
+          <span className="min-w-0 text-fg-tertiary">{words.reassurance}</span>
+        )}
+      </div>
+      {/*
+       * Its own line. Beside the label it ran off the right edge, taking its
+       * "N cannot" warning with it, and that warning is the part that must be
+       * read before tapping.
+       */}
+      {revertAll !== undefined && onRevertAll !== undefined && (
+        <div className="flex min-w-0 flex-wrap items-center">
+          <RevertAllLink
+            revertAll={revertAll}
+            onRevertAll={onRevertAll}
+            portalContainer={portalContainer}
+          />
+        </div>
+      )}
+      <div className="flex gap-2">
+        {undoAll !== undefined && (
+          <Button
+            className="h-10 flex-1"
+            variant={undoButtonVariant(kind, tone, "all")}
+            onClick={undoAll.onUndoAll}
+          >
+            {words.all}
+          </Button>
+        )}
+        <Button className="h-10 flex-1" variant="default" onClick={onDone}>
+          Done
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "Revert to this commit", and what it leaves behind.
+ *
+ * Its own component because both bars carry it: the one over the diff on a
+ * desktop and the one under it on a phone.
+ */
+function RevertAllLink({
+  revertAll,
+  onRevertAll,
+  portalContainer,
+}: {
+  revertAll: {
+    label: string;
+    blocked?: { moduleFilePath: string; reason: string }[];
+  };
+  onRevertAll: () => void;
+  portalContainer?: HTMLElement | null;
+}) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <button
+        onClick={onRevertAll}
+        className="text-xs text-fg-secondary underline underline-offset-2 hover:text-fg-primary"
+      >
+        {revertAll.label}
+      </button>
+      {/*
+       * The modules that will be left behind, NAMED.
+       *
+       * A count told an editor something would not go back without
+       * saying what — unactionable at the exact moment they are deciding
+       * whether to undo a bad publish. `revertAll` already returns a
+       * `RevertPlan.blocked` carrying a reason per module, and this is
+       * that list.
+       */}
+      {revertAll.blocked !== undefined && revertAll.blocked.length > 0 && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <button className="flex items-center gap-1 rounded border border-border-warning-primary px-1.5 py-0.5 text-xs text-fg-warning-primary">
+              <AlertTriangle size={11} aria-hidden />
+              {`${revertAll.blocked.length} cannot`}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            container={portalContainer}
+            align="end"
+            className="z-[9001] w-[320px] p-0"
+          >
+            <div className="border-b border-border-primary px-3 py-2 text-xs font-medium text-fg-secondary">
+              These will not be put back
+            </div>
+            <ul className="flex flex-col gap-2 p-3">
+              {revertAll.blocked.map((entry) => (
+                <li key={entry.moduleFilePath} className="min-w-0">
+                  <div className="truncate font-mono text-xs text-fg-primary">
+                    {entry.moduleFilePath}
+                  </div>
+                  <div className="text-xs text-fg-tertiary">{entry.reason}</div>
+                </li>
+              ))}
+            </ul>
+            <div className="border-t border-border-primary px-3 py-2 text-xs text-fg-tertiary">
+              Everything else in the commit still goes back.
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
+    </span>
   );
 }
 
@@ -203,9 +323,16 @@ export function RowQuickUndo({
   profiles,
   onConfirm,
   portalContainer,
+  compact = false,
 }: {
   kind: CompareUndoKind;
   tone: UndoTone;
+  /**
+   * The phone form: the icon alone, with a thumb-sized target, at the very end
+   * of the row. The word beside each row's avatars squeezed the field name on a
+   * 390px screen, and the bar at the bottom already says what ↶ does.
+   */
+  compact?: boolean;
   /** What goes if this row goes. Computed where the model is. */
   consequence: UndoConsequence;
   profiles: Record<string, Profile>;
@@ -216,17 +343,35 @@ export function RowQuickUndo({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
-          className={cn(
-            "shrink-0 rounded px-1.5 py-0.5 text-[11px] transition-opacity",
-            "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100",
-            "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
-          )}
-          aria-label={`${words.verb} this change`}
-        >
-          <Undo2 size={11} className="mr-0.5 inline" aria-hidden />
-          {words.verb}
-        </button>
+        {compact ? (
+          <button
+            className={cn(
+              "order-last -my-1.5 flex size-8 shrink-0 items-center justify-center rounded-full",
+              "border border-border-primary text-fg-secondary active:bg-bg-tertiary",
+            )}
+            aria-label={`${words.verb} this change`}
+          >
+            <Undo2 size={14} aria-hidden />
+          </button>
+        ) : (
+          <button
+            className={cn(
+              "shrink-0 rounded px-1.5 py-0.5 text-[11px] transition-opacity",
+              "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100",
+              /*
+               * Always showing on a touch screen. Hover never happens there,
+               * so the button was invisible: still tappable, but nothing said
+               * it was there.
+               */
+              "touch:opacity-100",
+              "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
+            )}
+            aria-label={`${words.verb} this change`}
+          >
+            <Undo2 size={11} className="mr-0.5 inline" aria-hidden />
+            {words.verb}
+          </button>
+        )}
       </PopoverTrigger>
       <PopoverContent
         container={portalContainer}

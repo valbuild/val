@@ -168,6 +168,8 @@ export const SerializedEnumSchema: z.ZodType<SerializedEnumSchemaT> = z.object({
   ...commonSchemaFields,
   type: z.literal("enum"),
   values: z.array(z.string()),
+  locales: z.record(z.string(), z.string()).optional(),
+  nullLocale: z.string().optional(),
   opt: z.boolean(),
 });
 
@@ -271,6 +273,7 @@ export const SerializedRecordSchema: z.ZodType<SerializedRecordSchemaT> =
           render: FieldRender,
           type: z.literal("record"),
           item: SerializedSchema,
+          params: z.record(z.string(), SerializedSchema).optional(),
           opt: z.boolean(),
           // Optional gallery marker for files/images/videos
           mediaType: z

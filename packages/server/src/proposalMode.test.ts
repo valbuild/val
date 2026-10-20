@@ -469,6 +469,21 @@ describe("the proposals API, for the Studio", () => {
     }
   });
 
+  test("adept answers at a proposal's address too: it computes, and publishes nothing", async () => {
+    const o = ops(proposal("save-2"));
+    const refusal = "nothing is published from here";
+    for (const [method, path] of [
+      ["POST", "/adept/lockfile"],
+      ["POST", "/adept/upgrade"],
+      ["GET", "/adept/jobs/42"],
+      ["GET", "/adept/types/public/zod@3.25.76"],
+      ["GET", "/adept/compiler/5.9.3"],
+    ] as const) {
+      const answer = await o.publishApi(path, { method, body: "{}" });
+      expect([path, answer.body.includes(refusal)]).toEqual([path, false]);
+    }
+  });
+
   test("Publish in a proposal is pressed, and its checks read, through the proposals API", async () => {
     const o = ops(undefined);
     await o.proposalsApi(`/${NAME}/merge-checks`, { method: "GET" }, "p");

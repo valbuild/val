@@ -423,7 +423,13 @@ export function CanvasFrame({
   }, [onStatusChange, status]);
 
   return (
-    <div style={{ width, height }} className="relative bg-white">
+    // `data-val-tour`: the page itself is what a tour step about editing
+    // points at. See `StudioTour`.
+    <div
+      style={{ width, height }}
+      className="relative bg-white"
+      data-val-tour="canvas"
+    >
       <iframe
         ref={frameRef}
         // Remounting is the reload: assigning the same `src` to a live frame is

@@ -601,7 +601,9 @@ The showcase covers, as of writing: every `s.*` factory except `s.union`
 `step` and `render({ as: "slider" })` (and a slider on `s.number()`), `from` / `to` on
 dates, `include` / `exclude` on routes; `s.record(key, item)` and the
 three-argument `s.router(router, key, item)` so a KEY can carry its own
-description; `.jsonValues()` with `c.json()`; `tanstackRouter` and
+description; `s.router(router, params, item)` with a schema per route
+parameter, an optional `{-$locale}` segment and `s.enum().locales()` naming the
+language a URL is in; `.jsonValues()` with `c.json()`; `tanstackRouter` and
 `externalPageRouter`; and the settings sections `locales`, `theme`, `studio`
 (`commitMessage`) and `assistant`; and `s.video()` both as an mp4 and as an
 HLS stream (`stream: { type: "hls" }`), rendered with `ValVideo`, and
@@ -763,6 +765,45 @@ An excluded module is not an omission. `omittedModules` means the deadline was
 hit; a caller has to be able to tell "you told me not to" from "I ran out of
 time", because only one of them means retry.
 
+## Demo mode: Val's server in the browser
+
+Demo mode is the Studio with Val's real server running in the visitor's tab:
+`<ValApp demo>` starts `ValServer` in memory mode from
+`@valbuild/server/browser`, and the Studio's own client sends its requests
+there instead of over the network. No sign-in, and nothing saved anywhere:
+the edits are in the tab's memory, and a reload starts over. The why is in
+[`docs/plans/demo-mode.md`](../docs/plans/demo-mode.md).
+
+What is in THIS repository is demo mode itself: the browser entry, the
+`demo` props, `@valbuild/tanstack/demo` and the Studio's demo UI. The demo
+SITE people open -- its content, its end-to-end tests and its deploy to
+`demo.valstart.dev` -- is `demo/` in valbuild/home, which installs these
+packages from npm like any other app. So a change here reaches the demo at
+the next release, and nothing in this repository's CI runs it: its
+end-to-end tests run in home. To try an unreleased change on the real
+platform, publish a checkout of home's `demo/` with this repository's
+packages linked in (home's `platform/scripts/loop.ts --val` packs them).
+
+What that asks of everyone else, because the demo runs the same server code
+as production:
+
+- **`ValServer`, `ValRouterCore` and everything they import must bundle for a
+  browser.** Node-only code (`fs`, `node:http`, a mode's own `ValOps`, the
+  JWT) reaches the server through `ValServerPlatform` (`platform.ts`;
+  `nodePlatform` and `browser/browserPlatform` are the two). Ask which mode a
+  server is in with `isFsOps` / `isHttpOps` / `isMemoryOps`, never
+  `instanceof`, which imports the class. `posixPath` instead of `path`.
+  `src/browser/noNodeFromBrowser.test.ts` fails, naming the import chain, when
+  this is broken. A dynamic `import()` does not fix it: bundlers follow those.
+- **The Studio must reach the server only through its `ValClient`.** A new raw
+  `fetch` is a request the demo cannot answer, and the demo's end-to-end
+  tests (in home) fail any request to `/api/val` that is not a static file.
+  The two exceptions the browser makes itself -- the upload
+  `XMLHttpRequest` to `/api/val/upload/` and media at `/api/val/files/` -- are
+  answered by the demo's service worker (`packages/tanstack/src/demo/`), which
+  relays exactly those two prefixes to the tab. A new upload or file URL
+  outside them is a new prefix that worker has to learn.
+
 ## Testing
 
 Run tests from root dir with:
@@ -794,7 +835,7 @@ cd examples/next && pnpm run build     # next build for the example app
 cd examples/tanstack && pnpm run build # vite build for the TanStack example
 ```
 
-Two more checks are the blocking `smoke` job — separate from the `e2e` matrix,
+Three more checks are the blocking `smoke` job — separate from the `e2e` matrix,
 which selects only `chromium` and `chromium-http` and does not block. They are
 the gate for "the Studio does not come up at all", on both frameworks and in an
 insecure context, which is the one class of failure that reaches every user at
@@ -911,12 +952,22 @@ upload to WebP before it is uploaded. **Off by default.**
 turns it off where a gallery turned it on.
 
 There are two encoders and one set of decisions. The decisions —
-`resolveEncodeSettings`, `fitWithin`, `isSkippedSource`, `chooseEncoded` — are
-in `packages/shared/src/internal/media/encodeImageDecisions.ts`. The Studio's
-encoder is `packages/ui/spa/utils/encodeImage.ts` (a `<canvas>`, called from
+`resolveEncodeSettings`, `fitWithin`, `isSkippedSource`, `shouldEncodeWithWasm`,
+`fallbackMimeType`, `chooseEncoded` — are in
+`packages/shared/src/internal/media/encodeImageDecisions.ts`. The Studio's
+encoder is `packages/ui/spa/utils/encodeImage.ts` (called from
 `readImageFromFile`); the MCP image tool's is `sharpImageProcessor` in
-`@valbuild/mcp/sharp`. Change what `encode` MEANS in the shared file, or the
-two drift.
+`@valbuild/mcp/sharp`, which always writes WebP. Change what `encode` MEANS in
+the shared file, or the two drift.
+
+The Studio's encoder is itself three, tried in order on one drawn `<canvas>`:
+the canvas's own `toBlob`; libwebp compiled to WebAssembly
+(`@jsquash/webp`, in `packages/ui/spa/utils/webpWasm.ts`) when the canvas hands
+back something other than WebP, which is Safari; and the source's own format,
+scaled down (`fallbackMimeType`), when the WebAssembly could not be loaded. The
+WebAssembly is fetched lazily, once per page, from the static host — the same
+content-addressed hosting as rolldown's, see "The release uploads the Studio's
+WebAssembly first" — and a browser whose canvas writes WebP never fetches it.
 
 Either encoder runs before the hash, and that is the only correct place for it:
 `createFilename` derives the extension from the data URL's mime type, so
@@ -926,7 +977,7 @@ of those describe a file that was never uploaded.
 
 Things that will bite: `accept` beats `encode` (validation checks the stored
 mimeType against `accept`); a bigger WebP loses to the original unless the image
-was downscaled; SVG/GIF/AVIF are never converted; and the produced type must be
+was downscaled; SVG/GIF/AVIF are never converted; the produced type must be
 checked because `canvas.toBlob` silently falls back to PNG. `encode` is stripped
 in `getValidationBasis` so it cannot re-validate published remote refs. See
 [architecture/media.md](../architecture/media.md).
@@ -1128,20 +1179,26 @@ Two things to know before running `changeset version` by hand:
 - Normal releases do not need it run by hand at all. The Release workflow runs
   `pnpm run version-packages` and puts the result in the "Version Packages" PR.
 
-### The release uploads the bundler's wasm first
+### The release uploads the Studio's WebAssembly first
 
-`pnpm run release` is `build`, then `rolldown:upload`, then `changeset
-publish`. The Studio fetches rolldown's WebAssembly from
-`content.val.build/v1/static/rolldown/<sha256>/<file>` (`DEFAULT_STATIC_HOST`
-in core, `build/rolldownWasm.ts` in ui), and the npm tarball does not carry it,
-so a release whose wasm is not on that host is a Studio that cannot publish.
+`pnpm run release` is `build`, then `wasm:upload`, then `changeset publish`.
+The Studio fetches its WebAssembly from
+`content.val.build/v1/static/<name>/<sha256>/<file>` (`DEFAULT_STATIC_HOST` in
+core, `build/staticWasm.ts` in ui), and the npm tarball does not carry it. There
+are three binaries: rolldown's (`rolldown/`), without which the Studio cannot
+publish, and libwebp's two (`webp/`, with and without SIMD), without which
+Safari falls back to uploading photos as JPEGs. `STATIC_WASM` in
+`build/staticWasm.ts` is the list; a `.wasm` the build emits that is not on it
+fails the build, and the build writes the list to `server/static-wasm.json`,
+which is all the uploader reads.
 
 The upload goes first so that failing it stops the release rather than
-following it. It is content-addressed: an unchanged wasm is found and nothing is
-sent, so most releases need no credential. A new one (a rolldown bump) needs
-`VAL_STATIC_UPLOAD_TOKEN` -- a secret shared with valbuild/home's content
-server, not a Hetzner key -- and without it the release stops, naming it.
-`rolldown:check` asks the same question without uploading.
+following it. It is content-addressed: an unchanged binary is found and nothing
+is sent, so most releases need no credential. A new one (a rolldown or
+`@jsquash/webp` bump) needs `VAL_STATIC_UPLOAD_TOKEN` -- a secret shared with
+valbuild/home's content server, not a Hetzner key -- and without it the release
+stops, naming every URL that is missing. `wasm:check` asks the same question
+without uploading.
 
 **After a release, ask whether to update the templates** — and default to
 yes. [`valbuild/templates`](https://github.com/valbuild/templates) holds every
