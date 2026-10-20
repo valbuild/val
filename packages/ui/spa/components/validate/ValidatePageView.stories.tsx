@@ -288,12 +288,53 @@ export const FixStates: Story = {
             fixState: {
               status: "failed",
               message: "The file could not be read, so nothing was changed.",
+              action: "try-again",
+            },
+          },
+          {
+            id: "d",
+            location: "/public/val/team_8d1f0.jpg",
+            message: "No width, height or type recorded.",
+            tone: "fixable",
+            action: { kind: "fix" },
+            fixState: {
+              status: "failed",
+              message:
+                "Your session has ended, so nothing was changed. Sign in, then fix it again.",
+              action: "sign-in",
+            },
+          },
+          {
+            id: "e",
+            location: "/public/val/map_0b4c2.png",
+            message: "No width, height or type recorded.",
+            tone: "fixable",
+            action: { kind: "fix" },
+            fixState: {
+              status: "failed",
+              // A refusal answers the same way again: nothing to press.
+              message:
+                "This needs the files on disk. Run `val validate --fix` in the project.",
+              action: "none",
             },
           },
         ],
       },
     ],
     fullCheck: { status: "done", checkedAgo: "1 min ago" },
+  },
+};
+
+/** The session ended mid-check: **Sign in**, which comes back here. */
+export const CheckSignedOut: Story = {
+  args: {
+    groups: OWN_CHECK,
+    fullCheck: {
+      status: "failed",
+      message:
+        "Your session has ended, so the check stopped. Sign in, then check again.",
+      action: "sign-in",
+    },
   },
 };
 

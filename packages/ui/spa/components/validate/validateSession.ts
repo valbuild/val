@@ -9,7 +9,7 @@ import type {
   ModuleCheckResult,
   RemoteHostProblem,
 } from "./buildValidateGroups";
-import type { FixState } from "./ValidatePageView";
+import type { FailureAction, FixState } from "./ValidatePageView";
 
 /**
  * What "Check everything" found, kept for the session.
@@ -29,7 +29,13 @@ export type CheckRun =
     }
   | { status: "done"; at: number }
   | { status: "stopped"; checked: number; total: number }
-  | { status: "failed"; message: string; details?: string };
+  | {
+      status: "failed";
+      message: string;
+      details?: string;
+      /** See `FailureAction`. Try again, unless the session ended. */
+      action?: FailureAction;
+    };
 
 /** A fix this session made, with the patch it made, so it can be undone. */
 export type SessionFix = FixState & { patchId?: PatchId };
@@ -165,9 +171,14 @@ export class ValidateSession {
     });
   }
 
-  fail(message: string, details?: string) {
+  fail(message: string, details?: string, action?: FailureAction) {
     this.set({
-      run: { status: "failed", message, ...(details ? { details } : {}) },
+      run: {
+        status: "failed",
+        message,
+        ...(details ? { details } : {}),
+        ...(action ? { action } : {}),
+      },
     });
   }
 

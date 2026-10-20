@@ -122,6 +122,9 @@ export function ValidateRoute() {
       }
       return {
         status: "failed",
+        // Asking again can only help when the server did not answer, or
+        // failed on its side. A refusal answers the same way next time.
+        action: res.status === null || res.status >= 500 ? "try-again" : "none",
         details:
           res.status === null
             ? "The server could not be reached."
@@ -149,13 +152,14 @@ export function ValidateRoute() {
         // Gone since the schemas were read: nothing to check.
         validateSession.skipModule();
       } else if (outcome.status === "signed-out") {
-        validateSession.fail(SIGNED_OUT);
+        validateSession.fail(SIGNED_OUT, undefined, "sign-in");
         return;
       } else {
         const checked = progressOf(validateSession.getSnapshot().run);
         validateSession.fail(
           `The check stopped after ${checked} of ${order.length} files: Val could not check ${moduleFilePath}.`,
           outcome.details,
+          outcome.action,
         );
         return;
       }
@@ -182,13 +186,16 @@ export function ValidateRoute() {
         if (outcome.status === "checked") {
           validateSession.retryHost(moduleFilePath, host, outcome.result);
         } else if (outcome.status !== "gone") {
-          validateSession.setFix(rowId, {
-            status: "failed",
-            message:
-              outcome.status === "signed-out"
-                ? SIGNED_OUT
-                : `Val could not check ${moduleFilePath} again. ${outcome.details}`,
-          });
+          validateSession.setFix(
+            rowId,
+            outcome.status === "signed-out"
+              ? { status: "failed", message: SIGNED_OUT, action: "sign-in" }
+              : {
+                  status: "failed",
+                  message: `Val could not check ${moduleFilePath} again. ${outcome.details}`,
+                  action: outcome.action,
+                },
+          );
           return;
         }
       }
@@ -221,8 +228,16 @@ export function ValidateRoute() {
             res.status === null
               ? "Val could not be reached, so nothing was changed."
               : res.status === 401
-                ? "Your session has ended, so nothing was changed. Sign in again, then try again."
+                ? "Your session has ended, so nothing was changed. Sign in, then fix it again."
                 : res.json.message,
+          // A refusal (not fixable here, or no longer there) answers the same
+          // way next time, so it offers nothing to press.
+          action:
+            res.status === 401
+              ? "sign-in"
+              : res.status === null || res.status >= 500
+                ? "try-again"
+                : "none",
         });
         return;
       }
@@ -383,10 +398,10 @@ type ModuleCheckOutcome =
   /** Not in the project any more. */
   | { status: "gone" }
   | { status: "signed-out" }
-  | { status: "failed"; details: string };
+  | { status: "failed"; details: string; action: "try-again" | "none" };
 
 const SIGNED_OUT =
-  "Your session has ended, so the check stopped. Sign in again, then check again.";
+  "Your session has ended, so the check stopped. Sign in, then check again.";
 
 function progressOf(run: CheckRun): number {
   return run.status === "running" ? run.checked : 0;
@@ -507,6 +522,7 @@ function fullCheckStateOf(run: CheckRun, now: number): FullCheckState {
         status: "failed",
         message: run.message,
         ...(run.details ? { details: run.details } : {}),
+        ...(run.action ? { action: run.action } : {}),
       };
   }
 }

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import classNames from "classnames";
+import { urlOf } from "@valbuild/shared/internal";
 import { Button } from "../designSystem/button";
 
 /**
@@ -89,12 +90,20 @@ export type RowActionName =
   | "review"
   | "undo";
 
+/**
+ * What a person can do about a failure, offered beside it. `try-again` only
+ * where trying again can answer differently: a server that could not be
+ * reached, or answered 5xx. A refusal that will be the same next time offers
+ * nothing, and a session that ended offers **Sign in**.
+ */
+export type FailureAction = "try-again" | "sign-in" | "none";
+
 export type FixState =
   | { status: "fixing" }
   /** Fixed in place, by editing the field the row shows. */
   | { status: "resolved" }
   | { status: "fixed"; summary: string }
-  | { status: "failed"; message: string };
+  | { status: "failed"; message: string; action?: FailureAction };
 
 export type FullCheckState =
   | { status: "not-run" }
@@ -106,7 +115,12 @@ export type FullCheckState =
     }
   | { status: "done"; checkedAgo: string }
   | { status: "stopped"; checked: number; total: number }
-  | { status: "failed"; message: string; details?: string };
+  | {
+      status: "failed";
+      message: string;
+      details?: string;
+      action?: FailureAction;
+    };
 
 export function ValidatePageView({
   groups,
@@ -178,6 +192,7 @@ export function ValidatePageView({
         <CheckFailed
           message={fullCheck.message}
           details={fullCheck.details}
+          action={fullCheck.action ?? "try-again"}
           onTryAgain={onCheckEverything}
         />
       )}
@@ -614,23 +629,44 @@ function FixFeedback({
       </div>
     );
   }
+  const action = state.action ?? "try-again";
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm text-fg-error-on-surface">
       <span>{state.message}</span>
-      <Button variant="link" size="xs" onClick={() => onAction("fix")}>
-        Try again
-      </Button>
+      {action === "try-again" && (
+        <Button variant="link" size="xs" onClick={() => onAction("fix")}>
+          Try again
+        </Button>
+      )}
+      {action === "sign-in" && <SignIn variant="link" />}
     </div>
+  );
+}
+
+/** Signs in and comes back to this page. */
+function SignIn({ variant }: { variant: "link" | "default" }) {
+  return (
+    <Button asChild variant={variant} size="xs" className="shrink-0">
+      <a
+        href={urlOf("/api/val/authorize", {
+          redirect_to: window.location.href,
+        })}
+      >
+        Sign in
+      </a>
+    </Button>
   );
 }
 
 function CheckFailed({
   message,
   details,
+  action,
   onTryAgain,
 }: {
   message: string;
   details?: string;
+  action: FailureAction;
   onTryAgain: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -648,9 +684,12 @@ function CheckFailed({
             What was already checked is still shown below.
           </span>
         </div>
-        <Button size="xs" onClick={onTryAgain} className="shrink-0">
-          Try again
-        </Button>
+        {action === "try-again" && (
+          <Button size="xs" onClick={onTryAgain} className="shrink-0">
+            Try again
+          </Button>
+        )}
+        {action === "sign-in" && <SignIn variant="default" />}
       </div>
       {details && (
         <div className="pl-7">
