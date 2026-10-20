@@ -93,7 +93,7 @@ describe("traverseSchemas", () => {
       () => {},
     );
     expect(errors).toHaveBeenCalledWith(
-      'Schema not found for /page.val.ts?p="stray"',
+      '[val] Schema not found for /page.val.ts?p="stray"',
     );
   });
 });

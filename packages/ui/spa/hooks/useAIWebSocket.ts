@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { ValClient } from "@valbuild/shared/internal";
@@ -513,7 +514,7 @@ export function useAIWebSocket(
     if (attemptsRef.current >= MAX_CONNECT_ATTEMPTS) {
       // Warned once, where there is nothing left to try. It used to warn on
       // every attempt, which is what made this the loudest thing in the console.
-      console.warn("Giving up on the AI connection:", message);
+      Internal.log.debug("Giving up on the AI connection:", message);
       setConnectionError(message);
       return;
     }
@@ -605,7 +606,7 @@ export function useAIWebSocket(
           const json = JSON.parse(event.data);
           const parsed = AIServerMessage.safeParse(json);
           if (!parsed.success) {
-            console.error(
+            Internal.log.error(
               "Could not parse AI WebSocket message",
               parsed.error,
               "Original message:",
@@ -617,7 +618,7 @@ export function useAIWebSocket(
             handler(parsed.data);
           }
         } catch (e) {
-          console.error("Error processing AI WebSocket message", e);
+          Internal.log.error("Error processing AI WebSocket message", e);
         }
       };
 
@@ -630,7 +631,7 @@ export function useAIWebSocket(
       };
 
       ws.onerror = () => {
-        console.warn("AI WebSocket error");
+        Internal.log.debug("AI WebSocket error");
         ws.close();
       };
 
@@ -697,7 +698,7 @@ export function useAIWebSocket(
       wsRef.current.send(JSON.stringify(message));
       return true;
     }
-    console.warn("AI WebSocket not open, cannot send");
+    Internal.log.debug("AI WebSocket not open, cannot send");
     return false;
   }, []);
 

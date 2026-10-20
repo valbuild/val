@@ -12,6 +12,7 @@ import {
   DEFAULT_CONTENT_HOST,
   ModuleFilePath,
   ValConfig,
+  Internal,
 } from "@valbuild/core";
 import {
   VAL_APP_PATH,
@@ -163,6 +164,39 @@ export const ValTanStackProvider = (props: {
    * is newer. `null` (a visitor, or draft mode off) renders as before.
    */
   draft?: ValDraft | null;
+  /**
+   * Whether content analytics is on for this site. Off unless this says so.
+   *
+   * It is a setting of the hosted PROJECT, not of the code: the owner turns it
+   * on in the project's settings, the platform hands it to the site as the
+   * `VAL_ANALYTICS` secret, and the site layout's loader reads it on the
+   * server and passes it here -- `fetchValAnalytics()` from the generated
+   * `val.server.ts`, beside `fetchValDraft()`. So switching it needs no code
+   * change and no rebuild, and there is deliberately no `val.config.ts` option
+   * for it: a second switch, in the code, is one the owner cannot see.
+   *
+   * Read once, when the provider mounts, as `draft` is: the loader runs only
+   * on the server, so a client navigation hands this `undefined`, and the
+   * page must not stop counting because of it. The flip side: a provider that
+   * FIRST mounts during a client navigation -- a layout the visitor reached
+   * from a route outside it -- has to be handed the value then too, or it
+   * stays off until the next page load.
+   */
+  analytics?: boolean;
+  /**
+   * This site is a Val demo: the Studio runs Val's API in the visitor's tab
+   * (`<ValApp demo>`), so there is no server to ask whether draft mode is on.
+   *
+   * In the Studio's canvas the page is always the draft -- the Studio sends
+   * it every edit over `postMessage` -- and everywhere else Val stays out of
+   * the way entirely: no overlay, no cookie, no poll. Loaders are not re-run
+   * on an edit, because a server reading content never sees the tab's edits;
+   * read content with the client hooks (`useVal`) in a demo.
+   *
+   * Set it from the build, as for `ValApp`. Must be constant for the lifetime
+   * of the page.
+   */
+  demo?: boolean;
 }) => {
   // TODO: use config:
   const route = "/api/val";
@@ -206,6 +240,12 @@ export const ValTanStackProvider = (props: {
    * not a draft: it must not turn draft mode on or say the draft is synced.
    */
   const hasDraft = initialDraft !== null && initialDraft.draftMode !== false;
+  /*
+   * As the page was rendered. A ref, not the prop, for the reason
+   * `initialDraft` is one: a later render's prop is a client navigation's
+   * loader, which reads nothing.
+   */
+  const analytics = React.useRef(props.analytics ?? false).current;
   const snapshot = initialDraft?.snapshot;
   /*
    * The base the Studio's overlay must start from, where it is not the
@@ -330,11 +370,21 @@ export const ValTanStackProvider = (props: {
   useConsoleLogEnableVal(mountOverlay);
   React.useEffect(() => {
     if (location.search === "?message_onready=true") {
-      console.warn("Val is verifying draft mode...");
+      Internal.log.debug("verifying draft mode...");
       return;
     }
     if (isValStudioPath(location.pathname)) {
       setMountOverlay(false);
+      return;
+    }
+    if (props.demo) {
+      // Only the canvas, and always as the draft: see `demo`.
+      const canvas = isValCanvasFrame(location.search, readParentPathname());
+      setIsCanvas(canvas);
+      setMountOverlay(canvas);
+      if (canvas) {
+        setDraftMode(true);
+      }
       return;
     }
     setIsCanvas(isValCanvasFrame(location.search, readParentPathname()));
@@ -385,7 +435,9 @@ export const ValTanStackProvider = (props: {
    * there are any.
    */
   React.useEffect(() => {
-    if (!mountOverlay || props.disableRefresh) {
+    // A demo's loaders read a server that never sees the tab's edits, so
+    // re-running them would only fetch the published content again.
+    if (!mountOverlay || props.disableRefresh || props.demo) {
       return;
     }
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -476,7 +528,7 @@ export const ValTanStackProvider = (props: {
       clearInterval(safety);
       if (timer !== null) clearTimeout(timer);
     };
-  }, [mountOverlay, props.disableRefresh]);
+  }, [mountOverlay, props.disableRefresh, props.demo]);
 
   React.useEffect(() => {
     if (!mountOverlay) {
@@ -488,8 +540,8 @@ export const ValTanStackProvider = (props: {
     const valProviderOverlayListener = (event: Event) => {
       if (event instanceof CustomEvent) {
         if (!event?.detail.type) {
-          console.error(
-            "Val: invalid event detail (val-overlay-provider)",
+          Internal.log.error(
+            "invalid event detail (val-overlay-provider)",
             event,
           );
         }
@@ -521,13 +573,13 @@ export const ValTanStackProvider = (props: {
             });
           }
         } else {
-          console.error(
-            "Val: invalid event detail (val-overlay-provider)",
+          Internal.log.error(
+            "invalid event detail (val-overlay-provider)",
             event.detail,
           );
         }
       } else {
-        console.error("Val: invalid event (val-overlay-provider)", event);
+        Internal.log.error("invalid event (val-overlay-provider)", event);
       }
     };
     window.addEventListener("val-overlay-provider", valProviderOverlayListener);
@@ -545,7 +597,9 @@ export const ValTanStackProvider = (props: {
 
     let timeout: NodeJS.Timeout;
     function pollCurrentDraftMode() {
-      if (!mountOverlay) {
+      // A demo has no server to ask: draft mode is on in its canvas, and
+      // nothing is mounted anywhere else.
+      if (!mountOverlay || props.demo) {
         return;
       }
 
@@ -577,7 +631,7 @@ export const ValTanStackProvider = (props: {
             return;
           }
           if (res.status !== 200) {
-            console.error("Val: could not get draft mode status", res);
+            Internal.log.error("could not get draft mode status", res);
             return;
           }
           setDraftMode((prev) => {
@@ -590,7 +644,7 @@ export const ValTanStackProvider = (props: {
           });
         })
         .catch((err) => {
-          console.error("Val: could not get draft mode status", err);
+          Internal.log.error("could not get draft mode status", err);
         })
         .finally(() => {
           if (pollDraftStatIdRef.current !== pollDraftStatId) {
@@ -611,8 +665,8 @@ export const ValTanStackProvider = (props: {
              * unrecoverable, because the ONLY other thing that clears it is the
              * `val-ready` message the frame never sent.
              */
-            console.warn(
-              "Val: draft mode did not confirm in time. Falling back to the " +
+            Internal.log.warn(
+              "draft mode did not confirm in time. Falling back to the " +
                 "idle poll — try toggling preview again.",
             );
             setIframeSrc(null);
@@ -636,7 +690,7 @@ export const ValTanStackProvider = (props: {
     return () => {
       clearTimeout(timeout);
     };
-  }, [mountOverlay, iframeSrc]);
+  }, [mountOverlay, iframeSrc, props.demo]);
 
   React.useEffect(() => {
     if (!mountOverlay) {
@@ -654,8 +708,14 @@ export const ValTanStackProvider = (props: {
 
   React.useEffect(() => {
     if (!mountOverlay) {
-      SET_AUTO_TAG_JSX_ENABLED(false);
+      // A visitor: only analytics tags content, and only after hydration
+      // (`useEncodesEditTags`), so this cannot reach a component still
+      // hydrating either.
+      SET_AUTO_TAG_JSX_ENABLED(analytics);
     } else {
+      if (analytics) {
+        SET_AUTO_TAG_JSX_ENABLED(true);
+      }
       if (draftMode) {
         // Safe for a page rendered from a server draft too: what a component
         // renders while it hydrates has no edit tags to turn into attributes
@@ -695,16 +755,16 @@ export const ValTanStackProvider = (props: {
                   window.dispatchEvent(new Event(VAL_EDIT_LANDED));
                 }
               } else {
-                console.error("Val: invalid event detail", event.detail);
+                Internal.log.error("invalid event detail", event.detail);
               }
             } else {
-              console.error(
-                "Val: invalid custom event details (val-event)",
+              Internal.log.error(
+                "invalid custom event details (val-event)",
                 event.detail,
               );
             }
           } else {
-            console.error("Val: invalid custom event (val-event)", event);
+            Internal.log.error("invalid custom event (val-event)", event);
           }
         };
         window.addEventListener(
@@ -719,7 +779,7 @@ export const ValTanStackProvider = (props: {
         };
       }
     }
-  }, [mountOverlay, draftMode, props.disableRefresh]);
+  }, [mountOverlay, draftMode, analytics, props.disableRefresh]);
 
   React.useEffect(() => {
     if (!mountOverlay) {
@@ -799,6 +859,7 @@ export const ValTanStackProvider = (props: {
       draftModeReady={draftModeReady.current?.promise}
       draftSourcesSynced={draftSourcesSynced}
       serverDraft={hasDraft}
+      analytics={analytics}
       snapshot={snapshot}
       suspend={suspendActive}
       store={valStore}
@@ -921,7 +982,7 @@ function useConsoleLogEnableVal(showOverlay?: boolean) {
       showOverlay === false &&
       !isValStudioPath(location.pathname)
     ) {
-      console.warn(
+      Internal.log.warn(
         `
 ###########
 ###########

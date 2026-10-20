@@ -1,4 +1,9 @@
-import { DEFAULT_CONTENT_HOST, ValConfig, ValModules } from "@valbuild/core";
+import {
+  DEFAULT_CONTENT_HOST,
+  ValConfig,
+  ValModules,
+  Internal,
+} from "@valbuild/core";
 import type { ValServerConfig } from "./ValServer";
 import type { ValApiOptions } from "./ValRouter";
 import { ValOpsFS } from "./ValOpsFS";
@@ -582,7 +587,7 @@ function warnIfInsecureUrls(urls: Record<CredentialBearingUrl, string>): void {
   for (const name of CREDENTIAL_BEARING_URLS) {
     const warning = insecureUrlWarning(name, urls[name]);
     if (warning) {
-      console.warn(warning);
+      Internal.log.warn(warning);
     }
   }
 }

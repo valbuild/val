@@ -14,8 +14,7 @@ import { useNavigation } from "./ValRouter";
 /**
  * Inline error display rendered below a field in the editor.
  *
- * The visual style is owned by `FieldErrorList` and is shared with the
- * `/val/errors` page so the same field reads identically in both views.
+ * The visual style is owned by `FieldErrorList`.
  */
 export function FieldValidationError({
   validationErrors,

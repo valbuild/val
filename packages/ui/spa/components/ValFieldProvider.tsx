@@ -5,12 +5,12 @@ import React, {
   useId,
   useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
 } from "react";
 import {
   DEFAULT_APP_HOST,
   DEFAULT_CONTENT_HOST,
-  DEFAULT_VAL_REMOTE_HOST,
   Internal,
   Json,
   ModuleFilePath,
@@ -22,6 +22,7 @@ import {
   ValConfig,
   VideoSource,
 } from "@valbuild/core";
+import { useRemoteHost } from "./ValRemoteProvider";
 import { useValSystem, type ValSystem } from "../stores/react/SystemContext";
 import type { UploadProgress } from "../stores/PatchStore";
 import type { SourcePeek } from "../stores/SourceStore";
@@ -488,7 +489,7 @@ export function useAddPatch(
       void type;
       void writePatch(moduleFilePath, patch).then((res) => {
         if (res.status === "error") {
-          console.error("Val: could not write patch", res.message);
+          Internal.log.error("could not write patch", res.message);
         }
       });
     },
@@ -687,42 +688,44 @@ export function useGetDirectFileUploadSettings() {
   return useValFieldContext().getDirectFileUploadSettings;
 }
 
+type StudioConfig = ValConfig & {
+  remoteHost: string;
+  appHost: string;
+  /** Val's content server: the Studio API and its web components. */
+  contentHost: string;
+  studioPrefix: string;
+};
+
 export function useValConfig() {
   // Tolerate being rendered without a ValFieldProvider (e.g. in Storybook).
   // Config is already typed as optional throughout — returning undefined here
   // is consistent with that contract.
   const ctx = useContext(ValFieldContext);
   const config = ctx?.config;
-  const lastConfig = useRef<
-    | (ValConfig & {
-        remoteHost: string;
-        appHost: string;
-        /** Val's content server: the Studio API and its web components. */
-        contentHost: string;
-        studioPrefix: string;
-      })
-    | undefined
-  >(
-    config && {
-      ...config,
-      remoteHost: DEFAULT_VAL_REMOTE_HOST,
-      appHost: DEFAULT_APP_HOST,
-      contentHost: DEFAULT_CONTENT_HOST,
-      studioPrefix: "/val/~",
-    },
-  );
-  useEffect(() => {
-    if (config) {
-      lastConfig.current = {
-        ...config,
-        remoteHost: DEFAULT_VAL_REMOTE_HOST,
+  // The project's settings say which host new remote refs name: see
+  // `useRemoteHost`.
+  const remoteHost = useRemoteHost();
+  // The last config the provider gave, kept if it goes away.
+  const [lastConfig, setLastConfig] = useState(config);
+  if (config !== undefined && config !== lastConfig) {
+    setLastConfig(config);
+  }
+  const current = config ?? lastConfig;
+  // Computed while rendering, not in an effect: a field rendered when the
+  // settings arrive builds its upload with this, and an effect would hand it
+  // the host from BEFORE they arrived -- remote.val.build, which does not
+  // serve a Hosted project's files.
+  return useMemo<StudioConfig | undefined>(
+    () =>
+      current && {
+        ...current,
+        remoteHost,
         appHost: DEFAULT_APP_HOST,
         contentHost: DEFAULT_CONTENT_HOST,
         studioPrefix: "/val/~",
-      };
-    }
-  }, [config]);
-  return lastConfig.current;
+      },
+    [current, remoteHost],
+  );
 }
 
 /** `undefined` when the module has nothing to preview at this path. */
@@ -973,7 +976,7 @@ function useSchemaAtPathInternal(
         resolvedPath: resolvedSourcePath,
       };
     } catch (e) {
-      console.error(
+      Internal.log.error(
         "Error resolving schema at path",
         sourcePath,
         modulePath,

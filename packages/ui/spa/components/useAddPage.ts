@@ -33,13 +33,13 @@ export function useAddPage(): (
   return useCallback(
     (moduleFilePath: ModuleFilePath, urlPath: string) => {
       if (schemas.status !== "success") {
-        console.error("Val: cannot add a page before the schemas have loaded");
+        Internal.log.error("cannot add a page before the schemas have loaded");
         return;
       }
       const schema = schemas.data[moduleFilePath];
       if (!schema || schema.type !== "record") {
-        console.error(
-          "Val: cannot add a page to a module that is not a record",
+        Internal.log.error(
+          "cannot add a page to a module that is not a record",
           {
             moduleFilePath,
             schema,

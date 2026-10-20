@@ -1,4 +1,4 @@
-import path from "path";
+import { posixPath } from "./posixPath";
 import { Internal } from "@valbuild/core";
 import { mapHlsUris } from "./hls";
 
@@ -63,7 +63,7 @@ function rewriteUri(
     return uri;
   }
   // `join` from an absolute directory stays absolute: `..` stops at the root.
-  const resolved = path.posix.join(path.posix.dirname(playlistPath), relative);
+  const resolved = posixPath.join(posixPath.dirname(playlistPath), relative);
   return `/api/val/files${resolved}?patch_id=${patchId}${remote ? "&remote=true" : ""}`;
 }
 

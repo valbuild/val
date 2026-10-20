@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import {
   forwardRef,
   useImperativeHandle,
@@ -72,7 +73,7 @@ async function uploadHtmlImageSrcs(
   for (const src of srcs) {
     const file = await fetchUrlAsFile(src);
     if (!file) {
-      console.warn("AI chat: skipped pasted image (fetch failed)", src);
+      Internal.log.debug("AI chat: skipped pasted image (fetch failed)", src);
       continue;
     }
     insertImageWithUpload(view, file, upload);

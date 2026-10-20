@@ -8,6 +8,7 @@ export * from "./server/types";
 // near-copies that would drift on exactly the comment that says so.
 export * from "./server/requestScopedMemo";
 export * from "./ValClient";
+export * from "./demo";
 export * from "./ValUrls";
 export * from "./ApiRoutes";
 export * from "./schema/compatibility";
@@ -39,6 +40,7 @@ export * from "./aiTools/aiImageToolPatches";
 export * from "./aiTools/aiSourceToolPatches";
 export * from "./validation/partitionValidationErrors";
 export * from "./validation/blockingValidationErrors";
+export * from "./validation/studioFixes";
 // What `s.image({ encode })` means, with none of the pixels: the Studio runs
 // the conversion on a canvas and the MCP image tool runs it on sharp, and the
 // two must agree on which images get converted and how far they are scaled.

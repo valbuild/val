@@ -422,6 +422,7 @@ export class ValOpsHttp extends ValOps {
   private readonly root: string;
   /** Val's content service owns the store. See {@link ValOps.patchesAreLocal}. */
   override readonly patchesAreLocal = false;
+  override readonly kind = "http";
   /** See {@link ValOps.requiresAuth}. */
   override readonly requiresAuth = true;
   /**
@@ -1648,7 +1649,7 @@ export class ValOpsHttp extends ValOps {
             data: { nonce, baseUrl: `${this.contentUrl}/v1/${this.project}` },
           };
         } else {
-          console.error(
+          Internal.log.error(
             "Could not parse presigned auth nonce response. Error: " +
               fromError(parsed.error),
           );
@@ -1679,21 +1680,21 @@ export class ValOpsHttp extends ValOps {
           json,
           unknownErrorMessage,
         );
-        console.error("Presigned auth nonce error:", message);
+        Internal.log.error("Presigned auth nonce error:", message);
         return {
           status: "error",
           statusCode: 500,
           error: { message },
         };
       }
-      console.error(unknownErrorMessage);
+      Internal.log.error(unknownErrorMessage);
       return {
         status: "error",
         statusCode: 500,
         error: { message: unknownErrorMessage },
       };
     } catch (e) {
-      console.error(
+      Internal.log.error(
         "Could not get presigned auth nonce (connection error?):",
         e,
       );
@@ -1791,7 +1792,7 @@ export class ValOpsHttp extends ValOps {
       }
       if (message) {
         message = `Could not get patches: ${message}`;
-        console.error(message);
+        Internal.log.error(message);
         return {
           type: "error",
           error: { message },
@@ -2005,7 +2006,7 @@ export class ValOpsHttp extends ValOps {
         };
       })
       .catch((e) => {
-        console.error(
+        Internal.log.error(
           "Could not get nonce (connection error?):",
           e instanceof Error ? e.message : e.toString(),
         );
@@ -2281,7 +2282,7 @@ export class ValOpsHttp extends ValOps {
             ? OrderedPatchesMetadata
             : OrderedPatches;
         }
-        console.error(
+        Internal.log.error(
           "Could not parse patches response. Error: " + fromError(parsed.error),
         );
         return {
@@ -2293,7 +2294,7 @@ export class ValOpsHttp extends ValOps {
           ? OrderedPatchesMetadata
           : OrderedPatches;
       }
-      console.error(
+      Internal.log.error(
         "Could not get patches. HTTP error: " +
           patchesRes.status +
           " " +
@@ -2320,7 +2321,7 @@ export class ValOpsHttp extends ValOps {
         ? OrderedPatchesMetadata
         : OrderedPatches;
     } catch (err) {
-      console.error(
+      Internal.log.error(
         "Could not get patches (connection error):",
         err instanceof Error ? err.message : JSON.stringify(err),
       );
@@ -2705,7 +2706,7 @@ export class ValOpsHttp extends ValOps {
     }
     const file = filesRes.files[0];
     if (filesRes.files.length > 1) {
-      console.error("Expected 1 file, got more:", filesRes.files);
+      Internal.log.error("Expected 1 file, got more:", filesRes.files);
     }
     if (!file) {
       return null;
@@ -2727,15 +2728,19 @@ export class ValOpsHttp extends ValOps {
       },
     ]);
     if (filesRes.error) {
-      console.error("Error getting file:", filePath, filesRes.error);
+      Internal.log.error("Error getting file:", filePath, filesRes.error);
       return null;
     }
     if (filesRes.errors) {
-      console.error("Failed while retrieving files", filePath, filesRes.errors);
+      Internal.log.error(
+        "Failed while retrieving files",
+        filePath,
+        filesRes.errors,
+      );
     }
     const file = filesRes.files[0];
     if (filesRes.files.length > 1) {
-      console.error("Expected 1 file, got more:", filesRes.files);
+      Internal.log.error("Expected 1 file, got more:", filesRes.files);
     }
     if (!file) {
       return null;

@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 /**
  * The deploy, as a React hook, with the one piece of state it produces.
  *
@@ -225,8 +226,8 @@ export function useStudioDeploy(options?: {
          * In the console as well as on screen, so a slow publish can be
          * reported with the step that was slow rather than as "it took ages".
          */
-        console.info(
-          `Val: publish ${result.status} in ${(ms / 1000).toFixed(1)}s -- ` +
+        Internal.log.info(
+          `publish ${result.status} in ${(ms / 1000).toFixed(1)}s -- ` +
             steps
               .map((step) => `${step.kind} ${(step.ms / 1000).toFixed(1)}s`)
               .join(", "),

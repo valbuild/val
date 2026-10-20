@@ -1,3 +1,9 @@
+import {
+  base64ToBytes,
+  bytesToBase64,
+  bytesToUtf8,
+  utf8ToBytes,
+} from "./bytes";
 import type { ValContentVersion, ValProposal } from "./proposal";
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
@@ -35,22 +41,14 @@ import {
   ValServerErrorStatus,
   parseJob,
 } from "@valbuild/shared/internal";
-import {
-  decodeJwtWithoutVerifying,
-  encodeJwt,
-  getExpire,
-  verifyJwt,
-  type JwtFailureReason,
-} from "./jwt";
+import type { JwtFailureReason, JwtResult } from "./jwt";
 import { clientConfig, historyBranchOf } from "./clientConfig";
 import { z } from "zod";
-import { probeUrl } from "./linkCheck/probeUrl";
 import { parseRangeHeader } from "./httpRange";
 import {
   isHlsPlaylistPath,
   rewriteDraftPlaylist,
 } from "./rewriteDraftPlaylist";
-import { ValOpsFS } from "./ValOpsFS";
 import { readCommittedBinaryFiles } from "./readCommittedBinaryFiles";
 import { splitJobPrepare } from "./jobPrepare";
 import { computePatchesToDrop, DroppedPatch } from "./computePatchesToDrop";
@@ -69,27 +67,23 @@ import {
   bufferReader,
 } from "./ValOps";
 import { fromError } from "zod-validation-error";
-import { ValOpsHttp } from "./ValOpsHttp";
-import { ValOpsMemory, type ValPatchStore } from "./ValOpsMemory";
+import type { StudioCheckInput } from "./studioValidation";
+import type { ValOpsHttp } from "./ValOpsHttp";
+import type { ValPatchStore } from "./ValOpsMemory";
+import { isFsOps, isHttpOps, isMemoryOps } from "./opsKind";
+import type { ValServerPlatform } from "./platform";
 import { result } from "@valbuild/core/fp";
 import type { HistoryError } from "./history/HistoryError";
 import { historyErrorMessage } from "./history/HistoryError";
 import { getHistoricalPatchSet } from "./history/getHistoricalPatchSet";
 import { getModuleAtCommit } from "./history/getModuleAtCommit";
-import { getJsonEntryAtCommit } from "./history/getJsonEntryAtCommit";
 import { getSettings } from "./getSettings";
 import {
   forwardToStudioApi,
   type AdminProxyResult,
   type ValBuildCredential,
 } from "./adminProxy";
-import {
-  createValOps,
-  resolveRemoteFileAuth,
-  readValLoginToken,
-  type RemoteFileAuth,
-} from "./valServerConfig";
-import path from "path";
+import type { RemoteFileAuth } from "./valServerConfig";
 import {
   getErrorMessageFromUnknownJson,
   newestCommitSha,
@@ -272,11 +266,34 @@ export type ValServer = ServerOf<Api>;
  */
 const FILES_DIRECTORY = "/public/val";
 
+/**
+ * `/validate` and `/validate/fix` on a platform without the full check (a
+ * server in a browser tab). 501: nothing the caller does makes it available,
+ * so the Studio offers no Try again.
+ */
+const studioValidationUnavailable: {
+  status: 501;
+  json: { message: string };
+} = {
+  status: 501,
+  json: {
+    message:
+      "Checking everything needs the project's files and Val's file hosts, and this Studio runs without them.",
+  },
+};
+
 export const ValServer = (
   valModules: ValModules,
   options: ValServerConfig,
   callbacks: ValServerCallbacks,
+  /**
+   * The Node-only parts, passed in. `createValServer` passes `nodePlatform`;
+   * the demo passes the browser one. See {@link ValServerPlatform}.
+   */
+  platform: ValServerPlatform,
 ): ServerOf<Api> => {
+  const { decodeJwtWithoutVerifying, encodeJwt, getExpire, verifyJwt } =
+    platform.jwt;
   const AIContentBlock = z.union([
     z.object({
       type: z.literal("text"),
@@ -302,10 +319,7 @@ export const ValServer = (
       }),
     ),
   });
-  const serverOps: ValOpsHttp | ValOpsFS | ValOpsMemory = createValOps(
-    valModules,
-    options,
-  );
+  const serverOps = platform.createOps(valModules, options);
   const getAuthorizeUrl = (publicValApiRe: string, token: string): string => {
     if (!options.project) {
       throw new Error("Project is not set");
@@ -387,12 +401,12 @@ export const ValServer = (
             token,
           };
         } else {
-          console.debug("Failed to get data from code: ", res.status);
+          Internal.log.debug("Failed to get data from code: ", res.status);
           return null;
         }
       })
       .catch((err) => {
-        console.debug("Failed to get user from code: ", err);
+        Internal.log.debug("Failed to get user from code: ", err);
         return null;
       });
   };
@@ -489,7 +503,7 @@ export const ValServer = (
       return { status: "ok", credential: { bearer: session.token } };
     }
     if (options.mode === "fs") {
-      const pat = await readValLoginToken(options);
+      const pat = await platform.readValLoginToken(options);
       if (pat !== null) {
         return { status: "ok", credential: { pat } };
       }
@@ -650,7 +664,7 @@ export const ValServer = (
     if (remoteFileAuth) {
       return { status: 200, json: { remoteFileAuth } };
     }
-    const resolved = await resolveRemoteFileAuth(options);
+    const resolved = await platform.resolveRemoteFileAuth(options);
     if (resolved.status === "error") {
       return {
         status: 400,
@@ -724,6 +738,74 @@ export const ValServer = (
         },
       };
     }
+  };
+
+  /**
+   * What the Studio's full check reads: base plus the patches the caller is
+   * showing, as `/sources/~` resolves an explicit `patch_id` list -- including
+   * `draftOverlay`, so a module changed by a publish after this build is
+   * checked as the caller sees it, not as this build has it.
+   */
+  const studioCheckInput = async (
+    cookies: Parameters<typeof getAuth>[0],
+    moduleFilePath: ModuleFilePath,
+    patchIds: PatchId[] | undefined,
+  ): Promise<
+    | { status: "ok"; input: StudioCheckInput }
+    | { status: 401 | 500; json: { message: string } }
+  > => {
+    const auth = getAuth(cookies);
+    if (auth.error) {
+      return { status: 401, json: { message: auth.error } };
+    }
+    if (isHttpOps(serverOps) && !("id" in auth)) {
+      return { status: 401, json: { message: "Unauthorized" } };
+    }
+    const moduleErrors = await serverOps.getModuleErrors();
+    if (moduleErrors?.length > 0) {
+      return {
+        status: 500,
+        json: {
+          message:
+            "Val could not load this project's modules, so nothing can be checked. Check val.modules.",
+        },
+      };
+    }
+    // An EXPLICITLY empty list is base, never "everything": `fetchPatches`
+    // reads an empty filter as no filter (see `/sources/~`).
+    let patchOps: OrderedPatches =
+      patchIds !== undefined && patchIds.length === 0
+        ? { patches: [] }
+        : await serverOps.fetchPatches({ patchIds, excludePatchOps: false });
+    if ("error" in patchOps && patchOps.error) {
+      return "unauthorized" in patchOps && patchOps.unauthorized
+        ? { status: 401, json: { message: "Unauthorized" } }
+        : {
+            status: 500,
+            json: {
+              message:
+                "The unpublished changes could not be read, so nothing was checked.",
+            },
+          };
+    }
+    patchOps = {
+      ...patchOps,
+      patches: draftOverlay(patchOps.patches, patchOps.commits),
+    };
+    const analysis = serverOps.analyzePatches(patchOps.patches);
+    const { sources } = await serverOps.getSourcesWithPatchesApplied({
+      ...analysis,
+      ...patchOps,
+    });
+    return {
+      status: "ok",
+      input: {
+        moduleFilePath,
+        schemas: await serverOps.getSchemas(),
+        sources,
+        fileLastUpdatedByPatchId: analysis.fileLastUpdatedByPatchId,
+      },
+    };
   };
 
   return {
@@ -1060,7 +1142,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+        if (isHttpOps(serverOps) && !("id" in auth)) {
           return {
             status: 401,
             json: {
@@ -1094,7 +1176,7 @@ export const ValServer = (
           options.valContentUrl,
         );
         if (!settingsRes.success) {
-          console.warn(
+          Internal.log.warn(
             "Could not get remote files settings: " + settingsRes.message,
           );
           return {
@@ -1112,6 +1194,9 @@ export const ValServer = (
             publicProjectId: settingsRes.data.publicProjectId,
             remoteFileBuckets: settingsRes.data.remoteFileBuckets,
             coreVersion: Internal.VERSION.core || "unknown",
+            ...(settingsRes.data.remoteHost !== undefined
+              ? { remoteHost: settingsRes.data.remoteHost }
+              : {}),
           },
         };
       },
@@ -1130,7 +1215,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+        if (isHttpOps(serverOps) && !("id" in auth)) {
           return {
             status: 401,
             json: {
@@ -1323,7 +1408,7 @@ export const ValServer = (
     },
     "/upload/patches": {
       POST: async (req) => {
-        if (serverOps instanceof ValOpsHttp) {
+        if (isHttpOps(serverOps)) {
           return {
             status: 400,
             json: {
@@ -1371,6 +1456,105 @@ export const ValServer = (
         };
       },
     },
+    "/validate": {
+      POST: async (req) => {
+        const checked = await studioCheckInput(
+          req.cookies,
+          req.body.moduleFilePath,
+          req.body.patchIds,
+        );
+        if (checked.status !== "ok") {
+          return checked;
+        }
+        if (!platform.studioValidation) {
+          return studioValidationUnavailable;
+        }
+        const res = await platform.studioValidation.checkModuleForStudio(
+          serverOps,
+          checked.input,
+        );
+        switch (res.status) {
+          case "unknown-module":
+            return {
+              status: 404,
+              json: {
+                message: `There is no module '${req.body.moduleFilePath}' in this project.`,
+              },
+            };
+          case "invalid-source":
+            return {
+              status: 200,
+              json: {
+                moduleFilePath: req.body.moduleFilePath,
+                errors: {},
+                invalidSource: res.message,
+              },
+            };
+          case "ok":
+            return {
+              status: 200,
+              json: {
+                moduleFilePath: req.body.moduleFilePath,
+                errors: res.errors,
+                remoteHosts: res.remoteHosts,
+              },
+            };
+        }
+      },
+    },
+    "/validate/fix": {
+      POST: async (req) => {
+        const checked = await studioCheckInput(
+          req.cookies,
+          req.body.moduleFilePath,
+          req.body.patchIds,
+        );
+        if (checked.status !== "ok") {
+          return checked;
+        }
+        if (!platform.studioValidation) {
+          return studioValidationUnavailable;
+        }
+        const res = await platform.studioValidation.fixForStudio(serverOps, {
+          ...checked.input,
+          sourcePath: req.body.sourcePath,
+          fix: req.body.fix,
+        });
+        switch (res.status) {
+          case "unknown-module":
+            return {
+              status: 404,
+              json: {
+                message: `There is no module '${req.body.moduleFilePath}' in this project.`,
+              },
+            };
+          case "not-found":
+            return {
+              status: 404,
+              json: {
+                message:
+                  "This error is no longer there. Check the module again to see what is left.",
+              },
+            };
+          case "not-in-studio":
+            return {
+              status: 400,
+              json: {
+                message:
+                  "This fix cannot be made from the Studio yet. Run `val validate --fix` in the project.",
+              },
+            };
+          case "ok":
+            return {
+              status: 200,
+              json: {
+                patch: res.patch,
+                remainingErrors: res.remainingErrors,
+              },
+            };
+        }
+      },
+    },
     "/external-urls/check": {
       POST: async (req) => {
         /*
@@ -1398,7 +1582,9 @@ export const ValServer = (
          * batch worth having — ten five-second timeouts in series is a minute.
          */
         const results = await Promise.all(
-          req.body.urls.map(async (url) => [url, await probeUrl(url)] as const),
+          req.body.urls.map(
+            async (url) => [url, await platform.probeUrl(url)] as const,
+          ),
         );
         return { status: 200, json: { results: Object.fromEntries(results) } };
       },
@@ -1424,10 +1610,10 @@ export const ValServer = (
           let contentBaseUrl: string | null = null;
           let contentAuthNonce: string | null = null;
           if (!options.project) {
-            console.warn(
+            Internal.log.debug(
               "Direct content-host uploads (AI images) disabled: no `project` set in val.config (and VAL_PROJECT env var is not set).",
             );
-          } else if (!(serverOps instanceof ValOpsFS)) {
+          } else if (!isFsOps(serverOps)) {
             /*
              * Presigning needs a content host to presign AGAINST, and a local
              * store does not necessarily have one configured: `fs` mode has the
@@ -1439,13 +1625,13 @@ export const ValServer = (
              * the patch upload base url -- still works, and the only thing lost
              * is the browser posting AI images straight to the content host.
              */
-            console.warn(
+            Internal.log.debug(
               "Direct content-host uploads (AI images) disabled: this store has no content host to presign against.",
             );
           } else {
             const authDataRes = await getRemoteFileAuth();
             if (authDataRes.status !== 200) {
-              console.warn(
+              Internal.log.warn(
                 "Direct content-host uploads (AI images) disabled: " +
                   authDataRes.json.message,
               );
@@ -1460,7 +1646,7 @@ export const ValServer = (
                 contentBaseUrl = presignedAuthNonce.data.baseUrl;
                 contentAuthNonce = presignedAuthNonce.data.nonce;
               } else {
-                console.warn(
+                Internal.log.warn(
                   "Direct content-host uploads (AI images) disabled: " +
                     presignedAuthNonce.error.message,
                 );
@@ -1523,7 +1709,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+        if (isHttpOps(serverOps) && !("id" in auth)) {
           return {
             status: 401,
             json: {
@@ -1635,7 +1821,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+        if (isHttpOps(serverOps) && !("id" in auth)) {
           return {
             status: 401,
             json: {
@@ -1650,7 +1836,7 @@ export const ValServer = (
         });
         if (fetchedPatchesRes.error) {
           // Error is singular
-          console.error("Val: Failed to get patches", fetchedPatchesRes.error);
+          Internal.log.error("Failed to get patches", fetchedPatchesRes.error);
           return {
             status: 500,
             json: {
@@ -1664,7 +1850,7 @@ export const ValServer = (
           Object.keys(fetchedPatchesRes.errors).length > 0
         ) {
           // Errors is plural. Different property than above.
-          console.error("Val: Failed to get patches", fetchedPatchesRes.errors);
+          Internal.log.error("Failed to get patches", fetchedPatchesRes.errors);
           return {
             status: 500,
             json: {
@@ -1713,7 +1899,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+        if (isHttpOps(serverOps) && !("id" in auth)) {
           return {
             status: 401,
             json: {
@@ -1724,7 +1910,7 @@ export const ValServer = (
         const ids = query.id;
         const deleteRes = await serverOps.deletePatches(ids);
         if (deleteRes.errors && Object.keys(deleteRes.errors).length > 0) {
-          console.error("Val: Failed to delete patches", deleteRes.errors);
+          Internal.log.error("Failed to delete patches", deleteRes.errors);
           return {
             status: 500,
             json: {
@@ -1776,7 +1962,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+        if (isHttpOps(serverOps) && !("id" in auth)) {
           return {
             status: 401,
             json: {
@@ -1786,7 +1972,7 @@ export const ValServer = (
         }
         const moduleErrors = await serverOps.getModuleErrors();
         if (moduleErrors?.length > 0) {
-          console.error("Val: Module errors", moduleErrors);
+          Internal.log.error("Module errors", moduleErrors);
           return {
             status: 500,
             json: {
@@ -1807,7 +1993,7 @@ export const ValServer = (
             serializedSchemas[moduleFilePath] = schema["executeSerialize"]();
           }
         } catch (e) {
-          console.error("Val: Failed to serialize schemas", e);
+          Internal.log.error("Failed to serialize schemas", e);
           return {
             status: 500,
             json: {
@@ -1840,7 +2026,7 @@ export const ValServer = (
         if (auth.error) {
           return { status: 401, json: { message: auth.error } };
         }
-        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+        if (isHttpOps(serverOps) && !("id" in auth)) {
           return { status: 401, json: { message: "Unauthorized" } };
         }
         const moduleFilePath = req.query.path as ModuleFilePath;
@@ -1931,7 +2117,7 @@ export const ValServer = (
             },
           };
         }
-        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+        if (isHttpOps(serverOps) && !("id" in auth)) {
           return {
             status: 401,
             json: {
@@ -1942,7 +2128,7 @@ export const ValServer = (
         const sourcesSha = await serverOps.getSourcesSha();
         const moduleErrors = await serverOps.getModuleErrors();
         if (moduleErrors?.length > 0) {
-          console.error("Val: Module errors", moduleErrors);
+          Internal.log.error("Module errors", moduleErrors);
           return {
             status: 500,
             json: {
@@ -2050,12 +2236,9 @@ export const ValServer = (
               sourcesRes.sources,
               sourcesValidation.files,
             );
-            // TODO : actually do something with this
-            await serverOps.validateRemoteFiles(
-              schemas,
-              sourcesRes.sources,
-              sourcesValidation.remoteFiles,
-            );
+            // Remote files are not checked here: their check asks each host
+            // over the network, so it is the Studio's full check that runs it,
+            // one module at a time (`/validate`).
           }
         }
 
@@ -2149,11 +2332,11 @@ export const ValServer = (
           return { status: 401, json: { message: auth.error } };
         }
         // A fresh isolate's server has heard nothing yet: ask, rather than refuse.
-        if (serverOps instanceof ValOpsHttp) {
+        if (isHttpOps(serverOps)) {
           await serverOps.learnProjectExpectation();
         }
         if (
-          !(serverOps instanceof ValOpsHttp) ||
+          !isHttpOps(serverOps) ||
           !serverOps.publishesAsJobs() ||
           (serverOps.sourceMode() === "managed" && !serverOps.embedsSource())
         ) {
@@ -2228,7 +2411,7 @@ export const ValServer = (
             jobPatchIds: patchIds,
           });
           const build = serverOps.embedsSource()
-            ? await buildSourcesOf(serverOps, patchIds, commit)
+            ? await buildSourcesOf(platform, serverOps, patchIds, commit)
             : null;
           if (build !== null && "status" in build) return build;
           /*
@@ -2258,7 +2441,12 @@ export const ValServer = (
             buildable: build !== null,
           });
         }
-        const built = await buildSourcesOf(serverOps, patchIds, commit);
+        const built = await buildSourcesOf(
+          platform,
+          serverOps,
+          patchIds,
+          commit,
+        );
         if ("status" in built) return built;
         const { split } = built;
         const sent = await serverOps.prepareJob(jobId, {
@@ -2285,11 +2473,11 @@ export const ValServer = (
         if (profileId === null) {
           return { status: 401, json: { message: "Sign in to publish" } };
         }
-        if (serverOps instanceof ValOpsHttp) {
+        if (isHttpOps(serverOps)) {
           await serverOps.learnProjectExpectation();
         }
         if (
-          !(serverOps instanceof ValOpsHttp) ||
+          !isHttpOps(serverOps) ||
           serverOps.sourceMode() !== "managed" ||
           !serverOps.publishesAsJobs() ||
           serverOps.currentProposal() !== null
@@ -2313,9 +2501,15 @@ export const ValServer = (
          * and the selection on top. Only what the selection touched is saved,
          * so the proposal's save is the selection and nothing else.
          */
-        const built = await buildSourcesOf(serverOps, patchIds, commit, {
-          binaries: false,
-        });
+        const built = await buildSourcesOf(
+          platform,
+          serverOps,
+          patchIds,
+          commit,
+          {
+            binaries: false,
+          },
+        );
         if ("status" in built) return built;
         if (built.headCommitSha === undefined) {
           return {
@@ -2459,6 +2653,16 @@ export const ValServer = (
           };
         }
         if (!options.project) {
+          /*
+           * Nobody to name, rather than an error, when the patches are local:
+           * a `pnpm dev` without a project, or the demo. Profiles live in the
+           * project on val.build, so without one there are none -- and a 500
+           * made the Studio retry and then show an error no setting fixes.
+           * A server that relays to val.build does need one.
+           */
+          if (serverOps.patchesAreLocal) {
+            return { status: 200, json: { profiles: [] } };
+          }
           return {
             status: 500,
             json: {
@@ -2551,11 +2755,17 @@ export const ValServer = (
             },
           };
         }
-        return withAuth(options.valSecret, cookies, "profiles", (data) => {
-          return execFetch(
-            getProfileAuthHeaders(authData, data, "application/json"),
-          );
-        });
+        return withAuth(
+          verifyJwt,
+          options.valSecret,
+          cookies,
+          "profiles",
+          (data) => {
+            return execFetch(
+              getProfileAuthHeaders(authData, data, "application/json"),
+            );
+          },
+        );
       },
     },
     "/save": {
@@ -2650,7 +2860,7 @@ export const ValServer = (
          * exactly as it did before, and this cannot start refusing publishes for
          * a field it never sets.
          */
-        if (serverOps instanceof ValOpsHttp) {
+        if (isHttpOps(serverOps)) {
           const expectedHead = body.expectedHeadCommitSha;
           if (expectedHead !== undefined) {
             const serverHead = newestCommitSha(patches.commits);
@@ -2713,14 +2923,14 @@ export const ValServer = (
               ...serverOps.analyzePatches(survivors, patches.commits, commit),
               ...survivingPatches,
             });
-            console.error(
-              "Val: removed unpublished changes that could not be applied",
+            Internal.log.error(
+              "removed unpublished changes that could not be applied",
               removed,
             );
           }
         }
         if (preparedCommit.hasErrors) {
-          console.error(
+          Internal.log.error(
             "Failed to create commit",
             JSON.stringify(
               {
@@ -2777,7 +2987,7 @@ export const ValServer = (
            * this inside `saveOrUploadFiles`, alongside writing its working
            * tree; a store with no working tree does only the push.
            */
-          if (serverOps instanceof ValOpsMemory) {
+          if (isMemoryOps(serverOps)) {
             /*
              * A commit with no files uploads nothing and needs no credentials;
              * see `commitCarriesRemoteFiles`. One with a LOCAL file still goes
@@ -2798,8 +3008,8 @@ export const ValServer = (
                 authRes.json.remoteFileAuth,
               );
               if (Object.keys(uploadRes.errors).length > 0) {
-                console.error(
-                  "Val: Failed to upload remote files",
+                Internal.log.error(
+                  "Failed to upload remote files",
                   uploadRes.errors,
                 );
                 return {
@@ -2816,7 +3026,7 @@ export const ValServer = (
               }
             }
           }
-          if (serverOps instanceof ValOpsFS) {
+          if (isFsOps(serverOps)) {
             // Credentials when THIS save uploads a remote file, not whenever
             // the project has a remote schema. See `commitCarriesRemoteFiles`.
             const isRemoteRequired = commitCarriesRemoteFiles(preparedCommit);
@@ -2840,7 +3050,7 @@ export const ValServer = (
               remoteFileAuth,
             );
             if (Object.keys(saveRes.errors).length > 0) {
-              console.error("Val: Failed to save files", saveRes.errors);
+              Internal.log.error("Failed to save files", saveRes.errors);
               return {
                 status: 400,
                 json: {
@@ -2901,16 +3111,16 @@ export const ValServer = (
            */
           const deleteRes = await serverOps.deletePatches(consumed);
           if ("error" in deleteRes && deleteRes.error !== undefined) {
-            console.error(
-              `Val got an error while cleaning up patches after publish: ${deleteRes.error.message}`,
+            Internal.log.error(
+              `got an error while cleaning up patches after publish: ${deleteRes.error.message}`,
             );
           } else if ("errors" in deleteRes && deleteRes.errors !== undefined) {
             // Per patch, and not fatal: the files are written, so the save
             // succeeded. A patch left behind is announced again on the next
             // stat, applies to a base that already contains it, and is removed
             // then.
-            console.error(
-              "Val: could not clean up some patches after publish",
+            Internal.log.error(
+              "could not clean up some patches after publish",
               deleteRes.errors,
             );
           }
@@ -2918,7 +3128,7 @@ export const ValServer = (
             status: 200,
             json: removed.length > 0 ? { removed } : {},
           };
-        } else if (serverOps instanceof ValOpsHttp) {
+        } else if (isHttpOps(serverOps)) {
           if (auth.error === undefined && auth.id) {
             const message =
               body.message ||
@@ -2938,6 +3148,7 @@ export const ValServer = (
                 ? await readCommittedBinaryFiles(
                     serverOps,
                     preparedCommit.patchedBinaryFilesDescriptors,
+                    platform.bytesToBase64,
                   )
                 : null;
             const commitToGit = () =>
@@ -2965,7 +3176,7 @@ export const ValServer = (
                 })
               : await commitToGit();
             if (commitRes.error) {
-              console.error("Failed to commit", commitRes.error);
+              Internal.log.error("Failed to commit", commitRes.error);
               if (
                 "isNotFastForward" in commitRes &&
                 commitRes.isNotFastForward
@@ -3159,11 +3370,17 @@ export const ValServer = (
             json: { message: "Secret is not configured" },
           };
         }
-        return withAuth(options.valSecret, cookies, "ai/initialize", (data) => {
-          return execFetch(
-            getProfileAuthHeaders(authData, data, "application/json"),
-          );
-        });
+        return withAuth(
+          verifyJwt,
+          options.valSecret,
+          cookies,
+          "ai/initialize",
+          (data) => {
+            return execFetch(
+              getProfileAuthHeaders(authData, data, "application/json"),
+            );
+          },
+        );
       },
     },
     "/ai/sessions": {
@@ -3261,11 +3478,17 @@ export const ValServer = (
             json: { message: "Secret is not configured" },
           };
         }
-        return withAuth(options.valSecret, cookies, "ai/sessions", (data) => {
-          return execFetch(
-            getProfileAuthHeaders(authData, data, "application/json"),
-          );
-        });
+        return withAuth(
+          verifyJwt,
+          options.valSecret,
+          cookies,
+          "ai/sessions",
+          (data) => {
+            return execFetch(
+              getProfileAuthHeaders(authData, data, "application/json"),
+            );
+          },
+        );
       },
       PATCH: async (req) => {
         const cookies = req.cookies;
@@ -3342,6 +3565,7 @@ export const ValServer = (
           };
         }
         return withAuth(
+          verifyJwt,
           options.valSecret,
           cookies,
           "ai/sessions/rename",
@@ -3459,6 +3683,7 @@ export const ValServer = (
           };
         }
         return withAuth(
+          verifyJwt,
           options.valSecret,
           cookies,
           "ai/sessions/messages",
@@ -3592,7 +3817,7 @@ export const ValServer = (
             // has. A local store without local binary files (ValOpsMemory, which
             // uses Val's remote files) skips it, and the draft image is served
             // from the content host rather than mirrored.
-            if (serverOps instanceof ValOpsFS) {
+            if (isFsOps(serverOps)) {
               // Mirror the binaries from the content host into local patch
               // storage so /files?patch_id=... can serve them. Match upstream
               // entries to client-provided keys by filePath.
@@ -3633,7 +3858,7 @@ export const ValServer = (
                 // wrap it in a data: URL, and hand that to a method whose first
                 // act was to unwrap it again - ceremony to satisfy a convention
                 // that no longer exists.
-                const bytes = Buffer.from(await binaryRes.arrayBuffer());
+                const bytes = new Uint8Array(await binaryRes.arrayBuffer());
                 const type: "image" | "file" =
                   file.metadata.mimeType.startsWith("image/")
                     ? "image"
@@ -3879,6 +4104,10 @@ export const ValServer = (
         if (auth.error) {
           return { status: 401, json: { message: auth.error } };
         }
+        // Loaded here, not with the server: it parses a `.val.ts` with the
+        // TypeScript compiler. See `patch/ts/publishKit.ts`.
+        const { getJsonEntryAtCommit } =
+          await import("./history/getJsonEntryAtCommit");
         const res = await getJsonEntryAtCommit(
           serverOps,
           req.query.commit_sha,
@@ -3969,8 +4198,8 @@ export const ValServer = (
         // and /history/files does".
         const remote = query.remote === "true";
         const patchId = query.patch_id;
-        if (!patchId && serverOps instanceof ValOpsHttp && remote) {
-          console.error(
+        if (!patchId && isHttpOps(serverOps) && remote) {
+          Internal.log.error(
             `Remote file: ${filePath} requested without patch id. This is most likely a bug in Val.`,
           );
         }
@@ -3994,12 +4223,11 @@ export const ValServer = (
         const file =
           patchId && isHlsPlaylistPath(filePath)
             ? bufferReader(
-                Buffer.from(
+                utf8ToBytes(
                   rewriteDraftPlaylist(
-                    (await opened.read(0, opened.size - 1)).toString("utf-8"),
+                    bytesToUtf8(await opened.read(0, opened.size - 1)),
                     { playlistPath: filePath, patchId, remote },
                   ),
-                  "utf-8",
                 ),
               )
             : opened;
@@ -4041,7 +4269,9 @@ export const ValServer = (
           };
         }
         const body =
-          file.size === 0 ? Buffer.alloc(0) : await file.read(0, file.size - 1);
+          file.size === 0
+            ? new Uint8Array(0)
+            : await file.read(0, file.size - 1);
         return {
           status: 200,
           headers: { ...headers, "Content-Length": String(body.length) },
@@ -4109,7 +4339,7 @@ function getStateFromCookie(stateCookie: string):
     }
   | { success: false; error: string } {
   try {
-    const decoded = Buffer.from(stateCookie, "base64").toString("utf8");
+    const decoded = bytesToUtf8(base64ToBytes(stateCookie));
     const parsed = JSON.parse(decoded) as unknown;
 
     if (!parsed) {
@@ -4182,7 +4412,7 @@ async function createJsonError(fetchRes: Response): Promise<ValServerError> {
       };
     }
   }
-  console.error(
+  Internal.log.error(
     "Unexpected failure (did not get a json) - Val down?",
     fetchRes.status,
     await fetchRes.text(),
@@ -4196,7 +4426,7 @@ async function createJsonError(fetchRes: Response): Promise<ValServerError> {
 }
 
 function createStateCookie(state: StateCookie): string {
-  return Buffer.from(JSON.stringify(state), "utf8").toString("base64");
+  return bytesToBase64(utf8ToBytes(JSON.stringify(state)));
 }
 
 const ValAppJwtPayload = z.object({
@@ -4236,6 +4466,7 @@ function sessionErrorMessage(reason: JwtFailureReason): string {
 }
 
 async function withAuth<T>(
+  verifyJwt: (token: string, secretKey: string) => JwtResult,
   secret: string,
   cookies: ValCookies<VAL_SESSION_COOKIE>,
   errorMessageType: string,
@@ -4281,7 +4512,7 @@ async function withAuth<T>(
       };
     }
     return handler(verification.data).catch((err) => {
-      console.error(`Failed while processing: ${errorMessageType}`, err);
+      Internal.log.error(`Failed while processing: ${errorMessageType}`, err);
       return {
         status: 500 as const,
         json: {
@@ -4374,7 +4605,7 @@ function historyErrorResponse(
   }
 }
 
-export function bufferToReadableStream(buffer: Buffer) {
+export function bufferToReadableStream(buffer: Uint8Array) {
   const stream = new ReadableStream({
     start(controller) {
       let offset = 0;
@@ -4519,6 +4750,7 @@ function getIsRemoteRequired(
  * the push's, made from its own changes alone, by the caller.
  */
 async function buildSourcesOf(
+  platform: ValServerPlatform,
   serverOps: ValOpsHttp,
   patchIds: string[],
   commit: CommitSha | undefined,
@@ -4603,6 +4835,7 @@ async function buildSourcesOf(
     ? await readCommittedBinaryFiles(
         serverOps,
         split.archive.patchedBinaryFilesDescriptors,
+        platform.bytesToBase64,
       )
     : { files: {}, unread: [] };
   return {

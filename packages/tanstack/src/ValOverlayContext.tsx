@@ -1,4 +1,4 @@
-import { Json, ModuleFilePath } from "@valbuild/core";
+import { Json, ModuleFilePath, Internal } from "@valbuild/core";
 import { deepEqual } from "@valbuild/core/patch";
 import React from "react";
 
@@ -179,8 +179,8 @@ export class ValExternalStore {
       };
       const timeout = setTimeout(() => {
         const missing = paths.filter((p) => !this.loadedSources.has(p));
-        console.error(
-          `Val: draft module(s) did not load within ${LOAD_TIMEOUT_MS}ms; rendering with partial data. Missing: ${missing.join(", ")}`,
+        Internal.log.error(
+          `draft module(s) did not load within ${LOAD_TIMEOUT_MS}ms; rendering with partial data. Missing: ${missing.join(", ")}`,
         );
         cleanup();
         resolve();
@@ -240,6 +240,13 @@ export const ValOverlayContext = React.createContext<{
    */
   readonly serverDraft?: boolean;
   /**
+   * Whether content analytics is on for this page. Then the hooks tag content
+   * for every visitor, not only in draft mode -- after hydration, as they do
+   * for a server-read draft, so the server's HTML is the same either way. See
+   * `useEncodesEditTags`.
+   */
+  readonly analytics?: boolean;
+  /**
    * A proposal's saved Source, which stands in for the bundle's wherever a
    * hook would read the bundle -- see `ValDraft.snapshot`. Absent on the site.
    */
@@ -259,6 +266,7 @@ export function ValOverlayProvider({
   draftModeReady,
   draftSourcesSynced,
   serverDraft,
+  analytics,
   snapshot,
   children,
 }: {
@@ -268,6 +276,7 @@ export function ValOverlayProvider({
   draftModeReady?: Promise<void>;
   draftSourcesSynced?: boolean;
   serverDraft?: boolean;
+  analytics?: boolean;
   snapshot?: Record<ModuleFilePath, Json>;
   children: React.ReactNode;
 }) {
@@ -280,6 +289,7 @@ export function ValOverlayProvider({
         draftModeReady,
         draftSourcesSynced,
         serverDraft,
+        analytics,
         snapshot,
       }}
     >

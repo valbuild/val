@@ -1,4 +1,4 @@
-import { SourcePath } from "@valbuild/core";
+import { SourcePath, Internal } from "@valbuild/core";
 import { CalendarIcon } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "../designSystem/button";
@@ -396,7 +396,10 @@ export function DateTimeField({
       } else {
         const parsed = new Date(sourceAtPath.data);
         if (Number.isNaN(parsed.getTime())) {
-          console.error("Cannot parse invalid datetime:", sourceAtPath.data);
+          Internal.log.error(
+            "Cannot parse invalid datetime:",
+            sourceAtPath.data,
+          );
         } else {
           setCurrentValue(parsed);
         }

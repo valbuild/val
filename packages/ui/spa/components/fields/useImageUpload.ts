@@ -5,6 +5,7 @@ import {
   SerializedImageSchema,
   SerializedFileSchema,
   SerializedSchema,
+  Internal,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { JSONValue } from "@valbuild/core/patch";
@@ -217,7 +218,7 @@ export function useImageUpload(
             });
         });
       } catch (err) {
-        console.error("Failed to upload image", err);
+        Internal.log.error("Failed to upload image", err);
         setLoading(false);
         setProgressPercentage(null);
         setError("Could not upload file. Please try again later");

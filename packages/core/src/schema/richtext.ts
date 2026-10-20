@@ -1,3 +1,4 @@
+import { log } from "../log";
 import {
   AssertError,
   CustomValidateFunction,
@@ -392,7 +393,7 @@ export class RichTextSchema<
                 );
               } else {
                 const exhaustiveCheck: never = hrefSchema;
-                console.error(
+                log.error(
                   "Exhaustive check failed in RichText (anchor href validation)",
                   exhaustiveCheck,
                 );

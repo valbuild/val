@@ -1,5 +1,163 @@
 # @valbuild/ui
 
+## 0.148.2
+
+### Patch Changes
+
+- [#889](https://github.com/valbuild/val/pull/889) [`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a) Thanks [@freekh](https://github.com/freekh)! - Val is quieter in your app's console. Errors and warnings you can act on still
+  print, now prefixed with `[val]` so you can filter them. Val's own debug
+  output, which used to reach your terminal and browser console, is now off by
+  default. That includes the `Invalid JWT` line that printed on every request
+  with an expired session cookie, the "verifying draft mode" and polling notices,
+  and the Studio's sync and WebSocket chatter.
+
+  To turn the debug output back on, for example when reporting a bug:
+
+  - on the server, set `VAL_DEBUG=1`
+  - in the browser, run `localStorage.setItem("val:debug", "1")` in the console.
+    It takes effect immediately, with no reload. Remove the key to turn it off
+    again.
+
+## 0.148.1
+
+### Patch Changes
+
+- [#888](https://github.com/valbuild/val/pull/888) [`fff5681`](https://github.com/valbuild/val/commit/fff5681b9ac9a24b873ba74ca636240d83404e46) Thanks [@freekh](https://github.com/freekh)! - The Studio opens pages whose route has an optional segment, such as TanStack Start's `{-$locale}`. A browser percent-encodes `{` and `}` in an address, and the Studio read the module path back without decoding it, so every page of a site with its language in the URL showed "This page can no longer be found", including pages the Studio had just linked to.
+
+## 0.148.0
+
+### Minor Changes
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - **Check everything** on the Studio's Validate page now checks media directories
+  (`s.imagedir()`, `s.filedir()`, `s.fontdir()` and `s.videodir()`) by the files
+  they list:
+
+  - An entry whose file is gone has a **Fix** that removes it from the directory.
+  - An image or file entry whose recorded size or type does not match its file has
+    a **Fix** that corrects it from the file, keeping its alt text.
+  - A video entry whose file is gone is reported, and is removed by hand: its
+    posters and captions may still be in use.
+  - A remote entry is checked with its host, like any remote file.
+
+  `val validate --fix` fixes media directories exactly as before.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - The Studio has a **Validate** page, at `/val/validate`, and a button for it in
+  the top bar with the number of errors left.
+
+  It lists the errors the Studio already shows, as the errors page did, and adds
+  **Check everything**: a check of every module on the server, including whether
+  each image's and file's recorded size and type match the file itself. It runs
+  only when you press it, can be stopped, and its results stay for the session.
+
+  Where the Studio can make the fix itself — a missing or wrong width, height or
+  mime type on an image, file or video — the row has a **Fix** button. A fix is an
+  ordinary change: it shows up in Review, is published with everything else, and
+  can be undone from the row. Fixes that need a terminal show the
+  `val validate --fix` command to copy.
+
+  `/val/errors` still works and opens the same page.
+
+  Also fixed: `.jsonValues()` entries no longer report every image in them as
+  "not checked against the file" when validated on the server.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - **Check everything** on the Studio's Validate page now checks remote images and
+  files too.
+
+  - A remote image or file whose address no longer matches what is recorded about
+    it (its size, type or the schema's options changed since it was uploaded) has
+    a **Fix**, which re-reads the file and corrects it, as `val validate --fix`
+    does.
+  - A remote host that does not answer is shown once, at the top of the page, with
+    how many files it holds and a **Try again**, rather than as an error on every
+    image.
+  - A file its host no longer has is shown at the image or file that uses it.
+
+  Images and files in your unpublished changes are not asked about until they are
+  published; the check makes sure the change still has them.
+
+### Patch Changes
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Remote files are now addressed on the host the project's settings name. For a
+  project hosted by Val, that is the project's own address, and its remote images
+  and files are served from there rather than from `remote.val.build`. Every other
+  project is unchanged.
+
+  - The Studio, `val validate --fix` and the MCP image tool all take the host from
+    the project's settings, falling back to `remote.val.build` as before.
+  - Re-reading a remote file whose recorded size or type is out of date keeps it
+    on the host it was on.
+  - When a remote file's host cannot be reached, tooling downloads it from the
+    project's permanent `<id>.valstart.dev` address instead, and keeps it only if
+    its bytes match the file the address names.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Remote files served from a project's own site (addresses like
+  `https://www.acme.no/_val/file/…`) are now checked for whether that address
+  still serves the project. When a custom domain has been removed or moved to
+  another project, the image or file is reported, and **Fix** on the Studio's
+  Validate page — or `val validate --fix` — points it at the project's permanent
+  `<id>.valstart.dev` address. Nothing is uploaded or downloaded: only the address
+  changes.
+
+  Remote file addresses with a `/_val` prefix after the host are now recognised.
+
+- [#886](https://github.com/valbuild/val/pull/886) [`4176757`](https://github.com/valbuild/val/commit/41767579b01849473a94779122fd39c07dd99234) Thanks [@freekh](https://github.com/freekh)! - The unlinked `/val/adept` page can now typecheck the live site against the
+  lockfile it computed, in the browser. It works out the `node_modules` that
+  `pnpm install` would make from the lockfile alone, fetches the type
+  declarations of the packages the site's imports reach, and checks every
+  `tsconfig.json` with the project's own TypeScript (a 6.x when the project uses
+  TypeScript 7, which has no compiler that runs in a browser). It shows the
+  errors by file and how long the layout, the types and the check took.
+  Packages whose types could not be fetched are listed, since errors that
+  involve them may be wrong, with Try again when that can help.
+
+  This is the check the Upgrade button will run before it offers to merge an
+  upgrade; nothing else in the Studio uses it yet.
+
+## 0.147.0
+
+### Minor Changes
+
+- [#816](https://github.com/valbuild/val/pull/816) [`2f09cd5`](https://github.com/valbuild/val/commit/2f09cd5e2f4fc37f06917899f24f9ad2ee8d3a8b) Thanks [@freekh](https://github.com/freekh)! - Routers can give each route parameter a schema, and a URL can say which language a page is in.
+
+  - **`s.router(router, params, item)`** takes a schema per route parameter, by the name the route file gives it (`$slug`, `[slug]`, `{-$locale}`). Each key's parameters are validated against them, and a name the route does not have is a schema error.
+
+    ```ts
+    s.router(tanstackRouter, { locale: urlLocale, slug: s.string() }, item);
+    ```
+
+  - **`s.enum(...).locales({ ... })`** says which of the project's languages each value means, so `/nb/…` can mean `nb-NO`. The tags are checked against `locales.available` in the settings module, like `s.locale()`. On a nullable enum, a second argument names the language of a URL that leaves the segment out, which only a router parameter may use:
+
+    ```ts
+    const urlLocale = s
+      .enum("nb")
+      .nullable()
+      .locales({ nb: "nb-NO" }, { null: "en-US" });
+    ```
+
+    A router with a locale parameter makes each page a locale scope, so the Studio and validation know which language every page is in.
+
+  - **A route's language segment can no longer be forgotten.** In a project that declares `locales.available`, a page route with a `locale` or `lang` segment (`{-$locale}`, `[lang]`) whose module gives that parameter no schema is reported, saying what to add. Any schema answers it, so a `$lang` that is not a language is silenced with its own, e.g. `{ lang: s.enum("typescript", "python") }`. It is an ordinary validation error: the Studio still opens and `val validate` lists it, but a project that already has such a route will see it after upgrading, and it blocks publishing until the parameter has a schema.
+  - **The Studio's new-page form offers a language as a list.** A route parameter whose schema is a locale is picked from the project's languages, each named in its own language, with "no prefix" where the URL may leave the segment out. Other enum parameters get a list of their values, and every parameter's description is shown under it. The URL row previews what the choice puts there.
+  - **TanStack optional segments (`{-$param}`)** are now understood: route validation, `useValRoute` and the Studio's new-page form accept keys with and without the segment.
+
+- [#876](https://github.com/valbuild/val/pull/876) [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd) Thanks [@freekh](https://github.com/freekh)! - Demo mode: run the Val Studio with no account and no backend (TanStack Start).
+
+  `<ValApp demo>` starts Val's own server in the visitor's browser tab, and the Studio talks to it there instead of to `/api/val`. Edits show up in the page as they are typed and are held in the tab's memory: nothing is sent anywhere, and a reload starts over. Images and videos can be uploaded too: a small service worker, served by `initValDemoServer()`, hands the upload and the unpublished files to the server in the tab, so an uploaded photo or video shows in the page with nothing leaving the browser. Uploads are capped by their size after encoding. Pair `<ValApp demo>` with `<ValProvider demo>` on the site and `initValDemoServer()` from the new `@valbuild/tanstack/demo` entry on the API route. In a demo the Studio opens with a guided tour, Publish explains what it would do instead of publishing, and Preview in a new tab is shown but disabled.
+
+  Also:
+
+  - `@valbuild/server/browser` is a new entry: Val's request handling, bundleable for a browser. The TypeScript compiler, which only publishing and history need, is loaded when they ask for it, so a browser bundle of the server is about 140 KB rather than 3.6 MB.
+  - `s.image({ encode })` now scales an image down in browsers that cannot write WebP (Safari), as a JPEG or PNG in the image's own format, instead of uploading it at full size.
+  - `GET /profiles` answers with no profiles, rather than an error, when edits are stored locally and no project is configured.
+
+### Patch Changes
+
+- [#876](https://github.com/valbuild/val/pull/876) [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd) Thanks [@freekh](https://github.com/freekh)! - `s.image({ encode: { type: "webp" } })` now produces WebP in Safari too, including on iPhone and iPad.
+
+  Safari's canvas cannot write WebP, so the Studio used to fall back to a JPEG (or a PNG) there, or to the original file when `accept` allowed only WebP. Now it encodes those images with libwebp, compiled to WebAssembly, at the same quality and size as everywhere else. The encoder is downloaded only by a browser that needs it, once per page, from `content.val.build`, the same place the Studio's bundler is served from. Browsers that can already write WebP never download it. If it cannot be loaded, uploads still work: the image is scaled down as a JPEG or PNG as before, or the original is uploaded.
+
+  A deployment that cannot reach `content.val.build` can serve the encoder itself and point the Studio at it with `globalThis.__VAL_WEBP_SIMD_WASM_URL__` and `globalThis.__VAL_WEBP_WASM_URL__`, the same way `__VAL_ROLLDOWN_WASM_URL__` works for the bundler.
+
 ## 0.146.4
 
 ### Patch Changes

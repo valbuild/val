@@ -1,6 +1,9 @@
 import { execFileSync } from "child_process";
 import path from "path";
-import type { Outcome } from "./__fixtures__/vendorLayerFactsProbe";
+import type {
+  Outcome,
+  ServerOnlyOutcome,
+} from "./__fixtures__/vendorLayerFactsProbe";
 
 /**
  * The two checks a layer build OUTSIDE the platform's checkout runs on what
@@ -22,7 +25,8 @@ type Probe = Record<
   | "presentExport"
   | "chunkNotListed",
   Outcome
->;
+> &
+  Record<"serverOnly" | "serverOnlyBesideABrokenDependency", ServerOnlyOutcome>;
 
 let probe: Probe;
 
@@ -97,5 +101,62 @@ describe("the export audit, from what the platform says", () => {
 
   test("a chunk the platform says nothing about is not checked", () => {
     expect(probe.chunkNotListed).toEqual(built({ "dep-a": "dep-a" }));
+  });
+});
+
+describe("server-only dependencies", () => {
+  test("are found in the first build, named with the builtin and who asked for it", () => {
+    expect(probe.serverOnly).toEqual(
+      expect.objectContaining({
+        modules: {
+          "server-dep": "server-dep",
+          "lazy-dep": "lazy-dep",
+          "emitter-dep": "emitter-dep",
+        },
+        skipped: [
+          {
+            specifier: "native-dep",
+            reason:
+              "loads the native binary native-dep/addon.node, which cannot be bundled",
+          },
+        ],
+        workerOnly: ["server-dep"],
+        workerOnlyReasons: {
+          "server-dep": expect.stringMatching(
+            /^reaches Node's 'node:crypto' \(imported by server-dep\/files\.js\)/,
+          ),
+        },
+      }),
+    );
+  });
+
+  test("ship none of the stubs that found them", () => {
+    expect(probe.serverOnly.browserCode).not.toContain(
+      "is not available in a browser",
+    );
+    expect(probe.serverOnly.browserCode).not.toContain("randomUUID");
+  });
+
+  test("a builtin behind import() leaves the dependency in the browser layer", () => {
+    expect(probe.serverOnly.workerOnly).not.toContain("lazy-dep");
+    expect(probe.serverOnly.browserCode).toContain("node:fs");
+  });
+
+  test("an installed package with a builtin's name is the package", () => {
+    expect(probe.serverOnly.workerOnly).not.toContain("emitter-dep");
+    expect(probe.serverOnly.browserCode).toContain("from-the-events-package");
+  });
+
+  test("are found the same way on the per-dependency path", () => {
+    expect(probe.serverOnlyBesideABrokenDependency).toEqual(
+      expect.objectContaining({
+        modules: { "server-dep": "server-dep" },
+        skipped: [{ specifier: "broken", reason: expect.any(String) }],
+        workerOnly: ["server-dep"],
+        workerOnlyReasons: {
+          "server-dep": expect.stringContaining("reaches Node's 'node:crypto'"),
+        },
+      }),
+    );
   });
 });
