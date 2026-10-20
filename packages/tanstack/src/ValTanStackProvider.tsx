@@ -440,7 +440,7 @@ export const ValTanStackProvider = (props: {
         }
       })
       .catch((error) => {
-        console.warn("Val: could not load analytics", error);
+        Internal.log.warn("could not load analytics", error);
       });
     return () => {
       cancelled = true;
