@@ -1,9 +1,11 @@
 # Content analytics
 
 > **Status: in progress** (October 2026). Steps 1–4 of the
-> [build order](#7-build-order) are built, in valbuild/val #878, #881 and #887
-> (all still open). On `home`'s side only the loader's half of the content
-> version is (valbuild/home#255). Scope for the first version: **TanStack Start, hosted by Val**.
+> [build order](#7-build-order) are built, in valbuild/val #878, #881 and #887.
+> On `home`'s side the loader's route and meter, the aggregator and delivery
+> to Postgres are merged (valbuild/home#255, #256, #258, #260); the project
+> setting, billing and the dashboard are not built. Scope for the first
+> version: **TanStack Start, hosted by Val**.
 > Next.js and self-hosted apps come later and are noted where the design has
 > to leave room for them.
 >
