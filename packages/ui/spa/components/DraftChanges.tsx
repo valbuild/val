@@ -672,13 +672,17 @@ function PatchCard({
         },
       ];
     } else {
-      console.warn("Did not find profile for author: ", patchMetadata.author, {
-        profilesById,
-      });
+      Internal.log.debug(
+        "Did not find profile for author: ",
+        patchMetadata.author,
+        {
+          profilesById,
+        },
+      );
     }
   }
   if (authors.length === 0 && mode === "http") {
-    console.warn("No authors", { patchMetadata });
+    Internal.log.debug("No authors", { patchMetadata });
   }
   return (
     <PatchOrPatchSetCard
@@ -731,7 +735,7 @@ function useChangeDescription(
     changeType = "Updated";
   } else {
     const exhaustiveCheck: never = firstOp;
-    console.warn("Unexpected op type: ", exhaustiveCheck);
+    Internal.log.warn("Unexpected op type: ", exhaustiveCheck);
   }
   return changeType + " " + relativeLocalDate(now, lastUpdated);
 }

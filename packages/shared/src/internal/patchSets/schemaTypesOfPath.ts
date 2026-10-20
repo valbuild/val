@@ -1,4 +1,4 @@
-import { SerializedSchema } from "@valbuild/core";
+import { SerializedSchema, Internal } from "@valbuild/core";
 
 /**
  * This functions returns all the possible schema types of a given module path.
@@ -82,7 +82,7 @@ export function schemaTypesOfPath(
     } else {
       const _unreachable: never = current;
       const unknownType = (_unreachable as { type: string }).type;
-      console.error(
+      Internal.log.error(
         `Unexecpted resolved schema type: ${unknownType} in ${patchPath.join(
           "/",
         )} at ${pathPart}`,

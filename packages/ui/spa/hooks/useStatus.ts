@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
 import {
@@ -383,7 +384,7 @@ export function useStatus(client: ValClient) {
       stat.status === "ws-message-received"
     ) {
       if (stat.status === "error") {
-        console.error("Stat error", stat.status, "error:", stat.error);
+        Internal.log.debug("Stat error", stat.status, "error:", stat.error);
       }
       // Never wait longer than a publish that has not reached the site yet can
       // afford: `/stat` is the only thing that reports which commit the site
@@ -397,7 +398,7 @@ export function useStatus(client: ValClient) {
             );
       if (wait === 0) {
         refreshRef.current = false;
-        console.debug(
+        Internal.log.debug(
           "Executing stat immediately",
           stat.status,
           stat.status === "error" ? stat.error : "no error",
@@ -419,7 +420,7 @@ export function useStatus(client: ValClient) {
           onPublishJob,
         );
       } else {
-        console.debug(
+        Internal.log.debug(
           "Executing stat in ",
           wait,
           " status: ",
@@ -453,7 +454,7 @@ export function useStatus(client: ValClient) {
       setStat({
         status: "initializing",
       });
-      console.debug("Initializing stat");
+      Internal.log.debug("Initializing stat");
       execStat(
         client,
         webSocketRef,
@@ -772,11 +773,11 @@ async function execStat(
             requestedAt,
           );
           if (webSocketRef.current) {
-            console.debug("Closing existing WebSocket");
+            Internal.log.debug("Closing existing WebSocket");
             webSocketRef.current.close();
           }
           const wsUrl = res.json.url;
-          console.debug("Connecting to WebSocket", wsUrl);
+          Internal.log.debug("Connecting to WebSocket", wsUrl);
           webSocketRef.current = new WebSocket(wsUrl);
           const nonce = res.json.nonce;
           webSocketRef.current.onopen = () => {
@@ -794,7 +795,7 @@ async function execStat(
                 JSON.parse(event.data),
               );
               if (!messageRes.success) {
-                console.error(
+                Internal.log.error(
                   "Could not parse WebSocket message",
                   messageRes.error,
                 );
@@ -833,9 +834,9 @@ async function execStat(
                   status: message.job.status ?? null,
                 });
               } else if (message.type === "subscribed") {
-                console.debug("Subscribed!");
+                Internal.log.debug("Subscribed!");
               } else if (message.type === "commit") {
-                console.debug("Commit", message.commit);
+                Internal.log.debug("Commit", message.commit);
                 setStat((prev) => {
                   if ("data" in prev && prev.data) {
                     const commits = (prev.data.commits || []).concat(
@@ -878,7 +879,7 @@ async function execStat(
                   return prev;
                 });
               } else if (message.type === "deployment") {
-                console.debug("Deployment", message.deployment);
+                Internal.log.debug("Deployment", message.deployment);
                 setStat((prev) => {
                   if ("data" in prev && prev.data) {
                     return {
@@ -915,21 +916,21 @@ async function execStat(
                 });
               } else {
                 const exhaustiveCheck: never = message;
-                console.warn("Unknown WebSocket message", exhaustiveCheck);
+                Internal.log.warn("Unknown WebSocket message", exhaustiveCheck);
               }
             } catch (e) {
-              console.error("Could not parse WebSocket message", e);
+              Internal.log.error("Could not parse WebSocket message", e);
             }
           };
           const currentWebSocket = webSocketRef.current;
           webSocketRef.current.onclose = () => {
             if (currentWebSocket === webSocketRef.current) {
-              console.debug("WebSocket closed");
+              Internal.log.debug("WebSocket closed");
               setStat((prev) => createError(prev, "WebSocket closed"));
             }
           };
           webSocketRef.current.onerror = () => {
-            console.warn("WebSocket error");
+            Internal.log.debug("WebSocket error");
             setStat((prev) =>
               createError(
                 prev,

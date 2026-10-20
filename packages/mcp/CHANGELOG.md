@@ -1,5 +1,43 @@
 # @valbuild/mcp
 
+## 0.148.2
+
+### Patch Changes
+
+- Updated dependencies [[`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a)]:
+  - @valbuild/core@0.148.2
+  - @valbuild/shared@0.148.2
+  - @valbuild/server@0.148.2
+
+## 0.148.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.148.1
+
+## 0.148.0
+
+### Patch Changes
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Remote files are now addressed on the host the project's settings name. For a
+  project hosted by Val, that is the project's own address, and its remote images
+  and files are served from there rather than from `remote.val.build`. Every other
+  project is unchanged.
+
+  - The Studio, `val validate --fix` and the MCP image tool all take the host from
+    the project's settings, falling back to `remote.val.build` as before.
+  - Re-reading a remote file whose recorded size or type is out of date keeps it
+    on the host it was on.
+  - When a remote file's host cannot be reached, tooling downloads it from the
+    project's permanent `<id>.valstart.dev` address instead, and keeps it only if
+    its bytes match the file the address names.
+
+- Updated dependencies [[`df5544c`](https://github.com/valbuild/val/commit/df5544c6e92a4c3a52765630c9de191e854ee723), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1)]:
+  - @valbuild/server@0.148.0
+  - @valbuild/shared@0.148.0
+  - @valbuild/core@0.148.0
+
 ## 0.147.0
 
 ### Patch Changes

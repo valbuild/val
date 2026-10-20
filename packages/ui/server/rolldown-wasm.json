@@ -1,0 +1,7 @@
+{
+  "filename": "rolldown-binding.wasm32-wasi.wasm",
+  "sha256": "629aa10c37a9920cd5729a35af148983c881f4ff9edd6368a7d63b5acbf89dc2",
+  "bytes": 10845151,
+  "host": "https://content.val.build/v1/static",
+  "url": "https://content.val.build/v1/static/rolldown/629aa10c37a9920cd5729a35af148983c881f4ff9edd6368a7d63b5acbf89dc2/rolldown-binding.wasm32-wasi.wasm"
+}

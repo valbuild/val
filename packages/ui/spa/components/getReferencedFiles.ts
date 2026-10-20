@@ -3,6 +3,7 @@ import {
   SerializedSchema,
   Source,
   SourcePath,
+  Internal,
 } from "@valbuild/core";
 import { traverseSchemas } from "./traverseSchemas";
 import {
@@ -82,7 +83,7 @@ export function getFileReferrers(
       // ignore these
     } else {
       const exhaustiveCheck: never = schema;
-      console.error(
+      Internal.log.error(
         `Could not get referenced files. Unhandled schema type`,
         exhaustiveCheck,
       );

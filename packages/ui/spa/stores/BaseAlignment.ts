@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import type { Json, ModuleFilePath, PatchId } from "@valbuild/core";
 import type { HostStore } from "./HostStore";
 import type { PatchStore } from "./PatchStore";
@@ -103,7 +104,7 @@ export class BaseAlignment {
     if (wanted === this.current) return adopt;
 
     const unaligned = (why: string, detail: Record<string, unknown>) => {
-      console.warn(`Val: ${why}`, { sourcesSha: wanted, ...detail });
+      Internal.log.debug(`${why}`, { sourcesSha: wanted, ...detail });
       if (this.heldBack === wanted) {
         this.heldBack = null;
         return adopt;
@@ -142,8 +143,8 @@ export class BaseAlignment {
       known !== null || fetchBase === undefined
         ? Promise.resolve(known)
         : fetchBase(wanted).catch((error: unknown) => {
-            console.warn(
-              "Val: could not fetch the base a change list belongs on",
+            Internal.log.debug(
+              "could not fetch the base a change list belongs on",
               { sourcesSha: wanted, error },
             );
             return null;

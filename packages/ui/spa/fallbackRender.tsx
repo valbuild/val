@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import {
   Accordion,
   AccordionItem,
@@ -88,7 +89,7 @@ function ErrorContent({
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function fallbackRender({ error, resetErrorBoundary }: any) {
-  console.error(error);
+  Internal.log.error(error);
   return <ErrorContent error={error} resetErrorBoundary={resetErrorBoundary} />;
 }
 
@@ -100,7 +101,7 @@ export function FallbackComponent({
   error: any;
   resetErrorBoundary: () => void;
 }) {
-  console.error(error);
+  Internal.log.error(error);
   const currentPatchIds = useCurrentPatchIds();
   const { deletePatches } = useDeletePatches();
   const onDeleteAllPatches =

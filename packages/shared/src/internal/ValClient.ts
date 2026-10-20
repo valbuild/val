@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import { Api, ApiEndpoint, ClientOf, ClientFetchErrors } from "./ApiRoutes";
 import { fromError } from "zod-validation-error";
 import { SharedValConfig } from "./SharedValConfig";
@@ -72,7 +73,7 @@ export const createValClient = (
     }
     const reqBodyResult = apiEndpoint.req.body?.safeParse(anyReq.body);
     if (reqBodyResult && !reqBodyResult.success) {
-      console.error(
+      Internal.log.error(
         "Got an invalid request body while validating client-side. This is most likely a Val bug.",
         {
           path,
@@ -136,7 +137,7 @@ export const createValClient = (
           json,
         };
         if (res.status === 500) {
-          console.error("Server responded with an error", json);
+          Internal.log.error("Server responded with an error", json);
           const message = getErrorMessageFromUnknownJson(json, "Unknown error");
           return {
             status: 500,

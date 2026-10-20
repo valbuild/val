@@ -19,7 +19,12 @@
 // as a build error. `spike/vendorlayers` proves identity holds, against a
 // deliberately duplicated negative control; the import audit below is the
 // cheap check that runs every time.
-import { build } from "rolldown";
+import {
+  build,
+  type OutputAsset,
+  type OutputChunk,
+  type Plugin,
+} from "rolldown";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -28,6 +33,11 @@ import type { BuildTarget } from "../contract";
 import { nodeShims } from "./nodeShims";
 import { ASSET_BASE } from "../assets";
 import { parseAstAsync } from "rolldown/parseAst";
+import {
+  ImportType,
+  init as initLexer,
+  parse as lexModule,
+} from "es-module-lexer";
 
 /**
  * Packages the base layer already provides.
@@ -308,8 +318,8 @@ export interface VendorLayer {
    * Specifiers built for the worker but not the browser.
    *
    * A server-only dependency is not a failure. `@valbuild/tanstack/server`
-   * cannot build for a browser -- it reaches TanStack's SSR path, which lands
-   * on `node:stream/web` -- and has no business in a client bundle either.
+   * cannot build for a browser -- it reaches Node's `path` through Val's
+   * server -- and has no business in a client bundle either.
    * Dropping it entirely would mean such a package can never be layered, so it
    * is layered for the side that can use it, and the builder rejects a client
    * import of it by name.
@@ -368,11 +378,15 @@ const firstLine = (message: string) =>
     .slice(0, 220);
 
 /**
- * A throwaway build, used only to find out whether a set of entries compiles.
+ * Builds the given entries for each target, audits what came out, and digests
+ * it.
  *
- * Worker target only: it is the stricter of the two (neutral platform, workerd
- * conditions), so anything that survives it is very unlikely to fail the
- * browser build for a reason worth attributing separately.
+ * Each target can take two passes. The first finds the entries that cannot be
+ * bundled for it (see `stubUnbundlable`); when there are any, the second
+ * builds the rest, and those are reported -- in `unusable` when they cannot be
+ * layered at all, in `serverOnly` when only the browser cannot have them --
+ * rather than failing the build. Either way each target ends with exactly one
+ * build that is audited and shipped.
  */
 async function buildTargets(
   names: Array<string> | { worker: Array<string>; browser: Array<string> },
@@ -391,176 +405,294 @@ async function buildTargets(
   const digest = createHash("sha256");
   /** Directory -> the package it belongs to, for the pin check. */
   const packages = new Map<string, { name: string; version: string } | null>();
+  /** Entry -> why it cannot be built for a browser. */
+  const serverOnly: Record<string, string> = {};
+  /** Entry -> why it cannot be built at all. */
+  const unusable: Record<string, string> = {};
 
   for (const target of targetsFor(platform)) {
-    const forTarget = Array.isArray(names) ? names : names[target.name];
-    // Nothing for this side: a dependency can be server-only, and building an
-    // empty bundle is both pointless and an error.
-    if (forTarget.length === 0) continue;
+    let forTarget = (Array.isArray(names) ? names : names[target.name]).filter(
+      // The worker goes first: what it cannot bundle, neither side has.
+      (name) => !(name in unusable),
+    );
     const dir = join(outRoot, target.name);
-    /*
-     * Cleared first, because this function EMITS WHATEVER IT FINDS HERE.
-     *
-     * `buildVendorLayer` calls it twice against the same directory: once with
-     * every dependency, and again with the survivors when that fails and the
-     * per-dependency probe has worked out which to drop. rolldown writes
-     * before the import audit runs, so a first pass that fails IN THE AUDIT
-     * has already left chunks on disk -- including the chunk for the
-     * dependency about to be dropped.
-     *
-     * Left in place, the `readdir` below picks that chunk up again, so the
-     * retry re-audits the very thing it exists to exclude and fails the same
-     * way; and where the first pass failed for some other reason, the dropped
-     * dependency's code is shipped and folded into `rev`. rolldown has no
-     * `emptyOutDir`, so nothing else clears it.
+    /**
+     * The builtins the first pass stubbed, each with the module that asked for
+     * it. Null on the second pass, which stubs nothing.
      */
-    await rm(dir, { recursive: true, force: true });
-    // Before the build rather than inside the plugin list: the factory asks
-    // Node what each builtin exports, which is async, and a plugin's own hooks
-    // have to stay synchronous.
-    const shims = await nodeShims(target.name === "worker");
-    const result = await build({
-      input: Object.fromEntries(forTarget.map((name) => [name, input[name]!])),
-      platform: target.platform,
-      plugins: [
-        externaliseBase(target.baseFrom, platform),
-        pinPlatformTanstack(platform),
-        stubStartEntries(),
-        stubServerEntries(target.name === "browser"),
-        // Worker only: a browser has no Node builtins to bridge to, and a
-        // package reaching for one there is a real error rather than a missing
-        // runtime.
-        shims,
-      ],
-      transform: {
-        define: {
-          "process.env.NODE_ENV": JSON.stringify("production"),
-          // CJS scope variables a bundled CommonJS package can reference at
-          // module scope. The TypeScript compiler reads `__filename` while
-          // deciding what host it is on, and an undefined reference there is a
-          // startup crash rather than a failed feature check.
-          //
-          // `import.meta.url` is the same problem one module system along, and
-          // it is worse because it kills the isolate rather than a feature
-          // check: prettier's ESM build opens with `createRequire(import.
-          // meta.url)` at module scope, and `createRequire(undefined)` throws
-          // `The argument 'path' must be a file URL object...`. The isolate
-          // then refuses to start and the request 500s, naming node:module and
-          // a minified offset rather than the package.
-          //
-          // A URL rather than a path, because that is what the name promises
-          // and what `createRequire` accepts. Nothing resolves against it --
-          // there is no filesystem -- but a package that only wants a require
-          // for a lazy optional dependency gets to load.
-          ...(target.name === "worker"
-            ? {
-                __filename: JSON.stringify("/worker.js"),
-                __dirname: JSON.stringify("/"),
-                "import.meta.url": JSON.stringify("file:///worker.js"),
-                /*
-                 * There is no disk in here, and Val is the one dependency that
-                 * assumes there is.
-                 *
-                 * It picks its storage mode by inference -- a content service
-                 * when it finds an api key, the local filesystem otherwise --
-                 * and the third mode, where the HOST hands over the source,
-                 * cannot be inferred at all: it is chosen by passing
-                 * `sourceFiles`, which only the app's own server file can do.
-                 * `wireUp` writes that file, so a project the platform wired is
-                 * already in the right mode.
-                 *
-                 * A project that brings its OWN server file is not, and the
-                 * failure was `patch-error /bundle/.val/patches.lock: EPERM` --
-                 * the isolate's read-only filesystem, named two layers below
-                 * the decision that led there.
-                 *
-                 * So this says where the code is running and lets Val decide
-                 * what that implies, rather than naming a Val mode. Which mode
-                 * an isolate with no disk needs is Val's to know; that it IS an
-                 * isolate with no disk is the only part the platform can
-                 * actually vouch for, and the part that stays true if the modes
-                 * are ever renamed or split. Harmless to every other
-                 * dependency, and to a Val too old to look.
-                 */
-                "process.env.VAL_ENV": JSON.stringify("app"),
-              }
-            : {}),
-        },
-      },
-      resolve: {
-        conditionNames: target.conditions,
-        ...("mainFields" in target ? { mainFields: target.mainFields } : {}),
-      },
-      output: {
-        dir,
-        format: "esm",
-        entryFileNames: "[name].js",
-        chunkFileNames: "_p-[hash].js",
-        minify: true,
-      },
-      onLog(level, log, handler) {
-        // Quiet during the attribution probes: they are *expected* to fail, and
-        // the failures are reported afterwards with the specifier attached.
-        if (quiet) return;
-        // `__ns.default ?? __ns` warns for every package with no default
-        // export, which is the case the fallback exists for -- see stubSource.
-        if (log.code === "IMPORT_IS_UNDEFINED") return;
-        /*
-         * "use client" in a package being bundled for the worker.
-         *
-         * Every React package that ships the directive warns, once per module,
-         * and TanStack's router alone accounts for a dozen. They are expected
-         * and they are not actionable: this build has no client boundary to
-         * preserve, the shell owns that split, and nothing here reads the
-         * directive.
-         *
-         * Silenced because the noise did real harm. A successful publish ended
-         * with twenty of these and the reader took it for a failed one -- the
-         * line that says `published <project> @ <hash>` was the last of about
-         * two hundred, and everything above it looked like an error.
-         */
-        if (log.code === "MODULE_LEVEL_DIRECTIVE") return;
-        /*
-         * NOT silenced: UNRESOLVED_IMPORT. rolldown downgrades it to a warning
-         * and externalises the specifier, which is how an unresolvable bare
-         * import reaches the isolate and refuses to start. The audit below is
-         * what turns it into an error, and the warning is worth seeing.
-         */
-        handler(level, log);
-      },
-    });
-
-    // Before the import audit, which would otherwise report the same skew as
-    // a missing export -- true, and one step removed from the cause.
-    const pins = platform.base.pins;
-    if (pins) {
-      const skew = await pinSkewOf(
-        result.output.flatMap((item) =>
-          item.type === "chunk" ? item.moduleIds : [],
+    let stubs: Map<string, string> | null = new Map();
+    for (;;) {
+      // Nothing for this side: a dependency can be server-only, and building an
+      // empty bundle is both pointless and an error. Cleared all the same, so a
+      // first browser pass leaves none of its stubbed chunks behind.
+      if (forTarget.length === 0) {
+        await rm(dir, { recursive: true, force: true });
+        break;
+      }
+      /*
+       * Cleared first, because this function EMITS WHATEVER IT FINDS HERE.
+       *
+       * `buildVendorLayer` calls it twice against the same directory: once with
+       * every dependency, and again with the survivors when that fails and the
+       * per-dependency probe has worked out which to drop. rolldown writes
+       * before the import audit runs, so a first pass that fails IN THE AUDIT
+       * has already left chunks on disk -- including the chunk for the
+       * dependency about to be dropped.
+       *
+       * Left in place, the `readdir` below picks that chunk up again, so the
+       * retry re-audits the very thing it exists to exclude and fails the same
+       * way; and where the first pass failed for some other reason, the dropped
+       * dependency's code is shipped and folded into `rev`. rolldown has no
+       * `emptyOutDir`, so nothing else clears it.
+       */
+      await rm(dir, { recursive: true, force: true });
+      // Before the build rather than inside the plugin list: the factory asks
+      // Node what each builtin exports, which is async, and a plugin's own hooks
+      // have to stay synchronous.
+      const shims = await nodeShims(target.name === "worker");
+      const result = await build({
+        input: Object.fromEntries(
+          forTarget.map((name) => [name, input[name]!]),
         ),
-        pins,
-        packages,
-      );
-      if (skew.length) throw new PinSkewError(skew, platform.base.rev);
-    }
+        platform: target.platform,
+        plugins: [
+          externaliseBase(target.baseFrom, platform),
+          pinPlatformTanstack(platform),
+          stubStartEntries(),
+          stubServerEntries(target.name === "browser"),
+          ...(stubs ? [stubUnbundlable(target.name === "browser", stubs)] : []),
+          // Worker only: a browser has no Node builtins to bridge to, and a
+          // package reaching for one there is a real error rather than a missing
+          // runtime.
+          shims,
+        ],
+        transform: {
+          define: {
+            "process.env.NODE_ENV": JSON.stringify("production"),
+            // CJS scope variables a bundled CommonJS package can reference at
+            // module scope. The TypeScript compiler reads `__filename` while
+            // deciding what host it is on, and an undefined reference there is a
+            // startup crash rather than a failed feature check.
+            //
+            // `import.meta.url` is the same problem one module system along, and
+            // it is worse because it kills the isolate rather than a feature
+            // check: prettier's ESM build opens with `createRequire(import.
+            // meta.url)` at module scope, and `createRequire(undefined)` throws
+            // `The argument 'path' must be a file URL object...`. The isolate
+            // then refuses to start and the request 500s, naming node:module and
+            // a minified offset rather than the package.
+            //
+            // A URL rather than a path, because that is what the name promises
+            // and what `createRequire` accepts. Nothing resolves against it --
+            // there is no filesystem -- but a package that only wants a require
+            // for a lazy optional dependency gets to load.
+            ...(target.name === "worker"
+              ? {
+                  __filename: JSON.stringify("/worker.js"),
+                  __dirname: JSON.stringify("/"),
+                  "import.meta.url": JSON.stringify("file:///worker.js"),
+                  /*
+                   * There is no disk in here, and Val is the one dependency that
+                   * assumes there is.
+                   *
+                   * It picks its storage mode by inference -- a content service
+                   * when it finds an api key, the local filesystem otherwise --
+                   * and the third mode, where the HOST hands over the source,
+                   * cannot be inferred at all: it is chosen by passing
+                   * `sourceFiles`, which only the app's own server file can do.
+                   * `wireUp` writes that file, so a project the platform wired is
+                   * already in the right mode.
+                   *
+                   * A project that brings its OWN server file is not, and the
+                   * failure was `patch-error /bundle/.val/patches.lock: EPERM` --
+                   * the isolate's read-only filesystem, named two layers below
+                   * the decision that led there.
+                   *
+                   * So this says where the code is running and lets Val decide
+                   * what that implies, rather than naming a Val mode. Which mode
+                   * an isolate with no disk needs is Val's to know; that it IS an
+                   * isolate with no disk is the only part the platform can
+                   * actually vouch for, and the part that stays true if the modes
+                   * are ever renamed or split. Harmless to every other
+                   * dependency, and to a Val too old to look.
+                   */
+                  "process.env.VAL_ENV": JSON.stringify("app"),
+                }
+              : {}),
+          },
+        },
+        resolve: {
+          conditionNames: target.conditions,
+          ...("mainFields" in target ? { mainFields: target.mainFields } : {}),
+        },
+        output: {
+          dir,
+          format: "esm",
+          entryFileNames: "[name].js",
+          chunkFileNames: "_p-[hash].js",
+          minify: true,
+        },
+        onLog(level, log, handler) {
+          // Quiet during the attribution probes: they are *expected* to fail, and
+          // the failures are reported afterwards with the specifier attached.
+          if (quiet) return;
+          // `__ns.default ?? __ns` warns for every package with no default
+          // export, which is the case the fallback exists for -- see stubSource.
+          if (log.code === "IMPORT_IS_UNDEFINED") return;
+          /*
+           * "use client" in a package being bundled for the worker.
+           *
+           * Every React package that ships the directive warns, once per module,
+           * and TanStack's router alone accounts for a dozen. They are expected
+           * and they are not actionable: this build has no client boundary to
+           * preserve, the shell owns that split, and nothing here reads the
+           * directive.
+           *
+           * Silenced because the noise did real harm. A successful publish ended
+           * with twenty of these and the reader took it for a failed one -- the
+           * line that says `published <project> @ <hash>` was the last of about
+           * two hundred, and everything above it looked like an error.
+           */
+          if (log.code === "MODULE_LEVEL_DIRECTIVE") return;
+          /*
+           * NOT silenced: UNRESOLVED_IMPORT. rolldown downgrades it to a warning
+           * and externalises the specifier, which is how an unresolvable bare
+           * import reaches the isolate and refuses to start. The audit below is
+           * what turns it into an error, and the warning is worth seeing.
+           */
+          handler(level, log);
+        },
+      });
 
-    for (const file of (await readdir(dir)).sort()) {
-      const code = await readFile(join(dir, file), "utf8");
-      // Part of the build, not a step after it. rolldown downgrades an
-      // unresolved import to a *warning* and externalises it, so without this
-      // a probe passes on a dependency the real build then rejects -- which is
-      // how `prettier` (importing `node:module`) got as far as the audit.
-      await auditImports(target, file, code, platform);
-      // Worker entries are module-map keys and carry the directory; browser
-      // entries are served under `/_pvendor/<rev>/` and do not.
-      out[target.name][target.name === "worker" ? `pvendor/${file}` : file] =
-        code;
-      digest.update(`${target.name}/${file}`);
-      digest.update(code);
+      if (stubs) {
+        const found = stubbedEntries(result.output, stubs);
+        const stubbed = result.output.some(
+          (item) =>
+            item.type === "chunk" &&
+            item.moduleIds.some(
+              (id) => id.startsWith(BROWSER_BUILTIN) || isNativeBinary(id),
+            ),
+        );
+        stubs = null;
+        for (const [name, { native, reason }] of Object.entries(found)) {
+          if (native && target.name === "worker") unusable[name] = reason;
+          else serverOnly[name] = reason;
+        }
+        // Nothing reached a stub, so this pass is the build: no second one.
+        // When something did -- even only a builtin behind an `import()`,
+        // which leaves every entry usable -- the output carries stubs and is
+        // built again without them, so what ships is what an unstubbed build
+        // makes.
+        if (stubbed) {
+          forTarget = forTarget.filter((name) => !(name in found));
+          continue;
+        }
+      }
+
+      // Before the import audit, which would otherwise report the same skew as
+      // a missing export -- true, and one step removed from the cause.
+      const pins = platform.base.pins;
+      if (pins) {
+        const skew = await pinSkewOf(
+          result.output.flatMap((item) =>
+            item.type === "chunk" ? item.moduleIds : [],
+          ),
+          pins,
+          packages,
+        );
+        if (skew.length) throw new PinSkewError(skew, platform.base.rev);
+      }
+
+      for (const file of (await readdir(dir)).sort()) {
+        const code = await readFile(join(dir, file), "utf8");
+        // Part of the build, not a step after it. rolldown downgrades an
+        // unresolved import to a *warning* and externalises it, so without this
+        // a probe passes on a dependency the real build then rejects -- which is
+        // how `prettier` (importing `node:module`) got as far as the audit.
+        await auditImports(target, file, code, platform);
+        // Worker entries are module-map keys and carry the directory; browser
+        // entries are served under `/_pvendor/<rev>/` and do not.
+        out[target.name][target.name === "worker" ? `pvendor/${file}` : file] =
+          code;
+        digest.update(`${target.name}/${file}`);
+        digest.update(code);
+      }
+      break;
     }
   }
 
-  return { ...out, rev: digest.digest("hex").slice(0, 16) };
+  return {
+    ...out,
+    serverOnly,
+    unusable,
+    rev: digest.digest("hex").slice(0, 16),
+  };
+}
+
+/**
+ * The entries of a stubbed build that load a stub, and why.
+ *
+ * An entry loads what its own chunk holds and what that chunk statically
+ * imports, transitively; a stub found there runs, and throws, when the entry is
+ * imported. A builtin stub reached only through `import()` does not count: that
+ * import rejects into whatever the package does about it, exactly as an
+ * unresolvable `import()` would. A native one does, either way, because an
+ * unstubbed build cannot load the binary at all -- which is what dropped the
+ * dependency before there were stubs.
+ */
+function stubbedEntries(
+  output: Array<OutputChunk | OutputAsset>,
+  builtins: Map<string, string>,
+): Record<string, { native: boolean; reason: string }> {
+  const chunks = new Map<string, OutputChunk>();
+  for (const item of output) {
+    if (item.type === "chunk") chunks.set(item.fileName, item);
+  }
+  const reach = (entry: OutputChunk, dynamic: boolean) => {
+    const seen = new Set<string>([entry.fileName]);
+    const queue = [entry];
+    const ids: Array<string> = [];
+    for (let chunk = queue.shift(); chunk; chunk = queue.shift()) {
+      ids.push(...chunk.moduleIds);
+      for (const file of [
+        ...chunk.imports,
+        ...(dynamic ? chunk.dynamicImports : []),
+      ]) {
+        const next = chunks.get(file);
+        if (next && !seen.has(file)) {
+          seen.add(file);
+          queue.push(next);
+        }
+      }
+    }
+    return ids;
+  };
+  const found: Record<string, { native: boolean; reason: string }> = {};
+  for (const entry of chunks.values()) {
+    if (!entry.isEntry) continue;
+    const binary = reach(entry, true).filter(isNativeBinary).sort()[0];
+    if (binary !== undefined) {
+      found[entry.name] = {
+        native: true,
+        reason: `loads the native binary ${packagePathOf(binary)}, which cannot be bundled`,
+      };
+      continue;
+    }
+    const builtin = reach(entry, false)
+      .filter((id) => id.startsWith(BROWSER_BUILTIN))
+      .map((id) => id.slice(BROWSER_BUILTIN.length))
+      .sort()[0];
+    if (builtin === undefined) continue;
+    const importer = builtins.get(builtin);
+    found[entry.name] = {
+      native: false,
+      reason:
+        `reaches Node's '${builtin}'` +
+        (importer ? ` (imported by ${importer})` : "") +
+        `, which a browser does not have`,
+    };
+  }
+  return found;
 }
 
 /**
@@ -643,6 +775,101 @@ function stubServerEntries(browser: boolean) {
     },
   };
 }
+
+/**
+ * What a first pass stubs, so that it builds: a module that throws, in place
+ * of an import that cannot be bundled.
+ *
+ * - **Node builtins, on the browser side.** A server-only dependency is the
+ *   usual case, not the odd one: `@valbuild/tanstack/server` and
+ *   `@valbuild/mcp` reach `path` through Val's server, and `sharp` reaches
+ *   `node:util`.
+ * - **Native binaries (`.node`), on both.** `@tailwindcss/vite` is in every
+ *   template's `dependencies` and loads one; nothing can bundle it.
+ *
+ * Left alone, any one of these failed the layer's single build, and since a
+ * failed build does not say which entry pulled the file in, every dependency
+ * was then built on its own for both targets to find out: twenty-six builds
+ * where two would do, re-bundling Val's server once per entry that shares it,
+ * at 3.2 GB.
+ *
+ * Stubbed, the build succeeds, and its output says which entries load a stub
+ * (`stubbedEntries`): those are server-only, or for a binary, not layered at
+ * all, each named with the reason. Then the target is built again without
+ * them, unstubbed, so what ships is what an unstubbed build of the rest makes.
+ *
+ * A bare name is only a builtin when nothing resolves it. `events`, `buffer`
+ * and `util` are also npm packages that exist to be bundled for a browser, and
+ * a project that has one installed gets that package, as it always did. The
+ * `node:` scheme is never a package.
+ */
+const BROWSER_BUILTIN = "\0platform:browser-builtin:";
+
+const isNativeBinary = (id: string) => id.endsWith(".node");
+
+function stubUnbundlable(
+  browser: boolean,
+  reached: Map<string, string>,
+): Plugin {
+  return {
+    name: "platform:unbundlable",
+    async resolveId(source, importer) {
+      if (!browser) return null;
+      if (!source.startsWith("node:")) {
+        if (!isRuntimeBuiltin(source)) return null;
+        const installed = await this.resolve(source, importer, {
+          skipSelf: true,
+        });
+        if (installed && !installed.external) return null;
+      }
+      const by = importer ? packagePathOf(importer) : "";
+      const before = reached.get(source);
+      // The smallest, so the reason reads the same however resolution was
+      // scheduled.
+      if (before === undefined || (by && by < before)) reached.set(source, by);
+      return BROWSER_BUILTIN + source;
+    },
+    /*
+     * Throws when evaluated, and exports every name the real builtin has.
+     * The names are what keep this pass a build: `import { randomUUID } from
+     * 'node:crypto'` against a stub with no exports is a MISSING_EXPORT, which
+     * fails the build and sent the layer down the per-dependency path anyway.
+     * The throw comes LAST: rolldown drops what follows a top-level throw as
+     * unreachable, exports included, and the names are missing again.
+     */
+    async load(id) {
+      if (isNativeBinary(id)) {
+        return {
+          code: `throw new Error(${JSON.stringify(
+            `${packagePathOf(id)} is a native binary, which cannot be bundled.`,
+          )});`,
+          moduleType: "js",
+        };
+      }
+      if (!id.startsWith(BROWSER_BUILTIN)) return null;
+      const builtin = id.slice(BROWSER_BUILTIN.length);
+      const real: Record<string, unknown> = await import(
+        `node:${builtin.replace(/^node:/, "")}`
+      ).catch(() => ({}));
+      const names = Object.keys(real).filter(
+        (key) => key !== "default" && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key),
+      );
+      return [
+        "const none = undefined;",
+        `export { ${["none as default", ...names.map((name) => `none as ${name}`)].join(", ")} };`,
+        `throw new Error(${JSON.stringify(
+          `Node's '${builtin}' is not available in a browser.`,
+        )});`,
+      ].join("\n");
+    },
+  };
+}
+
+/** `…/node_modules/.pnpm/x/node_modules/@scope/pkg/dist/a.js` -> `@scope/pkg/dist/a.js`. */
+const packagePathOf = (id: string) => {
+  const at = id.lastIndexOf("node_modules/");
+  return at === -1 ? id : id.slice(at + "node_modules/".length);
+};
 
 function stubStartEntries() {
   const prefix = "\0platform:start-entry:";
@@ -878,12 +1105,40 @@ const parseModule = async (code: string, file: string) =>
     body: Array<ModuleStatement>;
   };
 
+/**
+ * The text of every import and re-export statement in a chunk, and nothing
+ * else, as one small module.
+ *
+ * A lexer finds them and the parser below reads only them. Parsing the whole
+ * chunk was the most expensive thing left in a layer build: Val's server chunk
+ * is 20 MB, and its syntax tree cost about 650 MB and 4 s to learn the dozen
+ * statements at its top. The lexer knows strings, comments, template literals
+ * and regular expressions, so a `from "mod"` inside a string is not a
+ * statement -- which is the reason this is not a regular expression (see
+ * above).
+ *
+ * Null when the lexer cannot read the chunk, and the caller parses all of it,
+ * as it did before.
+ */
+async function importStatementsOf(code: string): Promise<string | null> {
+  await initLexer;
+  try {
+    const [imports] = lexModule(code);
+    return imports
+      .filter((entry) => entry.t === ImportType.Static)
+      .map((entry) => code.slice(entry.ss, entry.se))
+      .join(";\n");
+  } catch {
+    return null;
+  }
+}
+
 /** Every import and re-export a chunk emits, with the names it takes. */
 export async function auditableImports(
   code: string,
   file: string,
 ): Promise<Array<AuditableImport>> {
-  const ast = await parseModule(code, file);
+  const ast = await parseModule((await importStatementsOf(code)) ?? code, file);
   const imports: Array<AuditableImport> = [];
   for (const statement of ast.body) {
     if (
@@ -1375,10 +1630,12 @@ export async function buildVendorLayer(
       input[name] = file;
     }
 
-    // Fast path: one build with every entry, so shared code is shared. When it
-    // fails, rolldown reports against a file deep inside a package rather than
-    // against the entry that pulled it in, so the only way to learn *which*
-    // dependency is at fault is to try them one at a time.
+    // Fast path: one build with every entry, so shared code is shared, and the
+    // usual answer: a server-only dependency, or one that loads a native
+    // binary, does not fail it (see `stubUnbundlable`). When something else does, rolldown reports
+    // against a file deep inside a package rather than against the entry that
+    // pulled it in, so the only way to learn *which* dependency is at fault is
+    // to try them one at a time.
     const skipped: Array<{ specifier: string; reason: string }> = [];
     /** Built for the worker but not the browser: server-only dependencies. */
     const workerOnly: Array<string> = [];
@@ -1403,18 +1660,15 @@ export async function buildVendorLayer(
       usable = [];
       for (const name of Object.values(modules)) {
         // Probed per target, because the two sides are not the same question.
-        // `@valbuild/tanstack/server` cannot build for a browser -- it reaches
-        // TanStack's SSR path, which lands on `node:stream/web` -- and it has no
-        // business being in a browser bundle either. Failing it outright would
-        // mean a server-only dependency can never be layered at all, so a
-        // package that builds for the worker and not the browser is kept as
+        // A package that builds for the worker and not the browser is kept as
         // server-only, and importing it from client code is rejected later by
-        // the builder, naming it.
+        // the builder, naming it. Reaching a Node builtin is not a failure here
+        // any more than in the first build: `buildTargets` reports it.
         const worked: Record<string, boolean> = {};
         const reasons: Array<string> = [];
         for (const target of targetsFor(platform)) {
           try {
-            await buildTargets(
+            const probe = await buildTargets(
               {
                 worker: target.name === "worker" ? [name] : [],
                 browser: target.name === "browser" ? [name] : [],
@@ -1424,7 +1678,9 @@ export async function buildVendorLayer(
               true,
               platform,
             );
-            worked[target.name] = true;
+            const unbundlable = probe.unusable[name] ?? probe.serverOnly[name];
+            worked[target.name] = unbundlable === undefined;
+            if (unbundlable !== undefined) reasons.push(unbundlable);
           } catch (error) {
             // Not a reason to drop this dependency: see PinSkewError.
             if (error instanceof PinSkewError) throw error;
@@ -1479,6 +1735,22 @@ export async function buildVendorLayer(
         false,
         platform,
       );
+    }
+
+    // What the build could not bundle, in the manifest's order. On the
+    // per-dependency path the probes found these first and the last build
+    // finds none.
+    for (const [specifier, name] of Object.entries(modules)) {
+      const reason = built.unusable[name];
+      if (reason === undefined) continue;
+      skipped.push({ specifier, reason });
+      delete modules[specifier];
+    }
+    for (const [specifier, name] of Object.entries(modules)) {
+      const reason = built.serverOnly[name];
+      if (reason === undefined || workerOnly.includes(specifier)) continue;
+      workerOnly.push(specifier);
+      workerOnlyReasons[specifier] = reason;
     }
 
     // The revision covers the stylesheets too: changing one is a different

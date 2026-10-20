@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import {
   chooseEncoded,
   ENCODE_MIME_TYPE_OF,
@@ -113,7 +114,7 @@ async function encodeWithWasm(
     const pixels = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
     return await encodeWebpWithWasm(pixels, quality);
   } catch (err) {
-    console.warn(
+    Internal.log.warn(
       "Could not encode WebP with WebAssembly, falling back to the canvas",
       err,
     );
@@ -225,7 +226,10 @@ export async function encodeImage(
       ) ?? file
     );
   } catch (err) {
-    console.error("Could not re-encode image, uploading the original", err);
+    Internal.log.debug(
+      "Could not re-encode image, uploading the original",
+      err,
+    );
     return file;
   } finally {
     bitmap?.close();

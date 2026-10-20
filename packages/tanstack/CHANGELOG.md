@@ -1,5 +1,58 @@
 # @valbuild/tanstack
 
+## 0.148.2
+
+### Patch Changes
+
+- [#892](https://github.com/valbuild/val/pull/892) [`6f1eca1`](https://github.com/valbuild/val/commit/6f1eca14cd924bc7aa9cc573c690f8386b1d91bb) Thanks [@freekh](https://github.com/freekh)! - `<ValApp demo>` no longer says "This demo was built without its content" now and again, on a build that has its content. The demo started Val's server before `<ValModulesClient>` had registered the modules, and on a page that had the server's code already it read them before they were there. It now starts once `ValApp`'s children are rendered.
+
+- [#889](https://github.com/valbuild/val/pull/889) [`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a) Thanks [@freekh](https://github.com/freekh)! - Val is quieter in your app's console. Errors and warnings you can act on still
+  print, now prefixed with `[val]` so you can filter them. Val's own debug
+  output, which used to reach your terminal and browser console, is now off by
+  default. That includes the `Invalid JWT` line that printed on every request
+  with an expired session cookie, the "verifying draft mode" and polling notices,
+  and the Studio's sync and WebSocket chatter.
+
+  To turn the debug output back on, for example when reporting a bug:
+
+  - on the server, set `VAL_DEBUG=1`
+  - in the browser, run `localStorage.setItem("val:debug", "1")` in the console.
+    It takes effect immediately, with no reload. Remove the key to turn it off
+    again.
+
+- Updated dependencies [[`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a)]:
+  - @valbuild/core@0.148.2
+  - @valbuild/shared@0.148.2
+  - @valbuild/server@0.148.2
+  - @valbuild/react@0.148.2
+  - @valbuild/ui@0.148.2
+  - @valbuild/language-server@0.148.2
+  - @valbuild/mcp@0.148.2
+
+## 0.148.1
+
+### Patch Changes
+
+- Updated dependencies [[`fff5681`](https://github.com/valbuild/val/commit/fff5681b9ac9a24b873ba74ca636240d83404e46)]:
+  - @valbuild/ui@0.148.1
+  - @valbuild/react@0.148.1
+  - @valbuild/server@0.148.1
+  - @valbuild/language-server@0.148.1
+  - @valbuild/mcp@0.148.1
+
+## 0.148.0
+
+### Patch Changes
+
+- Updated dependencies [[`df5544c`](https://github.com/valbuild/val/commit/df5544c6e92a4c3a52765630c9de191e854ee723), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`4176757`](https://github.com/valbuild/val/commit/41767579b01849473a94779122fd39c07dd99234), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1)]:
+  - @valbuild/server@0.148.0
+  - @valbuild/shared@0.148.0
+  - @valbuild/ui@0.148.0
+  - @valbuild/mcp@0.148.0
+  - @valbuild/core@0.148.0
+  - @valbuild/language-server@0.148.0
+  - @valbuild/react@0.148.0
+
 ## 0.147.0
 
 ### Minor Changes

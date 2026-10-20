@@ -46,7 +46,8 @@ import { useAddPage } from "../useAddPage";
 import { useDuplicatePage } from "../useDuplicatePage";
 import { useRenamePage } from "../useRenamePage";
 import { PublishButton } from "../PublishButton";
-import { ValidationErrorsView } from "../ValidationErrors";
+import { ValidateRoute } from "../validate/ValidateRoute";
+import { useValidateCount } from "../validate/useValidateCount";
 import { ComparePatchSets, CompareLoading } from "../ComparePatchSets";
 import { isPathWithin } from "../../utils/sourcePath";
 import { cn } from "../designSystem/cn";
@@ -275,6 +276,7 @@ function ValShellBody({
   const studioSettings = useStudioSettings();
   const insertFieldRef = useInsertFieldRef();
   const navigation = useNavigation();
+  const validateCount = useValidateCount();
   const { history } = useHistoryParams();
   const commitState = useHistoricalCommit(history.commitSha);
   const connectionStatus = useConnectionStatus();
@@ -1221,7 +1223,7 @@ function ValShellBody({
      */
     <ReviewRoute canPublishSelected={restoreDestination.kind === "proposal"} />
   ) : navigation.isErrorsView ? (
-    <ValidationErrorsView />
+    <ValidateRoute />
   ) : navigation.isHistoryView ? (
     /*
      * The list of publishes, as the whole editor column.
@@ -1459,6 +1461,9 @@ function ValShellBody({
         })}
         historyActive={navigation.isHistoryView}
         onOpenHistory={() => navigation.navigate(VAL_HISTORY_ROUTE)}
+        onOpenValidate={() => navigation.navigate(VAL_ERRORS_ROUTE)}
+        validateActive={navigation.isErrorsView}
+        validateCount={validateCount}
         onMentionField={(sourcePath) =>
           insertFieldRef(sourcePath as SourcePath)
         }

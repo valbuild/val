@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import {
   DEMO_CLAIM_MESSAGE,
   DEMO_RELAY_MESSAGE,
@@ -86,7 +87,7 @@ export async function startDemoRelay(fetch: InTabFetch): Promise<boolean> {
     answer(fetch, event.data)
       .then((res) => port.postMessage(res, res.body ? [res.body] : []))
       .catch((err: unknown) => {
-        console.error("Val: the demo could not answer a relayed request", err);
+        Internal.log.error("the demo could not answer a relayed request", err);
         port.postMessage({
           status: 500,
           headers: [["Content-Type", "application/json"]],
@@ -126,7 +127,7 @@ export async function startDemoRelay(fetch: InTabFetch): Promise<boolean> {
     }
     return container.controller !== null;
   } catch (err) {
-    console.error("Val: the demo's service worker did not start", err);
+    Internal.log.error("the demo's service worker did not start", err);
     return false;
   }
 }

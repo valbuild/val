@@ -49,7 +49,13 @@ export type RemoteUploadTarget = {
  * uploads arriving together make one request rather than two.
  */
 export type RemoteSettingsLoader = () => Promise<
-  | { status: "success"; publicProjectId: string; buckets: string[] }
+  | {
+      status: "success";
+      publicProjectId: string;
+      buckets: string[];
+      /** The host new refs name, when the project's settings say. */
+      remoteHost?: string;
+    }
   | ValToolError
 >;
 
@@ -111,6 +117,9 @@ async function load(
     status: "success",
     publicProjectId: settings.data.publicProjectId,
     buckets,
+    ...(settings.data.remoteHost !== undefined
+      ? { remoteHost: settings.data.remoteHost }
+      : {}),
   };
 }
 
@@ -152,11 +161,15 @@ export async function resolveRemoteUploadTarget(
       publicProjectId: settings.publicProjectId,
       bucket: nextBucket(settings.buckets),
       coreVersion,
-      // Read the way `val validate --fix` reads it. Deliberately not from
-      // `ValConfig`, which has no such field: the remote host is where Val's
-      // own file service lives rather than something a project configures, and
-      // the env var is the escape hatch for pointing at another one.
-      remoteHost: process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST,
+      // The project's settings say, because they also say where the bytes
+      // go: a Hosted project's are in R2 and served at its own address, and a
+      // ref naming another host would point at nothing. Otherwise read the way
+      // `val validate --fix` reads it -- deliberately not from `ValConfig`,
+      // which has no such field: the env var is the escape hatch for pointing
+      // at another file service.
+      remoteHost:
+        settings.remoteHost ??
+        (process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST),
     },
   };
 }

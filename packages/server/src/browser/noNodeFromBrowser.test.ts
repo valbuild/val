@@ -21,10 +21,40 @@ import { builtinModules } from "module";
  *
  * Type-only imports are skipped, because they are erased: that is how
  * `ValServer` names `ValOpsFS` and `ValOpsHttp` without loading them.
+ *
+ * The walk goes on into `@valbuild/core` and `@valbuild/shared`, because they
+ * are in the tab too: what they import is as much a part of the demo's chunk
+ * as what this package does.
  */
 
 const SRC = path.resolve(__dirname, "..");
+const PACKAGES = path.resolve(SRC, "..", "..");
 const ENTRY = path.join(SRC, "browser", "index.ts");
+
+/**
+ * The workspace packages the server imports, mapped to the source of the entry
+ * each specifier names. Their own `package.json` maps the same specifiers to
+ * `dist/`, which is what an app loads; this is the code that becomes it.
+ */
+const WORKSPACE_ENTRIES: Record<string, string> = {
+  "@valbuild/core": path.join(PACKAGES, "core", "src", "index.ts"),
+  "@valbuild/core/fp": path.join(PACKAGES, "core", "src", "fp", "index.ts"),
+  "@valbuild/core/patch": path.join(
+    PACKAGES,
+    "core",
+    "src",
+    "patch",
+    "index.ts",
+  ),
+  "@valbuild/shared": path.join(PACKAGES, "shared", "src", "index.ts"),
+  "@valbuild/shared/internal": path.join(
+    PACKAGES,
+    "shared",
+    "src",
+    "internal",
+    "index.ts",
+  ),
+};
 
 function scannable(code: string): string {
   return (
@@ -35,6 +65,10 @@ function scannable(code: string): string {
       // `import type { X } from "./x"` and `export type { X } from "./x"`.
       .replace(/\b(?:import|export)\s+type\b[^;]*?\bfrom\s*["'][^"']+["']/g, "")
   );
+}
+
+function withoutStrings(code: string): string {
+  return code.replace(/"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'/g, '""');
 }
 
 const DYNAMIC_IMPORT = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
@@ -57,6 +91,8 @@ function specifiersOf(source: string, dynamic = true): string[] {
 }
 
 function resolveRelative(from: string, specifier: string): string | null {
+  const workspaceEntry = WORKSPACE_ENTRIES[specifier];
+  if (workspaceEntry) return workspaceEntry;
   if (!specifier.startsWith(".")) return null;
   const base = path.resolve(path.dirname(from), specifier);
   for (const candidate of [
@@ -92,7 +128,10 @@ function reachableFrom(entry: string, dynamic = true): Map<string, Reached> {
   return reached;
 }
 
-const relative = (file: string) => path.relative(SRC, file);
+const relative = (file: string) =>
+  file.startsWith(SRC + path.sep)
+    ? path.relative(SRC, file)
+    : path.relative(PACKAGES, file);
 const trail = (entry: Reached) => entry.via.map(relative).join(" -> ");
 
 const BUILTINS = new Set(builtinModules);
@@ -103,16 +142,18 @@ const BUILTINS = new Set(builtinModules);
  */
 const SERVER_ONLY = ["@valbuild/ui/server"];
 
-/**
- * Builtins with a package of the same name that a browser bundle resolves
- * instead. `buffer` is a declared dependency of this package for exactly that
- * reason: Node answers it with its own, a bundler with the package.
+/*
+ * `buffer` is a builtin like the rest, and is refused like the rest, although
+ * npm has a package of that name a bundler can resolve instead. That package is
+ * CommonJS, and `vite dev` serves a dependency it did not see in its scan
+ * unconverted: the demo's chunk is loaded on demand, so the scan never sees it,
+ * and the tab refuses the import with "does not provide an export named
+ * 'Buffer'". `vite build` converts it, so only an app's dev server broke. Use
+ * `Uint8Array` and `./bytes` instead.
  */
-const BROWSER_PACKAGES = ["buffer"];
 
 function isNodeOnly(specifier: string): boolean {
   if (specifier.startsWith("node:")) return true;
-  if (BROWSER_PACKAGES.includes(specifier)) return false;
   if (SERVER_ONLY.includes(specifier)) return true;
   return BUILTINS.has(specifier.split("/")[0] ?? specifier);
 }
@@ -133,6 +174,23 @@ describe("@valbuild/server/browser is browser-safe", () => {
     expect(offenders).toEqual([]);
   });
 
+  test("nothing it reaches uses Node's global Buffer", () => {
+    // The import is caught above; this is the same thing without one. A
+    // browser has no `Buffer`, so a value use is a ReferenceError in the tab,
+    // and a type use says bytes have methods (`toString("base64")`) that a
+    // `Uint8Array` from the browser does not. Bytes are `Uint8Array` here.
+    const offenders: string[] = [];
+    for (const entry of reached.values()) {
+      const code = withoutStrings(
+        scannable(fs.readFileSync(entry.file, "utf8")),
+      );
+      if (/\bBuffer\b/.test(code)) {
+        offenders.push(trail(entry));
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   test("it reaches the real server, not a stand-in", () => {
     // If this fails, the test above has stopped meaning anything: it would be
     // proving that a small file does not import `fs`.
@@ -141,6 +199,8 @@ describe("@valbuild/server/browser is browser-safe", () => {
     expect(files).toContain("ValRouterCore.ts");
     expect(files).toContain("ValOpsMemory.ts");
     expect(files).toContain("ValOps.ts");
+    expect(files).toContain(path.join("core", "src", "index.ts"));
+    expect(files).toContain(path.join("shared", "src", "internal", "index.ts"));
   });
 
   test("the TypeScript compiler is loaded only when it is used", () => {
