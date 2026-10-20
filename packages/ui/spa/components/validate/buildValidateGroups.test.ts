@@ -82,7 +82,7 @@ describe("buildValidateGroups", () => {
       tone: "error",
       action: { kind: "open" },
     });
-    expect(res.targets.get(`full:${hero}:0`)).toEqual({
+    expect(res.targets.get(byMessage["No metadata"].id)).toEqual({
       kind: "full",
       moduleFilePath: MEDIA,
       sourcePath: hero,
@@ -180,7 +180,10 @@ describe("buildValidateGroups", () => {
         ],
       ]),
       fixes: {
-        [`full:${hero}:0`]: { status: "fixed", summary: "width 1, height 1" },
+        [`full:${hero}:image:add-metadata:No metadata`]: {
+          status: "fixed",
+          summary: "width 1, height 1",
+        },
       },
     });
     expect(rowsOf(res)[0].fixState).toEqual({
@@ -317,5 +320,26 @@ describe("buildValidateGroups", () => {
       location: "/public/val/images/gone.png",
       action: { kind: "fix" },
     });
+  });
+
+  // A fix state is keyed by the row: a host's Try again hands a path a new
+  // list of errors, and the same error can sit elsewhere in it.
+  test("a row keeps its id when the errors around it change", () => {
+    const hero = at(MEDIA, '"hero"');
+    const idOf = (errors: ValidationError[]) =>
+      rowsOf(
+        build({
+          results: new Map<ModuleFilePath, ModuleCheckResult>([
+            [MEDIA, { status: "ok", errors: { [hero]: errors } }],
+          ]),
+        }),
+      ).find((row) => row.message === "No metadata")?.id;
+    const noMetadata: ValidationError = {
+      message: "No metadata",
+      fixes: ["image:add-metadata"],
+    };
+    expect(idOf([noMetadata])).toBe(
+      idOf([{ message: "Required" }, noMetadata]),
+    );
   });
 });

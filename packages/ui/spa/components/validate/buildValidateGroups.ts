@@ -243,9 +243,14 @@ function fullCheckRows(
   // pointing at an error that is no longer there.
   const mismatches = new Map<SourcePath, string[]>();
 
+  // A row's id is what the error SAYS, not where it sits in the list: a fix
+  // state (with its Undo) is keyed by it, and a host's Try again replaces a
+  // path's errors with a new list in which the same error can sit elsewhere.
+  // Errors that say exactly the same thing are told apart by their count.
+  const seen = new Map<string, number>();
   for (const [sourcePathS, found] of Object.entries(errors)) {
     const sourcePath = sourcePathS as SourcePath;
-    found.forEach((error, index) => {
+    found.forEach((error) => {
       if (alreadyShown(sourcePath, error, input)) {
         return;
       }
@@ -257,7 +262,10 @@ function fullCheckRows(
         mismatches.set(mismatch.mediaPath, lines);
         return;
       }
-      const id = `full:${sourcePath}:${index}`;
+      const says = `full:${sourcePath}:${(error.fixes ?? []).join(",")}:${error.message}`;
+      const count = seen.get(says) ?? 0;
+      seen.set(says, count + 1);
+      const id = count === 0 ? says : `${says}:${count}`;
       rows.push({
         target: {
           kind: "full",
