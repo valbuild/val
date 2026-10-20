@@ -5,6 +5,7 @@ import React, {
   useId,
   useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
 } from "react";
 import {
@@ -687,6 +688,14 @@ export function useGetDirectFileUploadSettings() {
   return useValFieldContext().getDirectFileUploadSettings;
 }
 
+type StudioConfig = ValConfig & {
+  remoteHost: string;
+  appHost: string;
+  /** Val's content server: the Studio API and its web components. */
+  contentHost: string;
+  studioPrefix: string;
+};
+
 export function useValConfig() {
   // Tolerate being rendered without a ValFieldProvider (e.g. in Storybook).
   // Config is already typed as optional throughout — returning undefined here
@@ -696,36 +705,27 @@ export function useValConfig() {
   // The project's settings say which host new remote refs name: see
   // `useRemoteHost`.
   const remoteHost = useRemoteHost();
-  const lastConfig = useRef<
-    | (ValConfig & {
-        remoteHost: string;
-        appHost: string;
-        /** Val's content server: the Studio API and its web components. */
-        contentHost: string;
-        studioPrefix: string;
-      })
-    | undefined
-  >(
-    config && {
-      ...config,
-      remoteHost,
-      appHost: DEFAULT_APP_HOST,
-      contentHost: DEFAULT_CONTENT_HOST,
-      studioPrefix: "/val/~",
-    },
-  );
-  useEffect(() => {
-    if (config) {
-      lastConfig.current = {
-        ...config,
+  // The last config the provider gave, kept if it goes away.
+  const [lastConfig, setLastConfig] = useState(config);
+  if (config !== undefined && config !== lastConfig) {
+    setLastConfig(config);
+  }
+  const current = config ?? lastConfig;
+  // Computed while rendering, not in an effect: a field rendered when the
+  // settings arrive builds its upload with this, and an effect would hand it
+  // the host from BEFORE they arrived -- remote.val.build, which does not
+  // serve a Hosted project's files.
+  return useMemo<StudioConfig | undefined>(
+    () =>
+      current && {
+        ...current,
         remoteHost,
         appHost: DEFAULT_APP_HOST,
         contentHost: DEFAULT_CONTENT_HOST,
         studioPrefix: "/val/~",
-      };
-    }
-  }, [config, remoteHost]);
-  return lastConfig.current;
+      },
+    [current, remoteHost],
+  );
 }
 
 /** `undefined` when the module has nothing to preview at this path. */
