@@ -1,5 +1,94 @@
 # @valbuild/ui
 
+## 0.148.0
+
+### Minor Changes
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - **Check everything** on the Studio's Validate page now checks media directories
+  (`s.imagedir()`, `s.filedir()`, `s.fontdir()` and `s.videodir()`) by the files
+  they list:
+
+  - An entry whose file is gone has a **Fix** that removes it from the directory.
+  - An image or file entry whose recorded size or type does not match its file has
+    a **Fix** that corrects it from the file, keeping its alt text.
+  - A video entry whose file is gone is reported, and is removed by hand: its
+    posters and captions may still be in use.
+  - A remote entry is checked with its host, like any remote file.
+
+  `val validate --fix` fixes media directories exactly as before.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - The Studio has a **Validate** page, at `/val/validate`, and a button for it in
+  the top bar with the number of errors left.
+
+  It lists the errors the Studio already shows, as the errors page did, and adds
+  **Check everything**: a check of every module on the server, including whether
+  each image's and file's recorded size and type match the file itself. It runs
+  only when you press it, can be stopped, and its results stay for the session.
+
+  Where the Studio can make the fix itself — a missing or wrong width, height or
+  mime type on an image, file or video — the row has a **Fix** button. A fix is an
+  ordinary change: it shows up in Review, is published with everything else, and
+  can be undone from the row. Fixes that need a terminal show the
+  `val validate --fix` command to copy.
+
+  `/val/errors` still works and opens the same page.
+
+  Also fixed: `.jsonValues()` entries no longer report every image in them as
+  "not checked against the file" when validated on the server.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - **Check everything** on the Studio's Validate page now checks remote images and
+  files too.
+
+  - A remote image or file whose address no longer matches what is recorded about
+    it (its size, type or the schema's options changed since it was uploaded) has
+    a **Fix**, which re-reads the file and corrects it, as `val validate --fix`
+    does.
+  - A remote host that does not answer is shown once, at the top of the page, with
+    how many files it holds and a **Try again**, rather than as an error on every
+    image.
+  - A file its host no longer has is shown at the image or file that uses it.
+
+  Images and files in your unpublished changes are not asked about until they are
+  published; the check makes sure the change still has them.
+
+### Patch Changes
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Remote files are now addressed on the host the project's settings name. For a
+  project hosted by Val, that is the project's own address, and its remote images
+  and files are served from there rather than from `remote.val.build`. Every other
+  project is unchanged.
+
+  - The Studio, `val validate --fix` and the MCP image tool all take the host from
+    the project's settings, falling back to `remote.val.build` as before.
+  - Re-reading a remote file whose recorded size or type is out of date keeps it
+    on the host it was on.
+  - When a remote file's host cannot be reached, tooling downloads it from the
+    project's permanent `<id>.valstart.dev` address instead, and keeps it only if
+    its bytes match the file the address names.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Remote files served from a project's own site (addresses like
+  `https://www.acme.no/_val/file/…`) are now checked for whether that address
+  still serves the project. When a custom domain has been removed or moved to
+  another project, the image or file is reported, and **Fix** on the Studio's
+  Validate page — or `val validate --fix` — points it at the project's permanent
+  `<id>.valstart.dev` address. Nothing is uploaded or downloaded: only the address
+  changes.
+
+  Remote file addresses with a `/_val` prefix after the host are now recognised.
+
+- [#886](https://github.com/valbuild/val/pull/886) [`4176757`](https://github.com/valbuild/val/commit/41767579b01849473a94779122fd39c07dd99234) Thanks [@freekh](https://github.com/freekh)! - The unlinked `/val/adept` page can now typecheck the live site against the
+  lockfile it computed, in the browser. It works out the `node_modules` that
+  `pnpm install` would make from the lockfile alone, fetches the type
+  declarations of the packages the site's imports reach, and checks every
+  `tsconfig.json` with the project's own TypeScript (a 6.x when the project uses
+  TypeScript 7, which has no compiler that runs in a browser). It shows the
+  errors by file and how long the layout, the types and the check took.
+  Packages whose types could not be fetched are listed, since errors that
+  involve them may be wrong, with Try again when that can help.
+
+  This is the check the Upgrade button will run before it offers to merge an
+  upgrade; nothing else in the Studio uses it yet.
+
 ## 0.147.0
 
 ### Minor Changes
