@@ -89,6 +89,14 @@ function tagged(path: string, text = "x"): HTMLElement {
   return element;
 }
 
+function setVisibility(state: DocumentVisibilityState) {
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => state,
+  });
+  document.dispatchEvent(new Event("visibilitychange"));
+}
+
 async function settle(ms: number) {
   await jest.advanceTimersByTimeAsync(ms);
 }
@@ -119,6 +127,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  Reflect.deleteProperty(document, "visibilityState");
   tracker?.stop();
   jest.useRealTimers();
 });
@@ -205,6 +214,8 @@ test("a client-side navigation ends one page view and starts the next", async ()
   tracker = startValAnalytics();
   await settle(3_100);
   history.pushState(null, "", "/blogs/b");
+  // The new page renders: its own content in, the old page's out.
+  tagged('/content/blog.val.ts?p="b"."title"');
   await settle(100);
   setOnScreen(header, true);
   await settle(1_100);
@@ -218,6 +229,67 @@ test("a client-side navigation ends one page view and starts the next", async ()
   expect(
     second.flatMap((b) => b.viewed["/content/header.val.ts"] ?? []),
   ).toEqual([""]);
+  expect(
+    second.flatMap((b) => b.rendered["/content/blog.val.ts"] ?? []),
+  ).toEqual(['"b"."title"']);
+});
+
+test("the old page, still on screen while the new one loads, is not counted on the new route", async () => {
+  tagged("/content/header.val.ts");
+  const oldTitle = tagged('/content/blog.val.ts?p="a"."title"');
+  setOnScreen(oldTitle, true);
+  tracker = startValAnalytics();
+  await settle(3_100);
+  // The router changes the URL first, then waits 2 s for the next page's
+  // loader with the old page still showing.
+  history.pushState(null, "", "/blogs/b");
+  await settle(2_000);
+  oldTitle.remove();
+  const newTitle = tagged('/content/blog.val.ts?p="b"."title"');
+  setOnScreen(newTitle, true);
+  await settle(1_200);
+  tracker?.flush();
+  const second = sent().filter((b) => b.route === "/blogs/b");
+  const of = (kind: "rendered" | "viewed") =>
+    second.flatMap((b) => b[kind]["/content/blog.val.ts"] ?? []);
+  expect(of("rendered")).toEqual(['"b"."title"']);
+  expect(of("viewed")).toEqual(['"b"."title"']);
+  // The layout around both pages counts for the new one.
+  expect(
+    second.flatMap((b) => b.rendered["/content/header.val.ts"] ?? []),
+  ).toEqual([""]);
+});
+
+test("content still on screen when the visitor comes back to the tab is counted as viewed", async () => {
+  const title = tagged('/content/blog.val.ts?p="a"."title"');
+  const running = startValAnalytics();
+  tracker = running;
+  await settle(100);
+  setOnScreen(title, true);
+  await settle(500);
+  setVisibility("hidden");
+  await settle(2_000);
+  setVisibility("visible");
+  await settle(1_100);
+  running?.flush();
+  const viewed = sent().flatMap((b) => b.viewed["/content/blog.val.ts"] ?? []);
+  expect(viewed).toEqual(['"a"."title"']);
+});
+
+test("time spent in another tab does not count towards viewed", async () => {
+  const title = tagged('/content/blog.val.ts?p="a"."title"');
+  const running = startValAnalytics();
+  tracker = running;
+  await settle(100);
+  setOnScreen(title, true);
+  await settle(600);
+  setVisibility("hidden");
+  await settle(600);
+  setVisibility("visible");
+  await settle(600);
+  running?.flush();
+  const viewed = sent().flatMap((b) => b.viewed["/content/blog.val.ts"] ?? []);
+  expect(viewed).toEqual([]);
 });
 
 test("a change of query alone is not a new page view", async () => {
@@ -227,6 +299,21 @@ test("a change of query alone is not a new page view", async () => {
   history.pushState(null, "", "/blogs/a?tab=2");
   await settle(5_000);
   expect(sent().filter((b) => b.view)).toHaveLength(1);
+});
+
+test("reads a 410 even when the first beacon went while leaving", async () => {
+  fetchStatus = 410;
+  tagged('/content/blog.val.ts?p="a"."title"');
+  tracker = startValAnalytics();
+  await settle(1_000);
+  setVisibility("hidden"); // sent with sendBeacon, which cannot read it
+  setVisibility("visible");
+  history.pushState(null, "", "/blogs/b");
+  await settle(3_100); // the next page view's first beacon asks
+  expect(fetched.map((f) => f.status)).toEqual([410]);
+  history.pushState(null, "", "/blogs/c");
+  await settle(5_000);
+  expect(sent().filter((b) => b.route === "/blogs/c")).toEqual([]);
 });
 
 test("stops when the site answers 410", async () => {
@@ -277,6 +364,57 @@ test("a page the visitor left before the script started still counts as the land
     ]);
     // Nothing was being counted on the landing page.
     expect(views[0].rendered).toEqual({});
+  } finally {
+    Reflect.deleteProperty(performance, "getEntriesByType");
+    Reflect.deleteProperty(document, "referrer");
+  }
+});
+
+test("a router that calls pushState unbound still navigates", () => {
+  tracker = startValAnalytics();
+  const { pushState } = history;
+  pushState(null, "", "/blogs/unbound");
+  expect(location.pathname).toBe("/blogs/unbound");
+});
+
+test("does not take off a wrapper installed after its own when stopped", () => {
+  tracker = startValAnalytics();
+  const ours = history.pushState;
+  const later: History["pushState"] = (...args) => ours.apply(history, args);
+  history.pushState = later;
+  tracker?.stop();
+  tracker = null;
+  expect(history.pushState).toBe(later);
+  history.pushState = History.prototype.pushState;
+});
+
+test("a page the router only renamed is not a page view of its own", async () => {
+  Object.defineProperty(document, "referrer", {
+    configurable: true,
+    get: () => "https://google.com/",
+  });
+  // Loaded at /blogs/a/, normalised to /blogs/a before hydration.
+  const landing: PerformanceEntry = {
+    name: `${location.origin}/blogs/a/?utm_source=ads`,
+    entryType: "navigation",
+    startTime: 0,
+    duration: 0,
+    toJSON: () => ({}),
+  };
+  Reflect.set(performance, "getEntriesByType", (type: string) =>
+    type === "navigation" ? [landing] : [],
+  );
+  try {
+    tagged("/content/header.val.ts");
+    tracker = startValAnalytics({ landingPath: "/blogs/a" });
+    await settle(3_100);
+    const views = sent().filter((b) => b.view);
+    expect(views.map((b) => [b.route, b.view])).toEqual([
+      [
+        "/blogs/a",
+        { device: "desktop", ref: "google.com", utm: { source: "ads" } },
+      ],
+    ]);
   } finally {
     Reflect.deleteProperty(performance, "getEntriesByType");
     Reflect.deleteProperty(document, "referrer");

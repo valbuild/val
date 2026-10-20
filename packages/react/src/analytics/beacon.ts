@@ -40,10 +40,24 @@ export type AnalyticsBeacon = {
   viewed: AnalyticsPaths;
 };
 
-/** The receiver cuts anything above these; the sender never sends more. */
+/**
+ * The receiver rejects a beacon above these (`AnalyticsBeacon` in
+ * `@valbuild/shared/internal` repeats them), so the sender never sends more:
+ * it cuts or drops what is longer, and splits what is larger.
+ */
 export const MAX_PATHS_PER_BEACON = 200;
 export const MAX_ROUTE_LENGTH = 512;
 export const MAX_UTM_LENGTH = 100;
+/** A host name is at most 253 characters (RFC 1035). */
+export const MAX_REF_LENGTH = 253;
+export const MAX_CV_LENGTH = 128;
+export const MAX_MODULE_FILE_PATH_LENGTH = 512;
+export const MAX_MODULE_PATH_LENGTH = 1024;
+/**
+ * A beacon's size in bytes of JSON, below the 16 KB Val's hosting accepts --
+ * 200 long router keys are about 18 KB. `sendBeacon` itself takes 64 KB.
+ */
+export const MAX_BEACON_BYTES = 12_000;
 
 const MODULE_FILE_PATH_SEP = "?p=";
 
@@ -79,7 +93,7 @@ export function referrerHostOf(
   if (!host || host === ownHost) {
     return undefined;
   }
-  return host;
+  return host.slice(0, MAX_REF_LENGTH);
 }
 
 /** `utm_source`, `utm_medium` and `utm_campaign`, and no other parameter. */
@@ -111,19 +125,13 @@ function splitSourcePath(sourcePath: string): [string, string] {
   ];
 }
 
-function group(sourcePaths: readonly string[]): AnalyticsPaths {
-  const grouped: AnalyticsPaths = {};
-  for (const sourcePath of sourcePaths) {
-    const [moduleFilePath, modulePath] = splitSourcePath(sourcePath);
-    (grouped[moduleFilePath] ??= []).push(modulePath);
-  }
-  return grouped;
-}
-
 /**
- * The beacons that carry `rendered` and `viewed`, at most
- * `MAX_PATHS_PER_BEACON` paths each. `view`, when given, goes in the first.
- * Returns none when there is nothing to say.
+ * The beacons that carry `rendered` and `viewed`: at most
+ * `MAX_PATHS_PER_BEACON` paths and about `MAX_BEACON_BYTES` each. `view`, when
+ * given, goes in the first. Returns none when there is nothing to say.
+ *
+ * A path longer than the receiver takes is dropped rather than cut: half a
+ * path names some other content, or none.
  */
 export function buildBeacons(args: {
   route: string;
@@ -132,38 +140,77 @@ export function buildBeacons(args: {
   rendered: readonly string[];
   viewed: readonly string[];
 }): AnalyticsBeacon[] {
-  type Counted = { kind: "rendered" | "viewed"; path: string };
+  type Counted = {
+    kind: "rendered" | "viewed";
+    moduleFilePath: string;
+    modulePath: string;
+  };
+  const counted = (kind: Counted["kind"], sourcePath: string): Counted[] => {
+    const [moduleFilePath, modulePath] = splitSourcePath(sourcePath);
+    if (
+      moduleFilePath.length > MAX_MODULE_FILE_PATH_LENGTH ||
+      modulePath.length > MAX_MODULE_PATH_LENGTH
+    ) {
+      return [];
+    }
+    return [{ kind, moduleFilePath, modulePath }];
+  };
   const all: Counted[] = [
-    ...args.rendered.map((path): Counted => ({ kind: "rendered", path })),
-    ...args.viewed.map((path): Counted => ({ kind: "viewed", path })),
+    ...args.rendered.flatMap((path) => counted("rendered", path)),
+    ...args.viewed.flatMap((path) => counted("viewed", path)),
   ];
   if (all.length === 0 && !args.view) {
     return [];
   }
-  const beacons: AnalyticsBeacon[] = [];
-  for (
-    let start = 0;
-    start < Math.max(all.length, 1);
-    start += MAX_PATHS_PER_BEACON
-  ) {
-    const chunk = all.slice(start, start + MAX_PATHS_PER_BEACON);
+  const cv = args.cv?.slice(0, MAX_CV_LENGTH);
+  const empty = (withView: boolean): AnalyticsBeacon => {
     const beacon: AnalyticsBeacon = {
       v: 1,
       route: args.route,
-      rendered: group(
-        chunk.filter((p) => p.kind === "rendered").map((p) => p.path),
-      ),
-      viewed: group(
-        chunk.filter((p) => p.kind === "viewed").map((p) => p.path),
-      ),
+      rendered: {},
+      viewed: {},
     };
-    if (args.cv) {
-      beacon.cv = args.cv;
+    if (cv) {
+      beacon.cv = cv;
     }
-    if (start === 0 && args.view) {
+    if (withView && args.view) {
       beacon.view = args.view;
     }
-    beacons.push(beacon);
+    return beacon;
+  };
+  const beacons: AnalyticsBeacon[] = [];
+  let beacon = empty(true);
+  let paths = 0;
+  let bytes = byteLength(JSON.stringify(beacon));
+  // What adding a path costs: the path and a comma, and a new key when its
+  // module is not in this beacon yet. An estimate in UTF-8 bytes, close
+  // enough to keep well under the limit.
+  const costOf = (path: Counted) =>
+    byteLength(JSON.stringify(path.modulePath)) +
+    1 +
+    (beacon[path.kind][path.moduleFilePath]
+      ? 0
+      : byteLength(JSON.stringify(path.moduleFilePath)) + 4);
+  for (const path of all) {
+    let cost = costOf(path);
+    if (
+      paths > 0 &&
+      (paths === MAX_PATHS_PER_BEACON || bytes + cost > MAX_BEACON_BYTES)
+    ) {
+      beacons.push(beacon);
+      beacon = empty(false);
+      paths = 0;
+      bytes = byteLength(JSON.stringify(beacon));
+      cost = costOf(path);
+    }
+    (beacon[path.kind][path.moduleFilePath] ??= []).push(path.modulePath);
+    paths += 1;
+    bytes += cost;
   }
+  beacons.push(beacon);
   return beacons;
+}
+
+function byteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
 }

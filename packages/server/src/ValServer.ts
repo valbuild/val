@@ -796,7 +796,7 @@ export const ValServer = (
             typeof body === "object" && body !== null && "v" in body
               ? body.v
               : undefined;
-          if (version !== 1) {
+          if (typeof version === "number" && version !== 1) {
             // A newer format than this server knows: not an error.
             return { status: 200, json: { counted: false } };
           }

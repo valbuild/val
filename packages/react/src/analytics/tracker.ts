@@ -22,6 +22,15 @@ export type ValAnalyticsOptions = {
   sendWhenPending?: number;
   /** The shortest time between two of those. Default 15 s. */
   minSendIntervalMs?: number;
+  /**
+   * The pathname the page was rendered and hydrated at. When the visitor is
+   * somewhere else by the time this starts, they navigated in between, and
+   * that page is sent as a page view of its own. Without it, the URL the
+   * document was loaded at stands in -- which also differs after a redirect
+   * or a trailing slash the router normalised, so a caller that knows should
+   * say.
+   */
+  landingPath?: string;
 };
 
 export type ValAnalytics = {
@@ -70,8 +79,12 @@ export function startValAnalytics(
   const minSendIntervalMs = options.minSendIntervalMs ?? 15_000;
 
   let stopped = false;
-  /** The first beacon of the page load is sent with `fetch`, so its status can be read. */
-  let sentAny = false;
+  /**
+   * Whether a beacon has been sent with `fetch`, whose answer can be read --
+   * one is, the first that is not sent while leaving, so a site with
+   * analytics off or paused (410) stops sending.
+   */
+  let asked = false;
 
   // The page view.
   let route = routeOf(location.pathname);
@@ -106,10 +119,11 @@ export function startValAnalytics(
 
   function send(beacon: AnalyticsBeacon, leaving: boolean) {
     const body = JSON.stringify(beacon);
-    if (!sentAny && !leaving) {
-      sentAny = true;
-      // `sendBeacon` cannot read the answer. The first one asks, so a site
-      // with analytics off or paused (410) stops sending at once.
+    if (!asked && !leaving) {
+      asked = true;
+      // `sendBeacon` cannot read the answer, so this one asks. Not while
+      // leaving, where only `sendBeacon` is sure to get out -- the next one
+      // asks instead.
       fetch(endpoint, {
         method: "POST",
         body,
@@ -126,7 +140,6 @@ export function startValAnalytics(
         });
       return;
     }
-    sentAny = true;
     if (typeof navigator.sendBeacon === "function") {
       // A string body is sent as text/plain, which needs no CORS preflight.
       if (navigator.sendBeacon(endpoint, body)) {
@@ -144,6 +157,12 @@ export function startValAnalytics(
   }
 
   function flushNow(leaving: boolean) {
+    if (!leaving) {
+      // The first beacon is as long as a navigation's old page gets: what is
+      // still here by then is the new page's. Leaving before that, it is
+      // not counted at all -- better than counted on the wrong route.
+      confirmCarried();
+    }
     if (firstSendTimer !== null) {
       clearTimeout(firstSendTimer);
       firstSendTimer = null;
@@ -215,29 +234,45 @@ export function startValAnalytics(
     );
   }
 
+  /** Elements on screen enough to be viewed, whether or not they have been. */
+  const onScreen = new Set<Element>();
+  function armViewTimer(element: Element) {
+    if (viewTimers.has(element) || document.visibilityState !== "visible") {
+      return;
+    }
+    viewTimers.set(
+      element,
+      setTimeout(() => {
+        viewTimers.delete(element);
+        if (element.isConnected) {
+          countViewed(element);
+        }
+      }, viewedAfterMs),
+    );
+  }
+  function clearViewTimer(element: Element) {
+    const timer = viewTimers.get(element);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      viewTimers.delete(element);
+    }
+  }
+  function clearViewTimers() {
+    for (const timer of viewTimers.values()) {
+      clearTimeout(timer);
+    }
+    viewTimers.clear();
+  }
+
   const intersections = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
-        const element = entry.target;
-        const timer = viewTimers.get(element);
         if (onScreenEnough(entry)) {
-          if (timer === undefined) {
-            viewTimers.set(
-              element,
-              setTimeout(() => {
-                viewTimers.delete(element);
-                if (
-                  element.isConnected &&
-                  document.visibilityState === "visible"
-                ) {
-                  countViewed(element);
-                }
-              }, viewedAfterMs),
-            );
-          }
-        } else if (timer !== undefined) {
-          clearTimeout(timer);
-          viewTimers.delete(element);
+          onScreen.add(entry.target);
+          armViewTimer(entry.target);
+        } else {
+          onScreen.delete(entry.target);
+          clearViewTimer(entry.target);
         }
       }
     },
@@ -245,60 +280,152 @@ export function startValAnalytics(
   );
 
   const observed = new Set<Element>();
-  function scan() {
-    document.querySelectorAll(SELECTOR).forEach((element) => {
-      countRendered(element);
-      if (!observed.has(element)) {
-        observed.add(element);
-        intersections.observe(element);
-      }
-    });
-    for (const element of observed) {
-      if (!element.isConnected) {
-        observed.delete(element);
-        intersections.unobserve(element);
+  function forget(element: Element) {
+    observed.delete(element);
+    onScreen.delete(element);
+    clearViewTimer(element);
+    intersections.unobserve(element);
+  }
+
+  /*
+   * After a client-side navigation the URL changes when it starts, and the
+   * old page stays on screen until the new one has loaded -- often longer
+   * than a scan takes to find it. So what is on the page when the URL
+   * changes is CARRIED, and not counted for the new route until the page has
+   * changed under it: some content of the new page is added, or some of the
+   * carried content is removed. What is still there then is the layout
+   * around both pages (a header, a footer), and it counts.
+   */
+  const carried = new Set<Element>();
+  function confirmCarried() {
+    if (carried.size === 0) {
+      return;
+    }
+    const kept = [...carried];
+    carried.clear();
+    for (const element of kept) {
+      if (element.isConnected) {
+        track(element);
       }
     }
+  }
+
+  function track(element: Element) {
+    if (carried.has(element)) {
+      return;
+    }
+    countRendered(element);
+    if (!observed.has(element)) {
+      observed.add(element);
+      intersections.observe(element);
+    }
+  }
+
+  function scanAll() {
+    document.querySelectorAll(SELECTOR).forEach(track);
     maybeSendSoon();
   }
 
-  // Coalesced: a render that adds a hundred tagged elements is one scan.
-  let scanQueued = false;
-  function queueScan() {
-    if (scanQueued) {
+  /*
+   * What changed, a little later: a render that adds a hundred tagged
+   * elements is one pass, and the pass looks at what was added rather than
+   * at the whole document, so a page that changes all the time (a clock, a
+   * carousel) costs what it changes.
+   */
+  const added = new Set<Element>();
+  let removedSome = false;
+  let processQueued = false;
+  function process() {
+    processQueued = false;
+    if (stopped) {
       return;
     }
-    scanQueued = true;
-    setTimeout(() => {
-      scanQueued = false;
-      if (!stopped) {
-        scan();
+    let pageChanged = false;
+    for (const root of added) {
+      if (!root.isConnected) {
+        continue;
       }
-    }, 50);
+      const found = root.matches(SELECTOR) ? [root] : [];
+      root.querySelectorAll(SELECTOR).forEach((element) => {
+        found.push(element);
+      });
+      for (const element of found) {
+        if (!carried.has(element)) {
+          pageChanged = true;
+          track(element);
+        }
+      }
+    }
+    added.clear();
+    if (removedSome) {
+      removedSome = false;
+      for (const element of observed) {
+        if (!element.isConnected) {
+          forget(element);
+        }
+      }
+      for (const element of carried) {
+        if (!element.isConnected) {
+          carried.delete(element);
+          pageChanged = true;
+        }
+      }
+    }
+    if (pageChanged) {
+      confirmCarried();
+    }
+    maybeSendSoon();
   }
-  const mutations = new MutationObserver(queueScan);
+  const mutations = new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.type === "attributes") {
+        if (record.target instanceof Element) {
+          added.add(record.target);
+        }
+        continue;
+      }
+      record.addedNodes.forEach((node) => {
+        if (node instanceof Element) {
+          added.add(node);
+        }
+      });
+      if (record.removedNodes.length > 0) {
+        removedSome = true;
+      }
+    }
+    if (!processQueued && (added.size > 0 || removedSome)) {
+      processQueued = true;
+      setTimeout(process, 50);
+    }
+  });
 
-  function startPageView(first: boolean) {
+  /**
+   * A new page view. `carry` for a client-side navigation, whose old page is
+   * probably still on screen; see `carried`.
+   */
+  function startPageView(first: boolean, url: URL | Location, carry: boolean) {
     route = routeOf(location.pathname);
-    view = pageView(first, location);
+    view = pageView(first, url);
     viewSent = false;
     rendered.clear();
     viewed.clear();
-    for (const timer of viewTimers.values()) {
-      clearTimeout(timer);
-    }
-    viewTimers.clear();
+    clearViewTimers();
     // Observe everything afresh, so what is already on screen reports itself
     // to the new page view.
-    for (const element of observed) {
-      intersections.unobserve(element);
+    for (const element of [...observed]) {
+      forget(element);
     }
-    observed.clear();
+    carried.clear();
+    if (carry) {
+      document.querySelectorAll(SELECTOR).forEach((element) => {
+        carried.add(element);
+      });
+    }
     firstSendTimer = setTimeout(() => {
       firstSendTimer = null;
       flushNow(false);
     }, firstSendAfterMs);
-    queueScan();
+    scanAll();
   }
 
   function onLocationMaybeChanged() {
@@ -306,26 +433,41 @@ export function startValAnalytics(
       return;
     }
     flushNow(false);
-    startPageView(false);
+    startPageView(false, location, true);
   }
 
   // Client-side navigation: the router calls `pushState`, and back and
   // forward fire `popstate`. A change of query or hash alone is not a new
   // page view.
+  //
+  // Applied to `history`, never to `this`: a router may call the function
+  // it took off `history` unbound (TanStack's does), and the browser's own
+  // throws "Illegal invocation" without its object.
   const originalPushState = history.pushState;
   const originalReplaceState = history.replaceState;
-  history.pushState = function (...args) {
-    originalPushState.apply(this, args);
+  const pushState: History["pushState"] = (...args) => {
+    originalPushState.apply(history, args);
     onLocationMaybeChanged();
   };
-  history.replaceState = function (...args) {
-    originalReplaceState.apply(this, args);
+  const replaceState: History["replaceState"] = (...args) => {
+    originalReplaceState.apply(history, args);
     onLocationMaybeChanged();
   };
+  history.pushState = pushState;
+  history.replaceState = replaceState;
 
   function onVisibilityChange() {
     if (document.visibilityState === "hidden") {
+      // Time hidden is not time looked at: what was on its way to viewed
+      // starts again when the visitor is back.
+      clearViewTimers();
       flushNow(true);
+    } else if (document.visibilityState === "visible") {
+      // The observer reports nothing new when only the tab changed, so what
+      // is on screen is armed again from what it last said.
+      for (const element of onScreen) {
+        armViewTimer(element);
+      }
     }
   }
   function onPageHide() {
@@ -334,7 +476,7 @@ export function startValAnalytics(
   function onPageShow(event: PageTransitionEvent) {
     // Back from the back/forward cache: the visitor is looking again.
     if (event.persisted) {
-      startPageView(false);
+      startPageView(false, location, false);
     }
   }
   addEventListener("popstate", onLocationMaybeChanged);
@@ -359,19 +501,26 @@ export function startValAnalytics(
    * now starts as a navigation within the site.
    */
   const landing = landingUrl();
-  if (landing && routeOf(landing.pathname) !== routeOf(location.pathname)) {
+  const landedAt = options.landingPath ?? landing?.pathname;
+  // The campaign is in the URL the visitor arrived at; a redirect or the
+  // router may have dropped the query since.
+  const arrivedAt = landing && !utmOf(location.search) ? landing : location;
+  if (
+    landedAt !== undefined &&
+    routeOf(landedAt) !== routeOf(location.pathname)
+  ) {
     for (const beacon of buildBeacons({
-      route: routeOf(landing.pathname),
+      route: routeOf(landedAt),
       cv: options.contentVersion,
-      view: pageView(true, landing),
+      view: pageView(true, arrivedAt),
       rendered: [],
       viewed: [],
     })) {
       send(beacon, false);
     }
-    startPageView(false);
+    startPageView(false, location, false);
   } else {
-    startPageView(true);
+    startPageView(true, arrivedAt, false);
   }
 
   function stop(sendFirst: boolean) {
@@ -388,17 +537,16 @@ export function startValAnalytics(
     if (batchTimer !== null) {
       clearTimeout(batchTimer);
     }
-    for (const timer of viewTimers.values()) {
-      clearTimeout(timer);
-    }
-    viewTimers.clear();
+    clearViewTimers();
     mutations.disconnect();
     intersections.disconnect();
-    // Only put them back if nothing has wrapped them since.
-    if (history.pushState !== originalPushState) {
+    // Only put them back if nothing has wrapped them since: restoring over a
+    // later wrapper would take it off, and whatever installed it would stop
+    // seeing navigations.
+    if (history.pushState === pushState) {
       history.pushState = originalPushState;
     }
-    if (history.replaceState !== originalReplaceState) {
+    if (history.replaceState === replaceState) {
       history.replaceState = originalReplaceState;
     }
     removeEventListener("popstate", onLocationMaybeChanged);

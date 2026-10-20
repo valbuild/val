@@ -2,7 +2,10 @@ import { AnalyticsBeacon } from "@valbuild/shared/internal";
 import {
   buildBeacons,
   deviceOf,
+  MAX_BEACON_BYTES,
+  MAX_MODULE_PATH_LENGTH,
   MAX_PATHS_PER_BEACON,
+  MAX_REF_LENGTH,
   referrerHostOf,
   routeOf,
   utmOf,
@@ -27,6 +30,12 @@ describe("the page view's own fields", () => {
     expect(referrerHostOf("https://acme.no/blog", "acme.no")).toBeUndefined();
     expect(referrerHostOf("", "acme.no")).toBeUndefined();
     expect(referrerHostOf("not a url", "acme.no")).toBeUndefined();
+    expect(
+      referrerHostOf(
+        `https://${"a".repeat(60)}.${"b".repeat(60)}.${"c".repeat(60)}.${"d".repeat(60)}.${"e".repeat(60)}.no/`,
+        "acme.no",
+      ),
+    ).toHaveLength(MAX_REF_LENGTH);
   });
 
   test("only the three utm parameters are read, and cut to length", () => {
@@ -108,6 +117,53 @@ describe("buildBeacons", () => {
       MAX_PATHS_PER_BEACON,
     );
     expect(beacons[1].rendered["/content/list.val.ts"]).toEqual(["200"]);
+  });
+
+  test("splits by size too, so long paths stay under what the host accepts", () => {
+    // Router keys are whole URLs: 150 of them, fewer than the count limit,
+    // are well over the size limit.
+    const paths = Array.from(
+      { length: 150 },
+      (_, i) =>
+        `/src/routes/_site.blog.$slug.val.ts?p="/blog/${"a-long-slug-".repeat(6)}${i}"."title"`,
+    );
+    const beacons = buildBeacons({
+      route: "/blog",
+      view: { device: "desktop" },
+      rendered: paths,
+      viewed: paths.slice(0, 20),
+    });
+    expect(beacons.length).toBeGreaterThan(1);
+    for (const beacon of beacons) {
+      const bytes = new TextEncoder().encode(JSON.stringify(beacon)).length;
+      expect(bytes).toBeLessThanOrEqual(MAX_BEACON_BYTES);
+      expect(AnalyticsBeacon.safeParse(beacon).success).toBe(true);
+    }
+    // Nothing lost in the split, and the page view only in the first.
+    const sent = (kind: "rendered" | "viewed") =>
+      beacons.flatMap((b) => Object.values(b[kind]).flat());
+    expect(sent("rendered")).toHaveLength(150);
+    expect(sent("viewed")).toHaveLength(20);
+    expect(beacons.filter((b) => b.view)).toHaveLength(1);
+  });
+
+  test("drops a path longer than the receiver takes, rather than cutting it", () => {
+    const beacons = buildBeacons({
+      route: "/",
+      rendered: [
+        `/content/a.val.ts?p="${"x".repeat(MAX_MODULE_PATH_LENGTH)}"`,
+        '/content/a.val.ts?p="ok"',
+      ],
+      viewed: [],
+    });
+    expect(beacons).toEqual([
+      {
+        v: 1,
+        route: "/",
+        rendered: { "/content/a.val.ts": ['"ok"'] },
+        viewed: {},
+      },
+    ]);
   });
 
   test("what it builds is what the server parses", () => {
