@@ -366,4 +366,56 @@ describe("the full check on a .jsonValues() record", () => {
     expect(paths.some((p) => p.includes('"/a"'))).toBe(false);
     expect(paths.some((p) => p.includes('"/b"'))).toBe(true);
   });
+
+  test("a remote image in an entry is not a row the Studio cannot fix", async () => {
+    const ref =
+      "https://remote.val.build/file/p/pubproj/b/01/v/0.0.0/h/" +
+      "c".repeat(64) +
+      "/f/" +
+      "d".repeat(12) +
+      "/p/public/val/a.png";
+    const valModules: ValModules = {
+      config,
+      modules: [
+        {
+          def: () =>
+            Promise.resolve({
+              default: c.define(
+                POSTS,
+                s
+                  .record(
+                    s.object({ title: s.string(), hero: s.image().remote() }),
+                  )
+                  .jsonValues(),
+                {
+                  "/a": c.json(() =>
+                    Promise.resolve({
+                      default: {
+                        title: "A",
+                        hero: {
+                          path: ref,
+                          width: 8,
+                          height: 8,
+                          mimeType: "image/png",
+                        },
+                      },
+                    }),
+                  ),
+                },
+              ),
+            }),
+        },
+      ],
+    };
+    const ops = new ValOpsFS("http://localhost:4000", root, valModules, {
+      config,
+    });
+    const res = await checkModuleForStudio(ops, {
+      moduleFilePath: POSTS,
+      schemas: await ops.getSchemas(),
+      sources: (await ops.getSources()).sources,
+      fileLastUpdatedByPatchId: {},
+    });
+    expect(res.status === "ok" && res.errors).toEqual({});
+  });
 });

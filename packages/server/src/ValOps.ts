@@ -1461,7 +1461,16 @@ export abstract class ValOps {
           // file's schema through the module's source, which for a
           // `.jsonValues()` record holds markers rather than the entry. The
           // publish gate ignores it anyway (`partitionValidationErrors`).
-          if (isOnlyFileCheckValidationError(entryError)) {
+          //
+          // A remote file's "not yet checked against its host" is the same
+          // request, for the same reason: `validateRemoteFiles` and its fix
+          // resolve the path through the module's source too. Added as an
+          // error, every remote image in an entry was a row on the Validate
+          // page whose Fix could not find it.
+          if (
+            isOnlyFileCheckValidationError(entryError) ||
+            isOnlyRemoteCheckValidationError(entryError)
+          ) {
             continue;
           }
           addModuleError(path, sourcePath, entryError);
@@ -3130,6 +3139,16 @@ export abstract class ValOps {
     moduleFilePath: ModuleFilePath,
   ): result.Result<string, HistoryError>;
   // #endregion history
+}
+
+function isOnlyRemoteCheckValidationError(
+  validationError: ValidationError,
+): boolean {
+  const fixes = validationError.fixes ?? [];
+  return (
+    fixes.length > 0 &&
+    fixes.every((f) => f === "image:check-remote" || f === "file:check-remote")
+  );
 }
 
 function isOnlyFileCheckValidationError(validationError: ValidationError) {
