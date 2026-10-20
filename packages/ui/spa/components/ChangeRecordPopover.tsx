@@ -1,4 +1,4 @@
-import { ModuleFilePath, SourcePath } from "@valbuild/core";
+import { ModuleFilePath, SourcePath, Internal } from "@valbuild/core";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "./designSystem/button";
 import { useSchemaAtPath, useShallowSourceAtPath } from "./ValFieldProvider";
@@ -90,8 +90,8 @@ export function ChangeRecordPopover({
         // The form is not rendered in this state; belt and braces, because
         // renaming on an incomplete ref scan silently breaks the referrers it
         // did not see.
-        console.error(
-          "Val: refusing to rename: reference scan is not complete",
+        Internal.log.error(
+          "refusing to rename: reference scan is not complete",
           references,
         );
         return;

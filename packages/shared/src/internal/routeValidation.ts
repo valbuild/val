@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 /**
  * Shared route validation utilities
  */
@@ -23,7 +24,7 @@ export function filterRoutesByPatterns(
     try {
       includeRegex = new RegExp(includePattern.source, includePattern.flags);
     } catch (e) {
-      console.warn(
+      Internal.log.warn(
         `[Val] Invalid include pattern: /${includePattern.source}/${includePattern.flags}`,
         `\nError: ${e instanceof Error ? e.message : String(e)}`,
         `\nAll routes will be filtered out due to malformed include pattern.`,
@@ -35,7 +36,7 @@ export function filterRoutesByPatterns(
     try {
       excludeRegex = new RegExp(excludePattern.source, excludePattern.flags);
     } catch (e) {
-      console.warn(
+      Internal.log.warn(
         `[Val] Invalid exclude pattern: /${excludePattern.source}/${excludePattern.flags}`,
         `\nError: ${e instanceof Error ? e.message : String(e)}`,
         `\nAll routes will be filtered out due to malformed exclude pattern.`,

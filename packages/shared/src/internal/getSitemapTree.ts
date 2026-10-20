@@ -54,7 +54,7 @@ export function getPageRouterSitemapTree(
     const { urlPath, moduleFilePath: moduleFilePathS } = path;
     const moduleFilePath = moduleFilePathS as ModuleFilePath;
     if (!urlPath.startsWith("/")) {
-      console.error(`urlPath must start with /: ${urlPath}`);
+      Internal.log.error(`urlPath must start with /: ${urlPath}`);
       continue;
     }
     const pattern = getPatternFromModuleFilePath(moduleFilePath, srcFolder);

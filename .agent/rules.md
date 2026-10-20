@@ -52,6 +52,23 @@ expensive to re-derive from the code:
    An `as const` on a return inside a function that already has a return type
    annotation is pure noise - remove it.
 
+## Logging: `Internal.log`, never `console`
+
+Val runs inside someone else's app, so whatever it prints lands in a console
+that belongs to a developer who did not write it. Every package that runs there
+(core, shared, server, react, next, tanstack, mcp, and the Studio in `ui/spa`)
+prints through `Internal.log` (`packages/core/src/log.ts`; inside core, import
+`log` from it directly). `no-console` enforces that.
+
+- `error` and `warn` always print. Use them when that developer can act on
+  the message, or when it means Val has a bug they should report.
+- `debug` and `info` print only with `VAL_DEBUG=1` (server) or
+  `localStorage["val:debug"] = "1"` (browser). Use them for retries,
+  fallbacks that worked, sync chatter and anything already shown in the UI.
+- Don't write a `Val:` prefix. The logger adds `[val]` to every line.
+
+The CLI, `create` and `init` use `console`, because printing is their job.
+
 ## An error says what the person can do about it
 
 An error shown to a person is there to help them take the next step. When

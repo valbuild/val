@@ -1,4 +1,4 @@
-import { Json, ModuleFilePath } from "@valbuild/core";
+import { Json, ModuleFilePath, Internal } from "@valbuild/core";
 import { deepEqual } from "@valbuild/core/patch";
 import React from "react";
 
@@ -179,8 +179,8 @@ export class ValExternalStore {
       };
       const timeout = setTimeout(() => {
         const missing = paths.filter((p) => !this.loadedSources.has(p));
-        console.error(
-          `Val: draft module(s) did not load within ${LOAD_TIMEOUT_MS}ms; rendering with partial data. Missing: ${missing.join(", ")}`,
+        Internal.log.error(
+          `draft module(s) did not load within ${LOAD_TIMEOUT_MS}ms; rendering with partial data. Missing: ${missing.join(", ")}`,
         );
         cleanup();
         resolve();

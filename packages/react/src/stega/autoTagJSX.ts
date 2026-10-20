@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import jsxRuntime from "react/jsx-runtime";
 import jsxRuntimeDev from "react/jsx-dev-runtime";
@@ -34,8 +35,8 @@ const addValPathIfFound = (type: any, props: any) => {
     }
     // Prevent prototype pollution
     if (key === "__proto__" || key === "constructor" || key === "prototype") {
-      console.error(
-        'Val: Could not auto tag. Reason: key is "__proto__" or "constructor" or "prototype".',
+      Internal.log.error(
+        'Could not auto tag. Reason: key is "__proto__" or "constructor" or "prototype".',
       );
       return;
     }
@@ -61,8 +62,8 @@ const addValPathIfFound = (type: any, props: any) => {
         } else if (typeof key === "string" && !Array.isArray(container)) {
           container[key] = cleanValue;
         } else {
-          console.error(
-            "Val: Could not auto tag. Reason: unexpected types found while cleaning and / or adding val path data props.",
+          Internal.log.error(
+            "Could not auto tag. Reason: unexpected types found while cleaning and / or adding val path data props.",
           );
         }
       } else {

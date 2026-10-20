@@ -503,8 +503,8 @@ export class PatchStore {
       ),
     );
     if (stale.size > 0) {
-      console.debug(
-        "Val: ignoring published changes named by a stat that predates the " +
+      Internal.log.debug(
+        "ignoring published changes named by a stat that predates the " +
           "publish.",
         { patchIds: [...stale] },
       );
@@ -678,8 +678,8 @@ export class PatchStore {
       }
     }
     if (inconclusive.length > 0) {
-      console.warn(
-        "Val: the server named these unpublished changes and did not send " +
+      Internal.log.debug(
+        "the server named these unpublished changes and did not send " +
           "them. Asking again on the next stat before reporting it — an " +
           "announcement can be older than a delete.",
         { patchIds: inconclusive },
@@ -755,7 +755,7 @@ export class PatchStore {
               // completeness check below reports -- rather than rejecting a
               // preparation nobody is waiting to catch.
               (error: unknown) => {
-                console.warn("Val: could not fetch changes ahead of a stat", {
+                Internal.log.debug("could not fetch changes ahead of a stat", {
                   patchIds: ask,
                   error,
                 });

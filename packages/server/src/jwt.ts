@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import crypto from "crypto";
 import { z } from "zod";
 
@@ -42,7 +43,7 @@ const CLOCK_SKEW_LEEWAY_SECONDS = 60;
 function failure(reason: JwtFailureReason, message: string): JwtFailure {
   // NOTE: deliberately never logs the token itself - it is a credential, and
   // anything we print here ends up in the host's request logs.
-  console.debug(`Invalid JWT (${reason}): ${message}`);
+  Internal.log.debug(`Invalid JWT (${reason}): ${message}`);
   return { success: false, reason, message };
 }
 

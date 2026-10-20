@@ -469,8 +469,8 @@ export abstract class ValOps {
     for (const [moduleFilePathS, source] of Object.entries(sources)) {
       const moduleFilePath = moduleFilePathS as ModuleFilePath;
       if (errors[moduleFilePath] !== undefined) {
-        console.error(
-          "Val: not adopting the committed source of a module whose patches " +
+        Internal.log.error(
+          "not adopting the committed source of a module whose patches " +
             "did not apply cleanly. Its content here stays as it was until the " +
             "modules are re-evaluated.",
           { moduleFilePath, errors: errors[moduleFilePath] },
@@ -1074,7 +1074,7 @@ export abstract class ValOps {
         if (!errors[path]) {
           errors[path] = [];
         }
-        console.error("Val: Module not found", path);
+        Internal.log.error("Module not found", path);
         errors[path].push({
           patchId: patchData.patchId,
           skipped: true,
@@ -1087,7 +1087,7 @@ export abstract class ValOps {
       }
       const patchId = patchData.patchId;
       if (errors[path]) {
-        console.error(
+        Internal.log.error(
           "Cannot apply patch: previous errors exists",
           path,
           errors[path],
@@ -1269,7 +1269,7 @@ export abstract class ValOps {
           applicableOps.concat(...Object.values(fileFixOps)),
         );
         if (result.isErr(patchRes)) {
-          console.error(
+          Internal.log.error(
             "Could not apply patch",
             JSON.stringify(
               {
@@ -2101,7 +2101,7 @@ export abstract class ValOps {
         patchId: PatchId,
         op: unknown,
       ) => {
-        console.error(
+        Internal.log.error(
           "Could not patch",
           JSON.stringify({ path, patchId, error: err, op }, null, 2),
         );
@@ -2718,7 +2718,7 @@ export abstract class ValOps {
         // sends it again later, so an error line here would be one a minute.
         return result.err(saveRes.error);
       }
-      console.error(
+      Internal.log.error(
         `Could not save source patch at path: '${path}'. Error: ${saveRes.error.errorType === "other" ? saveRes.error.message : saveRes.error.errorType}`,
       );
       if (saveRes.error.errorType === "patch-head-conflict") {

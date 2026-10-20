@@ -1,4 +1,9 @@
-import { ModuleFilePath, PatchId, SerializedSchema } from "@valbuild/core";
+import {
+  ModuleFilePath,
+  PatchId,
+  SerializedSchema,
+  Internal,
+} from "@valbuild/core";
 import { Operation } from "@valbuild/core/patch";
 import { schemaTypesOfPath } from "./schemaTypesOfPath";
 
@@ -436,12 +441,15 @@ export class PatchSets {
     } catch (e) {
       // We might be in this situation if the schema changes, etc etc:
       if (e instanceof Error) {
-        console.error(
+        Internal.log.error(
           "Could not resolve path while creating patch set",
           e.message,
         );
       } else {
-        console.error("Could not resolve path while creating patch set", e);
+        Internal.log.error(
+          "Could not resolve path while creating patch set",
+          e,
+        );
       }
       // "terminate" the entire module file path (i.e. all patches are their own patch set)
       this.insertPath(

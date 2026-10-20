@@ -2,6 +2,7 @@ import {
   ModuleFilePath,
   SerializedRecordSchema,
   SerializedSchema,
+  Internal,
 } from "@valbuild/core";
 
 /**
@@ -172,7 +173,7 @@ function containsReferrer(
       return false;
     default: {
       const exhaustiveCheck: never = schema;
-      console.error(
+      Internal.log.error(
         "Could not compute jsonValues load requirements. Unhandled schema type",
         exhaustiveCheck,
       );

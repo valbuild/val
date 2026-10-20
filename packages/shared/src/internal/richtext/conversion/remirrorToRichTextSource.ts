@@ -450,12 +450,12 @@ function convertImageNode(
         if (remoteRef) {
           noParamsUrl = decodeURIComponent(remoteRef);
         } else {
-          console.error("Remote image URL does not contain ref: " + url);
+          Internal.log.error("Remote image URL does not contain ref: " + url);
         }
       } else if (noParamsUrl.startsWith("/api/val/files/public")) {
         noParamsUrl = noParamsUrl.slice("/api/val/files".length);
       } else {
-        console.error(
+        Internal.log.error(
           "Patched image URL does not start with /api/val/files: " + url,
         );
       }
@@ -471,7 +471,7 @@ function convertImageNode(
     } else if (!noParamsUrl.startsWith("/public")) {
       noParamsUrl = `/public${noParamsUrl}`;
     } else {
-      console.error("Unpatched image URL starts with /public: " + url);
+      Internal.log.error("Unpatched image URL starts with /public: " + url);
     }
     const tag: ImageNode<AllRichTextOptions> = {
       tag: "img" as const,

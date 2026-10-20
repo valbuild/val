@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import { bytesToBase64 } from "./bytes";
 
 /**
@@ -36,7 +37,11 @@ export async function readCommittedBinaryFiles<Id>(
       const bytes = await ops
         .getBase64EncodedBinaryFileFromPatch(filePath, patchId, remote)
         .catch((error: unknown) => {
-          console.error("Could not read a committed file", filePath, error);
+          Internal.log.error(
+            "Could not read a committed file",
+            filePath,
+            error,
+          );
           return null;
         });
       if (bytes === null) unread.push(filePath);

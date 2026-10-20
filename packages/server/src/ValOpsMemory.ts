@@ -307,8 +307,8 @@ export class ValOpsMemory extends ValOps {
       options.unsafelyAllowUnauthenticated &&
       options.warnUnauthenticated !== false
     ) {
-      console.warn(
-        "Val: serving memory mode WITHOUT authentication. Every request that " +
+      Internal.log.warn(
+        "serving memory mode WITHOUT authentication. Every request that " +
           "reaches this server may read content, create patches and trigger a " +
           "publish. Only correct if the host authorises requests before they " +
           "get here.",

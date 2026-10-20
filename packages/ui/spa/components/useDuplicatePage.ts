@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { ModuleFilePath } from "@valbuild/core";
+import { ModuleFilePath, Internal } from "@valbuild/core";
 import { useSchemas } from "./ValFieldProvider";
 import { useDuplicateRecordEntry } from "./useDuplicateRecordEntry";
 
@@ -33,15 +33,15 @@ export function useDuplicatePage(): (
       // opens on a `/json?key=<newKey>` that 404s. Refuse, the way `useAddPage`
       // and `DuplicateRecordPopover` do, rather than write the wrong patch.
       if (schemas.status !== "success") {
-        console.error(
-          "Val: cannot duplicate a page before the schemas have loaded",
+        Internal.log.error(
+          "cannot duplicate a page before the schemas have loaded",
         );
         return;
       }
       const schema = schemas.data[moduleFilePath];
       if (!schema || schema.type !== "record") {
-        console.error(
-          "Val: cannot duplicate a page in a module that is not a record",
+        Internal.log.error(
+          "cannot duplicate a page in a module that is not a record",
           { moduleFilePath, schema },
         );
         return;

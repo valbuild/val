@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import {
   Api,
   ApiEndpoint,
@@ -42,7 +43,7 @@ export function createValRequestHandler<Res>(
         message: "Val: could not start the Val server",
         details: err instanceof Error ? err.message : String(err),
       };
-      console.error(error.message + ": " + error.details);
+      Internal.log.error(error.message + ": " + error.details);
       return convert({
         status: 500,
         json: error,
@@ -54,7 +55,7 @@ export function createValRequestHandler<Res>(
         message: "Val: routes are not configured correctly",
         details: `Check you api routes. Expected pathname to start with "${route}", but it was: "${url.pathname}"`,
       };
-      console.error(error);
+      Internal.log.error(error);
       return convert({
         status: 500,
         json: error,
@@ -268,8 +269,8 @@ export function createValRequestHandler<Res>(
         });
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
-        console.error(
-          `Val: ${method} ${route} threw: ${error.message}`,
+        Internal.log.error(
+          `${method} ${route} threw: ${error.message}`,
           error.stack,
         );
         return {

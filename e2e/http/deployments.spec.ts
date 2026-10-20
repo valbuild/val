@@ -51,8 +51,19 @@ test.use({
 
 test.describe.configure({ mode: "serial" });
 
-/** Every console message, so a test can assert on what the socket did with one. */
-function collectConsole(page: Page): { type: string; text: string }[] {
+/**
+ * Every console message, so a test can assert on what the socket did with one.
+ *
+ * The lines these tests read -- `[val] Deployment`, `[val] Commit` -- are the
+ * Studio's debug output, which only prints when `val:debug` is set (see
+ * `packages/core/src/log.ts`). So it is set before the Studio loads.
+ */
+async function collectConsole(
+  page: Page,
+): Promise<{ type: string; text: string }[]> {
+  await page.addInitScript(() => {
+    localStorage.setItem("val:debug", "1");
+  });
   const messages: { type: string; text: string }[] = [];
   page.on("console", (message) =>
     messages.push({ type: message.type(), text: message.text() }),
@@ -86,7 +97,7 @@ test.describe("events from the content service", () => {
   });
 
   test("a deployment announced by CI reaches the Studio", async ({ page }) => {
-    const messages = collectConsole(page);
+    const messages = await collectConsole(page);
     await openHttpStudio(page);
 
     const announced = await mock.deployment({ deploymentState: "pending" });
@@ -94,7 +105,10 @@ test.describe("events from the content service", () => {
 
     await expect
       .poll(
-        () => messages.some((message) => message.text.startsWith("Deployment")),
+        () =>
+          messages.some((message) =>
+            message.text.startsWith("[val] Deployment"),
+          ),
         { message: "the deployment never reached the browser" },
       )
       .toBe(true);
@@ -110,7 +124,7 @@ test.describe("events from the content service", () => {
    * deployment.
    */
   test("a deployment that finishes updates in place", async ({ page }) => {
-    const messages = collectConsole(page);
+    const messages = await collectConsole(page);
     await openHttpStudio(page);
 
     const started = await mock.deployment({ deploymentState: "pending" });
@@ -122,8 +136,9 @@ test.describe("events from the content service", () => {
     await expect
       .poll(
         () =>
-          messages.filter((message) => message.text.startsWith("Deployment"))
-            .length,
+          messages.filter((message) =>
+            message.text.startsWith("[val] Deployment"),
+          ).length,
         { message: "both deployment messages never arrived" },
       )
       .toBeGreaterThanOrEqual(2);
@@ -145,7 +160,7 @@ test.describe("events from the content service", () => {
    * branch is until CI has built it.
    */
   test("a commit pushed outside the Studio reaches it", async ({ page }) => {
-    const messages = collectConsole(page);
+    const messages = await collectConsole(page);
     await openHttpStudio(page);
 
     await mock.pushCommit({
@@ -155,7 +170,8 @@ test.describe("events from the content service", () => {
 
     await expect
       .poll(
-        () => messages.some((message) => message.text.startsWith("Commit")),
+        () =>
+          messages.some((message) => message.text.startsWith("[val] Commit")),
         { message: "the pushed commit never reached the browser" },
       )
       .toBe(true);
@@ -172,7 +188,7 @@ test.describe("events from the content service", () => {
    * deployment was for, not on top of the sha the app booted with.
    */
   test("publish, deploy, publish again", async ({ page }) => {
-    const messages = collectConsole(page);
+    const messages = await collectConsole(page);
     await openHttpStudio(page);
 
     await writePatch(page, "/content/authors.val.ts", [

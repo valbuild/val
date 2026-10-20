@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import type { ValidationErrors } from "@valbuild/core";
 import type { SchemaValidationBridge } from "../stores/bridges";
 import type {
@@ -86,8 +87,8 @@ export function createSchemaValidationBridge(): SchemaValidationBridge {
         failed = true;
       };
     } catch (error) {
-      console.warn(
-        "Val: could not create the validation worker; validating on the main thread instead.",
+      Internal.log.warn(
+        "could not create the validation worker; validating on the main thread instead.",
         error,
       );
       failed = true;
@@ -127,8 +128,8 @@ export function createSchemaValidationBridge(): SchemaValidationBridge {
         // One retry's worth of resilience, on the main thread. The store above
         // caches per (module, schema version), so a module that fell back once
         // is not re-validated on every read.
-        console.warn(
-          `Val: validation worker could not validate '${moduleFilePath}'; validating on the main thread instead.`,
+        Internal.log.warn(
+          `validation worker could not validate '${moduleFilePath}'; validating on the main thread instead.`,
           error,
         );
         fallback ??= new SchemaValidator();

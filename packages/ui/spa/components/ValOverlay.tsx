@@ -353,7 +353,7 @@ export function ValOverlay(props: ValOverlayProps) {
         setDropZoneRaw(defaultDropZone);
       }
     } catch (e) {
-      console.error("Error getting drop zone from local storage", e);
+      Internal.log.debug("Error getting drop zone from local storage", e);
       setDropZoneRaw(defaultDropZone);
     }
   }, [config]);
@@ -368,7 +368,7 @@ export function ValOverlay(props: ValOverlayProps) {
         localStorage.setItem("val-menu-drop-zone-default", dropZone);
       }
     } catch (e) {
-      console.error("Error setting drop zone to local storage", e);
+      Internal.log.debug("Error setting drop zone to local storage", e);
     }
   };
 
@@ -1340,7 +1340,7 @@ function DropZoneLabel({ dropZone }: { dropZone: DropZones }) {
       </div>
     );
   } else {
-    console.warn("Unknown drop zone:", dropZone);
+    Internal.log.warn("Unknown drop zone:", dropZone);
     return null;
   }
 }
