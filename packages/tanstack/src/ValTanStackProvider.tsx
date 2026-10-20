@@ -176,7 +176,10 @@ export const ValTanStackProvider = (props: {
    *
    * Read once, when the provider mounts, as `draft` is: the loader runs only
    * on the server, so a client navigation hands this `undefined`, and the
-   * page must not stop counting because of it.
+   * page must not stop counting because of it. The flip side: a provider that
+   * FIRST mounts during a client navigation -- a layout the visitor reached
+   * from a route outside it -- has to be handed the value then too, or it
+   * stays off until the next page load.
    */
   analytics?: boolean;
   /**
