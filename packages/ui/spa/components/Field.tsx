@@ -96,6 +96,9 @@ export function Field({
     });
   };
   const labelClickable = errorDisplay === "compact";
+  const showsNullToggle =
+    !hasOverrides && !!schema && !isBoolean && (isNullable || source === null);
+  const hasLeadingCheckbox = isBoolean || showsNullToggle;
   /*
    * Restore mode, if one is running around this subtree.
    *
@@ -125,85 +128,85 @@ export function Field({
           })}
         >
           <div
-            className={classNames("flex justify-between items-center", {
-              "pb-2": !compact,
-              "pb-1.5": compact,
-            })}
+            className={classNames(
+              "flex flex-wrap sm:flex-nowrap justify-between items-center gap-x-2",
+              {
+                "pb-2": !compact,
+                "pb-1.5": compact,
+              },
+            )}
           >
             <div
-              className={classNames("flex items-center", {
+              className={classNames("flex flex-1 min-w-0 items-center", {
                 "gap-4": !compact,
                 "gap-3": compact,
                 "pt-2": compact && isBoolean,
               })}
             >
-              {!hasOverrides &&
-                schema &&
-                !isBoolean &&
-                (isNullable || source === null) && (
-                  <Checkbox
-                    disabled={effectiveReadonly || loadingStatus === "loading"}
-                    checked={source !== null || showEmptyFileOrImage}
-                    onCheckedChange={() => {
-                      if (effectiveReadonly) return;
-                      /*
-                       * Which way this click goes is decided by what the box
-                       * SHOWS, not by the source alone.
-                       *
-                       * A media field has a third state: source `null` with the
-                       * field shown, which is what "on" means before anything has
-                       * been uploaded. Branching on `source === null` conflated
-                       * that with "off", so a media field turned on and then off
-                       * again re-ran the turn-on branch: the box stayed ticked,
-                       * the empty field stayed open, and a nullable image could
-                       * not be cleared at all once it had been added.
-                       */
-                      const isMedia =
-                        schema.type === "image" ||
-                        schema.type === "file" ||
-                        schema.type === "video";
-                      const isChecked = source !== null || showEmptyFileOrImage;
-                      if (!isChecked) {
-                        if (isMedia) {
-                          // There is no empty media value to write — a media
-                          // source without a file is not valid — so turning it on
-                          // opens the field, and the upload writes the patch.
-                          setShowEmptyFileOrImage(true);
-                        } else {
-                          addPatch(
-                            [
-                              {
-                                op: "replace",
-                                path: patchPath,
-                                value: emptyOf({
-                                  ...schema,
-                                  opt: false,
-                                }) as JSONValue,
-                              },
-                            ],
-                            schema.type,
-                          );
-                        }
-                        return;
-                      }
+              {showsNullToggle && schema && (
+                <Checkbox
+                  disabled={effectiveReadonly || loadingStatus === "loading"}
+                  checked={source !== null || showEmptyFileOrImage}
+                  onCheckedChange={() => {
+                    if (effectiveReadonly) return;
+                    /*
+                     * Which way this click goes is decided by what the box
+                     * SHOWS, not by the source alone.
+                     *
+                     * A media field has a third state: source `null` with the
+                     * field shown, which is what "on" means before anything has
+                     * been uploaded. Branching on `source === null` conflated
+                     * that with "off", so a media field turned on and then off
+                     * again re-ran the turn-on branch: the box stayed ticked,
+                     * the empty field stayed open, and a nullable image could
+                     * not be cleared at all once it had been added.
+                     */
+                    const isMedia =
+                      schema.type === "image" ||
+                      schema.type === "file" ||
+                      schema.type === "video";
+                    const isChecked = source !== null || showEmptyFileOrImage;
+                    if (!isChecked) {
                       if (isMedia) {
-                        setShowEmptyFileOrImage(false);
-                      }
-                      if (source !== null) {
+                        // There is no empty media value to write — a media
+                        // source without a file is not valid — so turning it on
+                        // opens the field, and the upload writes the patch.
+                        setShowEmptyFileOrImage(true);
+                      } else {
                         addPatch(
                           [
                             {
                               op: "replace",
                               path: patchPath,
-                              value: null,
+                              value: emptyOf({
+                                ...schema,
+                                opt: false,
+                              }) as JSONValue,
                             },
                           ],
                           schema.type,
                         );
                       }
-                    }}
-                  />
-                )}
+                      return;
+                    }
+                    if (isMedia) {
+                      setShowEmptyFileOrImage(false);
+                    }
+                    if (source !== null) {
+                      addPatch(
+                        [
+                          {
+                            op: "replace",
+                            path: patchPath,
+                            value: null,
+                          },
+                        ],
+                        schema.type,
+                      );
+                    }
+                  }}
+                />
+              )}
               {isBoolean && (
                 <EmbeddedBooleanField
                   path={path}
@@ -217,7 +220,7 @@ export function Field({
                   }
                 />
               )}
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1 min-w-0">
                 {typeof label === "string" &&
                   (labelClickable ? (
                     <button
@@ -235,15 +238,35 @@ export function Field({
                 )}
               </div>
             </div>
+            {/*
+             * Who changed this field, and when. Beside the tools on a wide
+             * screen; on a phone it moves to a line of its own under the label,
+             * because as a column it took a third of the row and wrapped the
+             * label (most visibly a boolean's, which shares the row with its
+             * checkbox). One mount either way, moved by `order` alone: it holds
+             * a store subscription, and this component is mounted per field.
+             */}
+            {!hasOverrides && !compact && (
+              <div
+                className={classNames(
+                  "order-last basis-full empty:hidden sm:order-none sm:basis-auto sm:ml-0 sm:pl-0",
+                  {
+                    // Lines the history icon up with the label text: past
+                    // the checkbox and its gap, less the button's own padding.
+                    "pl-6": hasLeadingCheckbox,
+                    "-ml-2": !hasLeadingCheckbox,
+                  },
+                )}
+              >
+                <FieldPatchAuthorsSection path={path} />
+              </div>
+            )}
             <div
               className={classNames("flex items-center", {
                 "gap-2 min-h-8": !compact,
                 "gap-1.5": compact,
               })}
             >
-              {!hasOverrides && !compact && (
-                <FieldPatchAuthorsSection path={path} />
-              )}
               {!hasOverrides && canMentionField && (
                 <button
                   type="button"

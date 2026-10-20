@@ -18,10 +18,16 @@ import { ValSystemProvider } from "../../stores/react/SystemContext";
 /**
  * Boolean fields on a phone, before and after they have been changed.
  *
- * A changed field grows a "just now" and an avatar at the right of its header
- * row (`FieldPatchAuthorsSection`, from `Field`). A boolean's checkbox and
- * label share that row, so on a narrow screen the edit marker takes space from
- * the label — and the rows of a module stop lining up with each other.
+ * A changed field grows a "just now" and an avatar (`FieldPatchAuthorsSection`,
+ * from `Field`). It used to sit at the right of the header row on every screen,
+ * where a boolean's checkbox and label also live, so on a phone it took a third
+ * of the row: labels wrapped and the rows of a module stopped lining up. Below
+ * the `sm` breakpoint it now gets a line of its own under the label, and the
+ * label keeps the width. `WideScreen` is there to show the right-hand column
+ * still holds it when there is room.
+ *
+ * The breakpoint is the VIEWPORT's, so `width` alone does not switch the
+ * layout: look at the narrow stories with Storybook's viewport at phone size.
  *
  * Driven through `Module`, the component the Studio renders for a module, so
  * what is drawn here is what ships. The edits are real patches in the story's
@@ -168,8 +174,8 @@ type Story = StoryObj<typeof MobileModule>;
 export const Unchanged: Story = {};
 
 /**
- * Some booleans changed, as after clicking them: each grows "just now" and an
- * avatar on the right of its row, and the rows no longer line up.
+ * Some booleans changed, as after clicking them: each grows a "just now" line
+ * under its label, and the labels keep their width.
  */
 export const SomeChanged: Story = {
   args: {
@@ -188,5 +194,13 @@ export const AllChangedNarrow: Story = {
       "allowCommentsFromAnonymousVisitors",
       "hideFromSearchEngines",
     ],
+  },
+};
+
+/** The same edits with room to spare: the history stays in the right column. */
+export const WideScreen: Story = {
+  args: {
+    width: 720,
+    changed: ["published", "showInNavigationMenu", "hideFromSearchEngines"],
   },
 };
