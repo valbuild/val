@@ -9,15 +9,14 @@
  * answers, which `bytes.test.ts` checks against `Buffer` itself.
  */
 
-const BASE64_ALPHABET =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
 /**
  * The value of each character code, or -1 for one that is not base64. Both
  * alphabets, because `Buffer.from(s, "base64")` takes either: `-` and `_` are
  * the URL-safe spellings of `+` and `/`.
  */
 const BASE64_VALUES = (() => {
+  const BASE64_ALPHABET =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   const values = new Int16Array(128).fill(-1);
   for (let i = 0; i < BASE64_ALPHABET.length; i++) {
     values[BASE64_ALPHABET.charCodeAt(i)] = i;
@@ -34,8 +33,27 @@ const PADDING = "=".charCodeAt(0);
  * alphabet, padding optional, anything that is not base64 skipped, and
  * decoding stops at the first `=`. A trailing partial group gives the whole
  * bytes it holds.
+ *
+ * `atob` first, because it is native and this is called with whole uploads;
+ * it agrees with `Buffer` on everything it accepts, and refuses the rest (the
+ * URL-safe alphabet, stray characters, `=` in the middle), which then goes the
+ * slow way.
  */
 export function base64ToBytes(base64: string): Uint8Array {
+  let binary: string;
+  try {
+    binary = atob(base64);
+  } catch {
+    return lenientBase64ToBytes(base64);
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function lenientBase64ToBytes(base64: string): Uint8Array {
   const bytes = new Uint8Array(Math.floor((base64.length * 3) / 4));
   let length = 0;
   let bits = 0;
@@ -55,32 +73,33 @@ export function base64ToBytes(base64: string): Uint8Array {
   return bytes.subarray(0, length);
 }
 
-/** `Buffer.from(bytes).toString("base64")`: padded, standard alphabet. */
+/**
+ * How many bytes go to `String.fromCharCode` at once: it takes them as
+ * arguments, and an engine has a limit on how many a call may have.
+ */
+const CHUNK = 0x8000;
+
+/**
+ * `Buffer.from(bytes).toString("base64")`: padded, standard alphabet.
+ *
+ * Through `btoa`, which is native, rather than building the string here: that
+ * was five times slower, and this is called with whole files. Node is still
+ * faster with `Buffer`, which is why `ValServerPlatform.bytesToBase64` exists
+ * for the paths that encode every file of a publish.
+ */
 export function bytesToBase64(bytes: Uint8Array): string {
-  let out = "";
-  let i = 0;
-  for (; i + 2 < bytes.length; i += 3) {
-    const group = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
-    out +=
-      BASE64_ALPHABET[group >> 18] +
-      BASE64_ALPHABET[(group >> 12) & 63] +
-      BASE64_ALPHABET[(group >> 6) & 63] +
-      BASE64_ALPHABET[group & 63];
+  const binary: string[] = [];
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    // `Reflect.apply` rather than a spread, which copies the chunk into an
+    // argument list first and is four times slower.
+    const chunk: string = Reflect.apply(
+      String.fromCharCode,
+      null,
+      bytes.subarray(i, i + CHUNK),
+    );
+    binary.push(chunk);
   }
-  const rest = bytes.length - i;
-  if (rest === 1) {
-    const group = bytes[i] << 16;
-    out += BASE64_ALPHABET[group >> 18] + BASE64_ALPHABET[(group >> 12) & 63];
-    out += "==";
-  } else if (rest === 2) {
-    const group = (bytes[i] << 16) | (bytes[i + 1] << 8);
-    out +=
-      BASE64_ALPHABET[group >> 18] +
-      BASE64_ALPHABET[(group >> 12) & 63] +
-      BASE64_ALPHABET[(group >> 6) & 63];
-    out += "=";
-  }
-  return out;
+  return btoa(binary.join(""));
 }
 
 /** `Buffer.from(text, "utf8")`. */

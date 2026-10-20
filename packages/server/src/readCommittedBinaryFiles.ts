@@ -25,6 +25,8 @@ export async function readCommittedBinaryFiles<Id>(
     ): Promise<Uint8Array | null>;
   },
   descriptors: Record<string, { patchId: Id; remote: boolean }>,
+  /** `ValServerPlatform.bytesToBase64`, which is faster in Node. */
+  encode: (bytes: Uint8Array) => string = bytesToBase64,
 ): Promise<{ files: Record<string, string>; unread: string[] }> {
   const files: Record<string, string> = {};
   const unread: string[] = [];
@@ -38,7 +40,7 @@ export async function readCommittedBinaryFiles<Id>(
           return null;
         });
       if (bytes === null) unread.push(filePath);
-      else files[filePath] = bytesToBase64(bytes);
+      else files[filePath] = encode(bytes);
     }),
   );
   return { files, unread: unread.sort() };

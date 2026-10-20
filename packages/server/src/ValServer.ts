@@ -2411,7 +2411,7 @@ export const ValServer = (
             jobPatchIds: patchIds,
           });
           const build = serverOps.embedsSource()
-            ? await buildSourcesOf(serverOps, patchIds, commit)
+            ? await buildSourcesOf(platform, serverOps, patchIds, commit)
             : null;
           if (build !== null && "status" in build) return build;
           /*
@@ -2441,7 +2441,12 @@ export const ValServer = (
             buildable: build !== null,
           });
         }
-        const built = await buildSourcesOf(serverOps, patchIds, commit);
+        const built = await buildSourcesOf(
+          platform,
+          serverOps,
+          patchIds,
+          commit,
+        );
         if ("status" in built) return built;
         const { split } = built;
         const sent = await serverOps.prepareJob(jobId, {
@@ -2496,9 +2501,15 @@ export const ValServer = (
          * and the selection on top. Only what the selection touched is saved,
          * so the proposal's save is the selection and nothing else.
          */
-        const built = await buildSourcesOf(serverOps, patchIds, commit, {
-          binaries: false,
-        });
+        const built = await buildSourcesOf(
+          platform,
+          serverOps,
+          patchIds,
+          commit,
+          {
+            binaries: false,
+          },
+        );
         if ("status" in built) return built;
         if (built.headCommitSha === undefined) {
           return {
@@ -3137,6 +3148,7 @@ export const ValServer = (
                 ? await readCommittedBinaryFiles(
                     serverOps,
                     preparedCommit.patchedBinaryFilesDescriptors,
+                    platform.bytesToBase64,
                   )
                 : null;
             const commitToGit = () =>
@@ -4738,6 +4750,7 @@ function getIsRemoteRequired(
  * the push's, made from its own changes alone, by the caller.
  */
 async function buildSourcesOf(
+  platform: ValServerPlatform,
   serverOps: ValOpsHttp,
   patchIds: string[],
   commit: CommitSha | undefined,
@@ -4822,6 +4835,7 @@ async function buildSourcesOf(
     ? await readCommittedBinaryFiles(
         serverOps,
         split.archive.patchedBinaryFilesDescriptors,
+        platform.bytesToBase64,
       )
     : { files: {}, unread: [] };
   return {

@@ -3684,7 +3684,11 @@ export function guessMimeTypeFromPath(filePath: string): string | null {
   return null;
 }
 
-export function bufferFromDataUrl(dataUrl: string): Uint8Array | undefined {
+export function bufferFromDataUrl(
+  dataUrl: string,
+  /** Node passes `Buffer`'s, which is faster: this is a whole upload. */
+  decodeBase64: (base64: string) => Uint8Array = base64ToBytes,
+): Uint8Array | undefined {
   let base64Data;
   const base64Index = dataUrl.indexOf(";base64,");
   if (base64Index > -1) {
@@ -3692,7 +3696,7 @@ export function bufferFromDataUrl(dataUrl: string): Uint8Array | undefined {
   }
   if (base64Data) {
     // TODO: why does it not work with base64url?
-    return base64ToBytes(base64Data);
+    return decodeBase64(base64Data);
   }
 }
 

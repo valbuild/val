@@ -4,6 +4,8 @@ import {
   bytesToUtf8,
   utf8ToBytes,
 } from "./bytes";
+import { nodePlatform } from "./nodePlatform";
+import { browserPlatform } from "./browser/browserPlatform";
 
 /**
  * `bytes.ts` replaced `Buffer` in the request handlers, so Node's answers are
@@ -27,6 +29,21 @@ describe("bytesToBase64", () => {
   test.each(LENGTHS)("matches Buffer for %i bytes", (length) => {
     const bytes = randomBytes(length + 1, length);
     expect(bytesToBase64(bytes)).toBe(Buffer.from(bytes).toString("base64"));
+  });
+});
+
+describe("ValServerPlatform.bytesToBase64", () => {
+  test.each([
+    ["node", nodePlatform],
+    ["browser", browserPlatform],
+  ])("%s encodes a view at an offset like Buffer", (_, platform) => {
+    // A view into a larger buffer, as `subarray` and Node's pooled Buffers
+    // are: encoding the whole underlying buffer is the mistake to catch.
+    const whole = randomBytes(13, 4099);
+    const view = whole.subarray(5, 4000);
+    expect(platform.bytesToBase64(view)).toBe(
+      Buffer.from(view).toString("base64"),
+    );
   });
 });
 

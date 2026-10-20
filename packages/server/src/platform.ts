@@ -37,6 +37,12 @@ export type ValServerPlatform = {
     encodeJwt: (payload: object, sessionKey: string) => string;
     getExpire: () => number;
   };
+  /**
+   * `bytes` as base64. For the paths that encode every file a publish commits:
+   * Node's `Buffer` is ten times faster than `btoa`, and a browser has only
+   * `btoa` (`bytesToBase64` in `bytes.ts`). Same answer either way.
+   */
+  bytesToBase64: (bytes: Uint8Array) => string;
   /** The developer's `val login` token. See `readValLoginToken`. */
   readValLoginToken: (options: ValServerConfig) => Promise<string | null>;
   /** Which credential talks to the content host. See `resolveRemoteFileAuth`. */
