@@ -890,8 +890,12 @@ function getPositionClassName(dropZone: string | null) {
   return className;
 }
 
+/**
+ * The Studio is `/val` and what is below it -- not every route that starts
+ * with the letters, which would leave `/values` without its overlay.
+ */
 function isValStudioPath(pathname: string): boolean {
-  return pathname.startsWith("/val");
+  return pathname === "/val" || pathname.startsWith("/val/");
 }
 
 /**

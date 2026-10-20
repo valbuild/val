@@ -42,7 +42,8 @@
       "./jsx-runtime.js",
       "./jsx-dev-runtime.js",
       "./stega/index.ts",
-      "./internal/index.ts"
+      "./internal/index.ts",
+      "./analytics/index.ts"
     ],
     "exports": {
       "envConditions": [
@@ -92,6 +93,14 @@
       },
       "default": "./internal/dist/valbuild-react-internal.cjs.js"
     },
+    "./analytics": {
+      "module": {
+        "worker": "./analytics/dist/valbuild-react-analytics.worker.esm.js",
+        "browser": "./analytics/dist/valbuild-react-analytics.browser.esm.js",
+        "default": "./analytics/dist/valbuild-react-analytics.esm.js"
+      },
+      "default": "./analytics/dist/valbuild-react-analytics.cjs.js"
+    },
     "./jsx-dev-runtime": {
       "module": {
         "worker": "./jsx-dev-runtime/dist/valbuild-react-jsx-dev-runtime.worker.esm.js",
@@ -109,6 +118,7 @@
     "jsx-runtime",
     "jsx-dev-runtime",
     "stega",
-    "internal"
+    "internal",
+    "analytics"
   ]
 }

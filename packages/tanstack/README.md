@@ -386,9 +386,11 @@ does not 404 either.
 Val can count which content your visitors see, on a site Val hosts. It is
 **off by default**, and a setting of the hosted project rather than of the
 code: the owner turns it on in the project's settings, and Val's hosting hands
-it to the site as the `VAL_ANALYTICS` variable. The `val.server.ts` the
-platform writes for a hosted project exports `fetchValAnalytics()` to read it;
-pass that to the provider from the same loader as the draft:
+it to the site as the `VAL_ANALYTICS` variable, along with the id of the
+content version each page is rendered from. The `val.server.ts` the platform
+writes for a hosted project exports `fetchValAnalytics()`, which reads both
+into a `ValAnalytics`; pass that to the provider from the same loader as the
+draft:
 
 ```tsx
 // src/routes/_site.tsx
@@ -417,7 +419,12 @@ function SiteLayout() {
 
 With it on, content read with the hooks is tagged for every visitor after
 hydration, so each element showing content carries a `data-val-path` to count.
-The HTML the server sends is the same with it on or off.
+The HTML the server sends is the same with it on or off. A small script,
+loaded after hydration, then counts what each page rendered and what was on
+screen, and sends it to `/api/val/analytics` with the content version, so a
+page can be compared before and after a publish. No cookies, no storage and no
+visitor IDs, and nothing is sent in draft mode, in the Studio or from an
+automated browser.
 
 `fetchValAnalytics` is not part of `initValContent`: it exists in the file the
 platform writes, and nowhere else. A site Val does not host has nowhere to send
