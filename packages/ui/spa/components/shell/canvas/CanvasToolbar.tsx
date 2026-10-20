@@ -8,6 +8,7 @@ import {
   Smartphone,
   Tablet,
 } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { cn } from "../../designSystem/cn";
 import { CanvasDevice } from "./types";
 
@@ -40,6 +41,7 @@ export function CanvasToolbar({
   onFit,
   isPicking,
   onPickingChange,
+  pickNeedsPreview = false,
   onReload,
   isRefreshing,
   className,
@@ -58,6 +60,17 @@ export function CanvasToolbar({
    */
   isPicking?: boolean;
   onPickingChange?: (isPicking: boolean) => void;
+  /**
+   * Picking cannot work yet, because preview mode is off.
+   *
+   * The button is still drawn — outlined, so it stands out under the notice
+   * that says why — and pressing it always asks for picking ON: the caller
+   * turns preview mode on first, and the page starts selecting once it comes
+   * back in draft mode. A toggle here would turn picking OFF for someone in
+   * the fields view, where it is already on and simply has nothing to select,
+   * which is the opposite of what they pressed it for.
+   */
+  pickNeedsPreview?: boolean;
   /**
    * Load the page again.
    *
@@ -79,10 +92,36 @@ export function CanvasToolbar({
   isRefreshing?: boolean;
   className?: string;
 }) {
+  const stripRef = useRef<HTMLDivElement>(null);
+  const pickRef = useRef<HTMLButtonElement>(null);
+  /**
+   * Brings the outlined pick button into view when it is the thing to press.
+   *
+   * On a phone the strip runs out of room and scrolls, and the pick button is
+   * towards its far end — so the button the notice above is pointing at could
+   * be scrolled out of sight. Only the strip's own offset is set, never
+   * `scrollIntoView`: that walks out to every scrolling ancestor, and on a
+   * phone one of those is the track holding the two panes.
+   */
+  useEffect(() => {
+    const strip = stripRef.current;
+    const pick = pickRef.current;
+    if (!pickNeedsPreview || !strip || !pick) return;
+    // The strip is `relative`, so it is the button's offset parent and this is
+    // the button's place along the strip whatever it is scrolled to.
+    const start = pick.offsetLeft;
+    const end = start + pick.offsetWidth;
+    if (start < strip.scrollLeft) {
+      strip.scrollLeft = start;
+    } else if (end > strip.scrollLeft + strip.clientWidth) {
+      strip.scrollLeft = end - strip.clientWidth;
+    }
+  }, [pickNeedsPreview]);
   return (
     <div
+      ref={stripRef}
       className={cn(
-        "flex items-center gap-1 rounded-lg border border-border-float bg-bg-float p-1 shadow-lg",
+        "relative flex items-center gap-1 rounded-lg border border-border-float bg-bg-float p-1 shadow-lg",
         // On a phone the canvas is a pane a little narrower than the screen,
         // and this is nine controls: it has to be able to run out of room
         // without pushing itself off both sides of the page it sits on.
@@ -154,24 +193,37 @@ export function CanvasToolbar({
         <>
           <Divider />
           <button
+            ref={pickRef}
             type="button"
             aria-label={
-              isPicking ? "Stop selecting on the page" : "Select on the page"
+              pickNeedsPreview
+                ? "Turn preview on and pick from the page"
+                : isPicking
+                  ? "Stop selecting on the page"
+                  : "Select on the page"
             }
-            aria-pressed={isPicking}
+            aria-pressed={pickNeedsPreview ? false : isPicking}
             title={
-              isPicking
-                ? "Clicking the page selects what it hits"
-                : "Clicking the page follows links, as a visitor would"
+              pickNeedsPreview
+                ? "Turns on preview mode, then clicking the page selects what it hits"
+                : isPicking
+                  ? "Clicking the page selects what it hits"
+                  : "Clicking the page follows links, as a visitor would"
             }
-            onClick={() => onPickingChange(!isPicking)}
+            onClick={() =>
+              onPickingChange(pickNeedsPreview ? true : !isPicking)
+            }
             className={cn(
               "grid h-7 w-7 place-items-center rounded-md",
-              isPicking
-                ? // The green the page's own outlines are drawn in, so the
-                  // button and what it does read as the same thing.
-                  "bg-bg-page-selection-fill text-fg-brand-primary ring-1 ring-inset ring-bg-page-selection"
-                : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+              pickNeedsPreview
+                ? // Outlined, not filled: it is the way out of the state the
+                  // notice above describes, and not yet selecting anything.
+                  "text-fg-primary ring-1 ring-inset ring-bg-page-selection hover:bg-bg-page-selection-fill"
+                : isPicking
+                  ? // The green the page's own outlines are drawn in, so the
+                    // button and what it does read as the same thing.
+                    "bg-bg-page-selection-fill text-fg-brand-primary ring-1 ring-inset ring-bg-page-selection"
+                  : "text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
             )}
           >
             <MousePointerClick size={14} />

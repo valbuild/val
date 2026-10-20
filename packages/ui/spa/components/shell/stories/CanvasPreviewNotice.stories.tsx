@@ -1,8 +1,12 @@
+import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import {
   CanvasPreviewNotice,
   CanvasPreviewStatus,
+  previewNeedsTurningOn,
 } from "../canvas/CanvasPreviewNotice";
+import { CanvasToolbar } from "../canvas/CanvasToolbar";
+import { CanvasDevice } from "../canvas/types";
 
 /**
  * What the canvas says when it cannot do its job.
@@ -33,8 +37,8 @@ type Story = StoryObj<typeof meta>;
 /**
  * A page, standing in for the site the canvas is showing.
  *
- * Deliberately busy at the top, where the notice sits: a pill over an empty
- * white band proves nothing about how much it is in the way.
+ * Content all the way down to the bottom, where the notice sits: a pill over
+ * an empty white band proves nothing about how much it is in the way.
  */
 function MockPage() {
   return (
@@ -64,20 +68,38 @@ function MockPage() {
             Book a demo
           </span>
         </div>
+        <div className="mt-16 grid gap-6 sm:grid-cols-3">
+          {["Stock", "Orders", "Deliveries"].map((title) => (
+            <div
+              key={title}
+              className="rounded-lg border border-neutral-200 p-5"
+            >
+              <h2 className="font-medium">{title}</h2>
+              <p className="mt-2 text-sm text-neutral-500">
+                Counted where it happens, and the same number everywhere you
+                look.
+              </p>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
 /**
- * The canvas pane as `PageWorkspace` builds it: the page, and the notice above
- * it in the same `relative` box.
+ * The canvas pane as `PageWorkspace` builds it: the page, the notice over the
+ * bottom of it in the same `relative` box, and the toolbar under that — so the
+ * notice can be judged against the pick button it sits above.
  */
 function CanvasPane({
   status,
   warning,
+  width,
 }: {
   status: CanvasPreviewStatus;
+  /** The pane's width, for the phone; the whole story otherwise. */
+  width?: number;
   /**
    * Skip the wait, so the warning end of the clock is reachable in a story.
    *
@@ -88,14 +110,34 @@ function CanvasPane({
    */
   warning?: boolean;
 }) {
+  const [device, setDevice] = useState<CanvasDevice>("desktop");
+  const [isPicking, setIsPicking] = useState(false);
   return (
-    <div className="h-screen bg-bg-canvas p-6">
-      <div className="relative h-full overflow-hidden rounded-xl border border-border-float bg-bg-float-raised">
+    <div
+      className="flex h-screen flex-col gap-2 bg-bg-canvas p-6"
+      style={width ? { width, padding: 12 } : undefined}
+    >
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border-float bg-bg-float-raised">
         <MockPage />
         <CanvasPreviewNotice
           status={status}
           warnAfterMs={warning ? 0 : undefined}
           onEnable={() => console.log("enable preview mode")}
+          onReload={() => console.log("reload")}
+        />
+      </div>
+      <div className="flex shrink-0 justify-center">
+        <CanvasToolbar
+          className="max-w-full"
+          device={device}
+          onDeviceChange={setDevice}
+          scale={1}
+          onZoomIn={() => undefined}
+          onZoomOut={() => undefined}
+          onFit={() => undefined}
+          isPicking={isPicking}
+          onPickingChange={setIsPicking}
+          pickNeedsPreview={previewNeedsTurningOn(status)}
           onReload={() => console.log("reload")}
         />
       </div>
@@ -111,6 +153,14 @@ export const NotReadyYet: Story = {
 /** Past the wait, with the page having answered that draft mode is off. */
 export const PreviewModeOff: Story = {
   render: () => <CanvasPane status="preview-off" warning />,
+};
+
+/**
+ * Preview mode off, on a phone: the pill wraps, and the toolbar is scrolled so
+ * the outlined pick button under it is in view.
+ */
+export const PreviewModeOffOnAPhone: Story = {
+  render: () => <CanvasPane status="preview-off" warning width={366} />,
 };
 
 /** Past the wait, with nothing having answered at all. */

@@ -32,6 +32,7 @@ import { CanvasRouteBar } from "./CanvasRouteBar";
 import {
   CanvasPreviewNotice,
   CanvasPreviewStatus,
+  previewNeedsTurningOn,
 } from "./CanvasPreviewNotice";
 import { CANVAS_MAX_WIDTH } from "../EditorCanvas";
 import { EditorDensityProvider } from "../../EditorDensity";
@@ -676,6 +677,42 @@ export function PageWorkspace({
   const [enableKey, setEnableKey] = useState(0);
 
   /**
+   * The pick button, where preview mode is what stands in the way of it.
+   *
+   * With preview mode off the page tags nothing, so a click on it can select
+   * nothing — and the button used to be missing in exactly that state, since
+   * the page had reported no fields. Pressing it there now does what the
+   * person meant by pressing it: turns preview mode on (the same navigation as
+   * the notice's own button) and asks for picking, which the frame passes on
+   * to the page as soon as the new document reports in.
+   */
+  const pickNeedsPreview = previewNeedsTurningOn(previewStatus);
+  /**
+   * Whether the latest turn-on was started from the pick button.
+   *
+   * Only then does the button stay through the turn-on, drawn pressed. A
+   * turn-on from the notice's own button is not a request to select, and a
+   * pressed "Stop selecting" over a page still loading - which is what the
+   * fields view's default would show there - claims a picking that cannot
+   * happen yet: a click on the page in that gap selects nothing.
+   */
+  const [pickTurnedPreviewOn, setPickTurnedPreviewOn] = useState(false);
+  const changePicking = useCallback(
+    (next: boolean) => {
+      setIsPicking(next);
+      if (next && pickNeedsPreview) {
+        setPickTurnedPreviewOn(true);
+        setEnableKey((key) => key + 1);
+      }
+    },
+    [setIsPicking, pickNeedsPreview],
+  );
+  const enablePreview = useCallback(() => {
+    setPickTurnedPreviewOn(false);
+    setEnableKey((key) => key + 1);
+  }, []);
+
+  /**
    * Clears the floating rail, which the narrowed column now reaches under.
    *
    * Inline because `md:px-6` lives in a media query and would otherwise win
@@ -999,7 +1036,7 @@ export function PageWorkspace({
            * timing the attempt before it.
            */
           attempt={`${reloadKey}:${enableKey}`}
-          onEnable={() => setEnableKey((key) => key + 1)}
+          onEnable={enablePreview}
           onReload={reload}
         />
         <CanvasWindow
@@ -1060,10 +1097,20 @@ export function PageWorkspace({
           onZoomIn={() => zoomByUser(ZOOM_STEP, null)}
           onZoomOut={() => zoomByUser(1 / ZOOM_STEP, null)}
           onFit={fitPage}
-          // Only where there is something to select. The demo page reports no
-          // paths, so a click on it has nothing to open.
+          // Only where there is something to select, or will be once preview
+          // mode is on - and through a turn-on the button itself started, so
+          // it does not vanish between the press and the page coming back. The
+          // demo page reports no paths and is always `live`, so a click on it
+          // has nothing to open.
           isPicking={isPicking}
-          onPickingChange={fieldCount > 0 ? setIsPicking : undefined}
+          onPickingChange={
+            fieldCount > 0 ||
+            pickNeedsPreview ||
+            (previewStatus === "enabling" && pickTurnedPreviewOn && isPicking)
+              ? changePicking
+              : undefined
+          }
+          pickNeedsPreview={pickNeedsPreview}
           isRefreshing={isRefreshing}
           // Only where reloading means something. The demo page renders from
           // data that is already live, so it has nothing to fetch again.

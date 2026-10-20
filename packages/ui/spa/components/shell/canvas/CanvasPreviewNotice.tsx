@@ -42,8 +42,15 @@ export const PREVIEW_WARNING_DELAY_MS = 20000;
  * so the normal path to a working canvas went through a screen that looked
  * like a failure.
  *
- * So: a pill at the top of the viewport, the page untouched behind it, and the
- * long explanation behind a disclosure for the person who wants it. The icon
+ * So: a pill at the bottom of the viewport, the page untouched behind it, and
+ * the long explanation behind a disclosure for the person who wants it.
+ *
+ * The bottom, because that is where the toolbar is, and the toolbar's pick
+ * button is the other way out of this state: pressing it turns preview mode on
+ * and then selects (see {@link previewNeedsTurningOn}). The pill sits directly
+ * above it so the warning and the button that answers it are read together. It
+ * used to be at the top, over the page's header — which is where a site keeps
+ * the things most worth looking at. The icon
  * carries the state — a spinner for {@link PREVIEW_WARNING_DELAY_MS}, then a
  * warning, with the colours following — because that is the part someone reads
  * without stopping what they are doing.
@@ -114,7 +121,7 @@ export function CanvasPreviewNotice({
    * button cannot: the button has been there for twenty seconds and the canvas
    * still is not working, so WHICH way it is failing is now the useful part.
    */
-  const hasFix = status === "preview-off" || status === "no-answer";
+  const hasFix = previewNeedsTurningOn(status);
   const showsLabel = !hasFix || isWarning;
   /**
    * Whether to say what is KNOWN rather than what is safe to say in passing.
@@ -146,12 +153,17 @@ export function CanvasPreviewNotice({
      * `100vw`, which is the browser's viewport - not this one. The canvas pane
      * can be 280px wide and it is `overflow-hidden`, so a 20rem panel was
      * clipped and took the setup checklist and Reload with it. Stacked in a
-     * column under the pill, `max-w-full` is the canvas viewport's own width,
+     * column with the pill, `max-w-full` is the canvas viewport's own width,
      * which is the constraint that was being violated.
+     *
+     * `flex-col-reverse` and `bottom-0`: the pill is anchored to the bottom
+     * edge, over the toolbar, so the panel opens UPWARDS from it. Reversed
+     * rather than reordered so the pill stays first in the DOM - it is what a
+     * screen reader and the tab order should meet before the explanation.
      */
     <div
       ref={containerRef}
-      className="pointer-events-none absolute inset-x-0 top-0 z-window flex flex-col items-center gap-1 p-2"
+      className="pointer-events-none absolute inset-x-0 bottom-0 z-window flex flex-col-reverse items-center gap-1 p-2"
     >
       <div
         className={cn(
@@ -207,7 +219,7 @@ export function CanvasPreviewNotice({
          * are fixed by the same navigation, which is why the old panel
          * offered this button for both.
          */}
-        {(status === "preview-off" || status === "no-answer") && (
+        {hasFix && (
           <button
             type="button"
             onClick={onEnable}
@@ -298,6 +310,19 @@ export function CanvasPreviewNotice({
       )}
     </div>
   );
+}
+
+/**
+ * Whether the canvas is in a state that turning preview mode on fixes.
+ *
+ * The page has answered that it is not in draft mode, or it has stopped
+ * answering at all — both are fixed by the same navigation. It is also the
+ * question the toolbar asks of its pick button: here the button is drawn
+ * outlined, and pressing it turns preview mode on and THEN selects, since
+ * selecting on a page with preview mode off can find nothing.
+ */
+export function previewNeedsTurningOn(status: CanvasPreviewStatus): boolean {
+  return status === "preview-off" || status === "no-answer";
 }
 
 /** What the pill says. */

@@ -279,6 +279,33 @@ test.describe("the preview modes on a phone", () => {
     await expect(row).toBeInViewport();
   });
 
+  test("the pick button turns preview mode on, and is in view to press", async ({
+    page,
+  }) => {
+    await openPreview(page);
+
+    // The toolbar scrolls on a phone, and the pick button is towards its far
+    // end: with preview mode off it is the button the notice above points
+    // at, so it has to be on screen rather than scrolled off it.
+    const pick = page.getByRole("button", {
+      name: "Turn preview on and pick from the page",
+    });
+    await expect(pick).toBeVisible({ timeout: 30_000 });
+    await expect(pick).toBeInViewport({ ratio: 1 });
+
+    await pick.click();
+    await expect(mode(page, "On page")).toBeVisible({ timeout: 30_000 });
+    await expect(
+      page.getByRole("button", { name: "Stop selecting on the page" }),
+      "preview mode came on, but picking did not",
+    ).toBeVisible();
+    // Still looking at the page: picking is done here.
+    await expect(mode(page, "Preview")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
   test("stops the page when you exit", async ({ page }) => {
     await openPreview(page);
     await expect(canvasFrame(page)).toBeVisible();

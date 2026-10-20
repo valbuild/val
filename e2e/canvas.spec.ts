@@ -756,4 +756,59 @@ test.describe("the canvas", () => {
       studio.getByRole("button", { name: "Stop selecting on the page" }),
     ).toBeVisible();
   });
+
+  /**
+   * The pick button, with preview mode off.
+   *
+   * It used to be missing there - the page had reported no fields, since
+   * without preview mode it tags none - so the way to start selecting was the
+   * notice's button, a wait, and then a button that had not existed when you
+   * went looking for it. It is there now, outlined under the notice, and
+   * pressing it is all of that in one: preview mode on, then selecting.
+   */
+  test("turns preview mode on and starts selecting from the pick button", async ({
+    page,
+  }) => {
+    await openStudio(page);
+    const studio = await openSiteMap(page);
+    await expandRow(studio, "blogs");
+    await expandRow(studio, "blog1");
+    await closeNavPanel(studio, "Pages");
+    await studio.getByRole("button", { name: /Open the canvas/ }).click();
+
+    const pick = studio.getByRole("button", {
+      name: "Turn preview on and pick from the page",
+    });
+    await expect(
+      pick,
+      "the pick button was missing while preview mode was off",
+    ).toBeVisible({ timeout: 25000 });
+    // The notice is over the bottom of the page, above the toolbar.
+    const enable = studio.getByRole("button", {
+      name: "Turn on preview mode",
+      exact: true,
+    });
+    const enableBox = await enable.boundingBox();
+    const pickBox = await pick.boundingBox();
+    expect(
+      enableBox && pickBox && enableBox.y + enableBox.height <= pickBox.y,
+      "the notice was not above the pick button",
+    ).toBe(true);
+
+    await pick.click();
+    await expect(studio.getByRole("tab", { name: /On page/ })).toBeVisible({
+      timeout: 30000,
+    });
+    await expect(
+      studio.getByRole("button", { name: "Stop selecting on the page" }),
+      "preview mode came on, but picking did not",
+    ).toBeVisible();
+    // And the page was told: it outlines what it would select.
+    const frame = page.frameLocator('iframe[title^="Preview of"]');
+    await expect(frame.locator("[data-val-path]").first()).toBeVisible();
+    // Still the normal view: the button picks, it does not change the view.
+    await expect(
+      studio.getByRole("tab", { name: /Structure/ }),
+    ).toHaveAttribute("aria-selected", "true");
+  });
 });
