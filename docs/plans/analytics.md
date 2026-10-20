@@ -1,8 +1,11 @@
 # Content analytics
 
-> **Status: proposed** (October 2026). Nothing is built. Scope for the first
-> version: **TanStack Start, hosted by Val**. Next.js and self-hosted apps come
-> later and are noted where the design has to leave room for them.
+> **Status: in progress** (October 2026). Steps 1–3 of the
+> [build order](#7-build-order) are built, in valbuild/val #878 and #881 (both
+> still open); the content version (`cv`) is next. Nothing on `home`'s side is
+> built. Scope for the first version: **TanStack Start, hosted by Val**.
+> Next.js and self-hosted apps come later and are noted where the design has
+> to leave room for them.
 >
 > This file is the Val side: the switch, the analytics mode, the browser
 > script and the wire format. The backend (the loader, the aggregator, Postgres,
@@ -23,15 +26,15 @@ counts.
 
 ## Decisions
 
-| Question                     | Decided                                                                                                                                    |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| What is counted              | Content **rendered** and **viewed**, per page view. Page views per route.                                                                  |
-| Also counted                 | Source (referrer host), campaign (`utm_*`), country, device class, browser and OS family. Each on its own, never combined with each other. |
-| Unique visitors              | **No.** Nothing that could recognise a visitor twice.                                                                                      |
-| Where beacons go             | `POST /api/val/analytics` on the site's own origin, which ad blockers rarely list.                                                         |
-| How it is turned on          | **Off by default.** Only in the hosted project's settings, which reach the site as `VAL_ANALYTICS`. No `val.config.ts` option.             |
-| Stega leaking out of the DOM | Encode exactly as draft mode does, and warn in dev about every place a tag survived. See [The leak warning](#the-leak-warning).            |
-| Price                        | $25 a month per project, 100k page views included, graduated above that. In `home`.                                                        |
+| Question                     | Decided                                                                                                                                                                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| What is counted              | Content **rendered** and **viewed**, per page view. Page views per route.                                                                                                                                                       |
+| Also counted                 | Source (referrer host), campaign (`utm_*`), country, device class, browser and OS family. Each on its own, never combined with each other; only the source is also kept per route ("where did this page's visitors come from"). |
+| Unique visitors              | **No.** Nothing that could recognise a visitor twice.                                                                                                                                                                           |
+| Where beacons go             | `POST /api/val/analytics` on the site's own origin, which ad blockers rarely list.                                                                                                                                              |
+| How it is turned on          | **Off by default.** Only in the hosted project's settings, which reach the site as `VAL_ANALYTICS`. No `val.config.ts` option.                                                                                                  |
+| Stega leaking out of the DOM | Encode exactly as draft mode does, and warn in dev about every place a tag survived. See [The leak warning](#the-leak-warning).                                                                                                 |
+| Price                        | $25 a month per project, 100k page views included, graduated above that. In `home`.                                                                                                                                             |
 
 ---
 
@@ -49,20 +52,22 @@ Analytics mode is **that same rule, for every visitor**: no tags on the server
 or while a component hydrates, tags from the render after. An earlier draft of
 this plan encoded on the server too, and was wrong for that reason.
 
-| Where                                        | Today                                                 | With analytics on                                      |
-| -------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------ |
-| `useEncodesEditTags` (`tanstack/src/client`) | `draftMode && (!serverDraft \|\| hydrated)`           | the same in draft mode; otherwise `hydrated`           |
-| `ValTanStackProvider`                        | `SET_AUTO_TAG_JSX_ENABLED(false)` without the overlay | `SET_AUTO_TAG_JSX_ENABLED(true)`                       |
-| `initValContent` (`tanstack/src/server`)     | `disabled: !draftMode`                                | **unchanged**: server reads stay untagged for visitors |
-| The analytics script                         | —                                                     | mounted when on, and NOT in draft mode or the canvas   |
+| Where                                        | Today                                                 | With analytics on                                                                         |
+| -------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `useEncodesEditTags` (`tanstack/src/client`) | `draftMode && (!serverDraft \|\| hydrated)`           | the same in draft mode; otherwise `hydrated`                                              |
+| `ValTanStackProvider`                        | `SET_AUTO_TAG_JSX_ENABLED(false)` without the overlay | `SET_AUTO_TAG_JSX_ENABLED(true)`                                                          |
+| `initValContent` (`tanstack/src/server`)     | `disabled: !draftMode`                                | **unchanged**: server reads stay untagged for visitors                                    |
+| The analytics script                         | —                                                     | mounted when on, and NOT in draft mode, on a page rendered from a draft, or in the canvas |
 
 What follows from it:
 
 - **The content in the HTML a visitor is sent is the same with analytics on or
   off**, and no edit tag reaches a crawler that does not run the page. Only the
-  setting itself differs, where it travels to the browser (the root route's
-  loader data on a hosted site), which is why `home` keys prerendered pages by
-  it.
+  setting itself differs, where it travels to the browser (the site layout's
+  loader data). On a hosted site that needs nothing new: a kept (prerendered)
+  page is served only while the project's secrets revision is the one it was
+  rendered with, so switching makes the site's pages render live until `home`
+  crawls them again.
 - **Content read with the client hooks is counted. Content read through a
   loader or a server function is not**, the same way it is not
   click-to-edit (quirks.md). The hooks are the recommended way to read content
@@ -83,7 +88,10 @@ project's owner cannot see, and two switches raise the question of which wins.
   (see `home`'s `docs/analytics.md`).
 - The `val.server.ts` the platform writes (`@valbuild/tanstack-build`'s
   `wire.ts`) exports `fetchValAnalytics()`, which reads that secret at
-  runtime, so switching is not a rebuild.
+  runtime, so switching is not a rebuild. It reads only the secrets the
+  platform hands over (`__PLATFORM_SECRETS`), never `process.env`: a value
+  baked in at build time would be a second switch, and one that stays on
+  after the owner turns it off.
 - The site layout's loader passes it to `<ValProvider analytics>`, beside
   `fetchValDraft()`. The provider keeps the value it mounted with, because the
   loader runs only on the server and a client navigation hands it `undefined`.
@@ -134,21 +142,25 @@ Production never runs the scan.
 so Next can use it later. **It imports nothing from core, shared or zod**: it
 reads `data-val-path` attributes, which `autoTagJSX`, `ValImage` and
 `ValRichText` have already written, so it needs no stega decoder. See
-`client-bundle-weight.md` for why that matters. It is loaded with a dynamic
-`import()` after the `load` event, off the critical path.
+`client-bundle-weight.md` for why that matters. The provider loads it with a
+dynamic `import()` in an effect after hydration, off the critical path.
 
-It does nothing when any of these hold: draft mode, the Studio canvas, the Val
-enable cookie (an editor browsing the live site), `navigator.webdriver`.
+It does nothing when any of these hold: draft mode, a page the server rendered
+from a draft, the Studio canvas, the Studio's own pages, the Val enable cookie
+(an editor browsing the live site), `navigator.webdriver`.
 
 ### What it counts
 
 - **Rendered**: an element with `data-val-path` is in the DOM. Found by one
-  scan after hydration, then a `MutationObserver` on `document.body`
-  (`childList`, `subtree`, `attributeFilter: ["data-val-path"]`), coalesced
-  through `requestAnimationFrame` like `ValCanvasBridge` does.
+  scan when a page view starts, then a `MutationObserver` on `document.body`
+  (`childList`, `subtree`, `attributeFilter: ["data-val-path"]`) whose added
+  and removed nodes are processed incrementally, coalesced with a 50 ms
+  timeout, so a page that changes all the time costs what it changes.
 - **Viewed**: an `IntersectionObserver` reports the element at least 50%
   visible, or covering at least 50% of the viewport for an element taller than
-  it, for at least 1 second without interruption.
+  it, for at least 1 second without interruption while the tab is visible. The
+  timers are cleared when the tab is hidden and started again on return for
+  what is still on screen.
 - One element can carry several paths (`data-val-path` is comma-joined). The
   script splits them with a quote-aware splitter of its own, tested for parity
   with core's `splitJoinedSourcePaths`, rather than importing core.
@@ -162,13 +174,32 @@ comparing `location.pathname`. Starting one flushes the previous one. Elements
 that stay on screen across a navigation (header, footer) count again for the
 new page view, because they were rendered on it.
 
+Three more rules decide what a page view is:
+
+- **What is on screen when the URL changes is carried.** The old page stays up
+  until the new one has loaded, so it is not counted for the new route until
+  the page changes under it (new tagged content is added, or carried content
+  is removed) or the first beacon goes at 3 s. What is still there then is the
+  layout around both pages, and it counts. Left before either, it is not
+  counted.
+- **The landing page view is sent on its own** when the visitor moved on
+  before the script started: it carries the referrer, and nothing counted on
+  it. The provider hands the script the pathname at hydration
+  (`landingPath`), so a URL the router only normalised is not a second page
+  view.
+- **A page restored from the back/forward cache** (`pageshow` with
+  `persisted`) starts a page view.
+
 ### Sending
 
 - The first beacon goes about 3 s after the page view starts, with what has been
   rendered and viewed so far and the page view's own fields.
 - Later beacons carry only what is new: newly rendered or viewed paths. They are
   sent on `visibilitychange` to `hidden`, on `pagehide`, when a page view
-  ends, and at most every 15 s while more than 50 new paths are waiting.
+  ends, and at most every 15 s while 50 or more new paths are waiting.
+- A beacon holds at most 200 paths and about 12 KB (`MAX_BEACON_BYTES`, an
+  estimate of the UTF-8 JSON), and more is split over several. A path longer
+  than the wire format allows is dropped rather than cut.
 - `navigator.sendBeacon` with a string body, so the request is `text/plain`,
   needs no CORS preflight, and survives the page closing. `fetch` with
   `keepalive: true` where `sendBeacon` is missing.
@@ -183,9 +214,10 @@ new page view, because they were rendered on it.
 | 410    | Analytics is off or paused for this site | Stops sending until the next full load |
 | 413    | Body too large                           | Drops it; a bug, not a retry           |
 
-`sendBeacon` cannot read the status, so the script uses `fetch` with
-`keepalive` for the first beacon of a page load and `sendBeacon` after that. A
-410 on the first stops the rest.
+`sendBeacon` cannot read the status, so the first beacon of a page load that
+is not sent while leaving goes with `fetch` and `keepalive`, and the rest with
+`sendBeacon`. A 410 on it stops the rest. A beacon sent while leaving, before
+that one, goes with `sendBeacon` and its answer is not read.
 
 ---
 
@@ -201,8 +233,9 @@ Content-Type: text/plain;charset=UTF-8
   "v": 1,
   // location.pathname, never the query or the hash
   "route": "/blogs/my-post",
-  // the content version the page was rendered from: a hosted content
-  // version's id, or the build's own commit when the bundle's content is live
+  // the content version the page was rendered from: the hosted head's
+  // content version id, the same one whether or not the bundle holds it.
+  // NOT SENT YET -- see "The content version" below
   "cv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   // only on the first beacon of a page view; its presence IS the page view
   "view": {
@@ -228,18 +261,42 @@ Content-Type: text/plain;charset=UTF-8
 - The client sends no country, browser or OS. The edge adds those: country from
   `request.cf.country`, browser and OS family from the User-Agent, without the
   version.
-- Limits, enforced by the receiver: body at most 16 KB, at most 200 paths per
-  beacon, `route` at most 512 characters, only `utm_source`, `utm_medium` and
-  `utm_campaign`, each at most 100 characters.
-- A new field gets a new `v`. A receiver drops a version it does not know with
-  a 204, so an old receiver never breaks a new site.
+- Limits: at most 200 paths per beacon in all, a module path at most 1,024
+  characters and a module file path at most 512, `route` at most 512, `ref`
+  at most 253, `cv` at most 128, only `utm_source`, `utm_medium` and
+  `utm_campaign`, each at most 100. The script never sends more, and keeps a
+  beacon to about 12 KB. The hosted loader also refuses a body over 16 KB
+  (413) and cuts anything else over a limit to it; Val's own route (section 4)
+  refuses a v1 beacon over a limit with a 400.
+- A new field gets a new `v`. A receiver ignores a version it does not know
+  with a 2xx (the hosted loader 204, Val's own route `200 { counted: false }`),
+  so an old receiver never breaks a new site.
+
+### The content version
+
+**Not built yet; it is the next step** ([build order](#7-build-order)). The
+provider passes the script no content version today, so no beacon carries
+`cv`.
 
 **Every count is stored with the content version it was seen in** (`cv`).
 That answers "did the new hero do better than the old one" across a publish,
-and it is what makes positions safe to count, below. The page knows its own
-version: the readers already render from it (`snapshotForReaders`), so the
-provider hands its id to the script. The loader stamps the head it is serving
-when a beacon has none.
+and it is what makes positions safe to count, below. The planned design:
+
+- **One identity per version**: the hosted head's content version id
+  (`head.content.id`), always -- also when the bundle's own content is live,
+  where the isolate is handed no `VAL_CONTENT` today. Never the build's
+  commit, which would give the same content a second key.
+- The loader hands that id to the isolate on every render, and
+  `fetchValAnalytics()` returns `{ on, cv }` instead of a boolean; the
+  provider passes `cv` to the script as `contentVersion`. The id is only on
+  the server now (`VAL_CONTENT`, read in `wire.ts`), which is why this needs a
+  channel of its own.
+- **`cv` is required in v1**, in the zod schema and the hand-written type,
+  before v1 is released.
+- The loader stamps the head it is serving only on a beacon from a site built
+  before `cv` existed. It is a fallback, not the design: it names the version
+  live when the beacon arrives, not the one the page was rendered from, which
+  is wrong across a publish -- the case `cv` exists for.
 
 **Array items are counted by position.** This is decided, not a gap.
 `"sections".0` is whatever is first that day, and reordering a list moves
@@ -253,12 +310,16 @@ position.
 ## 4. `/api/val/analytics` outside the hosted platform
 
 On a hosted site the loader answers this route before the request reaches the
-app (see `home`), so the app's handler never runs there.
+app (see `home`), so the app's handler never runs there -- once `home` has
+built that route. Until then a hosted site with analytics on would send every
+beacon to its isolate as a full render, so the admin switch must not ship
+before it.
 
 Everywhere else it does, so `createValApiRouter` gets the route (`ApiRoutes.ts`
 and `ValServer.ts`, as every endpoint does): it validates the body against the
-wire format and answers `200 { counted: false }`, or ignores a version it does
-not know, and only a broken v1 beacon gets a 400. In local dev (`fs` mode) it
+wire format, limits included, and answers `200 { counted: false }`. A body
+whose `v` is a number other than 1 gets the same answer, ignored. A body with
+no `v`, one that is not an object, or a v1 beacon that does not parse gets a 400. It checks no body size. In local dev (`fs` mode) it
 also logs a line per beacon (`[val] analytics: / (page view): 12 rendered, 4
 viewed`), which is how the showcase shows analytics working without a backend.
 Self-hosted forwarding to Val's ingest, authenticated with the project's
@@ -284,33 +345,41 @@ Self-hosted forwarding to Val's ingest, authenticated with the project's
   leaking one tag, and the warning naming all three.
 - **Bundle weight**: a test that the analytics entrypoint's import graph
   contains no `@valbuild/core`, `@valbuild/shared` or `zod`.
-- **e2e, `tanstack` project**: Playwright intercepts `/api/val/analytics`,
-  scrolls a page, and checks the beacon names the content that was scrolled
-  past as viewed, and the content below the fold as rendered only.
+- **e2e, `tanstack` project**: Playwright intercepts `/api/val/analytics` and
+  checks the first beacon names the content at the top of the page as
+  rendered and viewed, and that a client navigation is a page view of its own
+  (built). Still to add: scroll a long page, and check the content scrolled
+  past is viewed and the content below the fold rendered only.
 
 ## 6. The showcase
 
 Per `CLAUDE.md`, a feature is not done until `examples/tanstack` shows it:
 
 - `VAL_ANALYTICS=true` in its `.env.development`, which TanStack Start loads
-  into `process.env`, read by its own `fetchValAnalytics()`
-- a long page whose content is partly below the fold
+  into `process.env`, read by its own `fetchValAnalytics()` (built)
 - the dev log from section 4 printed in the terminal while it is browsed
+  (built)
+- a long page whose content is partly below the fold (not built yet)
 
-Add "analytics" to the showcase list in `CLAUDE.md`.
+The showcase list in `CLAUDE.md` names analytics.
 
 ## 7. Build order
 
 1. `<ValProvider analytics>` and `fetchValAnalytics()`; the analytics mode in
    `useEncodesEditTags` and the provider, with the hydration test and an e2e
-   test on the showcase. **Built** in valbuild/val `claude/tanstack-analytics-mode`.
+   test on the showcase. **Built**: valbuild/val #878
+   (`claude/tanstack-analytics-mode`), open.
 2. `@valbuild/react/analytics`: counting, page views, sending, with its unit
-   tests and the bundle-weight test. **Built**, with step 3, in
-   `claude/analytics-browser-script`.
-3. The `/api/val/analytics` route in `ValRouter` and the dev log; the showcase;
-   the e2e test.
-4. The leak warning.
-5. Release, then the template bump, so hosted sites built from
+   tests and the bundle-weight test. **Built**: #881
+   (`claude/analytics-browser-script`), open.
+3. The `/api/val/analytics` route in `ValRouter` and the dev log; the showcase's
+   switch; the e2e tests of the beacon and of a navigation. **Built**, in #881.
+4. **Next:** the content version -- `fetchValAnalytics()` returning
+   `{ on, cv }`, the provider passing it, `cv` required in v1. See
+   [The content version](#the-content-version).
+5. The showcase's long page and the scroll e2e test.
+6. The leak warning.
+7. Release, then the template bump, so hosted sites built from
    `template-tanstack-starter` carry it.
 
 `home`'s loader side can be built in parallel against the wire format above.
