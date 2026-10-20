@@ -5,7 +5,7 @@
 "@valbuild/tanstack": patch
 ---
 
-Content analytics now counts. With analytics on, a TanStack site counts which content each visitor's page **rendered** and which they actually **viewed** (at least half on screen for a second), and sends it to `/api/val/analytics`.
+Content analytics now counts. With analytics on (it is off by default, and turned on in a hosted project's settings), a TanStack site counts which content each visitor's page **rendered** and which they actually **viewed** (at least half on screen for a second), and sends it to `/api/val/analytics`.
 
 - No cookies, no storage, no visitor IDs. Each page view also says where it came from (the referring site's host and any `utm_source` / `utm_medium` / `utm_campaign`) and whether it was a phone, tablet or desktop.
 - Editors are never counted: nothing is sent in draft mode, in the Studio, or with Val enabled, and nothing from automated browsers.
