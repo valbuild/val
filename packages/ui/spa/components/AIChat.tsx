@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import React, {
   useState,
   useRef,
@@ -1020,7 +1021,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
               );
             })
             .catch((err) => {
-              console.error("Failed to upload file", {
+              Internal.log.error("Failed to upload file", {
                 fileName: entry.file.name,
                 error: err,
               });

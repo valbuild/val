@@ -146,7 +146,7 @@ export function GalleryEntryInspector({
       .catch((err) => {
         // Not an error the editor has to act on: the poster can be taken
         // from the player below, and the gallery shows a frame without one.
-        console.warn("Val: could not make a poster for", item.ref, err);
+        Internal.log.debug("could not make a poster for", item.ref, err);
       });
     // Once per entry (`posterAttempted`): what it reads is the entry as it was
     // opened, and the poster landing must not start another.

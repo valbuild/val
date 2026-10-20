@@ -314,8 +314,8 @@ function resolveParams(
     // diagnosable error instead of a cryptic `TypeError: React.use is not a
     // function`. Callers treat null as the error sentinel.
     if (!("use" in React)) {
-      console.error(
-        "Val: useValRoute received a Promise params argument but React.use is unavailable. Upgrade to React 19+ or pre-resolve the promise before passing it.",
+      Internal.log.error(
+        "useValRoute received a Promise params argument but React.use is unavailable. Upgrade to React 19+ or pre-resolve the promise before passing it.",
       );
       return null;
     }

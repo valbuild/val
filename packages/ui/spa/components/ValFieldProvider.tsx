@@ -489,7 +489,7 @@ export function useAddPatch(
       void type;
       void writePatch(moduleFilePath, patch).then((res) => {
         if (res.status === "error") {
-          console.error("Val: could not write patch", res.message);
+          Internal.log.error("could not write patch", res.message);
         }
       });
     },
@@ -976,7 +976,7 @@ function useSchemaAtPathInternal(
         resolvedPath: resolvedSourcePath,
       };
     } catch (e) {
-      console.error(
+      Internal.log.error(
         "Error resolving schema at path",
         sourcePath,
         modulePath,

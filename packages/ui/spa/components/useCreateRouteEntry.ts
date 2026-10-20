@@ -58,12 +58,12 @@ export function useCreateRouteEntry(): (
   return useCallback(
     (router: CreatableRouter, key: string) => {
       if (val === null) {
-        console.error("Cannot create route entry: schemas are not loaded");
+        Internal.log.error("Cannot create route entry: schemas are not loaded");
         return null;
       }
       const schema = val.system.schemaStore.all()[router.moduleFilePath];
       if (schema?.type !== "record") {
-        console.error("Cannot create route entry: not a record", {
+        Internal.log.error("Cannot create route entry: not a record", {
           moduleFilePath: router.moduleFilePath,
           schema,
         });

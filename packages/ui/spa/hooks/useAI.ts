@@ -63,7 +63,7 @@ import type {
   Source,
   SourcePath,
 } from "@valbuild/core";
-import { getSourcePathFromRoute } from "@valbuild/core";
+import { getSourcePathFromRoute, Internal } from "@valbuild/core";
 import { Patch } from "@valbuild/shared/internal";
 import { useNavigation } from "../components/ValRouter";
 import { getNavPathFromAll } from "../components/getNavPath";
@@ -1005,7 +1005,10 @@ export function useAI(
             askQuestions = parsed.data.questions;
           }
           if (blockedReason) {
-            console.error("Cannot show ask_user_question card:", blockedReason);
+            Internal.log.error(
+              "Cannot show ask_user_question card:",
+              blockedReason,
+            );
             sendWsMessage({
               type: "ai_tool_result",
               toolCallId: message.toolCallId,
@@ -1228,7 +1231,7 @@ export function useAI(
               patch,
             );
             if (validationResult && "status" in validationResult) {
-              console.error("Patch status not valid", validationResult);
+              Internal.log.error("Patch status not valid", validationResult);
               sendWsMessage({
                 type: "ai_tool_result",
                 toolCallId: message.toolCallId,
@@ -1245,7 +1248,7 @@ export function useAI(
                 valReads.getAllSourcesSnapshot(),
               );
               if (Object.keys(blockingErrors).length > 0) {
-                console.error("Patch validation failed", blockingErrors);
+                Internal.log.error("Patch validation failed", blockingErrors);
                 sendWsMessage({
                   type: "ai_tool_result",
                   toolCallId: message.toolCallId,
@@ -2231,7 +2234,10 @@ export function useAI(
           });
           chatRef.current?.completeToolCall(message.id, message.toolCallId);
         } else {
-          console.error("Received unknown tool call in useAI", message.name);
+          Internal.log.error(
+            "Received unknown tool call in useAI",
+            message.name,
+          );
           sendWsMessage({
             type: "ai_tool_result",
             toolCallId: message.toolCallId,
@@ -2240,7 +2246,7 @@ export function useAI(
           });
         }
       } else if (message.type === "ai_error") {
-        console.error("Received AI error message", message);
+        Internal.log.error("Received AI error message", message);
         if (!chatRef.current) return;
         if (activeIdRef.current !== message.id) {
           chatRef.current.startAssistantMessage(message.id);
@@ -2313,13 +2319,13 @@ export function useAI(
         // a message type still fails the build here.
       } else if (message.type === "ai_agent_handoff") {
         // TODO: show this in the UI in some way to indicate that the AI has handed off to a human agent:
-        console.log(
+        Internal.log.debug(
           "AI agent handoff message received - agents are working",
           message,
         );
       } else {
         const _exhaustiveCheck: never = message;
-        console.error(
+        Internal.log.error(
           "Received unknown message type in useAI",
           _exhaustiveCheck,
         );
@@ -2754,7 +2760,7 @@ Do not describe what you will do unless you do it for clarification — just do 
         chatRef.current?.loadMessages(messages);
         onSessionBornRef.current?.(sessionId);
       } catch (err) {
-        console.warn("Failed to load session messages, clearing:", err);
+        Internal.log.debug("Failed to load session messages, clearing:", err);
         sessionIdRef.current = null;
         setCurrentSessionId(null);
         chatRef.current?.clearMessages();

@@ -1,4 +1,4 @@
-import { ValConfig } from "@valbuild/core";
+import { ValConfig, Internal } from "@valbuild/core";
 import { VAL_APP_PATH, VAL_APP_ID, VERSION as UIVersion } from "@valbuild/ui";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useConfigStorageSave } from "./useConfigStorageSave";
@@ -288,7 +288,7 @@ function useDemoServer(demo: boolean, config: ValConfig): DemoStart {
     };
     run()
       .catch((err: unknown): DemoStart => {
-        console.error("Val: the demo could not start", err);
+        Internal.log.error("the demo could not start", err);
         return {
           status: "failed",
           // Most often the server's code did not download: the page is fine,

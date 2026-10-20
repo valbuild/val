@@ -248,6 +248,41 @@ module.exports = defineConfig([
   },
   {
     /**
+     * Val prints through `Internal.log`, never `console`.
+     *
+     * These packages run inside someone else's app -- the server in their dev
+     * server and production logs, the Studio in their browser tab -- so every
+     * line lands in a console that belongs to a developer who did not write
+     * it. `Internal.log` (`packages/core/src/log.ts`) prints `error` and `warn`
+     * always, and `debug` and `info` only when `VAL_DEBUG` or the `val:debug`
+     * localStorage key asks for them. A bare `console.debug` skips that, and in
+     * Node it is `console.log`: it printed on every request.
+     *
+     * The CLI, `create` and `init` are not here: printing is what they are for.
+     */
+    files: [
+      "packages/core/src/**/*.{ts,tsx}",
+      "packages/shared/src/**/*.{ts,tsx}",
+      "packages/server/src/**/*.{ts,tsx}",
+      "packages/react/src/**/*.{ts,tsx}",
+      "packages/next/src/**/*.{ts,tsx}",
+      "packages/tanstack/src/**/*.{ts,tsx}",
+      "packages/mcp/src/**/*.{ts,tsx}",
+      "packages/ui/spa/**/*.{ts,tsx}",
+    ],
+    ignores: [
+      "packages/core/src/log.ts",
+      "**/*.test.{ts,tsx}",
+      "**/*.stories.{ts,tsx}",
+      "**/test/**",
+      "**/__fixtures__/**",
+    ],
+    rules: {
+      "no-console": "error",
+    },
+  },
+  {
+    /**
      * The Studio is not always a secure context.
      *
      * It is served by the app's own dev server, and that server gets opened on

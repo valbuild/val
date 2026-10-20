@@ -401,12 +401,12 @@ export const ValServer = (
             token,
           };
         } else {
-          console.debug("Failed to get data from code: ", res.status);
+          Internal.log.debug("Failed to get data from code: ", res.status);
           return null;
         }
       })
       .catch((err) => {
-        console.debug("Failed to get user from code: ", err);
+        Internal.log.debug("Failed to get user from code: ", err);
         return null;
       });
   };
@@ -1176,7 +1176,7 @@ export const ValServer = (
           options.valContentUrl,
         );
         if (!settingsRes.success) {
-          console.warn(
+          Internal.log.warn(
             "Could not get remote files settings: " + settingsRes.message,
           );
           return {
@@ -1610,7 +1610,7 @@ export const ValServer = (
           let contentBaseUrl: string | null = null;
           let contentAuthNonce: string | null = null;
           if (!options.project) {
-            console.warn(
+            Internal.log.debug(
               "Direct content-host uploads (AI images) disabled: no `project` set in val.config (and VAL_PROJECT env var is not set).",
             );
           } else if (!isFsOps(serverOps)) {
@@ -1625,13 +1625,13 @@ export const ValServer = (
              * the patch upload base url -- still works, and the only thing lost
              * is the browser posting AI images straight to the content host.
              */
-            console.warn(
+            Internal.log.debug(
               "Direct content-host uploads (AI images) disabled: this store has no content host to presign against.",
             );
           } else {
             const authDataRes = await getRemoteFileAuth();
             if (authDataRes.status !== 200) {
-              console.warn(
+              Internal.log.warn(
                 "Direct content-host uploads (AI images) disabled: " +
                   authDataRes.json.message,
               );
@@ -1646,7 +1646,7 @@ export const ValServer = (
                 contentBaseUrl = presignedAuthNonce.data.baseUrl;
                 contentAuthNonce = presignedAuthNonce.data.nonce;
               } else {
-                console.warn(
+                Internal.log.warn(
                   "Direct content-host uploads (AI images) disabled: " +
                     presignedAuthNonce.error.message,
                 );
@@ -1836,7 +1836,7 @@ export const ValServer = (
         });
         if (fetchedPatchesRes.error) {
           // Error is singular
-          console.error("Val: Failed to get patches", fetchedPatchesRes.error);
+          Internal.log.error("Failed to get patches", fetchedPatchesRes.error);
           return {
             status: 500,
             json: {
@@ -1850,7 +1850,7 @@ export const ValServer = (
           Object.keys(fetchedPatchesRes.errors).length > 0
         ) {
           // Errors is plural. Different property than above.
-          console.error("Val: Failed to get patches", fetchedPatchesRes.errors);
+          Internal.log.error("Failed to get patches", fetchedPatchesRes.errors);
           return {
             status: 500,
             json: {
@@ -1910,7 +1910,7 @@ export const ValServer = (
         const ids = query.id;
         const deleteRes = await serverOps.deletePatches(ids);
         if (deleteRes.errors && Object.keys(deleteRes.errors).length > 0) {
-          console.error("Val: Failed to delete patches", deleteRes.errors);
+          Internal.log.error("Failed to delete patches", deleteRes.errors);
           return {
             status: 500,
             json: {
@@ -1972,7 +1972,7 @@ export const ValServer = (
         }
         const moduleErrors = await serverOps.getModuleErrors();
         if (moduleErrors?.length > 0) {
-          console.error("Val: Module errors", moduleErrors);
+          Internal.log.error("Module errors", moduleErrors);
           return {
             status: 500,
             json: {
@@ -1993,7 +1993,7 @@ export const ValServer = (
             serializedSchemas[moduleFilePath] = schema["executeSerialize"]();
           }
         } catch (e) {
-          console.error("Val: Failed to serialize schemas", e);
+          Internal.log.error("Failed to serialize schemas", e);
           return {
             status: 500,
             json: {
@@ -2128,7 +2128,7 @@ export const ValServer = (
         const sourcesSha = await serverOps.getSourcesSha();
         const moduleErrors = await serverOps.getModuleErrors();
         if (moduleErrors?.length > 0) {
-          console.error("Val: Module errors", moduleErrors);
+          Internal.log.error("Module errors", moduleErrors);
           return {
             status: 500,
             json: {
@@ -2923,14 +2923,14 @@ export const ValServer = (
               ...serverOps.analyzePatches(survivors, patches.commits, commit),
               ...survivingPatches,
             });
-            console.error(
-              "Val: removed unpublished changes that could not be applied",
+            Internal.log.error(
+              "removed unpublished changes that could not be applied",
               removed,
             );
           }
         }
         if (preparedCommit.hasErrors) {
-          console.error(
+          Internal.log.error(
             "Failed to create commit",
             JSON.stringify(
               {
@@ -3008,8 +3008,8 @@ export const ValServer = (
                 authRes.json.remoteFileAuth,
               );
               if (Object.keys(uploadRes.errors).length > 0) {
-                console.error(
-                  "Val: Failed to upload remote files",
+                Internal.log.error(
+                  "Failed to upload remote files",
                   uploadRes.errors,
                 );
                 return {
@@ -3050,7 +3050,7 @@ export const ValServer = (
               remoteFileAuth,
             );
             if (Object.keys(saveRes.errors).length > 0) {
-              console.error("Val: Failed to save files", saveRes.errors);
+              Internal.log.error("Failed to save files", saveRes.errors);
               return {
                 status: 400,
                 json: {
@@ -3111,7 +3111,7 @@ export const ValServer = (
            */
           const deleteRes = await serverOps.deletePatches(consumed);
           if ("error" in deleteRes && deleteRes.error !== undefined) {
-            console.error(
+            Internal.log.error(
               `Val got an error while cleaning up patches after publish: ${deleteRes.error.message}`,
             );
           } else if ("errors" in deleteRes && deleteRes.errors !== undefined) {
@@ -3119,8 +3119,8 @@ export const ValServer = (
             // succeeded. A patch left behind is announced again on the next
             // stat, applies to a base that already contains it, and is removed
             // then.
-            console.error(
-              "Val: could not clean up some patches after publish",
+            Internal.log.error(
+              "could not clean up some patches after publish",
               deleteRes.errors,
             );
           }
@@ -3176,7 +3176,7 @@ export const ValServer = (
                 })
               : await commitToGit();
             if (commitRes.error) {
-              console.error("Failed to commit", commitRes.error);
+              Internal.log.error("Failed to commit", commitRes.error);
               if (
                 "isNotFastForward" in commitRes &&
                 commitRes.isNotFastForward
@@ -4199,7 +4199,7 @@ export const ValServer = (
         const remote = query.remote === "true";
         const patchId = query.patch_id;
         if (!patchId && isHttpOps(serverOps) && remote) {
-          console.error(
+          Internal.log.error(
             `Remote file: ${filePath} requested without patch id. This is most likely a bug in Val.`,
           );
         }
@@ -4412,7 +4412,7 @@ async function createJsonError(fetchRes: Response): Promise<ValServerError> {
       };
     }
   }
-  console.error(
+  Internal.log.error(
     "Unexpected failure (did not get a json) - Val down?",
     fetchRes.status,
     await fetchRes.text(),
@@ -4512,7 +4512,7 @@ async function withAuth<T>(
       };
     }
     return handler(verification.data).catch((err) => {
-      console.error(`Failed while processing: ${errorMessageType}`, err);
+      Internal.log.error(`Failed while processing: ${errorMessageType}`, err);
       return {
         status: 500 as const,
         json: {

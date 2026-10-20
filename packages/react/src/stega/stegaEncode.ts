@@ -403,14 +403,14 @@ function resolveDiscriminatedUnionVariant(
       if (isLiteralSchema(keySchema)) {
         return keySchema.value === key;
       } else {
-        console.warn(
+        Internal.log.warn(
           "Expected literal schema at key in discriminated union, but found: ",
           keySchema,
           { key, schema: s },
         );
       }
     } else {
-      console.warn(
+      Internal.log.warn(
         "Expected discriminated union containing object schema, but found: ",
         s,
       );
@@ -723,7 +723,7 @@ export function stegaEncode(
         return res;
       }
 
-      console.error(
+      Internal.log.error(
         `Could not transform source selector: ${typeof sourceOrSelector} (array: ${Array.isArray(
           sourceOrSelector,
         )})`,
@@ -760,7 +760,7 @@ export function stegaEncode(
       return sourceOrSelector;
     }
 
-    console.error(
+    Internal.log.error(
       `Unexpected type of source selector: ${typeof sourceOrSelector}`,
     );
     return sourceOrSelector;
@@ -811,7 +811,7 @@ function isCodeSchema(
 }
 
 function unknownSchema(schema: unknown) {
-  console.debug("Found unknown schema", schema);
+  Internal.log.debug("Found unknown schema", schema);
   return schema;
 }
 
@@ -961,7 +961,7 @@ export function getModuleIds(input: any): string[] {
         return;
       }
 
-      console.error(
+      Internal.log.error(
         `Could not transform source selector: ${typeof sourceOrSelector} (array: ${Array.isArray(
           sourceOrSelector,
         )})`,
@@ -981,7 +981,7 @@ export function getModuleIds(input: any): string[] {
       return;
     }
 
-    console.error(
+    Internal.log.error(
       `Unexpected type of source selector: ${typeof sourceOrSelector}`,
     );
     return;

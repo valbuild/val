@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import { useEffect, useRef } from "react";
 import { raw, ValEncodedString, Video } from "@valbuild/react/stega";
 import { decodeValPathsOfString } from "./decodeValPathsOfString";
@@ -99,8 +100,8 @@ export function ValVideo(props: ValVideoProps) {
     }
     const loadHls = hlsRef.current;
     if (!loadHls) {
-      console.warn(
-        'Val: this browser cannot play HLS streams on its own. Pass `hls={() => import("hls.js")}` to ValVideo.',
+      Internal.log.warn(
+        'this browser cannot play HLS streams on its own. Pass `hls={() => import("hls.js")}` to ValVideo.',
       );
       return;
     }

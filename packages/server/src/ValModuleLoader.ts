@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import ts from "typescript";
 import { getCompilerOptions } from "./getCompilerOptions";
 import type { IValFSHost } from "./ValFSHost";
@@ -107,7 +108,7 @@ export class ValModuleLoader {
       }).code;
       if (!this.disableCache) {
         if (this.cacheSize > MAX_CACHE_SIZE) {
-          console.warn("Cache size exceeded, clearing cache");
+          Internal.log.debug("Cache size exceeded, clearing cache");
           this.cache = {};
           this.cacheSize = 0;
         }

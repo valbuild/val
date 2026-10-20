@@ -1,4 +1,4 @@
-import { SourcePath } from "@valbuild/core";
+import { SourcePath, Internal } from "@valbuild/core";
 import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -47,7 +47,7 @@ export function DateField({
       } else {
         const date = parseLocalDay(sourceAtPath.data);
         if (date === null) {
-          console.error("Cannot parse invalid date:", sourceAtPath.data);
+          Internal.log.error("Cannot parse invalid date:", sourceAtPath.data);
         }
         setCurrentValue(date);
       }

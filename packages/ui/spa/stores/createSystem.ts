@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import { BaseAlignment, type FetchBaseSources } from "./BaseAlignment";
 import type {
   ModuleFilePath,
@@ -621,7 +622,7 @@ export function createSystem(options: SystemOptions): System {
       const attempts = (unapplicableAttempts.get(patchId) ?? 0) + 1;
       unapplicableAttempts.set(patchId, attempts);
 
-      console.error(
+      Internal.log.error(
         uncertain
           ? "Val: a patch could not be applied, and this module still has " +
               "unloaded .jsonValues() entries — so it may apply once they " +
@@ -645,8 +646,8 @@ export function createSystem(options: SystemOptions): System {
       );
       if (uncertain) continue;
       if (attempts > UNAPPLICABLE_ATTEMPTS) {
-        console.error(
-          "Val: giving up on deleting an unapplicable patch — it keeps coming " +
+        Internal.log.error(
+          "giving up on deleting an unapplicable patch — it keeps coming " +
             "back. It is out of this session's chain so it cannot block saving, " +
             "but it is still on the server.",
           { patchId, attempts },
@@ -679,8 +680,8 @@ export function createSystem(options: SystemOptions): System {
     );
     if (options.discardPatches === undefined) {
       // Local-only: it will be back on the next reload, and the log says so.
-      console.error(
-        "Val: cannot delete the patch on the server — this system has no " +
+      Internal.log.error(
+        "cannot delete the patch on the server — this system has no " +
           "discard seam. It will return on the next reload.",
         { patchIds: toDelete },
       );
@@ -694,8 +695,8 @@ export function createSystem(options: SystemOptions): System {
       // Left for the next round: if the patch is still on the server it will be
       // announced again, fail again, and be attempted again — which is what the
       // attempt counter bounds.
-      console.error(
-        "Val: could not delete an unapplicable patch on the server.",
+      Internal.log.error(
+        "could not delete an unapplicable patch on the server.",
         { patchIds: toDelete, error: res.message },
       );
     }
@@ -800,8 +801,8 @@ export function createSystem(options: SystemOptions): System {
         "They are gone and the fields are back to their published values. The " +
           "server log and .val/patches/patches.repair.log say which, and why.",
       );
-      console.error(
-        "Val: the server removed these unpublished changes.",
+      Internal.log.error(
+        "the server removed these unpublished changes.",
         event.removed,
       );
     }),
@@ -838,8 +839,8 @@ export function createSystem(options: SystemOptions): System {
           "Reload before editing: anything you change now is written on top of " +
           "content that is missing them.",
       );
-      console.error(
-        "Val: the server announced these unpublished changes and did not send them.",
+      Internal.log.error(
+        "the server announced these unpublished changes and did not send them.",
         { patchIds: event.patches },
       );
     }),
@@ -1566,8 +1567,8 @@ export function createSystem(options: SystemOptions): System {
               .map((entry) => `${entry.moduleFilePath}: ${entry.message}`)
               .join("\n"),
           );
-          console.error(
-            "Val: the save removed these changes because they could not be applied.",
+          Internal.log.error(
+            "the save removed these changes because they could not be applied.",
             removed,
           );
         }
