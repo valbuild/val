@@ -1,5 +1,85 @@
 # @valbuild/shared
 
+## 0.148.0
+
+### Patch Changes
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Remote files are now addressed on the host the project's settings name. For a
+  project hosted by Val, that is the project's own address, and its remote images
+  and files are served from there rather than from `remote.val.build`. Every other
+  project is unchanged.
+
+  - The Studio, `val validate --fix` and the MCP image tool all take the host from
+    the project's settings, falling back to `remote.val.build` as before.
+  - Re-reading a remote file whose recorded size or type is out of date keeps it
+    on the host it was on.
+  - When a remote file's host cannot be reached, tooling downloads it from the
+    project's permanent `<id>.valstart.dev` address instead, and keeps it only if
+    its bytes match the file the address names.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Remote files served from a project's own site (addresses like
+  `https://www.acme.no/_val/file/…`) are now checked for whether that address
+  still serves the project. When a custom domain has been removed or moved to
+  another project, the image or file is reported, and **Fix** on the Studio's
+  Validate page — or `val validate --fix` — points it at the project's permanent
+  `<id>.valstart.dev` address. Nothing is uploaded or downloaded: only the address
+  changes.
+
+  Remote file addresses with a `/_val` prefix after the host are now recognised.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Fix existing remote images in rich text being saved as `/publichttps://…`.
+
+  Editing a rich text field could rewrite every remote image already in it into a
+  broken path when the field was not set up to upload remote images itself — for
+  example before the project's remote file settings had loaded, or when the
+  field's image schema is not `.remote()`. A published remote image is now kept
+  as it is, whatever host it is on.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - **Check everything** on the Studio's Validate page now checks media directories
+  (`s.imagedir()`, `s.filedir()`, `s.fontdir()` and `s.videodir()`) by the files
+  they list:
+
+  - An entry whose file is gone has a **Fix** that removes it from the directory.
+  - An image or file entry whose recorded size or type does not match its file has
+    a **Fix** that corrects it from the file, keeping its alt text.
+  - A video entry whose file is gone is reported, and is removed by hand: its
+    posters and captions may still be in use.
+  - A remote entry is checked with its host, like any remote file.
+
+  `val validate --fix` fixes media directories exactly as before.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - **Check everything** on the Studio's Validate page now checks remote images and
+  files too.
+
+  - A remote image or file whose address no longer matches what is recorded about
+    it (its size, type or the schema's options changed since it was uploaded) has
+    a **Fix**, which re-reads the file and corrects it, as `val validate --fix`
+    does.
+  - A remote host that does not answer is shown once, at the top of the page, with
+    how many files it holds and a **Try again**, rather than as an error on every
+    image.
+  - A file its host no longer has is shown at the image or file that uses it.
+
+  Images and files in your unpublished changes are not asked about until they are
+  published; the check makes sure the change still has them.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Two new Studio API routes for the full content check, not yet used by the
+  Studio's UI:
+
+  - `POST /api/val/validate` checks one module — its content against its schema,
+    and its local images and files against their bytes — on the content the
+    Studio is showing.
+  - `POST /api/val/validate/fix` returns the patch that fixes one of those errors,
+    for the Studio to add as a pending change. It builds only the fixes that need
+    no disk or remote host: image, file and video metadata, and a view pointing at
+    the wrong module.
+
+  Also fixed: an API route whose name started with another route's name could be
+  answered by the other route.
+
+- Updated dependencies [[`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1)]:
+  - @valbuild/core@0.148.0
+
 ## 0.147.0
 
 ### Minor Changes
