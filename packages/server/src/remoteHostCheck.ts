@@ -231,9 +231,7 @@ export async function movedRemoteHost(
     why:
       serves.status === "other-project"
         ? `${from} now serves another project, so this file is not shown from there`
-        : serves.status === "no-site"
-          ? `${from} no longer serves this project, so this file is not shown from there`
-          : `${from} could not be reached (${serves.reason}), so this file may not be shown`,
+        : `${from} no longer serves this project, so this file is not shown from there`,
     to: hostNameOfRemoteHost(target),
   };
 }
