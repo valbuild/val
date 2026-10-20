@@ -86,6 +86,9 @@ test.describe("analytics mode, for a visitor", () => {
     const beacon = request.postDataJSON();
     expect(beacon.v).toBe(1);
     expect(beacon.route).toBe("/");
+    // The content version, from VAL_CONTENT_VERSION in the showcase's
+    // .env.development, through the layout's loader and the provider.
+    expect(beacon.cv).toBe("showcase-dev");
     expect(beacon.view.device).toBe("desktop");
     const site = "/src/content/site.val.ts";
     // The tagline is at the top of the page: on screen from the start, so

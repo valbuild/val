@@ -33,6 +33,7 @@ import { isValCanvasFrame } from "@valbuild/shared/client";
 import { ValCanvasBridge } from "./ValCanvasBridge";
 import { shouldSafetyRefresh } from "./safetyRefresh";
 import type { ValDraft } from "./ValDraft";
+import type { ValAnalytics } from "./ValAnalytics";
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
@@ -164,13 +165,14 @@ export const ValTanStackProvider = (props: {
    */
   draft?: ValDraft | null;
   /**
-   * Whether content analytics is on for this site. Off unless this says so.
+   * Whether content analytics is on for this site, and the content version
+   * the page is rendered from. Off unless this says so.
    *
    * It is a setting of the hosted PROJECT, not of the code: the owner turns it
    * on in the project's settings, the platform hands it to the site as the
    * `VAL_ANALYTICS` secret, and the site layout's loader reads it on the
    * server and passes it here -- `fetchValAnalytics()` from the generated
-   * `val.server.ts`, beside `fetchValDraft()`. So switching it needs no code
+   * `val.server.ts`, beside `fetchValDraft()`. See `ValAnalytics`. So switching it needs no code
    * change and no rebuild, and there is deliberately no `val.config.ts` option
    * for it: a second switch, in the code, is one the owner cannot see.
    *
@@ -181,7 +183,7 @@ export const ValTanStackProvider = (props: {
    * from a route outside it -- has to be handed the value then too, or it
    * stays off until the next page load.
    */
-  analytics?: boolean;
+  analytics?: ValAnalytics | null;
   /**
    * This site is a Val demo: the Studio runs Val's API in the visitor's tab
    * (`<ValApp demo>`), so there is no server to ask whether draft mode is on.
@@ -244,7 +246,9 @@ export const ValTanStackProvider = (props: {
    * `initialDraft` is one: a later render's prop is a client navigation's
    * loader, which reads nothing.
    */
-  const analytics = React.useRef(props.analytics ?? false).current;
+  const analyticsSetting = React.useRef(props.analytics ?? null).current;
+  const analytics = analyticsSetting?.enabled === true;
+  const contentVersion = analyticsSetting?.contentVersion;
   const snapshot = initialDraft?.snapshot;
   /*
    * The base the Studio's overlay must start from, where it is not the
@@ -421,6 +425,7 @@ export const ValTanStackProvider = (props: {
           tracker = startValAnalytics({
             endpoint: `${route}/analytics`,
             landingPath,
+            contentVersion,
           });
         }
       })
@@ -431,7 +436,7 @@ export const ValTanStackProvider = (props: {
       cancelled = true;
       tracker?.stop();
     };
-  }, [analytics, mountOverlay, hasDraft, isCanvas, route]);
+  }, [analytics, contentVersion, mountOverlay, hasDraft, isCanvas, route]);
 
   React.useEffect(() => {
     // Activate the Suspense gate after hydration. Inside a transition so
