@@ -259,6 +259,9 @@ module.exports = defineConfig([
      * Node it is `console.log`: it printed on every request.
      *
      * The CLI, `create` and `init` are not here: printing is what they are for.
+     * Nor are the Studio typecheck's `testing/` scripts, which a developer runs
+     * with `tsx` to make fixtures and compare against `tsc`, for the same
+     * reason.
      */
     files: [
       "packages/core/src/**/*.{ts,tsx}",
@@ -276,6 +279,7 @@ module.exports = defineConfig([
       "**/*.stories.{ts,tsx}",
       "**/test/**",
       "**/__fixtures__/**",
+      "packages/ui/spa/typecheck/testing/**",
     ],
     rules: {
       "no-console": "error",
