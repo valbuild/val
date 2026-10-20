@@ -416,6 +416,22 @@ export type InitSchema = {
    * );
    * ```
    *
+   * @example A key schema and route parameters together
+   * ```typescript
+   * import { s, c, tanstackRouter } from "../val.config";
+   * // The key schema describes the whole URL; the parameters check its parts.
+   * export default c.define(
+   *   "/src/routes/blog.$slug.val.ts",
+   *   s.router(
+   *     tanstackRouter,
+   *     s.string().describe("The URL of this blog post"),
+   *     { slug: s.string().regexp(/^[a-z0-9-]+$/) },
+   *     s.object({ title: s.string() }),
+   *   ),
+   *   { "/blog/hello": { title: "Hello" } },
+   * );
+   * ```
+   *
    * @param router - The router configuration (e.g., nextAppRouter)
    * @param schema - The schema for each route item
    * @returns A RecordSchema configured as a router

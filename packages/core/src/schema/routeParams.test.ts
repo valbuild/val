@@ -249,6 +249,54 @@ describe("s.router(router, params, item)", () => {
   });
 });
 
+describe("s.router(router, key, params, item)", () => {
+  const key = s.string().maxLength(20).describe("The URL of this blog post");
+  const schema = s.router(
+    tanstackRouter,
+    key,
+    { locale: urlLocale, slug: s.string().maxLength(10) },
+    page,
+  );
+
+  test("the key is checked against its schema, and its parts against theirs", () => {
+    const result = schema["executeValidate"](MODULE, {
+      "/blog/hello": { title: "Hello" },
+      "/nb/blog/a-slug-far-too-long": { title: "Lang" },
+    });
+    const errors = otherErrors(result);
+    // Both say so, about the one key: the whole URL is longer than the key
+    // schema allows, and its slug is longer than the slug's.
+    expect(errors[keyPath("/nb/blog/a-slug-far-too-long")]).toHaveLength(2);
+    expect(errors[keyPath("/blog/hello")]).toBeUndefined();
+    expect(localeChecks(result)[keyPath("/blog/hello")]).toEqual(["en-US"]);
+  });
+
+  test("serializes both, and validates the same once deserialized", () => {
+    const serialized = schema["executeSerialize"]();
+    expect(serialized.key).toMatchObject({
+      type: "string",
+      description: "The URL of this blog post",
+    });
+    expect(Object.keys(serialized.params ?? {})).toEqual(["locale", "slug"]);
+    const roundTripped = deserializeSchema(serialized);
+    expect(roundTripped["executeSerialize"]()).toEqual(serialized);
+    const source = { "/nb/blog/a-slug-far-too-long": { title: "Lang" } };
+    expect(roundTripped["executeValidate"](MODULE, source)).toEqual(
+      schema["executeValidate"](MODULE, source),
+    );
+  });
+
+  test("the three-argument forms are unchanged", () => {
+    expect(
+      s.router(tanstackRouter, key, page)["executeSerialize"]().params,
+    ).toBeUndefined();
+    expect(
+      s.router(tanstackRouter, { slug: s.string() }, page)["executeSerialize"]()
+        .key,
+    ).toMatchObject({ type: "string" });
+  });
+});
+
 describe("route parameters, as Copilot's review found them", () => {
   test("a mapping's own problems are reported once, before there is a page", () => {
     const badTag = s.router(

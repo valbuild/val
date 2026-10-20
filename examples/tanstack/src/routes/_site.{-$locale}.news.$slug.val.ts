@@ -16,6 +16,10 @@ import { urlLocale } from "../schemas/urlLocale";
  *   `sv-SE` here before the settings declare it.
  * - `slug` is an ordinary string, with the rules a slug has.
  *
+ * The first argument after the router is the KEY's schema, as in
+ * `s.router(router, key, item)`: it describes the whole URL. With both, a
+ * module says what the URL is for AND what each of its parts may be.
+ *
  * Because the URL says which language a page is in, the page itself cannot say
  * so again: an `s.locale()` field in the item would be a second answer, and is
  * a schema error.
@@ -24,6 +28,9 @@ export default c.define(
   "/src/routes/_site.{-$locale}.news.$slug.val.ts",
   s.router(
     tanstackRouter,
+    // The whole URL's own description, shown in the "New page" form. The
+    // parameter schemas below check its parts.
+    s.string().describe("The URL of this news story"),
     {
       locale: urlLocale,
       slug: s

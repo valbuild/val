@@ -127,6 +127,19 @@ describe("NewPageForm with a language in the URL", () => {
     expect(create).toHaveProperty("disabled", false);
   });
 
+  test("the URL's own description and each parameter's are shown together", () => {
+    // s.router(router, key, params, item): the key describes the whole URL,
+    // and the parameters their parts.
+    renderForm({
+      ...route("/[[locale]]/news/[slug]", { locale: urlLocale, slug }),
+      keyDescription: "The URL of this news story",
+    });
+    expect(screen.getByText("The URL of this news story")).toBeTruthy();
+    expect(
+      screen.getByText("Lower case letters, digits and hyphens"),
+    ).toBeTruthy();
+  });
+
   test("each parameter's description is shown where it is entered", () => {
     renderForm(route("/[[locale]]/news/[slug]", { locale: urlLocale, slug }));
     expect(
