@@ -4,6 +4,7 @@ import {
   ModuleFilePath,
   RichTextSource,
   SourcePath,
+  Internal,
 } from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -371,7 +372,10 @@ export function RichTextField({
           combinedPatch,
           "image",
           (errorMessage) => {
-            console.error("Failed to upload image in richtext:", errorMessage);
+            Internal.log.error(
+              "Failed to upload image in richtext:",
+              errorMessage,
+            );
             setUploadProgress(null);
           },
           (bytesUploaded, totalBytes, currentFile, totalFiles) => {
@@ -394,7 +398,7 @@ export function RichTextField({
 
         return { filePath, ref: refFromPatch };
       } catch (err) {
-        console.error("Failed to prepare image for upload", err);
+        Internal.log.error("Failed to prepare image for upload", err);
         setUploadProgress(null);
         return null;
       }
@@ -515,7 +519,7 @@ export function RichTextField({
     );
   }
   if (!config?.remoteHost) {
-    console.warn(
+    Internal.log.debug(
       "RichTextField: config.remoteHost is not set. Remote images will not work.",
     );
   }

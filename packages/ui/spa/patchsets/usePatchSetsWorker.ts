@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import type { PatchId } from "@valbuild/core";
 import type { SerializedPatchSet } from "../utils/PatchSets";
@@ -71,7 +72,7 @@ export function usePatchSetsWorker(
         setIsComputing(false);
         setHasComputed(true);
       } else if (response.type === "error") {
-        console.error("PatchSets worker error:", response.error);
+        Internal.log.error("PatchSets worker error:", response.error);
         setIsComputing(false);
         // Nothing more is coming for this request: treat the failure as a
         // result so the view leaves its loading state.
@@ -80,7 +81,7 @@ export function usePatchSetsWorker(
     };
 
     worker.onerror = (event) => {
-      console.error("PatchSets worker failed:", event.message);
+      Internal.log.error("PatchSets worker failed:", event.message);
       setIsComputing(false);
       setHasComputed(true);
     };

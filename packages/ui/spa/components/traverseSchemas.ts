@@ -57,7 +57,7 @@ export function traverseSchemas(
       return;
     }
     if (schema === undefined) {
-      console.error(`Schema not found for ${sourcePath}`);
+      Internal.log.error(`Schema not found for ${sourcePath}`);
       return;
     }
     if (

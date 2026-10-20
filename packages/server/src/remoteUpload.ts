@@ -27,6 +27,13 @@ export type RemoteUploadSession = {
   bucket: string;
   remoteFileBuckets: string[];
   remoteFilesCounter: number;
+  /**
+   * The host the refs of this session's uploads name. The project's settings
+   * say, because they also say where the bytes go: a Hosted project's are in
+   * R2 and served at its own address, and a ref naming another host would
+   * point at nothing.
+   */
+  remoteHost: string;
 };
 
 export async function openRemoteUploadSession(
@@ -63,6 +70,7 @@ export async function openRemoteUploadSession(
   let publicProjectId = ctx.publicProjectId;
   let remoteFileBuckets = ctx.remoteFileBuckets;
   let remoteFilesCounter = ctx.remoteFilesCounter;
+  let remoteHost = ctx.remote.remoteHost;
 
   if (!publicProjectId || !remoteFileBuckets) {
     if (!projectName) {
@@ -76,6 +84,7 @@ export async function openRemoteUploadSession(
     }
     publicProjectId = settingsRes.data.publicProjectId;
     remoteFileBuckets = settingsRes.data.remoteFileBuckets.map((b) => b.bucket);
+    remoteHost = settingsRes.data.remoteHost ?? remoteHost;
   }
 
   if (!publicProjectId) {
@@ -106,6 +115,7 @@ export async function openRemoteUploadSession(
       bucket,
       remoteFileBuckets,
       remoteFilesCounter,
+      remoteHost,
     },
   };
 }
@@ -134,7 +144,7 @@ export async function uploadBytesToRemote(
   const fileHash = Internal.remote.getFileHash(fileBuffer);
   const coreVersion = Internal.VERSION.core || "unknown";
   const fileExt = getFileExt(relativeFilePath);
-  const ref = Internal.remote.createRemoteRef(ctx.remote.remoteHost, {
+  const ref = Internal.remote.createRemoteRef(session.remoteHost, {
     publicProjectId: session.publicProjectId,
     coreVersion,
     bucket: session.bucket,

@@ -1,5 +1,6 @@
 import path from "path";
 import {
+  askOncePerHost,
   createDefaultValFSHost,
   createFixPatch,
   createService,
@@ -19,6 +20,7 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import {
+  isRepairedOnSave,
   resolveSchemaSourceFixes,
   type SchemaSourceSnapshot,
 } from "@valbuild/shared/internal";
@@ -58,6 +60,10 @@ export async function* runValidation({
   fs: IValFSHost;
 }): AsyncGenerator<ValidationEvent> {
   const projectRoot = path.resolve(root);
+  // One question per platform host for the whole run: each error is fixed by
+  // its own createFixPatch call, and a host that does not answer would
+  // otherwise cost a timeout per ref.
+  const askHostProject = askOncePerHost();
 
   const service = await createService(projectRoot, fs);
 
@@ -260,6 +266,7 @@ export async function* runValidation({
                   sourcePath,
                   message: result.errorMessage ?? "Unknown error",
                   ...(v.keyError ? { keyError: true } : {}),
+                  ...(isRepairedOnSave(v) ? { repairedOnSave: true } : {}),
                 };
                 fileErrors += 1;
                 continue;
@@ -277,13 +284,18 @@ export async function* runValidation({
                   message: result.fixableErrorMessage,
                   fixable: true,
                   ...(v.keyError ? { keyError: true } : {}),
+                  ...(isRepairedOnSave(v) ? { repairedOnSave: true } : {}),
                 };
               }
 
               // Apply patch if needed
               if (result.shouldApplyPatch) {
                 const fixPatch = await createFixPatch(
-                  { projectRoot, remoteHost: remote.remoteHost },
+                  {
+                    projectRoot,
+                    remoteHost: remote.remoteHost,
+                    askHostProject,
+                  },
                   !!fix,
                   sourcePath as SourcePath,
                   v,
@@ -319,6 +331,7 @@ export async function* runValidation({
                     message: v.message,
                     fixable: true,
                     ...(v.keyError ? { keyError: true } : {}),
+                    ...(isRepairedOnSave(v) ? { repairedOnSave: true } : {}),
                   };
                 }
 
@@ -332,6 +345,7 @@ export async function* runValidation({
                     message: e.message,
                     fixable: !!(e.fixes && e.fixes.length),
                     ...(e.keyError ? { keyError: true } : {}),
+                    ...(isRepairedOnSave(e) ? { repairedOnSave: true } : {}),
                   };
                 }
               }

@@ -92,6 +92,15 @@ describe("the in-tab server", () => {
     expect(answer.patches).toEqual([]);
   });
 
+  // The full check reads files and asks remote hosts, which a tab has no way
+  // to: it says so, as a 501 the Studio shows without a Try again.
+  test("answers the full check as not available here", async () => {
+    const res = await clientOf(inTab())("/validate", "POST", {
+      body: { moduleFilePath: HOME },
+    });
+    expect(res.status).toBe(501);
+  });
+
   test("answers /profiles with nobody, not an error, without a project", async () => {
     const res = await clientOf(inTab())("/profiles", "GET", {});
     expect(res.status).toBe(200);

@@ -18,17 +18,23 @@ import {
   Patch,
   sourceToPatchPath,
 } from "@valbuild/core/patch";
-import fs from "fs";
 import {
   extractFileMetadata,
   extractImageMetadata,
-  extractVideoMetadataFromFile,
   unreadableVideoMetadataMessage,
 } from "./extractMetadata";
 import { galleryEntryOf } from "./galleryEntryKey";
 import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
 import path from "path";
-import { checkRemoteRef, downloadFileFromRemote } from "./checkRemoteRef";
+import {
+  fallbackRemoteHost,
+  movedRemoteHost,
+  needsHostCheck,
+  rewriteRefHost,
+  type AskHostProject,
+} from "./remoteHostCheck";
+import { checkRemoteRef } from "./checkRemoteRef";
+import { diskFixFiles, FixFiles } from "./fixFiles";
 import { rewriteVideoPathsPatch } from "./videoRemote";
 import {
   videosetAddMetadataPatch,
@@ -98,7 +104,20 @@ function mediaValueOf(value: unknown): Record<string, unknown> | undefined {
 }
 
 export async function createFixPatch(
-  config: { projectRoot: string; remoteHost: string },
+  config: {
+    projectRoot: string;
+    remoteHost: string;
+    /**
+     * Where a fix reads a file's bytes and puts a downloaded one. Defaults to
+     * the disk under `projectRoot`; see {@link FixFiles}.
+     */
+    files?: FixFiles;
+    /**
+     * How a platform ref's host is asked which project it serves. Defaults
+     * to `GET <host>/_val/project`; tests replace it.
+     */
+    askHostProject?: AskHostProject;
+  },
   apply: boolean,
   sourcePath: SourcePath,
   validationError: ValidationError,
@@ -116,12 +135,10 @@ export async function createFixPatch(
 > {
   const remainingErrors: FixPatchRemainingError[] = [];
   const patch: Patch = [];
+  const files = config.files ?? diskFixFiles(config.projectRoot);
   for (const fix of validationError.fixes || []) {
     if (fix === "image:check-metadata" || fix === "image:add-metadata") {
-      const imageMetadata = await getImageMetadata(
-        config.projectRoot,
-        validationError,
-      );
+      const imageMetadata = await getImageMetadata(files, validationError);
       if (
         imageMetadata.width === undefined ||
         imageMetadata.height === undefined
@@ -201,10 +218,7 @@ export async function createFixPatch(
         }
       }
     } else if (fix === "file:add-metadata" || fix === "file:check-metadata") {
-      const fileMetadata = await getFileMetadata(
-        config.projectRoot,
-        validationError,
-      );
+      const fileMetadata = await getFileMetadata(files, validationError);
       if (fileMetadata === undefined) {
         remainingErrors.push({
           ...validationError,
@@ -274,7 +288,7 @@ export async function createFixPatch(
       }
       let metadata: VideoMetadata;
       try {
-        metadata = await getVideoMetadata(config.projectRoot, fileRef);
+        metadata = await getVideoMetadata(files, fileRef);
       } catch (err) {
         remainingErrors.push({
           ...validationError,
@@ -312,7 +326,7 @@ export async function createFixPatch(
       // A set entry's twin of `video:add-metadata`: the file is the entry's
       // KEY, and only what is missing is written.
       const fixed = await videosetAddMetadataPatch({
-        projectRoot: config.projectRoot,
+        files,
         sourcePath,
         validationError,
         moduleSource,
@@ -336,12 +350,9 @@ export async function createFixPatch(
       let metadata = remoteFile.metadata as JSONValue | undefined;
       if (!metadata) {
         if (fix === "image:upload-remote") {
-          metadata = await getImageMetadata(
-            config.projectRoot,
-            validationError,
-          );
+          metadata = await getImageMetadata(files, validationError);
         } else if (fix === "file:upload-remote") {
-          metadata = await getFileMetadata(config.projectRoot, validationError);
+          metadata = await getFileMetadata(files, validationError);
         }
       }
       if (!metadata) {
@@ -490,14 +501,7 @@ export async function createFixPatch(
         });
         continue;
       }
-      const absoluteFilePath = path.join(
-        config.projectRoot,
-        splitRemoteRefDataRes.filePath,
-      );
-      await fs.promises.mkdir(path.dirname(absoluteFilePath), {
-        recursive: true,
-      });
-      const res = await downloadFileFromRemote(url, absoluteFilePath);
+      const res = await files.saveRemoteFile(url, filePath);
       if (res.status === "error") {
         remainingErrors.push({
           ...validationError,
@@ -537,10 +541,9 @@ export async function createFixPatch(
           // image as unreadable, and with `--fix` REMOVED it from the gallery.
           continue;
         }
-        const filename = path.join(config.projectRoot, entry.localPath);
         let buffer: Buffer;
         try {
-          buffer = fs.readFileSync(filename);
+          buffer = await files.readFile(entry.localPath);
         } catch {
           if (apply) {
             const removePath = sourceToPatchPath(sourcePath).concat([entryKey]);
@@ -550,19 +553,21 @@ export async function createFixPatch(
           } else {
             remainingErrors.push({
               ...validationError,
-              message: `Could not read file: ${filename} - file might not exist or can not be accessed`,
+              message: `Could not read file: ${path.join(config.projectRoot, entry.localPath)} - file might not exist or can not be accessed`,
               fixes: undefined,
             });
           }
           continue;
         }
         if (fix === "images:check-all-files") {
-          const actualMetadata = await extractImageMetadata(filename, buffer);
+          const actualMetadata = await extractImageMetadata(
+            entry.localPath,
+            buffer,
+          );
           const stored = storedEntry as Record<string, unknown>;
           const metadataIsCorrect =
-            stored.width === actualMetadata.width &&
-            stored.height === actualMetadata.height &&
-            stored.mimeType === actualMetadata.mimeType;
+            mediaDirEntryMismatches("images", stored, actualMetadata).length ===
+            0;
           if (!metadataIsCorrect) {
             if (apply) {
               patch.push({
@@ -588,9 +593,14 @@ export async function createFixPatch(
             }
           }
         } else if (fix === "files:check-all-files") {
-          const actualMetadata = await extractFileMetadata(filename, buffer);
+          const actualMetadata = await extractFileMetadata(
+            entry.localPath,
+            buffer,
+          );
           const stored = storedEntry as Record<string, unknown>;
-          const metadataIsCorrect = stored.mimeType === actualMetadata.mimeType;
+          const metadataIsCorrect =
+            mediaDirEntryMismatches("files", stored, actualMetadata).length ===
+            0;
           if (!metadataIsCorrect) {
             if (apply) {
               patch.push({
@@ -656,12 +666,33 @@ export async function createFixPatch(
       );
 
       if (schemaAtPath.type === "image" || schemaAtPath.type === "file") {
+        // First, whether the ref's host still serves its project at all: a
+        // ref on a domain the project dropped is pointed at the project's own
+        // address, not re-derived from bytes nobody can download from there.
+        const moved = await movedRemoteHost(v.path, config.askHostProject);
+        if (moved) {
+          if (apply) {
+            patch.push({
+              op: "replace",
+              path: sourceToPatchPath(sourcePath).concat(["path"]),
+              value: moved.ref,
+            });
+          } else {
+            remainingErrors.push({
+              ...validationError,
+              message: `${moved.why}. Run 'val validate --fix' to point it at ${moved.to}, which always serves it.`,
+              fixes: ["remote:rewrite-host"],
+            });
+          }
+          continue;
+        }
         const res = await checkRemoteRef(
           config.remoteHost,
           v.path,
           config.projectRoot,
           schemaAtPath,
           v.metadata,
+          files.readRemoteFile,
         );
         if (res.status === "success") {
           // do nothing
@@ -704,6 +735,45 @@ export async function createFixPatch(
           fixes: undefined,
         });
       }
+    } else if (fix === "remote:rewrite-host") {
+      // The new ref is derived from the old one alone, so nothing the error
+      // carries is trusted: the value is read from the module, and only a
+      // platform ref that is not already on the project's own address moves.
+      const [, modulePath] =
+        Internal.splitModuleFilePathAndModulePath(sourcePath);
+      const current =
+        moduleSource !== undefined && moduleSchema !== undefined
+          ? Internal.resolvePath(modulePath, moduleSource, moduleSchema).source
+          : undefined;
+      const ref =
+        typeof current === "object" &&
+        current !== null &&
+        "path" in current &&
+        typeof current.path === "string"
+          ? current.path
+          : undefined;
+      const parsed =
+        ref === undefined ? undefined : Internal.remote.splitRemoteRef(ref);
+      const rewritten =
+        ref !== undefined &&
+        parsed?.status === "success" &&
+        needsHostCheck(parsed.remoteHost, parsed.projectId)
+          ? rewriteRefHost(ref, fallbackRemoteHost(parsed.projectId))
+          : null;
+      if (rewritten === null) {
+        remainingErrors.push({
+          ...validationError,
+          message:
+            "Cannot point this at the project's own address: it is not a platform ref on another host",
+          fixes: undefined,
+        });
+        continue;
+      }
+      patch.push({
+        op: "replace",
+        path: sourceToPatchPath(sourcePath).concat(["path"]),
+        value: rewritten,
+      });
     } else if (fix === "view:check-module") {
       // The schema is the authority: it names the module, and there is exactly
       // one valid pointer. So this is written rather than reported — nobody has
@@ -847,7 +917,7 @@ function currentVideoValue(
 }
 
 export async function getVideoMetadata(
-  projectRoot: string,
+  files: FixFiles,
   fileRef: string,
 ): Promise<VideoMetadata> {
   // Not read into memory: only the headers are, and a video is mostly not
@@ -856,11 +926,11 @@ export async function getVideoMetadata(
   if (Internal.isRemoteMediaPath(fileRef)) {
     return extractVideoMetadataFromUrl(fileRef, nameForTypeOf(fileRef));
   }
-  return extractVideoMetadataFromFile(path.join(projectRoot, fileRef));
+  return files.readVideoMetadata(fileRef);
 }
 
 export async function getImageMetadata(
-  projectRoot: string,
+  files: FixFiles,
   validationError: ValidationError,
 ): Promise<ImageMetadata> {
   const fileRef = getValidationErrorFileRef(validationError);
@@ -868,13 +938,11 @@ export async function getImageMetadata(
     // TODO:
     throw Error("Cannot fix image without a file reference");
   }
-  const filename = path.join(projectRoot, fileRef);
-  const buffer = fs.readFileSync(filename);
-  return extractImageMetadata(filename, buffer);
+  return extractImageMetadata(fileRef, await files.readFile(fileRef));
 }
 
 export async function getFileMetadata(
-  projectRoot: string,
+  files: FixFiles,
   validationError: ValidationError,
 ): Promise<FileMetadata> {
   const fileRef = getValidationErrorFileRef(validationError);
@@ -882,7 +950,24 @@ export async function getFileMetadata(
     // TODO:
     throw Error("Cannot fix file without a file reference");
   }
-  const filename = path.join(projectRoot, fileRef);
-  const buffer = fs.readFileSync(filename);
-  return extractFileMetadata(fileRef, buffer);
+  return extractFileMetadata(fileRef, await files.readFile(fileRef));
+}
+
+/**
+ * What an image or file directory's entry records that its bytes disagree
+ * with, as `[field, recorded, actual]`. The one comparison: the CLI's
+ * `*:check-all-files` fix and the Studio's full check both ask it.
+ */
+export function mediaDirEntryMismatches(
+  type: "images" | "files",
+  stored: Record<string, unknown>,
+  actual: { width?: number; height?: number; mimeType?: string },
+): [field: string, recorded: unknown, actual: unknown][] {
+  const fields =
+    type === "images"
+      ? (["width", "height", "mimeType"] as const)
+      : (["mimeType"] as const);
+  return fields
+    .filter((field) => stored[field] !== actual[field])
+    .map((field) => [field, stored[field], actual[field]]);
 }

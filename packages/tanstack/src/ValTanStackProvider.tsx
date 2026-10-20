@@ -12,6 +12,7 @@ import {
   DEFAULT_CONTENT_HOST,
   ModuleFilePath,
   ValConfig,
+  Internal,
 } from "@valbuild/core";
 import {
   VAL_APP_PATH,
@@ -369,7 +370,7 @@ export const ValTanStackProvider = (props: {
   useConsoleLogEnableVal(mountOverlay);
   React.useEffect(() => {
     if (location.search === "?message_onready=true") {
-      console.warn("Val is verifying draft mode...");
+      Internal.log.debug("verifying draft mode...");
       return;
     }
     if (isValStudioPath(location.pathname)) {
@@ -591,8 +592,8 @@ export const ValTanStackProvider = (props: {
     const valProviderOverlayListener = (event: Event) => {
       if (event instanceof CustomEvent) {
         if (!event?.detail.type) {
-          console.error(
-            "Val: invalid event detail (val-overlay-provider)",
+          Internal.log.error(
+            "invalid event detail (val-overlay-provider)",
             event,
           );
         }
@@ -624,13 +625,13 @@ export const ValTanStackProvider = (props: {
             });
           }
         } else {
-          console.error(
-            "Val: invalid event detail (val-overlay-provider)",
+          Internal.log.error(
+            "invalid event detail (val-overlay-provider)",
             event.detail,
           );
         }
       } else {
-        console.error("Val: invalid event (val-overlay-provider)", event);
+        Internal.log.error("invalid event (val-overlay-provider)", event);
       }
     };
     window.addEventListener("val-overlay-provider", valProviderOverlayListener);
@@ -682,7 +683,7 @@ export const ValTanStackProvider = (props: {
             return;
           }
           if (res.status !== 200) {
-            console.error("Val: could not get draft mode status", res);
+            Internal.log.error("could not get draft mode status", res);
             return;
           }
           setDraftMode((prev) => {
@@ -695,7 +696,7 @@ export const ValTanStackProvider = (props: {
           });
         })
         .catch((err) => {
-          console.error("Val: could not get draft mode status", err);
+          Internal.log.error("could not get draft mode status", err);
         })
         .finally(() => {
           if (pollDraftStatIdRef.current !== pollDraftStatId) {
@@ -716,8 +717,8 @@ export const ValTanStackProvider = (props: {
              * unrecoverable, because the ONLY other thing that clears it is the
              * `val-ready` message the frame never sent.
              */
-            console.warn(
-              "Val: draft mode did not confirm in time. Falling back to the " +
+            Internal.log.warn(
+              "draft mode did not confirm in time. Falling back to the " +
                 "idle poll — try toggling preview again.",
             );
             setIframeSrc(null);
@@ -806,16 +807,16 @@ export const ValTanStackProvider = (props: {
                   window.dispatchEvent(new Event(VAL_EDIT_LANDED));
                 }
               } else {
-                console.error("Val: invalid event detail", event.detail);
+                Internal.log.error("invalid event detail", event.detail);
               }
             } else {
-              console.error(
-                "Val: invalid custom event details (val-event)",
+              Internal.log.error(
+                "invalid custom event details (val-event)",
                 event.detail,
               );
             }
           } else {
-            console.error("Val: invalid custom event (val-event)", event);
+            Internal.log.error("invalid custom event (val-event)", event);
           }
         };
         window.addEventListener(
@@ -1033,7 +1034,7 @@ function useConsoleLogEnableVal(showOverlay?: boolean) {
       showOverlay === false &&
       !isValStudioPath(location.pathname)
     ) {
-      console.warn(
+      Internal.log.warn(
         `
 ###########
 ###########

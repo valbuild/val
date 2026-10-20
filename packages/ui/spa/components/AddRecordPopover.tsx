@@ -115,18 +115,18 @@ export function AddRecordPopover({
     shallowSourceAtPath.data === null
   ) {
     // An actual error message should be shown above
-    console.error("Source not found", shallowSourceAtPath, { path });
+    Internal.log.debug("Source not found", shallowSourceAtPath, { path });
     return null;
   }
   if (!("data" in schemaAtPath) || schemaAtPath.data === undefined) {
     // An actual error message should be shown above
-    console.error("Schema not found", shallowSourceAtPath, { path });
+    Internal.log.debug("Schema not found", shallowSourceAtPath, { path });
     return null;
   }
   const schema = schemaAtPath.data;
   if (schema.type !== "record") {
     // An actual error message should be shown above
-    console.error("Schema is not a record", schemaAtPath, { path });
+    Internal.log.error("Schema is not a record", schemaAtPath, { path });
     return null;
   }
   const [moduleFilePath, modulePath] =

@@ -1,4 +1,4 @@
-import { CodeLanguage } from "@valbuild/core";
+import { CodeLanguage, Internal } from "@valbuild/core";
 import CodeMirror, { BasicSetupOptions } from "@uiw/react-codemirror";
 import { useMemo, useState } from "react";
 import { javascript } from "@codemirror/lang-javascript";
@@ -90,7 +90,7 @@ export function CodeEditor({
       return [angular()];
     } else {
       const exhaustiveCheck: never = language;
-      console.error(`Unknown code editor language: ${exhaustiveCheck}`);
+      Internal.log.error(`Unknown code editor language: ${exhaustiveCheck}`);
       return [];
     }
   }, [language]);

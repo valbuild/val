@@ -1,3 +1,4 @@
+import { moduleFilePathOfPathname } from "../utils/moduleFilePathOfPathname";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import React, {
   useCallback,
@@ -22,7 +23,15 @@ import {
 } from "../review/reviewCompareParam";
 
 export const VAL_COMPARE_ROUTE = "/val/compare";
-export const VAL_ERRORS_ROUTE = "/val/errors";
+/**
+ * The Validate page: the errors the Studio already knows about, and the full
+ * check behind "Check everything". See `docs/plans/studio-validate.md`.
+ *
+ * It was `/val/errors`, which still opens it ({@link VAL_LEGACY_ERRORS_ROUTE})
+ * so a link someone saved or sent keeps working.
+ */
+export const VAL_ERRORS_ROUTE = "/val/validate";
+const VAL_LEGACY_ERRORS_ROUTE = "/val/errors";
 /**
  * The published history, as a page rather than a panel.
  *
@@ -347,7 +356,9 @@ export function ValRouter({
       }
       if (
         location.pathname === VAL_ERRORS_ROUTE ||
-        location.pathname === VAL_ERRORS_ROUTE + "/"
+        location.pathname === VAL_ERRORS_ROUTE + "/" ||
+        location.pathname === VAL_LEGACY_ERRORS_ROUTE ||
+        location.pathname === VAL_LEGACY_ERRORS_ROUTE + "/"
       ) {
         setIsErrorsView(true);
         setIsCompareView(false);
@@ -406,8 +417,8 @@ export function ValRouter({
       const valPathIndex = location.pathname.indexOf(VAL_CONTENT_VIEW_ROUTE);
       if (valPathIndex > -1) {
         const modulePath = new URLSearchParams(location.search).get("p");
-        const moduleFilePath = location.pathname.slice(
-          valPathIndex + VAL_CONTENT_VIEW_ROUTE.length,
+        const moduleFilePath = moduleFilePathOfPathname(
+          location.pathname.slice(valPathIndex + VAL_CONTENT_VIEW_ROUTE.length),
         );
         const path = moduleFilePath + (modulePath ? `?p=${modulePath}` : "");
         setSourcePath(path as SourcePath);

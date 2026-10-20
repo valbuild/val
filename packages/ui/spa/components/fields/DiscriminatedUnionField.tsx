@@ -3,6 +3,7 @@ import {
   SerializedDiscriminatedUnionSchema,
   SerializedObjectSchema,
   SourcePath,
+  Internal,
 } from "@valbuild/core";
 import {
   Select,
@@ -191,14 +192,14 @@ export function useDiscriminatedUnion(
         if (subSchema.type === "literal") {
           return subSchema.value === value;
         }
-        console.error(
+        Internal.log.error(
           "Expected literal schema in discriminated union",
           subSchema,
         );
         return false;
       });
       if (selectedSchema?.items === undefined) {
-        console.error(
+        Internal.log.error(
           `Selected schema with ${schema.key} = ${value} not found`,
         );
         return;
@@ -236,7 +237,10 @@ export function useDiscriminatedUnion(
     if (subSchema.type === "literal") {
       return [subSchema.value];
     }
-    console.error("Expected literal schema in discriminated union", subSchema);
+    Internal.log.error(
+      "Expected literal schema in discriminated union",
+      subSchema,
+    );
     return [];
   });
   const selectedSchema = schema.items.find((item) => {
@@ -244,7 +248,10 @@ export function useDiscriminatedUnion(
     if (subSchema.type === "literal") {
       return subSchema.value === currentKey;
     }
-    console.error("Expected literal schema in discriminated union", subSchema);
+    Internal.log.error(
+      "Expected literal schema in discriminated union",
+      subSchema,
+    );
     return false;
   });
   if (

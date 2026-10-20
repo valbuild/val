@@ -393,6 +393,7 @@ import {
  * BUILD (not the typecheck) with "'version' is not exported by package.json".
  */
 import corePackageJson from "../package.json";
+import { log, isDebugEnabled, VAL_DEBUG_STORAGE_KEY } from "./log";
 
 export const FATAL_ERROR_TYPES = [
   "no-schema",
@@ -435,6 +436,10 @@ export const DEFAULT_APP_HOST = "https://admin.val.build";
 export const DEFAULT_STATIC_HOST = "https://content.val.build/v1/static";
 
 const Internal = {
+  /** Val's console output. See `log.ts` for which levels print, and when. */
+  log,
+  isDebugEnabled,
+  VAL_DEBUG_STORAGE_KEY,
   VERSION: {
     core: corePackageJson.version,
   },

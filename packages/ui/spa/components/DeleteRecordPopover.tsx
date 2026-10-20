@@ -1,4 +1,4 @@
-import { ModuleFilePath, SourcePath } from "@valbuild/core";
+import { ModuleFilePath, SourcePath, Internal } from "@valbuild/core";
 import { array } from "@valbuild/core/fp";
 import { Link, Trash2 } from "lucide-react";
 import { Button } from "./designSystem/button";
@@ -139,7 +139,9 @@ function DeleteRecordButton({
     shallowParentSource.data === null
   ) {
     // An actual error message should be shown above
-    console.error("Parent source not found", shallowParentSource, { path });
+    Internal.log.debug("Parent source not found", shallowParentSource, {
+      path,
+    });
     return null;
   }
   return (

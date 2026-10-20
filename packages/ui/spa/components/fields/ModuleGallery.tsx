@@ -341,7 +341,7 @@ export function ModuleGallery({
           } catch (err) {
             // A stream that cannot be read is still one that can be removed;
             // what is left behind, `val validate` reports as untracked.
-            console.warn("Val: could not list the stream's files", err);
+            Internal.log.debug("could not list the stream's files", err);
           }
         }
         // The entry's own poster and captions go with it: they are the
@@ -522,7 +522,7 @@ export function ModuleGallery({
           handleProgress,
         );
       } catch (err) {
-        console.error("Val: video upload failed", err);
+        Internal.log.error("video upload failed", err);
         setUploadError(
           `Could not upload the video: ${err instanceof Error ? err.message : String(err)}`,
         );
@@ -640,7 +640,7 @@ export function ModuleGallery({
             ev.target.value = "";
             return;
           }
-          console.error("Current remote file bucket is not available", {
+          Internal.log.error("Current remote file bucket is not available", {
             remoteFiles,
             currentRemoteFileBucket,
           });

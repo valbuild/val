@@ -67,6 +67,7 @@ export { formatSyntaxErrorTree } from "./patch/ts/syntax";
 export { analyzeValModule } from "./patch/ts/valModule";
 export type { ValModuleAnalysis } from "./patch/ts/valModule";
 export { createFixPatch } from "./createFixPatch";
+export { askOncePerHost } from "./remoteHostCheck";
 // The precondition layer behind `val validate --fix`: read the file, check it is
 // on disk, extract metadata, pick a bucket, upload or download the bytes. The
 // CLI drove this alone until the language server needed the same fixes; keeping

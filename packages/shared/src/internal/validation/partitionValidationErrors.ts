@@ -48,6 +48,16 @@ export function partitionValidationErrors(
   return { surfaced, skipped };
 }
 
+/**
+ * Whether the Studio leaves this error to the server, which repairs it on
+ * save, rather than showing it and holding a publish back for it. One rule
+ * for every gate: `val publish` asks the same question, so the CLI does not
+ * refuse what the Studio would publish.
+ */
+export function isRepairedOnSave(error: ValidationError): boolean {
+  return isSkippedFix(error);
+}
+
 function isSkippedFix(error: ValidationError): boolean {
   const fixes = error.fixes ?? [];
   if (fixes.length === 0) return false;
@@ -115,6 +125,12 @@ function isSkippableFixCode(fix: ValidationFix): boolean {
       // Fixing it writes to a live store, which is why even the CLI does it only
       // under `val external upload` and never under a blanket `--fix`. Surfacing
       // it is the whole point: someone has to decide.
+      return false;
+    case "remote:rewrite-host":
+      // Reported only by the server's full check (the Studio's Validate page,
+      // `val validate`), which asks the ref's host -- never by a schema, so
+      // the Studio's own validator never holds one. Were it to, a person has
+      // to see it: the host is gone, and nothing on save repoints the ref.
       return false;
     default: {
       // Exhaustiveness check: a new ValidationFix code must add a case above.

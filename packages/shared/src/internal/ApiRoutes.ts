@@ -10,6 +10,7 @@ import {
   VAL_STATE_COOKIE,
 } from "./server/types";
 import { Patch, PatchId } from "./zod/Patch";
+import { SourcePath } from "./zod/SourcePath";
 import { SerializedSchema } from "./zod/SerializedSchema";
 import { ValCommit } from "./zod/ValCommit";
 import { ValDeployment } from "./zod/ValDeployment";
@@ -77,6 +78,8 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("videos:check-all-files"),
   z.literal("jsonValues:extract-entry"),
   z.literal("view:check-module"),
+  z.literal("external:upload"),
+  z.literal("remote:rewrite-host"),
 ]);
 const ValidationError = z.object({
   message: z.string(),
@@ -647,6 +650,12 @@ export const Api = {
                 bucket: z.string(),
               }),
             ),
+            /**
+             * The host new refs name, from the project's settings: its own
+             * address for a Hosted project whose files are in R2. Optional,
+             * for a content service that predates it.
+             */
+            remoteHost: z.string().optional(),
           }),
         }),
         z.object({
@@ -1438,6 +1447,115 @@ export const Api = {
                   .record(z.string(), z.array(ValidationError))
                   .optional(),
               }),
+            ),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * The Studio's full check, one module per request: its sources against its
+   * schema and its local files against their bytes, on the content the caller
+   * is looking at. See `docs/plans/studio-validate.md`.
+   */
+  "/validate": {
+    POST: {
+      req: {
+        body: z.object({
+          moduleFilePath: ModuleFilePath,
+          /**
+           * The patches the caller is showing, applied over base. Omitted
+           * means every pending patch, as `/sources/~`; empty means base.
+           */
+          patchIds: z.array(PatchId).optional(),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(500),
+          json: z.object({ message: z.string() }),
+        }),
+        /** No full check on this server (one running in a browser tab). */
+        z.object({
+          status: z.literal(501),
+          json: z.object({ message: z.string() }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            moduleFilePath: ModuleFilePath,
+            errors: z.record(z.string(), z.array(ValidationError)),
+            /** Set when the module's source could not be read at all. */
+            invalidSource: z.string().optional(),
+            /**
+             * Hosts that did not serve this module's remote files: one entry
+             * per host, however many files it holds. Optional so a server
+             * from before remote checks still parses.
+             */
+            remoteHosts: z
+              .array(
+                z.object({
+                  host: z.string(),
+                  status: z.union([
+                    z.literal("missing"),
+                    z.literal("unreachable"),
+                  ]),
+                  details: z.string(),
+                  sourcePaths: z.array(SourcePath),
+                }),
+              )
+              .optional(),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * The patch that fixes one error the full check reported. The server finds
+   * the error again rather than trusting the caller's copy, and builds only the
+   * fixes `STUDIO_FIXES` lists. The patch is returned, not applied: the Studio
+   * adds it as a pending change like any edit.
+   */
+  "/validate/fix": {
+    POST: {
+      req: {
+        body: z.object({
+          moduleFilePath: ModuleFilePath,
+          sourcePath: SourcePath,
+          fix: ValidationFixZ,
+          patchIds: z.array(PatchId).optional(),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(400),
+          json: z.object({ message: z.string() }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: z.object({ message: z.string() }),
+        }),
+        /** No full check on this server (one running in a browser tab). */
+        z.object({
+          status: z.literal(501),
+          json: z.object({ message: z.string() }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            patch: Patch,
+            remainingErrors: z.array(
+              ValidationError.extend({ sourcePath: z.string().optional() }),
             ),
           }),
         }),

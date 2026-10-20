@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import {
   useRef,
   useEffect,
@@ -733,7 +734,7 @@ export const RichTextEditor = forwardRef(function RichTextEditor(
       view.updateState(state);
       prevDocRef.current = value;
     } catch (error) {
-      console.error(error);
+      Internal.log.error(error);
     }
   }, [value, isControlled, schema]);
 

@@ -167,7 +167,7 @@ async function loadDraftSources(
     return treeRes.json.modules;
   }
   if (treeRes.status === 401) {
-    console.warn("Val: authentication error: ", treeRes.json.message);
+    Internal.log.debug("authentication error: ", treeRes.json.message);
     return null;
   }
   throw Error(JSON.stringify(treeRes.json, null, 2));
@@ -195,8 +195,8 @@ export const initFetchValStega =
       try {
         enabled = await isEnabled();
       } catch (err) {
-        console.error(
-          "Val: could not check if Val is enabled! This might be due to an error reading draft mode. fetchVal can only be used server-side (in a loader, a server function, or a server route). Use useVal in components.",
+        Internal.log.error(
+          "could not check if Val is enabled! This might be due to an error reading draft mode. fetchVal can only be used server-side (in a loader, a server function, or a server route). Use useVal in components.",
           err,
         );
       }
@@ -209,8 +209,8 @@ export const initFetchValStega =
             throw new Error("Invalid headers");
           }
         } catch (err) {
-          console.error(
-            "Val: could not read headers! fetchVal can only be used server-side (in a loader, a server function, or a server route). Use useVal in components.",
+          Internal.log.error(
+            "could not read headers! fetchVal can only be used server-side (in a loader, a server function, or a server route). Use useVal in components.",
             err,
           );
           headers = null;
@@ -222,8 +222,8 @@ export const initFetchValStega =
         try {
           cookies = await getCookies();
         } catch (err) {
-          console.error(
-            "Val: could not read cookies! fetchVal can only be used server-side (in a loader, a server function, or a server route). Use useVal in components.",
+          Internal.log.error(
+            "could not read cookies! fetchVal can only be used server-side (in a loader, a server function, or a server route). Use useVal in components.",
             err,
           );
           cookies = null;
@@ -269,7 +269,7 @@ export const initFetchValStega =
       });
     };
     return exec().catch(async (err) => {
-      console.error("Val: failed to fetch ", err);
+      Internal.log.error("failed to fetch ", err);
       return stegaEncode(selector, {
         getModule: await withJsonValuesEntries(selector, (path) => [
           snapshot?.[path],
@@ -440,7 +440,7 @@ export const initFetchValDraft =
     } catch (err) {
       // Published content, as before this existed: a draft page that renders
       // the site is a degraded preview, one that fails to render is an outage.
-      console.error("Val: could not read the draft", err);
+      Internal.log.error("could not read the draft", err);
       return onlySnapshot;
     }
   };
@@ -830,7 +830,7 @@ async function loadDraftJsonEntry(
     return { status: "content", content: res.json.content };
   }
   if (res.status === 401) {
-    console.warn("Val: authentication error: ", res.json.message);
+    Internal.log.debug("authentication error: ", res.json.message);
     return { status: "unavailable" };
   }
   if (res.status === 404) {
@@ -838,8 +838,8 @@ async function loadDraftJsonEntry(
     // patch, or never existed). Not a reason to fall back to committed content.
     return { status: "absent" };
   }
-  console.error(
-    "Val: could not load draft JSON entry: ",
+  Internal.log.error(
+    "could not load draft JSON entry: ",
     "message" in res.json ? res.json.message : `status ${res.status}`,
   );
   return { status: "unavailable" };

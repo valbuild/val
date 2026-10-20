@@ -62,7 +62,7 @@ export type StoredFile = {
    * has resolved that before it asks.
    */
   filePath: string;
-  data: Buffer;
+  data: Uint8Array;
   metadata: MetadataOfType<"file" | "image"> | undefined;
 };
 
@@ -307,8 +307,8 @@ export class ValOpsMemory extends ValOps {
       options.unsafelyAllowUnauthenticated &&
       options.warnUnauthenticated !== false
     ) {
-      console.warn(
-        "Val: serving memory mode WITHOUT authentication. Every request that " +
+      Internal.log.warn(
+        "serving memory mode WITHOUT authentication. Every request that " +
           "reaches this server may read content, create patches and trigger a " +
           "publish. Only correct if the host authorises requests before they " +
           "get here.",
@@ -765,7 +765,7 @@ export class ValOpsMemory extends ValOps {
      * it and the pair (patchId, filePath) is the whole key.
      */
     _remote?: boolean,
-  ): Promise<Buffer | null> {
+  ): Promise<Uint8Array | null> {
     return (await this.store.getFile(patchId, filePath))?.data ?? null;
   }
 
@@ -799,7 +799,9 @@ export class ValOpsMemory extends ValOps {
     return { metadata: file.metadata } as OpsMetadata<T>;
   }
 
-  override async getBinaryFile(_filePathOrRef: string): Promise<Buffer | null> {
+  override async getBinaryFile(
+    _filePathOrRef: string,
+  ): Promise<Uint8Array | null> {
     // Null rather than a throw: callers treat this as "no such file", and a
     // read of a local file in a remote-files project is a miss, not a fault.
     return null;
@@ -853,7 +855,7 @@ export class ValOpsMemory extends ValOps {
   }
 
   override async getFileAtCommit(): Promise<
-    result.Result<Buffer, HistoryError>
+    result.Result<Uint8Array, HistoryError>
   > {
     return result.err({ kind: "not-supported-in-fs-mode" });
   }

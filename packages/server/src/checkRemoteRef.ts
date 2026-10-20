@@ -11,14 +11,26 @@ import https from "https";
 import fs from "fs";
 import { getFileExt } from "./getFileExt";
 import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
+import { fallbackRefOf } from "./remoteHostCheck";
 
 const textEncoder = new TextEncoder();
 export async function checkRemoteRef(
-  remoteHost: string,
+  /**
+   * Unused: a re-derived ref keeps the host it already names (see below).
+   * Kept so the exported signature does not change.
+   */
+  _remoteHost: string,
   ref: string,
   projectRoot: string,
   schema: SerializedImageSchema | SerializedFileSchema,
   metadata: Record<string, unknown> | undefined,
+  /**
+   * Where the bytes come from when the ref has to be re-derived. Defaults to
+   * a download cached under `projectRoot`; the Studio passes one that keeps
+   * nothing on disk (`FixFiles.readRemoteFile`).
+   */
+  readRemote: ReadRemoteFile = (ref, fileExt, fileHash) =>
+    getFileBufferFromRemote(ref, fileExt, fileHash, projectRoot),
 ): Promise<
   | { status: "success" }
   | {
@@ -88,11 +100,10 @@ export async function checkRemoteRef(
     };
   }
   // Validation hash does not match, so we need to re-validate the remote content
-  const fileBufferRes = await getFileBufferFromRemote(
+  const fileBufferRes = await readRemote(
     ref,
     fileExt,
     remoteRefDataRes.fileHash,
-    projectRoot,
   );
 
   // We could not download the remote file for some reason (for example, the file hash is wrong)
@@ -125,7 +136,7 @@ export async function checkRemoteRef(
   } catch (err) {
     return {
       status: "error",
-      error: `Failed to extract metadata from remote file: ${err instanceof Error ? err.message : "Unknown error"}. Cached file: ${fileBufferRes.cachedFilePath}`,
+      error: `Failed to extract metadata from remote file: ${err instanceof Error ? err.message : "Unknown error"}${fileBufferRes.cachedFilePath ? `. Cached file: ${fileBufferRes.cachedFilePath}` : ""}`,
     };
   }
   const updatedMetadata = {
@@ -152,7 +163,11 @@ export async function checkRemoteRef(
   return {
     status: "fix-required",
     metadata: updatedMetadata,
-    ref: Internal.remote.createRemoteRef(remoteHost, {
+    // On the host the ref was already on. Re-deriving a ref changes what it
+    // says about the file, never where it is served from: a Hosted project's
+    // file is in R2 and served only at its own address, and moving a ref to
+    // another host is a fix of its own (`remote:rewrite-host`).
+    ref: Internal.remote.createRemoteRef(remoteRefDataRes.remoteHost, {
       publicProjectId: remoteRefDataRes.projectId,
       coreVersion,
       bucket: remoteRefDataRes.bucket,
@@ -185,23 +200,34 @@ export function getCachedRemoteFilePath(
   return remoteFilePath;
 }
 
-async function getFileBufferFromRemote(
+/**
+ * A remote file's bytes, and the hash they actually have — which is the one a
+ * re-derived ref is made from, whatever hash the old ref claimed.
+ */
+export type ReadRemoteFile = (
   ref: string,
   fileExt: string,
-  currentFileHash: string,
-  projectRoot: string,
-): Promise<
+  expectedFileHash: string,
+) => Promise<
   | {
       status: "success";
       fileBuffer: Buffer;
       fileHash: string;
-      cachedFilePath: string;
+      /** Where a download was kept, when it was kept: for error messages. */
+      cachedFilePath?: string;
     }
   | {
       status: "error";
       error: string;
     }
-> {
+>;
+
+export async function getFileBufferFromRemote(
+  ref: string,
+  fileExt: string,
+  currentFileHash: string,
+  projectRoot: string,
+): ReturnType<ReadRemoteFile> {
   const remoteFileCacheDir = getCachedRemoteFileDir(projectRoot);
   const remoteFilePath = getCachedRemoteFilePath(
     fileExt,
@@ -244,7 +270,49 @@ async function getFileBufferFromRemote(
   };
 }
 
+/**
+ * Download a remote file to `filePath`, from where its ref says -- and, for a
+ * platform ref whose host fails, from the same file on the project's own
+ * `valstart.dev` address, which always serves it (`fallbackRefOf`). The bytes
+ * from the fallback are checked against the ref's file hash before they are
+ * kept: a different host answering is only safe because of that check.
+ *
+ * Rejects with the FIRST host's error when both fail: that is the one the ref
+ * names, and the one a person can recognise.
+ */
 export async function downloadFileFromRemote(
+  ref: string,
+  filePath: string,
+): ReturnType<typeof downloadFromUrl> {
+  try {
+    return await downloadFromUrl(ref, filePath);
+  } catch (err) {
+    const fallback = fallbackRefOf(ref);
+    const parsed = Internal.remote.splitRemoteRef(ref);
+    if (fallback === null || parsed.status === "error") {
+      throw err;
+    }
+    try {
+      const res = await downloadFromUrl(fallback, filePath);
+      if (res.status === "error") {
+        throw err;
+      }
+    } catch {
+      throw err;
+    }
+    const bytes = await fs.promises.readFile(filePath);
+    if (Internal.remote.getFileHash(bytes) !== parsed.fileHash) {
+      await fs.promises.unlink(filePath).catch(() => undefined);
+      throw new Error(
+        `${ref}. Its host failed, and the file at ${fallback} is not the one the ref names.`,
+        { cause: err },
+      );
+    }
+    return { status: "success", filePath };
+  }
+}
+
+async function downloadFromUrl(
   ref: string,
   filePath: string,
 ): Promise<
@@ -268,7 +336,7 @@ export async function downloadFileFromRemote(
         response.headers.location
       ) {
         // Handle redirects
-        return downloadFileFromRemote(response.headers.location, filePath)
+        return downloadFromUrl(response.headers.location, filePath)
           .then(resolve)
           .catch(reject);
       }
