@@ -1,4 +1,4 @@
-import * as path from "path";
+import { posixPath } from "../posixPath";
 import {
   Internal,
   VAL_EXTENSION,
@@ -377,12 +377,12 @@ export function getNewJsonEntryPaths(
   if (keyRel.includes("\\") || keyRel.includes("\0")) {
     return invalid("it contains a backslash or a NUL byte");
   }
-  const jsonPath = path.posix.normalize(`${base}/${keyRel}.val.json`);
+  const jsonPath = posixPath.normalize(`${base}/${keyRel}.val.json`);
   if (!jsonPath.startsWith(`${base}/`)) {
     return invalid(`it resolves outside '${base}/'`);
   }
-  const moduleDir = path.posix.dirname(moduleFilePath);
-  let importPath = path.posix.relative(moduleDir, jsonPath);
+  const moduleDir = posixPath.dirname(moduleFilePath);
+  let importPath = posixPath.relative(moduleDir, jsonPath);
   if (!importPath.startsWith(".")) {
     importPath = `./${importPath}`;
   }
@@ -670,6 +670,6 @@ export function resolveExistingJsonPath(
   moduleFilePath: string,
   importPath: string,
 ): string {
-  const moduleDir = path.posix.dirname(moduleFilePath);
-  return path.posix.join(moduleDir, importPath);
+  const moduleDir = posixPath.dirname(moduleFilePath);
+  return posixPath.join(moduleDir, importPath);
 }

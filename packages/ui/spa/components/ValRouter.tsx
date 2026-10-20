@@ -59,6 +59,14 @@ export const VAL_HISTORY_ROUTE = "/val/history";
  * somebody before you ship it.
  */
 export const VAL_REVIEW_ROUTE = "/val/review";
+/**
+ * adept, tried out: lockfiles, upgrades and type bundles for this project.
+ *
+ * Linked from nowhere on purpose. It is for the people building adept, until
+ * the Upgrade button that uses it exists (docs/adept.md in valbuild/home), and
+ * reached by typing the address.
+ */
+export const VAL_ADEPT_ROUTE = "/val/adept";
 
 /** The routes that are a whole view rather than a module being opened. */
 type ValStandaloneRoute =
@@ -116,6 +124,7 @@ type ValRouterContextValue = {
   isErrorsView: boolean;
   isHistoryView: boolean;
   isReviewView: boolean;
+  isAdeptView: boolean;
   errorFields: SourcePath[];
   /**
    * The history view's state, parsed from the query.
@@ -288,6 +297,7 @@ export function ValRouter({
   const [isErrorsView, setIsErrorsView] = useState(false);
   const [isHistoryView, setIsHistoryView] = useState(false);
   const [isReviewView, setIsReviewView] = useState(false);
+  const [isAdeptView, setIsAdeptView] = useState(false);
   const [errorFields, setErrorFields] = useState<SourcePath[]>([]);
   // Read `?session=` synchronously on the first render: consumers capture this
   // value once on mount (see initialSessionIdRef in AIChatSurface), so populating
@@ -317,6 +327,12 @@ export function ValRouter({
   const historyState = useRef<number[]>([]);
   useEffect(() => {
     const listener = () => {
+      // Set here, before any branch returns, so leaving the page by Back
+      // clears it whichever route Back lands on.
+      setIsAdeptView(
+        location.pathname === VAL_ADEPT_ROUTE ||
+          location.pathname === VAL_ADEPT_ROUTE + "/",
+      );
       setSessionParamState(new URLSearchParams(location.search).get("session"));
       setHistoryState(parseHistoryParams(location.search));
       setReviewCompareState(
@@ -363,6 +379,19 @@ export function ValRouter({
         setIsHistoryView(true);
         setIsCompareView(false);
         setIsErrorsView(false);
+        setIsReviewView(false);
+        setErrorFields([]);
+        setSourcePath("" as SourcePath);
+        setReady(true);
+        return;
+      }
+      if (
+        location.pathname === VAL_ADEPT_ROUTE ||
+        location.pathname === VAL_ADEPT_ROUTE + "/"
+      ) {
+        setIsCompareView(false);
+        setIsErrorsView(false);
+        setIsHistoryView(false);
         setIsReviewView(false);
         setErrorFields([]);
         setSourcePath("" as SourcePath);
@@ -553,6 +582,7 @@ export function ValRouter({
       setIsErrorsView(isErrors);
       setIsHistoryView(isHistory);
       setIsReviewView(isReview);
+      setIsAdeptView(false);
       setErrorFields(isErrors ? (params?.errorFields ?? []) : []);
       setReviewCompareState(reviewCompareOf(isReview, params));
       setSourcePath(isStandalone ? ("" as SourcePath) : (path as SourcePath));
@@ -665,6 +695,7 @@ export function ValRouter({
         isErrorsView,
         isHistoryView,
         isReviewView,
+        isAdeptView,
         errorFields,
         history,
         setHistory,
@@ -690,6 +721,7 @@ export function useNavigation() {
     isErrorsView,
     isHistoryView,
     isReviewView,
+    isAdeptView,
     errorFields,
   } = useContext(ValRouterContext);
   return {
@@ -702,6 +734,7 @@ export function useNavigation() {
     isErrorsView,
     isHistoryView,
     isReviewView,
+    isAdeptView,
     errorFields,
   };
 }

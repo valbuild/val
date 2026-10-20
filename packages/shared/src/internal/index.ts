@@ -8,6 +8,7 @@ export * from "./server/types";
 // near-copies that would drift on exactly the comment that says so.
 export * from "./server/requestScopedMemo";
 export * from "./ValClient";
+export * from "./demo";
 export * from "./ValUrls";
 export * from "./ApiRoutes";
 export * from "./schema/compatibility";

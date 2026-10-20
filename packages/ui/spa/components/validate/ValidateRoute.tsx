@@ -122,9 +122,7 @@ export function ValidateRoute() {
       }
       return {
         status: "failed",
-        // Asking again can only help when the server did not answer, or
-        // failed on its side. A refusal answers the same way next time.
-        action: res.status === null || res.status >= 500 ? "try-again" : "none",
+        action: retryCanHelp(res.status) ? "try-again" : "none",
         details:
           res.status === null
             ? "The server could not be reached."
@@ -235,7 +233,7 @@ export function ValidateRoute() {
           action:
             res.status === 401
               ? "sign-in"
-              : res.status === null || res.status >= 500
+              : retryCanHelp(res.status)
                 ? "try-again"
                 : "none",
         });
@@ -399,6 +397,15 @@ type ModuleCheckOutcome =
   | { status: "gone" }
   | { status: "signed-out" }
   | { status: "failed"; details: string; action: "try-again" | "none" };
+
+/**
+ * Whether asking again can answer differently: the server did not answer, or
+ * failed on its side. A refusal -- and a 501, a server without the check --
+ * answers the same way every time.
+ */
+function retryCanHelp(status: number | null): boolean {
+  return status === null || (status >= 500 && status !== 501);
+}
 
 const SIGNED_OUT =
   "Your session has ended, so the check stopped. Sign in, then check again.";

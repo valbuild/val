@@ -111,6 +111,7 @@ function isSkippableFixCode(fix: ValidationFix): boolean {
     case "video:check-gallery":
     case "router:check-route":
     case "locale:check-locale":
+    case "router:check-locale-param":
     case "record:fill-keys":
     case "jsonValues:extract-entry":
       // `jsonValues:extract-entry` is an entry inlined in the `.val.ts`. The

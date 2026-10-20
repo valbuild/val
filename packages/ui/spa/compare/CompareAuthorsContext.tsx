@@ -58,6 +58,8 @@ export type CompareAuthorsContextValue = {
     consequenceOf: (rowId: string) => UndoConsequence;
     /** Undo this row and everything its closure compels, now. */
     onQuickUndo: (rowId: string) => void;
+    /** The phone layout: each row's action is the icon alone. */
+    compact: boolean;
   } | null;
 };
 

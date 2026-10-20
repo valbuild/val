@@ -163,6 +163,20 @@ export const ValTanStackProvider = (props: {
    * is newer. `null` (a visitor, or draft mode off) renders as before.
    */
   draft?: ValDraft | null;
+  /**
+   * This site is a Val demo: the Studio runs Val's API in the visitor's tab
+   * (`<ValApp demo>`), so there is no server to ask whether draft mode is on.
+   *
+   * In the Studio's canvas the page is always the draft -- the Studio sends
+   * it every edit over `postMessage` -- and everywhere else Val stays out of
+   * the way entirely: no overlay, no cookie, no poll. Loaders are not re-run
+   * on an edit, because a server reading content never sees the tab's edits;
+   * read content with the client hooks (`useVal`) in a demo.
+   *
+   * Set it from the build, as for `ValApp`. Must be constant for the lifetime
+   * of the page.
+   */
+  demo?: boolean;
 }) => {
   // TODO: use config:
   const route = "/api/val";
@@ -337,7 +351,17 @@ export const ValTanStackProvider = (props: {
       setMountOverlay(false);
       return;
     }
-    setIsCanvas(isValCanvasFrame(location.search));
+    if (props.demo) {
+      // Only the canvas, and always as the draft: see `demo`.
+      const canvas = isValCanvasFrame(location.search, readParentPathname());
+      setIsCanvas(canvas);
+      setMountOverlay(canvas);
+      if (canvas) {
+        setDraftMode(true);
+      }
+      return;
+    }
+    setIsCanvas(isValCanvasFrame(location.search, readParentPathname()));
     setMountOverlay(hasValEnableCookie(document.cookie));
   }, []);
 
@@ -385,7 +409,9 @@ export const ValTanStackProvider = (props: {
    * there are any.
    */
   React.useEffect(() => {
-    if (!mountOverlay || props.disableRefresh) {
+    // A demo's loaders read a server that never sees the tab's edits, so
+    // re-running them would only fetch the published content again.
+    if (!mountOverlay || props.disableRefresh || props.demo) {
       return;
     }
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -476,7 +502,7 @@ export const ValTanStackProvider = (props: {
       clearInterval(safety);
       if (timer !== null) clearTimeout(timer);
     };
-  }, [mountOverlay, props.disableRefresh]);
+  }, [mountOverlay, props.disableRefresh, props.demo]);
 
   React.useEffect(() => {
     if (!mountOverlay) {
@@ -545,7 +571,9 @@ export const ValTanStackProvider = (props: {
 
     let timeout: NodeJS.Timeout;
     function pollCurrentDraftMode() {
-      if (!mountOverlay) {
+      // A demo has no server to ask: draft mode is on in its canvas, and
+      // nothing is mounted anywhere else.
+      if (!mountOverlay || props.demo) {
         return;
       }
 
@@ -636,7 +664,7 @@ export const ValTanStackProvider = (props: {
     return () => {
       clearTimeout(timeout);
     };
-  }, [mountOverlay, iframeSrc]);
+  }, [mountOverlay, iframeSrc, props.demo]);
 
   React.useEffect(() => {
     if (!mountOverlay) {
@@ -988,6 +1016,24 @@ function getPositionClassName(dropZone: string | null) {
 
 function isValStudioPath(pathname: string): boolean {
   return pathname.startsWith("/val");
+}
+
+/**
+ * The path of the window framing this document, or `null`.
+ *
+ * `null` for a top-level document, and for a parent on another origin: reading
+ * a cross-origin `location` throws, and a page on another origin is not the
+ * studio, whose canvas is always the same app. See `isValCanvasFrame`.
+ */
+function readParentPathname(): string | null {
+  try {
+    if (window.parent === window) {
+      return null;
+    }
+    return window.parent.location.pathname;
+  } catch {
+    return null;
+  }
 }
 
 // function ValIcon() {

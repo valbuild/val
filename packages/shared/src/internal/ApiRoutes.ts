@@ -68,6 +68,7 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("video:check-gallery"),
   z.literal("router:check-route"),
   z.literal("locale:check-locale"),
+  z.literal("router:check-locale-param"),
   z.literal("record:fill-keys"),
   z.literal("images:check-unique-folder"),
   z.literal("files:check-unique-folder"),
@@ -1412,6 +1413,11 @@ export const Api = {
           status: z.literal(500),
           json: z.object({ message: z.string() }),
         }),
+        /** No full check on this server (one running in a browser tab). */
+        z.object({
+          status: z.literal(501),
+          json: z.object({ message: z.string() }),
+        }),
         z.object({
           status: z.literal(200),
           json: z.object({
@@ -1470,6 +1476,11 @@ export const Api = {
         }),
         z.object({
           status: z.literal(500),
+          json: z.object({ message: z.string() }),
+        }),
+        /** No full check on this server (one running in a browser tab). */
+        z.object({
+          status: z.literal(501),
           json: z.object({ message: z.string() }),
         }),
         z.object({

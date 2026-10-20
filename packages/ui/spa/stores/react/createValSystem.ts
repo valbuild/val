@@ -74,6 +74,16 @@ export function createValSystem(
     schemaValidation?: SchemaValidationBridge;
     /** A press of Publish as a publish job, for a managed project. See `RequestPublish`. */
     requestPublish?: RequestPublish;
+    /**
+     * A last say over each file, before anything is sent: a sentence to
+     * refuse it with, or null to send it. The demo's caps (`demoUploads.ts`),
+     * which every upload passes whichever field or panel started it. `data`
+     * is what would be sent, so an image is measured after it was encoded.
+     */
+    checkUpload?: (file: {
+      filePath: string;
+      data: string | null;
+    }) => string | null;
   },
 ): System {
   /**
@@ -165,6 +175,10 @@ export function createValSystem(
             metadata,
             onProgress,
           }) => {
+            const refused = options.checkUpload?.({ filePath, data }) ?? null;
+            if (refused !== null) {
+              return { status: "error", message: refused };
+            }
             const settings = await options.uploadSettings!();
             if (settings.status === "error") {
               return {

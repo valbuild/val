@@ -1,5 +1,46 @@
 # @valbuild/server
 
+## 0.147.0
+
+### Minor Changes
+
+- [#876](https://github.com/valbuild/val/pull/876) [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd) Thanks [@freekh](https://github.com/freekh)! - Demo mode: run the Val Studio with no account and no backend (TanStack Start).
+
+  `<ValApp demo>` starts Val's own server in the visitor's browser tab, and the Studio talks to it there instead of to `/api/val`. Edits show up in the page as they are typed and are held in the tab's memory: nothing is sent anywhere, and a reload starts over. Images and videos can be uploaded too: a small service worker, served by `initValDemoServer()`, hands the upload and the unpublished files to the server in the tab, so an uploaded photo or video shows in the page with nothing leaving the browser. Uploads are capped by their size after encoding. Pair `<ValApp demo>` with `<ValProvider demo>` on the site and `initValDemoServer()` from the new `@valbuild/tanstack/demo` entry on the API route. In a demo the Studio opens with a guided tour, Publish explains what it would do instead of publishing, and Preview in a new tab is shown but disabled.
+
+  Also:
+
+  - `@valbuild/server/browser` is a new entry: Val's request handling, bundleable for a browser. The TypeScript compiler, which only publishing and history need, is loaded when they ask for it, so a browser bundle of the server is about 140 KB rather than 3.6 MB.
+  - `s.image({ encode })` now scales an image down in browsers that cannot write WebP (Safari), as a JPEG or PNG in the image's own format, instead of uploading it at full size.
+  - `GET /profiles` answers with no profiles, rather than an error, when edits are stored locally and no project is configured.
+
+### Patch Changes
+
+- Updated dependencies [[`2f09cd5`](https://github.com/valbuild/val/commit/2f09cd5e2f4fc37f06917899f24f9ad2ee8d3a8b), [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd), [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd)]:
+  - @valbuild/core@0.147.0
+  - @valbuild/shared@0.147.0
+  - @valbuild/ui@0.147.0
+
+## 0.146.4
+
+### Patch Changes
+
+- [#877](https://github.com/valbuild/val/pull/877) [`c31f609`](https://github.com/valbuild/val/commit/c31f609fdeed79aa0e139fa4f652ba0684e96ea3) Thanks [@freekh](https://github.com/freekh)! - The Studio has an unlinked page, `/val/adept`, for trying out dependency
+  upgrades on a hosted project: it computes a lockfile for the live site's
+  `package.json`, previews each kind of upgrade from it, and fetches the type
+  declarations and TypeScript compiler a typecheck would load. It only shows
+  results; nothing on it is staged or published. Nothing links to it yet.
+
+  For it, the server now forwards Val Build's `/adept/*` routes for a signed-in
+  Studio session: lockfiles, upgrades, their jobs, type bundles and the
+  compiler. Like everything else the Studio asks Val Build for, they go with the
+  project's own credential, and they are open at a proposal's address too,
+  since they publish nothing.
+
+- Updated dependencies [[`81f2e80`](https://github.com/valbuild/val/commit/81f2e803c4cefdf58bbe6856c06e98ace95a8e0b), [`59ff6c3`](https://github.com/valbuild/val/commit/59ff6c367bc313b2bb7718b00c1641aaccab949d), [`c31f609`](https://github.com/valbuild/val/commit/c31f609fdeed79aa0e139fa4f652ba0684e96ea3)]:
+  - @valbuild/shared@0.146.4
+  - @valbuild/ui@0.146.4
+
 ## 0.146.2
 
 ### Patch Changes
