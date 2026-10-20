@@ -164,15 +164,19 @@ export const ValTanStackProvider = (props: {
    */
   draft?: ValDraft | null;
   /**
-   * Turns content analytics on or off for this page, over `config.analytics`.
+   * Whether content analytics is on for this site. Off unless this says so.
    *
-   * For an app that decides at runtime -- a hosted site reads `VAL_ANALYTICS`
-   * on the server and passes it down from the root route's loader -- so it
-   * can be switched without a rebuild. Omitted, `config.analytics.enabled`
-   * decides.
+   * It is a setting of the hosted PROJECT, not of the code: the owner turns it
+   * on in the project's settings, the platform hands it to the site as the
+   * `VAL_ANALYTICS` secret, and the site layout's loader reads it on the
+   * server and passes it here -- `fetchValAnalytics()` from the generated
+   * `val.server.ts`, beside `fetchValDraft()`. So switching it needs no code
+   * change and no rebuild, and there is deliberately no `val.config.ts` option
+   * for it: a second switch, in the code, is one the owner cannot see.
    *
-   * Must be constant for the lifetime of the page, and the same on the server
-   * and in the browser.
+   * Read once, when the provider mounts, as `draft` is: the loader runs only
+   * on the server, so a client navigation hands this `undefined`, and the
+   * page must not stop counting because of it.
    */
   analytics?: boolean;
 }) => {
@@ -218,7 +222,12 @@ export const ValTanStackProvider = (props: {
    * not a draft: it must not turn draft mode on or say the draft is synced.
    */
   const hasDraft = initialDraft !== null && initialDraft.draftMode !== false;
-  const analytics = props.analytics ?? props.config.analytics?.enabled ?? false;
+  /*
+   * As the page was rendered. A ref, not the prop, for the reason
+   * `initialDraft` is one: a later render's prop is a client navigation's
+   * loader, which reads nothing.
+   */
+  const analytics = React.useRef(props.analytics ?? false).current;
   const snapshot = initialDraft?.snapshot;
   /*
    * The base the Studio's overlay must start from, where it is not the
