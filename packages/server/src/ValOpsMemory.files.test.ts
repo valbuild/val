@@ -63,7 +63,7 @@ describe("ValOpsMemory binary files", () => {
     );
     expect(read).not.toBeNull();
     // The BYTES, not a re-encoded data url: this is what /api/val/files serves.
-    expect(read!.equals(PNG_BYTES)).toBe(true);
+    expect(Buffer.from(read!).equals(PNG_BYTES)).toBe(true);
   });
 
   test("a null data url records a deletion", async () => {
@@ -174,8 +174,8 @@ describe("ValOpsMemory binary files", () => {
       b,
       false,
     );
-    expect(fromA!.equals(PNG_BYTES)).toBe(true);
-    expect(fromB!.equals(other)).toBe(true);
+    expect(Buffer.from(fromA!).equals(PNG_BYTES)).toBe(true);
+    expect(Buffer.from(fromB!).equals(other)).toBe(true);
   });
 
   test("the publish step finds bytes stored under the other spelling", async () => {
@@ -207,7 +207,7 @@ describe("ValOpsMemory binary files", () => {
       true,
     );
     expect(asPublishAsks).not.toBeNull();
-    expect(asPublishAsks!.equals(PNG_BYTES)).toBe(true);
+    expect(Buffer.from(asPublishAsks!).equals(PNG_BYTES)).toBe(true);
   });
 
   test("a published local file is a miss, not a crash", async () => {

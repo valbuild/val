@@ -1,8 +1,9 @@
-/*
- * Imported rather than global: under Node this is the built-in, and in a
- * browser (the demo, `@valbuild/server/browser`) the `buffer` package.
- */
-import { Buffer } from "buffer";
+import {
+  base64ToBytes,
+  bytesToBase64,
+  bytesToUtf8,
+  utf8ToBytes,
+} from "./bytes";
 import type { ValContentVersion, ValProposal } from "./proposal";
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
@@ -2410,7 +2411,7 @@ export const ValServer = (
             jobPatchIds: patchIds,
           });
           const build = serverOps.embedsSource()
-            ? await buildSourcesOf(serverOps, patchIds, commit)
+            ? await buildSourcesOf(platform, serverOps, patchIds, commit)
             : null;
           if (build !== null && "status" in build) return build;
           /*
@@ -2440,7 +2441,12 @@ export const ValServer = (
             buildable: build !== null,
           });
         }
-        const built = await buildSourcesOf(serverOps, patchIds, commit);
+        const built = await buildSourcesOf(
+          platform,
+          serverOps,
+          patchIds,
+          commit,
+        );
         if ("status" in built) return built;
         const { split } = built;
         const sent = await serverOps.prepareJob(jobId, {
@@ -2495,9 +2501,15 @@ export const ValServer = (
          * and the selection on top. Only what the selection touched is saved,
          * so the proposal's save is the selection and nothing else.
          */
-        const built = await buildSourcesOf(serverOps, patchIds, commit, {
-          binaries: false,
-        });
+        const built = await buildSourcesOf(
+          platform,
+          serverOps,
+          patchIds,
+          commit,
+          {
+            binaries: false,
+          },
+        );
         if ("status" in built) return built;
         if (built.headCommitSha === undefined) {
           return {
@@ -3136,6 +3148,7 @@ export const ValServer = (
                 ? await readCommittedBinaryFiles(
                     serverOps,
                     preparedCommit.patchedBinaryFilesDescriptors,
+                    platform.bytesToBase64,
                   )
                 : null;
             const commitToGit = () =>
@@ -3845,7 +3858,7 @@ export const ValServer = (
                 // wrap it in a data: URL, and hand that to a method whose first
                 // act was to unwrap it again - ceremony to satisfy a convention
                 // that no longer exists.
-                const bytes = Buffer.from(await binaryRes.arrayBuffer());
+                const bytes = new Uint8Array(await binaryRes.arrayBuffer());
                 const type: "image" | "file" =
                   file.metadata.mimeType.startsWith("image/")
                     ? "image"
@@ -4210,12 +4223,11 @@ export const ValServer = (
         const file =
           patchId && isHlsPlaylistPath(filePath)
             ? bufferReader(
-                Buffer.from(
+                utf8ToBytes(
                   rewriteDraftPlaylist(
-                    (await opened.read(0, opened.size - 1)).toString("utf-8"),
+                    bytesToUtf8(await opened.read(0, opened.size - 1)),
                     { playlistPath: filePath, patchId, remote },
                   ),
-                  "utf-8",
                 ),
               )
             : opened;
@@ -4257,7 +4269,9 @@ export const ValServer = (
           };
         }
         const body =
-          file.size === 0 ? Buffer.alloc(0) : await file.read(0, file.size - 1);
+          file.size === 0
+            ? new Uint8Array(0)
+            : await file.read(0, file.size - 1);
         return {
           status: 200,
           headers: { ...headers, "Content-Length": String(body.length) },
@@ -4325,7 +4339,7 @@ function getStateFromCookie(stateCookie: string):
     }
   | { success: false; error: string } {
   try {
-    const decoded = Buffer.from(stateCookie, "base64").toString("utf8");
+    const decoded = bytesToUtf8(base64ToBytes(stateCookie));
     const parsed = JSON.parse(decoded) as unknown;
 
     if (!parsed) {
@@ -4412,7 +4426,7 @@ async function createJsonError(fetchRes: Response): Promise<ValServerError> {
 }
 
 function createStateCookie(state: StateCookie): string {
-  return Buffer.from(JSON.stringify(state), "utf8").toString("base64");
+  return bytesToBase64(utf8ToBytes(JSON.stringify(state)));
 }
 
 const ValAppJwtPayload = z.object({
@@ -4591,7 +4605,7 @@ function historyErrorResponse(
   }
 }
 
-export function bufferToReadableStream(buffer: Buffer) {
+export function bufferToReadableStream(buffer: Uint8Array) {
   const stream = new ReadableStream({
     start(controller) {
       let offset = 0;
@@ -4736,6 +4750,7 @@ function getIsRemoteRequired(
  * the push's, made from its own changes alone, by the caller.
  */
 async function buildSourcesOf(
+  platform: ValServerPlatform,
   serverOps: ValOpsHttp,
   patchIds: string[],
   commit: CommitSha | undefined,
@@ -4820,6 +4835,7 @@ async function buildSourcesOf(
     ? await readCommittedBinaryFiles(
         serverOps,
         split.archive.patchedBinaryFilesDescriptors,
+        platform.bytesToBase64,
       )
     : { files: {}, unread: [] };
   return {

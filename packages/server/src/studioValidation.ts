@@ -556,7 +556,9 @@ export function opsFixFiles(
     if (buffer === null) {
       throw new Error(`Could not read ${filePath}`);
     }
-    return buffer;
+    // A view of the same bytes, not a copy: the readers below take a Buffer,
+    // and ops answer with a Uint8Array because they run in a browser too.
+    return Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength);
   };
   return {
     readFile,

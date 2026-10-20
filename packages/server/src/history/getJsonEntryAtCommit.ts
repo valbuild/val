@@ -1,5 +1,6 @@
 import ts from "typescript";
 import { posixPath } from "../posixPath";
+import { bytesToUtf8 } from "../bytes";
 import { ModuleFilePath } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import type { Json } from "@valbuild/core";
@@ -59,7 +60,7 @@ export async function getJsonEntryAtCommit(
   const entryPath = findEntryImportPath(
     moduleFilePath,
     moduleGitPath.value,
-    moduleRes.value.toString("utf-8"),
+    bytesToUtf8(moduleRes.value),
     key,
   );
   if (result.isErr(entryPath)) {
@@ -83,7 +84,7 @@ export async function getJsonEntryAtCommit(
     return entryRes;
   }
   try {
-    return result.ok(JSON.parse(entryRes.value.toString("utf-8")) as Json);
+    return result.ok(JSON.parse(bytesToUtf8(entryRes.value)) as Json);
   } catch (err) {
     return result.err({
       kind: "file-unavailable",

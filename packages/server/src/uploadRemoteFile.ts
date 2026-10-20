@@ -6,7 +6,7 @@ export async function uploadRemoteFile(
   bucket: string,
   fileHash: string,
   fileExt: string,
-  fileBuffer: Buffer,
+  fileBuffer: Uint8Array,
   auth:
     | {
         pat: string;

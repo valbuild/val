@@ -951,7 +951,9 @@ export class ValOpsFS extends ValOps {
       // Cheap, and this is the one path that creates staging directories, so it
       // is where the ones nobody claimed get noticed.
       sweepStaleUploads(patchesDir);
-      const buffer = bufferFromDataUrl(data);
+      const buffer = bufferFromDataUrl(data, (base64) =>
+        Buffer.from(base64, "base64"),
+      );
       if (!buffer) {
         return {
           error: {
@@ -1570,7 +1572,7 @@ class FSOpsHost {
     return { type: "success" };
   }
 
-  writeBinaryFile(path: string, data: Buffer): void {
+  writeBinaryFile(path: string, data: Uint8Array): void {
     fs.mkdirSync(fsPath.dirname(path), { recursive: true });
     fs.writeFileSync(path, new Uint8Array(data), "base64url");
   }
