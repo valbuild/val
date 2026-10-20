@@ -565,6 +565,26 @@ export function toAdminLinks(
 }
 
 /**
+ * The project's variables and secrets in Val Build: `/manage-env/<org>/<project>`,
+ * which the admin app keeps for this and redirects to the project's Variables
+ * section -- the same arrangement as `/manage-ai`. For the same projects
+ * `toAdminLinks` has links for, and none other.
+ */
+export function toEnvVarsHref(
+  config: { project?: string; appHost?: string } | undefined,
+): string | undefined {
+  if (
+    toAdminLinks(config) === undefined ||
+    !config?.project ||
+    !config.appHost
+  ) {
+    return undefined;
+  }
+  const [org, project] = config.project.split("/");
+  return `${config.appHost.replace(/\/+$/, "")}/manage-env/${encodeURIComponent(org)}/${encodeURIComponent(project)}`;
+}
+
+/**
  * Where the Studio loads Val Build's web components from: `/wc/v1` on the
  * content server, which serves them beside the Studio API they call
  * (valbuild/home, `web-components/` and `content/src/webComponents.ts`).

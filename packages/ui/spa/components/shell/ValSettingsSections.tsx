@@ -1,4 +1,5 @@
 import { AiSetup } from "./AiSetup";
+import { EnvVarsElement, useEnvVarsTarget } from "./EnvVars";
 import { useMemo } from "react";
 import type { Json } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
@@ -37,7 +38,7 @@ import {
   StudioSettingsFields,
   ThemeSettingsFields,
 } from "./SettingsPanel";
-import { AppWindow, Languages, Sparkles } from "lucide-react";
+import { AppWindow, KeyRound, Languages, Sparkles } from "lucide-react";
 import { PanelSkeleton } from "./PanelPrimitives";
 
 /**
@@ -151,6 +152,9 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
   const radiusErrors = useValidationErrors(radiusPath);
   const modeErrors = useValidationErrors(modePath);
   const writeThemeSetting = useWriteThemeSetting(moduleFilePath);
+  // Before the loading return below: a hook, and the tab it decides is not
+  // about the settings module at all.
+  const envVars = useEnvVarsTarget();
 
   if (settings.status === "loading" || schema.status === "loading") {
     return <PanelSkeleton rows={4} />;
@@ -277,6 +281,25 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
             />
           ),
         },
+        /*
+         * The project's variables and secrets: Val Build's, not the settings
+         * module's, so not `readonly` -- who may change them is Val Build's
+         * to say, and the element says it. Last, so the tabs editors know
+         * keep their places; only for a project connected to Val Build,
+         * since there is nowhere else they could be set from here.
+         */
+        ...(envVars === null
+          ? []
+          : [
+              {
+                id: "variables",
+                label: "Variables",
+                icon: KeyRound,
+                content: (
+                  <EnvVarsElement className="block mx-4 pb-6" {...envVars} />
+                ),
+              },
+            ]),
       ]}
     />
   );
