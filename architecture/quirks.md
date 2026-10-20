@@ -931,7 +931,7 @@ than reasoned about:
   `wire.ts` DECLARES `@valbuild/ui` as a project dependency so the Studio's
   bundle reaches the isolate, so that lands in every project's vendor layer.
 
-So `build/rolldownWasm.ts` rewrites the one asset URL to a content-addressed one
+So `build/staticWasm.ts` rewrites the asset URL to a content-addressed one
 on `DEFAULT_STATIC_HOST` and deletes the emitted file before the record is
 built. The trap: **`experimental.renderBuiltUrl` is read off the RESOLVED
 CONFIG, not off plugins.** Declaring it on the plugin object is accepted and
@@ -940,6 +940,11 @@ and the plugin deletes the file that URL points at, which is worse than not
 rewriting at all. It is returned from the plugin's `config()` hook for that
 reason, and `closeBundle` refuses to delete anything still referenced by a
 chunk, which is what turns a 404 in someone's browser into a failed build.
+
+The same is true of every `.wasm` the Studio emits, and there are three now:
+rolldown's and libwebp's two (the WebP encoder for Safari). `STATIC_WASM` in
+that file is the list, and a `.wasm` the build emits that is not on it fails
+the build rather than being embedded.
 
 ### On an iPhone, the page that opened the builder tab stops running
 

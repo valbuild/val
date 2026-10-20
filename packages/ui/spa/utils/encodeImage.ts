@@ -1,10 +1,12 @@
 import {
   chooseEncoded,
   ENCODE_MIME_TYPE_OF,
+  fallbackMimeType,
   fitWithin,
   isMimeTypeAccepted,
   isSkippedSource,
   NEVER_ENCODED,
+  shouldEncodeWithWasm,
   withExtension,
   type EncodeSettings,
 } from "@valbuild/shared/internal";
@@ -24,6 +26,12 @@ import {
  * lives in `@valbuild/shared/internal` instead, because the MCP image tool
  * makes the same ones against `sharp` in a Node process — and `s.image({
  * encode })` has to mean one thing whichever side of the wire ran it.
+ *
+ * Three encoders are tried, in order, on the same drawn canvas: the canvas's
+ * own, libwebp in WebAssembly where the canvas cannot write WebP (Safari; see
+ * `webpWasm.ts`), and the source's own format, scaled down, where that could
+ * not be loaded either. Each is the next one's fallback, and the original file
+ * is the last.
  */
 
 export {
@@ -42,6 +50,75 @@ function toBlob(
   quality: number,
 ): Promise<Blob | null> {
   return new Promise((resolve) => canvas.toBlob(resolve, mimeType, quality));
+}
+
+/**
+ * What this page's canvas hands back when asked for a type it cannot write,
+ * by the type asked for.
+ *
+ * Learned from the first upload and never asked again: Safari answers
+ * `toBlob(cb, "image/webp")` by encoding the whole canvas as a PNG, which is
+ * thrown away, so asking on every upload would cost each photo a full PNG
+ * encode before the WebAssembly one even starts. What a canvas can write does
+ * not change while the page is open.
+ */
+const canvasCannotWrite = new Map<string, string>();
+
+/**
+ * Encoded bytes as the file to upload, or null when the original should win.
+ *
+ * The null check is `chooseEncoded`'s job too, but it answers a boolean and
+ * TypeScript cannot narrow `blob` through that, so it is asked here as well.
+ */
+function chosenFile(
+  blob: Blob | null,
+  file: File,
+  mimeType: string,
+  settings: EncodeSettings,
+  needsDownscale: boolean,
+): File | null {
+  if (
+    !blob ||
+    !chooseEncoded({
+      originalSize: file.size,
+      encodedSize: blob.size,
+      encodedType: blob.type,
+      targetMimeType: mimeType,
+      needsDownscale,
+    })
+  ) {
+    return null;
+  }
+  const ext = mimeType === "image/jpeg" ? "jpg" : mimeType.split("/")[1];
+  return new File([blob], withExtension(file.name, ext ?? settings.type), {
+    type: mimeType,
+  });
+}
+
+/**
+ * The drawn canvas as WebP, by libwebp in WebAssembly; null when that cannot
+ * be loaded or fails.
+ *
+ * The pixels are read off the canvas that was already drawn, so the decode,
+ * the orientation and the resize are exactly the ones the canvas's own encoder
+ * was handed. The import is dynamic so that the encoder's JavaScript is a chunk
+ * of its own, and is only requested here.
+ */
+async function encodeWithWasm(
+  ctx: CanvasRenderingContext2D,
+  quality: number,
+): Promise<Blob | null> {
+  try {
+    const { encodeWebpWithWasm } = await import("./webpWasm");
+    const pixels = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+    return await encodeWebpWithWasm(pixels, quality);
+  } catch (err) {
+    console.warn(
+      "Could not encode WebP with WebAssembly, falling back to the canvas",
+      err,
+    );
+    return null;
+  }
 }
 
 /**
@@ -100,24 +177,53 @@ export async function encodeImage(
       return file;
     }
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    const blob = await toBlob(canvas, targetMimeType, settings.quality);
-    // The null check is `chooseEncoded`'s job too, but it answers a boolean and
-    // TypeScript cannot narrow `blob` through that, so it is asked here as well.
-    if (
-      !blob ||
-      !chooseEncoded({
-        originalSize: file.size,
-        encodedSize: blob.size,
-        encodedType: blob.type,
+
+    let canvasOutputType = canvasCannotWrite.get(targetMimeType) ?? null;
+    if (canvasOutputType === null) {
+      const canvasBlob = await toBlob(canvas, targetMimeType, settings.quality);
+      const encoded = chosenFile(
+        canvasBlob,
+        file,
         targetMimeType,
+        settings,
         needsDownscale,
-      })
-    ) {
+      );
+      if (encoded !== null) {
+        return encoded;
+      }
+      canvasOutputType = canvasBlob?.type ?? null;
+      if (canvasOutputType !== null && canvasOutputType !== targetMimeType) {
+        canvasCannotWrite.set(targetMimeType, canvasOutputType);
+      }
+    }
+    if (shouldEncodeWithWasm({ targetMimeType, canvasOutputType })) {
+      const fromWasm = chosenFile(
+        await encodeWithWasm(ctx, settings.quality),
+        file,
+        targetMimeType,
+        settings,
+        needsDownscale,
+      );
+      if (fromWasm !== null) {
+        return fromWasm;
+      }
+    }
+    // Nothing wrote the type asked for (or what was written lost to the
+    // original): scale it down in its own format instead, when it needs it.
+    // See `fallbackMimeType`.
+    const fallback = fallbackMimeType(file.type, needsDownscale, accept);
+    if (fallback === null) {
       return file;
     }
-    return new File([blob], withExtension(file.name, settings.type), {
-      type: targetMimeType,
-    });
+    return (
+      chosenFile(
+        await toBlob(canvas, fallback, settings.quality),
+        file,
+        fallback,
+        settings,
+        needsDownscale,
+      ) ?? file
+    );
   } catch (err) {
     console.error("Could not re-encode image, uploading the original", err);
     return file;

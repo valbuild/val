@@ -92,7 +92,7 @@ async function main() {
 
   await checkChunkImports(handler, app.body);
 
-  await checkRolldownWasm();
+  await checkStaticWasm();
 }
 
 /**
@@ -153,55 +153,56 @@ async function checkChunkImports(handler, mainBody) {
 }
 
 /**
- * The bundler's WebAssembly is served from elsewhere, and this proves it twice.
+ * The Studio's WebAssembly is served from elsewhere, and this proves it twice.
  *
- * The binary is 10.9 MB and must not go through the base64 record: read as
- * utf-8 it does not round-trip, and its base64 is 14.5 MB of string literal in
- * each server bundle -- which `wire.ts` then carries into every project's
- * vendor layer, because it declares `@valbuild/ui` as a project dependency.
- * See `build/rolldownWasm.ts`.
+ * rolldown's binary is 10.9 MB and libwebp's two are ~300 KB each, and none may
+ * go through the base64 record: read as utf-8 a binary does not round-trip, and
+ * rolldown's base64 alone is 14.5 MB of string literal in each server bundle --
+ * which `wire.ts` then carries into every project's vendor layer, because it
+ * declares `@valbuild/ui` as a project dependency. See `build/staticWasm.ts`.
  *
  * Asserted on the BUILT artifact rather than on the build step, for the same
  * reason everything else here is: the substitution is a string replacement over
  * bundler output, and it is only ever as correct as the shape that output
  * happens to have.
  */
-async function checkRolldownWasm() {
-  const manifestPath = path.join(__dirname, "server", "rolldown-wasm.json");
+async function checkStaticWasm() {
+  const manifestPath = path.join(__dirname, "server", "static-wasm.json");
   check(
-    "the rolldown wasm manifest was written",
+    "the static wasm manifest was written",
     fs.existsSync(manifestPath),
-    `${manifestPath} does not exist; the SPA build's val:rolldown-wasm plugin did not run`,
+    `${manifestPath} does not exist; the SPA build's val:static-wasm plugin did not run`,
   );
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
-  check(
-    "the manifest names a sha256 and a URL that carries it",
-    /^[0-9a-f]{64}$/.test(manifest.sha256 ?? "") &&
-      typeof manifest.url === "string" &&
-      manifest.url.includes(manifest.sha256),
-    `sha256 was ${JSON.stringify(manifest.sha256)} and url ${JSON.stringify(manifest.url)}`,
-  );
+  const files = Array.isArray(manifest.files) ? manifest.files : [];
+  /*
+   * By name, because each is a promise the Studio makes: no rolldown is a
+   * Studio that cannot publish, and no libwebp is Safari uploading JPEGs.
+   */
+  for (const filename of [
+    "rolldown-binding.wasm32-wasi.wasm",
+    "webp_enc.wasm",
+    "webp_enc_simd.wasm",
+  ]) {
+    check(
+      `the manifest lists ${filename}`,
+      files.some((entry) => entry.filename === filename),
+      `it lists ${JSON.stringify(files.map((entry) => entry.filename))}`,
+    );
+  }
 
   /*
-   * ...and that URL is under the host this build was meant to point at.
+   * ...each under the host this build was meant to point at.
    *
-   * `@valbuild/core` is the source of truth; `build/rolldownWasm.ts` has to
+   * `@valbuild/core` is the source of truth; `build/staticWasm.ts` has to
    * keep a copy of the literal (Vite cannot import core's CommonJS entry into
    * a config), and this is where a copy that drifted would show up as what it
-   * is -- a Studio asking a host that does not serve the binary.
+   * is -- a Studio asking a host that does not serve the binaries.
    */
   const { DEFAULT_STATIC_HOST } = require("@valbuild/core");
   const host = (process.env.VAL_STATIC_HOST || DEFAULT_STATIC_HOST).replace(
     /\/+$/,
     "",
-  );
-  const expectedUrl = `${host}/rolldown/${manifest.sha256}/${manifest.filename}`;
-  check(
-    "the binary is addressed under the static host @valbuild/core declares",
-    manifest.url === expectedUrl,
-    `the manifest says ${JSON.stringify(manifest.url)}, and ${
-      process.env.VAL_STATIC_HOST ? "VAL_STATIC_HOST" : "DEFAULT_STATIC_HOST"
-    } makes it ${JSON.stringify(expectedUrl)}`,
   );
 
   // What `fix-server-hack.js` base64s into the server bundle. Checked here
@@ -221,12 +222,30 @@ async function checkRolldownWasm() {
   const spa = assets
     .filter((name) => name.endsWith(".js"))
     .map((name) => fs.readFileSync(path.join(assetsDir, name), "utf-8"));
-  check(
-    "the Studio asks for the binary at the static host",
-    spa.some((code) => code.includes(manifest.url)),
-    `no built chunk mentions ${manifest.url}, so the Studio does not know ` +
-      `where the binary is`,
-  );
+
+  for (const entry of files) {
+    check(
+      `${entry.filename} has a sha256 and a URL that carries it`,
+      /^[0-9a-f]{64}$/.test(entry.sha256 ?? "") &&
+        typeof entry.url === "string" &&
+        entry.url.includes(entry.sha256),
+      `sha256 was ${JSON.stringify(entry.sha256)} and url ${JSON.stringify(entry.url)}`,
+    );
+    const expectedUrl = `${host}/${entry.name}/${entry.sha256}/${entry.filename}`;
+    check(
+      `${entry.filename} is addressed under the static host @valbuild/core declares`,
+      entry.url === expectedUrl,
+      `the manifest says ${JSON.stringify(entry.url)}, and ${
+        process.env.VAL_STATIC_HOST ? "VAL_STATIC_HOST" : "DEFAULT_STATIC_HOST"
+      } makes it ${JSON.stringify(expectedUrl)}`,
+    );
+    check(
+      `the Studio asks for ${entry.filename} at the static host`,
+      spa.some((code) => code.includes(entry.url)),
+      `no built chunk mentions ${entry.url}, so the Studio does not know ` +
+        `where the binary is`,
+    );
+  }
 }
 
 main().catch((err) => {

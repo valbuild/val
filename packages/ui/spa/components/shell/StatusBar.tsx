@@ -35,7 +35,8 @@ export type StatusBarProps = {
    */
   mode?: "fs" | "http" | "unknown";
   autoSave: boolean;
-  onAutoSaveChange: (autoSave: boolean) => void;
+  /** Absent where there is nothing to auto save to: the demo. */
+  onAutoSaveChange?: (autoSave: boolean) => void;
   /** From `config.gitBranch`; hidden when Val is not in a git checkout. */
   branch?: string;
   /** Publishes in flight or recently finished. Hidden when there is no feed. */
@@ -98,7 +99,7 @@ export function StatusBar({
         without being asked. Same rule the deploy feed and "Dev mode" already
         follow here.
       */}
-      {mode === "fs" && (
+      {mode === "fs" && onAutoSaveChange && (
         <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
           <Checkbox
             checked={autoSave}

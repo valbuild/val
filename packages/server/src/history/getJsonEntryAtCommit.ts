@@ -1,5 +1,5 @@
 import ts from "typescript";
-import path from "path";
+import { posixPath } from "../posixPath";
 import { ModuleFilePath } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import type { Json } from "@valbuild/core";
@@ -158,6 +158,6 @@ export function findEntryImportPath(
       message: `'${key}' had no entry at this commit`,
     });
   }
-  const moduleDir = path.posix.dirname(moduleFilePath);
-  return result.ok(path.posix.join(moduleDir, entry.importPath));
+  const moduleDir = posixPath.dirname(moduleFilePath);
+  return result.ok(posixPath.join(moduleDir, entry.importPath));
 }

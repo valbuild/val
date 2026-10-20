@@ -422,6 +422,7 @@ export class ValOpsHttp extends ValOps {
   private readonly root: string;
   /** Val's content service owns the store. See {@link ValOps.patchesAreLocal}. */
   override readonly patchesAreLocal = false;
+  override readonly kind = "http";
   /** See {@link ValOps.requiresAuth}. */
   override readonly requiresAuth = true;
   /**

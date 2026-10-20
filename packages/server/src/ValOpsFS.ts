@@ -90,6 +90,7 @@ export class ValOpsFS extends ValOps {
   private readonly host: FSOpsHost;
   /** The developer's own working tree. See {@link ValOps.patchesAreLocal}. */
   override readonly patchesAreLocal = true;
+  override readonly kind = "fs";
   /**
    * The developer's own machine, where there is no credential to require and
    * nothing to protect it from. See {@link ValOps.requiresAuth}.
