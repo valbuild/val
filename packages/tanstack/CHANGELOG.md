@@ -1,5 +1,62 @@
 # @valbuild/tanstack
 
+## 0.148.3
+
+### Patch Changes
+
+- [#881](https://github.com/valbuild/val/pull/881) [`0139436`](https://github.com/valbuild/val/commit/0139436426142d91cbb29ec6c696dfb86f34ab9d) Thanks [@freekh](https://github.com/freekh)! - The content analytics script. With analytics on (it is off by default, and turned on in a hosted project's settings), a TanStack site counts which content each visitor's page **rendered** and which they actually **viewed** (at least half on screen for a second), and sends it to `/api/val/analytics`.
+
+  - No cookies, no storage, no visitor IDs. Each page view also says where it came from (the referring site's host and any `utm_source` / `utm_medium` / `utm_campaign`) and whether it was a phone, tablet or desktop.
+  - A page is sent as its route's pattern (`/posts/$postId`), never its address, so a path that holds something about one visitor (an order number, a token) is never stored. `startValAnalytics` takes this as `routeFor`; `ValProvider` passes TanStack's matched route.
+  - Editors are never counted: nothing is sent in draft mode, in the Studio, with Val enabled, or at a proposal's address, and nothing from automated browsers. A page the browser prerenders counts nothing until it is shown.
+  - The script is the new `@valbuild/react/analytics` entry, loaded only for visitors of a site with analytics on, after the page has hydrated. It imports nothing else from Val.
+  - Storing the counts and showing them is part of Val's hosting, which takes these beacons before they reach the site. Anywhere else, `/api/val/analytics` checks each beacon and stores nothing; in local development, with `VAL_DEBUG=1`, it logs a line per beacon, so you can see it working.
+  - `ValProvider`'s Studio check now matches `/val` and what is below it only, not every route starting with those letters (`/values`). The same fix is in `@valbuild/next`.
+
+- [#887](https://github.com/valbuild/val/pull/887) [`eaa77e0`](https://github.com/valbuild/val/commit/eaa77e0e5028b113037e76722e25e342a8301032) Thanks [@freekh](https://github.com/freekh)! - Content analytics records the content version each page was rendered from. `<ValProvider analytics>` takes a `ValAnalytics` -- `{ enabled, contentVersion? }` -- and the `val.server.ts` Val's hosting writes returns one from `fetchValAnalytics()`, with the id of the content version the platform is serving. Every beacon carries it as `cv`, so counts can be compared across a publish. The site layout passes `fetchValAnalytics()` to the provider exactly as before.
+
+- [#878](https://github.com/valbuild/val/pull/878) [`4d862ce`](https://github.com/valbuild/val/commit/4d862cec40288ecbc415c3c3b8d792ddd6bc1ca3) Thanks [@freekh](https://github.com/freekh)! - TanStack Start: a new analytics mode, the first step towards content analytics. It is off by default. With `<ValProvider analytics>`, content read with the hooks (`useVal`, `useValRoute`, `useValKey`) is tagged for every visitor, not only in draft mode, so each element showing content carries a `data-val-path`. The tags are added in the browser after hydration, so the HTML the server sends is unchanged and a crawler that does not run the page never sees them.
+
+  On a site hosted by Val, analytics is a project setting: the owner turns it on in the project's settings, and the `val.server.ts` the platform writes now exports `fetchValAnalytics()` to read it. Pass it to the provider from the site layout's loader, beside `fetchValDraft()`; see the README.
+
+- [#896](https://github.com/valbuild/val/pull/896) [`5eff8a0`](https://github.com/valbuild/val/commit/5eff8a055a4ef50d476797c28f9c3e50deb73c89) Thanks [@freekh](https://github.com/freekh)! - A demo's tour can now be written by the site: `<ValApp demo={{ tour }}>`, with each step as data (`ValDemoTourStep`), so what it says changes with the site rather than with a Val release.
+
+  It is drawn as a ring around what a step is about, with nothing dimmed and the Studio usable underneath, and a step can move on by itself once the visitor has done what it asks:
+
+  ```ts
+  const tour: ValDemoTourStep[] = [
+    {
+      id: "click",
+      title: "This is Val",
+      body: "Click the heading on the page.",
+      target: "canvas",
+      page: HEADING, // outlined on the page
+      moveOn: { open: HEADING },
+    },
+    {
+      id: "type",
+      title: "Change a word",
+      body: "The page changes as you type.",
+      field: HEADING, // ringed wherever the field is shown
+      moveOn: {
+        edit: true,
+        path: HEADING,
+        value: "Coffee, roasted this weekend",
+      },
+    },
+  ];
+  ```
+
+  A step that moves on has **Do it for me**, which does it the way the Studio would, and **Skip**. On a phone the card is a sheet along the bottom. The Studio's own tour is unchanged.
+
+- Updated dependencies [[`0139436`](https://github.com/valbuild/val/commit/0139436426142d91cbb29ec6c696dfb86f34ab9d), [`5eff8a0`](https://github.com/valbuild/val/commit/5eff8a055a4ef50d476797c28f9c3e50deb73c89)]:
+  - @valbuild/react@0.148.3
+  - @valbuild/shared@0.148.3
+  - @valbuild/server@0.148.3
+  - @valbuild/ui@0.148.3
+  - @valbuild/language-server@0.148.3
+  - @valbuild/mcp@0.148.3
+
 ## 0.148.2
 
 ### Patch Changes
