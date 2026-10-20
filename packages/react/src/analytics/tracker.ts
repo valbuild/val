@@ -31,9 +31,20 @@ export type ValAnalyticsOptions = {
    * say.
    */
   landingPath?: string;
+  /**
+   * The route a pathname is a page of, as the app names it: `/blogs/$slug`
+   * for `/blogs/a-post`. What is sent, so a path that holds something about
+   * one visitor -- an order number, a token, an email address -- is never
+   * stored as if it were a page of the site. Without it the pathname is sent
+   * as it is, so a caller that knows its routes should say.
+   *
+   * A page view is still a change of PATHNAME: `/blogs/a` to `/blogs/b` is a
+   * new one, of the same route.
+   */
+  routeFor?: (pathname: string) => string;
 };
 
-export type ValAnalytics = {
+export type ValAnalyticsTracker = {
   /** Sends what is waiting now. */
   flush(): void;
   /** Sends what is waiting, then stops counting and restores everything it patched. */
@@ -62,16 +73,50 @@ const THRESHOLDS = Array.from({ length: 21 }, (_, i) => i / 20);
  * browser (`navigator.webdriver`). The caller decides the rest -- draft mode,
  * the Studio's canvas and an editor browsing with Val enabled all count
  * nothing, and the provider does not start it for them.
+ *
+ * A page the browser PRERENDERS (speculation rules, the address bar's guess
+ * at where the visitor is going) is hydrated with nobody looking, and may
+ * never be looked at: nothing starts until it is shown, and nothing at all
+ * if it never is.
  */
 export function startValAnalytics(
   options: ValAnalyticsOptions = {},
-): ValAnalytics | null {
+): ValAnalyticsTracker | null {
   if (typeof window === "undefined" || typeof document === "undefined") {
     return null;
   }
   if (navigator.webdriver) {
     return null;
   }
+  if (!isPrerendering()) {
+    return startNow(options);
+  }
+  let tracker: ValAnalyticsTracker | null = null;
+  let stopped = false;
+  const onShown = () => {
+    if (!stopped) {
+      tracker = startNow(options);
+    }
+  };
+  document.addEventListener("prerenderingchange", onShown, { once: true });
+  return {
+    flush: () => tracker?.flush(),
+    stop: () => {
+      stopped = true;
+      document.removeEventListener("prerenderingchange", onShown);
+      tracker?.stop();
+    },
+  };
+}
+
+/** `document.prerendering`, which TypeScript's DOM types do not have yet. */
+function isPrerendering(): boolean {
+  return "prerendering" in document && document.prerendering === true;
+}
+
+function startNow(options: ValAnalyticsOptions): ValAnalyticsTracker {
+  const routeFor = (pathname: string) =>
+    routeOf(options.routeFor ? options.routeFor(pathname) : pathname);
   const endpoint = options.endpoint ?? "/api/val/analytics";
   const firstSendAfterMs = options.firstSendAfterMs ?? 3_000;
   const viewedAfterMs = options.viewedAfterMs ?? 1_000;
@@ -87,7 +132,9 @@ export function startValAnalytics(
   let asked = false;
 
   // The page view.
-  let route = routeOf(location.pathname);
+  /** The page view's pathname, which a new page view is a change of. */
+  let pathname = location.pathname;
+  let route = routeFor(pathname);
   let view: AnalyticsPageView | null = null;
   let viewSent = false;
   const rendered = new Set<string>();
@@ -156,11 +203,16 @@ export function startValAnalytics(
     });
   }
 
-  function flushNow(leaving: boolean) {
-    if (!leaving) {
-      // The first beacon is as long as a navigation's old page gets: what is
-      // still here by then is the new page's. Leaving before that, it is
-      // not counted at all -- better than counted on the wrong route.
+  /**
+   * `confirm`: what was carried over from the previous page and is still
+   * here is the new page's. True when a page view's first beacon is due --
+   * that is as long as a navigation's old page gets. False when the page view
+   * ends first -- leaving, or navigating on again before the new page has
+   * changed the screen -- so it is not counted at all, which is better than
+   * counted on the wrong route.
+   */
+  function flushNow(leaving: boolean, confirm = !leaving) {
+    if (confirm) {
       confirmCarried();
     }
     if (firstSendTimer !== null) {
@@ -404,7 +456,8 @@ export function startValAnalytics(
    * probably still on screen; see `carried`.
    */
   function startPageView(first: boolean, url: URL | Location, carry: boolean) {
-    route = routeOf(location.pathname);
+    pathname = location.pathname;
+    route = routeFor(pathname);
     view = pageView(first, url);
     viewSent = false;
     rendered.clear();
@@ -429,10 +482,10 @@ export function startValAnalytics(
   }
 
   function onLocationMaybeChanged() {
-    if (stopped || routeOf(location.pathname) === route) {
+    if (stopped || location.pathname === pathname) {
       return;
     }
-    flushNow(false);
+    flushNow(false, false);
     startPageView(false, location, true);
   }
 
@@ -505,12 +558,9 @@ export function startValAnalytics(
   // The campaign is in the URL the visitor arrived at; a redirect or the
   // router may have dropped the query since.
   const arrivedAt = landing && !utmOf(location.search) ? landing : location;
-  if (
-    landedAt !== undefined &&
-    routeOf(landedAt) !== routeOf(location.pathname)
-  ) {
+  if (landedAt !== undefined && landedAt !== location.pathname) {
     for (const beacon of buildBeacons({
-      route: routeOf(landedAt),
+      route: routeFor(landedAt),
       cv: options.contentVersion,
       view: pageView(true, arrivedAt),
       rendered: [],
@@ -528,7 +578,7 @@ export function startValAnalytics(
       return;
     }
     if (sendFirst) {
-      flushNow(false);
+      flushNow(false, false);
     }
     stopped = true;
     if (firstSendTimer !== null) {

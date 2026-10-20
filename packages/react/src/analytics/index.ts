@@ -2,7 +2,7 @@
 // nothing from @valbuild/core, @valbuild/shared or zod -- see `beacon.ts`.
 export {
   startValAnalytics,
-  type ValAnalytics,
+  type ValAnalyticsTracker,
   type ValAnalyticsOptions,
 } from "./tracker";
 export {
