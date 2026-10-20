@@ -60,9 +60,18 @@ export const ValApp = ({
   demo?: boolean;
 }) => {
   const route = "/api/val"; // TODO: make configurable
-  const demoStart = useDemoServer(demo === true, config);
   const [inMessageMode, setInMessageMode] = useState<boolean>();
   const isClientSIde = inMessageMode === undefined;
+  // Not before `children` are rendered, which is not on the first render: the
+  // modules the demo's server needs are registered by one of them
+  // (`ValModulesClient`), and a child's effects run before this component's
+  // in the commit that mounts it. Started on the first render, the demo read
+  // them whenever the server's code had loaded -- before the child was there,
+  // on a page that had that code already.
+  const demoStart = useDemoServer(
+    demo === true && inMessageMode === false,
+    config,
+  );
   useConfigStorageSave(config);
   const container = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -228,8 +237,9 @@ export const ValApp = ({
   }
   if (demo && demoStart.status !== "ready") {
     // The Studio reads `window.__VAL_DEMO__` when its script starts, so the
-    // server it talks to has to be there first. The modules are registered
-    // by a child (`ValModulesClient`), whose effect has run by then.
+    // server it talks to has to be there first. The children are rendered
+    // meanwhile: one of them registers the modules that server is started
+    // with.
     return <>{children}</>;
   }
   return (
