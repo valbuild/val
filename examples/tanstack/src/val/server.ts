@@ -40,6 +40,16 @@ const {
   fetchValDraft,
 } = initValContent(config, valModules, { draftMode });
 
+/**
+ * Whether content analytics is on, for `<ValProvider analytics>`.
+ *
+ * On a hosted site this is a project setting, handed over as the
+ * `VAL_ANALYTICS` secret, and the platform's own `val.server.ts` reads it.
+ * The showcase sets the same variable in `.env.development`, which TanStack
+ * Start loads into `process.env`, so it counts while you browse it in dev.
+ */
+const fetchValAnalytics = async () => process.env.VAL_ANALYTICS === "true";
+
 export {
   valApiHandler,
   draftMode,
@@ -48,4 +58,5 @@ export {
   fetchValRoute,
   fetchValRouteUrl,
   fetchValDraft,
+  fetchValAnalytics,
 };

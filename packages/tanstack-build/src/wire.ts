@@ -511,6 +511,18 @@ const fetchValDraft = async () =>
     : null;
 
 /**
+ * Whether content analytics is on: \`<ValProvider analytics>\`, read in the site
+ * layout's loader beside \`fetchValDraft\`.
+ *
+ * A setting of the project, which its owner turns on in the project's settings
+ * and the platform hands over as the \`VAL_ANALYTICS\` secret -- at RUNTIME,
+ * like every secret, so switching it is not a rebuild. Off unless that secret
+ * says \`true\`. A \`@valbuild/tanstack\` from before analytics ignores the
+ * prop, so this is safe to call against any version.
+ */
+const fetchValAnalytics = async () => secret("VAL_ANALYTICS") === "true";
+
+/**
  * A build that is MEANT to edit and cannot, refusing instead of pretending to.
  *
  * \`BUILT_FROM\` being non-null says this build came from a commit, so it was
@@ -579,6 +591,7 @@ export {
   fetchValRoute,
   fetchValRouteUrl,
   fetchValDraft,
+  fetchValAnalytics,
 };
 `;
 

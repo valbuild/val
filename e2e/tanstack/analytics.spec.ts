@@ -3,9 +3,10 @@ import { test } from "../studio";
 import { watchForProblems } from "../pageProblems";
 
 /**
- * Analytics mode on the TanStack showcase (`analytics: { enabled: true }` in
- * `examples/tanstack/val.config.ts`), as a VISITOR sees it: no Val enable
- * cookie, no draft mode.
+ * Analytics mode on the TanStack showcase (`VAL_ANALYTICS=true` in
+ * `examples/tanstack/.env.development`, passed to `<ValProvider analytics>` by
+ * `_site.tsx`'s loader), as a VISITOR sees it: no Val enable cookie, no draft
+ * mode.
  *
  * The rule under test is `useEncodesEditTags`: no edit tags on the server or
  * while a component hydrates, tags from the render after. What only a real
