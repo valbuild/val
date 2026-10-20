@@ -895,8 +895,8 @@ export const ValServer = (
           const beacon = parsed.data;
           const count = (paths: Record<string, string[]>) =>
             Object.values(paths).reduce((n, list) => n + list.length, 0);
-          console.log(
-            `[val] analytics: ${beacon.route}${beacon.view ? " (page view)" : ""}: ${count(beacon.rendered)} rendered, ${count(beacon.viewed)} viewed`,
+          Internal.log.debug(
+            `analytics: ${beacon.route}${beacon.view ? " (page view)" : ""}: ${count(beacon.rendered)} rendered, ${count(beacon.viewed)} viewed`,
           );
         }
         return { status: 200, json: { counted: false } };
