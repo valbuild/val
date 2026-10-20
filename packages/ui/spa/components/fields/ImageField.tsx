@@ -117,7 +117,7 @@ export function ImageField({
         if (typeof hotspot.x === "number" && typeof hotspot.y === "number") {
           setHotspot({ x: hotspot.x, y: hotspot.y });
         } else {
-          Internal.log.debug(
+          Internal.log.warn(
             `Expected hotspot to have x and y as numbers but x was: ${typeof hotspot.x} and y: ${typeof hotspot.y}`,
           );
         }

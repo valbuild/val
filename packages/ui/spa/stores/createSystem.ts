@@ -624,10 +624,10 @@ export function createSystem(options: SystemOptions): System {
 
       Internal.log.error(
         uncertain
-          ? "Val: a patch could not be applied, and this module still has " +
+          ? "a patch could not be applied, and this module still has " +
               "unloaded .jsonValues() entries — so it may apply once they " +
               "arrive. Keeping it. If the edit never appears, please report this."
-          : "Val: discarding a patch that cannot be applied. If you see this " +
+          : "discarding a patch that cannot be applied. If you see this " +
               "often, please report it — it means a patch is being generated " +
               "that does not fit the source it targets.",
         {
