@@ -90,6 +90,7 @@ export class ValOpsFS extends ValOps {
   private readonly host: FSOpsHost;
   /** The developer's own working tree. See {@link ValOps.patchesAreLocal}. */
   override readonly patchesAreLocal = true;
+  override readonly kind = "fs";
   /**
    * The developer's own machine, where there is no credential to require and
    * nothing to protect it from. See {@link ValOps.requiresAuth}.
@@ -179,7 +180,7 @@ export class ValOpsFS extends ValOps {
             },
           };
         }
-        console.error(
+        Internal.log.error(
           "Could not parse presigned auth nonce response. Error: " +
             fromError(parsed.error),
         );
@@ -203,14 +204,14 @@ export class ValOpsFS extends ValOps {
         };
       }
       const unknownErrorMessage = `Could not get presigned auth nonce. HTTP error: ${res.status} ${res.statusText}`;
-      console.error(unknownErrorMessage);
+      Internal.log.error(unknownErrorMessage);
       return {
         status: "error",
         statusCode: 500,
         error: { message: unknownErrorMessage },
       };
     } catch (e) {
-      console.error(
+      Internal.log.error(
         "Could not get presigned auth nonce (connection error?):",
         e,
       );
@@ -379,7 +380,7 @@ export class ValOpsFS extends ValOps {
               }
             }
             if (Date.now() - start > interval) {
-              console.warn("Val: polling interval of patches exceeded");
+              Internal.log.debug("polling interval of patches exceeded");
             }
             if (stopPolling) {
               return;
@@ -415,7 +416,7 @@ export class ValOpsFS extends ValOps {
               }
             }
             if (Date.now() - start > interval) {
-              console.warn("Val: polling interval of files exceeded");
+              Internal.log.debug("polling interval of files exceeded");
             }
             // Checked BEFORE rescheduling, as the patches-directory poller
             // above does. Without it this walk goes on forever: the `finally`
@@ -613,7 +614,7 @@ export class ValOpsFS extends ValOps {
   > {
     const patchesDir = this.getPatchesDir();
     for (const problem of describePatchStoreProblems(read.problems)) {
-      console.warn("Val: something is wrong with the patch store.", problem);
+      Internal.log.warn("something is wrong with the patch store.", problem);
     }
     const locked = await withPatchLock(
       this.getPatchLockFile(),
@@ -633,8 +634,8 @@ export class ValOpsFS extends ValOps {
         }
         for (const action of repairPatchStore(patchesDir, current)) {
           if (action.type === "removed-unreadable-patch") {
-            console.warn(
-              `Val: removed the unpublished change ${action.name} because ${action.because}. See ${patchesDir}/${PATCH_REPAIR_LOG_FILE_NAME}.`,
+            Internal.log.warn(
+              `removed the unpublished change ${action.name} because ${action.because}. See ${patchesDir}/${PATCH_REPAIR_LOG_FILE_NAME}.`,
             );
             // Queued rather than only logged: this is someone's unpublished
             // work being thrown away, and a server console is not somewhere the
@@ -646,8 +647,8 @@ export class ValOpsFS extends ValOps {
           } else if (action.type === "removed-orphan-directory") {
             // Not queued. Nothing ever read this - it is a record whose log line
             // never landed - so there is no edit to tell anyone about.
-            console.warn(
-              `Val: removed the unused patch directory ${action.name}.`,
+            Internal.log.warn(
+              `removed the unused patch directory ${action.name}.`,
             );
           }
         }
@@ -665,8 +666,8 @@ export class ValOpsFS extends ValOps {
         if ("error" in reset) {
           return { status: "error", message: reset.error };
         }
-        console.warn(
-          `Val: the patch store could not be repaired, so it was reset. The previous contents are in ${reset.movedTo}.`,
+        Internal.log.warn(
+          `the patch store could not be repaired, so it was reset. The previous contents are in ${reset.movedTo}.`,
         );
         return { status: "ok", entries: [] };
       },
@@ -675,8 +676,8 @@ export class ValOpsFS extends ValOps {
       // Someone else holds the lock, quite possibly to run this same repair.
       // Serving what was read is safe — those entries are the ones that ARE
       // readable — and the next read tries again.
-      console.warn(
-        `Val: could not repair the patch store now. ${locked.message}`,
+      Internal.log.warn(
+        `could not repair the patch store now. ${locked.message}`,
       );
       return { status: "ok", entries: read.entries };
     }
@@ -950,7 +951,9 @@ export class ValOpsFS extends ValOps {
       // Cheap, and this is the one path that creates staging directories, so it
       // is where the ones nobody claimed get noticed.
       sweepStaleUploads(patchesDir);
-      const buffer = bufferFromDataUrl(data);
+      const buffer = bufferFromDataUrl(data, (base64) =>
+        Buffer.from(base64, "base64"),
+      );
       if (!buffer) {
         return {
           error: {
@@ -1254,7 +1257,7 @@ export class ValOpsFS extends ValOps {
           auth,
         );
         if (!res.success) {
-          console.error("Failed to upload remote file", ref, res.error);
+          Internal.log.error("Failed to upload remote file", ref, res.error);
           throw new Error(`Failed to upload remote file: ${ref}. ${res.error}`);
         }
         uploadedRemoteRefs.push(ref);
@@ -1569,7 +1572,7 @@ class FSOpsHost {
     return { type: "success" };
   }
 
-  writeBinaryFile(path: string, data: Buffer): void {
+  writeBinaryFile(path: string, data: Uint8Array): void {
     fs.mkdirSync(fsPath.dirname(path), { recursive: true });
     fs.writeFileSync(path, new Uint8Array(data), "base64url");
   }

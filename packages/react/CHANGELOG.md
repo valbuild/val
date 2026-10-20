@@ -1,5 +1,70 @@
 # @valbuild/react
 
+## 0.148.2
+
+### Patch Changes
+
+- [#889](https://github.com/valbuild/val/pull/889) [`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a) Thanks [@freekh](https://github.com/freekh)! - Val is quieter in your app's console. Errors and warnings you can act on still
+  print, now prefixed with `[val]` so you can filter them. Val's own debug
+  output, which used to reach your terminal and browser console, is now off by
+  default. That includes the `Invalid JWT` line that printed on every request
+  with an expired session cookie, the "verifying draft mode" and polling notices,
+  and the Studio's sync and WebSocket chatter.
+
+  To turn the debug output back on, for example when reporting a bug:
+
+  - on the server, set `VAL_DEBUG=1`
+  - in the browser, run `localStorage.setItem("val:debug", "1")` in the console.
+    It takes effect immediately, with no reload. Remove the key to turn it off
+    again.
+
+- Updated dependencies [[`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a)]:
+  - @valbuild/core@0.148.2
+  - @valbuild/shared@0.148.2
+  - @valbuild/ui@0.148.2
+
+## 0.148.1
+
+### Patch Changes
+
+- Updated dependencies [[`fff5681`](https://github.com/valbuild/val/commit/fff5681b9ac9a24b873ba74ca636240d83404e46)]:
+  - @valbuild/ui@0.148.1
+
+## 0.148.0
+
+### Patch Changes
+
+- Updated dependencies [[`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`4176757`](https://github.com/valbuild/val/commit/41767579b01849473a94779122fd39c07dd99234), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1)]:
+  - @valbuild/shared@0.148.0
+  - @valbuild/ui@0.148.0
+  - @valbuild/core@0.148.0
+
+## 0.147.0
+
+### Patch Changes
+
+- Updated dependencies [[`2f09cd5`](https://github.com/valbuild/val/commit/2f09cd5e2f4fc37f06917899f24f9ad2ee8d3a8b), [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd), [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd)]:
+  - @valbuild/core@0.147.0
+  - @valbuild/shared@0.147.0
+  - @valbuild/ui@0.147.0
+
+## 0.146.4
+
+### Patch Changes
+
+- Updated dependencies [[`81f2e80`](https://github.com/valbuild/val/commit/81f2e803c4cefdf58bbe6856c06e98ace95a8e0b), [`59ff6c3`](https://github.com/valbuild/val/commit/59ff6c367bc313b2bb7718b00c1641aaccab949d), [`c31f609`](https://github.com/valbuild/val/commit/c31f609fdeed79aa0e139fa4f652ba0684e96ea3)]:
+  - @valbuild/shared@0.146.4
+  - @valbuild/ui@0.146.4
+
+## 0.146.2
+
+### Patch Changes
+
+- Updated dependencies [[`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9)]:
+  - @valbuild/core@0.146.2
+  - @valbuild/shared@0.146.2
+  - @valbuild/ui@0.146.2
+
 ## 0.146.1
 
 ### Patch Changes

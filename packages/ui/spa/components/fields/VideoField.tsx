@@ -325,7 +325,7 @@ export function VideoField({
         await uploadPatch(patch);
       }
     } catch (err) {
-      console.error("Val: video upload failed", err);
+      Internal.log.error("video upload failed", err);
       setError(
         `Could not upload the video: ${err instanceof Error ? err.message : String(err)}`,
       );

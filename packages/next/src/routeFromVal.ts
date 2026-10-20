@@ -173,8 +173,8 @@ export function getValRouteUrlFromVal(
   val: any,
 ) {
   if (!path) {
-    console.error(
-      `Val: ${methodName} can only be used with a Val module (details: no Val path found).`,
+    Internal.log.error(
+      `${methodName} can only be used with a Val module (details: no Val path found).`,
     );
     return null;
   }
@@ -182,30 +182,30 @@ export function getValRouteUrlFromVal(
     return null;
   }
   if (typeof val !== "object") {
-    console.error(
-      `Val: ${methodName} must be used with a Val Module that is a s.record().router(...) (details: expected type object, found ${typeof val} instead).`,
+    Internal.log.error(
+      `${methodName} must be used with a Val Module that is a s.record().router(...) (details: expected type object, found ${typeof val} instead).`,
     );
     return null;
   }
   if (Array.isArray(val)) {
-    console.error(
-      `Val: ${methodName} must be used with a Val Module that is a s.record().router(...) (details: expected type object, found array instead).`,
+    Internal.log.error(
+      `${methodName} must be used with a Val Module that is a s.record().router(...) (details: expected type object, found array instead).`,
     );
     return null;
   }
   if (!schema) {
-    console.error(
-      `Val: ${methodName} must be used with a Val Module that is a s.record().router(...) (details: no schema found).`,
+    Internal.log.error(
+      `${methodName} must be used with a Val Module that is a s.record().router(...) (details: no schema found).`,
     );
     return null;
   }
   if (!(schema instanceof RecordSchema)) {
-    console.error(
-      `Val: ${methodName} must be used with a Val Module that is a s.record().router(...) (details: schema is not a record).`,
+    Internal.log.error(
+      `${methodName} must be used with a Val Module that is a s.record().router(...) (details: schema is not a record).`,
     );
   } else if (!schema["currentRouter"]) {
-    console.error(
-      `Val: ${methodName} must be used with a Val Module that is a s.record().router(...) (details: router is not set).`,
+    Internal.log.error(
+      `${methodName} must be used with a Val Module that is a s.record().router(...) (details: router is not set).`,
     );
   } else if (
     schema["currentRouter"].getRouterId() !==
@@ -213,14 +213,14 @@ export function getValRouteUrlFromVal(
     schema["currentRouter"].getRouterId() !==
       Internal.externalPageRouter.getRouterId()
   ) {
-    console.error(
-      `Val: ${methodName} must be used with a Val Module that is a s.record().router(...) (details: router is not the Next.js App Router or External URL Page Router).`,
+    Internal.log.error(
+      `${methodName} must be used with a Val Module that is a s.record().router(...) (details: router is not the Next.js App Router or External URL Page Router).`,
     );
     return null;
   }
   if (typeof resolvedParams !== "object") {
-    console.error(
-      `Val: ${methodName} must be used with a Val Module that is a s.record().router(...) (details: params is not an object).`,
+    Internal.log.error(
+      `${methodName} must be used with a Val Module that is a s.record().router(...) (details: params is not an object).`,
     );
     return null;
   }
@@ -231,8 +231,8 @@ export function getValRouteUrlFromVal(
       moduleFilePath.endsWith("page.val.js")
     )
   ) {
-    console.error(
-      `Val: ${methodName} is used with a Val module that does not have a page.val.ts or page.val.js file. Make sure the Val module is in the same directory as your page.tsx or page.js file.`,
+    Internal.log.error(
+      `${methodName} is used with a Val module that does not have a page.val.ts or page.val.js file. Make sure the Val module is in the same directory as your page.tsx or page.js file.`,
     );
     return null;
   }
@@ -240,8 +240,8 @@ export function getValRouteUrlFromVal(
     moduleFilePath as ModuleFilePath,
   );
   if (!srcFolder) {
-    console.error(
-      `Val: ${methodName} was used with a Val module that is not in the /app or /src/app folder`,
+    Internal.log.error(
+      `${methodName} was used with a Val module that is not in the /app or /src/app folder`,
     );
     return null;
   }
@@ -264,7 +264,15 @@ export function getValRouteUrlFromVal(
         | string
         | string[]
         | undefined;
-      if (typeof value !== "string" && !Array.isArray(value)) {
+      if (
+        part.type === "string-param" &&
+        part.optional &&
+        (value === undefined || value === null)
+      ) {
+        // An optional segment the URL left out (`{-$locale}`): it contributes
+        // nothing to the key, so `/about` is the key for `{ locale: undefined }`.
+        delete missingParamKeys[key as keyof typeof missingParamKeys];
+      } else if (typeof value !== "string" && !Array.isArray(value)) {
         missingPatterns.push(part);
       } else if (Array.isArray(value)) {
         if (missingParamKeys?.[key as keyof typeof missingParamKeys]) {
@@ -306,14 +314,14 @@ export function getValRouteUrlFromVal(
         return `[...${part.paramName}]`;
       }
     });
-    console.error(
-      `Val: ${methodName} could not find route since parameters: ${errorMessageParams.join(", ")} where not provided. Make sure the Val module is in the same directory as your page.tsx or page.js file and that the Val module filename is called page.val.ts or page.val.js.`,
+    Internal.log.error(
+      `${methodName} could not find route since parameters: ${errorMessageParams.join(", ")} where not provided. Make sure the Val module is in the same directory as your page.tsx or page.js file and that the Val module filename is called page.val.ts or page.val.js.`,
     );
     return null;
   }
   if (Object.keys(missingParamKeys).length > 0) {
-    console.error(
-      `Val: ${methodName} could not find route since parameters: ${Object.keys(missingParamKeys).join(", ")} where not found in the path of: ${moduleFilePath}. Make sure  ${moduleFilePath} in the same directory as your page.tsx or page.js file.`,
+    Internal.log.error(
+      `${methodName} could not find route since parameters: ${Object.keys(missingParamKeys).join(", ")} where not found in the path of: ${moduleFilePath}. Make sure  ${moduleFilePath} in the same directory as your page.tsx or page.js file.`,
     );
     // We do not return null here since we found a route that matches the path
     // though chances are that there's something wrong in the way ${methodName} is used

@@ -110,8 +110,9 @@ type CrossModuleInputs = {
    */
   routes: boolean;
   /**
-   * Any `locale:check-locale` or `record:fill-keys` marker — both resolve
-   * against `locales.available` in the settings module.
+   * Any `locale:check-locale`, `router:check-locale-param` or
+   * `record:fill-keys` marker — all resolve against `locales.available` in the
+   * settings module.
    *
    * Same reason `routes` is a flag and not just a record: a project with no
    * settings module yet resolves these against an empty list, and the module
@@ -438,6 +439,7 @@ export class ValidationStore {
         }
         if (
           fixes.includes("locale:check-locale") ||
+          fixes.includes("router:check-locale-param") ||
           readsSettingsLocales(error)
         ) {
           locales = true;

@@ -40,6 +40,11 @@ import {
   type ContentMergeResult,
 } from "./proposalMerge/mergeContent";
 import { updateWithCode } from "./proposalMerge/updateCode";
+import {
+  MoveInputs,
+  movesAtMerge,
+  type MergeMoves,
+} from "./proposalMerge/movesAtMerge";
 import { fromError } from "zod-validation-error";
 import type { HistoryError } from "./history/HistoryError";
 import type {
@@ -117,6 +122,8 @@ const GetApplicablePatches = z.object({
    * Optional for the same reason.
    */
   headVersion: z.number().optional(),
+  /** The branch's last commit. See `OrderedPatches.headCommitSha`. */
+  headCommitSha: z.string().nullable().optional(),
   /** Of `patches`, the ones a running publish holds. See `OrderedPatches.publishingPatches`. */
   publishingPatches: z.array(PatchIdSchema).optional(),
   /** Of `patches`, the ones a failed publish holds back. See `OrderedPatches.heldBackPatches`. */
@@ -415,6 +422,7 @@ export class ValOpsHttp extends ValOps {
   private readonly root: string;
   /** Val's content service owns the store. See {@link ValOps.patchesAreLocal}. */
   override readonly patchesAreLocal = false;
+  override readonly kind = "http";
   /** See {@link ValOps.requiresAuth}. */
   override readonly requiresAuth = true;
   /**
@@ -831,6 +839,26 @@ export class ValOpsHttp extends ValOps {
   }
 
   /**
+   * adept, through content: lockfiles, upgrades and type bundles, for the
+   * Studio's unlinked `/val/adept` page. A job is content's to scope to
+   * this project; a name and a version are matched, not passed, so nothing
+   * with a `..` reaches another of content's routes.
+   *
+   * Allowed at a proposal's address too: adept computes and publishes
+   * nothing, so there is nothing a proposal's Studio could move on the site.
+   */
+  private static adeptPathAllowed(path: string): boolean {
+    return (
+      /^\/adept\/(lockfile|upgrade|jobs\/\d{1,18}(\/result)?|compiler\/[0-9A-Za-z][0-9A-Za-z.+-]{0,63})$/.test(
+        path,
+      ) ||
+      /^\/adept\/types\/public\/(@[a-z0-9~-][a-z0-9._~-]{0,213}\/)?[a-z0-9~-][a-z0-9._~-]{0,213}@[0-9a-z][0-9a-z.+-]{0,63}$/i.test(
+        path,
+      )
+    );
+  }
+
+  /**
    * The content paths this may reach, and nothing else.
    *
    * An allow list rather than a prefix check, because this method holds a
@@ -877,6 +905,7 @@ export class ValOpsHttp extends ValOps {
     if (/^\/publish-requests(\/[A-Za-z0-9_-]{1,100})?$/.test(path)) {
       return true;
     }
+    if (ValOpsHttp.adeptPathAllowed(path)) return true;
     if (
       /^\/publish-jobs\/(next|[A-Za-z0-9_-]{1,100}\/(steps|renew|cancel|discard))$/.test(
         path,
@@ -989,6 +1018,7 @@ export class ValOpsHttp extends ValOps {
       return true;
     }
     if (/^\/publish\/[A-Za-z0-9_-]+\/artifacts$/.test(path)) return true;
+    if (ValOpsHttp.adeptPathAllowed(path)) return true;
     // Where its press is -- read only: a POST there is the site's Try again.
     if (
       method === "GET" &&
@@ -1014,6 +1044,28 @@ export class ValOpsHttp extends ValOps {
     const withCode = /^\/([0-9a-f]{20})\/update-code$/.exec(path)?.[1];
     if (withCode !== undefined && init.method === "POST") {
       return this.updateCodeFromSite(withCode, init.body, profileId);
+    }
+    /*
+     * Publish, and the checks before it, at the proposal's own address: Val
+     * says which of the site's pending changes the merge moves, from this
+     * build's schemas (step 8.2). Anywhere else they go to content as they
+     * are, and the site's pending changes block as they always did.
+     */
+    const checking = /^\/([0-9a-f]{20})\/merge-checks$/.exec(path)?.[1];
+    if (
+      checking !== undefined &&
+      init.method === "GET" &&
+      (await this.answersMovesFor(checking, profileId))
+    ) {
+      return this.mergeChecksWithMoves(checking, profileId);
+    }
+    const pressing = /^\/([0-9a-f]{20})\/merge$/.exec(path)?.[1];
+    if (
+      pressing !== undefined &&
+      init.method === "POST" &&
+      (await this.answersMovesFor(pressing, profileId))
+    ) {
+      return this.pressMergeWithMoves(pressing, init.body, profileId);
     }
     if (!ValOpsHttp.proposalsApiAllowed(init.method, path)) {
       return {
@@ -1195,6 +1247,165 @@ export class ValOpsHttp extends ValOps {
       return { status: written.status, contentType: json, body: text };
     }
     return updatedAnswer(text);
+  }
+
+  /**
+   * Whether this server says what a merge of `name` moves: at the proposal's
+   * own address, whose schemas are the ones it publishes; and on the site, for
+   * Publish selected's proposal, which changes no code -- so the site's
+   * schemas are its own -- and has no address to be published from.
+   */
+  private async answersMovesFor(
+    name: string,
+    profileId: string | null,
+  ): Promise<boolean> {
+    if (this.proposal !== null) return this.proposal.name === name;
+    const read = await this.proposalContent(name, profileId)("");
+    if (!read.ok) return false;
+    const kind = ProposalKindAnswer.safeParse(
+      await read.json().catch(() => null),
+    );
+    return kind.success && kind.data.proposal.kind === "publish";
+  }
+
+  /** Content's proposals API for one proposal, as the person asking. */
+  private proposalContent(name: string, profileId: string | null) {
+    return (path: string, init: RequestInit = {}) =>
+      fetch(`${this.contentUrl}/v1/${this.project}/proposals/${name}${path}`, {
+        ...init,
+        headers: {
+          ...this.authHeaders,
+          ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
+          ...(init.body === undefined
+            ? {}
+            : { "Content-Type": "application/json" }),
+        },
+      });
+  }
+
+  /**
+   * Which of the site's pending changes a merge of this proposal moves
+   * (`movesAtMerge`), or `null` when content could not say what is pending:
+   * then nothing is claimed, and the site's pending changes block the merge.
+   */
+  private async mergeMovesOf(
+    name: string,
+    profileId: string | null,
+  ): Promise<
+    | (MergeMoves & { authors: string[][]; save: string | null | undefined })
+    | null
+  > {
+    const read = await this.proposalContent(name, profileId)("/move-inputs");
+    if (!read.ok) return null;
+    const inputs = MoveInputs.safeParse(await read.json().catch(() => null));
+    if (!inputs.success) return null;
+    return {
+      ...movesAtMerge(inputs.data, await this.getSchemas()),
+      save: inputs.data.save,
+    };
+  }
+
+  /**
+   * The merge checks, with `pending-on-site` answered by what the merge
+   * moves rather than by whether anything is pending: the conflicting
+   * changes move to a proposal of their own when it is published, and the
+   * rest stay, so neither blocks it.
+   */
+  private async mergeChecksWithMoves(
+    name: string,
+    profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    const read = await this.proposalContent(name, profileId)("/merge-checks");
+    const text = await read.text();
+    const answer = { status: read.status, contentType: json, body: text };
+    if (!read.ok) return answer;
+    const parsed = MergeChecksAnswer.safeParse(parseJsonOrNull(text));
+    if (!parsed.success) return answer;
+    const pending = parsed.data.checks.find(
+      (check) => check.id === "pending-on-site",
+    );
+    if (pending === undefined || pending.ok) return answer;
+    const moves = await this.mergeMovesOf(name, profileId);
+    if (moves === null) return answer;
+    const moving = moves.groups.flat().length;
+    const names = [...new Set(moves.authors.flat())];
+    const checks = parsed.data.checks.map((check) =>
+      check.id !== "pending-on-site"
+        ? check
+        : {
+            ...check,
+            ok: true,
+            blockers: [],
+            message:
+              moving === 0
+                ? "Unpublished changes on these pages do not conflict with this proposal, and stay unpublished"
+                : `${moving === 1 ? "1 unpublished change" : `${moving} unpublished changes`} by ${namesOf(names)} ${moving === 1 ? "conflicts" : "conflict"} with this proposal, and ${moving === 1 ? "moves" : "move"} to ${moves.groups.length === 1 ? "a new proposal" : "new proposals"} when it is published`,
+            moves: moves.groups.map((group, at) => ({
+              patchIds: group,
+              authors: moves.authors[at] ?? [],
+            })),
+          },
+    );
+    const othersOk = parsed.data.checks.every(
+      (check) => check.ok || check.id === "pending-on-site",
+    );
+    return {
+      status: 200,
+      contentType: json,
+      body: JSON.stringify({
+        ...parsed.data,
+        checks,
+        canMerge: parsed.data.canMerge || othersOk,
+      }),
+    };
+  }
+
+  /** Publish in a proposal, carrying the moves (`MergeBody.moves` in content). */
+  private async pressMergeWithMoves(
+    name: string,
+    body: string | undefined,
+    profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    const content = this.proposalContent(name, profileId);
+    const forward = async (sent: string | undefined) => {
+      const res = await content("/merge", {
+        method: "POST",
+        ...(sent === undefined ? {} : { body: sent }),
+      });
+      return {
+        status: res.status,
+        contentType: res.headers.get("Content-Type") ?? json,
+        body: await res.text(),
+      };
+    };
+    let pressed: unknown;
+    try {
+      pressed = body === undefined || body === "" ? {} : JSON.parse(body);
+    } catch {
+      return forward(body);
+    }
+    if (typeof pressed !== "object" || pressed === null) return forward(body);
+    const moves = await this.mergeMovesOf(name, profileId);
+    if (moves === null) return forward(body);
+    return forward(
+      JSON.stringify({
+        /*
+         * The save the moves were worked out against is the one this press
+         * publishes: named, so a change written after the press -- which the
+         * Studio lets an editor make at once -- continues in a new proposal
+         * rather than refusing it as unsaved.
+         */
+        ...(typeof moves.save === "string" ? { save: moves.save } : {}),
+        ...pressed,
+        moves: {
+          siteHead: moves.siteHead,
+          considered: moves.considered,
+          groups: moves.groups,
+        },
+      }),
+    );
   }
 
   /**
@@ -1438,7 +1649,7 @@ export class ValOpsHttp extends ValOps {
             data: { nonce, baseUrl: `${this.contentUrl}/v1/${this.project}` },
           };
         } else {
-          console.error(
+          Internal.log.error(
             "Could not parse presigned auth nonce response. Error: " +
               fromError(parsed.error),
           );
@@ -1469,21 +1680,21 @@ export class ValOpsHttp extends ValOps {
           json,
           unknownErrorMessage,
         );
-        console.error("Presigned auth nonce error:", message);
+        Internal.log.error("Presigned auth nonce error:", message);
         return {
           status: "error",
           statusCode: 500,
           error: { message },
         };
       }
-      console.error(unknownErrorMessage);
+      Internal.log.error(unknownErrorMessage);
       return {
         status: "error",
         statusCode: 500,
         error: { message: unknownErrorMessage },
       };
     } catch (e) {
-      console.error(
+      Internal.log.error(
         "Could not get presigned auth nonce (connection error?):",
         e,
       );
@@ -1581,7 +1792,7 @@ export class ValOpsHttp extends ValOps {
       }
       if (message) {
         message = `Could not get patches: ${message}`;
-        console.error(message);
+        Internal.log.error(message);
         return {
           type: "error",
           error: { message },
@@ -1795,7 +2006,7 @@ export class ValOpsHttp extends ValOps {
         };
       })
       .catch((e) => {
-        console.error(
+        Internal.log.error(
           "Could not get nonce (connection error?):",
           e instanceof Error ? e.message : e.toString(),
         );
@@ -2058,6 +2269,9 @@ export class ValOpsHttp extends ValOps {
             ...(data.headVersion !== undefined
               ? { headVersion: data.headVersion }
               : {}),
+            ...(data.headCommitSha !== undefined
+              ? { headCommitSha: data.headCommitSha }
+              : {}),
             ...(data.publishingPatches !== undefined
               ? { publishingPatches: data.publishingPatches }
               : {}),
@@ -2068,7 +2282,7 @@ export class ValOpsHttp extends ValOps {
             ? OrderedPatchesMetadata
             : OrderedPatches;
         }
-        console.error(
+        Internal.log.error(
           "Could not parse patches response. Error: " + fromError(parsed.error),
         );
         return {
@@ -2080,7 +2294,7 @@ export class ValOpsHttp extends ValOps {
           ? OrderedPatchesMetadata
           : OrderedPatches;
       }
-      console.error(
+      Internal.log.error(
         "Could not get patches. HTTP error: " +
           patchesRes.status +
           " " +
@@ -2107,7 +2321,7 @@ export class ValOpsHttp extends ValOps {
         ? OrderedPatchesMetadata
         : OrderedPatches;
     } catch (err) {
-      console.error(
+      Internal.log.error(
         "Could not get patches (connection error):",
         err instanceof Error ? err.message : JSON.stringify(err),
       );
@@ -2492,7 +2706,7 @@ export class ValOpsHttp extends ValOps {
     }
     const file = filesRes.files[0];
     if (filesRes.files.length > 1) {
-      console.error("Expected 1 file, got more:", filesRes.files);
+      Internal.log.error("Expected 1 file, got more:", filesRes.files);
     }
     if (!file) {
       return null;
@@ -2514,15 +2728,19 @@ export class ValOpsHttp extends ValOps {
       },
     ]);
     if (filesRes.error) {
-      console.error("Error getting file:", filePath, filesRes.error);
+      Internal.log.error("Error getting file:", filePath, filesRes.error);
       return null;
     }
     if (filesRes.errors) {
-      console.error("Failed while retrieving files", filePath, filesRes.errors);
+      Internal.log.error(
+        "Failed while retrieving files",
+        filePath,
+        filesRes.errors,
+      );
     }
     const file = filesRes.files[0];
     if (filesRes.files.length > 1) {
-      console.error("Expected 1 file, got more:", filesRes.files);
+      Internal.log.error("Expected 1 file, got more:", filesRes.files);
     }
     if (!file) {
       return null;
@@ -2706,6 +2924,12 @@ export class ValOpsHttp extends ValOps {
     committer: AuthorId,
     filesDirectory: string,
     newBranch?: string,
+    /**
+     * A save into this proposal rather than this server's own branch: the
+     * site's server saving Publish selected's proposal (`/publish-selected`),
+     * which has no address of its own to save from.
+     */
+    intoProposal?: string,
   ): Promise<
     | {
         isNotFastForward?: boolean;
@@ -2731,9 +2955,10 @@ export class ValOpsHttp extends ValOps {
        * route: the site's `/commit` refuses a proposal's patches, which is
        * the line that keeps them off the site until a merge.
        */
+      const proposalName = intoProposal ?? this.proposal?.name;
       const commitUrl =
-        this.proposal !== null
-          ? `${this.contentUrl}/v1/${this.project}/proposals/${this.proposal.name}/save`
+        proposalName !== undefined
+          ? `${this.contentUrl}/v1/${this.project}/proposals/${proposalName}/save`
           : `${this.contentUrl}/v1/${this.project}/commit`;
       const res = await fetch(commitUrl, {
         method: "POST",
@@ -3205,6 +3430,28 @@ const UpdateCodeBody = z.object({
   merged: z.object({ id: z.string(), evaluated: EvaluatedModules }).optional(),
 });
 
+/** Content's `GET /proposals/:name/move-inputs`. */
+/** The one thing `answersMovesFor` reads from content's `GET /proposals/:name`. */
+const ProposalKindAnswer = z.object({
+  proposal: z.object({ kind: z.string() }),
+});
+/** Content's `GET /proposals/:name/merge-checks`, as far as it is changed here. */
+const MergeChecksAnswer = z
+  .object({
+    checks: z.array(
+      z.object({ id: z.string(), ok: z.boolean() }).passthrough(),
+    ),
+    canMerge: z.boolean(),
+  })
+  .passthrough();
+
+/** "Kari", "Kari and Bo", "Kari, Bo and 2 more". */
+function namesOf(names: string[]): string {
+  return names.length <= 2
+    ? names.join(" and ")
+    : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+}
+
 /** Content's `GET /proposals/:name/merge-trees`. */
 const MergeTrees = z.object({
   base: z.string().nullable(),
@@ -3248,3 +3495,12 @@ const MergeInputs = z.object({
     }),
   ),
 });
+
+/** `JSON.parse`, or `null` for a body that is not JSON: an answer passed on as it came. */
+function parseJsonOrNull(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}

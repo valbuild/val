@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import type { EditorView, NodeView } from "prosemirror-view";
 import type { Node as PMNode } from "prosemirror-model";
 import { randomUUID } from "../../../utils/randomUUID";
@@ -135,7 +136,7 @@ export function insertImageWithUpload(
       });
     })
     .catch((err) => {
-      console.error("AI chat image upload failed", err);
+      Internal.log.error("AI chat image upload failed", err);
       view.state.doc.descendants((n, pos) => {
         if (n.type === imageType && n.attrs.key === pendingKey) {
           // Not undoable: the upload failed, so the image can never be sent -

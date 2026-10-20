@@ -931,7 +931,7 @@ than reasoned about:
   `wire.ts` DECLARES `@valbuild/ui` as a project dependency so the Studio's
   bundle reaches the isolate, so that lands in every project's vendor layer.
 
-So `build/rolldownWasm.ts` rewrites the one asset URL to a content-addressed one
+So `build/staticWasm.ts` rewrites the asset URL to a content-addressed one
 on `DEFAULT_STATIC_HOST` and deletes the emitted file before the record is
 built. The trap: **`experimental.renderBuiltUrl` is read off the RESOLVED
 CONFIG, not off plugins.** Declaring it on the plugin object is accepted and
@@ -940,6 +940,11 @@ and the plugin deletes the file that URL points at, which is worse than not
 rewriting at all. It is returned from the plugin's `config()` hook for that
 reason, and `closeBundle` refuses to delete anything still referenced by a
 chunk, which is what turns a 404 in someone's browser into a failed build.
+
+The same is true of every `.wasm` the Studio emits, and there are three now:
+rolldown's and libwebp's two (the WebP encoder for Safari). `STATIC_WASM` in
+that file is the list, and a `.wasm` the build emits that is not on it fails
+the build rather than being embedded.
 
 ### On an iPhone, the page that opened the builder tab stops running
 
@@ -1123,6 +1128,31 @@ real visitor sees white or `#121212` depending on their own preference.
 The fix is on the site, not the Studio: set an explicit background on `body`.
 A page that paints its own background is opaque in both contexts and none of
 the above applies. Neither Tailwind v3 nor v4 preflight sets one for you.
+
+## `?val_canvas` marks only the first document in the canvas
+
+The Studio loads the canvas at `/page?val_canvas=1`, and the provider used to
+read only that parameter to decide whether it was the canvas. But the frame
+navigates on its own, and every full-page navigation loses the parameter. The
+case that showed it is a site with its own login: a signed-out canvas is
+redirected to `/login`, and that document mounted Val's whole overlay inside
+the canvas, a Studio in the Studio. It never posted `ready`, so the canvas sat
+on "Preview is not ready yet" through the sign-in and after it. A client-side
+navigation back to the page did not help either, because the provider decides
+once per document.
+
+`isValCanvasFrame` now also takes the parent's path: a document framed by
+`/val` on the same origin is the canvas, whatever its own address says. The
+parameter remains for the document the Studio loads. Pinned by
+`e2e/tanstack/signedInPreview.spec.ts` against `/dashboard` in
+`examples/tanstack`.
+
+The site's cookies are not the problem. The canvas is a same-origin frame, so
+it is sent `HttpOnly` and `SameSite=Lax`/`Strict` cookies like any tab. What
+does block it is a site that forbids being framed: `X-Frame-Options: DENY`,
+or `Content-Security-Policy: frame-ancestors 'none'`, both common on
+dashboards. The canvas then shows a refused frame and reaches "No answer from
+the page". `SAMEORIGIN` / `frame-ancestors 'self'` allow it.
 
 ## `suspend` is three waits, and a route only gets one chance
 
@@ -1351,3 +1381,17 @@ both `_splat` and `*`, set to the same value. Val's route pattern has one param
 for it, so the other was left over and reported as "parameters ... where not
 found in the path" — a console error on every render of a working splat route.
 `getValRouteUrlFromVal` drops `*` when `_splat` is present.
+
+**`vite dev` serves a CommonJS dependency of the demo's server unconverted.**
+`<ValApp demo>` loads `@valbuild/server/browser` with a dynamic `import()`, so
+Vite's dependency scan, which starts from the app's own entries, never reaches
+it, and anything CommonJS that chunk imports is handed to the browser as it is
+on disk. npm's `buffer` was such a thing: the tab refused it with "does not
+provide an export named 'Buffer'" and the Studio said "The demo could not
+start: part of it did not load". `vite build` converts CommonJS, so only an
+app's dev server broke, and never inside this repository, where the workspace
+links packages as source. The server's request handlers use `Uint8Array` and
+`bytes.ts` instead, and `noNodeFromBrowser.test.ts` refuses `buffer` and the
+global `Buffer` in what the browser entry reaches, `@valbuild/core` and
+`@valbuild/shared` included. Seeing it takes the packed packages in an app of
+its own; the workspace hides it.

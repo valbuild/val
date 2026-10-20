@@ -81,7 +81,7 @@ export function PageRouterSitemap({
     );
   }
   if (rootNode.status === "error") {
-    console.error("Sitemap errors", rootNode.error);
+    Internal.log.error("Sitemap errors", rootNode.error);
     return null;
   }
   return <SiteMapNode node={rootNode.data} />;

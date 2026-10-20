@@ -1,5 +1,218 @@
 # @valbuild/server
 
+## 0.148.2
+
+### Patch Changes
+
+- [#889](https://github.com/valbuild/val/pull/889) [`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a) Thanks [@freekh](https://github.com/freekh)! - Val is quieter in your app's console. Errors and warnings you can act on still
+  print, now prefixed with `[val]` so you can filter them. Val's own debug
+  output, which used to reach your terminal and browser console, is now off by
+  default. That includes the `Invalid JWT` line that printed on every request
+  with an expired session cookie, the "verifying draft mode" and polling notices,
+  and the Studio's sync and WebSocket chatter.
+
+  To turn the debug output back on, for example when reporting a bug:
+
+  - on the server, set `VAL_DEBUG=1`
+  - in the browser, run `localStorage.setItem("val:debug", "1")` in the console.
+    It takes effect immediately, with no reload. Remove the key to turn it off
+    again.
+
+- Updated dependencies [[`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a)]:
+  - @valbuild/core@0.148.2
+  - @valbuild/shared@0.148.2
+  - @valbuild/ui@0.148.2
+
+## 0.148.1
+
+### Patch Changes
+
+- Updated dependencies [[`fff5681`](https://github.com/valbuild/val/commit/fff5681b9ac9a24b873ba74ca636240d83404e46)]:
+  - @valbuild/ui@0.148.1
+
+## 0.148.0
+
+### Patch Changes
+
+- [#885](https://github.com/valbuild/val/pull/885) [`df5544c`](https://github.com/valbuild/val/commit/df5544c6e92a4c3a52765630c9de191e854ee723) Thanks [@freekh](https://github.com/freekh)! - Demo mode (`<ValApp demo>`) now starts under `vite dev`. It used to stop at
+  "The demo could not start: part of it did not load", with
+  `does not provide an export named 'Buffer'` in the console, because the server
+  that runs in the tab imported the CommonJS `buffer` package, and Vite's dev
+  server does not convert a dependency it only meets in a chunk loaded on demand.
+  That server now handles bytes without `buffer`, so an app needs no Vite
+  configuration for it, and `@valbuild/server` no longer depends on the package.
+  If you added `buffer` to `optimizeDeps.include` to work around this, you can
+  remove it.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - `createFixPatch` reads a file's bytes, and saves a downloaded remote file,
+  through an optional `files` reader instead of directly from disk. The default
+  reads the disk under `projectRoot` exactly as before, so `val validate --fix`
+  and the VS Code extension behave the same.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Remote files are now addressed on the host the project's settings name. For a
+  project hosted by Val, that is the project's own address, and its remote images
+  and files are served from there rather than from `remote.val.build`. Every other
+  project is unchanged.
+
+  - The Studio, `val validate --fix` and the MCP image tool all take the host from
+    the project's settings, falling back to `remote.val.build` as before.
+  - Re-reading a remote file whose recorded size or type is out of date keeps it
+    on the host it was on.
+  - When a remote file's host cannot be reached, tooling downloads it from the
+    project's permanent `<id>.valstart.dev` address instead, and keeps it only if
+    its bytes match the file the address names.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Remote files served from a project's own site (addresses like
+  `https://www.acme.no/_val/file/…`) are now checked for whether that address
+  still serves the project. When a custom domain has been removed or moved to
+  another project, the image or file is reported, and **Fix** on the Studio's
+  Validate page — or `val validate --fix` — points it at the project's permanent
+  `<id>.valstart.dev` address. Nothing is uploaded or downloaded: only the address
+  changes.
+
+  Remote file addresses with a `/_val` prefix after the host are now recognised.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - **Check everything** on the Studio's Validate page now checks media directories
+  (`s.imagedir()`, `s.filedir()`, `s.fontdir()` and `s.videodir()`) by the files
+  they list:
+
+  - An entry whose file is gone has a **Fix** that removes it from the directory.
+  - An image or file entry whose recorded size or type does not match its file has
+    a **Fix** that corrects it from the file, keeping its alt text.
+  - A video entry whose file is gone is reported, and is removed by hand: its
+    posters and captions may still be in use.
+  - A remote entry is checked with its host, like any remote file.
+
+  `val validate --fix` fixes media directories exactly as before.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - The Studio has a **Validate** page, at `/val/validate`, and a button for it in
+  the top bar with the number of errors left.
+
+  It lists the errors the Studio already shows, as the errors page did, and adds
+  **Check everything**: a check of every module on the server, including whether
+  each image's and file's recorded size and type match the file itself. It runs
+  only when you press it, can be stopped, and its results stay for the session.
+
+  Where the Studio can make the fix itself — a missing or wrong width, height or
+  mime type on an image, file or video — the row has a **Fix** button. A fix is an
+  ordinary change: it shows up in Review, is published with everything else, and
+  can be undone from the row. Fixes that need a terminal show the
+  `val validate --fix` command to copy.
+
+  `/val/errors` still works and opens the same page.
+
+  Also fixed: `.jsonValues()` entries no longer report every image in them as
+  "not checked against the file" when validated on the server.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - **Check everything** on the Studio's Validate page now checks remote images and
+  files too.
+
+  - A remote image or file whose address no longer matches what is recorded about
+    it (its size, type or the schema's options changed since it was uploaded) has
+    a **Fix**, which re-reads the file and corrects it, as `val validate --fix`
+    does.
+  - A remote host that does not answer is shown once, at the top of the page, with
+    how many files it holds and a **Try again**, rather than as an error on every
+    image.
+  - A file its host no longer has is shown at the image or file that uses it.
+
+  Images and files in your unpublished changes are not asked about until they are
+  published; the check makes sure the change still has them.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Two new Studio API routes for the full content check, not yet used by the
+  Studio's UI:
+
+  - `POST /api/val/validate` checks one module — its content against its schema,
+    and its local images and files against their bytes — on the content the
+    Studio is showing.
+  - `POST /api/val/validate/fix` returns the patch that fixes one of those errors,
+    for the Studio to add as a pending change. It builds only the fixes that need
+    no disk or remote host: image, file and video metadata, and a view pointing at
+    the wrong module.
+
+  Also fixed: an API route whose name started with another route's name could be
+  answered by the other route.
+
+- Updated dependencies [[`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`4176757`](https://github.com/valbuild/val/commit/41767579b01849473a94779122fd39c07dd99234), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1)]:
+  - @valbuild/shared@0.148.0
+  - @valbuild/ui@0.148.0
+  - @valbuild/core@0.148.0
+
+## 0.147.0
+
+### Minor Changes
+
+- [#876](https://github.com/valbuild/val/pull/876) [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd) Thanks [@freekh](https://github.com/freekh)! - Demo mode: run the Val Studio with no account and no backend (TanStack Start).
+
+  `<ValApp demo>` starts Val's own server in the visitor's browser tab, and the Studio talks to it there instead of to `/api/val`. Edits show up in the page as they are typed and are held in the tab's memory: nothing is sent anywhere, and a reload starts over. Images and videos can be uploaded too: a small service worker, served by `initValDemoServer()`, hands the upload and the unpublished files to the server in the tab, so an uploaded photo or video shows in the page with nothing leaving the browser. Uploads are capped by their size after encoding. Pair `<ValApp demo>` with `<ValProvider demo>` on the site and `initValDemoServer()` from the new `@valbuild/tanstack/demo` entry on the API route. In a demo the Studio opens with a guided tour, Publish explains what it would do instead of publishing, and Preview in a new tab is shown but disabled.
+
+  Also:
+
+  - `@valbuild/server/browser` is a new entry: Val's request handling, bundleable for a browser. The TypeScript compiler, which only publishing and history need, is loaded when they ask for it, so a browser bundle of the server is about 140 KB rather than 3.6 MB.
+  - `s.image({ encode })` now scales an image down in browsers that cannot write WebP (Safari), as a JPEG or PNG in the image's own format, instead of uploading it at full size.
+  - `GET /profiles` answers with no profiles, rather than an error, when edits are stored locally and no project is configured.
+
+### Patch Changes
+
+- Updated dependencies [[`2f09cd5`](https://github.com/valbuild/val/commit/2f09cd5e2f4fc37f06917899f24f9ad2ee8d3a8b), [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd), [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd)]:
+  - @valbuild/core@0.147.0
+  - @valbuild/shared@0.147.0
+  - @valbuild/ui@0.147.0
+
+## 0.146.4
+
+### Patch Changes
+
+- [#877](https://github.com/valbuild/val/pull/877) [`c31f609`](https://github.com/valbuild/val/commit/c31f609fdeed79aa0e139fa4f652ba0684e96ea3) Thanks [@freekh](https://github.com/freekh)! - The Studio has an unlinked page, `/val/adept`, for trying out dependency
+  upgrades on a hosted project: it computes a lockfile for the live site's
+  `package.json`, previews each kind of upgrade from it, and fetches the type
+  declarations and TypeScript compiler a typecheck would load. It only shows
+  results; nothing on it is staged or published. Nothing links to it yet.
+
+  For it, the server now forwards Val Build's `/adept/*` routes for a signed-in
+  Studio session: lockfiles, upgrades, their jobs, type bundles and the
+  compiler. Like everything else the Studio asks Val Build for, they go with the
+  project's own credential, and they are open at a proposal's address too,
+  since they publish nothing.
+
+- Updated dependencies [[`81f2e80`](https://github.com/valbuild/val/commit/81f2e803c4cefdf58bbe6856c06e98ace95a8e0b), [`59ff6c3`](https://github.com/valbuild/val/commit/59ff6c367bc313b2bb7718b00c1641aaccab949d), [`c31f609`](https://github.com/valbuild/val/commit/c31f609fdeed79aa0e139fa4f652ba0684e96ea3)]:
+  - @valbuild/shared@0.146.4
+  - @valbuild/ui@0.146.4
+
+## 0.146.2
+
+### Patch Changes
+
+- [#871](https://github.com/valbuild/val/pull/871) [`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0) Thanks [@freekh](https://github.com/freekh)! - An image, file or video picked from a gallery is checked against the gallery as it is now. Picking one uploaded since the site was built (still unpublished, saved in a proposal, or published without a rebuild) used to fail with "The gallery does not have an image at …" and refuse the save. In a proposal, Save now reads "Fix N" and goes to the validation errors instead of being refused by the server, as Publish does on the site.
+
+- [#867](https://github.com/valbuild/val/pull/867) [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9) Thanks [@freekh](https://github.com/freekh)! - Publishing a proposal is no longer blocked by other people's unpublished changes
+  on the same pages. When Publish is pressed in a proposal, Val works out which of
+  those changes conflict with it: those move into a new proposal, named "Moved when
+  “…” was published", which the people who wrote them own together; the rest stay
+  unpublished on the site, where they were. The Publish dialog says beforehand how
+  many changes will move and whose they are.
+
+  If someone changes those pages while the proposal is being published, the
+  publish stops and asks you to press Publish again, so nothing moves on an
+  outdated plan.
+
+- [#867](https://github.com/valbuild/val/pull/867) [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9) Thanks [@freekh](https://github.com/freekh)! - Publish only some of your changes: tick them in Review and press **Publish
+  selected**. On a site with proposals, Val moves them into a proposal of their
+  own and publishes it straight away; everything else stays unpublished, as it
+  was.
+
+  Some changes cannot be published apart — two edits to the same list, say — so
+  the confirm says what comes with your selection and whose it is before anything
+  moves. If the site is published while yours is being prepared, nothing is
+  published and you are asked to press it again. If publishing stops after the
+  changes have moved, they are safe in their proposal, and Review offers to open
+  it as well as to try again.
+
+- Updated dependencies [[`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9)]:
+  - @valbuild/core@0.146.2
+  - @valbuild/shared@0.146.2
+  - @valbuild/ui@0.146.2
+
 ## 0.146.1
 
 ### Patch Changes

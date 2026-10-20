@@ -188,6 +188,7 @@ import {
   GALLERY_DEFAULT_GROUPS,
   galleryEntryOf,
   galleryKeyOf,
+  galleryMarkerOf,
   HLS_MIME_TYPE,
   isHlsVideo,
   isRemoteMediaPath,
@@ -341,8 +342,13 @@ export {
   parseTanStackRoutePattern,
   tanStackSegmentsOfRoutePath,
   validateUrlAgainstPattern,
+  matchRoutePattern,
 } from "./router";
-export { getSourcePathFromRoute, isPageRouter } from "./getSourcePathFromRoute";
+export {
+  getSourcePathFromRoute,
+  isPageRouter,
+  routePatternOf,
+} from "./getSourcePathFromRoute";
 /**
  * Which URL schemes an external page key may carry.
  *
@@ -387,6 +393,7 @@ import {
  * BUILD (not the typecheck) with "'version' is not exported by package.json".
  */
 import corePackageJson from "../package.json";
+import { log, isDebugEnabled, VAL_DEBUG_STORAGE_KEY } from "./log";
 
 export const FATAL_ERROR_TYPES = [
   "no-schema",
@@ -403,11 +410,12 @@ export const DEFAULT_APP_HOST = "https://admin.val.build";
  * Where Val's own immutable build artifacts are served from: the content
  * service's `/v1/static`.
  *
- * Only one kind of thing lives here so far: the WebAssembly binary of the
- * bundler the Studio builds a site with. It cannot travel with the Studio's
- * own bundle -- 10.9 MB of binary, and `/api/val/static` is a base64 record of
- * TEXT inside the server bundle, which both corrupts it and would carry it
- * into every project that installs `@valbuild/ui`.
+ * Only one kind of thing lives here so far: the WebAssembly the Studio loads
+ * -- the bundler it builds a site with, and the WebP encoder it uses where the
+ * canvas cannot write WebP. None of it can travel with the Studio's own bundle:
+ * `/api/val/static` is a base64 record of TEXT inside the server bundle, which
+ * both corrupts a binary and would carry it (10.9 MB of bundler) into every
+ * project that installs `@valbuild/ui`.
  *
  * Everything under this path is addressed by the SHA-256 of its own bytes, so
  * an upload is idempotent, a URL is immutable, and the artifact a build asks
@@ -419,15 +427,19 @@ export const DEFAULT_APP_HOST = "https://admin.val.build";
  * availability and one more domain to every customer's egress allowlist.
  *
  * A FIXED LITERAL, and deliberately not derived from a project's configured
- * content host (`VAL_CONTENT_URL`). Deriving it would make serving this binary
+ * content host (`VAL_CONTENT_URL`). Deriving it would make serving these binaries
  * an obligation of every content service anybody points Val at, self-hosted
- * ones included. A deployment that must fetch it from somewhere else sets
- * `globalThis.__VAL_ROLLDOWN_WASM_URL__` instead (see
- * `packages/ui/build/rolldownWasm.ts`).
+ * ones included. A deployment that must fetch them from somewhere else sets
+ * one global per binary instead -- `globalThis.__VAL_ROLLDOWN_WASM_URL__` and
+ * the others listed in `packages/ui/build/staticWasm.ts`.
  */
 export const DEFAULT_STATIC_HOST = "https://content.val.build/v1/static";
 
 const Internal = {
+  /** Val's console output. See `log.ts` for which levels print, and when. */
+  log,
+  isDebugEnabled,
+  VAL_DEBUG_STORAGE_KEY,
   VERSION: {
     core: corePackageJson.version,
   },
@@ -449,6 +461,7 @@ const Internal = {
     galleriesOf,
     galleryEntryOf,
     galleryKeyOf,
+    galleryMarkerOf,
     GALLERY_DEFAULT_GROUPS,
     isHlsVideo,
     HLS_MIME_TYPE,

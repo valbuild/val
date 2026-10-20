@@ -7,6 +7,12 @@ import { getNavPathFromAll } from "./getNavPath";
 import { useNavLink } from "./navLink";
 import { useAllSources, useSchemas } from "./ValFieldProvider";
 import { useShellPanelLink } from "./shell/shellPanelLink";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "./designSystem/tooltip";
+import { DEMO_NEW_TAB_OFF, useValDemo } from "../demo/ValDemoContext";
 
 /**
  * The path of a field, as somewhere you can go.
@@ -69,6 +75,7 @@ export function FieldPathLink({
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const isSettingsModule = schemasData?.[moduleFilePath]?.type === "settings";
   const settingsLink = useShellPanelLink("settings");
+  const demo = useValDemo();
   const link = isSettingsModule ? settingsLink : navLink;
   const anchor = (
     <a {...link} title={sourcePath} className={cn(PATH_LINK_CLASS, className)}>
@@ -77,6 +84,30 @@ export function FieldPathLink({
   );
   if (previewSegment === undefined) {
     return anchor;
+  }
+  if (demo !== null) {
+    return (
+      <span className="inline-flex items-center gap-1.5 truncate min-w-0 max-w-full">
+        {anchor}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              role="link"
+              aria-disabled
+              aria-label={`Preview ${previewSegment}`}
+              aria-description={DEMO_NEW_TAB_OFF}
+              tabIndex={0}
+              className="shrink-0 text-fg-tertiary opacity-50 cursor-not-allowed"
+            >
+              <Globe size={12} />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-64 text-xs">
+            {DEMO_NEW_TAB_OFF}
+          </TooltipContent>
+        </Tooltip>
+      </span>
+    );
   }
   const previewHref = urlOf("/api/val/enable", {
     redirect_to:

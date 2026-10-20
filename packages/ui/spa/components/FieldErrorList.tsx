@@ -5,7 +5,6 @@ import classNames from "classnames";
 /**
  * Shared error-list rendering for fields. Used by:
  *  - `FieldValidationError` (inline below an editor field)
- *  - `ValidationErrors` (the dedicated `/val/errors` page)
  *
  * The look is deliberately the amber/warning palette rather than error-red:
  * it makes the messages visible at a glance without reading as "the system is

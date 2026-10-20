@@ -58,6 +58,7 @@ import {
   readTourCompleted,
   studioTourSteps,
   writeTourCompleted,
+  type TourStep,
 } from "./tourSteps";
 import { servedPath } from "../../utils/mediaPath";
 import { useShellBreakpoint } from "./useShellBreakpoint";
@@ -66,6 +67,7 @@ import {
   ShellChangeActivity,
   ShellData,
   ShellDataModule,
+  ShellDestination,
   ShellExternalPage,
   ShellMediaGallery,
   ShellNotification,
@@ -140,6 +142,27 @@ export type ShellProps = {
    * arrives the same way.
    */
   tourEnabled?: boolean;
+  /**
+   * The tour's stops, when they are not the Studio's own: the demo's tour
+   * (`demoTourSteps`), which is written for someone with no project yet. Given
+   * the same project facts `studioTourSteps` is.
+   */
+  buildTourSteps?: (project: {
+    destinations: readonly ShellDestination[];
+  }) => TourStep[];
+  /**
+   * Open the tour once, as soon as it can be started -- the demo, where the
+   * tour is how a first visit begins. Waits for the navigation to load, for
+   * the reason `canStartTour` gives.
+   */
+  autoStartTour?: boolean;
+  /** Called when the tour is left, finished or not. */
+  onTourClose?: () => void;
+  /**
+   * The demo's card, given the way to start the tour. See `DemoBanner`. A
+   * slot, like `publishSlot`: what the demo is lives outside the shell.
+   */
+  renderDemoBanner?: (startTour: () => void) => ReactNode;
   theme: "dark" | "light";
   /**
    * The project's theme, as CSS custom properties — see `ValThemeProvider`.
@@ -164,6 +187,10 @@ export type ShellProps = {
    * setting, whose default is `false`.
    */
   autoSave?: boolean;
+  /**
+   * Absent hides Auto save: the demo, whose server has nowhere to write. An
+   * auto save there would be a publish that cannot happen.
+   */
   onAutoSaveChange?: (autoSave: boolean) => void;
   /**
    * Show source paths beside fields.
@@ -430,6 +457,10 @@ export type ShellProps = {
   historyActive?: boolean;
   /** Go to it. */
   onOpenHistory?: () => void;
+  /** See `TopBar`'s `onOpenValidate`. */
+  onOpenValidate?: () => void;
+  validateActive?: boolean;
+  validateCount?: number;
   /**
    * Mention a source path in the assistant. From the canvas's field menu.
    *
@@ -512,13 +543,17 @@ export function Shell({
   initialSearchOpen = false,
   initialTourOpen = false,
   tourEnabled = true,
+  buildTourSteps,
+  autoStartTour = false,
+  onTourClose,
+  renderDemoBanner,
   theme,
   themeStyle,
   onThemeChange,
   mode,
   saveState = "saved",
   autoSave = false,
-  onAutoSaveChange = () => undefined,
+  onAutoSaveChange,
   isDevMode = true,
   pendingChanges = 12,
   reviewCount,
@@ -566,6 +601,9 @@ export function Shell({
   historyEnabled = false,
   historyActive = false,
   onOpenHistory,
+  onOpenValidate,
+  validateActive,
+  validateCount,
   onMentionField,
   pendingChangesLoaded = true,
   pendingChangesProgress,
@@ -770,10 +808,14 @@ export function Shell({
     setIsTourOpen(false);
     setTourCompleted(true);
     writeTourCompleted(true);
-  }, []);
+    onTourClose?.();
+  }, [onTourClose]);
   const tourSteps = useMemo(
-    () => studioTourSteps({ destinations, mode: mode ?? "unknown", aiEnabled }),
-    [destinations, mode, aiEnabled],
+    () =>
+      buildTourSteps
+        ? buildTourSteps({ destinations })
+        : studioTourSteps({ destinations, mode: mode ?? "unknown", aiEnabled }),
+    [buildTourSteps, destinations, mode, aiEnabled],
   );
   /**
    * Whether the tour can be STARTED at all right now.
@@ -786,6 +828,12 @@ export function Shell({
    * the open tour, which is the stuck state `stepIndex` clamps for.
    */
   const canStartTour = !isLoading;
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!autoStartTour || autoStarted.current || !canStartTour) return;
+    autoStarted.current = true;
+    setIsTourOpen(true);
+  }, [autoStartTour, canStartTour]);
   /**
    * Whether to offer it — the glow, and the button on the empty editor.
    *
@@ -1165,6 +1213,9 @@ export function Shell({
           historyEnabled={historyEnabled}
           historyActive={historyActive}
           onOpenHistory={onOpenHistory}
+          onOpenValidate={onOpenValidate}
+          validateActive={validateActive}
+          validateCount={validateCount}
           onPreview={onPreview ?? (() => undefined)}
           previewHref={previewHref}
           onToggleCanvas={canCanvas ? togglePreview : undefined}
@@ -1226,6 +1277,7 @@ export function Shell({
                     <ProposalSaveButton
                       location={proposals.location}
                       onSave={proposals.onSave}
+                      blockedBy={proposals.saveBlockedBy}
                       className="h-9 min-w-[5.5rem]"
                     />
                   </>
@@ -1464,6 +1516,8 @@ export function Shell({
             onClose={closePanel}
           />
         )}
+
+        {renderDemoBanner?.(startTour)}
 
         {isTourOpen && (
           <StudioTour

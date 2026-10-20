@@ -10,6 +10,7 @@ import {
   VAL_STATE_COOKIE,
 } from "./server/types";
 import { Patch, PatchId } from "./zod/Patch";
+import { SourcePath } from "./zod/SourcePath";
 import { SerializedSchema } from "./zod/SerializedSchema";
 import { ValCommit } from "./zod/ValCommit";
 import { ValDeployment } from "./zod/ValDeployment";
@@ -62,8 +63,12 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("files:check-remote"),
   z.literal("files:upload-remote"),
   z.literal("keyof:check-keys"),
+  z.literal("image:check-gallery"),
+  z.literal("file:check-gallery"),
+  z.literal("video:check-gallery"),
   z.literal("router:check-route"),
   z.literal("locale:check-locale"),
+  z.literal("router:check-locale-param"),
   z.literal("record:fill-keys"),
   z.literal("images:check-unique-folder"),
   z.literal("files:check-unique-folder"),
@@ -73,6 +78,8 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("videos:check-all-files"),
   z.literal("jsonValues:extract-entry"),
   z.literal("view:check-module"),
+  z.literal("external:upload"),
+  z.literal("remote:rewrite-host"),
 ]);
 const ValidationError = z.object({
   message: z.string(),
@@ -576,6 +583,12 @@ export const Api = {
                 bucket: z.string(),
               }),
             ),
+            /**
+             * The host new refs name, from the project's settings: its own
+             * address for a Hosted project whose files are in R2. Optional,
+             * for a content service that predates it.
+             */
+            remoteHost: z.string().optional(),
           }),
         }),
         z.object({
@@ -1373,6 +1386,115 @@ export const Api = {
       ]),
     },
   },
+  /**
+   * The Studio's full check, one module per request: its sources against its
+   * schema and its local files against their bytes, on the content the caller
+   * is looking at. See `docs/plans/studio-validate.md`.
+   */
+  "/validate": {
+    POST: {
+      req: {
+        body: z.object({
+          moduleFilePath: ModuleFilePath,
+          /**
+           * The patches the caller is showing, applied over base. Omitted
+           * means every pending patch, as `/sources/~`; empty means base.
+           */
+          patchIds: z.array(PatchId).optional(),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(500),
+          json: z.object({ message: z.string() }),
+        }),
+        /** No full check on this server (one running in a browser tab). */
+        z.object({
+          status: z.literal(501),
+          json: z.object({ message: z.string() }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            moduleFilePath: ModuleFilePath,
+            errors: z.record(z.string(), z.array(ValidationError)),
+            /** Set when the module's source could not be read at all. */
+            invalidSource: z.string().optional(),
+            /**
+             * Hosts that did not serve this module's remote files: one entry
+             * per host, however many files it holds. Optional so a server
+             * from before remote checks still parses.
+             */
+            remoteHosts: z
+              .array(
+                z.object({
+                  host: z.string(),
+                  status: z.union([
+                    z.literal("missing"),
+                    z.literal("unreachable"),
+                  ]),
+                  details: z.string(),
+                  sourcePaths: z.array(SourcePath),
+                }),
+              )
+              .optional(),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * The patch that fixes one error the full check reported. The server finds
+   * the error again rather than trusting the caller's copy, and builds only the
+   * fixes `STUDIO_FIXES` lists. The patch is returned, not applied: the Studio
+   * adds it as a pending change like any edit.
+   */
+  "/validate/fix": {
+    POST: {
+      req: {
+        body: z.object({
+          moduleFilePath: ModuleFilePath,
+          sourcePath: SourcePath,
+          fix: ValidationFixZ,
+          patchIds: z.array(PatchId).optional(),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        notFoundResponse,
+        z.object({
+          status: z.literal(400),
+          json: z.object({ message: z.string() }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: z.object({ message: z.string() }),
+        }),
+        /** No full check on this server (one running in a browser tab). */
+        z.object({
+          status: z.literal(501),
+          json: z.object({ message: z.string() }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            patch: Patch,
+            remainingErrors: z.array(
+              ValidationError.extend({ sourcePath: z.string().optional() }),
+            ),
+          }),
+        }),
+      ]),
+    },
+  },
   "/publish-job-prepare": {
     POST: {
       req: {
@@ -1482,6 +1604,61 @@ export const Api = {
                   .nullable(),
               }),
             ),
+          }),
+        }),
+      ]),
+    },
+  },
+  /**
+   * Publish selected (`docs/plans/remove-patch-groups.md`, Phase 4), its first
+   * half, on the site's own server: the changes picked in Review, already
+   * closed into whole patch sets (`selectionClosure`), moved into a proposal
+   * of kind `publish` and saved there -- prepared over the site's head, which
+   * the proposal is based on, so a publish landing in between is refused
+   * rather than reverted. The second half is that proposal's Publish, pressed
+   * as any proposal's is (`publishProposal`); this server answers its checks
+   * and press with what the merge moves, as the proposal's own address would.
+   */
+  "/publish-selected": {
+    POST: {
+      req: {
+        body: z.object({
+          /** The changes to publish, whole patch sets, in any order: a move keeps the chain's. */
+          patchIds: z.array(PatchId).min(1),
+          /** What the merged proposal is listed as. */
+          displayName: z.string().min(1).max(200),
+          /** The press's own id: the same press sent again is the same proposal. */
+          requestId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({ status: z.literal(400), json: GenericError }),
+        /**
+         * Refused: the site moved (`headMoved`: pressing again prepares over
+         * the new head), a change went, or this deployment cannot.
+         */
+        z.object({
+          status: z.literal(409),
+          json: GenericError.extend({ headMoved: z.literal(true).optional() }),
+        }),
+        z.object({ status: z.literal(500), json: GenericError }),
+        /**
+         * The proposal was made and its changes moved into it, and the save
+         * there failed: they are safe in it, which `proposal` names.
+         */
+        z.object({
+          status: z.literal(502),
+          json: GenericError.extend({ proposal: z.string() }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            /** The proposal to publish next. */
+            proposal: z.string(),
           }),
         }),
       ]),

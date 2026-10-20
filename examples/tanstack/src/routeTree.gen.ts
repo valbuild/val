@@ -12,12 +12,15 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SiteRouteImport } from './routes/_site'
 import { Route as ValRouteRouteImport } from './routes/val/route'
 import { Route as SiteIndexRouteImport } from './routes/_site.index'
+import { Route as SiteDashboardRouteImport } from './routes/_site.dashboard'
+import { Route as SiteLoginRouteImport } from './routes/_site.login'
 import { Route as SiteShowcaseRouteImport } from './routes/_site.showcase'
 import { Route as ValIndexRouteImport } from './routes/val/index'
 import { Route as ValSplatRouteImport } from './routes/val/$'
 import { Route as SiteDocsSplatRouteImport } from './routes/_site.docs.$'
 import { Route as SitePostsPostIdRouteImport } from './routes/_site.posts.$postId'
 import { Route as ApiValSplatRouteImport } from './routes/api/val.$'
+import { Route as SiteChar123LocaleChar125NewsSlugRouteImport } from './routes/_site.{-$locale}.news.$slug'
 
 const SiteRoute = SiteRouteImport.update({
   id: '/_site',
@@ -31,6 +34,16 @@ const ValRouteRoute = ValRouteRouteImport.update({
 const SiteIndexRoute = SiteIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => SiteRoute,
+} as any)
+const SiteDashboardRoute = SiteDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => SiteRoute,
+} as any)
+const SiteLoginRoute = SiteLoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => SiteRoute,
 } as any)
 const SiteShowcaseRoute = SiteShowcaseRouteImport.update({
@@ -63,18 +76,29 @@ const ApiValSplatRoute = ApiValSplatRouteImport.update({
   path: '/api/val/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SiteChar123LocaleChar125NewsSlugRoute =
+  SiteChar123LocaleChar125NewsSlugRouteImport.update({
+    id: '/{-$locale}/news/$slug',
+    path: '/{-$locale}/news/$slug',
+    getParentRoute: () => SiteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/val': typeof ValRouteRouteWithChildren
   '/': typeof SiteIndexRoute
+  '/dashboard': typeof SiteDashboardRoute
+  '/login': typeof SiteLoginRoute
   '/showcase': typeof SiteShowcaseRoute
   '/val/$': typeof ValSplatRoute
   '/val/': typeof ValIndexRoute
   '/docs/$': typeof SiteDocsSplatRoute
   '/posts/$postId': typeof SitePostsPostIdRoute
   '/api/val/$': typeof ApiValSplatRoute
+  '/{-$locale}/news/$slug': typeof SiteChar123LocaleChar125NewsSlugRoute
 }
 export interface FileRoutesByTo {
+  '/dashboard': typeof SiteDashboardRoute
+  '/login': typeof SiteLoginRoute
   '/showcase': typeof SiteShowcaseRoute
   '/val/$': typeof ValSplatRoute
   '/': typeof SiteIndexRoute
@@ -82,11 +106,14 @@ export interface FileRoutesByTo {
   '/docs/$': typeof SiteDocsSplatRoute
   '/posts/$postId': typeof SitePostsPostIdRoute
   '/api/val/$': typeof ApiValSplatRoute
+  '/{-$locale}/news/$slug': typeof SiteChar123LocaleChar125NewsSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/val': typeof ValRouteRouteWithChildren
   '/_site': typeof SiteRouteWithChildren
+  '/_site/dashboard': typeof SiteDashboardRoute
+  '/_site/login': typeof SiteLoginRoute
   '/_site/showcase': typeof SiteShowcaseRoute
   '/val/$': typeof ValSplatRoute
   '/_site/': typeof SiteIndexRoute
@@ -94,20 +121,26 @@ export interface FileRoutesById {
   '/_site/docs/$': typeof SiteDocsSplatRoute
   '/_site/posts/$postId': typeof SitePostsPostIdRoute
   '/api/val/$': typeof ApiValSplatRoute
+  '/_site/{-$locale}/news/$slug': typeof SiteChar123LocaleChar125NewsSlugRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/val'
     | '/'
+    | '/dashboard'
+    | '/login'
     | '/showcase'
     | '/val/$'
     | '/val/'
     | '/docs/$'
     | '/posts/$postId'
     | '/api/val/$'
+    | '/{-$locale}/news/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/dashboard'
+    | '/login'
     | '/showcase'
     | '/val/$'
     | '/'
@@ -115,10 +148,13 @@ export interface FileRouteTypes {
     | '/docs/$'
     | '/posts/$postId'
     | '/api/val/$'
+    | '/{-$locale}/news/$slug'
   id:
     | '__root__'
     | '/val'
     | '/_site'
+    | '/_site/dashboard'
+    | '/_site/login'
     | '/_site/showcase'
     | '/val/$'
     | '/_site/'
@@ -126,6 +162,7 @@ export interface FileRouteTypes {
     | '/_site/docs/$'
     | '/_site/posts/$postId'
     | '/api/val/$'
+    | '/_site/{-$locale}/news/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -155,6 +192,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof SiteIndexRouteImport
+      parentRoute: typeof SiteRoute
+    }
+    '/_site/dashboard': {
+      id: '/_site/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof SiteDashboardRouteImport
+      parentRoute: typeof SiteRoute
+    }
+    '/_site/login': {
+      id: '/_site/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof SiteLoginRouteImport
       parentRoute: typeof SiteRoute
     }
     '/_site/showcase': {
@@ -199,6 +250,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiValSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_site/{-$locale}/news/$slug': {
+      id: '/_site/{-$locale}/news/$slug'
+      path: '/{-$locale}/news/$slug'
+      fullPath: '/{-$locale}/news/$slug'
+      preLoaderRoute: typeof SiteChar123LocaleChar125NewsSlugRouteImport
+      parentRoute: typeof SiteRoute
+    }
   }
 }
 
@@ -217,17 +275,23 @@ const ValRouteRouteWithChildren = ValRouteRoute._addFileChildren(
 )
 
 interface SiteRouteChildren {
+  SiteDashboardRoute: typeof SiteDashboardRoute
+  SiteLoginRoute: typeof SiteLoginRoute
   SiteShowcaseRoute: typeof SiteShowcaseRoute
   SiteIndexRoute: typeof SiteIndexRoute
   SiteDocsSplatRoute: typeof SiteDocsSplatRoute
   SitePostsPostIdRoute: typeof SitePostsPostIdRoute
+  SiteChar123LocaleChar125NewsSlugRoute: typeof SiteChar123LocaleChar125NewsSlugRoute
 }
 
 const SiteRouteChildren: SiteRouteChildren = {
+  SiteDashboardRoute: SiteDashboardRoute,
+  SiteLoginRoute: SiteLoginRoute,
   SiteShowcaseRoute: SiteShowcaseRoute,
   SiteIndexRoute: SiteIndexRoute,
   SiteDocsSplatRoute: SiteDocsSplatRoute,
   SitePostsPostIdRoute: SitePostsPostIdRoute,
+  SiteChar123LocaleChar125NewsSlugRoute: SiteChar123LocaleChar125NewsSlugRoute,
 }
 
 const SiteRouteWithChildren = SiteRoute._addFileChildren(SiteRouteChildren)

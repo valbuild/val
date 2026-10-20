@@ -1,5 +1,192 @@
 # @valbuild/shared
 
+## 0.148.2
+
+### Patch Changes
+
+- [#889](https://github.com/valbuild/val/pull/889) [`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a) Thanks [@freekh](https://github.com/freekh)! - Val is quieter in your app's console. Errors and warnings you can act on still
+  print, now prefixed with `[val]` so you can filter them. Val's own debug
+  output, which used to reach your terminal and browser console, is now off by
+  default. That includes the `Invalid JWT` line that printed on every request
+  with an expired session cookie, the "verifying draft mode" and polling notices,
+  and the Studio's sync and WebSocket chatter.
+
+  To turn the debug output back on, for example when reporting a bug:
+
+  - on the server, set `VAL_DEBUG=1`
+  - in the browser, run `localStorage.setItem("val:debug", "1")` in the console.
+    It takes effect immediately, with no reload. Remove the key to turn it off
+    again.
+
+- Updated dependencies [[`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a)]:
+  - @valbuild/core@0.148.2
+
+## 0.148.0
+
+### Patch Changes
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Remote files are now addressed on the host the project's settings name. For a
+  project hosted by Val, that is the project's own address, and its remote images
+  and files are served from there rather than from `remote.val.build`. Every other
+  project is unchanged.
+
+  - The Studio, `val validate --fix` and the MCP image tool all take the host from
+    the project's settings, falling back to `remote.val.build` as before.
+  - Re-reading a remote file whose recorded size or type is out of date keeps it
+    on the host it was on.
+  - When a remote file's host cannot be reached, tooling downloads it from the
+    project's permanent `<id>.valstart.dev` address instead, and keeps it only if
+    its bytes match the file the address names.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Remote files served from a project's own site (addresses like
+  `https://www.acme.no/_val/file/…`) are now checked for whether that address
+  still serves the project. When a custom domain has been removed or moved to
+  another project, the image or file is reported, and **Fix** on the Studio's
+  Validate page — or `val validate --fix` — points it at the project's permanent
+  `<id>.valstart.dev` address. Nothing is uploaded or downloaded: only the address
+  changes.
+
+  Remote file addresses with a `/_val` prefix after the host are now recognised.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Fix existing remote images in rich text being saved as `/publichttps://…`.
+
+  Editing a rich text field could rewrite every remote image already in it into a
+  broken path when the field was not set up to upload remote images itself — for
+  example before the project's remote file settings had loaded, or when the
+  field's image schema is not `.remote()`. A published remote image is now kept
+  as it is, whatever host it is on.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - **Check everything** on the Studio's Validate page now checks media directories
+  (`s.imagedir()`, `s.filedir()`, `s.fontdir()` and `s.videodir()`) by the files
+  they list:
+
+  - An entry whose file is gone has a **Fix** that removes it from the directory.
+  - An image or file entry whose recorded size or type does not match its file has
+    a **Fix** that corrects it from the file, keeping its alt text.
+  - A video entry whose file is gone is reported, and is removed by hand: its
+    posters and captions may still be in use.
+  - A remote entry is checked with its host, like any remote file.
+
+  `val validate --fix` fixes media directories exactly as before.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - **Check everything** on the Studio's Validate page now checks remote images and
+  files too.
+
+  - A remote image or file whose address no longer matches what is recorded about
+    it (its size, type or the schema's options changed since it was uploaded) has
+    a **Fix**, which re-reads the file and corrects it, as `val validate --fix`
+    does.
+  - A remote host that does not answer is shown once, at the top of the page, with
+    how many files it holds and a **Try again**, rather than as an error on every
+    image.
+  - A file its host no longer has is shown at the image or file that uses it.
+
+  Images and files in your unpublished changes are not asked about until they are
+  published; the check makes sure the change still has them.
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Two new Studio API routes for the full content check, not yet used by the
+  Studio's UI:
+
+  - `POST /api/val/validate` checks one module — its content against its schema,
+    and its local images and files against their bytes — on the content the
+    Studio is showing.
+  - `POST /api/val/validate/fix` returns the patch that fixes one of those errors,
+    for the Studio to add as a pending change. It builds only the fixes that need
+    no disk or remote host: image, file and video metadata, and a view pointing at
+    the wrong module.
+
+  Also fixed: an API route whose name started with another route's name could be
+  answered by the other route.
+
+- Updated dependencies [[`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1)]:
+  - @valbuild/core@0.148.0
+
+## 0.147.0
+
+### Minor Changes
+
+- [#816](https://github.com/valbuild/val/pull/816) [`2f09cd5`](https://github.com/valbuild/val/commit/2f09cd5e2f4fc37f06917899f24f9ad2ee8d3a8b) Thanks [@freekh](https://github.com/freekh)! - Routers can give each route parameter a schema, and a URL can say which language a page is in.
+
+  - **`s.router(router, params, item)`** takes a schema per route parameter, by the name the route file gives it (`$slug`, `[slug]`, `{-$locale}`). Each key's parameters are validated against them, and a name the route does not have is a schema error.
+
+    ```ts
+    s.router(tanstackRouter, { locale: urlLocale, slug: s.string() }, item);
+    ```
+
+  - **`s.enum(...).locales({ ... })`** says which of the project's languages each value means, so `/nb/…` can mean `nb-NO`. The tags are checked against `locales.available` in the settings module, like `s.locale()`. On a nullable enum, a second argument names the language of a URL that leaves the segment out, which only a router parameter may use:
+
+    ```ts
+    const urlLocale = s
+      .enum("nb")
+      .nullable()
+      .locales({ nb: "nb-NO" }, { null: "en-US" });
+    ```
+
+    A router with a locale parameter makes each page a locale scope, so the Studio and validation know which language every page is in.
+
+  - **A route's language segment can no longer be forgotten.** In a project that declares `locales.available`, a page route with a `locale` or `lang` segment (`{-$locale}`, `[lang]`) whose module gives that parameter no schema is reported, saying what to add. Any schema answers it, so a `$lang` that is not a language is silenced with its own, e.g. `{ lang: s.enum("typescript", "python") }`. It is an ordinary validation error: the Studio still opens and `val validate` lists it, but a project that already has such a route will see it after upgrading, and it blocks publishing until the parameter has a schema.
+  - **The Studio's new-page form offers a language as a list.** A route parameter whose schema is a locale is picked from the project's languages, each named in its own language, with "no prefix" where the URL may leave the segment out. Other enum parameters get a list of their values, and every parameter's description is shown under it. The URL row previews what the choice puts there.
+  - **TanStack optional segments (`{-$param}`)** are now understood: route validation, `useValRoute` and the Studio's new-page form accept keys with and without the segment.
+
+- [#876](https://github.com/valbuild/val/pull/876) [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd) Thanks [@freekh](https://github.com/freekh)! - Demo mode: run the Val Studio with no account and no backend (TanStack Start).
+
+  `<ValApp demo>` starts Val's own server in the visitor's browser tab, and the Studio talks to it there instead of to `/api/val`. Edits show up in the page as they are typed and are held in the tab's memory: nothing is sent anywhere, and a reload starts over. Images and videos can be uploaded too: a small service worker, served by `initValDemoServer()`, hands the upload and the unpublished files to the server in the tab, so an uploaded photo or video shows in the page with nothing leaving the browser. Uploads are capped by their size after encoding. Pair `<ValApp demo>` with `<ValProvider demo>` on the site and `initValDemoServer()` from the new `@valbuild/tanstack/demo` entry on the API route. In a demo the Studio opens with a guided tour, Publish explains what it would do instead of publishing, and Preview in a new tab is shown but disabled.
+
+  Also:
+
+  - `@valbuild/server/browser` is a new entry: Val's request handling, bundleable for a browser. The TypeScript compiler, which only publishing and history need, is loaded when they ask for it, so a browser bundle of the server is about 140 KB rather than 3.6 MB.
+  - `s.image({ encode })` now scales an image down in browsers that cannot write WebP (Safari), as a JPEG or PNG in the image's own format, instead of uploading it at full size.
+  - `GET /profiles` answers with no profiles, rather than an error, when edits are stored locally and no project is configured.
+
+### Patch Changes
+
+- [#876](https://github.com/valbuild/val/pull/876) [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd) Thanks [@freekh](https://github.com/freekh)! - `s.image({ encode: { type: "webp" } })` now produces WebP in Safari too, including on iPhone and iPad.
+
+  Safari's canvas cannot write WebP, so the Studio used to fall back to a JPEG (or a PNG) there, or to the original file when `accept` allowed only WebP. Now it encodes those images with libwebp, compiled to WebAssembly, at the same quality and size as everywhere else. The encoder is downloaded only by a browser that needs it, once per page, from `content.val.build`, the same place the Studio's bundler is served from. Browsers that can already write WebP never download it. If it cannot be loaded, uploads still work: the image is scaled down as a JPEG or PNG as before, or the original is uploaded.
+
+  A deployment that cannot reach `content.val.build` can serve the encoder itself and point the Studio at it with `globalThis.__VAL_WEBP_SIMD_WASM_URL__` and `globalThis.__VAL_WEBP_WASM_URL__`, the same way `__VAL_ROLLDOWN_WASM_URL__` works for the bundler.
+
+- Updated dependencies [[`2f09cd5`](https://github.com/valbuild/val/commit/2f09cd5e2f4fc37f06917899f24f9ad2ee8d3a8b)]:
+  - @valbuild/core@0.147.0
+
+## 0.146.4
+
+### Patch Changes
+
+- [#870](https://github.com/valbuild/val/pull/870) [`81f2e80`](https://github.com/valbuild/val/commit/81f2e803c4cefdf58bbe6856c06e98ace95a8e0b) Thanks [@freekh](https://github.com/freekh)! - The canvas works on a page behind your site's own login.
+
+  A site with its own sign-in (a dashboard, an intranet, a members' area) can be edited in the canvas. The canvas is a frame on the same origin as the Studio, so it sends your site's cookies like any other tab: if you are signed in to the site, the canvas shows the page signed in as you.
+
+  If you were not signed in, the site redirected the canvas to its login page, and the canvas then broke. That page mounted Val's whole overlay inside the canvas, a Studio inside the Studio. The canvas stayed on "Preview is not ready yet" through the sign-in and after it, until you pressed Reload. Now a page shown in the Studio's canvas counts as the canvas wherever it navigated to, so you can sign in inside the canvas and keep editing.
+
+## 0.146.2
+
+### Patch Changes
+
+- [#871](https://github.com/valbuild/val/pull/871) [`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0) Thanks [@freekh](https://github.com/freekh)! - An image, file or video picked from a gallery is checked against the gallery as it is now. Picking one uploaded since the site was built (still unpublished, saved in a proposal, or published without a rebuild) used to fail with "The gallery does not have an image at …" and refuse the save. In a proposal, Save now reads "Fix N" and goes to the validation errors instead of being refused by the server, as Publish does on the site.
+
+- [#867](https://github.com/valbuild/val/pull/867) [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9) Thanks [@freekh](https://github.com/freekh)! - When a publish breaks a page on a site with proposals, its changes are no longer
+  held back on the site: they move into a proposal of their own, with any later
+  changes to the same pages, so everyone else keeps publishing. The Studio says
+  so — "Publishing broke the site" — and offers **Open the proposal**, where the
+  changes can be fixed and published. Sites without proposals hold the changes
+  back as before.
+
+- [#867](https://github.com/valbuild/val/pull/867) [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9) Thanks [@freekh](https://github.com/freekh)! - Publish only some of your changes: tick them in Review and press **Publish
+  selected**. On a site with proposals, Val moves them into a proposal of their
+  own and publishes it straight away; everything else stays unpublished, as it
+  was.
+
+  Some changes cannot be published apart — two edits to the same list, say — so
+  the confirm says what comes with your selection and whose it is before anything
+  moves. If the site is published while yours is being prepared, nothing is
+  published and you are asked to press it again. If publishing stops after the
+  changes have moved, they are safe in their proposal, and Review offers to open
+  it as well as to try again.
+
+- Updated dependencies [[`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0)]:
+  - @valbuild/core@0.146.2
+
 ## 0.146.0
 
 ### Minor Changes

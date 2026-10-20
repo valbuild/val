@@ -10,12 +10,25 @@ import { z } from "zod";
  * alone, so `process.env.VAL_CONTENT_URL` here is whatever it was when the
  * chunk was built -- usually nothing. A caller that knows the content url has
  * to be able to say so.
+ *
+ * And guarded, because this module runs in a browser too (the demo's in-tab
+ * server, `@valbuild/server/browser`): a bundler that does not replace
+ * `process.env` leaves a `process` that is not defined there.
  */
-const defaultHost = process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
+const defaultHost =
+  (typeof process === "undefined" ? undefined : process.env.VAL_CONTENT_URL) ||
+  DEFAULT_CONTENT_HOST;
 
 const SettingsSchema = z.object({
   publicProjectId: z.string(),
   remoteFileBuckets: z.array(z.object({ bucket: z.string() })),
+  /**
+   * The host a new remote file's ref names: the project's own address with
+   * `/_val` for a Hosted project whose files are in R2, `remote.val.build`
+   * otherwise. Absent from a content service that predates it, where every
+   * project's files are on `remote.val.build`.
+   */
+  remoteHost: z.string().optional(),
 });
 type Settings = z.infer<typeof SettingsSchema>;
 

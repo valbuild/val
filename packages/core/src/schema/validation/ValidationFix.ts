@@ -31,8 +31,25 @@ export const ValidationFix = [
   "videos:check-remote",
   "videos:upload-remote",
   "keyof:check-keys",
+  // A gallery-backed field (`s.image(gallery)`, `s.file(gallery)`,
+  // `s.video(set)`) whose path the gallery as this schema was BUILT does not
+  // have. Schema-source markers (`SCHEMA_SOURCE_FIXES`), like the keyOf one:
+  // the schema holds the gallery as it was evaluated, and an entry added since
+  // -- in a pending change, a proposal, or a content-only publish that never
+  // rebuilt the site -- is only in the gallery's current Source, which only a
+  // project-wide snapshot has.
+  "image:check-gallery",
+  "file:check-gallery",
+  "video:check-gallery",
   "router:check-route",
   "locale:check-locale",
+  // A page router whose route has a `locale` or `lang` segment that no
+  // `s.router(router, { locale: … }, item)` schema describes. A marker, like
+  // the one above: whether that is a mistake depends on whether the project
+  // declares languages at all, which is in the settings module. Never fatal --
+  // a project that had a `[locale]` route before route params existed must
+  // still load.
+  "router:check-locale-param",
   "images:check-unique-folder",
   "files:check-unique-folder",
   "images:check-all-files",
@@ -51,6 +68,12 @@ export const ValidationFix = [
   // authority, so there is exactly one correct value and it can be written
   // without asking anyone.
   "view:check-module",
+  // A platform ref whose host no longer serves the project it names (a custom
+  // domain the project dropped). Points the ref at `<public id>.valstart.dev`,
+  // which always does; nothing is uploaded, because the bytes never moved.
+  // Reported by the server's remote check, never by a schema: only the host
+  // can say whether it still serves the project.
+  "remote:rewrite-host",
 ] as const;
 
 export type ValidationFix = (typeof ValidationFix)[number];

@@ -41,7 +41,7 @@ export function useDuplicateRecordEntry(): DuplicateRecordEntry {
   return useCallback(
     async ({ parentPath, fromKey, toKey, jsonValues }) => {
       if (fromKey === toKey) {
-        console.error("Val: cannot duplicate an entry onto itself", {
+        Internal.log.error("cannot duplicate an entry onto itself", {
           parentPath,
           fromKey,
         });

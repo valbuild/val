@@ -35,8 +35,6 @@ import {
   applyPatch,
   deepClone,
 } from "@valbuild/core/patch";
-import { TSOps, insertValJsonEntry, removeValJsonEntry } from "./patch/ts/ops";
-import { analyzeValModule } from "./patch/ts/valModule";
 import type { HistoryError } from "./history/HistoryError";
 import type { PlanRefusalErrorT } from "@valbuild/shared/internal";
 import type {
@@ -46,11 +44,7 @@ import type {
   CommitPatch,
   HistoricalCommit,
 } from "./history/types";
-import {
-  analyzeJsonValuesEntries,
-  jsonValuesRecordKeys,
-  type JsonValuesEntry,
-} from "./patch/ts/jsonValuesModule";
+import type { JsonValuesEntry } from "./patch/ts/jsonValuesModule";
 import {
   applyJsonValuesEntryPatches,
   classifyJsonValuesOp,
@@ -64,9 +58,14 @@ import {
   type CurrentJsonEntries,
 } from "./patch/jsonValuesPatch";
 import { validateJsonValuesEntries } from "./validateJsonValues";
-import ts from "typescript";
-import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
+import {
+  checkRemoteFiles,
+  type RemoteFilesCheck,
+  type RemoteNetwork,
+} from "./remoteFileCheck";
+import type { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
+import { base64ToBytes, bytesToBase64 } from "./bytes";
 import { ParentPatchId } from "@valbuild/core";
 import type { ReifiedPreview } from "@valbuild/core";
 import {
@@ -103,13 +102,6 @@ const jsonOps = new JSONOps();
  * host.
  */
 const JSON_ENTRY_READ_CONCURRENCY = 8;
-const tsOps = new TSOps((document) => {
-  return pipe(
-    analyzeValModule(document),
-    result.map(({ source }) => source),
-  );
-});
-
 /**
  * `.jsonValues()` is only supported on a module's ROOT record/router. A nested
  * one is broken end to end (the `/json` endpoint keys entries by a single
@@ -477,8 +469,8 @@ export abstract class ValOps {
     for (const [moduleFilePathS, source] of Object.entries(sources)) {
       const moduleFilePath = moduleFilePathS as ModuleFilePath;
       if (errors[moduleFilePath] !== undefined) {
-        console.error(
-          "Val: not adopting the committed source of a module whose patches " +
+        Internal.log.error(
+          "not adopting the committed source of a module whose patches " +
             "did not apply cleanly. Its content here stays as it was until the " +
             "modules are re-evaluated.",
           { moduleFilePath, errors: errors[moduleFilePath] },
@@ -1082,7 +1074,7 @@ export abstract class ValOps {
         if (!errors[path]) {
           errors[path] = [];
         }
-        console.error("Val: Module not found", path);
+        Internal.log.error("Module not found", path);
         errors[path].push({
           patchId: patchData.patchId,
           skipped: true,
@@ -1095,7 +1087,7 @@ export abstract class ValOps {
       }
       const patchId = patchData.patchId;
       if (errors[path]) {
-        console.error(
+        Internal.log.error(
           "Cannot apply patch: previous errors exists",
           path,
           errors[path],
@@ -1277,7 +1269,7 @@ export abstract class ValOps {
           applicableOps.concat(...Object.values(fileFixOps)),
         );
         if (result.isErr(patchRes)) {
-          console.error(
+          Internal.log.error(
             "Could not apply patch",
             JSON.stringify(
               {
@@ -1330,6 +1322,13 @@ export abstract class ValOps {
     schemas: Schemas,
     sources: Sources,
     patchesByModule?: PatchAnalysis["patchesByModule"],
+    /**
+     * Validate only these modules. The snapshot the cross-module checks read
+     * (a keyOf's keys, a route, a set's directory) is still built from every
+     * module, which is what makes checking one module at a time give the same
+     * answer for it as checking them all. Wins over `patchesByModule`.
+     */
+    onlyModules?: readonly ModuleFilePath[],
   ): Promise<{
     errors: Record<
       ModuleFilePath,
@@ -1380,8 +1379,21 @@ export abstract class ValOps {
         }
       }
     }
-    const modulePathsToValidate =
-      patchesByModule && Object.keys(patchesByModule);
+    const addModuleError = (
+      path: ModuleFilePath,
+      sourcePath: SourcePath,
+      validationError: ValidationError,
+    ) => {
+      if (!errors[path]) {
+        errors[path] = { validations: {} };
+      }
+      if (!errors[path].validations[sourcePath]) {
+        errors[path].validations[sourcePath] = [];
+      }
+      errors[path].validations[sourcePath].push(validationError);
+    };
+    const modulePathsToValidate: readonly string[] | undefined =
+      onlyModules ?? (patchesByModule && Object.keys(patchesByModule));
     for (const [pathS, schema] of entries) {
       if (modulePathsToValidate && !modulePathsToValidate.includes(pathS)) {
         continue;
@@ -1415,13 +1427,41 @@ export abstract class ValOps {
         jsonValuesErrors,
       )) {
         const sourcePath = sourcePathS as SourcePath;
-        if (!errors[path]) {
-          errors[path] = { validations: {} };
+        for (const entryError of entryErrors) {
+          // An entry's errors get the same project-wide resolution as every
+          // other module's. Added raw, every keyOf and route in a
+          // `.jsonValues()` record was reported as unresolved -- 240 of them in
+          // `examples/next`'s kb.val.ts, none real.
+          if (isSchemaSourceFixError(entryError)) {
+            const resolved = resolveSchemaSourceFixForError(
+              entryError,
+              snapshot,
+            );
+            if (!resolved || resolved.status !== "remaining") {
+              continue;
+            }
+            addModuleError(path, sourcePath, resolved.error);
+            continue;
+          }
+          // "Not yet compared with its bytes" is a request, not an error, and
+          // for an entry it cannot be answered here: `validateFiles` resolves a
+          // file's schema through the module's source, which for a
+          // `.jsonValues()` record holds markers rather than the entry. The
+          // publish gate ignores it anyway (`partitionValidationErrors`).
+          //
+          // A remote file's "not yet checked against its host" is the same
+          // request, for the same reason: `validateRemoteFiles` and its fix
+          // resolve the path through the module's source too. Added as an
+          // error, every remote image in an entry was a row on the Validate
+          // page whose Fix could not find it.
+          if (
+            isOnlyFileCheckValidationError(entryError) ||
+            isOnlyRemoteCheckValidationError(entryError)
+          ) {
+            continue;
+          }
+          addModuleError(path, sourcePath, entryError);
         }
-        if (!errors[path].validations[sourcePath]) {
-          errors[path].validations[sourcePath] = [];
-        }
-        errors[path].validations[sourcePath].push(...entryErrors);
       }
       if (res === false) {
         continue;
@@ -1523,13 +1563,86 @@ export abstract class ValOps {
     return { errors, files, remoteFiles };
   }
 
+  /**
+   * The remote values `validateSources` set aside, checked: is each ref
+   * sound, and does its host serve it. See `checkRemoteFiles`.
+   *
+   * `fileLastUpdatedByPatchId` names the refs whose bytes are still in a
+   * pending patch, which the host will not have until publish.
+   */
   async validateRemoteFiles(
     schemas: Schemas,
     sources: Sources,
     remoteFiles: Record<SourcePath, MediaSource>,
-  ): Promise<Record<SourcePath, ValidationError[]>> {
-    // TODO: Implement
-    return {};
+    fileLastUpdatedByPatchId: PatchAnalysis["fileLastUpdatedByPatchId"] = {},
+    network: RemoteNetwork = {},
+  ): Promise<RemoteFilesCheck> {
+    const sampleByHost = this.sourceMode() === "managed";
+    // Only a managed project vouches for one published ref with another, so
+    // only it needs to know which refs are published.
+    const baseSources = sampleByHost
+      ? (await this.getSources()).sources
+      : undefined;
+    const valueAt = (
+      sourcePath: SourcePath,
+      from: Sources,
+    ): { source: unknown; schema: SerializedSchema } | undefined => {
+      const [moduleFilePath, modulePath] =
+        Internal.splitModuleFilePathAndModulePath(sourcePath);
+      const schema = schemas[moduleFilePath];
+      if (!schema || from[moduleFilePath] === undefined) {
+        return undefined;
+      }
+      try {
+        return Internal.resolvePath(
+          modulePath,
+          from[moduleFilePath],
+          schema["executeSerialize"](),
+        );
+      } catch {
+        return undefined;
+      }
+    };
+    return checkRemoteFiles({
+      remoteFiles,
+      sampleByHost,
+      ...network,
+      schemaAt: (sourcePath) => valueAt(sourcePath, sources)?.schema,
+      isPublished: (sourcePath, ref) => {
+        if (!baseSources) {
+          return false;
+        }
+        const published = valueAt(sourcePath, baseSources)?.source;
+        return (
+          typeof published === "object" &&
+          published !== null &&
+          "path" in published &&
+          published.path === ref
+        );
+      },
+      pendingBytes: this.pendingBytesOf(fileLastUpdatedByPatchId),
+    });
+  }
+
+  /**
+   * Is a remote file's bytes in a pending patch? `not-pending` when no patch
+   * wrote it; `missing` when one did and its bytes are not there.
+   */
+  pendingBytesOf(
+    fileLastUpdatedByPatchId: PatchAnalysis["fileLastUpdatedByPatchId"],
+  ): (ref: string) => Promise<"present" | "missing" | "not-pending"> {
+    return async (ref) => {
+      const fromPatch = fileLastUpdatedByPatchId[ref];
+      if (!fromPatch) {
+        return "not-pending";
+      }
+      const bytes = await this.getBase64EncodedBinaryFileFromPatch(
+        ref,
+        fromPatch.patchId,
+        fromPatch.remote,
+      );
+      return bytes === null ? "missing" : "present";
+    };
   }
 
   // #region validateFiles
@@ -1632,7 +1745,9 @@ export abstract class ValOps {
       if (metadataErrors && metadataErrors.length > 0) {
         return {
           [sourcePath]: metadataErrors.map((e) => ({
-            message: e.message,
+            // Which file: "File not found" on its own names nothing, and the
+            // row it is shown on is the field, not the file.
+            message: `${e.message}: ${filePath}`,
             value: { filePath, patchId: fileData?.patchId ?? null },
           })),
         };
@@ -1725,6 +1840,17 @@ export abstract class ValOps {
     options?: { continueOnError?: boolean },
   ): Promise<PreparedCommit> {
     const continueOnError = options?.continueOnError ?? false;
+    // The TypeScript compiler, loaded now rather than with the server: see
+    // `publishKit.ts`.
+    const {
+      tsOps,
+      parseValFile,
+      analyzeValModule,
+      analyzeJsonValuesEntries,
+      jsonValuesRecordKeys,
+      insertValJsonEntry,
+      removeValJsonEntry,
+    } = await import("./patch/ts/publishKit");
     const { patchesByModule, fileLastUpdatedByPatchId } = patchAnalysis;
     const patchedSourceFiles: Record<string, string | null> = {};
     const previousSourceFiles: Record<ModuleFilePath, string> = {};
@@ -1783,11 +1909,7 @@ export abstract class ValOps {
       }
       const sourceFile = sourceFileRes.data;
       previousSourceFiles[path] = sourceFile;
-      const originalSourceFile = ts.createSourceFile(
-        "<val>",
-        sourceFile,
-        ts.ScriptTarget.ES2015,
-      );
+      const originalSourceFile = parseValFile(sourceFile);
       let tsSourceFile = originalSourceFile;
       let tsChanged = false;
       let serializedSchema: SerializedSchema | undefined = undefined;
@@ -1979,7 +2101,7 @@ export abstract class ValOps {
         patchId: PatchId,
         op: unknown,
       ) => {
-        console.error(
+        Internal.log.error(
           "Could not patch",
           JSON.stringify({ path, patchId, error: err, op }, null, 2),
         );
@@ -2596,7 +2718,7 @@ export abstract class ValOps {
         // sends it again later, so an error line here would be one a minute.
         return result.err(saveRes.error);
       }
-      console.error(
+      Internal.log.error(
         `Could not save source patch at path: '${path}'. Error: ${saveRes.error.errorType === "other" ? saveRes.error.message : saveRes.error.errorType}`,
       );
       if (saveRes.error.errorType === "patch-head-conflict") {
@@ -2813,6 +2935,18 @@ export abstract class ValOps {
    */
   abstract readonly requiresAuth: boolean;
 
+  /**
+   * Which implementation this is, for the routes that differ by mode.
+   *
+   * A tag rather than `instanceof`, because `instanceof ValOpsFS` needs the
+   * class itself, and importing the class imports `fs`: `ValServer` asking
+   * which mode it is in was what put the filesystem and the content-service
+   * client in the module graph of a server that runs in a browser tab (the
+   * demo, `@valbuild/server/browser`). `isFsOps` and friends in `opsKind.ts`
+   * narrow on it with type-only imports.
+   */
+  abstract readonly kind: "fs" | "http" | "memory";
+
   abstract onInit(baseSha: BaseSha, schemaSha: SchemaSha): Promise<void>;
   abstract fetchPatches<ExcludePatchOps extends boolean>(filters: {
     patchIds?: PatchId[];
@@ -2862,7 +2996,7 @@ export abstract class ValOps {
     filePath: string,
     parentRef: ParentRef,
     patchId: PatchId,
-    bytes: Buffer,
+    bytes: Uint8Array,
     mimeType: string,
     type: "file" | "image",
     metadata: MetadataOfType<"file" | "image"> | undefined,
@@ -2871,7 +3005,7 @@ export abstract class ValOps {
       filePath,
       parentRef,
       patchId,
-      `data:${mimeType};base64,${bytes.toString("base64")}`,
+      `data:${mimeType};base64,${bytesToBase64(bytes)}`,
       type,
       metadata,
     );
@@ -2880,7 +3014,7 @@ export abstract class ValOps {
     filePath: string,
     patchId: PatchId,
     remote: boolean,
-  ): Promise<Buffer | null>;
+  ): Promise<Uint8Array | null>;
   protected abstract getBase64EncodedBinaryFileMetadataFromPatch<
     T extends "file" | "image",
   >(
@@ -2889,7 +3023,7 @@ export abstract class ValOps {
     patchId: PatchId,
     remote: boolean,
   ): Promise<OpsMetadata<T>>;
-  abstract getBinaryFile(filePathOrRef: string): Promise<Buffer | null>;
+  abstract getBinaryFile(filePathOrRef: string): Promise<Uint8Array | null>;
 
   /**
    * A file's bytes as something a `Range` request can be answered from
@@ -2995,7 +3129,7 @@ export abstract class ValOps {
     commitSha: string,
     filePath: string,
     remote: boolean,
-  ): Promise<result.Result<Buffer, HistoryError>>;
+  ): Promise<result.Result<Uint8Array, HistoryError>>;
 
   /**
    * Where a module lives in the REPOSITORY, as `getFileAtCommit` wants it.
@@ -3011,6 +3145,16 @@ export abstract class ValOps {
     moduleFilePath: ModuleFilePath,
   ): result.Result<string, HistoryError>;
   // #endregion history
+}
+
+function isOnlyRemoteCheckValidationError(
+  validationError: ValidationError,
+): boolean {
+  const fixes = validationError.fixes ?? [];
+  return (
+    fixes.length > 0 &&
+    fixes.every((f) => f === "image:check-remote" || f === "file:check-remote")
+  );
 }
 
 function isOnlyFileCheckValidationError(validationError: ValidationError) {
@@ -3339,6 +3483,15 @@ export type OrderedPatches = {
    */
   headVersion?: number;
   /**
+   * The branch's last commit, `null` when it has none: what the commits this
+   * answer lists bring a build up to at the least, because the content
+   * service reads it before them. What Publish selected names as its
+   * proposal's base, so a publish landing in between is refused rather than
+   * reverted. Only `ValOpsHttp` fills it, and only from an unfiltered read
+   * (`fetchPatches` without `patchIds`); absent from an older content service.
+   */
+  headCommitSha?: string | null;
+  /**
    * Of these patches, the ones a publish job that is still running holds. A
    * Studio does not offer Publish over them, on any tab or device. Reported
    * whole on every answer, so a job that ends without sealing gives them back.
@@ -3369,6 +3522,8 @@ export type OrderedPatchesMetadata = {
   headPatchId?: OrderedPatches["headPatchId"];
   /** See {@link OrderedPatches.headVersion}. */
   headVersion?: OrderedPatches["headVersion"];
+  /** See {@link OrderedPatches.headCommitSha}. */
+  headCommitSha?: OrderedPatches["headCommitSha"];
   /** See {@link OrderedPatches.publishingPatches}. */
   publishingPatches?: OrderedPatches["publishingPatches"];
   /** See {@link OrderedPatches.heldBackPatches}. */
@@ -3398,7 +3553,7 @@ export function getFieldsForType<T extends BinaryFileType>(
 export function createMetadataFromBuffer<T extends BinaryFileType>(
   type: BinaryFileType,
   mimeType: string,
-  buffer: Buffer,
+  buffer: Uint8Array,
 ): OpsMetadata<T> {
   const errors = [];
   let availableMetadata: Record<string, string | number | undefined | null>;
@@ -3529,17 +3684,19 @@ export function guessMimeTypeFromPath(filePath: string): string | null {
   return null;
 }
 
-export function bufferFromDataUrl(dataUrl: string): Buffer | undefined {
+export function bufferFromDataUrl(
+  dataUrl: string,
+  /** Node passes `Buffer`'s, which is faster: this is a whole upload. */
+  decodeBase64: (base64: string) => Uint8Array = base64ToBytes,
+): Uint8Array | undefined {
   let base64Data;
   const base64Index = dataUrl.indexOf(";base64,");
   if (base64Index > -1) {
     base64Data = dataUrl.slice(base64Index + ";base64,".length);
   }
   if (base64Data) {
-    return Buffer.from(
-      base64Data,
-      "base64", // TODO: why does it not work with base64url?
-    );
+    // TODO: why does it not work with base64url?
+    return decodeBase64(base64Data);
   }
 }
 
@@ -3547,10 +3704,10 @@ export function bufferFromDataUrl(dataUrl: string): Buffer | undefined {
 export type BinaryFileReader = {
   readonly size: number;
   /** Bytes `start` to `end`, both inclusive, as an HTTP range is. */
-  read(start: number, end: number): Promise<Buffer>;
+  read(start: number, end: number): Promise<Uint8Array>;
 };
 
-export function bufferReader(buffer: Buffer): BinaryFileReader {
+export function bufferReader(buffer: Uint8Array): BinaryFileReader {
   return {
     size: buffer.length,
     read: async (start, end) => buffer.subarray(start, end + 1),

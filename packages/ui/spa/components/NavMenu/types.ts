@@ -2,6 +2,7 @@ import {
   MediaCollectionType,
   SourcePath,
   ModuleFilePath,
+  SerializedSchema,
 } from "@valbuild/core";
 import { RoutePattern } from "@valbuild/shared/internal";
 
@@ -42,6 +43,8 @@ export type SitemapItem = {
   errors?: NavItemErrors;
   /** Description of the router key schema (shown in the add page form) */
   keyDescription?: string;
+  /** The router's route parameter schemas, by name (pickers in the add page form) */
+  routeParams?: Record<string, SerializedSchema>;
   /**
    * What a `.preview(...)` calls this page, when one does.
    *

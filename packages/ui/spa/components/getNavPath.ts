@@ -127,7 +127,7 @@ export function getNavPathFromAll(
     return resolution.path;
   }
   if (resolution.status === "unresolvable") {
-    console.error(
+    Internal.log.error(
       `Error resolving path: ${resolution.reason} for path: ${requestedPath}`,
     );
   }

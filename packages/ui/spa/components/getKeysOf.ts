@@ -3,6 +3,7 @@ import {
   SerializedSchema,
   Source,
   SourcePath,
+  Internal,
 } from "@valbuild/core";
 import { traverseSchemas } from "./traverseSchemas";
 
@@ -17,12 +18,12 @@ export function getKeysOf(
 ): SourcePath[] {
   const parentSource = sources[parent];
   if (parentSource === undefined) {
-    console.error(`Get keysOf source not found for ${parent}`);
+    Internal.log.error(`Get keysOf source not found for ${parent}`);
     return [];
   }
   const parentSchema = schemas[parent];
   if (!parentSchema) {
-    console.error(`Schema not found for ${parent}`);
+    Internal.log.error(`Schema not found for ${parent}`);
     return [];
   }
   const parentSourcePath = parent as unknown as SourcePath;
@@ -35,7 +36,7 @@ export function getKeysOf(
             if (!results.includes(sourcePath)) {
               results.push(sourcePath);
             } else {
-              console.error(
+              Internal.log.error(
                 `Duplicate keyOf reference found for ${sourcePath} in ${parent}`,
               );
             }
@@ -44,7 +45,7 @@ export function getKeysOf(
           if (!results.includes(sourcePath)) {
             results.push(sourcePath);
           } else {
-            console.error(
+            Internal.log.error(
               `Duplicate keyOf reference found for ${sourcePath} in ${parent}`,
             );
           }
@@ -72,7 +73,7 @@ export function getKeysOf(
       // ignore these
     } else {
       const exhaustiveCheck: never = schema;
-      console.error(
+      Internal.log.error(
         `Could not get keyOf references. Unhandled schema type`,
         exhaustiveCheck,
       );

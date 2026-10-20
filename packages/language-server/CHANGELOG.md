@@ -1,5 +1,66 @@
 # @valbuild/language-server
 
+## 0.148.2
+
+### Patch Changes
+
+- Updated dependencies [[`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a)]:
+  - @valbuild/core@0.148.2
+  - @valbuild/shared@0.148.2
+  - @valbuild/server@0.148.2
+
+## 0.148.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.148.1
+
+## 0.148.0
+
+### Patch Changes
+
+- [#818](https://github.com/valbuild/val/pull/818) [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1) Thanks [@freekh](https://github.com/freekh)! - Remote files served from a project's own site (addresses like
+  `https://www.acme.no/_val/file/…`) are now checked for whether that address
+  still serves the project. When a custom domain has been removed or moved to
+  another project, the image or file is reported, and **Fix** on the Studio's
+  Validate page — or `val validate --fix` — points it at the project's permanent
+  `<id>.valstart.dev` address. Nothing is uploaded or downloaded: only the address
+  changes.
+
+  Remote file addresses with a `/_val` prefix after the host are now recognised.
+
+- Updated dependencies [[`df5544c`](https://github.com/valbuild/val/commit/df5544c6e92a4c3a52765630c9de191e854ee723), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1), [`562d032`](https://github.com/valbuild/val/commit/562d03280c3fcf97a80562e8b017dd2125ac4ad1)]:
+  - @valbuild/server@0.148.0
+  - @valbuild/shared@0.148.0
+  - @valbuild/core@0.148.0
+
+## 0.147.0
+
+### Patch Changes
+
+- Updated dependencies [[`2f09cd5`](https://github.com/valbuild/val/commit/2f09cd5e2f4fc37f06917899f24f9ad2ee8d3a8b), [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd), [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd)]:
+  - @valbuild/core@0.147.0
+  - @valbuild/shared@0.147.0
+  - @valbuild/server@0.147.0
+
+## 0.146.4
+
+### Patch Changes
+
+- Updated dependencies [[`81f2e80`](https://github.com/valbuild/val/commit/81f2e803c4cefdf58bbe6856c06e98ace95a8e0b), [`c31f609`](https://github.com/valbuild/val/commit/c31f609fdeed79aa0e139fa4f652ba0684e96ea3)]:
+  - @valbuild/shared@0.146.4
+  - @valbuild/server@0.146.4
+
+## 0.146.2
+
+### Patch Changes
+
+- Updated dependencies [[`e4913e1`](https://github.com/valbuild/val/commit/e4913e1f1178e09987a7c03fd540909ab4b499b0), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9), [`04f81ba`](https://github.com/valbuild/val/commit/04f81baeee4a98054c0673ca9fdc34bc5cadacb9)]:
+  - @valbuild/core@0.146.2
+  - @valbuild/shared@0.146.2
+  - @valbuild/server@0.146.2
+
 ## 0.146.1
 
 ### Patch Changes

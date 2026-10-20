@@ -13,10 +13,21 @@
       "module": "./dist/valbuild-server.esm.js",
       "default": "./dist/valbuild-server.cjs.js"
     },
+    "./browser": {
+      "module": "./browser/dist/valbuild-server-browser.esm.js",
+      "default": "./browser/dist/valbuild-server-browser.cjs.js"
+    },
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-server.cjs.d.ts",
-  "version": "0.146.1",
+  "preconstruct": {
+    "entrypoints": [
+      "./index.ts",
+      "./browser/index.ts"
+    ],
+    "exports": true
+  },
+  "version": "0.148.2",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest",
@@ -44,6 +55,7 @@
   },
   "files": [
     "CHANGELOG.md",
-    "dist"
+    "dist",
+    "browser"
   ]
 }

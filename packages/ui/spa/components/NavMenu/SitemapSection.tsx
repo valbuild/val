@@ -203,6 +203,7 @@ export function collectSitemapRoutes(sitemap: SitemapItem): {
           patternString,
           existingKeys: [],
           keyDescription: item.keyDescription,
+          routeParams: item.routeParams,
         });
       }
     }
