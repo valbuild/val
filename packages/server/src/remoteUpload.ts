@@ -5,6 +5,10 @@ import {
   SerializedImageSchema,
   SerializedVideoSchema,
 } from "@valbuild/core";
+import {
+  LOCAL_FILE_IN_REMOTE_PROJECT_HINT,
+  LOCAL_FILE_IN_REMOTE_PROJECT_WARNING,
+} from "@valbuild/shared/internal";
 import type { FixHandlerContext, FixHandlerResult } from "./fixHandlers";
 import { getFileExt } from "./getFileExt";
 import {
@@ -13,6 +17,23 @@ import {
 } from "./personalAccessTokens";
 
 const textEncoder = new TextEncoder();
+
+/**
+ * What an upload fix answers when `--fix` is off and the files it would upload
+ * are all there: a warning, not an error (`WARNING_FIXES` in
+ * `@valbuild/shared`). Asked only after the files were found, so a missing one
+ * is still reported as the error it is.
+ */
+export function localFilesWarning(files: string[]): FixHandlerResult {
+  return {
+    success: true,
+    warning: {
+      message: LOCAL_FILE_IN_REMOTE_PROJECT_WARNING,
+      files,
+      hint: LOCAL_FILE_IN_REMOTE_PROJECT_HINT,
+    },
+  };
+}
 
 /**
  * Everything an upload to Val Remote needs before it has any bytes: the

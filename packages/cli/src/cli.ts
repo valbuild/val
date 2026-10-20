@@ -38,6 +38,7 @@ async function main(): Promise<void> {
         --root [root], -r [root] Set project root directory (default process.cwd())
         --fix  [fix]             Attempt to fix validation errors
         --watch, -w              Re-validate on changes to val.config, val.modules and *.val files
+        --strict                 Fail on warnings too (local files in a project with remote files)
 
       
       Command: login
@@ -95,6 +96,7 @@ async function main(): Promise<void> {
         --dry-run                Verify, and stop before the site changes
         --skip-validation        Publish without running "val validate" first. It runs by
                                  default, and an error stops the publish
+        --strict                 Let a validation warning stop the publish too
 
       Command: list-unused-files
       Description: EXPERIMENTAL.
@@ -190,6 +192,9 @@ async function main(): Promise<void> {
         skipValidation: {
           type: "boolean",
         },
+        strict: {
+          type: "boolean",
+        },
         yes: {
           type: "boolean",
         },
@@ -269,6 +274,7 @@ async function main(): Promise<void> {
         linksOwnCss: flags.linksOwnCss,
         dryRun: flags.dryRun,
         skipValidation: flags.skipValidation,
+        strict: flags.strict,
       });
     case "login":
       return login({
@@ -297,6 +303,7 @@ async function main(): Promise<void> {
         root: flags.root,
         fix: flags.fix,
         watch: flags.watch,
+        strict: flags.strict,
       });
     default:
       return error(`Unknown command "${input.join(" ")}"`);

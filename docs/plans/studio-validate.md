@@ -256,8 +256,8 @@ failed run as it shows any other.
 $ val publish
 Validating project 'acme/web'...
 Found 17 files...
-content/media.val.ts  ⚠ 1 fixable
-│  ⚠  content/media.val.ts:12:5
+content/media.val.ts  ✘ 1 error (1 fixable)
+│  ✘  content/media.val.ts:12:5
 │     Image metadata is missing
 │     → run with --fix to apply
 ✘ 1 error (1 fixable) across 1 file · 16 valid
