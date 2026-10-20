@@ -9,9 +9,10 @@ export default defineConfig({
    * and everything else is `process.env.NAME` on the server only
    * (`@valbuild/tanstack-build`'s `envFor`). Vite lets only `VITE_` through by
    * default, so without this a `PUBLIC_` value from `.env` is there hosted and
-   * missing in `vite dev`.
+   * missing in `vite dev`. And ONLY `PUBLIC_`: a `VITE_` name would reach the
+   * browser here and not on the platform.
    */
-  envPrefix: ["VITE_", "PUBLIC_"],
+  envPrefix: "PUBLIC_",
   plugins: [
     tanstackStart({
       /*

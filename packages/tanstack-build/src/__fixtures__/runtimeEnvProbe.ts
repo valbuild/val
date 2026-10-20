@@ -63,6 +63,9 @@ export function read() {
     mode: MODE,
     ssr: import.meta.env.SSR,
     inlined: import.meta.env.PUBLIC_INLINED,
+    inlinedNode: process.env.PUBLIC_INLINED,
+    buildOnly: import.meta.env.PUBLIC_BUILD_ONLY,
+    buildOnlyNode: process.env.PUBLIC_BUILD_ONLY,
   };
 }
 `,
@@ -82,8 +85,8 @@ type App = { atTop: unknown; read: () => Record<string, unknown> };
 
 async function run(code: string): Promise<Record<string, unknown>> {
   const url = `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`;
-  const app = ((await import(url)) as { default: App }).default;
-  return { atTop: app.atTop, ...app.read() };
+  const mod: { default: App } = await import(url);
+  return { atTop: mod.default.atTop, ...mod.default.read() };
 }
 
 async function main() {
@@ -91,8 +94,10 @@ async function main() {
     files,
     target,
     // UNREAD_SERVER_ONLY is read by nothing, so it must be in nothing.
+    // PUBLIC_BUILD_ONLY is set at build time and not at runtime.
     env: {
       PUBLIC_INLINED: "from-build",
+      PUBLIC_BUILD_ONLY: "build-only",
       UNREAD_SERVER_ONLY: "unread-build-value",
     },
   });
@@ -100,7 +105,7 @@ async function main() {
   // The browser: the loader's `<head>` script has run, and it hands over
   // PUBLIC_ names only -- SERVER_ONLY is here to show the bundle would not
   // read it even if it were.
-  (globalThis as Record<string, unknown>)["__PLATFORM_PUBLIC_ENV"] = RUNTIME;
+  Reflect.set(globalThis, "__PLATFORM_PUBLIC_ENV", RUNTIME);
   const savedProcess = globalThis.process;
   // As in a browser, where there is no `process` at all.
   Reflect.deleteProperty(globalThis, "process");

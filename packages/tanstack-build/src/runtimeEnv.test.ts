@@ -38,7 +38,10 @@ beforeAll(() => {
     .split("\n")
     .reverse()
     .find((candidate) => candidate.startsWith("{"));
-  probe = JSON.parse(line!) as Probe;
+  if (line === undefined)
+    throw new Error(`The probe printed no result:\n${out}`);
+  const parsed: Probe = JSON.parse(line);
+  probe = parsed;
 }, 300_000);
 
 test("every read was given something to read", () => {
@@ -46,7 +49,9 @@ test("every read was given something to read", () => {
   expect(probe.identifierLeft).toBe(false);
 });
 
-describe.each(["client", "server"] as const)("the %s bundle", (side) => {
+const sides: Array<"client" | "server"> = ["client", "server"];
+
+describe.each(sides)("the %s bundle", (side) => {
   const read = () => probe[side];
 
   test("reads a PUBLIC_ variable at runtime, however it is spelled", () => {
@@ -64,8 +69,16 @@ describe.each(["client", "server"] as const)("the %s bundle", (side) => {
     expect(read().ssr).toBe(side === "server");
   });
 
-  test("lets a value inlined at build time win", () => {
-    expect(read().inlined).toBe("from-build");
+  test("lets a value set at runtime win over one given at build time", () => {
+    // Changing a variable in Val Build changes what the site reads, even
+    // where the build was also given it.
+    expect(read().inlined).toBe("from-runtime");
+    expect(read().inlinedNode).toBe("from-runtime");
+  });
+
+  test("falls back to a value given at build time that is not set at runtime", () => {
+    expect(read().buildOnly).toBe("build-only");
+    expect(read().buildOnlyNode).toBe("build-only");
   });
 
   test("reads no other name through import.meta.env, as in Vite", () => {

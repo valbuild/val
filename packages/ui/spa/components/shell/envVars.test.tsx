@@ -2,6 +2,8 @@
 import { render, renderHook, screen } from "@testing-library/react";
 import { EnvVarsElement, useEnvVarsTarget } from "./EnvVars";
 import { toEnvVarsHref } from "./shellDataMapping";
+import { ValSettingsSections } from "./ValSettingsSections";
+import type { ValBuildAccess } from "./useValBuildAccess";
 
 /**
  * `<val-env-vars>`, Val Build's variables and secrets for one project. jsdom
@@ -21,13 +23,18 @@ const mockConfig: { current: Record<string, string> | undefined } = {
     contentHost: "https://content.val.build",
   },
 };
-const mockAccess = { current: { connected: true, studioMode: "http" } };
-jest.mock("../ValProvider", () => ({ useValMode: () => "http" }));
+const mockAccess: { current: ValBuildAccess } = {
+  current: { connected: true, studioMode: "http" },
+};
 jest.mock("../ValFieldProvider", () => ({
+  ...jest.requireActual("../ValFieldProvider"),
   useValConfig: () => mockConfig.current,
 }));
-jest.mock("./useValBuildAccess", () => ({
-  useValBuildAccess: () => mockAccess.current,
+// http mode: connected, with nothing to ask the server.
+jest.mock("../ValProvider", () => ({
+  useValMode: () => "http",
+  useRefreshAIModels: () => () => undefined,
+  useClient: () => () => Promise.reject(new Error("not under test")),
 }));
 
 afterEach(() => {
@@ -74,7 +81,7 @@ test("loads env-vars.js from Val Build", () => {
 });
 
 test("a connected project has somewhere to set them", () => {
-  const { result } = renderHook(() => useEnvVarsTarget());
+  const { result } = renderHook(() => useEnvVarsTarget(mockAccess.current));
   expect(result.current).toEqual({
     project: "acme/marketing-site",
     envHref: ENV_HREF,
@@ -88,12 +95,16 @@ test("a project that is not connected has no Variables tab, rather than one that
     appHost: "https://admin.val.build",
     contentHost: "https://content.val.build",
   };
-  expect(renderHook(() => useEnvVarsTarget()).result.current).toBeNull();
+  expect(
+    renderHook(() => useEnvVarsTarget(mockAccess.current)).result.current,
+  ).toBeNull();
 });
 
 test("nor does one whose Val Build cannot be reached", () => {
   mockAccess.current = { connected: false, studioMode: "http" };
-  expect(renderHook(() => useEnvVarsTarget()).result.current).toBeNull();
+  expect(
+    renderHook(() => useEnvVarsTarget(mockAccess.current)).result.current,
+  ).toBeNull();
 });
 
 test("the link is the stable one admin redirects, and only for <org>/<project>", () => {
@@ -110,4 +121,19 @@ test("the link is the stable one admin redirects, and only for <org>/<project>",
     }),
   ).toBeUndefined();
   expect(toEnvVarsHref(undefined)).toBeUndefined();
+});
+
+test("a project with no settings module still has its Variables tab", () => {
+  const { container } = render(<ValSettingsSections />);
+  expect(screen.getByText(/This project has no settings module/)).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "Variables" })).toBeTruthy();
+  expect(container.querySelector("val-env-vars")).not.toBeNull();
+});
+
+test("and one that is not connected is told only about the module", () => {
+  mockConfig.current = { appHost: "https://admin.val.build" };
+  const { container } = render(<ValSettingsSections />);
+  expect(screen.getByText(/This project has no settings module/)).toBeTruthy();
+  expect(screen.queryByRole("tab")).toBeNull();
+  expect(container.querySelector("val-env-vars")).toBeNull();
 });

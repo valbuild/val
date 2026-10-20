@@ -1,8 +1,7 @@
-import { useValMode } from "../ValProvider";
 import { useValConfig } from "../ValFieldProvider";
 import { useValWebComponent } from "./ProjectSwitcher";
 import { toEnvVarsHref, toWebComponentsUrl } from "./shellDataMapping";
-import { useValBuildAccess } from "./useValBuildAccess";
+import type { ValBuildAccess } from "./useValBuildAccess";
 
 /**
  * `<val-env-vars>`, Val Build's variables and secrets for THIS project: what
@@ -12,7 +11,9 @@ import { useValBuildAccess } from "./useValBuildAccess";
  *
  * Mounted under the same rules as the AI setup -- a connected project, and
  * Val Build reachable (after `val login` locally) -- and otherwise not at
- * all: `useEnvVarsTarget` is null, and Settings has no Variables tab. The
+ * all: `useEnvVarsTarget` is null, and Settings has no Variables tab. It is
+ * handed the access rather than asking for it, so Settings asks
+ * `/admin/status` once for this and the AI setup together. The
  * element itself says when the project runs on its own hosting, where these
  * are set at the host instead. Its fallback is the project's Variables
  * section in Val Build, by its stable link.
@@ -29,10 +30,10 @@ export type EnvVarsTarget = {
   studioMode?: "fs" | "http";
 };
 
-export function useEnvVarsTarget(): EnvVarsTarget | null {
+export function useEnvVarsTarget(
+  valBuild: ValBuildAccess,
+): EnvVarsTarget | null {
   const config = useValConfig();
-  const mode = useValMode();
-  const valBuild = useValBuildAccess(mode);
   const envHref = toEnvVarsHref(config);
   const webComponentsUrl = toWebComponentsUrl(config);
   if (

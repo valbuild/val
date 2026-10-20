@@ -545,9 +545,14 @@ export function hostLabel(url: string): string {
  * currently live, so Val does not have to track that page moving. The
  * project's AI keys are `/manage-ai/<org>/<project>`, for the same reason.
  */
-export function toAdminLinks(
+/**
+ * `org/name` and the admin host, for the projects Val Build has pages for:
+ * the one parse `toAdminLinks` and `toEnvVarsHref` both make, so the two
+ * cannot disagree about which projects those are.
+ */
+function adminProjectOf(
   config: { project?: string; appHost?: string } | undefined,
-): ShellAdminLinks | undefined {
+): { host: string; org: string; project: string } | undefined {
   if (!config?.project || !config.appHost) {
     return undefined;
   }
@@ -555,8 +560,21 @@ export function toAdminLinks(
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
     return undefined;
   }
-  const [org, project] = parts;
-  const host = config.appHost.replace(/\/+$/, "");
+  return {
+    host: config.appHost.replace(/\/+$/, ""),
+    org: parts[0],
+    project: parts[1],
+  };
+}
+
+export function toAdminLinks(
+  config: { project?: string; appHost?: string } | undefined,
+): ShellAdminLinks | undefined {
+  const at = adminProjectOf(config);
+  if (at === undefined) {
+    return undefined;
+  }
+  const { host, org, project } = at;
   return {
     project: `${host}/~/${encodeURIComponent(org)}/${encodeURIComponent(project)}`,
     members: `${host}/manage-members/${encodeURIComponent(org)}`,
@@ -573,15 +591,11 @@ export function toAdminLinks(
 export function toEnvVarsHref(
   config: { project?: string; appHost?: string } | undefined,
 ): string | undefined {
-  if (
-    toAdminLinks(config) === undefined ||
-    !config?.project ||
-    !config.appHost
-  ) {
+  const at = adminProjectOf(config);
+  if (at === undefined) {
     return undefined;
   }
-  const [org, project] = config.project.split("/");
-  return `${config.appHost.replace(/\/+$/, "")}/manage-env/${encodeURIComponent(org)}/${encodeURIComponent(project)}`;
+  return `${at.host}/manage-env/${encodeURIComponent(at.org)}/${encodeURIComponent(at.project)}`;
 }
 
 /**

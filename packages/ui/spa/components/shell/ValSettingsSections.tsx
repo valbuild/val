@@ -1,5 +1,11 @@
 import { AiSetup } from "./AiSetup";
-import { EnvVarsElement, useEnvVarsTarget } from "./EnvVars";
+import {
+  EnvVarsElement,
+  type EnvVarsTarget,
+  useEnvVarsTarget,
+} from "./EnvVars";
+import { type ValBuildAccess, useValBuildAccess } from "./useValBuildAccess";
+import { useValMode } from "../ValProvider";
 import { useMemo } from "react";
 import type { Json } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
@@ -34,6 +40,7 @@ import {
   NoSettingsModule,
   SettingsLogoPlaceholder,
   SettingsSectionDivider,
+  type SettingsTab,
   SettingsTabs,
   StudioSettingsFields,
   ThemeSettingsFields,
@@ -56,13 +63,54 @@ export function ValSettingsSections({
 }: {
   moduleFilePath?: ModuleFilePath;
 }) {
+  // Asked once, here, for the AI setup and the Variables tab both: each would
+  // otherwise ask `/admin/status` itself.
+  const valBuild = useValBuildAccess(useValMode());
   if (!moduleFilePath) {
-    return <NoSettingsModule />;
+    return <WithoutSettingsModule valBuild={valBuild} />;
   }
-  return <Sections moduleFilePath={moduleFilePath} />;
+  return <Sections moduleFilePath={moduleFilePath} valBuild={valBuild} />;
 }
 
-function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
+/**
+ * A project with no settings module still has its variables and secrets:
+ * they are Val Build's, not the module's, and a site that reads them needs
+ * them set whether it has settings or not.
+ */
+function WithoutSettingsModule({ valBuild }: { valBuild: ValBuildAccess }) {
+  const envVars = useEnvVarsTarget(valBuild);
+  if (envVars === null) {
+    return <NoSettingsModule />;
+  }
+  return (
+    <>
+      <NoSettingsModule />
+      <SettingsTabs tabs={[variablesTab(envVars)]} />
+    </>
+  );
+}
+
+/**
+ * The project's variables and secrets: Val Build's, not the settings
+ * module's, so not `readonly` -- who may change them is Val Build's to say,
+ * and the element says it.
+ */
+function variablesTab(envVars: EnvVarsTarget): SettingsTab {
+  return {
+    id: "variables",
+    label: "Variables",
+    icon: KeyRound,
+    content: <EnvVarsElement className="block mx-4 pb-6" {...envVars} />,
+  };
+}
+
+function Sections({
+  moduleFilePath,
+  valBuild,
+}: {
+  moduleFilePath: ModuleFilePath;
+  valBuild: ValBuildAccess;
+}) {
   const settings = useShallowSourceAtPath(moduleFilePath, "settings");
   const schema = useSchemaAtPath(moduleFilePath);
   /**
@@ -154,7 +202,7 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
   const writeThemeSetting = useWriteThemeSetting(moduleFilePath);
   // Before the loading return below: a hook, and the tab it decides is not
   // about the settings module at all.
-  const envVars = useEnvVarsTarget();
+  const envVars = useEnvVarsTarget(valBuild);
 
   if (settings.status === "loading" || schema.status === "loading") {
     return <PanelSkeleton rows={4} />;
@@ -175,7 +223,10 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
                * adding it here, in the Studio, is the point. Renders nothing
                * for a project that is not connected to Val Build.
                */}
-              <AiSetup className="block mx-4 pb-6 mb-5 border-b border-border-secondary" />
+              <AiSetup
+                className="block mx-4 pb-6 mb-5 border-b border-border-secondary"
+                valBuild={valBuild}
+              />
               <AssistantSettingsFields
                 value={{
                   enabled: enabledValue,
@@ -282,24 +333,11 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
           ),
         },
         /*
-         * The project's variables and secrets: Val Build's, not the settings
-         * module's, so not `readonly` -- who may change them is Val Build's
-         * to say, and the element says it. Last, so the tabs editors know
-         * keep their places; only for a project connected to Val Build,
-         * since there is nowhere else they could be set from here.
+         * Last, so the tabs editors know keep their places; only for a
+         * project connected to Val Build, since there is nowhere else they
+         * could be set from here.
          */
-        ...(envVars === null
-          ? []
-          : [
-              {
-                id: "variables",
-                label: "Variables",
-                icon: KeyRound,
-                content: (
-                  <EnvVarsElement className="block mx-4 pb-6" {...envVars} />
-                ),
-              },
-            ]),
+        ...(envVars === null ? [] : [variablesTab(envVars)]),
       ]}
     />
   );

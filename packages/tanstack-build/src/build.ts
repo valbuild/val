@@ -773,9 +773,11 @@ function projectPlugin(
  * platform refuses a secret by a `PUBLIC_` name, so nothing read here was ever
  * a secret.
  *
- * `env`, when a caller passes it, is still inlined as literals and wins -- the
- * CLI's `--env`, and every build from before this. Non-public keys of it
- * resolve to `undefined` in the client bundle rather than being left alone.
+ * `env`, when a caller passes it -- the CLI's `--env` -- is the FALLBACK for
+ * a `PUBLIC_` name: a value set at runtime wins, so changing a variable in Val
+ * Build changes what a build that was also given it reads. A name that is not
+ * `PUBLIC_` is still inlined where it is read by name, on the server only; in
+ * the client bundle it is `undefined` rather than left alone.
  */
 function envFor(
   env: Record<string, string>,
@@ -784,12 +786,12 @@ function envFor(
 ): { define: Record<string, string>; runtime: string } {
   const define: Record<string, string> = {};
   /**
-   * What the `import.meta.env` OBJECT holds of `env`: the PUBLIC_ names, on
-   * both sides, as Vite's does. A server-only name is still a literal where it
-   * is read by name (above), and nowhere else -- in the object it would be in
+   * What the `import.meta.env` OBJECT falls back to of `env`: the PUBLIC_
+   * names, on both sides, as Vite's holds. A server-only name is a literal
+   * where it is read by name, and nowhere else -- in the object it would be in
    * the server bundle whether anything read it or not.
    */
-  const inObject: Record<string, string> = {};
+  const fallback: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(env)) {
     if (!VALID_KEY.test(key)) {
@@ -799,11 +801,17 @@ function envFor(
       continue;
     }
 
-    const exposed = target === "server" || key.startsWith(PUBLIC_PREFIX);
-    const literal = exposed ? JSON.stringify(value) : "undefined";
+    if (key.startsWith(PUBLIC_PREFIX)) {
+      // Read through the object, where the runtime value wins over this one.
+      // `import.meta.env.KEY` already is; `process.env.KEY` on the server
+      // would otherwise read `process.env` alone and never see the fallback.
+      fallback[key] = value;
+      define[`process.env.${key}`] = `${RUNTIME_ENV}.${key}`;
+      continue;
+    }
+    const literal = target === "server" ? JSON.stringify(value) : "undefined";
     define[`import.meta.env.${key}`] = literal;
     define[`process.env.${key}`] = literal;
-    if (key.startsWith(PUBLIC_PREFIX)) inObject[key] = value;
   }
 
   // Vite's built-ins, and they win over a project env var of the same name as
@@ -835,7 +843,7 @@ function envFor(
 
   return {
     define,
-    runtime: runtimeEnvSource(target, { ...inObject, ...builtins }),
+    runtime: runtimeEnvSource(target, fallback, builtins),
   };
 }
 
@@ -849,15 +857,20 @@ const RUNTIME_ENV_SPECIFIER = "platform:runtime-env";
 const RUNTIME_ENV_ID = "\0platform:runtime-env";
 
 /**
- * The module {@link RUNTIME_ENV} imports. `fixed` -- the built-ins, and any
- * `env` the caller inlined -- wins over a runtime value of the same name.
+ * The module {@link RUNTIME_ENV} imports: `fallback` (the `PUBLIC_` names the
+ * caller built in), then what is set at runtime, then the built-ins, each
+ * winning over the one before. The built-ins last, as in Vite.
+ *
+ * Not frozen, as Vite's is not: a project that assigns to `import.meta.env`
+ * in a test setup or a polyfill keeps working.
  *
  * `globalThis.process?.env` rather than `process.env`: a server bundle that
  * runs where there is no `process` reads no variables instead of throwing.
  */
 function runtimeEnvSource(
   target: "server" | "client",
-  fixed: Record<string, string | boolean>,
+  fallback: Record<string, string>,
+  builtins: Record<string, string | boolean>,
 ): string {
   const read =
     target === "client"
@@ -869,7 +882,7 @@ function runtimeEnvSource(
     `for (const name of Object.keys(source)) {\n` +
     `  if (name.startsWith(${JSON.stringify(PUBLIC_PREFIX)})) runtime[name] = source[name];\n` +
     `}\n` +
-    `export default Object.freeze(Object.assign(runtime, ${JSON.stringify(fixed, null, 2)}));\n`
+    `export default Object.assign(${JSON.stringify(fallback, null, 2)}, runtime, ${JSON.stringify(builtins, null, 2)});\n`
   );
 }
 
