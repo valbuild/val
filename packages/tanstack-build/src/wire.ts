@@ -516,13 +516,20 @@ const fetchValDraft = async () =>
  *
  * A setting of the project, which its owner turns on in the project's settings
  * and the platform hands over as the \`VAL_ANALYTICS\` secret -- at RUNTIME,
- * like every secret, so switching it is not a rebuild. It is a re-PRERENDER:
- * the value reaches the browser in the layout's loader data, which a
- * prerendered page has baked in, so the platform prerenders again when the
- * setting changes. Off unless that secret says \`true\`. A \`@valbuild/tanstack\` from before analytics ignores the
+ * like every secret, so switching it is not a rebuild. The value reaches the
+ * browser in the layout's loader data, which a prerendered page has baked in;
+ * the platform keeps a prerendered page only for the secrets it was rendered
+ * with, so after a switch pages render live until they are prerendered again.
+ * Off unless that secret says \`true\`. A \`@valbuild/tanstack\` from before analytics ignores the
  * prop, so this is safe to call against any version.
+ *
+ * The handed-over secret ONLY, not \`secret()\`: that falls back to
+ * \`process.env\`, which the builder bakes into this bundle, so a
+ * \`VAL_ANALYTICS\` set at build time would be a second switch in the code --
+ * and one that keeps counting after the owner has turned it off.
  */
-const fetchValAnalytics = async () => secret("VAL_ANALYTICS") === "true";
+const fetchValAnalytics = async () =>
+  (globalThis.__PLATFORM_SECRETS ?? {})["VAL_ANALYTICS"] === "true";
 
 /**
  * A build that is MEANT to edit and cannot, refusing instead of pretending to.
