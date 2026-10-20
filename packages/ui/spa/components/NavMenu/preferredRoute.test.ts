@@ -133,3 +133,12 @@ describe("preferredRoute", () => {
     ).toBeUndefined();
   });
 });
+
+describe("patternMatchesPath with an optional segment that is not last", () => {
+  test("gives the segment back when the rest does not match", () => {
+    const pattern = parseRoutePattern("/[[locale]]/blog/[slug]");
+    expect(patternMatchesPath(pattern, "/blog/hello")).toBe(true);
+    expect(patternMatchesPath(pattern, "/nb/blog/hei")).toBe(true);
+    expect(patternMatchesPath(pattern, "/nb/hei")).toBe(false);
+  });
+});

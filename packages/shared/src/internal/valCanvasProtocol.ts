@@ -331,18 +331,38 @@ export function isValCanvasStudioMessage(
 }
 
 /**
- * Whether this document was loaded as the studio's canvas frame.
+ * Whether this document is showing in the studio's canvas frame.
  *
- * Reads the location directly rather than taking it as an argument, because
- * every caller wants the answer for the document it is running in, and passing
- * it around is how one of them ends up asking about the wrong one.
+ * The parameter marks the document the studio LOADED, and that is not always
+ * the document the frame ends up holding. A frame navigates on its own: a site
+ * with a login of its own redirects a signed-out canvas to its sign-in page,
+ * and the sign-in sends it back to wherever the site chooses. Each of those is
+ * a new document without the parameter, and it used to render Val's whole
+ * overlay inside the canvas — a studio in the studio, which never told the
+ * canvas it was there, so the canvas never went live again until reloaded.
+ *
+ * So where the frame SITS answers too: a document whose parent is the studio
+ * is in the canvas, whatever its own address says. `parentPathname` is that
+ * parent's path: `null` for a top-level document, and for a parent on another
+ * origin, whose `location` cannot be read and which is not the studio anyway.
  */
-export function isValCanvasFrame(search: string): boolean {
+export function isValCanvasFrame(
+  search: string,
+  parentPathname: string | null = null,
+): boolean {
+  if (parentPathname !== null && isValStudioPathname(parentPathname)) {
+    return true;
+  }
   try {
     return new URLSearchParams(search).get(VAL_CANVAS_PARAM) !== null;
   } catch {
     return false;
   }
+}
+
+/** Whether a path is the studio's own route, where the canvas lives. */
+function isValStudioPathname(pathname: string): boolean {
+  return pathname === "/val" || pathname.startsWith("/val/");
 }
 
 /** Add the canvas marker to a page URL. */

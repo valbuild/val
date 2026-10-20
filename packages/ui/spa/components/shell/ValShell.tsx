@@ -23,6 +23,7 @@ import { PublishState } from "./TopBar";
 import {
   ShellBreakpoint,
   ShellData,
+  ShellDestination,
   ShellExternalPage,
   ShellMediaGallery,
   ShellValidationError,
@@ -50,6 +51,14 @@ import { ComparePatchSets, CompareLoading } from "../ComparePatchSets";
 import { isPathWithin } from "../../utils/sourcePath";
 import { cn } from "../designSystem/cn";
 import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
+import { useValDemo } from "../../demo/ValDemoContext";
+import { DemoBanner } from "../../demo/DemoBanner";
+import { DemoPublishButton } from "../../demo/DemoPublishButton";
+import {
+  demoTourSteps,
+  readDemoTourSeen,
+  writeDemoTourSeen,
+} from "../../demo/demoTour";
 import { PublishHandoffCard, handoffCardInStudio } from "./PublishHandoff";
 import { usePublishIndicator } from "../../publish/usePublishIndicator";
 import { LoginDialog } from "../LoginDialog";
@@ -124,6 +133,7 @@ import { LocaleFilterProvider } from "../LocaleFilterProvider";
 import { useProposalsBar } from "../proposals/useProposalsBar";
 import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
+import { AdeptView } from "./AdeptView";
 
 /**
  * The Val studio on the floating shell.
@@ -203,6 +213,24 @@ function ValShellBody({
   state: ReturnType<typeof useShellData>;
   studioAccess: StudioAccessState;
 }) {
+  /*
+   * A demo (`docs/plans/demo-mode.md`): the same Studio, with its own tour,
+   * a card saying what this is, Publish explained rather than done, and no
+   * uploads. Read once at mount, as whether the tour has been seen in this
+   * tab is.
+   */
+  const demo = useValDemo();
+  const [demoTourPending] = useState(
+    () => demo !== null && !readDemoTourSeen(),
+  );
+  const buildDemoTourSteps = useMemo(
+    () =>
+      demo === null
+        ? undefined
+        : (project: { destinations: readonly ShellDestination[] }) =>
+            demoTourSteps({ ...project, uploads: demo.uploads }),
+    [demo],
+  );
   const { resolvedTheme, setTheme, themeStyle } = useTheme();
   /**
    * The outline colours to hand the canvas frame.
@@ -1176,6 +1204,7 @@ function ValShellBody({
     !navigation.isErrorsView &&
     !navigation.isHistoryView &&
     !navigation.isReviewView &&
+    !navigation.isAdeptView &&
     selectionId === null &&
     navigation.currentSourcePath
       ? (navigation.currentSourcePath as SourcePath)
@@ -1203,6 +1232,9 @@ function ValShellBody({
      * property of it being a panel, and a route keeps it.
      */
     <HistoryView />
+  ) : navigation.isAdeptView ? (
+    // Unlinked: see VAL_ADEPT_ROUTE.
+    <AdeptView />
   ) : unlistedModulePath ? (
     <Module path={unlistedModulePath} showModuleGalleryChild={null} />
   ) : null;
@@ -1295,17 +1327,32 @@ function ValShellBody({
         renderEditor={renderEditor}
         renderSettings={renderSettings}
         renderExternalPages={renderExternalPages}
-        tourEnabled={isTourOffered(studioSettings)}
+        tourEnabled={demo !== null || isTourOffered(studioSettings)}
+        buildTourSteps={buildDemoTourSteps}
+        autoStartTour={demoTourPending}
+        onTourClose={demo !== null ? writeDemoTourSeen : undefined}
+        renderDemoBanner={
+          demo !== null
+            ? (startTour) => (
+                <DemoBanner
+                  onStartTour={startTour}
+                  // The demo's edits live in this page's memory, so a reload
+                  // is a reset: there is nothing stored to clear.
+                  onReset={() => window.location.reload()}
+                />
+              )
+            : undefined
+        }
         editorOverride={overrideEditor}
         notice={shellNotice}
         renderPlanStatus={planStatus}
         statusNotice={remoteFilesStatusNotice}
-        publishSlot={<PublishButton />}
+        publishSlot={demo !== null ? <DemoPublishButton /> : <PublishButton />}
         publishState={publishState}
         publishIndicator={publishIndicatorState}
         saveState={saveState}
         autoSave={autoPublish}
-        onAutoSaveChange={setAutoPublish}
+        onAutoSaveChange={demo !== null ? undefined : setAutoPublish}
         pendingChanges={data.pendingChanges ?? 0}
         /*
          * Zeroed when the pending patches cancel out, so Review does not put a
@@ -1355,7 +1402,8 @@ function ValShellBody({
         onNewPage={addPage}
         onDuplicatePage={duplicatePage}
         onRenamePage={renamePage}
-        onUploadMedia={uploadInto}
+        // Where the demo cannot relay uploads (see `ValDemoRuntime.uploads`).
+        onUploadMedia={demo !== null && !demo.uploads ? undefined : uploadInto}
         onPreview={openPreviewTab}
         // Also as an href, so the menu item is a link that can be copied. The URL
         // enables preview and redirects, so it is worth sending to someone.

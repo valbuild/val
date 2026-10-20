@@ -2,8 +2,8 @@ import { defineConfig } from "vite";
 import {
   DEFAULT_STATIC_HOST,
   rolldownBrowserBindingPlugin,
-  rolldownWasmPlugin,
-} from "./build/rolldownWasm";
+  staticWasmPlugin,
+} from "./build/staticWasm";
 
 const OUT_DIR = "./server/.tmp";
 
@@ -11,8 +11,8 @@ const OUT_DIR = "./server/.tmp";
  * The Studio's own bundle.
  *
  * Everything this emits is base64-embedded into the server bundle by
- * `fix-server-hack.js` and served from `/api/val/static` -- with one exception,
- * which is what the plugin below is for. See `build/rolldownWasm.ts`.
+ * `fix-server-hack.js` and served from `/api/val/static` -- except the
+ * WebAssembly, which is what the plugin below is for. See `build/staticWasm.ts`.
  */
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -26,7 +26,7 @@ export default defineConfig({
   },
   plugins: [
     rolldownBrowserBindingPlugin({ root: import.meta.dirname }),
-    rolldownWasmPlugin({
+    staticWasmPlugin({
       root: import.meta.dirname,
       host: process.env.VAL_STATIC_HOST || DEFAULT_STATIC_HOST,
       outDir: OUT_DIR,
@@ -37,7 +37,7 @@ export default defineConfig({
    * is a bundle of its own with plugins of its own. ES modules, because the
    * builder is dynamic imports and rolldown's loader awaits at the top level.
    * The binding redirect again, because the builder is in THIS bundle now; the
-   * wasm URL rewrite needs nothing, as `renderBuiltUrl` is config for every
+   * wasm URL rewrites need nothing, as `renderBuiltUrl` is config for every
    * bundle the build emits.
    */
   worker: {

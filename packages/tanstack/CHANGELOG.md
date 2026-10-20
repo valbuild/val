@@ -1,5 +1,79 @@
 # @valbuild/tanstack
 
+## 0.147.0
+
+### Minor Changes
+
+- [#816](https://github.com/valbuild/val/pull/816) [`2f09cd5`](https://github.com/valbuild/val/commit/2f09cd5e2f4fc37f06917899f24f9ad2ee8d3a8b) Thanks [@freekh](https://github.com/freekh)! - Routers can give each route parameter a schema, and a URL can say which language a page is in.
+
+  - **`s.router(router, params, item)`** takes a schema per route parameter, by the name the route file gives it (`$slug`, `[slug]`, `{-$locale}`). Each key's parameters are validated against them, and a name the route does not have is a schema error.
+
+    ```ts
+    s.router(tanstackRouter, { locale: urlLocale, slug: s.string() }, item);
+    ```
+
+  - **`s.enum(...).locales({ ... })`** says which of the project's languages each value means, so `/nb/…` can mean `nb-NO`. The tags are checked against `locales.available` in the settings module, like `s.locale()`. On a nullable enum, a second argument names the language of a URL that leaves the segment out, which only a router parameter may use:
+
+    ```ts
+    const urlLocale = s
+      .enum("nb")
+      .nullable()
+      .locales({ nb: "nb-NO" }, { null: "en-US" });
+    ```
+
+    A router with a locale parameter makes each page a locale scope, so the Studio and validation know which language every page is in.
+
+  - **A route's language segment can no longer be forgotten.** In a project that declares `locales.available`, a page route with a `locale` or `lang` segment (`{-$locale}`, `[lang]`) whose module gives that parameter no schema is reported, saying what to add. Any schema answers it, so a `$lang` that is not a language is silenced with its own, e.g. `{ lang: s.enum("typescript", "python") }`. It is an ordinary validation error: the Studio still opens and `val validate` lists it, but a project that already has such a route will see it after upgrading, and it blocks publishing until the parameter has a schema.
+  - **The Studio's new-page form offers a language as a list.** A route parameter whose schema is a locale is picked from the project's languages, each named in its own language, with "no prefix" where the URL may leave the segment out. Other enum parameters get a list of their values, and every parameter's description is shown under it. The URL row previews what the choice puts there.
+  - **TanStack optional segments (`{-$param}`)** are now understood: route validation, `useValRoute` and the Studio's new-page form accept keys with and without the segment.
+
+- [#876](https://github.com/valbuild/val/pull/876) [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd) Thanks [@freekh](https://github.com/freekh)! - Demo mode: run the Val Studio with no account and no backend (TanStack Start).
+
+  `<ValApp demo>` starts Val's own server in the visitor's browser tab, and the Studio talks to it there instead of to `/api/val`. Edits show up in the page as they are typed and are held in the tab's memory: nothing is sent anywhere, and a reload starts over. Images and videos can be uploaded too: a small service worker, served by `initValDemoServer()`, hands the upload and the unpublished files to the server in the tab, so an uploaded photo or video shows in the page with nothing leaving the browser. Uploads are capped by their size after encoding. Pair `<ValApp demo>` with `<ValProvider demo>` on the site and `initValDemoServer()` from the new `@valbuild/tanstack/demo` entry on the API route. In a demo the Studio opens with a guided tour, Publish explains what it would do instead of publishing, and Preview in a new tab is shown but disabled.
+
+  Also:
+
+  - `@valbuild/server/browser` is a new entry: Val's request handling, bundleable for a browser. The TypeScript compiler, which only publishing and history need, is loaded when they ask for it, so a browser bundle of the server is about 140 KB rather than 3.6 MB.
+  - `s.image({ encode })` now scales an image down in browsers that cannot write WebP (Safari), as a JPEG or PNG in the image's own format, instead of uploading it at full size.
+  - `GET /profiles` answers with no profiles, rather than an error, when edits are stored locally and no project is configured.
+
+### Patch Changes
+
+- Updated dependencies [[`2f09cd5`](https://github.com/valbuild/val/commit/2f09cd5e2f4fc37f06917899f24f9ad2ee8d3a8b), [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd), [`cb04e58`](https://github.com/valbuild/val/commit/cb04e586db1e3ffd20ec1fee744561b1c8f8cffd)]:
+  - @valbuild/core@0.147.0
+  - @valbuild/shared@0.147.0
+  - @valbuild/ui@0.147.0
+  - @valbuild/server@0.147.0
+  - @valbuild/language-server@0.147.0
+  - @valbuild/mcp@0.147.0
+  - @valbuild/react@0.147.0
+
+## 0.146.4
+
+### Patch Changes
+
+- [#870](https://github.com/valbuild/val/pull/870) [`81f2e80`](https://github.com/valbuild/val/commit/81f2e803c4cefdf58bbe6856c06e98ace95a8e0b) Thanks [@freekh](https://github.com/freekh)! - The canvas works on a page behind your site's own login.
+
+  A site with its own sign-in (a dashboard, an intranet, a members' area) can be edited in the canvas. The canvas is a frame on the same origin as the Studio, so it sends your site's cookies like any other tab: if you are signed in to the site, the canvas shows the page signed in as you.
+
+  If you were not signed in, the site redirected the canvas to its login page, and the canvas then broke. That page mounted Val's whole overlay inside the canvas, a Studio inside the Studio. The canvas stayed on "Preview is not ready yet" through the sign-in and after it, until you pressed Reload. Now a page shown in the Studio's canvas counts as the canvas wherever it navigated to, so you can sign in inside the canvas and keep editing.
+
+- Updated dependencies [[`81f2e80`](https://github.com/valbuild/val/commit/81f2e803c4cefdf58bbe6856c06e98ace95a8e0b), [`59ff6c3`](https://github.com/valbuild/val/commit/59ff6c367bc313b2bb7718b00c1641aaccab949d), [`c31f609`](https://github.com/valbuild/val/commit/c31f609fdeed79aa0e139fa4f652ba0684e96ea3)]:
+  - @valbuild/shared@0.146.4
+  - @valbuild/ui@0.146.4
+  - @valbuild/server@0.146.4
+  - @valbuild/language-server@0.146.4
+  - @valbuild/mcp@0.146.4
+  - @valbuild/react@0.146.4
+
+## 0.146.3
+
+### Patch Changes
+
+- [#873](https://github.com/valbuild/val/pull/873) [`289b2f3`](https://github.com/valbuild/val/commit/289b2f3dc6503393697d09ba3ed802b569a914c9) Thanks [@freekh](https://github.com/freekh)! - Opening the Studio no longer flashes an empty page. The loading screen now stays
+  up until the Studio is ready to be seen, instead of disappearing as soon as the
+  page loaded and leaving a blank page while the Studio downloaded.
+
 ## 0.146.2
 
 ### Patch Changes

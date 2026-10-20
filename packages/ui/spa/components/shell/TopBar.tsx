@@ -19,6 +19,12 @@ import {
 } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../designSystem/tooltip";
+import { DEMO_NEW_TAB_OFF, useValDemo } from "../../demo/ValDemoContext";
 import { Avatar } from "../Avatar";
 import { AccountErrorDot } from "./AccountError";
 import { StudioMark } from "./ValLogo";
@@ -633,8 +639,33 @@ export function PreviewButton({
   }, [isOpen]);
 
   const labelClassName = alwaysShowLabel ? undefined : "hidden md:inline";
+  // Opening a new tab is the one way to preview a demo cannot offer.
+  const newTabOff = useValDemo() !== null ? DEMO_NEW_TAB_OFF : undefined;
 
   // Without a canvas there is nothing to choose between, so there is no menu.
+  if (!onToggleCanvas && newTabOff !== undefined) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-disabled
+            aria-description={newTabOff}
+            className={cn(
+              "inline-flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-md text-xs font-medium text-fg-secondary border border-border-float opacity-50 cursor-not-allowed",
+              className,
+            )}
+          >
+            <Eye size={14} />
+            <span className={labelClassName}>Preview</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-64 text-xs">
+          {newTabOff}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
   if (!onToggleCanvas) {
     return (
       <button
@@ -742,6 +773,7 @@ export function PreviewButton({
              * is therefore worth sending to someone.
              */
             href={previewHref}
+            disabledReason={newTabOff}
             onClick={() => {
               setIsOpen(false);
               if (previewHref === undefined) onPreview();
@@ -759,6 +791,7 @@ function PreviewMenuItem({
   detail,
   onClick,
   href,
+  disabledReason,
 }: {
   icon: LucideIcon;
   label: string;
@@ -766,6 +799,11 @@ function PreviewMenuItem({
   onClick: () => void;
   /** Renders the item as a link. See "Open in a new tab" above. */
   href?: string;
+  /**
+   * Shown, but not offered: the item stays where it is and says why in a
+   * tooltip, rather than disappearing from a menu someone has seen before.
+   */
+  disabledReason?: string;
 }) {
   const shared =
     "flex w-full items-start gap-2 px-2.5 py-1.5 text-left text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary";
@@ -780,6 +818,26 @@ function PreviewMenuItem({
       </span>
     </>
   );
+  if (disabledReason !== undefined) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            role="menuitem"
+            aria-disabled
+            aria-description={disabledReason}
+            className={cn(shared, "opacity-50 cursor-not-allowed")}
+          >
+            {inner}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="left" className="max-w-64 text-xs">
+          {disabledReason}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
   if (href !== undefined) {
     return (
       <a

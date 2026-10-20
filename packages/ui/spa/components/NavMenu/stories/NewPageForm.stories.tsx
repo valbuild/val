@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { ModuleFilePath } from "@valbuild/core";
+import { ModuleFilePath, initVal } from "@valbuild/core";
 import { RoutePattern } from "@valbuild/shared/internal";
 import { NewPageForm, AvailableRoute } from "../NewPageForm";
+import { ProjectLocalesContext } from "../../../hooks/useProjectLocales";
 
 const meta: Meta<typeof NewPageForm> = {
   title: "NavMenu/NewPageForm",
@@ -107,4 +108,47 @@ export const MultipleRoutes: Story = {
     />
   ),
   name: "Multiple routes (shows dropdown)",
+};
+
+const { s } = initVal();
+
+/**
+ * A route whose URL names its language: `/{-$locale}/news/$slug` with
+ * `s.enum("nb").nullable().locales({ nb: "nb-NO" }, { null: "en-US" })`.
+ */
+const localizedNewsRoute: AvailableRoute = {
+  moduleFilePath: "/src/routes/{-$locale}.news.$slug.val.ts" as ModuleFilePath,
+  routePattern: [
+    { type: "string-param", paramName: "locale", optional: true },
+    { type: "literal", name: "news" },
+    { type: "string-param", paramName: "slug", optional: false },
+  ],
+  patternString: "/[[locale]]/news/[slug]",
+  existingKeys: ["/news/val-in-english", "/nb/news/val-pa-norsk"],
+  routeParams: {
+    locale: s
+      .enum("nb")
+      .nullable()
+      .locales({ nb: "nb-NO" }, { null: "en-US" })
+      ["executeSerialize"](),
+    slug: s
+      .string()
+      .describe("Lower case letters, digits and hyphens")
+      ["executeSerialize"](),
+  },
+};
+
+export const LanguageInTheUrl: Story = {
+  render: () => (
+    <ProjectLocalesContext.Provider value={["en-US", "nb-NO"]}>
+      <NewPageForm
+        routes={[localizedNewsRoute]}
+        onSubmit={(moduleFilePath, urlPath) =>
+          console.log("Create:", { moduleFilePath, urlPath })
+        }
+        onCancel={() => console.log("Cancel")}
+      />
+    </ProjectLocalesContext.Provider>
+  ),
+  name: "Language in the URL (picked from a list)",
 };

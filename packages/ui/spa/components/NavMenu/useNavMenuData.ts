@@ -65,6 +65,8 @@ function transformSitemapNode(
     canAddChild && moduleFilePath ? schemas?.[moduleFilePath] : undefined;
   const keyDescription =
     routerSchema?.type === "record" ? routerSchema.key?.description : undefined;
+  const routeParams =
+    routerSchema?.type === "record" ? routerSchema.params : undefined;
 
   /*
    * What a `.preview(...)` calls this page.
@@ -109,6 +111,7 @@ function transformSitemapNode(
     routePattern,
     existingKeys,
     keyDescription,
+    routeParams,
     title,
     errors,
     children: node.children.map((child) =>

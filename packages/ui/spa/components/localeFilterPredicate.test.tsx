@@ -184,3 +184,50 @@ describe("the filter is always one of the project's languages", () => {
     expect(filterUnder(null)).toBe(null);
   });
 });
+
+/**
+ * An enum with `.locales()` is a locale too: it stores a short code and says
+ * which language each code is. Core treats it as one — a record keyed by it
+ * opens a scope, an object with it as a field is in that language — so the
+ * filter has to read it as one, or those rows are never filtered at all.
+ */
+describe("the locale filter predicate with an enum that names its languages", () => {
+  const codeKey = s
+    .enum("en", "nb")
+    .locales({ en: "en-US", nb: "nb-NO" })
+    ["executeSerialize"]();
+  const codedObject = s
+    .object({
+      language: s.enum("en", "nb").locales({ en: "en-US", nb: "nb-NO" }),
+      title: s.string(),
+    })
+    ["executeSerialize"]();
+  const plainEnumKey = s.enum("en", "nb")["executeSerialize"]();
+
+  test("a record keyed by one shows only the entry the selected language's code is", () => {
+    const matches = predicateUnder("nb-NO");
+    expect(matches({ key: "nb", keySchema: codeKey })).toBe(true);
+    expect(matches({ key: "en", keySchema: codeKey })).toBe(false);
+  });
+
+  test("an object with one as a field is filtered by the language its value means", () => {
+    const matches = predicateUnder("nb-NO");
+    expect(
+      matches({
+        schema: codedObject,
+        source: { language: "nb", title: "Vinterjakke" },
+      }),
+    ).toBe(true);
+    expect(
+      matches({
+        schema: codedObject,
+        source: { language: "en", title: "Winter jacket" },
+      }),
+    ).toBe(false);
+  });
+
+  test("an enum without .locales() says nothing about language", () => {
+    const matches = predicateUnder("nb-NO");
+    expect(matches({ key: "en", keySchema: plainEnumKey })).toBe(true);
+  });
+});

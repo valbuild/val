@@ -218,6 +218,14 @@ export type ValOpsMemoryOptions = ValOpsOptions & {
    */
   unsafelyAllowUnauthenticated?: boolean;
   /**
+   * Whether to warn that the server is unauthenticated. On by default, because
+   * a deployed server serving without authentication is a server anyone can
+   * write to. Off only where nobody else CAN reach it: a server running in a
+   * browser tab (`@valbuild/server/browser`), where the warning would be
+   * printed into a visitor's console about a port that does not exist.
+   */
+  warnUnauthenticated?: boolean;
+  /**
    * Val's content host, for pushing remote files at publish.
    *
    * Only needed by {@link ValOpsMemory.uploadRemoteFiles}. A project with no
@@ -265,6 +273,7 @@ export class ValOpsMemory extends ValOps {
    * in. Where the two differ is not something a route asks about.
    */
   override readonly patchesAreLocal = true;
+  override readonly kind = "memory";
   /**
    * Required, unless the host explicitly takes the boundary itself.
    *
@@ -294,7 +303,10 @@ export class ValOpsMemory extends ValOps {
     this.store = options.patchStore ?? new InMemoryPatchStore();
     this.contentUrl = options.contentUrl;
     this.requiresAuth = !options.unsafelyAllowUnauthenticated;
-    if (options.unsafelyAllowUnauthenticated) {
+    if (
+      options.unsafelyAllowUnauthenticated &&
+      options.warnUnauthenticated !== false
+    ) {
       console.warn(
         "Val: serving memory mode WITHOUT authentication. Every request that " +
           "reaches this server may read content, create patches and trigger a " +

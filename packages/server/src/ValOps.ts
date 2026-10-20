@@ -1,3 +1,8 @@
+/*
+ * Imported rather than global: under Node this is the built-in, and in a
+ * browser (the demo, `@valbuild/server/browser`) the `buffer` package.
+ */
+import { Buffer } from "buffer";
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   MediaSource,
@@ -35,8 +40,6 @@ import {
   applyPatch,
   deepClone,
 } from "@valbuild/core/patch";
-import { TSOps, insertValJsonEntry, removeValJsonEntry } from "./patch/ts/ops";
-import { analyzeValModule } from "./patch/ts/valModule";
 import type { HistoryError } from "./history/HistoryError";
 import type { PlanRefusalErrorT } from "@valbuild/shared/internal";
 import type {
@@ -46,11 +49,7 @@ import type {
   CommitPatch,
   HistoricalCommit,
 } from "./history/types";
-import {
-  analyzeJsonValuesEntries,
-  jsonValuesRecordKeys,
-  type JsonValuesEntry,
-} from "./patch/ts/jsonValuesModule";
+import type { JsonValuesEntry } from "./patch/ts/jsonValuesModule";
 import {
   applyJsonValuesEntryPatches,
   classifyJsonValuesOp,
@@ -64,8 +63,7 @@ import {
   type CurrentJsonEntries,
 } from "./patch/jsonValuesPatch";
 import { validateJsonValuesEntries } from "./validateJsonValues";
-import ts from "typescript";
-import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
+import type { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
 import { ParentPatchId } from "@valbuild/core";
 import type { ReifiedPreview } from "@valbuild/core";
@@ -103,13 +101,6 @@ const jsonOps = new JSONOps();
  * host.
  */
 const JSON_ENTRY_READ_CONCURRENCY = 8;
-const tsOps = new TSOps((document) => {
-  return pipe(
-    analyzeValModule(document),
-    result.map(({ source }) => source),
-  );
-});
-
 /**
  * `.jsonValues()` is only supported on a module's ROOT record/router. A nested
  * one is broken end to end (the `/json` endpoint keys entries by a single
@@ -1725,6 +1716,17 @@ export abstract class ValOps {
     options?: { continueOnError?: boolean },
   ): Promise<PreparedCommit> {
     const continueOnError = options?.continueOnError ?? false;
+    // The TypeScript compiler, loaded now rather than with the server: see
+    // `publishKit.ts`.
+    const {
+      tsOps,
+      parseValFile,
+      analyzeValModule,
+      analyzeJsonValuesEntries,
+      jsonValuesRecordKeys,
+      insertValJsonEntry,
+      removeValJsonEntry,
+    } = await import("./patch/ts/publishKit");
     const { patchesByModule, fileLastUpdatedByPatchId } = patchAnalysis;
     const patchedSourceFiles: Record<string, string | null> = {};
     const previousSourceFiles: Record<ModuleFilePath, string> = {};
@@ -1783,11 +1785,7 @@ export abstract class ValOps {
       }
       const sourceFile = sourceFileRes.data;
       previousSourceFiles[path] = sourceFile;
-      const originalSourceFile = ts.createSourceFile(
-        "<val>",
-        sourceFile,
-        ts.ScriptTarget.ES2015,
-      );
+      const originalSourceFile = parseValFile(sourceFile);
       let tsSourceFile = originalSourceFile;
       let tsChanged = false;
       let serializedSchema: SerializedSchema | undefined = undefined;
@@ -2812,6 +2810,18 @@ export abstract class ValOps {
    * the ones that create patches and publish.
    */
   abstract readonly requiresAuth: boolean;
+
+  /**
+   * Which implementation this is, for the routes that differ by mode.
+   *
+   * A tag rather than `instanceof`, because `instanceof ValOpsFS` needs the
+   * class itself, and importing the class imports `fs`: `ValServer` asking
+   * which mode it is in was what put the filesystem and the content-service
+   * client in the module graph of a server that runs in a browser tab (the
+   * demo, `@valbuild/server/browser`). `isFsOps` and friends in `opsKind.ts`
+   * narrow on it with type-only imports.
+   */
+  abstract readonly kind: "fs" | "http" | "memory";
 
   abstract onInit(baseSha: BaseSha, schemaSha: SchemaSha): Promise<void>;
   abstract fetchPatches<ExcludePatchOps extends boolean>(filters: {
