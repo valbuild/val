@@ -10,7 +10,7 @@ import {
   themeCustomProperties,
   VAL_THEME_SESSION_STORAGE_KEY,
 } from "@valbuild/shared/internal";
-import { THEME_RADIUS_LENGTHS, ValConfig } from "@valbuild/core";
+import { THEME_RADIUS_LENGTHS, ValConfig, Internal } from "@valbuild/core";
 import { NO_THEME_SETTINGS, ThemeSettings } from "../hooks/themeSettings";
 
 export type Themes = "dark" | "light";
@@ -194,7 +194,7 @@ export function ValThemeProvider({
           sessionStorage.setItem(VAL_THEME_SESSION_STORAGE_KEY, newTheme);
           localStorage.setItem(personalThemeKey(project), newTheme);
         } catch (e) {
-          console.error("Error setting theme in storage", e);
+          Internal.log.debug("Error setting theme in storage", e);
         }
         setPersonalTheme(newTheme);
         setTheme(newTheme);
@@ -203,13 +203,13 @@ export function ValThemeProvider({
           sessionStorage.removeItem(VAL_THEME_SESSION_STORAGE_KEY);
           localStorage.removeItem(personalThemeKey(project));
         } catch (e) {
-          console.error("Error removing theme from storage", e);
+          Internal.log.debug("Error removing theme from storage", e);
         }
         // Back to undecided, so the project's default applies again.
         setPersonalTheme(null);
         setTheme(null);
       } else {
-        console.warn(`Cannot set invalid theme: ${newTheme}`);
+        Internal.log.debug(`Cannot set invalid theme: ${newTheme}`);
       }
     },
     [setTheme, project],

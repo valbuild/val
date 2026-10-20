@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import {
   SharedValConfig,
   VAL_CONFIG_SESSION_STORAGE_KEY,
@@ -31,7 +32,7 @@ function getConfigFromSessionStorage() {
   if (config) {
     const sharedConfig = SharedValConfig.safeParse(JSON.parse(config));
     if (sharedConfig.error) {
-      console.error(
+      Internal.log.debug(
         "Error parsing config from session storage",
         sharedConfig.error,
       );

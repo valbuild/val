@@ -1,0 +1,39 @@
+import type { ValidationFix } from "@valbuild/core";
+
+/**
+ * The fixes the Studio's full check offers a **Fix** button for.
+ *
+ * Each is one `createFixPatch` can build without a disk: it reads a file's
+ * bytes through `FixFiles`, or needs no bytes at all. The server refuses any
+ * other code on `/validate/fix`, and the Studio shows those errors with the
+ * command to run instead of a button — so a code is added here when its fix
+ * can run in http mode and on the platform, not before. See
+ * `docs/plans/studio-validate.md`, "Order of work".
+ */
+export const STUDIO_FIXES = [
+  "image:add-metadata",
+  "image:check-metadata",
+  "file:add-metadata",
+  "file:check-metadata",
+  "video:add-metadata",
+  "videos:add-metadata",
+  "view:check-module",
+  // A stale remote ref: re-read through `FixFiles.readRemoteFile`, rewritten
+  // on the host it was already on.
+  "image:check-remote",
+  "file:check-remote",
+  // One entry of an `s.imagedir()` / `s.filedir()`: removed when its file is
+  // gone, rewritten from its bytes when they disagree. Built for that entry
+  // alone, never the whole directory (`fixForStudio`).
+  "images:check-all-files",
+  "files:check-all-files",
+  // A platform ref on a host that no longer serves its project, pointed at
+  // the project's own `valstart.dev` address. Derived from the ref alone.
+  "remote:rewrite-host",
+] as const satisfies readonly ValidationFix[];
+
+export type StudioFix = (typeof STUDIO_FIXES)[number];
+
+export function isStudioFix(fix: ValidationFix): fix is StudioFix {
+  return STUDIO_FIXES.some((studioFix) => studioFix === fix);
+}

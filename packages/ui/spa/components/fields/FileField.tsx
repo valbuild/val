@@ -634,7 +634,7 @@ export function FileField({
                       });
                   })
                   .catch((err) => {
-                    console.error("Failed to create file patch", err);
+                    Internal.log.error("Failed to create file patch", err);
                     setLoading(false);
                     setUrl(prevUrl);
                     setError("Could not upload file. Please try again later");

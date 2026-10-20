@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import type { AnalyticsBeacon } from "./beacon";
-import { startValAnalytics, type ValAnalytics } from "./tracker";
+import { startValAnalytics, type ValAnalyticsTracker } from "./tracker";
 
 /**
  * jsdom has no layout, so it has no IntersectionObserver. This one does what a
@@ -75,7 +75,7 @@ function setOnScreen(element: Element, visible: boolean) {
 let fetched: { body: AnalyticsBeacon; status: number }[];
 let beaconed: AnalyticsBeacon[];
 let fetchStatus: number;
-let tracker: ValAnalytics | null;
+let tracker: ValAnalyticsTracker | null;
 
 function sent(): AnalyticsBeacon[] {
   return [...fetched.map((f) => f.body), ...beaconed];
@@ -258,6 +258,88 @@ test("the old page, still on screen while the new one loads, is not counted on t
   expect(
     second.flatMap((b) => b.rendered["/content/header.val.ts"] ?? []),
   ).toEqual([""]);
+});
+
+test("navigating on before the new page has rendered credits the old page to neither route", async () => {
+  const oldTitle = tagged('/content/blog.val.ts?p="a"."title"');
+  setOnScreen(oldTitle, true);
+  tracker = startValAnalytics();
+  await settle(3_100);
+  // On to /blogs/b, and on again before its loader has changed the screen.
+  history.pushState(null, "", "/blogs/b");
+  await settle(500);
+  history.pushState(null, "", "/blogs/c");
+  await settle(500);
+  oldTitle.remove();
+  tagged('/content/blog.val.ts?p="c"."title"');
+  await settle(3_100);
+  const on = (route: string) =>
+    sent()
+      .filter((b) => b.route === route)
+      .flatMap((b) => b.rendered["/content/blog.val.ts"] ?? []);
+  expect(on("/blogs/b")).toEqual([]);
+  expect(on("/blogs/c")).toEqual(['"c"."title"']);
+  // /blogs/b was still a page view.
+  expect(sent().find((b) => b.route === "/blogs/b" && b.view)).toBeTruthy();
+});
+
+test("sends the route a pathname is a page of, and each pathname is a page view", async () => {
+  tagged('/content/blog.val.ts?p="a"."title"');
+  tracker = startValAnalytics({
+    routeFor: (pathname) =>
+      pathname.startsWith("/blogs/") ? "/blogs/$slug" : "(not found)",
+  });
+  await settle(3_100);
+  history.pushState(null, "", "/blogs/b");
+  await settle(3_100);
+  history.pushState(null, "", "/orders/123");
+  await settle(3_100);
+  const views = sent().filter((b) => b.view);
+  expect(views.map((b) => b.route)).toEqual([
+    "/blogs/$slug",
+    "/blogs/$slug",
+    "(not found)",
+  ]);
+  expect(JSON.stringify(sent())).not.toContain("123");
+});
+
+test("a prerendered page counts nothing until it is shown, and nothing if it never is", async () => {
+  Object.defineProperty(document, "prerendering", {
+    configurable: true,
+    get: () => true,
+  });
+  try {
+    tagged('/content/blog.val.ts?p="a"."title"');
+    tracker = startValAnalytics();
+    await settle(10_000);
+    expect(sent()).toEqual([]);
+    Object.defineProperty(document, "prerendering", {
+      configurable: true,
+      get: () => false,
+    });
+    document.dispatchEvent(new Event("prerenderingchange"));
+    await settle(3_100);
+    expect(sent().filter((b) => b.view)).toHaveLength(1);
+  } finally {
+    Reflect.deleteProperty(document, "prerendering");
+  }
+});
+
+test("a prerendered page stopped before it is shown never starts", async () => {
+  Object.defineProperty(document, "prerendering", {
+    configurable: true,
+    get: () => true,
+  });
+  try {
+    tagged('/content/blog.val.ts?p="a"."title"');
+    const running = startValAnalytics();
+    running?.stop();
+    document.dispatchEvent(new Event("prerenderingchange"));
+    await settle(10_000);
+    expect(sent()).toEqual([]);
+  } finally {
+    Reflect.deleteProperty(document, "prerendering");
+  }
 });
 
 test("content still on screen when the visitor comes back to the tab is counted as viewed", async () => {

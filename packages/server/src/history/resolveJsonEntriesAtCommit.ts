@@ -1,4 +1,5 @@
 import { result } from "@valbuild/core/fp";
+import { bytesToUtf8 } from "../bytes";
 import type { JSONValue } from "@valbuild/core/patch";
 import type { ValOps } from "../ValOps";
 import type { HistoryError } from "./HistoryError";
@@ -64,7 +65,7 @@ export async function resolveJsonEntriesAtCommit(
       continue;
     }
     try {
-      entries[gitPath] = JSON.parse(res.value.toString("utf-8"));
+      entries[gitPath] = JSON.parse(bytesToUtf8(res.value));
     } catch (err) {
       failures.push({
         kind: "file-unavailable",

@@ -132,7 +132,9 @@ test.describe("analytics mode, for a visitor", () => {
     await expect(page).toHaveURL(/\/posts\/hello-world$/);
     await expect
       .poll(() =>
-        beacons.find((b) => b.route === "/posts/hello-world" && b.view),
+        // The route's pattern, never the pathname: a pathname can hold
+        // something about one visitor.
+        beacons.find((b) => b.route === "/posts/$postId" && b.view),
       )
       .toBeTruthy();
     // The first page view went when the second began, not later.

@@ -69,7 +69,7 @@ export function getDependentModuleFiles(
       const msg = `Val: getDependentModuleFiles: unexpected schema type: ${
         (exhaustiveCheck as SerializedSchema)?.type
       }`;
-      console.error(msg);
+      Internal.log.error(msg);
       throw new Error(msg);
     }
   }

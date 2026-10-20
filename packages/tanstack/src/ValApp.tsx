@@ -1,4 +1,4 @@
-import { ValConfig } from "@valbuild/core";
+import { ValConfig, Internal } from "@valbuild/core";
 import { VAL_APP_PATH, VAL_APP_ID, VERSION as UIVersion } from "@valbuild/ui";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useConfigStorageSave } from "./useConfigStorageSave";
@@ -60,9 +60,18 @@ export const ValApp = ({
   demo?: boolean;
 }) => {
   const route = "/api/val"; // TODO: make configurable
-  const demoStart = useDemoServer(demo === true, config);
   const [inMessageMode, setInMessageMode] = useState<boolean>();
   const isClientSIde = inMessageMode === undefined;
+  // Not before `children` are rendered, which is not on the first render: the
+  // modules the demo's server needs are registered by one of them
+  // (`ValModulesClient`), and a child's effects run before this component's
+  // in the commit that mounts it. Started on the first render, the demo read
+  // them whenever the server's code had loaded -- before the child was there,
+  // on a page that had that code already.
+  const demoStart = useDemoServer(
+    demo === true && inMessageMode === false,
+    config,
+  );
   useConfigStorageSave(config);
   const container = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -228,8 +237,9 @@ export const ValApp = ({
   }
   if (demo && demoStart.status !== "ready") {
     // The Studio reads `window.__VAL_DEMO__` when its script starts, so the
-    // server it talks to has to be there first. The modules are registered
-    // by a child (`ValModulesClient`), whose effect has run by then.
+    // server it talks to has to be there first. The children are rendered
+    // meanwhile: one of them registers the modules that server is started
+    // with.
     return <>{children}</>;
   }
   return (
@@ -288,7 +298,7 @@ function useDemoServer(demo: boolean, config: ValConfig): DemoStart {
     };
     run()
       .catch((err: unknown): DemoStart => {
-        console.error("Val: the demo could not start", err);
+        Internal.log.error("the demo could not start", err);
         return {
           status: "failed",
           // Most often the server's code did not download: the page is fine,

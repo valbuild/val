@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { ModuleFilePath, SourcePath } from "@valbuild/core";
+import { ModuleFilePath, SourcePath, Internal } from "@valbuild/core";
 import { useSchemas } from "./ValFieldProvider";
 import { useReportError } from "./ValProvider";
 import { useValSystem } from "../stores/react/SystemContext";
@@ -50,21 +50,21 @@ export function useRenamePage(): (
       // `move` of an entry that is still an opaque marker moves the marker
       // instead of the page.
       if (schemas.status !== "success") {
-        console.error(
-          "Val: cannot rename a page before the schemas have loaded",
+        Internal.log.error(
+          "cannot rename a page before the schemas have loaded",
         );
         return;
       }
       const schema = schemas.data[moduleFilePath];
       if (!schema || schema.type !== "record") {
-        console.error(
-          "Val: cannot rename a page in a module that is not a record",
+        Internal.log.error(
+          "cannot rename a page in a module that is not a record",
           { moduleFilePath, schema },
         );
         return;
       }
       if (val === null) {
-        console.error("Val: cannot rename a page: no store system is mounted");
+        Internal.log.error("cannot rename a page: no store system is mounted");
         return;
       }
       const schemasData = schemas.data;

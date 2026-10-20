@@ -1,5 +1,6 @@
 import type { ValServerPlatform } from "../platform";
 import { ValOpsMemory } from "../ValOpsMemory";
+import { bytesToBase64 } from "../bytes";
 
 const NO_SESSIONS =
   "Val: sessions are not available here -- this server runs in the browser, " +
@@ -53,6 +54,7 @@ export const browserPlatform: ValServerPlatform = {
     },
     getExpire: () => Math.floor(Date.now() / 1000) + 60 * 60,
   },
+  bytesToBase64,
   readValLoginToken: async () => null,
   resolveRemoteFileAuth: async () => ({
     status: "error",

@@ -1255,8 +1255,8 @@ export class SourceStore {
          * answer left: it is what this store said before shipped patches were
          * counted, and the next intake replaces it anyway.
          */
-        console.error(
-          "Val: could not apply a published change to the base. Comparisons against what is published may be stale until the next load.",
+        Internal.log.error(
+          "could not apply a published change to the base. Comparisons against what is published may be stale until the next load.",
           { moduleFilePath, patchId: entry.record.patchId, error: res.error },
         );
         delete this.publishedSources[moduleFilePath];
@@ -1486,8 +1486,8 @@ export class SourceStore {
            * itself is worth knowing about — the two sides apply the same ops to
            * the same JSON, so they should not disagree.
            */
-          console.error(
-            "Val: could not rebuild the base after a partial save. The value on screen is right; the base behind it is stale until the next load.",
+          Internal.log.error(
+            "could not rebuild the base after a partial save. The value on screen is right; the base behind it is stale until the next load.",
             { moduleFilePath, patchId: entry.record.patchId, error: res.error },
           );
           rebuilt = false;

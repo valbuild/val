@@ -1,3 +1,4 @@
+import { createRemoteRef } from "../source/remote";
 import { splitRemoteRef } from "./splitRemoteRef";
 
 describe("splitRemoteRef", () => {
@@ -142,5 +143,40 @@ describe("splitRemoteRef", () => {
       fileHash: "def456",
       filePath: "public/val/test.png",
     });
+  });
+
+  it("keeps a platform host's /_val prefix in the host, so the ref round-trips", () => {
+    const ref =
+      "https://www.acme.no/_val/file/p/3f9a2c1/b/r2/v/0.136.2/h/9c41/f/3fa9c81be402/p/public/val/hero_3fa9c.jpg";
+    const res = splitRemoteRef(ref);
+    expect(res).toEqual({
+      status: "success",
+      remoteHost: "https://www.acme.no/_val",
+      projectId: "3f9a2c1",
+      bucket: "r2",
+      version: "0.136.2",
+      validationHash: "9c41",
+      fileHash: "3fa9c81be402",
+      filePath: "public/val/hero_3fa9c.jpg",
+    });
+    if (res.status !== "success") return;
+    expect(
+      createRemoteRef(res.remoteHost, {
+        publicProjectId: res.projectId,
+        coreVersion: res.version,
+        bucket: res.bucket,
+        validationHash: res.validationHash,
+        fileHash: res.fileHash,
+        filePath: res.filePath,
+      }),
+    ).toBe(ref);
+  });
+
+  it("does not take any other path segment as part of the host", () => {
+    expect(
+      splitRemoteRef(
+        "https://www.acme.no/cdn/file/p/3f9a2c1/b/r2/v/1/h/9c41/f/3fa9c81be402/p/public/val/a.jpg",
+      ).status,
+    ).toBe("error");
   });
 });

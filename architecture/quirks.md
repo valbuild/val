@@ -1381,3 +1381,17 @@ both `_splat` and `*`, set to the same value. Val's route pattern has one param
 for it, so the other was left over and reported as "parameters ... where not
 found in the path" — a console error on every render of a working splat route.
 `getValRouteUrlFromVal` drops `*` when `_splat` is present.
+
+**`vite dev` serves a CommonJS dependency of the demo's server unconverted.**
+`<ValApp demo>` loads `@valbuild/server/browser` with a dynamic `import()`, so
+Vite's dependency scan, which starts from the app's own entries, never reaches
+it, and anything CommonJS that chunk imports is handed to the browser as it is
+on disk. npm's `buffer` was such a thing: the tab refused it with "does not
+provide an export named 'Buffer'" and the Studio said "The demo could not
+start: part of it did not load". `vite build` converts CommonJS, so only an
+app's dev server broke, and never inside this repository, where the workspace
+links packages as source. The server's request handlers use `Uint8Array` and
+`bytes.ts` instead, and `noNodeFromBrowser.test.ts` refuses `buffer` and the
+global `Buffer` in what the browser entry reaches, `@valbuild/core` and
+`@valbuild/shared` included. Seeing it takes the packed packages in an app of
+its own; the workspace hides it.

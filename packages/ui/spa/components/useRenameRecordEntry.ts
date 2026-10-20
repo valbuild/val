@@ -49,7 +49,7 @@ export function useRenameRecordEntry(): RenameRecordEntry {
   return useCallback(
     async ({ parentPath, fromKey, toKey, refs, jsonValues }) => {
       if (fromKey === toKey) {
-        console.error("Val: cannot rename an entry onto itself", {
+        Internal.log.error("cannot rename an entry onto itself", {
           parentPath,
           fromKey,
         });

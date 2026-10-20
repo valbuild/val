@@ -213,6 +213,29 @@ describe("val validate with remote image and file collections", () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
+  // What `val publish` refuses on (`validateOnce({ blockingOnly })`): a
+  // local file still to upload is the Studio's to repair, and is published;
+  // a gallery keyed by a ref it does not know is a person's to fix.
+  test("an error the Studio repairs on save is marked as such, and a person's is not", async () => {
+    const events = errorsOf(
+      await run(
+        root,
+        ["content/images.val.ts", "content/local-images.val.ts"],
+        false,
+      ),
+    );
+    const repaired = (sourcePath: string) =>
+      events
+        .filter((e) => e.sourcePath === sourcePath)
+        .map((e) => e.repairedOnSave === true);
+    expect(repaired(`/content/images.val.ts?p="${LOGO}"`)).toEqual([true]);
+    const local = events.filter((e) =>
+      e.sourcePath.startsWith("/content/local-images.val.ts"),
+    );
+    expect(local.length).toBeGreaterThan(0);
+    expect(local.every((e) => e.repairedOnSave !== true)).toBe(true);
+  });
+
   test("--fix uploads the entries, renames their keys, and points the page's field and rich text image at them", async () => {
     fs.mkdirSync(path.join(root, ".val"), { recursive: true });
     fs.writeFileSync(

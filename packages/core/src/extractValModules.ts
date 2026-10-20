@@ -1,3 +1,4 @@
+import { log } from "./log";
 import { getSHA256Hash } from "./getSha256";
 import { ValModules } from "./modules";
 import type { Schema, SerializedSchema } from "./schema";
@@ -114,11 +115,7 @@ function collectObjectRecursive(
     }
     return;
   } else {
-    console.warn(
-      "Unknown type encountered when hashing object",
-      typeof item,
-      item,
-    );
+    log.warn("Unknown type encountered when hashing object", typeof item, item);
   }
 }
 

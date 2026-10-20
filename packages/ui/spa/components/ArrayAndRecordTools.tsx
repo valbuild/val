@@ -342,7 +342,7 @@ function AddArrayButton({
   }
   const schema = schemaAtPath.data;
   if (schema.type !== "array") {
-    console.error("Cannot add to non-array", shallowSourceAtPath, {
+    Internal.log.error("Cannot add to non-array", shallowSourceAtPath, {
       parentPath: path,
     });
     return null;

@@ -306,6 +306,7 @@ type ValContextValue = {
         publicProjectId: string;
         coreVersion: string;
         buckets: string[];
+        remoteHost?: string;
       }
     | {
         status: "loading" | "not-asked";
@@ -713,7 +714,7 @@ export function ValProvider({
     let res = await client("/direct-file-upload-settings", "POST", {});
     let retries = 0;
     while (res.status === null && retries < 5) {
-      console.warn(
+      Internal.log.debug(
         "Failed to get direct file upload settings, retrying...",
         res,
       );
@@ -954,8 +955,8 @@ export function ValProvider({
             break;
           }
         } catch (err) {
-          console.error(
-            "Val: could not tell whether a schema needs remote files. Remote " +
+          Internal.log.error(
+            "could not tell whether a schema needs remote files. Remote " +
               "uploads may be unavailable.",
             err,
           );
@@ -979,6 +980,9 @@ export function ValProvider({
                   (bucket) => bucket.bucket,
                 ),
                 publicProjectId: res.json.publicProjectId,
+                ...(res.json.remoteHost !== undefined
+                  ? { remoteHost: res.json.remoteHost }
+                  : {}),
               });
             } else {
               if ("errorCode" in res.json && res.json.errorCode) {
@@ -998,7 +1002,7 @@ export function ValProvider({
             }
           })
           .catch((err) => {
-            console.error("Error getting remote settings", err);
+            Internal.log.error("Error getting remote settings", err);
             setRemoteFiles({
               status: "inactive",
               reason: "unknown-error",
@@ -1827,7 +1831,7 @@ function useProfilesData(
       if (!willRetry) {
         // Logged once, when there is nothing left to try — not on every
         // attempt, which is what made this the loudest thing in the console.
-        console.error("Could not get profiles", res.json);
+        Internal.log.error("Could not get profiles", res.json);
       }
       setProfilesData((prev) => ({
         status: "error",
@@ -1935,14 +1939,14 @@ export function useAddModuleFilePatch() {
       // so it is unused. Kept in the signature because the call sites pass it.
       void type;
       if (val === null) {
-        console.error("Val: cannot write patch: no store system is mounted");
+        Internal.log.error("cannot write patch: no store system is mounted");
         return;
       }
       void val.system.patchStore
         .createPatch(moduleFilePath, patch)
         .then((res) => {
           if (res.status !== "created") {
-            console.error("Val: could not write patch", res.message);
+            Internal.log.error("could not write patch", res.message);
           }
         });
     },
@@ -1956,7 +1960,7 @@ export function useDeletePatches() {
   const deletePatches = useCallback(
     (patchIds: PatchId[]) => {
       if (val === null) {
-        console.error("Val: cannot discard: no store system is mounted");
+        Internal.log.error("cannot discard: no store system is mounted");
         return;
       }
       // In batches of 100: the ids go into the request URL as query params, and
@@ -3448,7 +3452,7 @@ function saveSummaryStateInLocalStorage(
       JSON.stringify(publishSummaryState),
     );
   } catch (e) {
-    console.error("Error setting publish summary in local storage", e);
+    Internal.log.debug("Error setting publish summary in local storage", e);
   }
   return publishSummaryState;
 }
@@ -3467,14 +3471,14 @@ function getSummaryStateFromLocalStorage(
       if (parseRes.success) {
         return parseRes.data;
       } else {
-        console.warn(
+        Internal.log.debug(
           "Error parsing publish summary from local storage",
           parseRes.error,
         );
       }
     }
   } catch (e) {
-    console.error("Error getting publish summary from local storage", e);
+    Internal.log.debug("Error getting publish summary from local storage", e);
   }
   return null;
 }
@@ -3483,7 +3487,7 @@ function deleteSummaryStateFromLocalStorage(project?: string) {
   try {
     localStorage.removeItem("val-publish-summary-" + (project || "unknown"));
   } catch (e) {
-    console.error("Error deleting publish summary from local storage", e);
+    Internal.log.debug("Error deleting publish summary from local storage", e);
   }
 }
 

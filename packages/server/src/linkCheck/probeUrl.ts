@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/core";
 import http from "node:http";
 import https from "node:https";
 import net, { type LookupFunction } from "node:net";
@@ -99,7 +100,7 @@ export function guardedLookup(lookup: LookupFunction): LookupFunction {
             // Server-side only. This is the half an operator needs to work out
             // why a link check refused a URL, and the half a caller must not
             // be given.
-            console.warn(
+            Internal.log.warn(
               `[val] link check refused ${hostname}: resolves to ${describeBlocked(
                 reason,
               )} (${entry.address})`,

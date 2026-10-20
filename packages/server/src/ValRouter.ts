@@ -1,4 +1,4 @@
-import { ValConfig, ValModules } from "@valbuild/core";
+import { ValConfig, ValModules, Internal } from "@valbuild/core";
 import type { ValServerGenericResult } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
 import { ValServer, ValServerCallbacks } from "./ValServer";
@@ -289,7 +289,7 @@ export async function safeReadGit(
   ): Promise<{ commit?: string; branch?: string }> {
     const gitHeadPath = path.join(currentDir, ".git", "HEAD");
     if (depth > 1000) {
-      console.error(
+      Internal.log.error(
         `Reached max depth while scanning for .git folder. Current working dir: ${cwd}.`,
       );
       return {
@@ -330,7 +330,7 @@ export async function safeReadGit(
   try {
     return findGitHead(cwd, 0);
   } catch (err) {
-    console.error("Error while reading .git", err);
+    Internal.log.error("Error while reading .git", err);
     return {
       commit: undefined,
       branch: undefined,
