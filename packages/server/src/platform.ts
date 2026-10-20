@@ -6,6 +6,7 @@ import type { ValServerConfig } from "./ValServer";
 import type { ResolveRemoteFileAuthResult } from "./valServerConfig";
 import type { JwtResult } from "./jwt";
 import type { ProbeResult } from "./linkCheck/probeUrl";
+import type { checkModuleForStudio, fixForStudio } from "./studioValidation";
 
 /**
  * What `ValServer` needs from the machine it runs on.
@@ -42,4 +43,13 @@ export type ValServerPlatform = {
   resolveRemoteFileAuth: (
     options: ValServerConfig,
   ) => Promise<ResolveRemoteFileAuthResult>;
+  /**
+   * The Studio's full check (`/validate`, `/validate/fix`). It reads files'
+   * bytes and asks remote hosts, so it needs Node; absent in a browser, where
+   * both routes answer that it is not available.
+   */
+  studioValidation?: {
+    checkModuleForStudio: typeof checkModuleForStudio;
+    fixForStudio: typeof fixForStudio;
+  };
 };

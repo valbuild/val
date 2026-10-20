@@ -460,10 +460,14 @@ function convertImageNode(
         );
       }
     } else if (
-      remoteOptions &&
-      noParamsUrl.startsWith(remoteOptions.remoteHost)
+      Internal.remote.splitRemoteRef(noParamsUrl).status === "success"
     ) {
-      // A published remote ref IS the URL: nothing to undo.
+      // A published remote ref IS the URL: nothing to undo. Recognised by its
+      // shape, not by the host this field uploads to: a project's refs can
+      // name more than one host (one it uploaded to before, or remote.val.build
+      // from before it moved), and a field that uploads nothing remote can
+      // still hold one. Matching the upload host sent every other ref down the
+      // local branch below, which prefixed `/public` onto a full URL.
     } else if (!noParamsUrl.startsWith("/public")) {
       noParamsUrl = `/public${noParamsUrl}`;
     } else {

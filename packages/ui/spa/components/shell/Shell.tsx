@@ -457,6 +457,10 @@ export type ShellProps = {
   historyActive?: boolean;
   /** Go to it. */
   onOpenHistory?: () => void;
+  /** See `TopBar`'s `onOpenValidate`. */
+  onOpenValidate?: () => void;
+  validateActive?: boolean;
+  validateCount?: number;
   /**
    * Mention a source path in the assistant. From the canvas's field menu.
    *
@@ -597,6 +601,9 @@ export function Shell({
   historyEnabled = false,
   historyActive = false,
   onOpenHistory,
+  onOpenValidate,
+  validateActive,
+  validateCount,
   onMentionField,
   pendingChangesLoaded = true,
   pendingChangesProgress,
@@ -1206,6 +1213,9 @@ export function Shell({
           historyEnabled={historyEnabled}
           historyActive={historyActive}
           onOpenHistory={onOpenHistory}
+          onOpenValidate={onOpenValidate}
+          validateActive={validateActive}
+          validateCount={validateCount}
           onPreview={onPreview ?? (() => undefined)}
           previewHref={previewHref}
           onToggleCanvas={canCanvas ? togglePreview : undefined}

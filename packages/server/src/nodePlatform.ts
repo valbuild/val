@@ -11,6 +11,7 @@ import {
   verifyJwt,
 } from "./jwt";
 import { probeUrl } from "./linkCheck/probeUrl";
+import { checkModuleForStudio, fixForStudio } from "./studioValidation";
 
 /** The platform every server on Node runs with. See {@link ValServerPlatform}. */
 export const nodePlatform: ValServerPlatform = {
@@ -19,4 +20,5 @@ export const nodePlatform: ValServerPlatform = {
   jwt: { verifyJwt, decodeJwtWithoutVerifying, encodeJwt, getExpire },
   readValLoginToken,
   resolveRemoteFileAuth,
+  studioValidation: { checkModuleForStudio, fixForStudio },
 };
