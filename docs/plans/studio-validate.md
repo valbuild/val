@@ -444,8 +444,22 @@ POST /api/val/validate/fix   { module, sourcePath, fix }
 
    Not yet: **Try again / Remove** for a pending ref whose bytes are gone
    (there is nothing to retry with until the Studio uploads on add, per the
-   remote-files plan), so it is shown with **Open**; and `*:upload-remote` /
-   `*:download-remote`, which still show the `val validate --fix` command.
+   remote-files plan), so it is shown with **Open**; `video:upload-remote` /
+   `videos:upload-remote` and `*:download-remote`, which still show the
+   `val validate --fix` command.
+
+   **Done since**: `image:upload-remote`, `file:upload-remote`,
+   `images:upload-remote` and `files:upload-remote` -- a local file in a
+   project with remote files, which every project made from a template starts
+   with -- are error rows with **Fix**. The fix is made in the BROWSER, not by
+   `/validate/fix` (`useUploadLocalMedia`, rules in
+   `ui/spa/utils/uploadLocalMedia.ts`): the bytes are read back from where the
+   Studio shows them and uploaded with the patch like any Studio upload, so
+   no server needs a credential to upload with. The ref is the CLI's (the
+   record's `accept` and `dir` for a gallery entry), a gallery entry is
+   renamed to it, and every field that picked the entry is pointed at it in
+   the same press. A video names several files and is rewritten as it goes
+   up, so it is not here yet.
    Remote refs inside videos and media directories are not checked here.
 
 5. **The media directory checks over their own entries**, read through

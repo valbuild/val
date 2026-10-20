@@ -59,7 +59,7 @@ describe("buildValidateGroups", () => {
     const plain = at(MEDIA, '"caption"');
     const errors: Record<SourcePath, ValidationError[]> = {
       [hero]: [{ message: "No metadata", fixes: ["image:add-metadata"] }],
-      [remote]: [{ message: "Not uploaded", fixes: ["image:upload-remote"] }],
+      [remote]: [{ message: "Not uploaded", fixes: ["video:upload-remote"] }],
       [plain]: [{ message: "Required" }],
     };
     const res = build({
@@ -74,6 +74,7 @@ describe("buildValidateGroups", () => {
       tone: "fixable",
       action: { kind: "fix" },
     });
+    // A video goes up file by file, rewritten as it goes: still the CLI's.
     expect(byMessage["Not uploaded"]).toMatchObject({
       tone: "error",
       action: { kind: "command", command: "val validate --fix" },
@@ -88,6 +89,70 @@ describe("buildValidateGroups", () => {
       sourcePath: hero,
       fix: "image:add-metadata",
     });
+  });
+
+  test("a local file in a project with remote files is an error the Studio fixes by uploading it", () => {
+    const entry = at(MEDIA, '"/public/val/images/hero.png"');
+    const field = at(BLOG, '"cover"');
+    const res = build({
+      results: new Map<ModuleFilePath, ModuleCheckResult>([
+        [
+          MEDIA,
+          {
+            status: "ok",
+            errors: {
+              [entry]: [
+                {
+                  message: "Expected a remote image, but got a local path.",
+                  fixes: ["images:upload-remote"],
+                  keyError: true,
+                },
+              ],
+            },
+          },
+        ],
+        [
+          BLOG,
+          {
+            status: "ok",
+            errors: {
+              [field]: [
+                {
+                  message: "Expected a remote image, but got a local image.",
+                  fixes: ["image:upload-remote"],
+                },
+              ],
+            },
+          },
+        ],
+      ]),
+    });
+    const rows = rowsOf(res);
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row).toMatchObject({
+        tone: "fixable",
+        action: { kind: "fix" },
+        message: expect.stringContaining("Fix uploads it"),
+      });
+    }
+    expect(openRowCount(res.groups)).toBe(2);
+    expect([...res.targets.values()]).toEqual(
+      expect.arrayContaining([
+        {
+          kind: "full",
+          moduleFilePath: MEDIA,
+          sourcePath: entry,
+          fix: "images:upload-remote",
+        },
+        {
+          kind: "full",
+          moduleFilePath: BLOG,
+          sourcePath: field,
+          fix: "image:upload-remote",
+        },
+      ]),
+    );
   });
 
   test("an error the Studio already shows is not shown twice", () => {

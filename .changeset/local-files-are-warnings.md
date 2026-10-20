@@ -3,6 +3,7 @@
 "@valbuild/server": patch
 "@valbuild/shared": patch
 "@valbuild/language-server": patch
+"@valbuild/ui": patch
 ---
 
 `val validate` no longer fails a project just because some of its files are
@@ -31,6 +32,11 @@ content/images.val.ts  ⚠ 7 warnings  (12ms)
   when you are not logged in.
 - A local file that does not exist is still an error.
 - The language server shows these as warnings.
+- In the Studio, **Check everything** on the Validate page lists them as
+  errors with a **Fix** button that uploads them, so a hosted project, which
+  has no command line, can move its template's images and files to remote
+  storage. The fields that use a gallery image are updated with it. Videos
+  still need `val validate --fix`.
 
 Fixable errors are now printed with `✘` instead of `⚠`. They were always
 errors and still make `val validate` fail; `⚠` now means a warning.
