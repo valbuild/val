@@ -1,4 +1,5 @@
 import {
+  askOncePerHost,
   clearHostAnswers,
   fallbackRefOf,
   fallbackRemoteHost,
@@ -96,5 +97,41 @@ describe("remoteHostCheck", () => {
     expect(
       fallbackRefOf(`https://remote.val.build${REST.replace("/_val", "")}`),
     ).toBeNull();
+  });
+
+  test("a host that did not answer, or answered 5xx, does not move a ref", async () => {
+    // A moved ref does not move back: a blip must not take a site's images
+    // off its own domain.
+    expect(
+      await movedRemoteHost(
+        ON_DOMAIN,
+        fakeAsk({ status: "unreachable", reason: "No answer within 8 s" }).ask,
+      ),
+    ).toBeUndefined();
+    expect(
+      await movedRemoteHost(
+        ON_DOMAIN,
+        fakeAsk({ status: "no-site", httpStatus: 503 }).ask,
+      ),
+    ).toBeUndefined();
+  });
+
+  test("a host that serves another project moves a ref", async () => {
+    const { ask } = fakeAsk({ status: "answered", publicProjectId: "aaaaaaa" });
+    expect((await movedRemoteHost(ON_DOMAIN, ask))?.ref).toBe(ON_FALLBACK);
+  });
+
+  test("one check asks each host once, whatever it answered", async () => {
+    const { ask, asked } = fakeAsk({
+      status: "unreachable",
+      reason: "No answer within 8 s",
+    });
+    const once = askOncePerHost(ask);
+    await movedRemoteHost(ON_DOMAIN, once);
+    await movedRemoteHost(ON_DOMAIN.replace("hero_3fa9c", "other_3fa9c"), once);
+    expect(asked).toEqual(["https://www.acme.no/_val"]);
+    // The next check asks again.
+    await movedRemoteHost(ON_DOMAIN, askOncePerHost(ask));
+    expect(asked).toHaveLength(2);
   });
 });

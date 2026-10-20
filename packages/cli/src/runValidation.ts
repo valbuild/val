@@ -1,5 +1,6 @@
 import path from "path";
 import {
+  askOncePerHost,
   createDefaultValFSHost,
   createFixPatch,
   createService,
@@ -58,6 +59,10 @@ export async function* runValidation({
   fs: IValFSHost;
 }): AsyncGenerator<ValidationEvent> {
   const projectRoot = path.resolve(root);
+  // One question per platform host for the whole run: each error is fixed by
+  // its own createFixPatch call, and a host that does not answer would
+  // otherwise cost a timeout per ref.
+  const askHostProject = askOncePerHost();
 
   const service = await createService(projectRoot, fs);
 
@@ -283,7 +288,11 @@ export async function* runValidation({
               // Apply patch if needed
               if (result.shouldApplyPatch) {
                 const fixPatch = await createFixPatch(
-                  { projectRoot, remoteHost: remote.remoteHost },
+                  {
+                    projectRoot,
+                    remoteHost: remote.remoteHost,
+                    askHostProject,
+                  },
                   !!fix,
                   sourcePath as SourcePath,
                   v,

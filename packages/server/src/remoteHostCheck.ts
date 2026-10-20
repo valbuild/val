@@ -157,6 +157,28 @@ export async function hostServes(
   return { status: "serves" };
 }
 
+/**
+ * `ask`, asking each host once for as long as the returned function is kept:
+ * one check, not the life of the server. A check walks its refs in order, so
+ * without it every ref on a host that does not answer waits out its own
+ * timeout -- 150 images on a dead domain is 20 minutes. Kept per check rather
+ * than in {@link hostServes}'s cache because a host that did not answer has
+ * to be asked again by the next one.
+ */
+export function askOncePerHost(
+  ask: AskHostProject = askHostProject,
+): AskHostProject {
+  const answers = new Map<string, ReturnType<AskHostProject>>();
+  return (remoteHost) => {
+    let answer = answers.get(remoteHost);
+    if (answer === undefined) {
+      answer = ask(remoteHost);
+      answers.set(remoteHost, answer);
+    }
+    return answer;
+  };
+}
+
 /** `www.acme.no`, from `https://www.acme.no/_val`: how a person names a host. */
 export function hostNameOfRemoteHost(remoteHost: string): string {
   try {
@@ -185,7 +207,17 @@ export async function movedRemoteHost(
     return undefined;
   }
   const serves = await hostServes(parsed.remoteHost, parsed.projectId, ask);
-  if (serves.status === "serves") {
+  // Only an answer that says so moves a ref: the host serves another
+  // project, or the loader says it serves none (its 404 for a domain nobody
+  // maps). A host that did not answer, or answered 5xx, may be down for a
+  // minute -- and a moved ref does not move back, so rewriting on that would
+  // take a site's images off its own domain for good over one blip. Those are
+  // left to the existence check, which reports the host once with Try again.
+  if (
+    serves.status === "serves" ||
+    serves.status === "unreachable" ||
+    (serves.status === "no-site" && serves.httpStatus !== 404)
+  ) {
     return undefined;
   }
   const target = fallbackRemoteHost(parsed.projectId);

@@ -8,7 +8,11 @@ import {
   ValidationError,
 } from "@valbuild/core";
 import { getFileExt } from "./getFileExt";
-import { movedRemoteHost, type AskHostProject } from "./remoteHostCheck";
+import {
+  askOncePerHost,
+  movedRemoteHost,
+  type AskHostProject,
+} from "./remoteHostCheck";
 
 /**
  * Does the host a remote ref names still serve it?
@@ -199,6 +203,7 @@ export async function checkRemoteFiles(
   input: RemoteFilesCheckInput,
 ): Promise<RemoteFilesCheck> {
   const head = input.head ?? headRemoteFile;
+  const askHostProject = askOncePerHost(input.askHostProject);
   const errors: Record<SourcePath, ValidationError[]> = {};
   const addError = (sourcePath: SourcePath, error: ValidationError) => {
     errors[sourcePath] = (errors[sourcePath] ?? []).concat(error);
@@ -258,7 +263,7 @@ export async function checkRemoteFiles(
     // Asked after the pending check: a ref whose bytes are still in a patch
     // is the key those bytes are stored under, and repointing it would cut
     // it off from them.
-    const moved = await movedRemoteHost(ref, input.askHostProject);
+    const moved = await movedRemoteHost(ref, askHostProject);
     if (moved) {
       addError(
         sourcePath,
