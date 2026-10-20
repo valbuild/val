@@ -252,6 +252,7 @@ import type { ValDraft } from "@valbuild/tanstack/server";
 import {
   draftMode,
   fetchVal,
+  fetchValAnalytics,
   fetchValDraft,
   fetchValKey,
   fetchValRoute,
@@ -260,6 +261,7 @@ import {
 } from "../val/val.server";
 export const readers = [draftMode, fetchVal, fetchValKey, fetchValRoute, fetchValRouteUrl, valApiHandler];
 export const draft = async (): Promise<ValDraft | null> => fetchValDraft();
+export const analytics = async (): Promise<boolean> => fetchValAnalytics();
 `,
       },
     );
