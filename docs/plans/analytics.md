@@ -4,7 +4,7 @@
 > version: **TanStack Start, hosted by Val**. Next.js and self-hosted apps come
 > later and are noted where the design has to leave room for them.
 >
-> This file is the Val side: the config, the analytics mode, the browser
+> This file is the Val side: the switch, the analytics mode, the browser
 > script and the wire format. The backend (the loader, the aggregator, Postgres,
 > billing and the dashboard) is `valbuild/home`'s `docs/analytics.md`. The wire
 > format below is the contract between the two, and lives here because Val is
@@ -29,7 +29,7 @@ counts.
 | Also counted                 | Source (referrer host), campaign (`utm_*`), country, device class, browser and OS family. Each on its own, never combined with each other. |
 | Unique visitors              | **No.** Nothing that could recognise a visitor twice.                                                                                      |
 | Where beacons go             | `POST /api/val/analytics` on the site's own origin, which ad blockers rarely list.                                                         |
-| How it is turned on          | `analytics: { enabled: true }` in `val.config.ts`, or `VAL_ANALYTICS`. The env wins, so the platform can switch it with one click.         |
+| How it is turned on          | **Off by default.** Only in the hosted project's settings, which reach the site as `VAL_ANALYTICS`. No `val.config.ts` option.             |
 | Stega leaking out of the DOM | Encode exactly as draft mode does, and warn in dev about every place a tag survived. See [The leak warning](#the-leak-warning).            |
 | Price                        | $25 a month per project, 100k page views included, graduated above that. In `home`.                                                        |
 
@@ -73,17 +73,29 @@ What follows from it:
 Analytics changes how content is **encoded**, never which content is read.
 Draft mode still decides published versus patched source.
 
-### Configuration
+### Turning it on
 
-```ts
-// val.config.ts
-export const config = { project: "acme/site", analytics: { enabled: true } };
+**Off by default, and for now turned on only in the hosted project's
+settings.** There is no `val.config.ts` option: a switch in the code is one the
+project's owner cannot see, and two switches raise the question of which wins.
+
+- The owner turns it on in admin; the platform sets the `VAL_ANALYTICS` secret
+  (see `home`'s `docs/analytics.md`).
+- The `val.server.ts` the platform writes (`@valbuild/tanstack-build`'s
+  `wire.ts`) exports `fetchValAnalytics()`, which reads that secret at
+  runtime, so switching is not a rebuild.
+- The site layout's loader passes it to `<ValProvider analytics>`, beside
+  `fetchValDraft()`. The provider keeps the value it mounted with, because the
+  loader runs only on the server and a client navigation hands it `undefined`.
+
+```tsx
+const getValPage = createServerFn().handler(async () => ({
+  draft: await fetchValDraft(),
+  analytics: await fetchValAnalytics(),
+}));
+// ...
+<ValProvider config={config} draft={page?.draft} analytics={page?.analytics}>
 ```
-
-`<ValProvider analytics>` overrides it at runtime. A hosted site reads
-`VAL_ANALYTICS` on the server and passes it down from the root route's
-loader, which is what makes the switch one click with no rebuild. The value
-must be the same on the server and in the browser, and constant for the page.
 
 ### The leak warning
 
@@ -280,7 +292,8 @@ Self-hosted forwarding to Val's ingest, authenticated with the project's
 
 Per `CLAUDE.md`, a feature is not done until `examples/tanstack` shows it:
 
-- `analytics: { enabled: true }` in its `val.config.ts`
+- `VAL_ANALYTICS=true` in its `.env.development`, which TanStack Start loads
+  into `process.env`, read by its own `fetchValAnalytics()`
 - a long page whose content is partly below the fold
 - the dev log from section 4 printed in the terminal while it is browsed
 
@@ -288,7 +301,7 @@ Add "analytics" to the showcase list in `CLAUDE.md`.
 
 ## 7. Build order
 
-1. `analytics` in `ValConfig` and the provider; the analytics mode in
+1. `<ValProvider analytics>` and `fetchValAnalytics()`; the analytics mode in
    `useEncodesEditTags` and the provider, with the hydration test and an e2e
    test on the showcase. **Built** in valbuild/val `claude/tanstack-analytics-mode`.
 2. `@valbuild/react/analytics`: counting, page views, sending, with its unit
