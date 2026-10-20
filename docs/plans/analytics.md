@@ -1,9 +1,9 @@
 # Content analytics
 
-> **Status: in progress** (October 2026). Steps 1–3 of the
-> [build order](#7-build-order) are built, in valbuild/val #878 and #881 (both
-> still open); the content version (`cv`) is next. Nothing on `home`'s side is
-> built. Scope for the first version: **TanStack Start, hosted by Val**.
+> **Status: in progress** (October 2026). Steps 1–4 of the
+> [build order](#7-build-order) are built, in valbuild/val #878, #881 and #887
+> (all still open). On `home`'s side only the loader's half of the content
+> version is (valbuild/home#255). Scope for the first version: **TanStack Start, hosted by Val**.
 > Next.js and self-hosted apps come later and are noted where the design has
 > to leave room for them.
 >
@@ -233,9 +233,9 @@ Content-Type: text/plain;charset=UTF-8
   "v": 1,
   // location.pathname, never the query or the hash
   "route": "/blogs/my-post",
-  // the content version the page was rendered from: the hosted head's
-  // content version id, the same one whether or not the bundle holds it.
-  // NOT SENT YET -- see "The content version" below
+  // the content version the page was rendered from: the id of the content
+  // version the hosted site served it from, the same one whether or not the
+  // bundle holds it. Absent outside Val's hosting -- see "The content version"
   "cv": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   // only on the first beacon of a page view; its presence IS the page view
   "view": {
@@ -274,29 +274,32 @@ Content-Type: text/plain;charset=UTF-8
 
 ### The content version
 
-**Not built yet; it is the next step** ([build order](#7-build-order)). The
-provider passes the script no content version today, so no beacon carries
-`cv`.
+**Built** in valbuild/val #887 and valbuild/home#255.
 
 **Every count is stored with the content version it was seen in** (`cv`).
 That answers "did the new hero do better than the old one" across a publish,
-and it is what makes positions safe to count, below. The planned design:
+and it is what makes positions safe to count, below.
 
-- **One identity per version**: the hosted head's content version id
-  (`head.content.id`), always -- also when the bundle's own content is live,
-  where the isolate is handed no `VAL_CONTENT` today. Never the build's
-  commit, which would give the same content a second key.
-- The loader hands that id to the isolate on every render, and
-  `fetchValAnalytics()` returns `{ on, cv }` instead of a boolean; the
-  provider passes `cv` to the script as `contentVersion`. The id is only on
-  the server now (`VAL_CONTENT`, read in `wire.ts`), which is why this needs a
-  channel of its own.
-- **`cv` is required in v1**, in the zod schema and the hand-written type,
-  before v1 is released.
-- The loader stamps the head it is serving only on a beacon from a site built
-  before `cv` existed. It is a fallback, not the design: it names the version
-  live when the beacon arrives, not the one the page was rendered from, which
-  is wrong across a publish -- the case `cv` exists for.
+- **One identity per version**: the id of the content version the loader
+  serves (`head.content.id`, or a preview's), always -- also when the
+  bundle's own content is live, where the isolate is handed no `VAL_CONTENT`.
+  Never the build's commit, which would give the same content a second key.
+- **The loader hands it to every isolate it starts** as
+  `VAL_CONTENT_VERSION` (`dynamicEnv` in `trust.ts`), except at a proposal's
+  address, whose content is no published version. It is constant for an
+  isolate: one without a content suffix in its id serves only its build's
+  own version, one with it is keyed by that id. A project's secret by that
+  name is dropped.
+- **`fetchValAnalytics()` returns a `ValAnalytics`**, `{ enabled,
+contentVersion? }`, read from what the platform hands over; the layout
+  passes it to `<ValProvider analytics>` as before, and the provider passes
+  `contentVersion` to the script, which sends it as `cv`.
+- **`cv` is optional in the wire format**, because a site Val does not host
+  has no version to send. On a hosted site every beacon from a site built
+  with this carries one; the loader stamps the head it is serving only on a
+  beacon from a site built before. That is a fallback, not the design: it
+  names the version live when the beacon arrives, not the one the page was
+  rendered from, which is wrong across a publish -- the case `cv` exists for.
 
 **Array items are counted by position.** This is decided, not a gap.
 `"sections".0` is whatever is first that day, and reordering a list moves
@@ -374,8 +377,9 @@ The showcase list in `CLAUDE.md` names analytics.
    (`claude/analytics-browser-script`), open.
 3. The `/api/val/analytics` route in `ValRouter` and the dev log; the showcase's
    switch; the e2e tests of the beacon and of a navigation. **Built**, in #881.
-4. **Next:** the content version -- `fetchValAnalytics()` returning
-   `{ on, cv }`, the provider passing it, `cv` required in v1. See
+4. The content version: `VAL_CONTENT_VERSION` from the loader,
+   `fetchValAnalytics()` returning a `ValAnalytics`, the provider passing it
+   on. **Built**: #887 and valbuild/home#255. See
    [The content version](#the-content-version).
 5. The showcase's long page and the scroll e2e test.
 6. The leak warning.
