@@ -14,7 +14,7 @@ import webpEncSimdWasmUrl from "@jsquash/webp/codec/enc/webp_enc_simd.wasm?url";
  * This module is only ever reached through a dynamic `import()` from
  * `encodeImage`, and only once `shouldEncodeWithWasm` has said so -- so its
  * JavaScript is a lazy chunk, and its WebAssembly is fetched by nobody whose
- * canvas wrote WebP. `e2e/demo/demo.spec.ts` holds both of those to it.
+ * canvas wrote WebP. `e2e/tanstack/webp.spec.ts` holds both of those to it.
  *
  * ## Where the binary comes from
  *

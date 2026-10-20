@@ -761,12 +761,22 @@ time", because only one of them means retry.
 
 ## Demo mode: Val's server in the browser
 
-`examples/demo` is the Studio with Val's real server running in the visitor's
-tab: `<ValApp demo>` starts `ValServer` in memory mode from
+Demo mode is the Studio with Val's real server running in the visitor's tab:
+`<ValApp demo>` starts `ValServer` in memory mode from
 `@valbuild/server/browser`, and the Studio's own client sends its requests
 there instead of over the network. No sign-in, and nothing saved anywhere:
 the edits are in the tab's memory, and a reload starts over. The why is in
 [`docs/plans/demo-mode.md`](../docs/plans/demo-mode.md).
+
+What is in THIS repository is demo mode itself: the browser entry, the
+`demo` props, `@valbuild/tanstack/demo` and the Studio's demo UI. The demo
+SITE people open -- its content, its end-to-end tests and its deploy to
+`demo.valstart.dev` -- is `demo/` in valbuild/home, which installs these
+packages from npm like any other app. So a change here reaches the demo at
+the next release, and nothing in this repository's CI runs it: its
+end-to-end tests run in home. To try an unreleased change on the real
+platform, publish a checkout of home's `demo/` with this repository's
+packages linked in (home's `platform/scripts/loop.ts --val` packs them).
 
 What that asks of everyone else, because the demo runs the same server code
 as production:
@@ -780,9 +790,9 @@ as production:
   `src/browser/noNodeFromBrowser.test.ts` fails, naming the import chain, when
   this is broken. A dynamic `import()` does not fix it: bundlers follow those.
 - **The Studio must reach the server only through its `ValClient`.** A new raw
-  `fetch` is a request the demo cannot answer, and the `demo` Playwright
-  project (blocking `smoke` job) fails any request to `/api/val` that is not a
-  static file. The two exceptions the browser makes itself -- the upload
+  `fetch` is a request the demo cannot answer, and the demo's end-to-end
+  tests (in home) fail any request to `/api/val` that is not a static file.
+  The two exceptions the browser makes itself -- the upload
   `XMLHttpRequest` to `/api/val/upload/` and media at `/api/val/files/` -- are
   answered by the demo's service worker (`packages/tanstack/src/demo/`), which
   relays exactly those two prefixes to the tab. A new upload or file URL
@@ -817,7 +827,6 @@ pnpm test                              # jest
 pnpm run build                         # top-level: preconstruct + pnpm --filter @valbuild/ui build
 cd examples/next && pnpm run build     # next build for the example app
 cd examples/tanstack && pnpm run build # vite build for the TanStack example
-cd examples/demo && pnpm run build     # and for the demo
 ```
 
 Three more checks are the blocking `smoke` job — separate from the `e2e` matrix,
@@ -828,7 +837,6 @@ once, so run them before pushing anything the Studio loads through:
 
 ```bash
 pnpm exec playwright test --project=tanstack                         # ~1 min
-pnpm exec playwright test --project=demo                             # ~1 min
 pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
   e2e/insecure-context.spec.ts                                       # ~4 min
 ```

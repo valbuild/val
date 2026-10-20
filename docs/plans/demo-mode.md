@@ -2,9 +2,13 @@
 
 > **Status: built, second round** (sections 9 and 10). The backend is option
 > B, the real server in the tab (section 3); demo mode is switched on by an
-> env var in the template (section 6); one demo per tab. The app is
-> `examples/demo`, hosted as its own Vercel project. Section 7 (the template
-> and tour) has a first draft to iterate on.
+> env var in the template (section 6); one demo per tab. Section 7 (the
+> template and tour) has a first draft to iterate on.
+>
+> Section 11 MOVES the demo site: it is `demo/` in valbuild/home, published to
+> `demo.valstart.dev` like any app on Val's platform. This repository keeps
+> demo mode itself and nothing that runs it. Where sections 9 and 10 name
+> `examples/demo`, `e2e/demo` or Vercel, that is where it was.
 >
 > Section 10 REVERSES two decisions made below: edits are held in memory only
 > (not `sessionStorage`), and uploads work -- images and video -- through a
@@ -557,3 +561,34 @@ forget edits; the new-tab item is disabled with its tooltip; a 3200px JPEG
 shows in the canvas as a 2560px WebP; a video plays and seeks in the canvas.
 All of them fail on any `/api/val` request that leaves the browser, routed on
 the context so a request a service worker lets through is still caught.
+
+## 11. The demo site lives in home, on Val's platform
+
+Decided after the second round: the demo is hosted the way every other app
+on Val's platform is, at `demo.valstart.dev`, and its source lives in
+valbuild/home as a top-level `demo/`, not in this repository.
+
+- **Why it fits.** The platform's loader serves `<project>.valstart.dev` by
+  rendering a TanStack Start app in a Dynamic Worker, built by the platform's
+  publish CLI. The demo is a TanStack Start app whose only server code is
+  `initValDemoServer`, so it is one more project, named `demo`. Tried end to
+  end against a local loader (`wrangler dev`): the site renders, the Studio
+  comes up, the service worker registers (the loader passes
+  `Service-Worker-Allowed: /` through from the app's own route), an edit
+  reaches the canvas, and an uploaded 3200px JPEG comes back as a 2560px
+  WebP -- with nothing leaving the tab.
+- **What stays here.** Demo mode itself: `@valbuild/server/browser`,
+  `<ValApp demo>`, `<ValProvider demo>`, `@valbuild/tanstack/demo` with its
+  service worker, and the Studio's demo UI. Their unit tests and the import
+  guard stay too. The two WebP end-to-end tests that used the demo moved to
+  the TanStack showcase (`e2e/tanstack/webp.spec.ts`), since they test the
+  Studio's encoder, not the demo.
+- **What moved.** The site, its content, its end-to-end tests (the ones that
+  fail any request leaving the tab) and its publishing. Home installs the
+  `@valbuild/*` packages from npm, so a change here reaches the demo at the
+  next release, and this repository's CI no longer runs the demo.
+- **Changing it quickly.** Content or layout: edit `demo/` in home and
+  publish (about a minute, most of it building the dependency layer). A
+  change to demo mode, before a release: publish home's `demo/` with this
+  repository's packages linked in, to a separate project such as
+  `demo-next`, and look at it there.

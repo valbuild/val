@@ -26,8 +26,6 @@ converted; it is proof nothing obvious was added.
 | `chromium`                   | `examples/next`, fs mode    | most of the suite                                             |
 | `chromium-http`              | `examples/next`, proxy mode | publishing, deployments, two editors — `e2e/http/`            |
 | `tanstack`                   | `examples/tanstack`         | "does the Studio come up on TanStack Start, and can it write" |
-| `demo`                       | `examples/demo`             | the demo: an edit lands, and no request leaves the tab        |
-| `webkit-demo`                | `examples/demo`             | the same, in Safari's engine; opt-in by name                  |
 | `warmup` / `tanstack-warmup` | the two above               | not tests: they pay the first compile so no test does         |
 | `screens`                    | `examples/next`             | screenshots for a human; opt-in by name, asserts nothing      |
 
@@ -44,19 +42,13 @@ nothing ran anywhere but a secure context (`insecureContext.ts` explains the
 second half, which is the one no amount of extra framework coverage would have
 caught).
 
-The `demo` project holds the demo to its one promise: every test fails any
-request to `/api/val` that is not one of the Studio's own files, because in a
-demo Val's server runs in the tab. See `docs/plans/demo-mode.md`.
-
-**In CI as the blocking `smoke` job** (this project, `demo`, and
-`smoke.spec.ts` and `insecure-context.spec.ts`), beside a `build-tanstack` job
-that builds both TanStack apps. The `e2e` matrix
+**In CI as the blocking `smoke` job** (this project plus `smoke.spec.ts` and
+`insecure-context.spec.ts`), beside a `build-tanstack` job. The `e2e` matrix
 selects only `chromium` and `chromium-http` and does not block, so `smoke` is
 what gates on them. Run them by hand before pushing:
 
 ```bash
 pnpm exec playwright test --project=tanstack
-pnpm exec playwright test --project=demo
 pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
   e2e/insecure-context.spec.ts
 ```

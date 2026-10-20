@@ -216,7 +216,7 @@ Five rules, each of which is a bug if dropped:
 
   The WebAssembly is lazy: its JavaScript is a chunk of its own and the binary
   is fetched only on that path, once per page, so a browser whose canvas
-  writes WebP never downloads either (`e2e/demo/demo.spec.ts` pins both). It
+  writes WebP never downloads either (`e2e/tanstack/webp.spec.ts` pins both). It
   is served from the static host beside rolldown's, content-addressed, for
   the same reason — see `build/staticWasm.ts` — and `init` is handed a module
   we compiled ourselves, never left to find its file relative to the bundle.

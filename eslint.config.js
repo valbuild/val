@@ -305,7 +305,6 @@ module.exports = defineConfig([
     // Same as the Next example: it has an eslint config of its own that adds
     // the Val plugin's rules, which the root config does not carry.
     "examples/tanstack",
-    "examples/demo",
     "**/trials",
     "**/dist",
     "**/out",

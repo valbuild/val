@@ -1,4 +1,0 @@
-{
-  "target": "react",
-  "routeFileIgnorePattern": "\\.val\\.[tj]sx?$"
-}
