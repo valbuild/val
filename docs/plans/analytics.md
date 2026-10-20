@@ -146,8 +146,9 @@ reads `data-val-path` attributes, which `autoTagJSX`, `ValImage` and
 dynamic `import()` in an effect after hydration, off the critical path.
 
 It does nothing when any of these hold: draft mode, a page the server rendered
-from a draft, the Studio canvas, the Studio's own pages, the Val enable cookie
-(an editor browsing the live site), `navigator.webdriver`.
+from a draft, a proposal's address (its snapshot is unpublished content), the
+Studio canvas, the Studio's own pages, the Val enable cookie (an editor
+browsing the live site), `navigator.webdriver`.
 
 ### What it counts
 
@@ -189,6 +190,15 @@ Three more rules decide what a page view is:
   view.
 - **A page restored from the back/forward cache** (`pageshow` with
   `persisted`) starts a page view.
+- **Navigating on again before the new page has changed the screen** credits
+  the carried content to neither route: the page view in between still
+  counts, with nothing rendered on it.
+- **A prerendered page** (`document.prerendering`: speculation rules, the
+  address bar's guess) counts nothing until it is shown, and nothing if it
+  never is.
+
+A page view is a change of PATHNAME; what is sent is its route. `/blogs/a` to
+`/blogs/b` is two page views of `/blogs/$slug`.
 
 ### Sending
 
@@ -231,8 +241,12 @@ Content-Type: text/plain;charset=UTF-8
 ```jsonc
 {
   "v": 1,
-  // location.pathname, never the query or the hash
-  "route": "/blogs/my-post",
+  // the ROUTE the page is, as the app names it -- never the pathname, the
+  // query or the hash. A pathname can hold something about one visitor (an
+  // order number, a token, an email address); a route pattern cannot. The
+  // TanStack provider passes the matched route's `fullPath` as `routeFor`;
+  // a pathname no route matches is "(not found)"
+  "route": "/blogs/$slug",
   // the content version the page was rendered from: the id of the content
   // version the hosted site served it from, the same one whether or not the
   // bundle holds it. Absent outside Val's hosting -- see "The content version"
