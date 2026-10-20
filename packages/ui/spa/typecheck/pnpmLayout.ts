@@ -1,4 +1,3 @@
-import { Internal } from "@valbuild/core";
 import {
   nameOfKey,
   packageKeyOf,
@@ -7,6 +6,7 @@ import {
   type PackageInfo,
   type PnpmLockfile,
 } from "./pnpmLockfile";
+import { sha256Hex } from "./sha256";
 
 /**
  * What `pnpm install --frozen-lockfile` puts in `node_modules`, computed from
@@ -87,7 +87,7 @@ const byteLength = (text: string) => encoder.encode(text).length;
 
 /** The first 32 hex characters of the SHA-256 of `input`: pnpm's `create_short_hash`. */
 function shortHash(input: string): string {
-  return Internal.getSHA256Hash(encoder.encode(input)).slice(0, 32);
+  return sha256Hex(input).slice(0, 32);
 }
 
 /** The longest prefix of `text` that is at most `bytes` bytes of UTF-8. */

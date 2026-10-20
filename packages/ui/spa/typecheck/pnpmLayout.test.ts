@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { parse } from "yaml";
@@ -9,6 +10,7 @@ import {
   type PnpmLayout,
 } from "./pnpmLayout";
 import { parsePnpmLockfile } from "./pnpmLockfile";
+import { sha256Hex } from "./sha256";
 
 /**
  * Each fixture is what a real `pnpm install --frozen-lockfile
@@ -220,6 +222,23 @@ describe("depPathToFilename", () => {
     const got = depPathToFilename("FOO@1.0.0", 120);
     expect(got.startsWith("FOO@1.0.0_")).toBe(true);
     expect(got).toHaveLength("FOO@1.0.0_".length + 32);
+  });
+});
+
+describe("sha256Hex", () => {
+  test.each([
+    "",
+    "abc",
+    "@tanstack+react-start-rsc@0.1.59_esbuild@0.28.2_react-dom@19.3.0",
+    "ä".repeat(100),
+    "x".repeat(55),
+    "x".repeat(56),
+    "x".repeat(64),
+    "x".repeat(1000),
+  ])("is Node's SHA-256 of %j", (text) => {
+    expect(sha256Hex(text)).toBe(
+      createHash("sha256").update(text, "utf8").digest("hex"),
+    );
   });
 });
 
