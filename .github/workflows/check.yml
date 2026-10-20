@@ -63,7 +63,7 @@ jobs:
       - run: pnpm run build
         working-directory: examples/next
   build-tanstack:
-    name: Build TanStack examples
+    name: Build TanStack example
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -78,14 +78,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
         working-directory: examples/tanstack
-      - run: pnpm run build
-        working-directory: examples/demo
   # The gate for "the Studio does not come up at all": on TanStack Start, and
   # outside a secure context. Blocking, unlike the e2e matrix below -- this is
   # the one class of failure that reaches every user at once, and both halves
   # were added after one shipped with all of CI green. See e2e/README.md.
   smoke:
-    name: Smoke (TanStack, demo, insecure context)
+    name: Smoke (TanStack, insecure context)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -101,7 +99,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm exec playwright test --project=tanstack
-      - run: pnpm exec playwright test --project=demo
       - run: pnpm exec playwright test --project=chromium e2e/smoke.spec.ts e2e/insecure-context.spec.ts
       - uses: actions/upload-artifact@v4
         if: failure()
