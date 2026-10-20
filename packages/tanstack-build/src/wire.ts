@@ -511,8 +511,8 @@ const fetchValDraft = async () =>
     : null;
 
 /**
- * Whether content analytics is on: \`<ValProvider analytics>\`, read in the site
- * layout's loader beside \`fetchValDraft\`.
+ * Content analytics for \`<ValProvider analytics>\`, read in the site layout's
+ * loader beside \`fetchValDraft\`: whether it is on, and the content version.
  *
  * A setting of the project, which its owner turns on in the project's settings
  * and the platform hands over as the \`VAL_ANALYTICS\` secret -- at RUNTIME,
@@ -523,13 +523,27 @@ const fetchValDraft = async () =>
  * Off unless that secret says \`true\`. A \`@valbuild/tanstack\` from before analytics ignores the
  * prop, so this is safe to call against any version.
  *
- * The handed-over secret ONLY, not \`secret()\`: that falls back to
+ * With it, the id of the content version this render serves
+ * (\`VAL_CONTENT_VERSION\`, which the loader hands every isolate it starts for
+ * the site, whether the version is the bundle's own or handed over), so every
+ * count is stored with the version it was seen in.
+ *
+ * What the platform handed over ONLY, not \`secret()\`: that falls back to
  * \`process.env\`, which the builder bakes into this bundle, so a
  * \`VAL_ANALYTICS\` set at build time would be a second switch in the code --
  * and one that keeps counting after the owner has turned it off.
  */
-const fetchValAnalytics = async () =>
-  (globalThis.__PLATFORM_SECRETS ?? {})["VAL_ANALYTICS"] === "true";
+const fetchValAnalytics = async (): Promise<{
+  enabled: boolean;
+  contentVersion?: string;
+}> => {
+  const handed = globalThis.__PLATFORM_SECRETS ?? {};
+  const contentVersion = handed["VAL_CONTENT_VERSION"];
+  return {
+    enabled: handed["VAL_ANALYTICS"] === "true",
+    ...(contentVersion ? { contentVersion } : {}),
+  };
+};
 
 /**
  * A build that is MEANT to edit and cannot, refusing instead of pretending to.

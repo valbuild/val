@@ -2,6 +2,7 @@ import {
   initValServer,
   initValContent,
   createPrettierFormatter,
+  type ValAnalytics,
 } from "@valbuild/tanstack/server";
 import prettier from "prettier";
 import { config } from "../../val.config";
@@ -41,14 +42,22 @@ const {
 } = initValContent(config, valModules, { draftMode });
 
 /**
- * Whether content analytics is on, for `<ValProvider analytics>`.
+ * Content analytics, for `<ValProvider analytics>`: whether it is on, and the
+ * content version the page is rendered from.
  *
- * On a hosted site this is a project setting, handed over as the
- * `VAL_ANALYTICS` secret, and the platform's own `val.server.ts` reads it.
- * The showcase sets the same variable in `.env.development`, which TanStack
- * Start loads into `process.env`, so it counts while you browse it in dev.
+ * On a hosted site both come from the platform -- the project setting as the
+ * `VAL_ANALYTICS` secret, the served version's id as `VAL_CONTENT_VERSION` --
+ * and the platform's own `val.server.ts` reads them. The showcase sets the
+ * same variables in `.env.development`, which TanStack Start loads into
+ * `process.env`, so it counts while you browse it in dev.
  */
-const fetchValAnalytics = async () => process.env.VAL_ANALYTICS === "true";
+const fetchValAnalytics = async (): Promise<ValAnalytics> => {
+  const contentVersion = process.env.VAL_CONTENT_VERSION;
+  return {
+    enabled: process.env.VAL_ANALYTICS === "true",
+    ...(contentVersion ? { contentVersion } : {}),
+  };
+};
 
 export {
   valApiHandler,

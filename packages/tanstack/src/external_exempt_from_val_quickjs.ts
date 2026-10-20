@@ -45,6 +45,7 @@ export {
 // TanStack specific
 export { ValProvider } from "./ValProvider";
 export type { ValDraft } from "./ValDraft";
+export type { ValAnalytics } from "./ValAnalytics";
 export { ValImage, type ValImageProps } from "./ValImage";
 export { ValVideo, type ValVideoProps } from "./ValVideo";
 export { ValApp } from "./ValApp";

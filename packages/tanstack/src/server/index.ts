@@ -21,6 +21,7 @@ export { InMemoryPatchStore, type ValPatchStore } from "@valbuild/server";
 export type { ValHttpMode } from "./initValServer";
 export { initValContent } from "./initValContent";
 export type { ValDraft } from "../ValDraft";
+export type { ValAnalytics } from "../ValAnalytics";
 export {
   valDraftMode,
   hasValEnableCookieOnServer,
