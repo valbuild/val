@@ -33,6 +33,11 @@ import type { BuildTarget } from "../contract";
 import { nodeShims } from "./nodeShims";
 import { ASSET_BASE } from "../assets";
 import { parseAstAsync } from "rolldown/parseAst";
+import {
+  ImportType,
+  init as initLexer,
+  parse as lexModule,
+} from "es-module-lexer";
 
 /**
  * Packages the base layer already provides.
@@ -1100,12 +1105,40 @@ const parseModule = async (code: string, file: string) =>
     body: Array<ModuleStatement>;
   };
 
+/**
+ * The text of every import and re-export statement in a chunk, and nothing
+ * else, as one small module.
+ *
+ * A lexer finds them and the parser below reads only them. Parsing the whole
+ * chunk was the most expensive thing left in a layer build: Val's server chunk
+ * is 20 MB, and its syntax tree cost about 650 MB and 4 s to learn the dozen
+ * statements at its top. The lexer knows strings, comments, template literals
+ * and regular expressions, so a `from "mod"` inside a string is not a
+ * statement -- which is the reason this is not a regular expression (see
+ * above).
+ *
+ * Null when the lexer cannot read the chunk, and the caller parses all of it,
+ * as it did before.
+ */
+async function importStatementsOf(code: string): Promise<string | null> {
+  await initLexer;
+  try {
+    const [imports] = lexModule(code);
+    return imports
+      .filter((entry) => entry.t === ImportType.Static)
+      .map((entry) => code.slice(entry.ss, entry.se))
+      .join(";\n");
+  } catch {
+    return null;
+  }
+}
+
 /** Every import and re-export a chunk emits, with the names it takes. */
 export async function auditableImports(
   code: string,
   file: string,
 ): Promise<Array<AuditableImport>> {
-  const ast = await parseModule(code, file);
+  const ast = await parseModule((await importStatementsOf(code)) ?? code, file);
   const imports: Array<AuditableImport> = [];
   for (const statement of ast.body) {
     if (

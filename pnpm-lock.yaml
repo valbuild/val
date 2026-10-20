@@ -796,6 +796,9 @@ importers:
       '@rolldown/browser':
         specifier: ^1.2.5
         version: 1.2.9
+      es-module-lexer:
+        specifier: ^2.3.2
+        version: 2.3.2
       react:
         specifier: '>=19.0.0'
         version: 19.2.8
