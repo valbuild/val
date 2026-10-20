@@ -1,3 +1,5 @@
+import { bytesToBase64 } from "./bytes";
+
 /**
  * The bytes of the local binary files a commit is about to write, base64.
  *
@@ -20,7 +22,7 @@ export async function readCommittedBinaryFiles<Id>(
       filePath: string,
       patchId: Id,
       remote: boolean,
-    ): Promise<Buffer | null>;
+    ): Promise<Uint8Array | null>;
   },
   descriptors: Record<string, { patchId: Id; remote: boolean }>,
 ): Promise<{ files: Record<string, string>; unread: string[] }> {
@@ -36,7 +38,7 @@ export async function readCommittedBinaryFiles<Id>(
           return null;
         });
       if (bytes === null) unread.push(filePath);
-      else files[filePath] = bytes.toString("base64");
+      else files[filePath] = bytesToBase64(bytes);
     }),
   );
   return { files, unread: unread.sort() };

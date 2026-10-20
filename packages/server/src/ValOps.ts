@@ -1,8 +1,3 @@
-/*
- * Imported rather than global: under Node this is the built-in, and in a
- * browser (the demo, `@valbuild/server/browser`) the `buffer` package.
- */
-import { Buffer } from "buffer";
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   MediaSource,
@@ -70,6 +65,7 @@ import {
 } from "./remoteFileCheck";
 import type { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
+import { base64ToBytes, bytesToBase64 } from "./bytes";
 import { ParentPatchId } from "@valbuild/core";
 import type { ReifiedPreview } from "@valbuild/core";
 import {
@@ -3000,7 +2996,7 @@ export abstract class ValOps {
     filePath: string,
     parentRef: ParentRef,
     patchId: PatchId,
-    bytes: Buffer,
+    bytes: Uint8Array,
     mimeType: string,
     type: "file" | "image",
     metadata: MetadataOfType<"file" | "image"> | undefined,
@@ -3009,7 +3005,7 @@ export abstract class ValOps {
       filePath,
       parentRef,
       patchId,
-      `data:${mimeType};base64,${bytes.toString("base64")}`,
+      `data:${mimeType};base64,${bytesToBase64(bytes)}`,
       type,
       metadata,
     );
@@ -3018,7 +3014,7 @@ export abstract class ValOps {
     filePath: string,
     patchId: PatchId,
     remote: boolean,
-  ): Promise<Buffer | null>;
+  ): Promise<Uint8Array | null>;
   protected abstract getBase64EncodedBinaryFileMetadataFromPatch<
     T extends "file" | "image",
   >(
@@ -3027,7 +3023,7 @@ export abstract class ValOps {
     patchId: PatchId,
     remote: boolean,
   ): Promise<OpsMetadata<T>>;
-  abstract getBinaryFile(filePathOrRef: string): Promise<Buffer | null>;
+  abstract getBinaryFile(filePathOrRef: string): Promise<Uint8Array | null>;
 
   /**
    * A file's bytes as something a `Range` request can be answered from
@@ -3133,7 +3129,7 @@ export abstract class ValOps {
     commitSha: string,
     filePath: string,
     remote: boolean,
-  ): Promise<result.Result<Buffer, HistoryError>>;
+  ): Promise<result.Result<Uint8Array, HistoryError>>;
 
   /**
    * Where a module lives in the REPOSITORY, as `getFileAtCommit` wants it.
@@ -3557,7 +3553,7 @@ export function getFieldsForType<T extends BinaryFileType>(
 export function createMetadataFromBuffer<T extends BinaryFileType>(
   type: BinaryFileType,
   mimeType: string,
-  buffer: Buffer,
+  buffer: Uint8Array,
 ): OpsMetadata<T> {
   const errors = [];
   let availableMetadata: Record<string, string | number | undefined | null>;
@@ -3688,17 +3684,15 @@ export function guessMimeTypeFromPath(filePath: string): string | null {
   return null;
 }
 
-export function bufferFromDataUrl(dataUrl: string): Buffer | undefined {
+export function bufferFromDataUrl(dataUrl: string): Uint8Array | undefined {
   let base64Data;
   const base64Index = dataUrl.indexOf(";base64,");
   if (base64Index > -1) {
     base64Data = dataUrl.slice(base64Index + ";base64,".length);
   }
   if (base64Data) {
-    return Buffer.from(
-      base64Data,
-      "base64", // TODO: why does it not work with base64url?
-    );
+    // TODO: why does it not work with base64url?
+    return base64ToBytes(base64Data);
   }
 }
 
@@ -3706,10 +3700,10 @@ export function bufferFromDataUrl(dataUrl: string): Buffer | undefined {
 export type BinaryFileReader = {
   readonly size: number;
   /** Bytes `start` to `end`, both inclusive, as an HTTP range is. */
-  read(start: number, end: number): Promise<Buffer>;
+  read(start: number, end: number): Promise<Uint8Array>;
 };
 
-export function bufferReader(buffer: Buffer): BinaryFileReader {
+export function bufferReader(buffer: Uint8Array): BinaryFileReader {
   return {
     size: buffer.length,
     read: async (start, end) => buffer.subarray(start, end + 1),

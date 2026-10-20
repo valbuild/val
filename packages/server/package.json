@@ -42,7 +42,6 @@
     "@valbuild/core": "workspace:*",
     "@valbuild/shared": "workspace:*",
     "@valbuild/ui": "workspace:*",
-    "buffer": "^6.0.3",
     "chokidar": "^5.0.0",
     "image-size": "^2.0.2",
     "minimatch": "^10.2.6",

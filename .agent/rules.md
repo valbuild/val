@@ -791,6 +791,10 @@ as production:
   `instanceof`, which imports the class. `posixPath` instead of `path`.
   `src/browser/noNodeFromBrowser.test.ts` fails, naming the import chain, when
   this is broken. A dynamic `import()` does not fix it: bundlers follow those.
+  Bytes there are `Uint8Array`, converted with `bytes.ts` -- never `Buffer`, and
+  never npm's `buffer`, which `vite dev` serves unconverted to the tab (see
+  `architecture/quirks.md`). The test refuses both, in `@valbuild/core` and
+  `@valbuild/shared` too.
 - **The Studio must reach the server only through its `ValClient`.** A new raw
   `fetch` is a request the demo cannot answer, and the demo's end-to-end
   tests (in home) fail any request to `/api/val` that is not a static file.

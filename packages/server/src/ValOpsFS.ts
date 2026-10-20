@@ -1570,7 +1570,7 @@ class FSOpsHost {
     return { type: "success" };
   }
 
-  writeBinaryFile(path: string, data: Buffer): void {
+  writeBinaryFile(path: string, data: Uint8Array): void {
     fs.mkdirSync(fsPath.dirname(path), { recursive: true });
     fs.writeFileSync(path, new Uint8Array(data), "base64url");
   }
