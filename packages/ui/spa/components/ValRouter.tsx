@@ -1,3 +1,4 @@
+import { moduleFilePathOfPathname } from "../utils/moduleFilePathOfPathname";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import React, {
   useCallback,
@@ -416,8 +417,8 @@ export function ValRouter({
       const valPathIndex = location.pathname.indexOf(VAL_CONTENT_VIEW_ROUTE);
       if (valPathIndex > -1) {
         const modulePath = new URLSearchParams(location.search).get("p");
-        const moduleFilePath = location.pathname.slice(
-          valPathIndex + VAL_CONTENT_VIEW_ROUTE.length,
+        const moduleFilePath = moduleFilePathOfPathname(
+          location.pathname.slice(valPathIndex + VAL_CONTENT_VIEW_ROUTE.length),
         );
         const path = moduleFilePath + (modulePath ? `?p=${modulePath}` : "");
         setSourcePath(path as SourcePath);
