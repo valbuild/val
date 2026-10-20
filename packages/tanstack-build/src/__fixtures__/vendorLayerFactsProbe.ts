@@ -31,6 +31,15 @@ export type Outcome =
     }
   | { built: false; pinSkew: Array<PinSkew> | null; message: string };
 
+/** What a layer with server-only dependencies reports, and what it ships. */
+export type ServerOnlyOutcome = {
+  modules: Record<string, string>;
+  skipped: Array<{ specifier: string; reason: string }>;
+  workerOnly: Array<string>;
+  workerOnlyReasons: Record<string, string>;
+  browserCode: string;
+};
+
 const remote = (facts: Facts): VendorPlatform => ({
   base: {
     rev: "base-rev-1",
@@ -77,6 +86,48 @@ const PROJECT: Record<string, string> = {
   // Cannot build at all, which sends a layer down the per-dependency probe.
   "node_modules/broken/package.json": pkg("broken", "1.0.0", "./index.js"),
   "node_modules/broken/index.js": 'export * from "./missing.js";\n',
+  // Server-only: Node builtins, statically, through a module of its own -- and
+  // a named import, which a stub with no exports would fail to link.
+  "node_modules/server-dep/package.json": pkg(
+    "server-dep",
+    "1.0.0",
+    "./index.js",
+  ),
+  "node_modules/server-dep/index.js":
+    'import { fileOf } from "./files.js";\n' +
+    "export const read = (name) => fileOf(name);\n",
+  "node_modules/server-dep/files.js":
+    'import path from "path";\n' +
+    'import { randomUUID } from "node:crypto";\n' +
+    'export const fileOf = (name) => path.join("/", name, randomUUID());\n',
+  // A builtin behind import() only: the browser gets it, and the import
+  // rejects at runtime, as it always did.
+  "node_modules/lazy-dep/package.json": pkg("lazy-dep", "1.0.0", "./index.js"),
+  "node_modules/lazy-dep/index.js":
+    'export const tryFs = () => import("node:fs").then(() => true, () => false);\n',
+  // Loads a native binary, which nothing can bundle: not layered, for either
+  // side, and not a reason to build every other dependency on its own.
+  "node_modules/native-dep/package.json": JSON.stringify({
+    name: "native-dep",
+    version: "1.0.0",
+    main: "./index.js",
+  }),
+  "node_modules/native-dep/index.js":
+    'module.exports = require("./addon.node");\n',
+  "node_modules/native-dep/addon.node": "\u007fELF not really a binary",
+  // `events` is a builtin's name AND an installed npm package, which a browser
+  // build has always used. It stays the package.
+  "node_modules/events/package.json": pkg("events", "3.3.0", "./events.js"),
+  "node_modules/events/events.js":
+    "export class EventEmitter { on() { return 'from-the-events-package'; } }\n",
+  "node_modules/emitter-dep/package.json": pkg(
+    "emitter-dep",
+    "1.0.0",
+    "./index.js",
+  ),
+  "node_modules/emitter-dep/index.js":
+    'import { EventEmitter } from "events";\n' +
+    "export const emitter = () => new EventEmitter();\n",
 };
 
 async function layer(deps: Array<string>, facts: Facts): Promise<Outcome> {
@@ -97,6 +148,26 @@ async function layer(deps: Array<string>, facts: Facts): Promise<Outcome> {
       built: false,
       pinSkew: error instanceof PinSkewError ? error.skew : null,
       message: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function serverOnly(deps: Array<string>): Promise<ServerOnlyOutcome> {
+  const root = await mkdtemp(join(tmpdir(), "vendor-layer-server-only-"));
+  try {
+    for (const [path, text] of Object.entries(PROJECT)) {
+      await mkdir(dirname(join(root, path)), { recursive: true });
+      await writeFile(join(root, path), text);
+    }
+    const built = await buildVendorLayer(root, deps, {}, remote({}));
+    return {
+      modules: built?.modules ?? {},
+      skipped: built?.skipped ?? [],
+      workerOnly: built?.workerOnly ?? [],
+      workerOnlyReasons: built?.workerOnlyReasons ?? {},
+      browserCode: Object.values(built?.browser ?? {}).join("\n"),
     };
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -125,6 +196,16 @@ async function main() {
     chunkNotListed: await layer(["dep-a"], {
       exports: { worker: {}, browser: {} },
     }),
+    serverOnly: await serverOnly([
+      "native-dep",
+      "server-dep",
+      "lazy-dep",
+      "emitter-dep",
+    ]),
+    serverOnlyBesideABrokenDependency: await serverOnly([
+      "broken",
+      "server-dep",
+    ]),
   };
   console.log(JSON.stringify(result));
 }

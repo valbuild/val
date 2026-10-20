@@ -793,6 +793,9 @@ importers:
       '@rolldown/browser':
         specifier: ^1.2.5
         version: 1.2.9
+      es-module-lexer:
+        specifier: ^2.3.2
+        version: 2.3.2
       react:
         specifier: '>=19.0.0'
         version: 19.2.8
@@ -1208,6 +1211,9 @@ importers:
       wasm-feature-detect:
         specifier: 1.9.0
         version: 1.9.0
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
       zod:
         specifier: ^4.4.3
         version: 4.4.3
