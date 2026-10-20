@@ -383,19 +383,22 @@ does not 404 either.
 
 ## Content analytics
 
-Val can count which content your visitors see. It is **off by default**, and a
-setting of the hosted project rather than of the code: the owner turns it on in
-the project's settings, and Val's hosting hands it to the site as the
-`VAL_ANALYTICS` variable. The `val.server.ts` the platform writes for a hosted
-project exports `fetchValAnalytics()` to read it; pass that to the provider from
-the same loader as the draft:
+Val can count which content your visitors see, on a site Val hosts. It is
+**off by default**, and a setting of the hosted project rather than of the
+code: the owner turns it on in the project's settings, and Val's hosting hands
+it to the site as the `VAL_ANALYTICS` variable. The `val.server.ts` the
+platform writes for a hosted project exports `fetchValAnalytics()` to read it;
+pass that to the provider from the same loader as the draft:
 
 ```tsx
 // src/routes/_site.tsx
-const getValPage = createServerFn().handler(async () => ({
-  draft: await fetchValDraft(),
-  analytics: await fetchValAnalytics(),
-}));
+const getValPage = createServerFn().handler(async () => {
+  const [draft, analytics] = await Promise.all([
+    fetchValDraft(),
+    fetchValAnalytics(),
+  ]);
+  return { draft, analytics };
+});
 
 function SiteLayout() {
   const page = Route.useLoaderData();
@@ -415,6 +418,13 @@ function SiteLayout() {
 With it on, content read with the hooks is tagged for every visitor after
 hydration, so each element showing content carries a `data-val-path` to count.
 The HTML the server sends is the same with it on or off.
+
+`fetchValAnalytics` is not part of `initValContent`: it exists in the file the
+platform writes, and nowhere else. A site Val does not host has nowhere to send
+counts yet, so it leaves `analytics` out. To see the mode working in local
+development, write your own -- `examples/tanstack/src/val/server.ts` reads
+`VAL_ANALYTICS` from `process.env`, which TanStack Start fills from
+`.env.development`.
 
 ## Images
 
@@ -452,6 +462,7 @@ SDK of your choice. See [`@valbuild/mcp`](https://www.npmjs.com/package/@valbuil
 | `ValImage` wraps `next/image`       | `ValImage` is an `<img>`                           |
 | `fetchVal` in a Server Component    | hooks in components; `createServerFn` for loaders  |
 | client hooks render published SSR   | `ValProvider draft` renders the draft during SSR   |
+| no content analytics yet            | `ValProvider analytics` (hosted projects only)     |
 
 ## Schema reference
 

@@ -14,10 +14,13 @@ import { fetchValAnalytics, fetchValDraft } from "../val/server";
  * Through `createServerFn` for the reason `_site.docs.$.tsx` gives: a loader
  * runs in the browser too, and `../val/server` must not end up there.
  */
-const getValPage = createServerFn().handler(async () => ({
-  draft: await fetchValDraft(),
-  analytics: await fetchValAnalytics(),
-}));
+const getValPage = createServerFn().handler(async () => {
+  const [draft, analytics] = await Promise.all([
+    fetchValDraft(),
+    fetchValAnalytics(),
+  ]);
+  return { draft, analytics };
+});
 
 /**
  * The site's own layout — everything except Val Studio.
