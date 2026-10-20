@@ -3112,7 +3112,7 @@ export const ValServer = (
           const deleteRes = await serverOps.deletePatches(consumed);
           if ("error" in deleteRes && deleteRes.error !== undefined) {
             Internal.log.error(
-              `Val got an error while cleaning up patches after publish: ${deleteRes.error.message}`,
+              `got an error while cleaning up patches after publish: ${deleteRes.error.message}`,
             );
           } else if ("errors" in deleteRes && deleteRes.errors !== undefined) {
             // Per patch, and not fatal: the files are written, so the save

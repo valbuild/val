@@ -345,7 +345,7 @@ export const ValTanStackProvider = (props: {
   useConsoleLogEnableVal(mountOverlay);
   React.useEffect(() => {
     if (location.search === "?message_onready=true") {
-      Internal.log.debug("Val is verifying draft mode...");
+      Internal.log.debug("verifying draft mode...");
       return;
     }
     if (isValStudioPath(location.pathname)) {
