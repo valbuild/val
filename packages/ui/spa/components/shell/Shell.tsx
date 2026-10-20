@@ -53,7 +53,7 @@ import {
 } from "../proposals/ProposalBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
-import { StudioTour } from "./StudioTour";
+import { StudioTour, TourActions, TourObserved } from "./StudioTour";
 import {
   readTourCompleted,
   studioTourSteps,
@@ -156,6 +156,18 @@ export type ShellProps = {
    * the reason `canStartTour` gives.
    */
   autoStartTour?: boolean;
+  /** How the tour looks. See `StudioTourProps.look`; the demo's is `ring`. */
+  tourLook?: "spotlight" | "ring";
+  /**
+   * Outline a place on the page for the tour (a step's `page`). The canvas is
+   * the caller's (`renderCanvas`), so the outline is too.
+   */
+  onTourHighlightPage?: (path: SourcePath | null) => void;
+  /**
+   * Write a value at a path, for a step's "Do it for me". Absent: no step
+   * offers to make an edit for the visitor.
+   */
+  onTourWrite?: (path: SourcePath, value: string) => void;
   /** Called when the tour is left, finished or not. */
   onTourClose?: () => void;
   /**
@@ -545,6 +557,9 @@ export function Shell({
   tourEnabled = true,
   buildTourSteps,
   autoStartTour = false,
+  tourLook,
+  onTourHighlightPage,
+  onTourWrite,
   onTourClose,
   renderDemoBanner,
   theme,
@@ -810,6 +825,34 @@ export function Shell({
     writeTourCompleted(true);
     onTourClose?.();
   }, [onTourClose]);
+  /** What a step that moves on by itself watches. See `TourObserved`. */
+  const tourObserved = useMemo<TourObserved>(
+    () => ({
+      selectedPath: selectedCanvasPath ?? null,
+      reviewCount: reviewCount ?? 0,
+      openPanel,
+      locale: locale ?? null,
+    }),
+    [selectedCanvasPath, reviewCount, openPanel, locale],
+  );
+  /** "Do it for me": the same calls the visitor's own clicks make. */
+  const tourActions = useMemo<TourActions>(
+    () => ({
+      ...(onSelectCanvasPath ? { openPath: onSelectCanvasPath } : {}),
+      ...(onTourWrite ? { write: onTourWrite } : {}),
+      ...(onLocaleChange && locales && locales.length > 0
+        ? {
+            nextLocale: () => {
+              // All languages, then each in turn, as the filter offers them.
+              const order: (string | null)[] = [null, ...locales];
+              const at = order.indexOf(locale ?? null);
+              onLocaleChange(order[(at + 1) % order.length] ?? null);
+            },
+          }
+        : {}),
+    }),
+    [onSelectCanvasPath, onTourWrite, onLocaleChange, locales, locale],
+  );
   const tourSteps = useMemo(
     () =>
       buildTourSteps
@@ -1517,13 +1560,22 @@ export function Shell({
           />
         )}
 
-        {renderDemoBanner?.(startTour)}
+        {/*
+         * Not while the tour is open: one card at a time, and on a phone the
+         * two were stacked on top of each other. The tour is started from it,
+         * so it is back the moment the tour is left.
+         */}
+        {!isTourOpen && renderDemoBanner?.(startTour)}
 
         {isTourOpen && (
           <StudioTour
             steps={tourSteps}
             onClose={closeTour}
             onOpenPanel={openPanelForTour}
+            look={tourLook}
+            observed={tourObserved}
+            act={tourActions}
+            onHighlightPage={onTourHighlightPage}
           />
         )}
 
