@@ -391,6 +391,58 @@ export const ValTanStackProvider = (props: {
     setMountOverlay(hasValEnableCookie(document.cookie));
   }, []);
 
+  /**
+   * The analytics script, for a visitor and nobody else.
+   *
+   * `mountOverlay === false` is "known not to be an editor": no Val enable
+   * cookie, so no draft mode and no canvas. A page the server rendered from a
+   * draft is an editor's too, whatever the enable cookie says -- the draft
+   * mode cookie can outlive it. So is one at a proposal's address, which
+   * comes with a snapshot: its content is not published, and counting it
+   * would credit the live site with it. The Studio's own pages count nothing
+   * either. Loaded with a dynamic import after hydration, so a site
+   * with analytics off never downloads it, and one with it on downloads it
+   * off the critical path. It imports nothing from core, shared or zod.
+   */
+  React.useEffect(() => {
+    if (
+      !analytics ||
+      mountOverlay !== false ||
+      hasDraft ||
+      snapshot !== undefined ||
+      isCanvas ||
+      isValStudioPath(location.pathname)
+    ) {
+      return;
+    }
+    // Where the page was hydrated, read now: the script loads later, and the
+    // visitor may have moved on by then. See `landingPath`.
+    const landingPath = location.pathname;
+    let cancelled = false;
+    let tracker: { stop(): void } | null = null;
+    import("@valbuild/react/analytics")
+      .then(({ startValAnalytics }) => {
+        if (!cancelled) {
+          tracker = startValAnalytics({
+            endpoint: `${route}/analytics`,
+            landingPath,
+            // The route's pattern (`/posts/$postId`), never the pathname,
+            // which can hold something about one visitor. A pathname no
+            // route matches is not a page of the site.
+            routeFor: (pathname) =>
+              router.getMatchedRoutes(pathname)[2]?.fullPath ?? "(not found)",
+          });
+        }
+      })
+      .catch((error) => {
+        Internal.log.warn("could not load analytics", error);
+      });
+    return () => {
+      cancelled = true;
+      tracker?.stop();
+    };
+  }, [analytics, mountOverlay, hasDraft, snapshot, isCanvas, route, router]);
+
   React.useEffect(() => {
     // Activate the Suspense gate after hydration. Inside a transition so
     // already-visible (static) content stays on screen while useValStega
@@ -1047,8 +1099,12 @@ function getPositionClassName(dropZone: string | null) {
   return className;
 }
 
+/**
+ * The Studio is `/val` and what is below it -- not every route that starts
+ * with the letters, which would leave `/values` without its overlay.
+ */
 function isValStudioPath(pathname: string): boolean {
-  return pathname.startsWith("/val");
+  return pathname === "/val" || pathname.startsWith("/val/");
 }
 
 /**

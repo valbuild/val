@@ -417,7 +417,11 @@ function SiteLayout() {
 
 With it on, content read with the hooks is tagged for every visitor after
 hydration, so each element showing content carries a `data-val-path` to count.
-The HTML the server sends is the same with it on or off.
+The HTML the server sends is the same with it on or off. A small script,
+loaded after hydration, then counts what each page rendered and what was on
+screen, and sends it to `/api/val/analytics`. No cookies, no storage and no
+visitor IDs, and nothing is sent in draft mode, in the Studio or from an
+automated browser.
 
 `fetchValAnalytics` is not part of `initValContent`: it exists in the file the
 platform writes, and nowhere else. A site Val does not host has nowhere to send
