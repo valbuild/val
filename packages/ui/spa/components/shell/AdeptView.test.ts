@@ -1,4 +1,5 @@
 import { StudioPublishError } from "../../publish/publishClient";
+import { SourceError } from "../../typecheck/acquireTypes";
 import {
   Abandoned,
   failureOf,
@@ -94,6 +95,23 @@ describe("what a failure lets the person do", () => {
       code: "does-not-resolve",
       message: "no zod@99",
       retryable: false,
+    });
+  });
+
+  test("a typecheck signed out is Sign in too", () => {
+    expect(failureOf(new SourceError("Sign in.", "401", false, 401))).toEqual({
+      kind: "signed-out",
+    });
+  });
+
+  test("a typecheck's failure keeps adept's code and whether to try again", () => {
+    expect(
+      failureOf(new SourceError("adept is busy", "busy", true, 429)),
+    ).toEqual({
+      kind: "error",
+      code: "busy",
+      message: "adept is busy",
+      retryable: true,
     });
   });
 

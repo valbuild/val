@@ -7,11 +7,19 @@ import {
   createStudioPublishClient,
   isTransientPublishError,
 } from "../../publish/publishClient";
+import { SourceError } from "../../typecheck/acquireTypes";
 import {
   lockedPackages,
   typescriptVersion,
   type Locked,
 } from "../../typecheck/lockedVersions";
+import type {
+  TypeErrorEntry,
+  TypecheckProgress,
+  TypecheckResult,
+} from "../../typecheck/typecheckProject";
+import { TypecheckAbandoned } from "../../typecheck/typecheckProtocol";
+import type { Typechecker } from "../../typecheck/typecheckWorkerClient";
 
 export { lockedPackages, typescriptVersion };
 
@@ -62,6 +70,15 @@ function isFiles(value: unknown): value is Files {
 
 /** adept's `{ error: { code, message, retryable } }`, or what else failed. */
 export function failureOf(error: unknown): Failure {
+  if (error instanceof SourceError) {
+    if (error.status === 401) return { kind: "signed-out" };
+    return {
+      kind: "error",
+      code: error.code,
+      message: error.message,
+      retryable: error.retryable,
+    };
+  }
   if (error instanceof InputError) {
     return { kind: "input", message: error.message };
   }
@@ -448,6 +465,9 @@ export function AdeptView() {
         <UpgradeSection packageJson={packageJson} lockfile={lockfile} />
       )}
       {lockfile && <TypesSection lockfile={lockfile} packages={packages} />}
+      {lockfile && source.status === "loaded" && (
+        <TypecheckSection files={source.files} lockfile={lockfile} />
+      )}
     </div>
   );
 }
@@ -844,6 +864,181 @@ function TypesSection({
         <div>
           TypeScript {typescript}: {compiler.value.files} files,{" "}
           {kilobytes(compiler.value.bytes)}, in {seconds(compiler.ms)}.
+        </div>
+      )}
+    </Section>
+  );
+}
+
+/** What the typecheck is doing, in a line. */
+function describeProgress(progress: TypecheckProgress): string {
+  switch (progress.step) {
+    case "layout":
+      return "Laying out node_modules from the lockfile…";
+    case "compiler":
+      return `Loading TypeScript ${progress.version}…`;
+    case "types":
+      return `Fetching types… ${progress.fetched} packages so far`;
+    case "check":
+      return `Checking ${progress.tsconfig}…`;
+  }
+}
+
+function compilerNote(result: TypecheckResult): string {
+  const { typescript } = result;
+  if (typescript.reason === "no-js-compiler") {
+    return `TypeScript ${typescript.version}: the project's ${typescript.wanted} has no JavaScript compiler to run here`;
+  }
+  if (typescript.reason === "no-typescript") {
+    return `TypeScript ${typescript.version}: the lockfile gives the project none of its own`;
+  }
+  return `TypeScript ${typescript.version}, the project's own`;
+}
+
+function byFile(errors: TypeErrorEntry[]): [string, TypeErrorEntry[]][] {
+  const files = new Map<string, TypeErrorEntry[]>();
+  for (const error of errors) {
+    const file = error.file ?? `(${error.tsconfig})`;
+    let list = files.get(file);
+    if (!list) files.set(file, (list = []));
+    list.push(error);
+  }
+  return [...files].sort(([a], [b]) => a.localeCompare(b));
+}
+
+const plural = (n: number, one: string, many = `${one}s`) =>
+  `${n.toLocaleString()} ${n === 1 ? one : many}`;
+
+function TypecheckSection({
+  files,
+  lockfile,
+}: {
+  files: Files;
+  lockfile: string;
+}) {
+  const checker = useRef<Typechecker | null>(null);
+  useEffect(() => () => checker.current?.dispose(), []);
+  const [check, runCheck] = useTimed<TypecheckResult>();
+  const start = () =>
+    runCheck(async (progress, signal) => {
+      if (checker.current === null) {
+        const { createTypechecker } =
+          await import("../../typecheck/typecheckWorkerClient");
+        checker.current = createTypechecker();
+      }
+      try {
+        return await checker.current.check(
+          { files, lockfile },
+          { signal, onProgress: (step) => progress(describeProgress(step)) },
+        );
+      } catch (error) {
+        if (error instanceof TypecheckAbandoned) throw new Abandoned();
+        throw error;
+      }
+    });
+  const result = check.status === "done" ? check.value : null;
+  const retryableMissing =
+    result?.missing.some((missing) => missing.retryable) ?? false;
+  return (
+    <Section title="4. Typecheck">
+      <p className="text-fg-secondary">
+        The live site&apos;s files, checked as they would be after{" "}
+        <code>pnpm install</code> of the lockfile above: the{" "}
+        <code>node_modules</code> pnpm would lay out, the types the imports
+        reach (from adept), and the project&apos;s own TypeScript, in a worker.
+      </p>
+      <div>
+        <Button disabled={check.status === "running"} onClick={start}>
+          {check.status === "running" ? "Typechecking…" : "Typecheck"}
+        </Button>
+      </div>
+      {check.status === "running" && check.step && <div>{check.step}</div>}
+      {check.status === "failed" && (
+        <FailureNote failure={check.failure} onRetry={start} />
+      )}
+      {result && (
+        <div className="flex flex-col gap-3">
+          <div className="text-base font-semibold">
+            {result.errors.length === 0
+              ? "0 errors"
+              : `${plural(result.errors.length, "error")} in ${plural(byFile(result.errors).length, "file")}`}
+          </div>
+          <div className="text-fg-secondary">
+            {compilerNote(result)}.{" "}
+            {result.programs
+              .map(
+                (program) =>
+                  `${program.tsconfig}: ${plural(program.files, "file")}, ${plural(program.errors, "error")}`,
+              )
+              .join("; ")}
+            {result.programs.length === 0 &&
+              "No tsconfig.json with files to check."}
+          </div>
+          {result.missing.length > 0 && (
+            <div className="flex flex-col gap-2 rounded bg-bg-error-primary p-3 text-sm text-fg-error-on-surface">
+              <div>
+                The types of {plural(result.missing.length, "package")} could
+                not be fetched, so the errors that involve them may be wrong:
+              </div>
+              <ul className="font-mono text-xs">
+                {result.missing.map((missing) => (
+                  <li key={`${missing.name}@${missing.version}`}>
+                    {missing.name}@{missing.version}: {missing.message}
+                  </li>
+                ))}
+              </ul>
+              {retryableMissing && (
+                <div>
+                  <Button size="sm" variant="outline" onClick={start}>
+                    Try again
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          <table className="w-fit border-collapse text-xs">
+            <tbody>
+              {(
+                [
+                  ["Layout", result.timings.layoutMs],
+                  ["Loading TypeScript", result.timings.compilerMs],
+                  ["Fetching types", result.timings.typesMs],
+                  ["Checking", result.timings.checkMs],
+                  ["In all", result.timings.totalMs],
+                ] satisfies [string, number][]
+              ).map(([label, ms]) => (
+                <tr key={label}>
+                  <td className="pr-4">{label}</td>
+                  <td className="text-right font-mono">{seconds(ms)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="text-fg-secondary">
+            {plural(result.bundles.count, "bundle")} ({result.bundles.scanned}{" "}
+            named by imports, {result.bundles.resolved} looked for by
+            TypeScript, in {plural(result.bundles.rounds, "extra round")}),{" "}
+            {plural(result.bundles.files, "file")} and{" "}
+            {plural(result.bundles.stubs, "stub")},{" "}
+            {kilobytes(result.bundles.bytes)}.
+          </div>
+          {byFile(result.errors).map(([file, errors]) => (
+            <details key={file} open>
+              <summary className="cursor-pointer font-mono">
+                {file} ({errors.length})
+              </summary>
+              <ul className="mt-1 flex flex-col gap-1 pl-4 font-mono text-xs">
+                {errors.map((error, index) => (
+                  <li key={index} className="whitespace-pre-wrap">
+                    {error.line !== null
+                      ? `${error.line}:${error.column} `
+                      : ""}
+                    TS{error.code}: {error.message}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ))}
         </div>
       )}
     </Section>
