@@ -35,16 +35,21 @@ import {
  *
  * The local file stays where it is, as it does after `--fix`.
  *
- * Videos are not here: one names several files, and a stream is rewritten as
- * it goes up. They keep the `val validate --fix` command.
+ * A video names several files and a stream is rewritten as it goes up, so
+ * its rules are their own: `video/uploadLocalVideo.ts`.
  */
 
-/** The fixes the Studio makes by uploading from the browser. */
+/**
+ * The fixes the Studio makes by uploading from the browser: every
+ * `*:upload-remote` code, the same set `val validate` reports as warnings.
+ */
 export const STUDIO_UPLOAD_FIXES = [
   "image:upload-remote",
   "file:upload-remote",
   "images:upload-remote",
   "files:upload-remote",
+  "video:upload-remote",
+  "videos:upload-remote",
 ] as const satisfies readonly ValidationFix[];
 
 export type StudioUploadFix = (typeof STUDIO_UPLOAD_FIXES)[number];

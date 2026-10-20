@@ -59,7 +59,9 @@ describe("buildValidateGroups", () => {
     const plain = at(MEDIA, '"caption"');
     const errors: Record<SourcePath, ValidationError[]> = {
       [hero]: [{ message: "No metadata", fixes: ["image:add-metadata"] }],
-      [remote]: [{ message: "Not uploaded", fixes: ["video:upload-remote"] }],
+      [remote]: [
+        { message: "Not downloaded", fixes: ["image:download-remote"] },
+      ],
       [plain]: [{ message: "Required" }],
     };
     const res = build({
@@ -74,8 +76,8 @@ describe("buildValidateGroups", () => {
       tone: "fixable",
       action: { kind: "fix" },
     });
-    // A video goes up file by file, rewritten as it goes: still the CLI's.
-    expect(byMessage["Not uploaded"]).toMatchObject({
+    // Downloading writes into the repository: still the CLI's.
+    expect(byMessage["Not downloaded"]).toMatchObject({
       tone: "error",
       action: { kind: "command", command: "val validate --fix" },
     });

@@ -27,6 +27,7 @@ import {
 
 const MODULE = "/content/remoteImages.val.ts";
 const IMAGE = "e2e/fixtures/blue-8x8.png";
+const CLIP = "e2e/fixtures/clip-320x180.webm";
 const KEY = "/public/remote-images/seeded_00000.png";
 const METADATA = { width: 8, height: 8, mimeType: "image/png" };
 
@@ -125,6 +126,171 @@ test("Check everything reports a local file in a remote gallery, and Fix uploads
     ),
     "the file was not moved to remote storage",
   ).toBe(true);
+});
+
+test("a local video and its poster in a remote field are uploaded together", async ({
+  page,
+}) => {
+  const FIELDS = "/content/remoteFields.val.ts";
+  const VIDEO = "/public/val/clip_00000.webm";
+  const POSTER = "/public/val/clip-poster_00000.png";
+  await openHttpStudio(page);
+  const clip = fs.readFileSync(CLIP).toString("base64");
+  const poster = fs.readFileSync(IMAGE).toString("base64");
+  await writePatch(page, FIELDS, [
+    {
+      op: "replace",
+      path: ["video"],
+      value: {
+        path: VIDEO,
+        mimeType: "video/webm",
+        width: 320,
+        height: 180,
+        duration: 1,
+        poster: { path: POSTER, ...METADATA },
+      },
+    },
+    {
+      op: "file",
+      path: ["video"],
+      filePath: VIDEO,
+      value: `data:video/webm;base64,${clip}`,
+      remote: false,
+      metadata: { mimeType: "video/webm" },
+    },
+    {
+      op: "file",
+      path: ["video"],
+      nestedFilePath: ["poster"],
+      filePath: POSTER,
+      value: `data:image/png;base64,${poster}`,
+      remote: false,
+      metadata: METADATA,
+    },
+  ]);
+
+  await page.goto("/val/validate");
+  const studio = page.locator("#val-shadow-root");
+  await studio.getByRole("button", { name: "Check everything" }).click();
+  const row = studio.getByRole("listitem").filter({
+    hasText: "this one is still a local file",
+  });
+  await expect(row).toHaveCount(1, { timeout: 60_000 });
+  await row.getByRole("button", { name: "Fix" }).click();
+  await expect(
+    row.getByText(/Uploads clip_00000\.webm and 1 more file when published/),
+  ).toBeVisible({ timeout: 30_000 });
+
+  const peeked = await peek(page, `${FIELDS}?p="video"`);
+  const value =
+    typeof peeked === "object" && peeked !== null && "data" in peeked
+      ? peeked.data
+      : undefined;
+  expect(value).toMatchObject({
+    path: expect.stringMatching(/^https:\/\/.+public\/val\/clip_00000\.webm$/),
+    poster: {
+      path: expect.stringMatching(
+        /^https:\/\/.+public\/val\/clip-poster_00000\.png$/,
+      ),
+    },
+  });
+  const ops = await fileOps(page);
+  expect(ops.filter(([, remote]) => remote)).toHaveLength(2);
+
+  const published = await publishAll(page, "Upload a local video");
+  expect(published.status, published.message ?? "").toBe("published");
+  const state = await mock.state();
+  for (const name of ["clip_00000.webm", "clip-poster_00000.png"]) {
+    expect(
+      state.remoteFiles.some((file) => file.includes(`public/val/${name}`)),
+      `${name} was not moved to remote storage`,
+    ).toBe(true);
+  }
+});
+
+test("a video set entry is renamed to its video's ref, with its poster", async ({
+  page,
+}) => {
+  const VIDEOS = "/content/remoteVideos.val.ts";
+  const VIDEO = "/public/remote-videos/clip_00000.webm";
+  const POSTER = "/public/remote-videos/clip-poster_00000.png";
+  await openHttpStudio(page);
+  const clip = fs.readFileSync(CLIP).toString("base64");
+  const poster = fs.readFileSync(IMAGE).toString("base64");
+  await writePatch(page, VIDEOS, [
+    {
+      op: "add",
+      path: [VIDEO],
+      value: {
+        mimeType: "video/webm",
+        width: 320,
+        height: 180,
+        duration: 1,
+        alt: null,
+        poster: { path: POSTER, ...METADATA },
+      },
+    },
+    {
+      op: "file",
+      path: [VIDEO],
+      filePath: VIDEO,
+      value: `data:video/webm;base64,${clip}`,
+      remote: false,
+      metadata: { mimeType: "video/webm" },
+    },
+    {
+      op: "file",
+      path: [VIDEO],
+      nestedFilePath: ["poster"],
+      filePath: POSTER,
+      value: `data:image/png;base64,${poster}`,
+      remote: false,
+      metadata: METADATA,
+    },
+  ]);
+
+  await page.goto("/val/validate");
+  const studio = page.locator("#val-shadow-root");
+  await studio.getByRole("button", { name: "Check everything" }).click();
+  const row = studio.getByRole("listitem").filter({
+    hasText: "this one is still a local file",
+  });
+  await expect(row).toHaveCount(1, { timeout: 60_000 });
+  await row.getByRole("button", { name: "Fix" }).click();
+  await expect(
+    row.getByText(/Uploads clip_00000\.webm and 1 more file when published/),
+  ).toBeVisible({ timeout: 30_000 });
+
+  const peeked = await peek(page, VIDEOS);
+  const source =
+    typeof peeked === "object" && peeked !== null && "data" in peeked
+      ? peeked.data
+      : undefined;
+  const entries = Object.entries(
+    typeof source === "object" && source !== null ? source : {},
+  );
+  expect(entries).toHaveLength(1);
+  const [[key, entry]] = entries;
+  expect(key).toMatch(/^https:\/\/.+public\/remote-videos\/clip_00000\.webm$/);
+  expect(entry).toMatchObject({
+    poster: {
+      path: expect.stringMatching(
+        /^https:\/\/.+public\/remote-videos\/clip-poster_00000\.png$/,
+      ),
+    },
+  });
+
+  const published = await publishAll(page, "Upload a local video set entry");
+  expect(published.status, published.message ?? "").toBe("published");
+  const state = await mock.state();
+  for (const name of ["clip_00000.webm", "clip-poster_00000.png"]) {
+    expect(
+      state.remoteFiles.some((file) =>
+        file.includes(`public/remote-videos/${name}`),
+      ),
+      `${name} was not moved to remote storage`,
+    ).toBe(true);
+  }
 });
 
 test.afterEach(async ({ page }) => {

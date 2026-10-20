@@ -35,8 +35,9 @@ content/images.val.ts  ⚠ 7 warnings  (12ms)
 - In the Studio, **Check everything** on the Validate page lists them as
   errors with a **Fix** button that uploads them, so a hosted project, which
   has no command line, can move its template's images and files to remote
-  storage. The fields that use a gallery image are updated with it. Videos
-  still need `val validate --fix`.
+  storage. That covers images, files and videos (a video's poster, captions
+  and HLS stream go up with it), and the fields that picked a gallery image
+  or a video from a set are updated with it.
 
 Fixable errors are now printed with `✘` instead of `⚠`. They were always
 errors and still make `val validate` fail; `⚠` now means a warning.

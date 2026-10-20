@@ -76,10 +76,11 @@ function ok(target: LocalMediaUploadTarget) {
 }
 
 describe("uploading a local file from the Studio", () => {
-  test("the four image and file codes, and not video's", () => {
+  test("every upload-remote code, and nothing else", () => {
     expect(isStudioUploadFix("images:upload-remote")).toBe(true);
     expect(isStudioUploadFix("file:upload-remote")).toBe(true);
-    expect(isStudioUploadFix("videos:upload-remote")).toBe(false);
+    expect(isStudioUploadFix("videos:upload-remote")).toBe(true);
+    expect(isStudioUploadFix("image:download-remote")).toBe(false);
     expect(isStudioUploadFix("image:check-metadata")).toBe(false);
   });
 
