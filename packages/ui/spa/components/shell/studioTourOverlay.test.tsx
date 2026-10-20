@@ -209,6 +209,15 @@ describe("placeCard", () => {
     expect(at.left + card.width).toBeLessThanOrEqual(shell.width);
   });
 
+  // The page on a laptop: as tall as the shell, so there is no above or
+  // below, and the middle of the shell is on top of it.
+  test("beside a target too tall to go above or below", () => {
+    const page = { top: 12, left: 450, width: 530, height: 776 };
+    const at = placeCard(page, shell, card);
+    expect(at.left + card.width).toBeLessThanOrEqual(page.left);
+    expect(at.top).toBe(page.top);
+  });
+
   // No target is the phone case, and the case of a control this breakpoint
   // does not draw: the card is simply in the middle rather than in a corner.
   test("centred when there is nothing to point at", () => {

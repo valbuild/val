@@ -23,6 +23,92 @@ export type ValDemoRuntime = {
    * refuses uploads before sending anything, and says why.
    */
   uploads: boolean;
+  /**
+   * The tour the site wrote, in place of the Studio's own demo tour. See
+   * `ValDemoTourStep`. Absent: the Studio's.
+   */
+  tour?: ValDemoTourStep[];
+};
+
+/**
+ * What the site starts the demo with: `<ValApp demo={{ tour }}>`.
+ *
+ * `demo` alone (`true`) is the same with nothing given.
+ */
+export type ValDemoOptions = {
+  tour?: ValDemoTourStep[];
+};
+
+/**
+ * A control of the Studio's a step can point at.
+ *
+ * The `data-val-tour` markers the Studio puts on them. One that is not on
+ * screen (the rail on a phone) leaves the card on its own, so a step's words
+ * must work without the arrow: never "this button here".
+ */
+export type ValDemoTourTarget =
+  | "canvas"
+  | "pages"
+  | "media"
+  | "data"
+  | "review"
+  | "preview"
+  | "publish"
+  | "ai"
+  | "locale"
+  | "demo"
+  | "utility";
+
+/** A panel a step opens, so what it is about is on screen behind the card. */
+export type ValDemoTourPanel = "pages" | "media" | "data" | "settings" | "ai";
+
+/**
+ * What moves a step on by itself. A step without one has Next.
+ *
+ * Each is something the visitor does, because doing it is the lesson, and
+ * each has a "Do it for me" that does it the way the Studio would:
+ *
+ * - `open`: a field at or below this source path is opened -- by clicking it
+ *   on the page, or anywhere else. Do it for me opens it.
+ * - `edit`: a change is made. Do it for me writes `value` at `path`; without
+ *   them, it is offered nowhere and the step waits for the visitor.
+ * - `panel`: that panel is opened. Do it for me opens it.
+ * - `locale`: the language shown is changed. Do it for me picks the next one.
+ */
+export type ValDemoTourMoveOn =
+  | { open: string }
+  | { edit: true; path?: string; value?: string }
+  | { panel: ValDemoTourPanel }
+  | { locale: true };
+
+/**
+ * One stop of the demo's tour, as the site writes it.
+ *
+ * Data rather than components, so the tour can be rewritten -- and tried on
+ * people -- without a Val release: the Studio draws it, the site says what it
+ * says. Written for someone who has never seen Val.
+ */
+export type ValDemoTourStep = {
+  /** Stable, so a test can name a step without matching its words. */
+  id: string;
+  title: string;
+  body: string;
+  /** The control this step is about. */
+  target?: ValDemoTourTarget;
+  /**
+   * A field this step is about, as a source path: ringed wherever the Studio
+   * shows it -- the page's fields, or the module open in the editor. Takes
+   * precedence over `target`, which is what is ringed when the field is not
+   * on screen.
+   */
+  field?: string;
+  /**
+   * A place on the page this step is about, as a source path: the page
+   * outlines it and brings it into view.
+   */
+  page?: string;
+  panel?: ValDemoTourPanel;
+  moveOn?: ValDemoTourMoveOn;
 };
 
 /*

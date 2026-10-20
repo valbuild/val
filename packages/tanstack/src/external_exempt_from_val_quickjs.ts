@@ -48,6 +48,14 @@ export type { ValDraft } from "./ValDraft";
 export { ValImage, type ValImageProps } from "./ValImage";
 export { ValVideo, type ValVideoProps } from "./ValVideo";
 export { ValApp } from "./ValApp";
+/** What `<ValApp demo={{ tour }}>` takes. See `ValDemoTourStep`. */
+export type {
+  ValDemoOptions,
+  ValDemoTourStep,
+  ValDemoTourMoveOn,
+  ValDemoTourTarget,
+  ValDemoTourPanel,
+} from "@valbuild/shared/internal";
 export { ValModulesClient, useRegisterValModules } from "./ValModulesClient";
 
 import { Internal as InternalCore } from "@valbuild/core";

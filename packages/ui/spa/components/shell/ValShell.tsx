@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ModuleFilePath, SourcePath } from "@valbuild/core";
+import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { ValCanvasElement } from "@valbuild/shared/internal";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
@@ -57,6 +57,7 @@ import { DemoBanner } from "../../demo/DemoBanner";
 import { DemoPublishButton } from "../../demo/DemoPublishButton";
 import {
   demoTourSteps,
+  demoTourStepsFromSite,
   readDemoTourSeen,
   writeDemoTourSeen,
 } from "../../demo/demoTour";
@@ -115,6 +116,7 @@ import {
   useReportError,
   useChangesWithoutModuleNotice,
   useGlobalTransientErrors,
+  useAddModuleFilePatch,
 } from "../ValProvider";
 import {
   useFilePatchIds,
@@ -224,13 +226,49 @@ function ValShellBody({
   const [demoTourPending] = useState(
     () => demo !== null && !readDemoTourSeen(),
   );
+  /*
+   * The site's own tour when it wrote one (`<ValApp demo={{ tour }}>`), so
+   * what the demo says changes with the site rather than with a release; the
+   * Studio's demo tour otherwise.
+   */
   const buildDemoTourSteps = useMemo(
     () =>
       demo === null
         ? undefined
         : (project: { destinations: readonly ShellDestination[] }) =>
-            demoTourSteps({ ...project, uploads: demo.uploads }),
+            demo.tour && demo.tour.length > 0
+              ? demoTourStepsFromSite(demo.tour)
+              : demoTourSteps({ ...project, uploads: demo.uploads }),
     [demo],
+  );
+  /**
+   * The place on the page the tour's step is about, outlined by the page in
+   * front of the canvas's own selection: what the step points at is what the
+   * visitor should look at.
+   */
+  const [tourPagePath, setTourPagePath] = useState<SourcePath | null>(null);
+  /**
+   * "Do it for me" for a step that asks for an edit: the same patch typing
+   * the value into the field would make, through the same store.
+   */
+  const { addModuleFilePatch } = useAddModuleFilePatch();
+  const writeForTour = useCallback(
+    (path: SourcePath, value: string) => {
+      const [moduleFilePath, modulePath] =
+        Internal.splitModuleFilePathAndModulePath(path);
+      addModuleFilePatch(
+        moduleFilePath,
+        [
+          {
+            op: "replace",
+            path: Internal.createPatchPath(modulePath),
+            value,
+          },
+        ],
+        "string",
+      );
+    },
+    [addModuleFilePatch],
   );
   const { resolvedTheme, setTheme, themeStyle } = useTheme();
   /**
@@ -1018,7 +1056,7 @@ function ValShellBody({
          * otherwise back to being a page. Leaving the mode means leaving all of
          * it.
          */
-        highlightedPath={isPicking ? focusedPath : null}
+        highlightedPath={tourPagePath ?? (isPicking ? focusedPath : null)}
         onElements={setCanvasElements}
         /*
          * Two things happen on a pick, and they belong to different owners.
@@ -1046,7 +1084,7 @@ function ValShellBody({
         onRefreshingChange={onRefreshingChange}
       />
     );
-  }, [canvasUrl, focusedPath, openPickedPath]);
+  }, [canvasUrl, focusedPath, openPickedPath, tourPagePath]);
 
   /**
    * Every field with a validation error, as source paths.
@@ -1332,6 +1370,9 @@ function ValShellBody({
         tourEnabled={demo !== null || isTourOffered(studioSettings)}
         buildTourSteps={buildDemoTourSteps}
         autoStartTour={demoTourPending}
+        tourLook={demo !== null ? "ring" : undefined}
+        onTourHighlightPage={setTourPagePath}
+        onTourWrite={demo !== null ? writeForTour : undefined}
         onTourClose={demo !== null ? writeDemoTourSeen : undefined}
         renderDemoBanner={
           demo !== null

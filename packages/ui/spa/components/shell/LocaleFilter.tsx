@@ -62,7 +62,12 @@ export function LocaleFilter({
   // has since been removed — reads as no filter rather than as an empty studio.
   const selected = value !== null && locales.includes(value) ? value : null;
   return (
-    <div ref={containerRef} className={cn("relative h-8", className)}>
+    <div
+      ref={containerRef}
+      className={cn("relative h-8", className)}
+      // What the demo's tour points at for a step about languages.
+      data-val-tour="locale"
+    >
       <button
         type="button"
         aria-label={

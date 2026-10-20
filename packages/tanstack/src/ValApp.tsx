@@ -5,7 +5,7 @@ import { useConfigStorageSave } from "./useConfigStorageSave";
 import { cn, valPrefixedClass } from "./cssUtils";
 import { canvasDarkBg, canvasLightBg } from "./fallbackColors";
 import { ValScript } from "./ValScript";
-import type { ValDemoRuntime } from "@valbuild/shared/internal";
+import type { ValDemoOptions, ValDemoRuntime } from "@valbuild/shared/internal";
 import { startDemoRelay } from "./demo/demoRelayHost";
 
 /**
@@ -56,8 +56,12 @@ export const ValApp = ({
    *
    * Set it from the build -- `demo={import.meta.env.VITE_VAL_DEMO === "true"}`
    * -- never from anything a visitor controls.
+   *
+   * Options instead of `true` give the demo a tour of the site's own:
+   * `demo={{ tour }}`, steps written as data (`ValDemoTourStep`), so what it
+   * says changes with the site rather than with a Val release.
    */
-  demo?: boolean;
+  demo?: boolean | ValDemoOptions;
 }) => {
   const route = "/api/val"; // TODO: make configurable
   const [inMessageMode, setInMessageMode] = useState<boolean>();
@@ -69,8 +73,9 @@ export const ValApp = ({
   // them whenever the server's code had loaded -- before the child was there,
   // on a page that had that code already.
   const demoStart = useDemoServer(
-    demo === true && inMessageMode === false,
+    demo !== undefined && demo !== false && inMessageMode === false,
     config,
+    demo === undefined || typeof demo === "boolean" ? undefined : demo,
   );
   useConfigStorageSave(config);
   const container = useRef<HTMLDivElement>(null);
@@ -273,8 +278,20 @@ type DemoStart =
       retryable: boolean;
     };
 
-function useDemoServer(demo: boolean, config: ValConfig): DemoStart {
+function useDemoServer(
+  demo: boolean,
+  config: ValConfig,
+  options: ValDemoOptions | undefined,
+): DemoStart {
   const [start, setStart] = useState<DemoStart>({ status: "starting" });
+  /*
+   * Read when the demo starts, and not a dependency of the effect: options
+   * written inline (`demo={{ tour }}`) are a new object on every render, and
+   * starting Val's server again for each would throw away every edit. The
+   * Studio reads them once anyway, when its script starts.
+   */
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
   useEffect(() => {
     if (!demo) return;
     let cancelled = false;
@@ -292,7 +309,12 @@ function useDemoServer(demo: boolean, config: ValConfig): DemoStart {
       }
       const fetch = createInTabValFetch(modules, { config });
       const uploads = await startDemoRelay(fetch);
-      const runtime: ValDemoRuntime = { fetch, uploads };
+      const tour = optionsRef.current?.tour;
+      const runtime: ValDemoRuntime = {
+        fetch,
+        uploads,
+        ...(tour ? { tour } : {}),
+      };
       window.__VAL_DEMO__ = runtime;
       return { status: "ready" };
     };
