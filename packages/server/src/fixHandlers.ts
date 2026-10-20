@@ -180,6 +180,8 @@ export type ValidationEvent =
       sourcePath: string;
       message: string;
       keyError?: boolean;
+      /** See `isRepairedOnSave`: the Studio would not hold a publish for it. */
+      repairedOnSave?: boolean;
     }
   | {
       type: "validation-fixable-error";
@@ -187,6 +189,8 @@ export type ValidationEvent =
       message: string;
       fixable: boolean;
       keyError?: boolean;
+      /** See `isRepairedOnSave`: the Studio would not hold a publish for it. */
+      repairedOnSave?: boolean;
     }
   | {
       type: "unknown-fix";

@@ -70,11 +70,18 @@ export async function validateOnce({
   projectRoot,
   fix,
   prettier,
+  blockingOnly = false,
 }: {
   projectRoot: string;
   fix: boolean;
   /** Formats the files a fix rewrote. Absent: they are left as written. */
   prettier?: typeof import("prettier");
+  /**
+   * Count only the errors that would hold a publish back in the Studio, not
+   * the ones it leaves to the server to repair on save (`isRepairedOnSave`):
+   * what `val publish` refuses on. Every error is still printed.
+   */
+  blockingOnly?: boolean;
 }): Promise<number> {
   const valConfigFile = await findAndEvalValConfigFile(projectRoot);
 
@@ -102,6 +109,7 @@ export async function validateOnce({
 
   const fixedFiles = new Set<string>();
   let totalErrors = 0;
+  let repairedOnSave = 0;
 
   // Caches each val file's parsed source so files are read/parsed at most once
   // per pass when resolving sourcePaths to file locations and code frames.
@@ -165,6 +173,7 @@ export async function validateOnce({
         totalErrors += event.errorCount;
         break;
       case "validation-error":
+        if (event.repairedOnSave) repairedOnSave += 1;
         reportFor(moduleOf(event.sourcePath)).diagnostics.push({
           severity: "error",
           sourcePath: event.sourcePath,
@@ -173,6 +182,7 @@ export async function validateOnce({
         });
         break;
       case "validation-fixable-error":
+        if (event.repairedOnSave) repairedOnSave += 1;
         reportFor(moduleOf(event.sourcePath)).diagnostics.push({
           severity: event.fixable ? "fixable" : "error",
           sourcePath: event.sourcePath,
@@ -388,7 +398,7 @@ export async function validateOnce({
     }
     console.log(picocolors.green("✔"), summary);
   }
-  return totalErrors;
+  return blockingOnly ? totalErrors - repairedOnSave : totalErrors;
 }
 
 // Directory names anywhere in the path that should never be watched.

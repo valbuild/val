@@ -3,7 +3,10 @@
 ---
 
 `val publish` now runs `val validate` first, and does not publish content that
-has validation errors.
+has validation errors the Studio's Publish would also refuse. What the Studio
+repairs by itself on save -- a local image in a project with remote files, or
+metadata still to be filled in -- is reported and published, as it is from the
+Studio.
 
 A connected project's CI publishes with `val publish`, so from this release a
 push whose content does not validate fails its run instead of going live. The

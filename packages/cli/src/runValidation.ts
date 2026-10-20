@@ -20,6 +20,7 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import {
+  isRepairedOnSave,
   resolveSchemaSourceFixes,
   type SchemaSourceSnapshot,
 } from "@valbuild/shared/internal";
@@ -265,6 +266,7 @@ export async function* runValidation({
                   sourcePath,
                   message: result.errorMessage ?? "Unknown error",
                   ...(v.keyError ? { keyError: true } : {}),
+                  ...(isRepairedOnSave(v) ? { repairedOnSave: true } : {}),
                 };
                 fileErrors += 1;
                 continue;
@@ -282,6 +284,7 @@ export async function* runValidation({
                   message: result.fixableErrorMessage,
                   fixable: true,
                   ...(v.keyError ? { keyError: true } : {}),
+                  ...(isRepairedOnSave(v) ? { repairedOnSave: true } : {}),
                 };
               }
 
@@ -328,6 +331,7 @@ export async function* runValidation({
                     message: v.message,
                     fixable: true,
                     ...(v.keyError ? { keyError: true } : {}),
+                    ...(isRepairedOnSave(v) ? { repairedOnSave: true } : {}),
                   };
                 }
 
@@ -341,6 +345,7 @@ export async function* runValidation({
                     message: e.message,
                     fixable: !!(e.fixes && e.fixes.length),
                     ...(e.keyError ? { keyError: true } : {}),
+                    ...(isRepairedOnSave(e) ? { repairedOnSave: true } : {}),
                   };
                 }
               }

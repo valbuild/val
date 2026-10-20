@@ -48,6 +48,16 @@ export function partitionValidationErrors(
   return { surfaced, skipped };
 }
 
+/**
+ * Whether the Studio leaves this error to the server, which repairs it on
+ * save, rather than showing it and holding a publish back for it. One rule
+ * for every gate: `val publish` asks the same question, so the CLI does not
+ * refuse what the Studio would publish.
+ */
+export function isRepairedOnSave(error: ValidationError): boolean {
+  return isSkippedFix(error);
+}
+
 function isSkippedFix(error: ValidationError): boolean {
   const fixes = error.fixes ?? [];
   if (fixes.length === 0) return false;

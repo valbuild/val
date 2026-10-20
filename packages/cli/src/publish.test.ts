@@ -51,6 +51,8 @@ describe("val publish validates before it publishes", () => {
     expect(mockValidateOnce).toHaveBeenCalledWith({
       projectRoot: "/project",
       fix: false,
+      // Refused on what the Studio's Publish refuses on, and no more.
+      blockingOnly: true,
     });
     expect(mockRunPublish).not.toHaveBeenCalled();
     expect(mockError).toHaveBeenCalledWith(

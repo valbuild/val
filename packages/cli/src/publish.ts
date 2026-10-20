@@ -27,11 +27,21 @@ export async function publish(options: {
   // lets the Studio trust a connected project's published content without
   // re-checking every file itself: whatever reached the site went through
   // here. Without `--fix`, so CI never rewrites what it was asked to publish.
+  //
+  // Refused on what the Studio's Publish refuses on, and no more: an error
+  // the Studio leaves to the server to repair (a local image in a remote
+  // project, metadata to fill in) is printed and published, as it would be
+  // from the Studio. Every site made on /new starts with its template's
+  // images local, so counting those would refuse its first publish.
   if (!options.skipValidation) {
     const projectRoot = options.root
       ? path.resolve(options.root)
       : process.cwd();
-    const errorCount = await validateOnce({ projectRoot, fix: false });
+    const errorCount = await validateOnce({
+      projectRoot,
+      fix: false,
+      blockingOnly: true,
+    });
     if (errorCount > 0) {
       error(
         `Not published: ${errorCount} validation error${errorCount === 1 ? "" : "s"}.`,

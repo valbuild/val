@@ -131,6 +131,14 @@ the ones whose workflow file was written before this existed. The failure goes
 through `val ci-report --status failed` like any other, so the Studio already
 shows it with **View run**.
 
+**It refuses on what the Studio's Publish refuses on, and no more.** An error
+the Studio leaves to the server to repair on save (`isRepairedOnSave`, the
+same rule as `partitionValidationErrors`) is printed and published: a local
+image in a project with `files: { remote: true }`, metadata still to fill in.
+Every site made on /new starts with its template's images local, so counting
+those refused the first publish of every connected one -- 13 errors on the Full
+template, none of them a person's to fix.
+
 ## Sketches
 
 The agreed UX, as ASCII. Wording is indicative; the structure is not.
