@@ -2773,6 +2773,20 @@ export abstract class ValOps {
   }
 
   /**
+   * Whether {@link getBinaryFile} can read a PUBLISHED file at all, so that
+   * `null` from it means the file is gone rather than out of reach.
+   *
+   * Not in http mode without a repository -- a hosted project. Its published
+   * binaries are kept in the patch store, and a template's files were never in
+   * a patch: they are in the built site's `public/`, which the content service
+   * never had. A check that read `null` there as "gone" reported every image
+   * and video a template ships with, and offered to remove them.
+   */
+  canReadPublishedFiles(): boolean {
+    return true;
+  }
+
+  /**
    * Does a press of Publish run as a publish job (valbuild/home,
    * docs/app-mode.md, "Publishing is a queued job")? Never for a project
    * with no content service.

@@ -8,6 +8,7 @@ import {
   ValidationFix,
 } from "@valbuild/core";
 import { isStudioFix } from "@valbuild/shared/internal";
+import { isStudioUploadFix } from "../../utils/uploadLocalMedia";
 import { prettifyFilename } from "../../utils/prettifyFilename";
 import { prettifyModulePath } from "../../utils/prettifyText";
 import type { FixState, ValidateGroup, ValidateRow } from "./ValidatePageView";
@@ -41,7 +42,10 @@ export type RowTarget =
       kind: "full";
       moduleFilePath: ModuleFilePath;
       sourcePath: SourcePath;
-      /** Set when the Studio can fix it: see `STUDIO_FIXES`. */
+      /**
+       * Set when the Studio can fix it: see `STUDIO_FIXES`, and
+       * `STUDIO_UPLOAD_FIXES` for the uploads it makes itself.
+       */
       fix?: ValidationFix;
     };
 
@@ -254,7 +258,8 @@ function fullCheckRows(
       if (alreadyShown(sourcePath, error, input)) {
         return;
       }
-      const studioFix = error.fixes?.find(isStudioFix);
+      const studioFix =
+        error.fixes?.find(isStudioFix) ?? error.fixes?.find(isStudioUploadFix);
       const mismatch = metadataMismatchOf(sourcePath, error);
       if (mismatch) {
         const lines = mismatches.get(mismatch.mediaPath) ?? [];
@@ -276,7 +281,10 @@ function fullCheckRows(
         row: {
           id,
           location: locationOf(sourcePath, input.schemas),
-          message: error.message,
+          message:
+            studioFix && isStudioUploadFix(studioFix)
+              ? LOCAL_FILE_MESSAGE
+              : error.message,
           tone: studioFix ? "fixable" : "error",
           action: studioFix
             ? { kind: "fix" }
@@ -309,6 +317,13 @@ function fullCheckRows(
   }
   return rows;
 }
+
+/**
+ * A local file in a project with remote files, said for the person who can
+ * press Fix: core's message tells a developer which tool to run.
+ */
+const LOCAL_FILE_MESSAGE =
+  "Not uploaded: this project keeps its files in remote storage, and this one is still a local file. Fix uploads it when you publish.";
 
 /** The Studio's own check already lists this error: show it once. */
 function alreadyShown(

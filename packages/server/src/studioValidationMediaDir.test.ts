@@ -22,6 +22,20 @@ const REMOTE_IMAGES = "/content/remoteImages.val.ts" as ModuleFilePath;
 const FILES = "/content/files.val.ts" as ModuleFilePath;
 const VIDEOS = "/content/videos.val.ts" as ModuleFilePath;
 
+/**
+ * A hosted project's ops: http mode with no repository, so no PUBLISHED file
+ * can be read (`ValOpsHttp.getBinaryFile` answers `null` without one). A
+ * template's files are in the built site there, not the content service.
+ */
+class HostedOps extends ValOpsFS {
+  override canReadPublishedFiles(): boolean {
+    return false;
+  }
+  override async getBinaryFile(): Promise<null> {
+    return null;
+  }
+}
+
 const entryOf = (module: ModuleFilePath, key: string): SourcePath => {
   const path = Internal.createValPathOfItem(module, key);
   if (!path) {
@@ -39,12 +53,15 @@ describe("the Studio's full check of a media directory", () => {
   const { s, c, config } = initVal();
   let root: string;
 
-  const setup = (sources: {
-    images?: Record<string, unknown>;
-    remoteImages?: Record<string, unknown>;
-    files?: Record<string, unknown>;
-    videos?: Record<string, unknown>;
-  }) => {
+  const setup = (
+    sources: {
+      images?: Record<string, unknown>;
+      remoteImages?: Record<string, unknown>;
+      files?: Record<string, unknown>;
+      videos?: Record<string, unknown>;
+    },
+    Ops: typeof ValOpsFS = ValOpsFS,
+  ) => {
     const valModules: ValModules = {
       config,
       modules: [
@@ -93,7 +110,7 @@ describe("the Studio's full check of a media directory", () => {
         },
       ],
     };
-    return new ValOpsFS("http://localhost:4000", root, valModules, {
+    return new Ops("http://localhost:4000", root, valModules, {
       config,
     });
   };
@@ -167,6 +184,38 @@ describe("the Studio's full check of a media directory", () => {
       patch: [{ op: "remove", path: ["/public/val/images/gone.png"] }],
       remainingErrors: [],
     });
+  });
+
+  test("in a hosted project, an entry it cannot read is not called gone, and Fix removes nothing", async () => {
+    // What a fresh hosted project looked like: every template image and video
+    // read as "gone", with a Fix that removed it from the directory.
+    const ops = setup(
+      {
+        images: imagesWithProblems,
+        videos: {
+          "/public/val/videos/dusk.mp4": {
+            mimeType: "video/mp4",
+            width: 1280,
+            height: 640,
+            duration: 8,
+            alt: null,
+          },
+        },
+      },
+      HostedOps,
+    );
+    for (const module of [IMAGES, VIDEOS]) {
+      expect(
+        await checkModuleForStudio(ops, await inputOf(ops, module)),
+      ).toEqual({ status: "ok", errors: {}, remoteHosts: [] });
+    }
+    expect(
+      await fixForStudio(ops, {
+        ...(await inputOf(ops, IMAGES)),
+        sourcePath: entryOf(IMAGES, "/public/val/images/gone.png"),
+        fix: "images:check-all-files",
+      }),
+    ).toEqual({ status: "not-found" });
   });
 
   test("Fix rewrites a wrong entry from its bytes, keeping what was authored", async () => {

@@ -275,6 +275,8 @@ module.exports = defineConfig([
     ],
     ignores: [
       "packages/core/src/log.ts",
+      // Scripts run with `tsx` from a terminal: printing is their job.
+      "packages/ui/spa/typecheck/testing/**",
       "**/*.test.{ts,tsx}",
       "**/*.stories.{ts,tsx}",
       "**/test/**",

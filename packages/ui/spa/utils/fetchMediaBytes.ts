@@ -22,6 +22,37 @@ export async function fetchMediaBytes(
 ): Promise<
   { status: "ok"; bytes: MediaBytes } | { status: "error"; message: string }
 > {
+  const fetched = await fetchMediaBlob(url, filename, mimeType);
+  if (fetched.status === "error") {
+    return fetched;
+  }
+  try {
+    const type = mimeType ?? fetched.blob.type;
+    const read = await readFileFromFile(
+      new File([fetched.blob], filename, { type }),
+    );
+    return {
+      status: "ok",
+      bytes: { dataUrl: read.src, sha256: read.fileHash },
+    };
+  } catch {
+    return { status: "error", message: `Could not read ${filename}.` };
+  }
+}
+
+/**
+ * The fetch, and the checks that tell a file from something else answering
+ * at its URL, without reading it as a data URL: what `fetchMediaBytes` does
+ * first, and all a video's reader needs (`useUploadLocalMedia`), which wants
+ * the raw bytes of every file of a stream.
+ */
+export async function fetchMediaBlob(
+  url: string,
+  filename: string,
+  mimeType: string | undefined,
+): Promise<
+  { status: "ok"; blob: Blob } | { status: "error"; message: string }
+> {
   let res: Response;
   try {
     res = await fetch(url);
@@ -48,13 +79,7 @@ export async function fetchMediaBytes(
     // Inside the `try`: `fetch` resolves on the headers, and a body that is
     // cut off after them rejects HERE. Uncaught, the promised result became a
     // rejection, and the rename input sat in its saving state forever.
-    const blob = await res.blob();
-    const type = mimeType ?? blob.type;
-    const read = await readFileFromFile(new File([blob], filename, { type }));
-    return {
-      status: "ok",
-      bytes: { dataUrl: read.src, sha256: read.fileHash },
-    };
+    return { status: "ok", blob: await res.blob() };
   } catch {
     return { status: "error", message: `Could not read ${filename}.` };
   }

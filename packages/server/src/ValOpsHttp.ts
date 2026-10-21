@@ -693,6 +693,11 @@ export class ValOpsHttp extends ValOps {
     return this.projectExpectation?.sourceMode ?? null;
   }
 
+  /** See {@link ValOps.canReadPublishedFiles}: not without a repository. */
+  override canReadPublishedFiles(): boolean {
+    return this.git !== null;
+  }
+
   /** Remembered with {@link sourceMode}, from the same response. */
   override projectBranch(): string | null {
     return this.projectExpectation?.branch ?? null;

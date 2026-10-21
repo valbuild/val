@@ -10,6 +10,7 @@ import {
   type ValidationFix,
 } from "@valbuild/core";
 import {
+  isValidationWarning,
   resolveSchemaSourceFixes,
   SCHEMA_SOURCE_FIXES,
   type SchemaSourceSnapshot,
@@ -105,15 +106,18 @@ export type ValDiagnosticData = {
 /**
  * Severity policy, in one place.
  *
- * - **Warning** — Val can fix it automatically. Mirrors the CLI, which prints
- *   these with `⚠` (its `validation-fixable-error` event) rather than `✘`. In an
- *   editor a one-click-fixable metadata mismatch should not shout as loudly as a
- *   type error.
+ * - **Warning** — two kinds:
+ *   - A local file in a project with remote files (`isValidationWarning`).
+ *     The CLI calls this a warning too: `val validate` reports it and passes
+ *     unless `--strict`. Every project made from a template starts this way.
+ *   - Anything Val can fix automatically. In an editor a one-click-fixable
+ *     metadata mismatch should not shout as loudly as a type error. The CLI
+ *     still counts these as errors (`✘`, "run --fix") and exits non-zero, so
+ *     Warning here is about presentation, not about the problem being
+ *     optional.
  * - **Error** — everything else: the content is wrong, the schema is wrong, or
- *   the module does not work at all.
- *
- * Note that `val validate` still exits non-zero for fixable errors, so Warning
- * here is about presentation, not about the problem being optional.
+ *   the module does not work at all. A local file that does not exist is
+ *   `val/file-not-found`, an Error, whatever fix it was reported with.
  */
 export function severityFor({
   code,
@@ -122,6 +126,10 @@ export function severityFor({
   code: ValDiagnosticCode;
   fixes?: ValidationFix[];
 }): DiagnosticSeverity {
+  // Its own branch, so it stays a warning if the one below ever changes.
+  if (code === "val/validation" && isValidationWarning({ fixes })) {
+    return DiagnosticSeverity.Warning;
+  }
   if (code === "val/validation" && fixes && fixes.length > 0) {
     return DiagnosticSeverity.Warning;
   }
@@ -158,6 +166,22 @@ const FILE_FIXES: readonly string[] = [
   "video:add-metadata",
   // The same, for a video set's entry, whose file is its KEY.
   "videos:add-metadata",
+  // A collection entry still to upload: its file is its key too, and a
+  // missing one has to stay an error rather than read as the warning
+  // `isValidationWarning` makes of the upload.
+  "images:upload-remote",
+  "files:upload-remote",
+  "videos:upload-remote",
+  // A video still to upload: `path` is the video's file.
+  "video:upload-remote",
+];
+
+/** Fixes reported on a collection entry, whose file is its key, not a `path`. */
+const KEYED_BY_FILE: readonly string[] = [
+  "videos:add-metadata",
+  "images:upload-remote",
+  "files:upload-remote",
+  "videos:upload-remote",
 ];
 
 function build(
@@ -386,8 +410,8 @@ function missingFileRef({
       content.source,
       content.schema,
     );
-    const ref = fixes.includes("videos:add-metadata")
-      ? // A video set entry is keyed by its file; the value has no `path`.
+    const ref = fixes.some((fix) => KEYED_BY_FILE.includes(fix))
+      ? // A collection entry is keyed by its file; the value has no `path`.
         Internal.splitModulePath(modulePath).pop()
       : (resolved.source as Record<string, unknown> | undefined)?.path;
     if (typeof ref !== "string") {
