@@ -1,5 +1,27 @@
 # @valbuild/server
 
+## 0.149.0
+
+### Patch Changes
+
+- [#910](https://github.com/valbuild/val/pull/910) [`32b3210`](https://github.com/valbuild/val/commit/32b3210c11bbd526c1882177c1870aa0be1d3ca4) Thanks [@freekh](https://github.com/freekh)! - When a proposal changes its dependencies without a lockfile to match, its Build button now reads **Compute lockfile** and computes it. Afterwards, the button shows the proposal's dependencies being built, or says why they could not be built.
+
+- [#911](https://github.com/valbuild/val/pull/911) [`bf24bc0`](https://github.com/valbuild/val/commit/bf24bc00e8f8c2a08538d59218d9da005943ac03) Thanks [@freekh](https://github.com/freekh)! - **Upgrade your site's dependencies from the Studio.** When newer versions of your site's packages are available, an **Upgrade** button appears in the Studio's top bar (on a phone, in the account sheet). It is marked when the upgrade fixes a vulnerability.
+
+  - **Pick a kind:** fix vulnerabilities, move to the latest version within each major, or move to new major versions. For majors, you can untick any package to leave it out.
+  - **Upgrade in a proposal:** this opens a proposal with the upgrade in it, and the Studio follows it there:
+    - computing the upgrade;
+    - building the new dependencies;
+    - typechecking your code against them;
+    - building the proposal.
+  - **Publish:** offered once the upgrade adds no type errors and the proposal is built. If it adds type errors, they are listed by file and the proposal stays open, so you can fix them there.
+  - **Settings → Updates** offers the same choice. "Update site", which published the template's dependencies straight to the live site, is gone.
+
+  A proposal whose dependencies change is typechecked automatically, and it can't be published until the typecheck finds no new errors. The **Typecheck** check in the Publish dialog runs it on request.
+
+- Updated dependencies [[`32b3210`](https://github.com/valbuild/val/commit/32b3210c11bbd526c1882177c1870aa0be1d3ca4), [`bf24bc0`](https://github.com/valbuild/val/commit/bf24bc00e8f8c2a08538d59218d9da005943ac03)]:
+  - @valbuild/ui@0.149.0
+
 ## 0.148.8
 
 ### Patch Changes
