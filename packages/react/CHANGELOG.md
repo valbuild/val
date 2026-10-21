@@ -1,5 +1,18 @@
 # @valbuild/react
 
+## 0.148.7
+
+### Patch Changes
+
+- [#906](https://github.com/valbuild/val/pull/906) [`fb2eed8`](https://github.com/valbuild/val/commit/fb2eed8b51092cc2ad5c812bdf88b528913c824a) Thanks [@freekh](https://github.com/freekh)! - `val.attrs(post, "author")` tags an element with one field of what it shows. Use it for a value Val never encodes, like an `s.keyOf` key, a date or a colour. A byline that shows the author a post points at can carry the post's `author` field, so clicking it in the Studio opens the choice of author.
+
+  On a phone, a tour step about Pages, Media, Data or Settings points at the menu button, which is where they are when the rail is not drawn.
+
+- Updated dependencies [[`fb2eed8`](https://github.com/valbuild/val/commit/fb2eed8b51092cc2ad5c812bdf88b528913c824a), [`1a5ad65`](https://github.com/valbuild/val/commit/1a5ad65205ff65b54e9c5f2a7b41e24cca9fd68c)]:
+  - @valbuild/core@0.148.7
+  - @valbuild/ui@0.148.7
+  - @valbuild/shared@0.148.7
+
 ## 0.148.6
 
 ### Patch Changes

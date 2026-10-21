@@ -1,5 +1,12 @@
 # @valbuild/shared
 
+## 0.148.7
+
+### Patch Changes
+
+- Updated dependencies [[`fb2eed8`](https://github.com/valbuild/val/commit/fb2eed8b51092cc2ad5c812bdf88b528913c824a)]:
+  - @valbuild/core@0.148.7
+
 ## 0.148.6
 
 ### Patch Changes
