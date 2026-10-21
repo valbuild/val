@@ -1,5 +1,14 @@
 # @valbuild/cli
 
+## 0.148.5
+
+### Patch Changes
+
+- Updated dependencies [[`acc5fee`](https://github.com/valbuild/val/commit/acc5feef498edbb9a7d3e8715bfb516d26079669)]:
+  - @valbuild/tanstack-build@0.148.5
+  - @valbuild/server@0.148.5
+  - @valbuild/language-server@0.148.5
+
 ## 0.148.4
 
 ### Patch Changes

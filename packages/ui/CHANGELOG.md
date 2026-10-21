@@ -1,5 +1,11 @@
 # @valbuild/ui
 
+## 0.148.5
+
+### Patch Changes
+
+- [#898](https://github.com/valbuild/val/pull/898) [`e1e41e2`](https://github.com/valbuild/val/commit/e1e41e2f2c3a2c511299f57ac36fcae50cc35bf6) Thanks [@freekh](https://github.com/freekh)! - The tour's card has a small arrow on the edge that faces what it is about: the page, a field, or a control in the top bar. A card that has moved aside, for a panel that just opened, or that has nothing to point at, has none.
+
 ## 0.148.4
 
 ### Patch Changes
