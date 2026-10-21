@@ -38,6 +38,9 @@ content/images.val.ts  ⚠ 7 warnings  (12ms)
   storage. That covers images, files and videos (a video's poster, captions
   and HLS stream go up with it), and the fields that picked a gallery image
   or a video from a set are updated with it.
+- On a hosted project, **Check everything** no longer reports the template's
+  images and videos as "The file is gone", and no longer offers a Fix that
+  would remove them from their gallery or video set.
 
 Fixable errors are now printed with `✘` instead of `⚠`. They were always
 errors and still make `val validate` fail; `⚠` now means a warning.
