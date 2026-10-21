@@ -126,6 +126,7 @@ export async function deployPreparedJob(
     branch: prepared.branch,
     until: "confirmed",
     ...(prepared.job !== null ? { job: prepared.job.id } : {}),
+    ...(prepared.target !== undefined ? { target: prepared.target } : {}),
   });
   return result;
 }

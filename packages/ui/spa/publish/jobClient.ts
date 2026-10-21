@@ -1,4 +1,5 @@
 import {
+  parseBuildTarget,
   parseCancel,
   parseDiscard,
   parseJob,
@@ -6,6 +7,7 @@ import {
   parsePress,
   parseRenew,
   parseRequestStatus,
+  type BuildTargetResponse,
   type JobStepBody,
   type PressResponse,
   type PublishRequestStatus,
@@ -71,6 +73,13 @@ export type PreparedJob = {
   branch: string | null;
   /** Can this tab build the job from these sources? See the route's `buildable`. */
   buildable: boolean;
+  /**
+   * What to build against, when it is not the site's: a merge of a proposal
+   * that changed its dependencies builds on the proposal's own framework and
+   * layer (valbuild/home `docs/adept.md`, step 6). Absent, the deploy asks
+   * the site's, as it always did.
+   */
+  target?: BuildTargetResponse;
 };
 
 export function createStudioJobClient(options: {
@@ -141,6 +150,9 @@ export function createStudioJobClient(options: {
           binaryFilesUnread: [],
           branch: null,
           buildable: true,
+          ...(merged.target !== undefined
+            ? { target: parseBuildTarget(merged.target) }
+            : {}),
         };
       }
       const answer = await callJson(
@@ -190,6 +202,11 @@ export const MergePrepareAnswer = z.object({
     })
     .nullable(),
   sourceFiles: z.record(z.string(), z.string().nullable()),
+  /*
+   * The proposal's own build target, when it changed the dependencies. Read
+   * by `parseBuildTarget`, the one reading of a build target there is.
+   */
+  target: z.unknown().optional(),
 });
 
 /** `/api/val/publish-job-prepare`'s answer, checked: it crossed a network. */

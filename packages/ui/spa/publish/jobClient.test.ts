@@ -1,4 +1,6 @@
+import type { BuildTargetResponse } from "@valbuild/shared/internal";
 import { createStudioJobClient } from "./jobClient";
+import { deployPreparedJob } from "./useStudioDeploy";
 import { onPlanRefusal } from "../utils/planRefusal";
 
 /*
@@ -58,6 +60,84 @@ describe("preparing a job", () => {
       branch: null,
       buildable: true,
     });
+  });
+
+  test("a merge of a proposal with its own dependencies carries its build target", async () => {
+    const target: BuildTargetResponse = {
+      base: {
+        rev: "set-1",
+        shellRev: "s1",
+        rscShellRev: "s1",
+        modules: {},
+        rscModules: {},
+        paths: {
+          baseFromProject: "../vendor/",
+          projectVendorDir: "pvendor/",
+          rscVendorBase: "../vendor/",
+          rscRuntimeSpecifier: "platform:rsc",
+          rscRuntimePath: "rsc/runtime.js",
+          flightServer: "flight",
+          serverFnBase: "/_serverFn/",
+        },
+      },
+      project: {
+        rev: "layer-1",
+        rsc: false,
+        modules: { zod: "zod" },
+        css: {},
+        workerOnly: [],
+      },
+    };
+    const withTarget = createStudioJobClient({
+      api: "/api/val",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            job: {
+              id: "J9",
+              step: "build",
+              base: "c1",
+              patches: ["merge:p1"],
+            },
+            sourceFiles: {},
+            target,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    });
+    const prepared = await withTarget.prepare(
+      { id: "J9", step: "prepare", base: "c1", patches: ["merge:p1"] },
+      "tab-1",
+    );
+    expect(prepared.target).toEqual(target);
+
+    // ...and the deploy builds against it, instead of asking the site's.
+    const asked: unknown[] = [];
+    await deployPreparedJob(async (_commit, _files, details) => {
+      asked.push(details?.target);
+      return {
+        result: { status: "uploaded", publishId: "P1" },
+        failedAt: null,
+      };
+    }, prepared);
+    expect(asked).toEqual([target]);
+  });
+
+  test("a merge on the site's dependencies carries none: the deploy asks the site's, as before", async () => {
+    const prepared = await client.prepare(
+      { id: "J9", step: "prepare", base: "c1", patches: ["merge:p1"] },
+      "tab-1",
+    );
+    expect(prepared.target).toBeUndefined();
+    const asked: unknown[] = [];
+    await deployPreparedJob(async (_commit, _files, details) => {
+      asked.push(details && "target" in details);
+      return {
+        result: { status: "uploaded", publishId: "P1" },
+        failedAt: null,
+      };
+    }, prepared);
+    expect(asked).toEqual([false]);
   });
 
   test("the site's job: this server's prepare, as before", async () => {
