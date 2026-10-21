@@ -1,5 +1,15 @@
 # @valbuild/server
 
+## 0.148.7
+
+### Patch Changes
+
+- [#904](https://github.com/valbuild/val/pull/904) [`1a5ad65`](https://github.com/valbuild/val/commit/1a5ad65205ff65b54e9c5f2a7b41e24cca9fd68c) Thanks [@freekh](https://github.com/freekh)! - A proposal that changes the project's dependencies is built against a layer of its own. When a proposal stages a new `package.json` and lockfile, the platform builds a dependency layer for them, and Build in that proposal now uses it instead of the site's. While the layer is being built, or when it could not be, Build says so instead of building against dependencies the proposal no longer has. Proposals that change no dependencies build exactly as before.
+- Updated dependencies [[`fb2eed8`](https://github.com/valbuild/val/commit/fb2eed8b51092cc2ad5c812bdf88b528913c824a), [`1a5ad65`](https://github.com/valbuild/val/commit/1a5ad65205ff65b54e9c5f2a7b41e24cca9fd68c)]:
+  - @valbuild/core@0.148.7
+  - @valbuild/ui@0.148.7
+  - @valbuild/shared@0.148.7
+
 ## 0.148.6
 
 ### Patch Changes
