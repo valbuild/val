@@ -1,10 +1,16 @@
 import {
   discriminatedUnionBranchOf,
+  type ModuleFilePath,
   type SerializedSchema,
   type SourcePath,
 } from "@valbuild/core";
 import { createContext, ReactNode, useContext, useMemo } from "react";
-import { isLocaleSchema, localeMeantBy } from "@valbuild/shared/internal";
+import {
+  isLocaleSchema,
+  localeMeantBy,
+  localeOfRouteKey,
+} from "@valbuild/shared/internal";
+import { isAtLocation } from "../utils/isAtLocation";
 import { useProjectLocales } from "../hooks/useProjectLocales";
 import { useSchemaAtPath, useShallowSourceAtPath } from "./ValFieldProvider";
 import { sourcePathOfItem } from "../utils/sourcePathOfItem";
@@ -16,7 +22,10 @@ import { sourcePathOfItem } from "../utils/sourcePathOfItem";
  * in the chrome and the thing it hides is a row in a field, with the whole
  * editor in between.
  */
-const LocaleFilterContext = createContext<string | null>(null);
+const LocaleFilterContext = createContext<{
+  locale: string | null;
+  location: string | null;
+}>({ locale: null, location: null });
 
 /**
  * Normalises here rather than at each reader, so `useLocaleFilter` can be
@@ -33,16 +42,26 @@ const LocaleFilterContext = createContext<string | null>(null);
  */
 export function LocaleFilterProvider({
   locale,
+  location = null,
   children,
 }: {
   locale: string | null;
+  /**
+   * Where the editor is. The one thing in another language a filter still
+   * lists — see {@link isAtLocation}.
+   */
+  location?: string | null;
   children: ReactNode;
 }) {
   const projectLocales = useProjectLocales();
   const active =
     locale !== null && projectLocales.includes(locale) ? locale : null;
+  const value = useMemo(
+    () => ({ locale: active, location }),
+    [active, location],
+  );
   return (
-    <LocaleFilterContext.Provider value={active}>
+    <LocaleFilterContext.Provider value={value}>
       {children}
     </LocaleFilterContext.Provider>
   );
@@ -54,7 +73,12 @@ export function LocaleFilterProvider({
  * Always one of the project's languages: see {@link LocaleFilterProvider}.
  */
 export function useLocaleFilter(): string | null {
-  return useContext(LocaleFilterContext);
+  return useContext(LocaleFilterContext).locale;
+}
+
+/** Where the editor is, as the locale filter was told. See {@link isAtLocation}. */
+export function useLocaleFilterLocation(): string | null {
+  return useContext(LocaleFilterContext).location;
 }
 
 /**
@@ -81,6 +105,7 @@ export function LocaleFiltered({
   children: ReactNode;
 }) {
   const filter = useLocaleFilter();
+  const location = useLocaleFilterLocation();
   const projectLocales = useProjectLocales();
   const schemaAtPath = useSchemaAtPath(path);
   const nodeSchema = "data" in schemaAtPath ? schemaAtPath.data : undefined;
@@ -107,6 +132,9 @@ export function LocaleFiltered({
     localeField === null ? NO_PATH : sourcePathOfItem(path, localeField);
   const localeSource = useShallowSourceAtPath(localePath, "locale");
   if (filter === null || !projectLocales.includes(filter)) {
+    return <>{children}</>;
+  }
+  if (isAtLocation(location, path)) {
     return <>{children}</>;
   }
   if (localeField === null) {
@@ -157,10 +185,21 @@ function localeFieldNameOf(schema: SerializedSchema): string | null {
 
 /** A node a list is about to draw, as much of it as the list already has. */
 export type LocaleFilterNode = {
+  /** The node's own path, so the row the editor is on can stay listed. */
+  path?: SourcePath;
   /** The key this node sits at, where its parent is a record. */
   key?: string;
   /** The parent record's key schema, where there is one. */
   keySchema?: SerializedSchema;
+  /**
+   * The parent record, where it is a router: a route's parameters can name
+   * the language (`/nb/news/…`), and reading them takes the router's pattern,
+   * which comes from its module's file name.
+   */
+  router?: {
+    schema: SerializedSchema & { type: "record" };
+    moduleFilePath: ModuleFilePath;
+  };
   /** This node's own schema, for the `locale`-field case. */
   schema?: SerializedSchema;
   /** This node's own source, read only when its schema has a locale field. */
@@ -180,12 +219,15 @@ export type LocaleFilterNode = {
  * rule: the filter narrows a translated section, it does not empty the studio.
  *
  * Hiding is never blocking. A link to a Norwegian page opens it while the filter
- * says English — the filter changes what is listed, not what exists.
+ * says English, and the row the editor is on stays listed while they are on it
+ * (`node.path`, see `isAtLocation`) — the filter changes what is listed, not
+ * what exists.
  */
 export function useLocaleFilterPredicate(): (
   node: LocaleFilterNode,
 ) => boolean {
   const filter = useLocaleFilter();
+  const location = useLocaleFilterLocation();
   const projectLocales = useProjectLocales();
   return useMemo<(node: LocaleFilterNode) => boolean>(() => {
     if (filter === null || !projectLocales.includes(filter)) {
@@ -196,20 +238,23 @@ export function useLocaleFilterPredicate(): (
     }
     return (node) => {
       const opened = localeScopeOf(node, projectLocales);
-      return opened === null || opened === filter;
+      return (
+        opened === null ||
+        opened === filter ||
+        isAtLocation(location, node.path)
+      );
     };
-  }, [filter, projectLocales]);
+  }, [filter, location, projectLocales]);
 }
 
 /**
  * The language a node's own scope is in, or `null` where it opens none.
  *
- * Two of the three ways a scope opens are answerable from what a list already
- * has to hand: an entry of a locale-keyed record (the KEY is the language) and
- * an object with a `locale` field (the value is). The third, a locale route
- * parameter (`s.router(router, { locale: … }, item)`), needs the module's route
- * pattern to read the key, which a list row does not carry yet — so a router's
- * pages are not filtered. `localeAt` answers it for everything else.
+ * All three ways a scope opens are answerable from what a list has to hand: an
+ * entry of a locale-keyed record (the KEY is the language), a page of a router
+ * whose route names it (the key again, read through the router's pattern), and
+ * an object with a `locale` field (the value is). `localeAt` is the same
+ * question asked of a whole path.
  */
 function localeScopeOf(
   node: LocaleFilterNode,
@@ -221,6 +266,17 @@ function localeScopeOf(
     node.key !== undefined
   ) {
     return localeMeantBy(node.keySchema, node.key, projectLocales);
+  }
+  if (node.router !== undefined && node.key !== undefined) {
+    const locale = localeOfRouteKey(
+      node.router.schema,
+      node.router.moduleFilePath,
+      node.key,
+      projectLocales,
+    );
+    if (locale !== null) {
+      return locale;
+    }
   }
   const source = node.source;
   if (!isRecord(source)) {

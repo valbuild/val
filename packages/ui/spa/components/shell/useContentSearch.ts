@@ -4,6 +4,7 @@ import { useValSystem } from "../../stores/react/SystemContext";
 import { useAllJsonValuesLoad } from "../useJsonValuesLoad";
 import { useGetNavPath } from "../ValFieldProvider";
 import { SearchResult } from "./GlobalSearch";
+import { localeScopeAt } from "@valbuild/shared/internal";
 
 /** How many content hits to ask for. Enough to be useful, few enough to read. */
 const LIMIT = 20;
@@ -33,8 +34,16 @@ export type ContentSearchState = {
  * And several hits can live under one thing the studio can actually show, so
  * they are collapsed to one row per navigable path. Otherwise a page with the
  * word in four fields is four identical-looking rows.
+ *
+ * With a language picked, a hit in another language is not a row: search is a
+ * way to navigate, and navigating never leads to another language. A hit in no
+ * language is, as everywhere — see `localeAt`.
  */
-export function useContentSearch(query: string): ContentSearchState {
+export function useContentSearch(
+  query: string,
+  locale: string | null = null,
+  projectLocales: readonly string[] = [],
+): ContentSearchState {
   const val = useValSystem();
   const getNavPath = useGetNavPath();
   const trimmed = query.trim();
@@ -86,6 +95,17 @@ export function useContentSearch(query: string): ContentSearchState {
     const seen = new Set<string>();
     const rows: SearchResult[] = [];
     for (const hit of found) {
+      if (locale !== null && val !== null) {
+        const [hitModule] = Internal.splitModuleFilePathAndModulePath(hit.path);
+        const schema = val.system.schemaStore.get(hitModule);
+        const source = val.system.sourceStore.moduleSource(hitModule);
+        const hitLocale =
+          schema === undefined || source === undefined
+            ? null
+            : (localeScopeAt(hit.path, schema, source, projectLocales)
+                ?.locale ?? null);
+        if (hitLocale !== null && hitLocale !== locale) continue;
+      }
       // One row per thing the studio can open: several hits often resolve to
       // the same field once the nav path is taken.
       const navPath = getNavPath(hit.path) || hit.path;
@@ -104,7 +124,7 @@ export function useContentSearch(query: string): ContentSearchState {
       });
     }
     return rows;
-  }, [found, getNavPath]);
+  }, [found, getNavPath, locale, projectLocales, val]);
 
   return {
     results,

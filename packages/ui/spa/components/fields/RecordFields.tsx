@@ -5,7 +5,7 @@ import {
   isInlineRender,
 } from "@valbuild/core";
 import { useMemo, type ReactNode } from "react";
-import { isLocaleSchema } from "@valbuild/shared/internal";
+import { hasLocaleRouteParam, isLocaleSchema } from "@valbuild/shared/internal";
 import {
   usePreviewAtPath,
   useSchemaAtPath,
@@ -117,8 +117,18 @@ export function RecordFields({
    * Norwegian. Every other record is untouched, because its keys say nothing
    * about language.
    */
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const router =
+    schema.router !== undefined ? { schema, moduleFilePath } : undefined;
   const visibleKeys = (keys: string[]): string[] =>
-    keys.filter((key) => matchesLocale({ key, keySchema: schema.key }));
+    keys.filter((key) =>
+      matchesLocale({
+        key,
+        keySchema: schema.key,
+        router,
+        path: sourcePathOfItem(path, key),
+      }),
+    );
 
   /**
    * Whether the KEY already answered the filter for every row.
@@ -129,11 +139,15 @@ export function RecordFields({
    * scope, and a scope may not contain another, so the entry has no locale of
    * its own to find.
    *
+   * A router whose routes name their language (`/nb/news/…`) is the same case:
+   * the key is the language, and a page of it may not have a locale field too.
+   *
    * Every other record's keys say nothing about language, so there the entry is
    * the only thing that can answer and `LocaleFiltered` does the work.
    */
   const keyDecidesLocale =
-    schema.key !== undefined && isLocaleSchema(schema.key);
+    (schema.key !== undefined && isLocaleSchema(schema.key)) ||
+    hasLocaleRouteParam(schema);
 
   // Entries are rendered in place either because the caller asked for it
   // (`inline` prop) or because the record itself declares
@@ -147,8 +161,13 @@ export function RecordFields({
           {schema.item.hidden
             ? null
             : Object.entries(source)
-                .filter(([key]) =>
-                  matchesLocale({ key, keySchema: schema.key }),
+                .filter(([key, itemPath]) =>
+                  matchesLocale({
+                    key,
+                    keySchema: schema.key,
+                    router,
+                    path: itemPath,
+                  }),
                 )
                 .map(([key, itemPath]) => (
                   <LocaleFilteredRow

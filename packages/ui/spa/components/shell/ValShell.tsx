@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ModuleFilePath, SourcePath } from "@valbuild/core";
-import { ValCanvasElement } from "@valbuild/shared/internal";
+import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
+import { relocateForLocale, ValCanvasElement } from "@valbuild/shared/internal";
+import { isAtLocation } from "../../utils/isAtLocation";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
 import { CanvasFrame } from "./canvas/CanvasFrame";
@@ -29,6 +30,7 @@ import {
   ShellValidationError,
 } from "./types";
 import { useShellData } from "./useShellData";
+import { localeRootPage, pagesInLocale } from "./localePages";
 import { ValSettingsSections } from "./ValSettingsSections";
 import { ValSiteUpdate } from "./ValSiteUpdate";
 import { ConnectedExternalPages } from "./ConnectedExternalPages";
@@ -286,7 +288,6 @@ function ValShellBody({
   // The query the search overlay is showing, so the content index can answer
   // it. Held here because the overlay is presentational and the index is not.
   const [searchQuery, setSearchQuery] = useState("");
-  const contentSearch = useContentSearch(searchQuery);
   /**
    * Remote files unavailable: a card above the editor, folded into a chip in
    * the status bar once dismissed. See `RemoteFilesNotice`. Read from the
@@ -472,8 +473,50 @@ function ValShellBody({
     return () => setOpenAIChatImpl(null);
   }, [isAIChatEnabled, setOpenAIChatImpl, openAIPanel]);
 
-  const data: ShellData =
+  /**
+   * The language being shown, or null for all of them — one the project has,
+   * or none. The same normalising `LocaleFilterProvider` does, for the reads
+   * here that happen outside it.
+   */
+  const activeLocale =
+    locale !== null && projectLocales.includes(locale) ? locale : null;
+  // Down here rather than beside `searchQuery`: a hit in another language is
+  // left out, so the search needs the language. See `useContentSearch`.
+  const contentSearch = useContentSearch(
+    searchQuery,
+    activeLocale,
+    projectLocales,
+  );
+  const unfilteredData: ShellData =
     state.status === "success" ? state.data : EMPTY_SHELL_DATA;
+  /**
+   * The shell's data, with the pages and modules the picked language hides
+   * taken out.
+   *
+   * Here, before anything reads `pages`, so the Pages tree, the canvas's route
+   * bar and the route the canvas falls back to all list the same pages — the
+   * three of them disagreeing is how an editor working in Norwegian ends up on
+   * an English page they never chose. See `pagesInLocale`.
+   */
+  const data: ShellData = useMemo(() => {
+    const location = navigation.currentSourcePath || null;
+    const pages = pagesInLocale(unfilteredData.pages, activeLocale, location);
+    // A data module is in a language as a whole only where its root has a
+    // locale field; everything finer is filtered inside it, row by row.
+    const modules =
+      activeLocale === null
+        ? unfilteredData.data
+        : unfilteredData.data.filter(
+            (module) =>
+              module.locale === undefined ||
+              module.locale === activeLocale ||
+              isAtLocation(location, module.moduleFilePath),
+          );
+    return pages === unfilteredData.pages &&
+      modules.length === unfilteredData.data.length
+      ? unfilteredData
+      : { ...unfilteredData, pages, data: modules };
+  }, [unfilteredData, activeLocale, navigation.currentSourcePath]);
   const otherPublishJobs = useOtherPublishJobs();
   const publishIndicatorState = usePublishIndicator({
     own: deployState,
@@ -629,6 +672,58 @@ function ValShellBody({
             onSelectExternalPage={onSelectExternalPage}
           />
         );
+
+  /**
+   * Pick a language, and leave anything that is in another one.
+   *
+   * Picking Norsk while on an English page would otherwise leave the editor on
+   * the one page the filter exists to hide. Where they go is
+   * `relocateForLocale`'s answer: the same entry in Norsk where Val knows it
+   * for certain, else the nearest parent that is not English, else Norsk's
+   * start — `localeRootPage`, over the pages Norsk lists.
+   *
+   * Only here, on a pick. A link or a reference that OPENS something English
+   * while Norsk is picked is the editor asking for exactly that, and it stays
+   * open — see `isAtLocation`.
+   *
+   * A navigation, not a replace: the entry before it still has the old
+   * language in its URL, so Back undoes both at once.
+   */
+  const valSystem = useValSystem();
+  const changeLocale = useCallback(
+    (next: string | null) => {
+      setLocale(next);
+      const path = navigation.currentSourcePath;
+      if (next === null || !projectLocales.includes(next) || !path) {
+        return;
+      }
+      const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+      const schema = valSystem?.system.schemaStore.get(moduleFilePath);
+      const source = valSystem?.system.sourceStore.moduleSource(moduleFilePath);
+      if (schema === undefined || source === undefined) {
+        return;
+      }
+      const relocation = relocateForLocale(
+        path,
+        next,
+        schema,
+        source,
+        projectLocales,
+      );
+      if (relocation.type === "path") {
+        navigation.navigate(relocation.path);
+      } else if (relocation.type === "root") {
+        const root = localeRootPage(
+          pagesInLocale(unfilteredData.pages, next, null),
+          next,
+        );
+        if (root?.sourcePath !== undefined) {
+          navigation.navigate(root.sourcePath as SourcePath);
+        }
+      }
+    },
+    [navigation, projectLocales, valSystem, unfilteredData.pages],
+  );
 
   /**
    * The route the canvas opens on.
@@ -1316,7 +1411,10 @@ function ValShellBody({
     : undefined;
 
   return (
-    <LocaleFilterProvider locale={locale}>
+    <LocaleFilterProvider
+      locale={locale}
+      location={navigation.currentSourcePath || null}
+    >
       <Shell
         renderHistory={renderHistory}
         data={data}
@@ -1395,7 +1493,7 @@ function ValShellBody({
         initialPanel={urlState.initial.panel}
         locales={projectLocales}
         locale={locale}
-        onLocaleChange={setLocale}
+        onLocaleChange={changeLocale}
         initialCanvasOpen={urlState.initial.canvasOpen}
         initialCanvasView={urlState.initial.canvasView}
         restoreViewState={restoreViewState}

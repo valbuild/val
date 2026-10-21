@@ -35,6 +35,11 @@ export type ShellPage = {
   /** Whether the page has unpublished changes. */
   hasDraft?: boolean;
   /**
+   * The language the page is in, where it is in one. Absent for a page in no
+   * language, which is listed whatever language the Studio is showing.
+   */
+  locale?: string;
+  /**
    * Whether Val tracks this route well enough to put it on a canvas.
    *
    * Only a route Val resolves — a page-router page, not an arbitrary
@@ -219,6 +224,11 @@ export type ShellDataModule = {
   moduleFilePath: string;
   errorCount?: number;
   hasDraft?: boolean;
+  /**
+   * The language the whole module is in, where its root says so with a locale
+   * field. Absent for nearly every module, which is in none.
+   */
+  locale?: string;
 };
 
 export type ShellNotificationKind =

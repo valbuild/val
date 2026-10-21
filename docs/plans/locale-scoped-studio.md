@@ -98,11 +98,11 @@ the predicate cheap per row (see section 6).
 ## 3. The invariant
 
 > **While a language is selected, the Studio never shows a location in another
-> language.**
+> language, except one the editor opened directly.**
 
 A location is where the editor is: the selected source path, and the route on
-the canvas. A location can break the invariant in two ways, and each way has its
-own fix:
+the canvas. There are two ways to end up on a location in another language, and
+each has its own answer:
 
 ### 3a. The filter changes and the location is wrong: the location moves
 
@@ -136,30 +136,29 @@ counterpart, or to L's root.
 Use `replace`, not `push`, for the history entry. The move is part of the filter
 change, and Back should undo both together.
 
-### 3b. The location changes and the filter is wrong: the filter moves
+### 3b. Opened directly: shown, and listed on its own
 
 Once every list is filtered (section 4), the only ways to reach a location in
 another language are the ones that name it directly:
 
-- a link with `?locale=` set
-- a click on an element in the canvas
+- a link to it
 - "go to" on a reference
 - an entry in the errors list or in the publish review (section 5)
 - Back and Forward
 
-For these, **switch the filter to the location's language** instead of bouncing
-the editor to a root. They asked for that exact thing, and sending them
-somewhere else is a dead end with no explanation. Tell them in one line, with
-the way back: "Showing Norsk, because this page is in Norwegian." with a
-**Show English** button. That button applies 3a.
+For these, **the location opens and the filter stays.** The editor asked for
+that exact item, so they see it. While they are on it, **that item, and no other
+item in its language, is listed in the menu** too: the Pages tree shows that one
+page, and the list it is a row of shows that one row. That way the menu still
+says where they are. As soon as they navigate somewhere else, it leaves the
+menu again.
 
-A link whose `?locale=` disagrees with its own path contradicts itself. The path
-wins: it is what was linked to, and the locale is view state copied along with
-it.
+Everything the menus offer is still filtered, so ordinary navigation can never
+take an editor to a page in another language. Only the item they opened
+directly is the exception, and only while they are on it.
 
-Only these two rules keep the invariant without either side surprising the
-editor: whichever side the editor changed last wins, and the other side
-follows.
+So the invariant is really: **nothing in another language is shown, except the
+one location the editor opened directly.**
 
 ## 4. What each surface does
 
@@ -191,7 +190,7 @@ filter into a way to ship things nobody looked at.
 These surfaces show everything. They group whatever the filter would have hidden
 under a label such as "2 changes in English, hidden by the language filter",
 with a button that switches to English. Opening one of those changes is a 3b
-navigation.
+navigation: it opens, and the filter stays.
 
 ## 6. One implementation
 
@@ -209,7 +208,8 @@ navigation.
   module, as `usePreviewDemand` does for previews, never one per row.
 - **One owner of the invariant.** `ValShell` already owns `locale`. One effect
   there takes the current path and canvas route and applies 3a when `locale`
-  changes and 3b when the location changes. The counterpart lookup (3a.1) is a
+  changes. The 3b exception is the current path, handed to the menus as the one
+  location they keep. The counterpart lookup (3a.1) is a
   pure function of the path and the snapshot, beside `localeAt` in
   `@valbuild/shared`, and it is unit-tested there.
 - **The comments that state the old rule change with it**, in
@@ -236,8 +236,9 @@ in the `tanstack` project:
    the canvas follows.
 3. On `announcements."en-US"`, pick Norsk. The location becomes
    `announcements."nb-NO"`, which is the empty entry.
-4. Open a link to the English page with `?locale=nb-NO`. The page opens, and the
-   filter reads English with the notice.
+4. Open a link to the English page with `?locale=nb-NO`. The page opens, the
+   filter still reads Norsk, and the Pages tree lists that English page and no
+   other English one. Navigate to another page, and it leaves the tree.
 5. With Norsk picked and an English change pending, the publish review still
    lists that change, under the hidden-by-filter label.
 
@@ -263,9 +264,7 @@ Confirmed:
    while a filter is on.
 2. **Whole-project actions are never filtered** (section 5).
 
-Still to confirm:
-
-3. **Navigating to another language switches the filter**, instead of sending
-   the editor to a root (3b). Root is where a FILTER change sends you. It is not
-   where a click sends you.
+3. **Opening something in another language directly shows it**, with the filter
+   unchanged, and lists that one item in the menu while the editor is on it
+   (3b). Ordinary navigation never leads to another language.
 4. **The counterpart before the root** (3a.1), where Val knows it for certain.

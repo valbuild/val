@@ -44,15 +44,84 @@ export function localeAt(
     // translated at all.
     return null;
   }
-  const [moduleFilePath, modulePath] =
-    Internal.splitModuleFilePathAndModulePath(path);
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const schema = snapshot.schemas[moduleFilePath];
   const source = snapshot.sources[moduleFilePath];
   if (schema === undefined || source === undefined) {
     return null;
   }
+  return localeScopeAt(path, schema, source, available)?.locale ?? null;
+}
+
+/**
+ * Where the scope governing a path opens, and how.
+ *
+ * - `field`: the node `depth` segments down has a locale field. `depth` 0 is the
+ *   module root.
+ * - `record-key`: segment `depth` is a key of a locale-keyed record, which sits
+ *   `depth` segments down.
+ * - `route-key`: segment `depth` is a route whose parameters name the language,
+ *   in the router `depth` segments down (in practice the module root).
+ *
+ * The opener is what decides where an editor goes when the Studio's language
+ * changes under them — the same entry in another language for a key, the
+ * parent for a field. See `relocateForLocale`.
+ */
+export type LocaleScope = {
+  locale: string;
+  depth: number;
+} & (
+  | { kind: "field" }
+  | {
+      kind: "record-key";
+      keySchema: SerializedSchema;
+    }
+  | {
+      kind: "route-key";
+      router: SerializedSchema & { type: "record" };
+    }
+);
+
+/**
+ * The scope that governs a path, read from that module's schema and source
+ * alone, or `null` where none does.
+ *
+ * {@link localeAt} for a caller that already has the module in hand — the
+ * Studio, which has the project's languages from its own provider and would
+ * otherwise have to assemble a snapshot of every module to ask about one.
+ */
+export function localeScopeAt(
+  path: SourcePath,
+  schema: SerializedSchema,
+  source: Json,
+  available: readonly string[],
+): LocaleScope | null {
+  if (available.length === 0) {
+    return null;
+  }
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(path);
   const segments = modulePath ? Internal.splitModulePath(modulePath) : [];
   return walk(schema, source, segments, available, moduleFilePath);
+}
+
+/**
+ * The language a whole module is in: the one its root's locale field names, or
+ * `null` where its root has none.
+ *
+ * The only way a module is in one language as a whole — a locale-keyed record
+ * or a router at the root is every one of its languages at once. Needs no path,
+ * so a list of modules can ask it of each.
+ */
+export function localeOfModuleRoot(
+  schema: SerializedSchema,
+  source: Json,
+  available: readonly string[],
+): string | null {
+  if (available.length === 0) {
+    return null;
+  }
+  return enter(schema, source, available).locale;
 }
 
 /**
@@ -114,15 +183,51 @@ export function isLocaleSchema(schema: SerializedSchema): boolean {
 }
 
 /**
+ * Whether a router's URLs name the language each page is in — one of its route
+ * parameters is a locale (`s.router(router, { locale: … }, item)`).
+ */
+export function hasLocaleRouteParam(schema: SerializedSchema): boolean {
+  return (
+    schema.type === "record" &&
+    schema.params !== undefined &&
+    Object.values(schema.params).some(isLocaleSchema)
+  );
+}
+
+/**
  * The language a router's key is in, where one of its route parameters is a
  * locale — `/nb/blog/hei` is `nb-NO` when `locale` maps `nb` to it.
+ *
+ * Answered from the key alone, with no content read: which is what lets the
+ * Studio's page tree filter every page of a site without loading one of them.
  */
-function localeOfRouteKey(
+export function localeOfRouteKey(
   schema: SerializedSchema & { type: "record" },
   moduleFilePath: ModuleFilePath,
   key: string,
-  available: string[],
+  available: readonly string[],
 ): string | null {
+  const param = localeParamOfRouteKey(schema, moduleFilePath, key);
+  return param === null
+    ? null
+    : localeMeantBy(param.schema, param.value, available);
+}
+
+/**
+ * The route parameters a key gives its router, and which of them is the
+ * language — or `null` where the router has no locale parameter or the key is
+ * not one of its URLs.
+ */
+export function localeParamOfRouteKey(
+  schema: SerializedSchema & { type: "record" },
+  moduleFilePath: ModuleFilePath,
+  key: string,
+): {
+  name: string;
+  schema: SerializedSchema;
+  value: string | null;
+  values: Record<string, string | null>;
+} | null {
   if (schema.params === undefined || schema.router === undefined) {
     return null;
   }
@@ -139,7 +244,7 @@ function localeOfRouteKey(
       isLocaleSchema(param) &&
       Object.prototype.hasOwnProperty.call(values, name)
     ) {
-      return localeMeantBy(param, values[name], available);
+      return { name, schema: param, value: values[name], values };
     }
   }
   return null;
@@ -161,16 +266,19 @@ function walk(
   schema: SerializedSchema,
   source: Json,
   segments: string[],
-  available: string[],
+  available: readonly string[],
   moduleFilePath: ModuleFilePath,
-): string | null {
+): LocaleScope | null {
   let entered = enter(schema, source, available);
-  let locale = entered.locale;
+  let scope: LocaleScope | null =
+    entered.locale === null
+      ? null
+      : { kind: "field", locale: entered.locale, depth: 0 };
   let currentSchema: SerializedSchema | undefined = entered.schema;
   let currentSource: Json = source;
-  for (const segment of segments) {
+  for (const [index, segment] of segments.entries()) {
     if (currentSchema === undefined) {
-      return locale;
+      return scope;
     }
     if (currentSchema.type === "record") {
       if (
@@ -182,7 +290,12 @@ function walk(
         // the tag it stands for when the key is an enum with `.locales()`.
         const resolved = localeMeantBy(currentSchema.key, segment, available);
         if (resolved !== null) {
-          locale = resolved;
+          scope = {
+            kind: "record-key",
+            locale: resolved,
+            depth: index,
+            keySchema: currentSchema.key,
+          };
         }
       } else if (currentSchema.params !== undefined) {
         // A router whose URL names the language: the key is a URL, and one of
@@ -194,7 +307,12 @@ function walk(
           available,
         );
         if (resolved !== null) {
-          locale = resolved;
+          scope = {
+            kind: "route-key",
+            locale: resolved,
+            depth: index,
+            router: currentSchema,
+          };
         }
       }
       currentSchema = currentSchema.item;
@@ -207,16 +325,16 @@ function walk(
       currentSchema = currentSchema.items[segment];
     } else {
       // A leaf, or richtext's internal structure. Nothing below opens a scope.
-      return locale;
+      return scope;
     }
     currentSource = childSource(currentSource, segment);
     entered = enter(currentSchema, currentSource, available);
     currentSchema = entered.schema;
     if (entered.locale !== null) {
-      locale = entered.locale;
+      scope = { kind: "field", locale: entered.locale, depth: index + 1 };
     }
   }
-  return locale;
+  return scope;
 }
 
 /**
@@ -231,7 +349,7 @@ function walk(
 function enter(
   schema: SerializedSchema | undefined,
   source: Json,
-  available: string[],
+  available: readonly string[],
 ): { schema: SerializedSchema | undefined; locale: string | null } {
   const resolved =
     schema?.type === "discriminated-union"
@@ -258,7 +376,7 @@ function enter(
 function localeOfObjectField(
   schema: SerializedSchema,
   source: Json,
-  available: string[],
+  available: readonly string[],
 ): string | null {
   if (schema.type !== "object" || !isJsonObject(source)) {
     return null;
@@ -295,7 +413,7 @@ function variantOfUnion(
 }
 
 /** The child of a source value at a segment, or `null` where there is none. */
-function childSource(source: Json, segment: string): Json {
+export function childSource(source: Json, segment: string): Json {
   if (Array.isArray(source)) {
     const index = Number(segment);
     return Number.isInteger(index) ? (source[index] ?? null) : null;
@@ -314,7 +432,7 @@ function childSource(source: Json, segment: string): Json {
  * built-in guard only narrows mutable arrays. Without this, every read of a
  * property would need an assertion.
  */
-function isJsonObject(source: Json): source is JsonObject {
+export function isJsonObject(source: Json): source is JsonObject {
   return (
     typeof source === "object" && source !== null && !Array.isArray(source)
   );
