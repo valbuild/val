@@ -1,5 +1,11 @@
 # @valbuild/ui
 
+## 0.148.4
+
+### Patch Changes
+
+- [#897](https://github.com/valbuild/val/pull/897) [`7c432b3`](https://github.com/valbuild/val/commit/7c432b3f05af414bd6cbc37cd58a71a783056caa) Thanks [@freekh](https://github.com/freekh)! - Studio on a phone: when a field has been changed, "just now" and the avatar of whoever changed it now go on their own line under the field's label, instead of taking a column at the right of the row. Labels, especially a checkbox's, no longer get squeezed onto two or three lines the moment you change them. On wider screens it stays at the right of the row.
+
 ## 0.148.3
 
 ### Patch Changes
