@@ -224,6 +224,132 @@ describe("a proposal's dependencies", () => {
   });
 });
 
+/*
+ * valbuild/home `docs/adept.md`, step 7: an upgrade is a proposal of its own
+ * kind, followed to Publish by what content says of it and the typecheck this
+ * Studio reports.
+ */
+describe("an upgrade proposal", () => {
+  test("is created with its kind and what to upgrade", async () => {
+    const { sent, fetchImpl } = fakeFetch([
+      { status: 200, body: { proposal: json() } },
+    ]);
+    await createProposalsClient({ api: "/api/val", fetchImpl }).create({
+      requestId: "r1",
+      displayName: "Upgrade to new major versions",
+      kind: "upgrade",
+      upgrade: { path: "majors", skip: ["react"] },
+    });
+    expect(sent).toEqual([
+      {
+        url: "/api/val/proposals-api",
+        method: "POST",
+        body: {
+          requestId: "r1",
+          displayName: "Upgrade to new major versions",
+          kind: "upgrade",
+          upgrade: { path: "majors", skip: ["react"] },
+        },
+      },
+    ]);
+  });
+
+  test("reads its upgrade and its typecheck, and a change of an unknown kind as none", async () => {
+    const typecheck = {
+      inputs: "i1",
+      newErrors: 1,
+      errors: [
+        { file: "src/a.ts", line: 3, column: 7, code: 2322, message: "Nope" },
+      ],
+      checkedAt: "2026-10-21T10:00:00.000Z",
+    };
+    const { fetchImpl } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          proposal: {
+            ...json(),
+            kind: "upgrade",
+            upgrade: {
+              path: "cves",
+              state: "staged",
+              changes: [
+                { name: "zod", from: "3.0.0", to: "3.1.0", kind: "minor" },
+                { name: "x", from: "1", to: "2", kind: "sideways" },
+              ],
+              vulnerableBefore: 2,
+              vulnerableAfter: 0,
+              error: null,
+            },
+            typecheck,
+          },
+        },
+      },
+    ]);
+    const read = await createProposalsClient({ api: "", fetchImpl }).get(NAME);
+    expect(read.kind).toBe("upgrade");
+    expect(read.upgrade?.changes).toEqual([
+      { name: "zod", from: "3.0.0", to: "3.1.0", kind: "minor" },
+      { name: "x", from: "1", to: "2", kind: null },
+    ]);
+    expect(read.typecheck).toEqual(typecheck);
+  });
+
+  test("its typecheck is reported for the inputs it checked", async () => {
+    const answer = {
+      inputs: "i1",
+      newErrors: 0,
+      errors: [],
+      checkedAt: "2026-10-21T10:00:00.000Z",
+    };
+    const { sent, fetchImpl } = fakeFetch([
+      { status: 200, body: { typecheck: answer } },
+    ]);
+    const reported = await createProposalsClient({
+      api: "/api/val",
+      fetchImpl,
+    }).reportTypecheck(NAME, { inputs: "i1", newErrors: [] });
+    expect(reported).toEqual(answer);
+    expect(sent).toEqual([
+      {
+        url: `/api/val/proposals-api/${NAME}/typecheck`,
+        method: "POST",
+        body: { inputs: "i1", newErrors: [] },
+      },
+    ]);
+  });
+
+  test("a merge check's actions are the ones this Studio knows; any other is none", async () => {
+    const { fetchImpl } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          canMerge: false,
+          checks: [
+            {
+              id: "dependencies",
+              ok: false,
+              message: "m",
+              action: "compute-lockfile",
+            },
+            { id: "types", ok: false, message: "m", action: "typecheck" },
+            { id: "later", ok: false, message: "m", action: "fly" },
+          ],
+        },
+      },
+    ]);
+    const { checks } = await createProposalsClient({
+      api: "",
+      fetchImpl,
+    }).mergeChecks(NAME);
+    expect(checks.map((check) => check.action)).toEqual([
+      "compute-lockfile",
+      "typecheck",
+      undefined,
+    ]);
+  });
+});
+
 describe("a proposal as the screens show it", () => {
   test("says You to its owner, and names everyone else", () => {
     const ada = { name: "Ada" };

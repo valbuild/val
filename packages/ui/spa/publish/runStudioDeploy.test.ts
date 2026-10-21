@@ -107,9 +107,6 @@ function client(
     buildTarget: async () => target,
     projectSource: async () => dataRoutes,
     publicFiles: async () => ({ carried: [] }),
-    updateTarget: async () => {
-      throw new Error("a publish does not ask for an update");
-    },
     declare: async () => ({
       publishId: "pub_1",
       state: "awaiting-artifacts",

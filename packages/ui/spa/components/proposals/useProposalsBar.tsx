@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -41,6 +42,12 @@ import {
   openBuilder,
   useProposalBuild,
 } from "../../proposals/useProposalBuild";
+import { useProposalTypecheck } from "../../proposals/useProposalTypecheck";
+import {
+  useUpgrade,
+  type UpgradeButton,
+  type UpgradeSettings,
+} from "../../upgrade/useUpgrade";
 import {
   NewProposalDialog,
   type NewProposalProblem,
@@ -128,6 +135,10 @@ export function useProposalsBar({
    * proposals, else here. See `restoreDestination.ts`.
    */
   restoreDestination: RestoreDestination;
+  /** The Upgrade button, while there is something to upgrade. */
+  upgrade: UpgradeButton | null;
+  /** Settings → Updates: upgrade in a proposal. */
+  upgradeSettings: UpgradeSettings | null;
 } {
   const mode = useValMode();
   const here = useCurrentProposal();
@@ -274,17 +285,21 @@ export function useProposalsBar({
   const blocked = proposalBuild.state.inTab?.blocked === true;
   const needsLockfile =
     code?.state === "lockfile" && !code.computing ? here?.name : undefined;
+  const computeLockfile = useCallback(async () => {
+    if (here === null) return;
+    try {
+      await client.computeLockfile(here.name);
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "The lockfile could not be computed",
+      );
+    }
+    await refresh();
+  }, [client, here, refresh]);
   const runBuild = useCallback(async () => {
     // Nothing can be built before the lockfile: the button computes it.
     if (needsLockfile !== undefined) {
-      try {
-        await client.computeLockfile(needsLockfile);
-      } catch (e) {
-        toast.error(
-          e instanceof Error ? e.message : "The lockfile could not be computed",
-        );
-      }
-      await refresh();
+      await computeLockfile();
       return;
     }
     if (build === null) return;
@@ -296,7 +311,33 @@ export function useProposalsBar({
     const outcome = await build();
     if (outcome.status === "built")
       toast.success("Built: the preview shows the change");
-  }, [needsLockfile, client, refresh, blocked, build]);
+  }, [needsLockfile, computeLockfile, blocked, build]);
+
+  /*
+   * The typecheck of a proposal with dependencies of its own (decision 20):
+   * Publish waits for one of what it stages, with no new errors, so it is
+   * started here as soon as there is a lockfile to check against -- at its
+   * own address, where it can be reported -- once per staged inputs.
+   */
+  const onTypechecked = useCallback(() => void refresh(), [refresh]);
+  const typecheck = useProposalTypecheck({ client, onReported: onTypechecked });
+  const stagedInputs = currentJson?.staged?.inputs ?? null;
+  const typecheckDue =
+    here !== null &&
+    stagedInputs !== null &&
+    (dependencies?.state === "own" || dependencies?.state === "pending") &&
+    currentJson?.typecheck?.inputs !== stagedInputs;
+  const typecheckState = typecheck.state;
+  const runTypecheck = typecheck.run;
+  const typecheckTried = useRef<string | null>(null);
+  useEffect(() => {
+    if (!typecheckDue || runTypecheck === null || stagedInputs === null) return;
+    if (typecheckState.status === "running") return;
+    // Once per inputs: a typecheck that failed is tried again by a person.
+    if (typecheckTried.current === stagedInputs) return;
+    typecheckTried.current = stagedInputs;
+    void runTypecheck();
+  }, [typecheckDue, runTypecheck, typecheckState.status, stagedInputs]);
 
   const location: StudioLocation = useMemo(() => {
     if (here === null) return { kind: "site" };
@@ -935,12 +976,32 @@ export function useProposalsBar({
     setDialog(next);
   };
 
+  const upgrade = useUpgrade({
+    enabled: state.status !== "off",
+    client,
+    here,
+    current: currentJson,
+    code,
+    typecheck: typecheckState,
+    onTypecheck: runTypecheck === null ? null : () => void runTypecheck(),
+    onComputeLockfile: () => void computeLockfile(),
+    onBuild: () => void runBuild(),
+    onPublish: () => {
+      openDialog("publish");
+      void loadChecks();
+    },
+    onRefresh: onTypechecked,
+    portalContainer,
+  });
+
   if (state.status === "off" || (ready === null && here === null)) {
     return {
       proposals: undefined,
       dialogs: null,
       notice: null,
       restoreDestination,
+      upgrade: null,
+      upgradeSettings: null,
     };
   }
 
@@ -1017,6 +1078,15 @@ export function useProposalsBar({
             ? { onOpenContinuation: () => void openProposal(continuation) }
             : {})}
           onUpdateFromSite={(checkId) => void updateFromSite(checkId)}
+          onComputeLockfile={() =>
+            void computeLockfile().then(() => loadChecks())
+          }
+          {...(runTypecheck !== null
+            ? {
+                onTypecheck: () => void runTypecheck().then(() => loadChecks()),
+              }
+            : {})}
+          typechecking={typecheckState.status === "running"}
           onResolve={(keep) => void updateFromSite("published-since", keep)}
           onCancelUpdate={() => {
             setConflicts(null);
@@ -1065,6 +1135,7 @@ export function useProposalsBar({
           />
         </>
       )}
+      {upgrade.dialogs}
       <AllProposalsDialog
         open={dialog === "all"}
         onOpenChange={(isOpen) => setDialog(isOpen ? "all" : null)}
@@ -1112,17 +1183,28 @@ export function useProposalsBar({
       />
     ) : null;
 
+  const notices = [mergedNotice, restoreNotice, upgrade.notice].filter(
+    (each): each is NonNullable<typeof each> => each !== null,
+  );
   const notice =
-    restoreNotice !== null && mergedNotice !== null ? (
+    notices.length > 1 ? (
       <div className="flex flex-col gap-3">
-        {mergedNotice}
-        {restoreNotice}
+        {notices.map((each, at) => (
+          <Fragment key={at}>{each}</Fragment>
+        ))}
       </div>
     ) : (
-      (mergedNotice ?? restoreNotice)
+      (notices[0] ?? null)
     );
 
-  return { proposals, dialogs, notice, restoreDestination };
+  return {
+    proposals,
+    dialogs,
+    notice,
+    restoreDestination,
+    upgrade: upgrade.button,
+    upgradeSettings: upgrade.settings,
+  };
 }
 
 function nextNewProposal(): { requestId: string; suggestedName: string } {

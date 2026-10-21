@@ -1,4 +1,5 @@
 import {
+  ArrowUpCircle,
   AlertTriangle,
   Bell,
   ChevronDown,
@@ -12,6 +13,7 @@ import {
   Menu,
   PanelRight,
   Search,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Upload,
@@ -32,6 +34,7 @@ import { StudioMark } from "./ValLogo";
 import { ShellBreakpoint, ShellLogo, ShellPanel } from "./types";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 import { LocaleFilter } from "./LocaleFilter";
+import type { UpgradeButton } from "../../upgrade/useUpgrade";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { ProjectMembersButton, orgOfProject } from "./ProjectMembersButton";
 import {
@@ -125,6 +128,12 @@ export type TopBarProps = {
    * validate. Absent in stories and embeds that do not route.
    */
   onOpenValidate?: () => void;
+  /**
+   * The Upgrade button (valbuild/home `docs/adept.md`, step 7): there only
+   * while there is something to upgrade, and marked when that fixes a
+   * vulnerability. On a phone it is a row in the account sheet.
+   */
+  upgrade?: UpgradeButton;
   /** Whether the Validate page is the one being shown. */
   validateActive?: boolean;
   /**
@@ -248,6 +257,7 @@ export function TopBar({
   historyActive = false,
   onOpenHistory,
   onOpenValidate,
+  upgrade,
   validateActive = false,
   validateCount = 0,
   user,
@@ -497,6 +507,28 @@ export function TopBar({
          * Validate, History and the bell are one button on a phone - the
          * bottom bar's bell, with the activity sheet behind it.
          */}
+        {upgrade !== undefined && !isMobile && (
+          <IconButton
+            label={
+              upgrade.vulnerable
+                ? "Upgrade: fixes vulnerable dependencies"
+                : "Upgrade dependencies"
+            }
+            onClick={upgrade.onOpen}
+          >
+            {upgrade.vulnerable ? (
+              <ShieldAlert size={16} className="text-fg-error-on-surface" />
+            ) : (
+              <ArrowUpCircle size={16} />
+            )}
+            {upgrade.vulnerable && (
+              <span
+                aria-hidden
+                className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-bg-error-primary"
+              />
+            )}
+          </IconButton>
+        )}
         {onOpenValidate && !isMobile && (
           <IconButton
             label={

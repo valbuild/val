@@ -1,5 +1,4 @@
 import type { StudioDeployResult } from "./runStudioDeploy";
-import type { SiteUpdateOutcome } from "./runSiteUpdate";
 import type { StudioJobResult } from "./runStudioJob";
 import { randomUUID } from "../utils/randomUUID";
 import {
@@ -10,7 +9,6 @@ import {
 } from "./browserStorage";
 import {
   parseRequestStatus,
-  type DependencyChange,
   type PublishRequestStatus,
   type PublishTabJob,
 } from "@valbuild/shared/internal";
@@ -106,8 +104,6 @@ export type HandoffIntent =
       after: string | null;
       merge?: string;
     }
-  /** Update the site's dependencies: `runSiteUpdate`. */
-  | { kind: "update" }
   /**
    * Build a proposal's staged code and serve the build at its address: the
    * proposal's Build, or the assistant's `build_proposal`, from a page that
@@ -138,13 +134,7 @@ export type ToTab =
       requestId: string | null;
     }
   /** The press did not start a job, so there is nothing to build. */
-  | { type: "cancel"; message: string }
-  /**
-   * Update the site's dependencies (`runSiteUpdate`) instead of publishing a
-   * job. Nothing is requested first, so there is nothing to wait for: the page
-   * sends this at the press, and the tab starts as soon as it hears it.
-   */
-  | { type: "update" };
+  | { type: "cancel"; message: string };
 
 /** Tab -> site. */
 export type ToSite =
@@ -198,12 +188,6 @@ export type ToSite =
        */
       summary?: string;
     }
-  /**
-   * How an update ended. Its own message rather than `done`, because an
-   * update can end without deploying anything at all -- already current, or
-   * refused by the platform -- and those are answers, not failed publishes.
-   */
-  | { type: "update-done"; outcome: SiteUpdateOutcome }
   /** How a proposal build ended: see {@link HandedProposalBuild}. */
   | { type: "proposal-built"; outcome: HandedProposalBuild };
 
@@ -291,7 +275,6 @@ function asIntent(value: unknown): HandoffIntent | null {
   if (typeof value !== "object" || value === null || !("kind" in value)) {
     return null;
   }
-  if (value.kind === "update") return { kind: "update" };
   const text = (key: string): string | null => {
     const field: unknown = key in value ? Reflect.get(value, key) : undefined;
     return typeof field === "string" && field !== "" ? field : null;
@@ -421,8 +404,6 @@ export type SiteHandoff = {
   stored: boolean;
   /** Hand the tab the job to build. Re-sent whenever a tab says it is ready. */
   job: (payload: Extract<ToTab, { type: "job" }>) => void;
-  /** Ask the tab to run an update. Re-sent whenever a tab says it is ready. */
-  update: () => void;
   cancel: (message: string) => void;
   onMessage: (listener: (message: ToSite) => void) => () => void;
   close: () => void;
@@ -471,10 +452,6 @@ export function openHandoff(
     job: (payload) => {
       pending = payload;
       send(payload);
-    },
-    update: () => {
-      pending = { type: "update" };
-      send(pending);
     },
     cancel: (message) => {
       pending = { type: "cancel", message };
@@ -569,7 +546,6 @@ function asToTab(message: unknown): ToTab | null {
       message: typeof message.message === "string" ? message.message : "",
     };
   }
-  if (message.type === "update") return { type: "update" };
   if (
     message.type === "job" &&
     "job" in message &&
@@ -668,10 +644,6 @@ function asToSite(message: unknown): ToSite | null {
     const result = asJobResult(message.result);
     return result === null ? null : { type: "job-result", result };
   }
-  if (message.type === "update-done" && "outcome" in message) {
-    const outcome = asUpdateOutcome(message.outcome);
-    return outcome === null ? null : { type: "update-done", outcome };
-  }
   if (message.type === "proposal-built" && "outcome" in message) {
     const outcome = asHandedProposalBuild(message.outcome);
     return outcome === null ? null : { type: "proposal-built", outcome };
@@ -723,63 +695,6 @@ function asHandedProposalBuild(value: unknown): HandedProposalBuild | null {
     default:
       return null;
   }
-}
-
-function asUpdateOutcome(value: unknown): SiteUpdateOutcome | null {
-  if (typeof value !== "object" || value === null || !("status" in value))
-    return null;
-  const message =
-    "message" in value && typeof value.message === "string"
-      ? value.message
-      : "";
-  switch (value.status) {
-    case "updated":
-      return {
-        status: "updated",
-        changes:
-          "changes" in value && Array.isArray(value.changes)
-            ? value.changes.flatMap(asDependencyChange)
-            : [],
-      };
-    case "current":
-      return { status: "current" };
-    case "unavailable":
-      return { status: "unavailable", message };
-    case "failed":
-      return {
-        status: "failed",
-        message: message || "The update could not be published.",
-        details:
-          "details" in value && typeof value.details === "string"
-            ? value.details
-            : "",
-        // The deploy's own record stays in the tab; the page shows the words.
-        deploy: null,
-      };
-  }
-  return null;
-}
-
-function asDependencyChange(change: unknown): DependencyChange[] {
-  if (
-    typeof change !== "object" ||
-    change === null ||
-    !("name" in change) ||
-    typeof change.name !== "string" ||
-    !("section" in change) ||
-    (change.section !== "dependencies" && change.section !== "devDependencies")
-  ) {
-    return [];
-  }
-  const from =
-    "from" in change && typeof change.from === "string" ? change.from : null;
-  // `null` is a removal. Anything else that is not a version is not a change.
-  if (
-    !("to" in change) ||
-    (typeof change.to !== "string" && change.to !== null)
-  )
-    return [];
-  return [{ name: change.name, section: change.section, from, to: change.to }];
 }
 
 function asJobResult(value: unknown): StudioJobResult | null {
