@@ -177,33 +177,10 @@ export function UtilityPanel({
                 {validationErrors.reduce((sum, e) => sum + e.count, 0)}
               </span>
             </PanelSectionLabel>
-            <ul className="px-3 pt-0.5">
-              {validationErrors.map((error) => (
-                <li key={error.id}>
-                  <button
-                    type="button"
-                    onClick={() => onSelectValidationError?.(error)}
-                    className="flex gap-2 w-full px-1.5 py-1.5 rounded-md text-left hover:bg-bg-float-raised"
-                  >
-                    <AlertTriangle
-                      size={13}
-                      className="mt-0.5 shrink-0 text-fg-error-on-surface"
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-xs text-fg-primary truncate">
-                        {error.title}
-                      </span>
-                      <span className="block text-[0.6875rem] text-fg-secondary-alt truncate">
-                        {error.detail}
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-[0.6875rem] tabular-nums text-fg-secondary-alt">
-                      {error.count}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <ValidationErrorList
+              validationErrors={validationErrors}
+              onSelect={onSelectValidationError}
+            />
             <PanelSectionLabel divided>Quick actions</PanelSectionLabel>
           </>
         )}
@@ -269,36 +246,7 @@ export function UtilityPanel({
         </div>
 
         <PanelSectionLabel divided>Recent activity</PanelSectionLabel>
-        {activity.length === 0 ? (
-          <PanelEmptyState>
-            No recent activity. Your changes and publishes will show up here.
-          </PanelEmptyState>
-        ) : (
-          <ul className="px-3 pt-0.5">
-            {activity.map((entry) => (
-              <li key={entry.id}>
-                {entry.kind === "deploy" ? (
-                  <DeployActivityRow entry={entry} />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => onSelectActivity(entry)}
-                    className="flex gap-2 w-full px-1.5 py-1.5 rounded-md text-left hover:bg-bg-float-raised"
-                  >
-                    <Clock
-                      size={13}
-                      className="mt-0.5 shrink-0 text-fg-secondary-alt"
-                    />
-                    <ActivityLines
-                      title={entry.title}
-                      detail={`${entry.author ? `${entry.author} · ` : ""}${entry.timestamp}`}
-                    />
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+        <ActivityList activity={activity} onSelect={onSelectActivity} />
 
         {onOpenAI && (
           <div className="px-3 pt-4">
@@ -314,6 +262,94 @@ export function UtilityPanel({
         )}
       </div>
     </FloatingPanel>
+  );
+}
+
+/**
+ * Validation errors grouped by item, each opening the item it is about.
+ *
+ * Exported for the phone's activity sheet, which lists the same errors under
+ * its Errors tab: one list, so the two cannot come to disagree about what an
+ * error row says or where it leads.
+ */
+export function ValidationErrorList({
+  validationErrors,
+  onSelect,
+}: {
+  validationErrors: ShellValidationError[];
+  onSelect?: (error: ShellValidationError) => void;
+}) {
+  return (
+    <ul className="px-3 pt-0.5">
+      {validationErrors.map((error) => (
+        <li key={error.id}>
+          <button
+            type="button"
+            onClick={() => onSelect?.(error)}
+            className="flex gap-2 w-full px-1.5 py-1.5 rounded-md text-left hover:bg-bg-float-raised"
+          >
+            <AlertTriangle
+              size={13}
+              className="mt-0.5 shrink-0 text-fg-error-on-surface"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs text-fg-primary truncate">
+                {error.title}
+              </span>
+              <span className="block text-[0.6875rem] text-fg-secondary-alt truncate">
+                {error.detail}
+              </span>
+            </span>
+            <span className="shrink-0 text-[0.6875rem] tabular-nums text-fg-secondary-alt">
+              {error.count}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Recent changes and publishes, newest first. Exported for the phone's
+ * activity sheet, for the same reason as `ValidationErrorList`.
+ */
+export function ActivityList({
+  activity,
+  onSelect,
+}: {
+  activity: ShellActivityEntry[];
+  onSelect: (entry: ShellChangeActivity) => void;
+}) {
+  return activity.length === 0 ? (
+    <PanelEmptyState>
+      No recent activity. Your changes and publishes will show up here.
+    </PanelEmptyState>
+  ) : (
+    <ul className="px-3 pt-0.5">
+      {activity.map((entry) => (
+        <li key={entry.id}>
+          {entry.kind === "deploy" ? (
+            <DeployActivityRow entry={entry} />
+          ) : (
+            <button
+              type="button"
+              onClick={() => onSelect(entry)}
+              className="flex gap-2 w-full px-1.5 py-1.5 rounded-md text-left hover:bg-bg-float-raised"
+            >
+              <Clock
+                size={13}
+                className="mt-0.5 shrink-0 text-fg-secondary-alt"
+              />
+              <ActivityLines
+                title={entry.title}
+                detail={`${entry.author ? `${entry.author} · ` : ""}${entry.timestamp}`}
+              />
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -380,16 +416,19 @@ function ActivityLines({ title, detail }: { title: string; detail: string }) {
  * unpublished work is not recoverable once this runs, and a one-click row
  * between "New page" and "Upload media" would be a trap.
  */
-function DiscardAllQuickAction({
+export function DiscardAllQuickAction({
   count,
   description,
   onConfirm,
   portalContainer,
+  variant = "panel",
 }: {
   count: number;
   description?: string;
   onConfirm: () => void;
   portalContainer?: HTMLElement | null;
+  /** `sheet`: a thumb-sized row in a phone sheet. See `PhoneSheet`. */
+  variant?: "panel" | "sheet";
 }) {
   const [open, setOpen] = useState(false);
   const label = `Discard ${count} ${count === 1 ? "change" : "changes"}`;
@@ -398,9 +437,19 @@ function DiscardAllQuickAction({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="flex items-center gap-2 w-full h-8 px-2 rounded-md text-xs text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+          className={
+            variant === "sheet"
+              ? "flex items-center gap-3 w-full min-h-11 px-4 py-2 text-left text-sm text-fg-primary hover:bg-bg-float-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-border-focus"
+              : "flex items-center gap-2 w-full h-8 px-2 rounded-md text-xs text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+          }
         >
-          <Undo2 size={14} className="text-fg-secondary-alt" />
+          {variant === "sheet" ? (
+            <span className="grid w-5 shrink-0 place-items-center text-fg-secondary">
+              <Undo2 size={16} />
+            </span>
+          ) : (
+            <Undo2 size={14} className="text-fg-secondary-alt" />
+          )}
           {label}
         </button>
       </PopoverTrigger>

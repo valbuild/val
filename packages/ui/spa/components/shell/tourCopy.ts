@@ -94,7 +94,7 @@ export const TOUR_COPY: Record<TourStepId, TourText> = {
   },
   finish: {
     title: "That is everything",
-    body: "Quick actions keeps the tour, so you can run it again or hand it to whoever edits next. Settings turns the offer off for the whole project.",
+    body: "Quick actions keeps the tour (on a phone, your account does), so you can run it again or hand it to whoever edits next. Settings turns the offer off for the whole project.",
   },
   /**
    * The same step for a project with no `s.settings()` module.
@@ -104,6 +104,6 @@ export const TOUR_COPY: Record<TourStepId, TourText> = {
    */
   finishWithoutSettings: {
     title: "That is everything",
-    body: "Quick actions keeps the tour, so you can run it again or hand it to whoever edits next.",
+    body: "Quick actions keeps the tour (on a phone, your account does), so you can run it again or hand it to whoever edits next.",
   },
 };

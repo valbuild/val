@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import {
+  Compass,
   ExternalLink,
   LogOut,
   LucideIcon,
@@ -58,6 +59,16 @@ export type AccountPanelProps = {
    * wired to a function that did nothing.
    */
   onSignOut?: () => void;
+  /**
+   * Run the guided tour. Passed on a phone only, where there is no Quick
+   * actions panel to keep it: the account is where help lives there.
+   */
+  onStartTour?: () => void;
+  /**
+   * The project's members, in Val Build's own sheet: on a phone this takes the
+   * place of the top bar's Members button, and of the link out to manage them.
+   */
+  members?: ReactNode;
   onClose: () => void;
   /** Mobile destination switcher, rendered below the panel header. */
   navSwitcher?: ReactNode;
@@ -90,6 +101,8 @@ export function AccountPanel({
   branch,
   deployments,
   onSignOut,
+  onStartTour,
+  members,
   onClose,
   navSwitcher,
 }: AccountPanelProps) {
@@ -98,7 +111,9 @@ export function AccountPanel({
       side="left"
       width={300}
       title="Account"
-      mobileVariant="sheet"
+      // From the avatar, like every other sheet a phone opens from a button:
+      // the side sheet is navigation's, behind the menu button.
+      mobileVariant="bottom-sheet"
       breakpoint={breakpoint}
       onClose={onClose}
       subheader={navSwitcher}
@@ -158,12 +173,14 @@ export function AccountPanel({
                 label="Administer project"
                 description="Settings, API keys and versions in Val Build."
               />
-              <AdminLink
-                href={admin.members}
-                icon={Users}
-                label="Manage members"
-                description="Who can edit this project's content."
-              />
+              {members ?? (
+                <AdminLink
+                  href={admin.members}
+                  icon={Users}
+                  label="Manage members"
+                  description="Who can edit this project's content."
+                />
+              )}
             </div>
           </>
         )}
@@ -192,6 +209,25 @@ export function AccountPanel({
             <PanelSectionLabel divided>Deployments</PanelSectionLabel>
             <div className="pt-1">
               <DeploymentRows deployments={deployments} />
+            </div>
+          </>
+        )}
+
+        {onStartTour && (
+          <>
+            <PanelSectionLabel divided>Help</PanelSectionLabel>
+            <div className="px-4 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onStartTour();
+                }}
+                className="flex items-center gap-2 -mx-2 w-[calc(100%+1rem)] px-2 py-1.5 rounded-md text-xs text-fg-primary hover:bg-bg-float-raised"
+              >
+                <Compass size={13} className="shrink-0 text-fg-secondary" />
+                Take a tour
+              </button>
             </div>
           </>
         )}
