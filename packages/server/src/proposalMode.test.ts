@@ -603,6 +603,33 @@ describe("the proposals API, for the Studio", () => {
     expect(sent).toEqual([]);
   });
 
+  test("computing a proposal's lockfile is asked by its own server, and nobody else's", async () => {
+    // valbuild/home docs/adept.md, step 6: it stages the lockfile, a write to
+    // the proposal's files.
+    const own = ops(proposal("save-2"));
+    await own.proposalsApi(
+      `/${NAME}/lockfile`,
+      { method: "POST", body: "{}" },
+      "p",
+    );
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `POST /v1/org/project/proposals/${NAME}/lockfile`,
+    ]);
+    sent.length = 0;
+    for (const [o, path] of [
+      [own, `/${"f".repeat(20)}/lockfile`],
+      [ops(undefined), `/${NAME}/lockfile`],
+    ] as const) {
+      const answer = await o.proposalsApi(
+        path,
+        { method: "POST", body: "{}" },
+        "p",
+      );
+      expect([path, answer.status]).toEqual([path, 403]);
+    }
+    expect(sent).toEqual([]);
+  });
+
   test("reaches nothing else: not a save, not a move, not another route", async () => {
     const o = ops(undefined);
     for (const [method, path] of [

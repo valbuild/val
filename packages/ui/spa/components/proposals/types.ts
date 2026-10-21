@@ -80,4 +80,15 @@ export type ProposalCodeState =
   | { state: "required" }
   | { state: "building" }
   | { state: "blocked" }
-  | { state: "failed"; error: string };
+  | { state: "failed"; error: string }
+  /**
+   * Its dependencies changed and the lockfile does not match them: nothing
+   * can be built until it is computed, which the button does (valbuild/home
+   * `docs/adept.md`, step 6). `computing` while content has adept at it;
+   * `error` says why it could not be, or why adept found the lockfile stale.
+   */
+  | { state: "lockfile"; computing: boolean; error: string | null }
+  /** Its dependencies are being built: Build can be pressed once they are. */
+  | { state: "dependencies-building" }
+  /** Its dependencies could not be built, and why. */
+  | { state: "dependencies-failed"; error: string | null };

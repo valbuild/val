@@ -169,6 +169,61 @@ describe("step 8: what blocks Publish, and what clears it", () => {
   });
 });
 
+/*
+ * valbuild/home `docs/adept.md`, step 6: a proposal whose dependencies changed
+ * without a lockfile to match waits for one, and Compute lockfile asks for it.
+ */
+describe("a proposal's dependencies", () => {
+  test("are read with the proposal, and a state this Studio does not know is the site's", async () => {
+    const { fetchImpl } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          proposal: {
+            ...json(),
+            dependencies: { state: "lockfile", computing: false, error: null },
+          },
+        },
+      },
+      {
+        status: 200,
+        body: { proposal: { ...json(), dependencies: { state: "later" } } },
+      },
+    ]);
+    const client = createProposalsClient({ api: "/api/val", fetchImpl });
+    expect((await client.get(NAME)).dependencies).toEqual({
+      state: "lockfile",
+      computing: false,
+      error: null,
+    });
+    expect((await client.get(NAME)).dependencies).toEqual({ state: "site" });
+  });
+
+  test("Compute lockfile is a POST on the proposal, answered with what it builds on", async () => {
+    const { sent, fetchImpl } = fakeFetch([
+      {
+        status: 200,
+        body: {
+          dependencies: { state: "lockfile", computing: true, error: null },
+        },
+      },
+    ]);
+    const client = createProposalsClient({ api: "/api/val", fetchImpl });
+    expect(await client.computeLockfile(NAME)).toEqual({
+      state: "lockfile",
+      computing: true,
+      error: null,
+    });
+    expect(sent).toEqual([
+      {
+        url: `/api/val/proposals-api/${NAME}/lockfile`,
+        method: "POST",
+        body: {},
+      },
+    ]);
+  });
+});
+
 describe("a proposal as the screens show it", () => {
   test("says You to its owner, and names everyone else", () => {
     const ada = { name: "Ada" };

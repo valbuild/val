@@ -94,6 +94,9 @@ function publishBlockedByStatus(status: string | undefined): string | null {
 
 type Dialog = "new" | "close" | "rename" | "all" | "publish" | null;
 
+/** How often a proposal waiting on its dependencies is read again. */
+const DEPENDENCIES_POLL_MS = 5_000;
+
 /**
  * The proposals half of the Studio: what `TopBar` shows, from the content
  * service, and the dialogs it opens. `ValShell` passes both on.
@@ -233,18 +236,57 @@ export function useProposalsBar({
     setNewProposal(nextNewProposal());
     setDialog("new");
   }, [proposalRequested, here]);
+  const dependencies = currentJson?.dependencies;
   const code: ProposalCodeState | null = proposalBuild.state.inTab?.blocked
     ? { state: "blocked" }
     : proposalBuild.state.building
       ? { state: "building" }
-      : proposalBuild.state.error !== null
-        ? { state: "failed", error: proposalBuild.state.error }
-        : currentJson?.staged?.buildRequired
-          ? { state: "required" }
-          : null;
+      : dependencies?.state === "lockfile"
+        ? {
+            state: "lockfile",
+            computing: dependencies.computing,
+            error: dependencies.error,
+          }
+        : proposalBuild.state.error !== null
+          ? { state: "failed", error: proposalBuild.state.error }
+          : !currentJson?.staged?.buildRequired
+            ? null
+            : dependencies?.state === "pending"
+              ? { state: "dependencies-building" }
+              : dependencies?.state === "failed"
+                ? { state: "dependencies-failed", error: dependencies.error }
+                : { state: "required" };
+  /*
+   * Content works on the dependencies on its own -- adept computes a
+   * lockfile, then builds the layer -- and nothing tells this tab when it is
+   * done: it asks again while it is.
+   */
+  const waitingOnDependencies =
+    here !== null &&
+    (dependencies?.state === "pending" ||
+      (dependencies?.state === "lockfile" && dependencies.computing));
+  useEffect(() => {
+    if (!waitingOnDependencies) return;
+    const timer = setInterval(() => void refresh(), DEPENDENCIES_POLL_MS);
+    return () => clearInterval(timer);
+  }, [waitingOnDependencies, refresh]);
   const build = proposalBuild.build;
   const blocked = proposalBuild.state.inTab?.blocked === true;
+  const needsLockfile =
+    code?.state === "lockfile" && !code.computing ? here?.name : undefined;
   const runBuild = useCallback(async () => {
+    // Nothing can be built before the lockfile: the button computes it.
+    if (needsLockfile !== undefined) {
+      try {
+        await client.computeLockfile(needsLockfile);
+      } catch (e) {
+        toast.error(
+          e instanceof Error ? e.message : "The lockfile could not be computed",
+        );
+      }
+      await refresh();
+      return;
+    }
     if (build === null) return;
     // The build is waiting on a tab the browser did not let open: open it.
     if (blocked) {
@@ -254,7 +296,7 @@ export function useProposalsBar({
     const outcome = await build();
     if (outcome.status === "built")
       toast.success("Built: the preview shows the change");
-  }, [blocked, build]);
+  }, [needsLockfile, client, refresh, blocked, build]);
 
   const location: StudioLocation = useMemo(() => {
     if (here === null) return { kind: "site" };
