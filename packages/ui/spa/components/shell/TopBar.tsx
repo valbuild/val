@@ -370,6 +370,10 @@ export function TopBar({
           type="button"
           aria-label="Open navigation"
           onClick={onOpenMenu}
+          // Where Pages, Media, Data and Settings are below the desktop: a
+          // tour step about one of them points here when the rail is not
+          // drawn. See `measureTarget`.
+          data-val-tour="pages media data settings"
           className="grid place-items-center w-8 h-8 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary shrink-0"
         >
           <Menu size={17} />

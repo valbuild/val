@@ -73,7 +73,9 @@ function measureTarget(
    * hidden panel, a button that has not laid out yet — measures zero, and a
    * spotlight on a zero-sized box is a dot in the corner.
    */
-  const rect = firstOnScreen(scope, `[data-val-tour="${target}"]`);
+  // `~=`: a control can stand in for several, the phone's menu button for
+  // every destination the rail would have shown.
+  const rect = firstOnScreen(scope, `[data-val-tour~="${target}"]`);
   return rect ? relativeTo(root, rect) : null;
 }
 
