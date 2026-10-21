@@ -488,11 +488,10 @@ export async function validateOnce({
   ).length;
   const plural = (n: number, word: string) =>
     `${n} ${word}${n === 1 ? "" : "s"}`;
+  const warnings = `${plural(totalWarnings, "warning")} in ${plural(warningFiles, "file")}`;
   const warningPart =
     totalWarnings > 0
-      ? `${plural(totalWarnings, "warning")} in ${plural(warningFiles, "file")}${
-          strict ? ", which --strict counts as errors" : ""
-        }`
+      ? `${warnings}${strict ? ", which --strict counts as errors" : ""}`
       : undefined;
   const tail = [
     ...(valid.length > 0 ? [`${valid.length} valid`] : []),
@@ -508,9 +507,16 @@ export async function validateOnce({
       picocolors.red("✘"),
       [summary, ...(warningPart ? [warningPart] : []), ...tail].join(" · "),
     );
+  } else if (warningPart && strict) {
+    // Not "No validation errors" beside a ✘: under --strict this run failed,
+    // and the warnings are why.
+    console.log(
+      picocolors.red("✘"),
+      [`${warnings}, and --strict fails on warnings`, ...tail].join(" · "),
+    );
   } else if (warningPart) {
     console.log(
-      strict ? picocolors.red("✘") : picocolors.green("✔"),
+      picocolors.green("✔"),
       ["No validation errors", warningPart, ...tail].join(" · "),
     );
   } else {

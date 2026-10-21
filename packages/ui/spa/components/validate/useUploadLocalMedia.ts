@@ -3,7 +3,6 @@ import {
   Internal,
   Json,
   ModuleFilePath,
-  ModulePath,
   PatchId,
   SerializedFileSchema,
   SerializedImageSchema,
@@ -25,7 +24,7 @@ import type { PatchStore } from "../../stores/PatchStore";
 import { jsonValuesLoadRequirements } from "../jsonValuesLoadRequirements";
 import { loadForReferenceScan } from "../loadForReferenceScan";
 import { getFileReferrers } from "../getReferencedFiles";
-import { fetchMediaBytes } from "../../utils/fetchMediaBytes";
+import { fetchMediaBlob, fetchMediaBytes } from "../../utils/fetchMediaBytes";
 import { mediaUrlOf } from "../../utils/mediaUrl";
 import type { MediaReferrer } from "../../utils/renameMediaFile";
 import {
@@ -137,12 +136,14 @@ export function useUploadLocalMedia(): (
           sourceStore,
           filePatchIds,
         );
-      } catch {
-        // `resolvePath` throws for a path the content no longer has.
+      } catch (err) {
+        // `resolvePath` throws for a path the content does not have as it is
+        // loaded now: one edited away, or in a `.jsonValues()` entry that has
+        // not loaded yet. A second press can find the second.
         located = {
           status: "error",
-          message: "This file is no longer there. Check the module again.",
-          retry: false,
+          message: `Val could not find this file in the content as it is now, so nothing was uploaded: ${err instanceof Error ? err.message : String(err)}. Press Fix again, or check the module again if it has changed.`,
+          retry: true,
         };
       }
       if ("status" in located) {
@@ -268,28 +269,11 @@ async function videoPatches(
     if (url === null) {
       throw new Error(`Val does not know where ${filename} is served from.`);
     }
-    let res: Response;
-    try {
-      res = await fetch(url);
-    } catch (err) {
-      throw new Error(
-        `Could not read ${filename}: ${err instanceof Error ? err.message : String(err)}`,
-        { cause: err },
-      );
+    const fetched = await fetchMediaBlob(url, filename, undefined);
+    if (fetched.status === "error") {
+      throw new Error(fetched.message);
     }
-    // A dev server answers a path it has no file for with the app's HTML and
-    // a 200: see `fetchMediaBytes`.
-    if (
-      !res.ok ||
-      (res.headers.get("content-type") ?? "").startsWith("text/html")
-    ) {
-      throw new Error(
-        res.ok
-          ? `Could not read ${filename}: the server answered with a web page instead of the file.`
-          : `Could not read ${filename} (HTTP ${res.status}).`,
-      );
-    }
-    return new Uint8Array(await res.arrayBuffer());
+    return new Uint8Array(await fetched.blob.arrayBuffer());
   };
   const video: Record<string, Json> =
     located.kind === "field"
@@ -407,12 +391,13 @@ async function writeAll(
     }
   }
   if (failed.length > 0) {
-    // The file IS uploaded at this point, so this is not a refusal: it is the
-    // list of fields still naming the local file, for someone to fix.
+    // The file IS uploaded at this point, so this is not a refusal -- but the
+    // fields that could not follow name an entry that is gone. Undo takes
+    // back every patch written, and Fix then starts again from the top.
     return {
       status: "ok",
       patchIds,
-      summary: `Uploaded ${what}, but these still name the local file: ${failed.join("; ")}`,
+      summary: `Uploaded ${what}, but these could not be pointed at it and name an entry that is no longer there: ${failed.join("; ")}. Undo, then press Fix again.`,
     };
   }
   const using =
@@ -485,7 +470,7 @@ async function locate(
     Internal.parentOfSourcePath(sourcePath),
   );
   const record = Internal.resolvePath(
-    recordModulePath as ModulePath,
+    recordModulePath,
     moduleSource,
     moduleSchema,
   );
@@ -534,7 +519,7 @@ async function locate(
     kind: "entry",
     moduleFilePath,
     patchPath: recordModulePath
-      ? Internal.createPatchPath(recordModulePath as ModulePath)
+      ? Internal.createPatchPath(recordModulePath)
       : [],
     mediaType:
       fix === "videos:upload-remote"

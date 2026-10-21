@@ -187,15 +187,18 @@ describe("uploading a local file from the Studio", () => {
     ]);
   });
 
-  test("a file Val does not know the size of is refused, with what to do", () => {
-    const res = buildLocalMediaUploadPatches({
-      target: galleryTarget({ entry: { alt: null } }),
-      bytes: BYTES,
-      remote: REMOTE,
-    });
-    expect(res).toEqual({
-      status: "error",
-      message: expect.stringContaining("Open it and save it again"),
+  test("a file with no recorded size still goes up, as the CLI uploads it", () => {
+    // The size is its own row (`image:add-metadata`), which the Studio fixes;
+    // refusing here left a hosted project with nothing to press.
+    const { ref, primary } = ok(galleryTarget({ entry: { alt: null } }));
+    expect(primary.patch[1]).toEqual({
+      op: "file",
+      path: [ref],
+      filePath: ref,
+      value: BYTES.dataUrl,
+      remote: true,
+      // The data URL's type, and no size it does not know.
+      metadata: { mimeType: "image/png" },
     });
   });
 

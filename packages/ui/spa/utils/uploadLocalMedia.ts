@@ -1,16 +1,18 @@
 import {
-  FileMetadata,
-  ImageMetadata,
   Internal,
   Json,
   ModuleFilePath,
   SerializedFileSchema,
   SerializedImageSchema,
   SerializedRecordSchema,
-  ValidationFix,
 } from "@valbuild/core";
 import { array } from "@valbuild/core/fp";
-import { Operation, Patch } from "@valbuild/core/patch";
+import { JSONValue, Operation, Patch } from "@valbuild/core/patch";
+import {
+  isWarningFix,
+  WARNING_FIXES,
+  type WarningFix,
+} from "@valbuild/shared/internal";
 import {
   extensionOf,
   type MediaBytes,
@@ -40,23 +42,14 @@ import {
  */
 
 /**
- * The fixes the Studio makes by uploading from the browser: every
- * `*:upload-remote` code, the same set `val validate` reports as warnings.
+ * The fixes the Studio makes by uploading from the browser: exactly the codes
+ * `val validate` reports as warnings (`WARNING_FIXES`), which are all "a local
+ * file still to upload". One list, so a new one cannot be a warning in the
+ * CLI and have no Fix here.
  */
-export const STUDIO_UPLOAD_FIXES = [
-  "image:upload-remote",
-  "file:upload-remote",
-  "images:upload-remote",
-  "files:upload-remote",
-  "video:upload-remote",
-  "videos:upload-remote",
-] as const satisfies readonly ValidationFix[];
-
-export type StudioUploadFix = (typeof STUDIO_UPLOAD_FIXES)[number];
-
-export function isStudioUploadFix(fix: ValidationFix): fix is StudioUploadFix {
-  return STUDIO_UPLOAD_FIXES.some((uploadFix) => uploadFix === fix);
-}
+export const STUDIO_UPLOAD_FIXES = WARNING_FIXES;
+export type StudioUploadFix = WarningFix;
+export const isStudioUploadFix = isWarningFix;
 
 /** What `/remote/settings` said, and the bucket picked from it. */
 export type RemoteUploadSettings = {
@@ -111,9 +104,7 @@ export function buildLocalMediaUploadPatches(args: {
   | { status: "error"; message: string } {
   const { target, bytes, remote } = args;
   const localPath = target.kind === "field" ? target.value.path : target.key;
-  const filePath = localPath.startsWith("/public/")
-    ? (localPath.slice(1) as `public/${string}`)
-    : null;
+  const filePath = publicFilePathOf(localPath);
   if (filePath === null || Internal.isRemoteMediaPath(localPath)) {
     return {
       status: "error",
@@ -132,13 +123,7 @@ export function buildLocalMediaUploadPatches(args: {
           schema: galleryEntrySchema(target.record),
           metadata: target.entry,
         };
-  const fileMetadata = fileMetadataOf(schema.type, metadata);
-  if (fileMetadata === null) {
-    return {
-      status: "error",
-      message: `Val does not know the size and type of ${filename}, so it cannot upload it. Open it and save it again, then try again.`,
-    };
-  }
+  const fileMetadata = fileMetadataOf(schema.type, metadata, bytes.dataUrl);
   const fileHash = Internal.remote.hashToRemoteFileHash(bytes.sha256);
   const validationHash = Internal.remote.getValidationHash(
     remote.coreVersion,
@@ -261,20 +246,31 @@ function withoutPath(
   return rest;
 }
 
-/** What the `file` op says about the bytes, or `null` when it is not known. */
+/**
+ * What the `file` op says about the bytes: what is recorded, and the data
+ * URL's type when nothing is. A size that was never recorded is not made up
+ * here -- the CLI uploads without one too, and the value is left with the
+ * `image:add-metadata` row it already had, which the Studio fixes.
+ */
 function fileMetadataOf(
   type: "image" | "file",
   metadata: Record<string, Json>,
-): ImageMetadata | FileMetadata | null {
+  dataUrl: string,
+): JSONValue {
   const { width, height, mimeType } = metadata;
-  if (typeof mimeType !== "string") {
-    return null;
-  }
-  if (type === "file") {
-    return { mimeType };
-  }
-  if (typeof width !== "number" || typeof height !== "number") {
-    return null;
-  }
-  return { width, height, mimeType };
+  const knownMimeType =
+    typeof mimeType === "string" ? mimeType : Internal.getMimeType(dataUrl);
+  return {
+    ...(knownMimeType !== undefined ? { mimeType: knownMimeType } : {}),
+    ...(type === "image" && typeof width === "number" ? { width } : {}),
+    ...(type === "image" && typeof height === "number" ? { height } : {}),
+  };
+}
+
+/** `public/val/a.png` for `/public/val/a.png`: the path a remote ref names. */
+export function publicFilePathOf(localPath: string): `public/${string}` | null {
+  const prefix = "/public/";
+  return localPath.startsWith(prefix)
+    ? `public/${localPath.slice(prefix.length)}`
+    : null;
 }

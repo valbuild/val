@@ -94,9 +94,12 @@ describe("val validate: a local file in a project with remote files", () => {
     expect(
       await validateOnce({ projectRoot: root, fix: false, strict: true }),
     ).toBe(7);
-    expect(plain()).toContain(
-      "✘ No validation errors · 7 warnings in 1 file, which --strict counts as errors",
+    const text = plain();
+    expect(text).toContain(
+      "✘ 7 warnings in 1 file, and --strict fails on warnings",
     );
+    // Not "passed" and "failed" in one line.
+    expect(text).not.toContain("No validation errors");
   });
 
   test("does not hold back val publish, unless --strict", async () => {

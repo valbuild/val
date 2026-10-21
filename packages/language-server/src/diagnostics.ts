@@ -166,6 +166,22 @@ const FILE_FIXES: readonly string[] = [
   "video:add-metadata",
   // The same, for a video set's entry, whose file is its KEY.
   "videos:add-metadata",
+  // A collection entry still to upload: its file is its key too, and a
+  // missing one has to stay an error rather than read as the warning
+  // `isValidationWarning` makes of the upload.
+  "images:upload-remote",
+  "files:upload-remote",
+  "videos:upload-remote",
+  // A video still to upload: `path` is the video's file.
+  "video:upload-remote",
+];
+
+/** Fixes reported on a collection entry, whose file is its key, not a `path`. */
+const KEYED_BY_FILE: readonly string[] = [
+  "videos:add-metadata",
+  "images:upload-remote",
+  "files:upload-remote",
+  "videos:upload-remote",
 ];
 
 function build(
@@ -394,8 +410,8 @@ function missingFileRef({
       content.source,
       content.schema,
     );
-    const ref = fixes.includes("videos:add-metadata")
-      ? // A video set entry is keyed by its file; the value has no `path`.
+    const ref = fixes.some((fix) => KEYED_BY_FILE.includes(fix))
+      ? // A collection entry is keyed by its file; the value has no `path`.
         Internal.splitModulePath(modulePath).pop()
       : (resolved.source as Record<string, unknown> | undefined)?.path;
     if (typeof ref !== "string") {

@@ -11,6 +11,7 @@ import { bytesToBase64, type RemoteUploadConfig } from "./createVideoPatch";
 import { isPlaylistPath, mapPlaylistUris, playlistUris } from "./hlsPlaylist";
 import { localOfUri } from "./renameVideo";
 import type { MediaReferrer } from "../renameMediaFile";
+import { publicFilePathOf } from "../uploadLocalMedia";
 
 /**
  * Uploading a video's local files, from the Studio: what `val validate --fix`
@@ -110,6 +111,13 @@ export async function placeLocalVideoFiles(args: {
     if (already !== undefined) {
       return already.ref;
     }
+    const filePath = publicFilePathOf(localPath);
+    if (filePath === null) {
+      // A playlist naming a file outside /public: nothing a ref can name.
+      throw new Error(
+        `The video names ${localPath}, which is not a file under /public.`,
+      );
+    }
     let bytes = await read(localPath);
     if (isPlaylistPath(localPath)) {
       // What a served playlist names depends on where it was served from: a
@@ -142,7 +150,7 @@ export async function placeLocalVideoFiles(args: {
         textEncoder,
       ),
       fileHash,
-      filePath: localPath.slice(1) as `public/${string}`,
+      filePath,
     });
     const poster = video.poster;
     placed.set(localPath, {
