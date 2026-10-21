@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { SourcePath } from "@valbuild/core";
+import type { JSONValue } from "@valbuild/core/patch";
 import { Compass, X } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { isPathWithin } from "../../utils/sourcePath";
@@ -18,6 +19,8 @@ const GAP = 14;
 /** Never closer than this to the edge of the shell. */
 const MARGIN = 12;
 const CARD_WIDTH = 296;
+/** Wider when the step shows code, so a line of a schema fits on one. */
+const CARD_WIDTH_WITH_CODE = 380;
 /**
  * Below this width the ring look's card is a sheet along the bottom rather
  * than a card beside its target: on a phone there is no beside, and a card
@@ -305,7 +308,8 @@ export type TourObserved = {
  */
 export type TourActions = {
   openPath?: (path: SourcePath) => void;
-  write?: (path: SourcePath, value: string) => void;
+  write?: (path: SourcePath, value: JSONValue, add: boolean) => void;
+  addPage?: (path: SourcePath) => void;
   nextLocale?: () => void;
 };
 
@@ -325,6 +329,7 @@ export function hasMovedOn(
         now.selectedPath !== null && isPathWithin(now.selectedPath, moveOn.path)
       );
     case "edit":
+    case "newPage":
       return now.reviewCount > atStart.reviewCount;
     case "panel":
       return now.openPanel === moveOn.panel;
@@ -344,6 +349,8 @@ export function canDoItForMe(
       return act.openPath !== undefined;
     case "edit":
       return moveOn.write !== undefined && act.write !== undefined;
+    case "newPage":
+      return act.addPage !== undefined;
     case "panel":
       return canOpenPanel;
     case "locale":
@@ -373,6 +380,11 @@ export type StudioTourProps = {
    * treats the two the same — see `closeTour` in `Shell`.
    */
   onClose: () => void;
+  /**
+   * The last step was done, rather than the tour left part way. Called
+   * before `onClose`. The demo script ticks a tour off with it.
+   */
+  onFinish?: () => void;
   /**
    * Open (or close, with `null`) a panel, so the step's subject is on screen
    * behind the card. The tour drives the real navigation rather than drawing
@@ -412,6 +424,7 @@ export type StudioTourProps = {
 export function StudioTour({
   steps,
   onClose,
+  onFinish,
   onOpenPanel,
   look = "spotlight",
   observed = NOT_OBSERVED,
@@ -482,7 +495,14 @@ export function StudioTour({
   const done =
     moveOn !== undefined &&
     hasMovedOn(moveOn, observed, startedAt.current.observed);
-  const advance = () => (isLast ? onClose() : setIndex(stepIndex + 1));
+  const advance = () => {
+    if (!isLast) {
+      setIndex(stepIndex + 1);
+      return;
+    }
+    onFinish?.();
+    onClose();
+  };
   const advanceRef = useRef(advance);
   advanceRef.current = advance;
   useEffect(() => {
@@ -500,7 +520,13 @@ export function StudioTour({
         act.openPath?.(moveOn.path);
         return;
       case "edit":
-        if (moveOn.write) act.write?.(moveOn.write.path, moveOn.write.value);
+        if (moveOn.write) {
+          const { path, value, add } = moveOn.write;
+          act.write?.(path, value, add === true);
+        }
+        return;
+      case "newPage":
+        act.addPage?.(moveOn.path);
         return;
       case "panel":
         onOpenPanel(moveOn.panel);
@@ -762,7 +788,7 @@ export function StudioTour({
           asSheet
             ? undefined
             : {
-                width: CARD_WIDTH,
+                width: step.code ? CARD_WIDTH_WITH_CODE : CARD_WIDTH,
                 maxWidth: "calc(100% - 24px)",
                 // Off screen until it has been measured, so the first frame of
                 // a step is never the card in the top left corner.
@@ -817,6 +843,22 @@ export function StudioTour({
             >
               {step.body}
             </p>
+            {step.code && (
+              /*
+               * Under the words rather than beside the field: what a
+               * developer is shown is the one line that made the field, and
+               * the card is already next to it. Scrolls sideways rather than
+               * wrapping -- a wrapped line of code reads as two.
+               */
+              <figure className="mt-2.5 overflow-hidden rounded-md border border-border-float bg-bg-secondary">
+                <figcaption className="truncate border-b border-border-float px-2 py-1 font-mono text-[0.625rem] text-fg-secondary-alt">
+                  {step.code.file}
+                </figcaption>
+                <pre className="overflow-x-auto px-2 py-1.5 font-mono text-[0.6875rem] leading-relaxed text-fg-primary">
+                  <code>{step.code.text}</code>
+                </pre>
+              </figure>
+            )}
           </div>
           <button
             type="button"
