@@ -254,13 +254,18 @@ appear there. To make it the example of this feature, it needs:
 Its end-to-end tests would repeat 1–4 above. That work goes in home, after the
 release that carries this one (see "Demo mode" in `.claude/CLAUDE.md`).
 
-## 9. Decisions to confirm
+## 9. Decisions
+
+Confirmed:
 
 1. **Content in no language stays visible under every filter** (section 2). The
    alternative, a strict mode that hides it, makes shared content uneditable
    while a filter is on.
-2. **Navigating to another language switches the filter**, instead of sending
+2. **Whole-project actions are never filtered** (section 5).
+
+Still to confirm:
+
+3. **Navigating to another language switches the filter**, instead of sending
    the editor to a root (3b). Root is where a FILTER change sends you. It is not
    where a click sends you.
-3. **The counterpart before the root** (3a.1), where Val knows it for certain.
-4. **Whole-project actions are never filtered** (section 5).
+4. **The counterpart before the root** (3a.1), where Val knows it for certain.
