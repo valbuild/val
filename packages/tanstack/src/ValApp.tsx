@@ -57,9 +57,9 @@ export const ValApp = ({
    * Set it from the build -- `demo={import.meta.env.VITE_VAL_DEMO === "true"}`
    * -- never from anything a visitor controls.
    *
-   * Options instead of `true` give the demo a tour of the site's own:
-   * `demo={{ tour }}`, steps written as data (`ValDemoTourStep`), so what it
-   * says changes with the site rather than with a Val release.
+   * Options instead of `true` give the demo tours of the site's own:
+   * `demo={{ tours, audiences }}`, written as data (`ValDemoOptions`), so what
+   * they say changes with the site rather than with a Val release.
    */
   demo?: boolean | ValDemoOptions;
 }) => {
@@ -309,11 +309,13 @@ function useDemoServer(
       }
       const fetch = createInTabValFetch(modules, { config });
       const uploads = await startDemoRelay(fetch);
-      const tour = optionsRef.current?.tour;
+      const { tour, tours, audiences } = optionsRef.current ?? {};
       const runtime: ValDemoRuntime = {
         fetch,
         uploads,
         ...(tour ? { tour } : {}),
+        ...(tours ? { tours } : {}),
+        ...(audiences ? { audiences } : {}),
       };
       window.__VAL_DEMO__ = runtime;
       return { status: "ready" };

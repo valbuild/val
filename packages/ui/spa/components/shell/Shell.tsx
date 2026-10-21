@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { PublishIndicator } from "../../publish/publishIndicatorView";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
+import type { JSONValue } from "@valbuild/core/patch";
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
 import { checkExternalUrls } from "./externalUrlChecks";
@@ -58,6 +59,7 @@ import {
   readTourCompleted,
   studioTourSteps,
   writeTourCompleted,
+  type TourRun,
   type TourStep,
 } from "./tourSteps";
 import { servedPath } from "../../utils/mediaPath";
@@ -152,10 +154,11 @@ export type ShellProps = {
   }) => TourStep[];
   /**
    * Open the tour once, as soon as it can be started -- the demo, where the
-   * tour is how a first visit begins. Waits for the navigation to load, for
-   * the reason `canStartTour` gives.
+   * tour is how a first visit begins, or a link names one (`?tour=`). Waits
+   * for the navigation to load, for the reason `canStartTour` gives. A
+   * `TourRun` is that tour rather than the usual one.
    */
-  autoStartTour?: boolean;
+  autoStartTour?: boolean | TourRun;
   /** How the tour looks. See `StudioTourProps.look`; the demo's is `ring`. */
   tourLook?: "spotlight" | "ring";
   /**
@@ -167,14 +170,17 @@ export type ShellProps = {
    * Write a value at a path, for a step's "Do it for me". Absent: no step
    * offers to make an edit for the visitor.
    */
-  onTourWrite?: (path: SourcePath, value: string) => void;
+  onTourWrite?: (path: SourcePath, value: JSONValue, add: boolean) => void;
+  /** Add a page, for a step's "Do it for me". Absent: no step offers to. */
+  onTourAddPage?: (path: SourcePath) => void;
   /** Called when the tour is left, finished or not. */
   onTourClose?: () => void;
   /**
-   * The demo's card, given the way to start the tour. See `DemoBanner`. A
-   * slot, like `publishSlot`: what the demo is lives outside the shell.
+   * The demo's card, given the way to start the tour -- the usual one, or a
+   * `TourRun` of its own: one of the demo script's. See `DemoBanner`. A slot,
+   * like `publishSlot`: what the demo is lives outside the shell.
    */
-  renderDemoBanner?: (startTour: () => void) => ReactNode;
+  renderDemoBanner?: (startTour: (run?: TourRun) => void) => ReactNode;
   theme: "dark" | "light";
   /**
    * The project's theme, as CSS custom properties — see `ValThemeProvider`.
@@ -560,6 +566,7 @@ export function Shell({
   tourLook,
   onTourHighlightPage,
   onTourWrite,
+  onTourAddPage,
   onTourClose,
   renderDemoBanner,
   theme,
@@ -801,7 +808,13 @@ export function Shell({
    * the PROJECT's answer and arrives as a prop.
    */
   const [tourCompleted, setTourCompleted] = useState(readTourCompleted);
-  const startTour = useCallback(() => setIsTourOpen(true), []);
+  /** The tour that is open, when it is not the usual one. See `TourRun`. */
+  const [tourRun, setTourRun] = useState<TourRun | null>(null);
+  const startTour = useCallback((run?: TourRun) => {
+    run?.onStart?.();
+    setTourRun(run ?? null);
+    setIsTourOpen(true);
+  }, []);
   /**
    * The tour opening a panel. Stable, because the tour re-runs it whenever the
    * step changes and an identity that changed every render would reopen the
@@ -838,8 +851,19 @@ export function Shell({
   /** "Do it for me": the same calls the visitor's own clicks make. */
   const tourActions = useMemo<TourActions>(
     () => ({
-      ...(onSelectCanvasPath ? { openPath: onSelectCanvasPath } : {}),
+      ...(onSelectCanvasPath
+        ? {
+            openPath: (path: SourcePath) => {
+              onSelectCanvasPath(path);
+              // As a tap on the page does (`onPicked`): on a phone the field
+              // is in the other pane, and opening it without going there
+              // leaves the visitor looking at the page it was opened from.
+              if (breakpoint === "mobile") setWorkspacePane("editor");
+            },
+          }
+        : {}),
       ...(onTourWrite ? { write: onTourWrite } : {}),
+      ...(onTourAddPage ? { addPage: onTourAddPage } : {}),
       ...(onLocaleChange && locales && locales.length > 0
         ? {
             nextLocale: () => {
@@ -851,7 +875,15 @@ export function Shell({
           }
         : {}),
     }),
-    [onSelectCanvasPath, onTourWrite, onLocaleChange, locales, locale],
+    [
+      onSelectCanvasPath,
+      breakpoint,
+      onTourWrite,
+      onTourAddPage,
+      onLocaleChange,
+      locales,
+      locale,
+    ],
   );
   const tourSteps = useMemo(
     () =>
@@ -875,8 +907,8 @@ export function Shell({
   useEffect(() => {
     if (!autoStartTour || autoStarted.current || !canStartTour) return;
     autoStarted.current = true;
-    setIsTourOpen(true);
-  }, [autoStartTour, canStartTour]);
+    startTour(autoStartTour === true ? undefined : autoStartTour);
+  }, [autoStartTour, canStartTour, startTour]);
   /**
    * Whether to offer it — the glow, and the button on the empty editor.
    *
@@ -1569,7 +1601,8 @@ export function Shell({
 
         {isTourOpen && (
           <StudioTour
-            steps={tourSteps}
+            steps={tourRun?.steps ?? tourSteps}
+            onFinish={tourRun?.onFinish}
             onClose={closeTour}
             onOpenPanel={openPanelForTour}
             look={tourLook}

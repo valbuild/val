@@ -49,9 +49,11 @@ export type { ValAnalytics } from "./ValAnalytics";
 export { ValImage, type ValImageProps } from "./ValImage";
 export { ValVideo, type ValVideoProps } from "./ValVideo";
 export { ValApp } from "./ValApp";
-/** What `<ValApp demo={{ tour }}>` takes. See `ValDemoTourStep`. */
+/** What `<ValApp demo={{ tours, audiences }}>` takes. See `ValDemoOptions`. */
 export type {
   ValDemoOptions,
+  ValDemoTour,
+  ValDemoAudience,
   ValDemoTourStep,
   ValDemoTourMoveOn,
   ValDemoTourTarget,

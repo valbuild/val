@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
+import type { JSONValue } from "@valbuild/core/patch";
 import { ValCanvasElement } from "@valbuild/shared/internal";
 import { findShellSelection, Shell, ShellSelection } from "./Shell";
 import type { PageWorkspaceProps } from "./canvas/PageWorkspace";
@@ -61,6 +62,8 @@ import {
   readDemoTourSeen,
   writeDemoTourSeen,
 } from "../../demo/demoTour";
+import { demoScriptFromSite, markDemoTourDone } from "../../demo/demoScript";
+import type { TourRun } from "./tourSteps";
 import { PublishHandoffCard, handoffCardInStudio } from "./PublishHandoff";
 import { usePublishIndicator } from "../../publish/usePublishIndicator";
 import { LoginDialog } from "../LoginDialog";
@@ -223,9 +226,43 @@ function ValShellBody({
    * tab is.
    */
   const demo = useValDemo();
-  const [demoTourPending] = useState(
-    () => demo !== null && !readDemoTourSeen(),
+  /*
+   * The demo script (`ValDemoOptions.tours`): tours the card lists, for the
+   * visitor to pick from. Where there is one, nothing opens by itself -- the
+   * card asks first -- unless a link names a tour (`/val?tour=pages`).
+   */
+  const demoScript = useMemo(
+    () =>
+      demo === null ? null : demoScriptFromSite(demo.tours, demo.audiences),
+    [demo],
   );
+  /*
+   * How a tour goes to the page it starts on: `openPath`, which is made
+   * further down, with the navigation it needs. A ref, so a run can be made
+   * up here -- before the first render, for a tour a link names.
+   */
+  const openPathForTour = useRef<((path: SourcePath) => void) | null>(null);
+  const demoTourRun = useCallback(
+    (tourId: string): TourRun | null => {
+      const tour = demoScript?.tours.find((t) => t.id === tourId);
+      if (!tour) return null;
+      const { start } = tour;
+      return {
+        steps: tour.steps,
+        ...(start ? { onStart: () => openPathForTour.current?.(start) } : {}),
+        onFinish: () => markDemoTourDone(tour.id),
+      };
+    },
+    [demoScript],
+  );
+  const [demoTourPending] = useState<boolean | TourRun>(() => {
+    if (demo === null) return false;
+    if (demoScript) {
+      const named = readTourParam();
+      return (named !== null && demoTourRun(named)) || false;
+    }
+    return !readDemoTourSeen();
+  });
   /*
    * The site's own tour when it wrote one (`<ValApp demo={{ tour }}>`), so
    * what the demo says changes with the site rather than with a release; the
@@ -236,10 +273,13 @@ function ValShellBody({
       demo === null
         ? undefined
         : (project: { destinations: readonly ShellDestination[] }) =>
-            demo.tour && demo.tour.length > 0
-              ? demoTourStepsFromSite(demo.tour)
-              : demoTourSteps({ ...project, uploads: demo.uploads }),
-    [demo],
+            // With a script, the tour Quick actions offers is its first.
+            demoScript
+              ? (demoScript.tours[0]?.steps ?? [])
+              : demo.tour && demo.tour.length > 0
+                ? demoTourStepsFromSite(demo.tour)
+                : demoTourSteps({ ...project, uploads: demo.uploads }),
+    [demo, demoScript],
   );
   /**
    * The place on the page the tour's step is about, outlined by the page in
@@ -253,18 +293,18 @@ function ValShellBody({
    */
   const { addModuleFilePatch } = useAddModuleFilePatch();
   const writeForTour = useCallback(
-    (path: SourcePath, value: string) => {
+    (path: SourcePath, value: JSONValue, add: boolean) => {
       const [moduleFilePath, modulePath] =
         Internal.splitModuleFilePathAndModulePath(path);
+      const patchPath = Internal.createPatchPath(modulePath);
       addModuleFilePatch(
         moduleFilePath,
         [
-          {
-            op: "replace",
-            path: Internal.createPatchPath(modulePath),
-            value,
-          },
+          add
+            ? { op: "add", path: patchPath, value }
+            : { op: "replace", path: patchPath, value },
         ],
+        // Unused by the store; see `useAddModuleFilePatch`.
         "string",
       );
     },
@@ -903,6 +943,19 @@ function ValShellBody({
    */
   const addPage = useAddPage();
   /**
+   * "Do it for me" for a step that asks for a new page: the New page form's
+   * own call, with the key the step names.
+   */
+  const addPageForTour = useCallback(
+    (path: SourcePath) => {
+      const [moduleFilePath, modulePath] =
+        Internal.splitModuleFilePathAndModulePath(path);
+      const [key] = Internal.createPatchPath(modulePath);
+      if (key !== undefined) addPage(moduleFilePath, key);
+    },
+    [addPage],
+  );
+  /**
    * Copy a page to another URL, and open the copy.
    *
    * The router module IS the record, so the two URLs are the two keys and the
@@ -956,6 +1009,7 @@ function ValShellBody({
     },
     [navigation, getNavPath],
   );
+  openPathForTour.current = openPath;
 
   /**
    * A pick on the page opens the field it belongs to, or says why it cannot.
@@ -1373,12 +1427,18 @@ function ValShellBody({
         tourLook={demo !== null ? "ring" : undefined}
         onTourHighlightPage={setTourPagePath}
         onTourWrite={demo !== null ? writeForTour : undefined}
+        onTourAddPage={demo !== null ? addPageForTour : undefined}
         onTourClose={demo !== null ? writeDemoTourSeen : undefined}
         renderDemoBanner={
           demo !== null
             ? (startTour) => (
                 <DemoBanner
-                  onStartTour={startTour}
+                  script={demoScript}
+                  onStartTour={(tourId) => {
+                    const run =
+                      tourId === undefined ? null : demoTourRun(tourId);
+                    startTour(run ?? undefined);
+                  }}
                   // The demo's edits live in this page's memory, so a reload
                   // is a reset: there is nothing stored to clear.
                   onReset={() => window.location.reload()}
@@ -1798,3 +1858,15 @@ const EMPTY_SHELL_DATA: ShellData = {
   data: [],
   validationErrors: [],
 };
+
+/**
+ * The tour a link names, `/val?tour=<id>`: the docs, the home page or an
+ * email can send someone straight into one of the demo's tours.
+ */
+function readTourParam(): string | null {
+  try {
+    return new URLSearchParams(window.location.search).get("tour");
+  } catch {
+    return null;
+  }
+}
