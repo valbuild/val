@@ -121,20 +121,21 @@ Norsk. Move the location, in this order of preference:
 2. **Otherwise, to the nearest ancestor that is visible under L.** For example,
    `posts.1.title` (an English post) → `posts`. The list is still there,
    filtered to Norwegian.
-3. **Otherwise, to L's root.** This is the case when the nearest visible
-   ancestor is a router (a list of pages, not a page) or nothing at all (a
-   module whose root opens a scope in another language).
+3. **Otherwise, to the Studio's start**, with nothing selected (the "Pick
+   something to edit" screen, `VAL_HOME_ROUTE`). This is the case when the
+   nearest visible ancestor is a router (a list of pages, not a page) or
+   nothing at all (a module whose root opens a scope in another language).
 
-   **L's root** is L's home page: the shortest route `localeAt` puts in L
-   (`/nb`, or `/` when `{ null: "en-US" }` and L is `en-US`), chosen as
-   `canvasFallbackRoute` chooses, but over L's routes only. If L has no routes,
-   it is the Studio's start with no page selected.
+   **Not a page, not even `/`.** An earlier draft sent the editor to L's home
+   page, and that has no safe answer: the site's `/` can itself be in the
+   language just left, and "the shortest route in L" is a guess about how a
+   site is laid out. The start screen is in no language.
 
-The canvas route moves by the same rule: a route in another language goes to its
-counterpart, or to L's root.
+The canvas follows the selection, so it goes where the editor goes, and with
+nothing selected it falls back to a route the filter still lists.
 
-Use `replace`, not `push`, for the history entry. The move is part of the filter
-change, and Back should undo both together.
+The move is a navigation (`push`): the entry before it still carries the old
+language in its URL, so Back undoes both together.
 
 ### 3b. Opened directly: shown, and listed on its own
 
@@ -170,7 +171,7 @@ After that, any group left empty is hidden too.
 | Pages tree                         | Routes in another language are gone, and folders left empty go with them (`/nb/…` disappears under English)                                                     |
 | Explorer                           | Modules whose root opens a scope in another language are gone. Lists inside a module filter as they do now                                                      |
 | Fields (records, arrays, blocks)   | As built today (`LocaleFiltered`, `useLocaleFilterPredicate`), extended to router keys                                                                          |
-| Canvas route bar and fallback      | Only L's routes and routes in no language. The fallback is L's root (3a)                                                                                        |
+| Canvas route bar and fallback      | Only L's routes and routes in no language                                                                                                                       |
 | Search                             | Hits whose `localeAt` is another language are dropped                                                                                                           |
 | keyOf, route and reference pickers | Offer only options in L or in no language. A value already set to another language is still SHOWN as the value: it is content, and hiding it would misreport it |
 | New page / new entry               | A locale route parameter or a locale field starts at L (`useEmptyOf` already does this for fields)                                                              |
@@ -223,7 +224,6 @@ The unit tests sit next to `localeAt.test.ts`:
 - `visibleUnder` for each of the three answers and each of the three openers
 - the counterpart and the nearest visible ancestor for a record key, a route, a
   field and a module root
-- L's root when a `{ null }` locale owns `/`
 
 The end-to-end tests run in `examples/tanstack`, which has all three openers,
 in the `tanstack` project:
@@ -231,9 +231,9 @@ in the `tanstack` project:
 1. With Norsk picked, the Pages tree lists `/nb/news/val-pa-norsk` and not
    `/news/val-in-english`. `translated.val.ts` lists the `nb-NO` announcement
    and the Norwegian post only.
-2. Open `/news/val-in-english`, then pick Norsk. The location becomes Norsk's
-   root (section 3a, step 3: there is no counterpart for a different slug), and
-   the canvas follows.
+2. Open `/news/val-in-english`, then pick Norsk. The Studio goes to its start
+   screen with nothing selected (section 3a, step 3: there is no counterpart for
+   a different slug).
 3. On `announcements."en-US"`, pick Norsk. The location becomes
    `announcements."nb-NO"`, which is the empty entry.
 4. Open a link to the English page with `?locale=nb-NO`. The page opens, the
@@ -267,4 +267,5 @@ Confirmed:
 3. **Opening something in another language directly shows it**, with the filter
    unchanged, and lists that one item in the menu while the editor is on it
    (3b). Ordinary navigation never leads to another language.
-4. **The counterpart before the root** (3a.1), where Val knows it for certain.
+4. **The counterpart first** (3a.1), where Val knows it for certain, then the
+   parent, then the Studio's start with nothing selected, never a page.

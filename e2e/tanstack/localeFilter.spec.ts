@@ -50,7 +50,7 @@ test("the Pages tree lists only the picked language, and pages in none", async (
   await expect(pageRow(page, "dashboard")).toBeVisible();
 });
 
-test("picking a language on a page in another one goes to the site's root", async ({
+test("picking a language on a page in another one goes to the Studio's start", async ({
   page,
 }) => {
   await openStudio(page, ENGLISH_NEWS);
@@ -60,8 +60,12 @@ test("picking a language on a page in another one goes to the site's root", asyn
   );
   await pick(page, "nb-NO");
   // The Norwegian news page has its own slug, so nothing says it is this
-  // page's translation: the editor goes to the root, not to a guess.
-  await expect.poll(() => currentPath(page)).toBe('"/"');
+  // page's translation. Nor is any other page a safe place to land: even `/`
+  // can be in the language just left. So nothing is selected.
+  await expect.poll(() => new URL(page.url()).pathname).toBe("/val");
+  await expect(page.getByText("Pick something to edit")).toBeVisible();
+  // And the Pages tree no longer lists the English page.
+  await expect(page.getByText("Val, in English")).toHaveCount(0);
 });
 
 test("picking a language on a translated entry goes to the same entry in it", async ({

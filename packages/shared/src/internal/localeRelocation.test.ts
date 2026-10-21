@@ -136,7 +136,7 @@ describe("relocateForLocale", () => {
     });
   });
 
-  test("a module that is in another language as a whole goes to the start", () => {
+  test("a module that is in another language as a whole goes to the Studio's start", () => {
     const page = c.define(
       "/content/home-nb.val.ts",
       s.object({ locale: s.locale(), title: s.string() }),
@@ -144,7 +144,7 @@ describe("relocateForLocale", () => {
     );
     expect(
       relocate(page, '/content/home-nb.val.ts?p="title"', "en-US"),
-    ).toEqual({ type: "root" });
+    ).toEqual({ type: "home" });
   });
 
   describe("routes that name their language", () => {
@@ -185,12 +185,12 @@ describe("relocateForLocale", () => {
 
     test("a page with a different slug is not known to be a translation", () => {
       expect(relocate(about, at("/about/history"), "nb-NO")).toEqual({
-        type: "root",
+        type: "home",
       });
     });
   });
 
-  test("a page whose item names its language goes to the start, not the router", () => {
+  test("a page whose item names its language goes to the Studio's start, not the router", () => {
     const blog = c.define(
       "/app/blog/[slug]/page.val.ts",
       s.router(
@@ -201,7 +201,7 @@ describe("relocateForLocale", () => {
     );
     expect(
       relocate(blog, '/app/blog/[slug]/page.val.ts?p="/blog/hei"', "en-US"),
-    ).toEqual({ type: "root" });
+    ).toEqual({ type: "home" });
   });
 
   test("a project with no languages never moves anyone", () => {

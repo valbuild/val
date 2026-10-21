@@ -1,4 +1,4 @@
-import { localeRootPage, pagesInLocale } from "./localePages";
+import { pagesInLocale } from "./localePages";
 import { ShellPage } from "./types";
 
 const NEWS = "/src/routes/_site.{-$locale}.news.$slug.val.ts";
@@ -78,29 +78,5 @@ describe("pagesInLocale", () => {
     expect(root.sourcePath).toBeUndefined();
     expect(root.isTracked).toBe(false);
     expect(urls(root.children ?? [])).toEqual(["/about", "/nb"]);
-  });
-});
-
-describe("localeRootPage", () => {
-  test("the site's root, when it is listed", () => {
-    expect(
-      localeRootPage(pagesInLocale(site, "nb-NO", null), "nb-NO")?.urlPath,
-    ).toBe("/");
-  });
-
-  test("otherwise the shortest route in that language", () => {
-    const localized = [
-      page("/", "en-US", [
-        page("/nb", "nb-NO", [page("/nb/om-oss", "nb-NO")]),
-        page("/about", "en-US"),
-      ]),
-    ];
-    expect(
-      localeRootPage(pagesInLocale(localized, "nb-NO", null), "nb-NO")?.urlPath,
-    ).toBe("/nb");
-  });
-
-  test("nothing, when nothing is listed", () => {
-    expect(localeRootPage([], "nb-NO")).toBeNull();
   });
 });

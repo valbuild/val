@@ -30,7 +30,7 @@ import {
   ShellValidationError,
 } from "./types";
 import { useShellData } from "./useShellData";
-import { localeRootPage, pagesInLocale } from "./localePages";
+import { pagesInLocale } from "./localePages";
 import { ValSettingsSections } from "./ValSettingsSections";
 import { ValSiteUpdate } from "./ValSiteUpdate";
 import { ConnectedExternalPages } from "./ConnectedExternalPages";
@@ -72,6 +72,7 @@ import { Toaster } from "../designSystem/sonner";
 import { useTheme } from "../ValThemeProvider";
 import {
   VAL_ERRORS_ROUTE,
+  VAL_HOME_ROUTE,
   VAL_HISTORY_ROUTE,
   VAL_REVIEW_ROUTE,
   scrollToStudioPath,
@@ -679,8 +680,8 @@ function ValShellBody({
    * Picking Norsk while on an English page would otherwise leave the editor on
    * the one page the filter exists to hide. Where they go is
    * `relocateForLocale`'s answer: the same entry in Norsk where Val knows it
-   * for certain, else the nearest parent that is not English, else Norsk's
-   * start — `localeRootPage`, over the pages Norsk lists.
+   * for certain, else the nearest parent that is not English, else the
+   * Studio's start with nothing selected. Not a page: even `/` can be English.
    *
    * Only here, on a pick. A link or a reference that OPENS something English
    * while Norsk is picked is the editor asking for exactly that, and it stays
@@ -712,17 +713,11 @@ function ValShellBody({
       );
       if (relocation.type === "path") {
         navigation.navigate(relocation.path);
-      } else if (relocation.type === "root") {
-        const root = localeRootPage(
-          pagesInLocale(unfilteredData.pages, next, null),
-          next,
-        );
-        if (root?.sourcePath !== undefined) {
-          navigation.navigate(root.sourcePath as SourcePath);
-        }
+      } else if (relocation.type === "home") {
+        navigation.navigate(VAL_HOME_ROUTE);
       }
     },
-    [navigation, projectLocales, valSystem, unfilteredData.pages],
+    [navigation, projectLocales, valSystem],
   );
 
   /**

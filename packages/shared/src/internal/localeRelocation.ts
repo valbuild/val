@@ -18,14 +18,13 @@ import {
  * - `stay`: the path is in that language, or in none.
  * - `path`: the same entry in that language (`counterpart`), or the nearest
  *   parent that is not in another language (`parent`).
- * - `root`: neither exists, so the editor goes to that language's start —
- *   which only the Studio can say, since it is a question about the whole
- *   site's routes rather than about this module.
+ * - `home`: neither exists, so the editor goes to the Studio's start, with
+ *   nothing selected.
  */
 export type LocaleRelocation =
   | { type: "stay" }
   | { type: "path"; path: SourcePath; reason: "counterpart" | "parent" }
-  | { type: "root" };
+  | { type: "home" };
 
 /**
  * Where to move a path to when the Studio is switched to `locale`.
@@ -40,14 +39,18 @@ export type LocaleRelocation =
  *    still exists, so an editor on a field lands on that field.
  * 2. **Otherwise the nearest parent that is not in another language.** An
  *    English post in a list of posts gives the list, now showing Norwegian.
- * 3. **Otherwise the language's start**, which is `root`. That is where an
- *    object at the module root opened the scope (the whole module is in
- *    another language), and where the parent would be a router: a list of
- *    pages is not a page, and the Pages tree is how an editor sees one.
+ * 3. **Otherwise the Studio's start**, which is `home`: nothing selected. That
+ *    is where an object at the module root opened the scope (the whole module
+ *    is in another language), and where the parent would be a router: a list
+ *    of pages is not a page, and the Pages tree is how an editor sees one.
+ *
+ * Not the site's root page, and not any other page: which language a page is
+ * in is the page's own business, and `/` can be in the language the editor
+ * just left. The start screen is in no language.
  *
  * Never a guess. Two pages whose URLs differ in more than the language — a
  * Norwegian slug for a Norwegian page — are not known to be translations of
- * each other, so that is `root` rather than whichever page looks closest.
+ * each other, so that is `home` rather than whichever page looks closest.
  */
 export function relocateForLocale(
   path: SourcePath,
@@ -117,12 +120,12 @@ export function relocateForLocale(
         };
       }
     }
-    return { type: "root" };
+    return { type: "home" };
   }
 
   // A locale FIELD opened the scope, on the node `depth` segments down.
   if (scope.depth === 0) {
-    return { type: "root" };
+    return { type: "home" };
   }
   const parent = segments.slice(0, scope.depth - 1);
   if (
@@ -130,7 +133,7 @@ export function relocateForLocale(
     schema.type === "record" &&
     schema.router !== undefined
   ) {
-    return { type: "root" };
+    return { type: "home" };
   }
   return { type: "path", path: at(parent), reason: "parent" };
 }
