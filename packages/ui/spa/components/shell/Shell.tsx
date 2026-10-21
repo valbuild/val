@@ -61,6 +61,7 @@ import {
   TopBar,
   type TopBarProposals,
 } from "./TopBar";
+import type { UpgradeButton } from "../../upgrade/useUpgrade";
 import {
   ProposalBuildButton,
   ProposalPublishButton,
@@ -491,6 +492,8 @@ export type ShellProps = {
   onOpenHistory?: () => void;
   /** See `TopBar`'s `onOpenValidate`. */
   onOpenValidate?: () => void;
+  /** See `TopBar`'s `upgrade`; on a phone, a row in the account sheet. */
+  upgrade?: UpgradeButton;
   validateActive?: boolean;
   validateCount?: number;
   /**
@@ -638,6 +641,7 @@ export function Shell({
   historyActive = false,
   onOpenHistory,
   onOpenValidate,
+  upgrade,
   validateActive,
   validateCount,
   onMentionField,
@@ -1421,6 +1425,7 @@ export function Shell({
           historyActive={historyActive}
           onOpenHistory={onOpenHistory}
           onOpenValidate={onOpenValidate}
+          upgrade={upgrade}
           validateActive={validateActive}
           validateCount={validateCount}
           onPreview={onPreview ?? (() => undefined)}
@@ -1630,6 +1635,7 @@ export function Shell({
             onStartTour={
               breakpoint === "mobile" && canStartTour ? startTour : undefined
             }
+            upgrade={breakpoint === "mobile" ? upgrade : undefined}
             members={
               breakpoint === "mobile" &&
               orgOfProject(data.projectName) !== null &&

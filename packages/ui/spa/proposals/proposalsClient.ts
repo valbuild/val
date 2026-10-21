@@ -49,6 +49,50 @@ const Dependencies = z
   .catch({ state: "site" });
 export type ProposalDependencies = z.infer<typeof Dependencies>;
 
+/**
+ * An upgrade proposal's upgrade (valbuild/home `docs/adept.md`, step 7):
+ * `computing` while adept works it out, `staged` once its files are, or
+ * `nothing` to upgrade, or `failed` and why.
+ */
+const UpgradeJson = z.object({
+  path: z.enum(["cves", "latest", "majors"]),
+  state: z.enum(["computing", "staged", "nothing", "failed"]),
+  changes: z.array(
+    z.object({
+      name: z.string(),
+      from: z.string().nullable(),
+      to: z.string().nullable(),
+      kind: z.enum(["major", "minor", "patch"]).nullable().catch(null),
+    }),
+  ),
+  vulnerableBefore: z.number().nullable(),
+  vulnerableAfter: z.number().nullable(),
+  error: z.string().nullable(),
+});
+export type ProposalUpgrade = z.infer<typeof UpgradeJson>;
+
+const TypeErrorJson = z.object({
+  file: z.string(),
+  line: z.number(),
+  column: z.number(),
+  code: z.number(),
+  message: z.string(),
+});
+/** A type error the base does not have (decision 20). */
+export type ProposalTypeError = z.infer<typeof TypeErrorJson>;
+
+/**
+ * The typecheck reported for a proposal: of which staged inputs, how many
+ * new errors in all, and the first of them.
+ */
+const TypecheckJson = z.object({
+  inputs: z.string(),
+  newErrors: z.number(),
+  errors: z.array(TypeErrorJson),
+  checkedAt: z.string(),
+});
+export type ProposalTypecheck = z.infer<typeof TypecheckJson>;
+
 const ProposalJson = z.object({
   name: z.string(),
   branch: z.string(),
@@ -94,6 +138,12 @@ const ProposalJson = z.object({
     .optional(),
   /** What it builds on. Only on a read of one, and absent from older content. */
   dependencies: Dependencies.optional(),
+  /** How it was started. A kind this Studio does not know is an editor's. */
+  kind: z.string().optional(),
+  /** An upgrade proposal's upgrade: what it moves, and where it is. */
+  upgrade: UpgradeJson.optional(),
+  /** The last typecheck reported for it. Only on a read of one. */
+  typecheck: TypecheckJson.nullable().optional(),
 });
 export type ProposalJson = z.infer<typeof ProposalJson>;
 
@@ -116,17 +166,16 @@ const ListAnswer = z.object({
 });
 const OneAnswer = z.object({ proposal: ProposalJson });
 const LockfileAnswer = z.object({ dependencies: Dependencies });
+const TypecheckAnswer = z.object({ typecheck: TypecheckJson });
 const MergeCheck = z.object({
   id: z.string(),
   ok: z.boolean(),
   message: z.string(),
   /** What clears it, when something here does. Unknown actions are none. */
   action: z
-    .string()
+    .enum(["update-from-site", "compute-lockfile", "typecheck"])
     .optional()
-    .transform((action) =>
-      action === "update-from-site" ? action : undefined,
-    ),
+    .catch(undefined),
 });
 export type MergeCheckJson = z.infer<typeof MergeCheck>;
 const MergeChecksAnswer = z.object({
@@ -307,6 +356,13 @@ export type ProposalsClient = {
      * way (valbuild/home `docs/hosted-publishing.md`, step 9).
      */
     patchIds?: string[];
+    /**
+     * An upgrade proposal (valbuild/home `docs/adept.md`, step 7): content
+     * has adept compute the upgrade and stages it. `skip`: for majors, the
+     * packages not to move.
+     */
+    kind?: "upgrade";
+    upgrade?: { path: "cves" | "latest" | "majors"; skip?: string[] };
   }): Promise<ProposalJson>;
   rename(name: string, displayName: string): Promise<ProposalJson>;
   close(name: string): Promise<ProposalJson>;
@@ -372,6 +428,19 @@ export type ProposalsClient = {
    * being built or when they could not be, which says so.
    */
   buildTarget(name: string): Promise<ProposalBuildTarget>;
+  /**
+   * Report the typecheck of its staged `inputs`: the errors the site's code
+   * does not have (decision 20). A proposal with dependencies of its own is
+   * not published until one is reported, with none.
+   */
+  reportTypecheck(
+    name: string,
+    report: {
+      inputs: string;
+      newErrors: ProposalTypeError[];
+      count?: number;
+    },
+  ): Promise<ProposalTypecheck>;
   /**
    * Compute the lockfile of a proposal whose dependencies changed without one
    * to match: content has adept work it out and stages it, which builds the
@@ -468,6 +537,9 @@ export function createProposalsClient(options: {
         layer: LayerOf.parse(answer).layer ?? "site",
       };
     },
+    reportTypecheck: async (name, report) =>
+      TypecheckAnswer.parse(await call(`${at(name)}/typecheck`, "POST", report))
+        .typecheck,
     computeLockfile: async (name) =>
       LockfileAnswer.parse(await call(`${at(name)}/lockfile`, "POST", {}))
         .dependencies,

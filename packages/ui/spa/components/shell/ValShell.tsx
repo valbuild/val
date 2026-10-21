@@ -31,7 +31,7 @@ import {
 } from "./types";
 import { useShellData } from "./useShellData";
 import { ValSettingsSections } from "./ValSettingsSections";
-import { ValSiteUpdate } from "./ValSiteUpdate";
+import { SiteUpdateSection } from "./SiteUpdateSection";
 import { ConnectedExternalPages } from "./ConnectedExternalPages";
 import { useValPortal } from "../ValPortalProvider";
 import { useContentSearch } from "./useContentSearch";
@@ -649,28 +649,6 @@ function ValShellBody({
   );
 
   /**
-   * The settings panel's sections.
-   *
-   * The connected half is mounted only while the panel is open (the shell calls
-   * this from inside it), which is what keeps a project without a settings
-   * module from calling hooks with a path it does not have.
-   */
-  const renderSettings = useCallback(
-    () => (
-      <>
-        {/*
-         * First, and only where the Studio is what builds the site: an update
-         * is a rebuild and a publish, which is the Studio's job for a managed
-         * project and nobody's here for a connected one.
-         */}
-        {studioIsDeployer && <ValSiteUpdate />}
-        <ValSettingsSections moduleFilePath={data.settings?.moduleFilePath} />
-      </>
-    ),
-    [data.settings?.moduleFilePath, studioIsDeployer],
-  );
-
-  /**
    * The external pages dialog.
    *
    * Only called while it is open - `Shell` owns that state - so the reference
@@ -1251,11 +1229,38 @@ function ValShellBody({
     dialogs: proposalDialogs,
     notice: proposalNotice,
     restoreDestination,
+    upgrade,
+    upgradeSettings,
   } = useProposalsBar({
     unsaved: hasNetChanges ? pendingChangeCount : 0,
     portalContainer,
     onCompare: openSiteCompare,
   });
+
+  /**
+   * The settings panel's sections.
+   *
+   * The connected half is mounted only while the panel is open (the shell calls
+   * this from inside it), which is what keeps a project without a settings
+   * module from calling hooks with a path it does not have.
+   */
+  const renderSettings = useCallback(
+    () => (
+      <>
+        {/*
+         * First, and only where the Studio is what builds the site: an
+         * upgrade is made in a proposal and published from there, which is
+         * the Studio's job for a managed project and nobody's here for a
+         * connected one.
+         */}
+        {studioIsDeployer && upgradeSettings !== null && (
+          <SiteUpdateSection upgrade={upgradeSettings} />
+        )}
+        <ValSettingsSections moduleFilePath={data.settings?.moduleFilePath} />
+      </>
+    ),
+    [data.settings?.moduleFilePath, studioIsDeployer, upgradeSettings],
+  );
   // A merged proposal's notice first: it says this whole Studio is finished.
   const shellNotice =
     proposalNotice === null ? (
@@ -1563,6 +1568,7 @@ function ValShellBody({
         historyActive={navigation.isHistoryView}
         onOpenHistory={() => navigation.navigate(VAL_HISTORY_ROUTE)}
         onOpenValidate={() => navigation.navigate(VAL_ERRORS_ROUTE)}
+        {...(upgrade !== null ? { upgrade } : {})}
         validateActive={navigation.isErrorsView}
         validateCount={validateCount}
         onMentionField={(sourcePath) =>

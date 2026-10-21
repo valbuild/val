@@ -630,6 +630,25 @@ describe("the proposals API, for the Studio", () => {
     expect(sent).toEqual([]);
   });
 
+  test("reporting a proposal's typecheck is its own server's, and nobody else's", async () => {
+    // valbuild/home docs/adept.md, step 7, decision 20: what blocks Publish.
+    const own = ops(proposal("save-2"));
+    const body = JSON.stringify({ inputs: "i", newErrors: [] });
+    await own.proposalsApi(`/${NAME}/typecheck`, { method: "POST", body }, "p");
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `POST /v1/org/project/proposals/${NAME}/typecheck`,
+    ]);
+    sent.length = 0;
+    for (const [o, path] of [
+      [own, `/${"f".repeat(20)}/typecheck`],
+      [ops(undefined), `/${NAME}/typecheck`],
+    ] as const) {
+      const answer = await o.proposalsApi(path, { method: "POST", body }, "p");
+      expect([path, answer.status]).toEqual([path, 403]);
+    }
+    expect(sent).toEqual([]);
+  });
+
   test("reaches nothing else: not a save, not a move, not another route", async () => {
     const o = ops(undefined);
     for (const [method, path] of [

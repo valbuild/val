@@ -1,11 +1,13 @@
 import { ReactNode } from "react";
 import {
+  ArrowUpCircle,
   Compass,
   ExternalLink,
   LogOut,
   LucideIcon,
   Moon,
   Settings2,
+  ShieldAlert,
   Sun,
   Users,
 } from "lucide-react";
@@ -16,6 +18,7 @@ import { Avatar } from "../Avatar";
 import { AccountErrorNotice, ShellAccountError } from "./AccountError";
 import { DeploymentRows } from "./Deployments";
 import { ShellAdminLinks, ShellBreakpoint, ShellDeployment } from "./types";
+import type { UpgradeButton } from "../../upgrade/useUpgrade";
 
 export type AccountPanelProps = {
   breakpoint: ShellBreakpoint;
@@ -69,6 +72,12 @@ export type AccountPanelProps = {
    * place of the top bar's Members button, and of the link out to manage them.
    */
   members?: ReactNode;
+  /**
+   * The Upgrade button, on a phone, where the top bar has no room for it
+   * (valbuild/home `docs/adept.md`, step 7). Absent while there is nothing
+   * to upgrade.
+   */
+  upgrade?: UpgradeButton;
   onClose: () => void;
   /** Mobile destination switcher, rendered below the panel header. */
   navSwitcher?: ReactNode;
@@ -103,6 +112,7 @@ export function AccountPanel({
   onSignOut,
   onStartTour,
   members,
+  upgrade,
   onClose,
   navSwitcher,
 }: AccountPanelProps) {
@@ -213,6 +223,36 @@ export function AccountPanel({
           </>
         )}
 
+        {upgrade !== undefined && (
+          <>
+            <PanelSectionLabel divided>Dependencies</PanelSectionLabel>
+            <div className="px-4 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  upgrade.onOpen();
+                }}
+                className="flex items-center gap-2 -mx-2 w-[calc(100%+1rem)] px-2 py-1.5 rounded-md text-xs text-fg-primary hover:bg-bg-float-raised"
+              >
+                {upgrade.vulnerable ? (
+                  <ShieldAlert
+                    size={13}
+                    className="shrink-0 text-fg-error-on-surface"
+                  />
+                ) : (
+                  <ArrowUpCircle
+                    size={13}
+                    className="shrink-0 text-fg-secondary"
+                  />
+                )}
+                {upgrade.vulnerable
+                  ? "Upgrade: fixes vulnerable dependencies"
+                  : "Upgrade dependencies"}
+              </button>
+            </div>
+          </>
+        )}
         {onStartTour && (
           <>
             <PanelSectionLabel divided>Help</PanelSectionLabel>
