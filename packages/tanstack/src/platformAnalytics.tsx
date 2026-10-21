@@ -24,19 +24,22 @@ import type { ValAnalytics } from "./ValAnalytics";
 /** The element the server render writes the setting into. */
 export const PLATFORM_ANALYTICS_ID = "__val_analytics";
 
-/** What the platform hands an isolate, when it is one of Val's. */
-function platformSecrets(): Record<string, unknown> | null {
+/**
+ * One secret the platform handed this isolate, when it is one of Val's.
+ * Read off the object as it is, the way the generated `fetchValAnalytics()`
+ * does, so the two cannot disagree about what was handed over.
+ */
+function platformSecret(name: string): unknown {
   const handed: unknown = Reflect.get(globalThis, "__PLATFORM_SECRETS");
-  return typeof handed === "object" && handed !== null && !Array.isArray(handed)
-    ? { ...handed }
-    : null;
+  return typeof handed === "object" && handed !== null
+    ? Reflect.get(handed, name)
+    : undefined;
 }
 
 /** The setting the platform handed this isolate; null when it is not on. */
 export function analyticsFromPlatform(): ValAnalytics | null {
-  const secrets = platformSecrets();
-  if (secrets === null || secrets["VAL_ANALYTICS"] !== "true") return null;
-  const contentVersion = secrets["VAL_CONTENT_VERSION"];
+  if (platformSecret("VAL_ANALYTICS") !== "true") return null;
+  const contentVersion = platformSecret("VAL_CONTENT_VERSION");
   return {
     enabled: true,
     ...(typeof contentVersion === "string" && contentVersion !== ""
@@ -50,6 +53,10 @@ export function analyticsFromPlatform(): ValAnalytics | null {
  * so a client navigation that unmounts the provider takes it with it, and the
  * provider mounted again must still know: the page did not stop being one
  * with analytics on. A page load starts this module again.
+ *
+ * It is the page's setting, so it reaches every provider on the page that is
+ * not told otherwise -- one that is passed `analytics`, on the server and in
+ * the browser, decides for itself.
  */
 let readFromPage: ValAnalytics | null = null;
 
@@ -92,7 +99,7 @@ export function analyticsOfThisPage(): ValAnalytics | null {
 
 /**
  * The setting as JSON that can sit inside a `<script>`: a `<` is written as
- * `<`, so nothing in it can end the element.
+ * `\u003c`, so nothing in it can end the element.
  */
 export function embeddableJson(value: ValAnalytics): string {
   return JSON.stringify(value).replace(/</g, "\\u003c");

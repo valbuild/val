@@ -255,12 +255,13 @@ export const ValTanStackProvider = (props: {
    * reads it back. So switching analytics on in the project's settings is
    * enough; the layout does not have to read it.
    */
-  const platformAnalytics = React.useRef(
-    props.analytics === undefined ? analyticsOfThisPage() : null,
-  ).current;
-  const analyticsSetting = React.useRef(
-    props.analytics ?? platformAnalytics,
-  ).current;
+  // Not in a demo: its `/api/val` is static files, with nowhere to count.
+  const [platformAnalytics] = React.useState(() =>
+    props.analytics === undefined && !props.demo ? analyticsOfThisPage() : null,
+  );
+  const [analyticsSetting] = React.useState(
+    () => props.analytics ?? platformAnalytics,
+  );
   const analytics = analyticsSetting?.enabled === true;
   const contentVersion = analyticsSetting?.contentVersion;
   const snapshot = initialDraft?.snapshot;

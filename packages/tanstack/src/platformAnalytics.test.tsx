@@ -34,6 +34,14 @@ describe("content analytics from Val's hosting", () => {
     expect(platform.analyticsFromPlatform()).toEqual({ enabled: true });
   });
 
+  test("read off what was handed over as it is, the way the generated fetchValAnalytics reads it", () => {
+    // Not a plain object's own enumerable keys: nothing is copied out of it.
+    const handed = {};
+    Object.defineProperty(handed, "VAL_ANALYTICS", { value: "true" });
+    Reflect.set(globalThis, "__PLATFORM_SECRETS", handed);
+    expect(platform.analyticsFromPlatform()).toEqual({ enabled: true });
+  });
+
   test("nothing when it is off, or outside Val's hosting, whatever the build baked in", () => {
     handOver({ VAL_ANALYTICS: "false", VAL_CONTENT_VERSION: "e3b0c442" });
     expect(platform.analyticsFromPlatform()).toBeNull();
