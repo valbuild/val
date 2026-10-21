@@ -4,6 +4,7 @@ import {
   GitCompare,
   Globe,
   Hammer,
+  Package,
   Save,
   Upload,
 } from "lucide-react";
@@ -12,6 +13,10 @@ import { SheetHeading, SheetRow } from "./PhoneSheet";
 import type { TopBarProposals } from "./TopBar";
 import { DiscardAllQuickAction, reviewChangesLabel } from "./UtilityPanel";
 import { ShellBreakpoint } from "./types";
+import {
+  describeDependencies,
+  isDependenciesState,
+} from "../proposals/ProposalBar";
 
 /**
  * What you can do with the changes, on a phone: the sheet behind the caret
@@ -141,7 +146,24 @@ export function ChangesSheet({
         )}
         {proposals?.onBuild !== undefined &&
           here !== null &&
-          here.code !== null && (
+          here.code !== null &&
+          isDependenciesState(here.code) && (
+            <SheetRow
+              icon={<Package size={16} />}
+              disabled={
+                describeDependencies(here.code).busy ||
+                describeDependencies(here.code).failed
+              }
+              detail={describeDependencies(here.code).detail}
+              onClick={choose(proposals.onBuild)}
+            >
+              {describeDependencies(here.code).label}
+            </SheetRow>
+          )}
+        {proposals?.onBuild !== undefined &&
+          here !== null &&
+          here.code !== null &&
+          !isDependenciesState(here.code) && (
             <SheetRow
               icon={<Hammer size={16} />}
               disabled={here.code.state === "building"}

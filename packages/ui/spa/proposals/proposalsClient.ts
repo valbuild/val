@@ -29,6 +29,26 @@ const Job = z.object({
   lastError: z.string().nullable().optional(),
 });
 
+/**
+ * What a proposal builds on (valbuild/home `docs/adept.md`, step 6): the
+ * site's dependencies; its own, built (`own`), being built (`pending`) or
+ * not (`failed`); or none yet, because they changed without a lockfile to
+ * match (`lockfile`), which {@link ProposalsClient.computeLockfile} computes.
+ * A state this Studio does not know reads as the site's.
+ */
+const Dependencies = z
+  .union([
+    z.object({ state: z.enum(["site", "own", "pending"]) }),
+    z.object({ state: z.literal("failed"), error: z.string().nullable() }),
+    z.object({
+      state: z.literal("lockfile"),
+      computing: z.boolean(),
+      error: z.string().nullable(),
+    }),
+  ])
+  .catch({ state: "site" });
+export type ProposalDependencies = z.infer<typeof Dependencies>;
+
 const ProposalJson = z.object({
   name: z.string(),
   branch: z.string(),
@@ -72,6 +92,8 @@ const ProposalJson = z.object({
       buildRequired: z.boolean(),
     })
     .optional(),
+  /** What it builds on. Only on a read of one, and absent from older content. */
+  dependencies: Dependencies.optional(),
 });
 export type ProposalJson = z.infer<typeof ProposalJson>;
 
@@ -93,6 +115,7 @@ const ListAnswer = z.object({
   siteUrl: z.string().nullable().optional(),
 });
 const OneAnswer = z.object({ proposal: ProposalJson });
+const LockfileAnswer = z.object({ dependencies: Dependencies });
 const MergeCheck = z.object({
   id: z.string(),
   ok: z.boolean(),
@@ -349,6 +372,13 @@ export type ProposalsClient = {
    * being built or when they could not be, which says so.
    */
   buildTarget(name: string): Promise<ProposalBuildTarget>;
+  /**
+   * Compute the lockfile of a proposal whose dependencies changed without one
+   * to match: content has adept work it out and stages it, which builds the
+   * dependencies from it. Answers at once, with what the proposal now builds
+   * on; a 409 when there is nothing to compute.
+   */
+  computeLockfile(name: string): Promise<ProposalDependencies>;
   /** Serve a build of its staged files, uploaded as `publishId`, at its address. */
   serveBuild(
     name: string,
@@ -438,6 +468,9 @@ export function createProposalsClient(options: {
         layer: LayerOf.parse(answer).layer ?? "site",
       };
     },
+    computeLockfile: async (name) =>
+      LockfileAnswer.parse(await call(`${at(name)}/lockfile`, "POST", {}))
+        .dependencies,
     serveBuild: (name, build) => one(`${at(name)}/build`, "POST", build),
     updateFromSite: (name) => one(`${at(name)}/update-from-site`, "POST", {}),
     updateContent: async (name, resolutions, heads) =>
