@@ -851,7 +851,17 @@ export function Shell({
   /** "Do it for me": the same calls the visitor's own clicks make. */
   const tourActions = useMemo<TourActions>(
     () => ({
-      ...(onSelectCanvasPath ? { openPath: onSelectCanvasPath } : {}),
+      ...(onSelectCanvasPath
+        ? {
+            openPath: (path: SourcePath) => {
+              onSelectCanvasPath(path);
+              // As a tap on the page does (`onPicked`): on a phone the field
+              // is in the other pane, and opening it without going there
+              // leaves the visitor looking at the page it was opened from.
+              if (breakpoint === "mobile") setWorkspacePane("editor");
+            },
+          }
+        : {}),
       ...(onTourWrite ? { write: onTourWrite } : {}),
       ...(onTourAddPage ? { addPage: onTourAddPage } : {}),
       ...(onLocaleChange && locales && locales.length > 0
@@ -867,6 +877,7 @@ export function Shell({
     }),
     [
       onSelectCanvasPath,
+      breakpoint,
       onTourWrite,
       onTourAddPage,
       onLocaleChange,
