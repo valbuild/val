@@ -1,5 +1,20 @@
 # @valbuild/tanstack
 
+## 0.149.1
+
+### Patch Changes
+
+- [#916](https://github.com/valbuild/val/pull/916) [`f607bca`](https://github.com/valbuild/val/commit/f607bcae16723505fbd19bdfe791d3eaa1208524) Thanks [@freekh](https://github.com/freekh)! - Content analytics now works with nothing in the code: switching it on in a hosted project's settings is enough. With no `analytics` prop, `<ValProvider>` reads the setting itself -- the server render reads the `VAL_ANALYTICS` value Val's hosting hands the site, with the content version, and writes it into the page as a few bytes of JSON (`<script id="__val_analytics">`), which the browser reads back. Nothing is written while it is off.
+
+  A layout that passes `analytics={...}` from `fetchValAnalytics()` keeps working, and what it passes wins. The browser never reads `VAL_ANALYTICS` from the environment, so it needs no `VITE_` prefix and a build never fixes it: switching it off stops the counting without a rebuild.
+
+- Updated dependencies [[`6777ea4`](https://github.com/valbuild/val/commit/6777ea42e3164e913381cccabb1bccca3cf58243), [`357bea6`](https://github.com/valbuild/val/commit/357bea6148467838819d46daa1fb575f41365185)]:
+  - @valbuild/ui@0.149.1
+  - @valbuild/react@0.149.1
+  - @valbuild/server@0.149.1
+  - @valbuild/language-server@0.149.1
+  - @valbuild/mcp@0.149.1
+
 ## 0.149.0
 
 ### Patch Changes

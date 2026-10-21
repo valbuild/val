@@ -1,5 +1,13 @@
 # @valbuild/ui
 
+## 0.149.1
+
+### Patch Changes
+
+- [#913](https://github.com/valbuild/val/pull/913) [`6777ea4`](https://github.com/valbuild/val/commit/6777ea42e3164e913381cccabb1bccca3cf58243) Thanks [@freekh](https://github.com/freekh)! - The "Log in required" dialog no longer shows a close button that did nothing: there is nothing behind it to go back to, so logging in is the only way forward. Logging in now also brings you back to the page you were on, rather than to the start of the Studio.
+
+- [#915](https://github.com/valbuild/val/pull/915) [`357bea6`](https://github.com/valbuild/val/commit/357bea6148467838819d46daa1fb575f41365185) Thanks [@freekh](https://github.com/freekh)! - **Settings is always in the Studio's rail.** The cog used to show only in projects with an `s.settings()` module, so a hosted project made from a template had no way to reach Settings → Updates, and with it no way to upgrade. It now shows in every project. Without a settings module, the panel says how to add one, except where it holds Updates.
+
 ## 0.149.0
 
 ### Minor Changes
