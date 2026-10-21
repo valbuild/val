@@ -148,11 +148,17 @@ export function ChangesSheet({
               detail={
                 here.code.state === "failed"
                   ? `The build failed: ${here.code.error}. Press to build again.`
-                  : "Code changed in this proposal. Build it so the preview shows it."
+                  : here.code.state === "blocked"
+                    ? "This browser builds the proposal in a new tab, and did not let it open. Press to open it."
+                    : "Code changed in this proposal. Build it so the preview shows it."
               }
               onClick={choose(proposals.onBuild)}
             >
-              {here.code.state === "building" ? "Building…" : "Build"}
+              {here.code.state === "building"
+                ? "Building…"
+                : here.code.state === "blocked"
+                  ? "Open the tab to build"
+                  : "Build"}
             </SheetRow>
           )}
         {proposals !== undefined && here !== null && (
