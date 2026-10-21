@@ -144,25 +144,12 @@ describe("picking with preview mode off", () => {
     expect(button.getAttribute("aria-pressed")).toBe("true");
   });
 
-  test("but not through a turn-on the notice's button started", () => {
-    // The fields view arms picking, but the page is still loading: a pressed
-    // "Stop selecting" there claims a picking that cannot happen yet.
-    renderWorkspace("fields");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Turn on preview mode" }),
-    );
-    act(() => reportStatus("enabling"));
-    expect(
-      screen.queryByRole("button", { name: "Stop selecting on the page" }),
-    ).toBeNull();
-  });
-
-  test("the notice's own button turns preview on without picking", () => {
+  test("the notice above it has no button of its own", () => {
     renderWorkspace("normal");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Turn on preview mode" }),
-    );
-    expect(canvas).toEqual({ isPicking: false, enableKey: 1 });
+    expect(screen.queryByText("Preview mode is off")).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Turn on preview mode/ }),
+    ).toBeNull();
   });
 });
 

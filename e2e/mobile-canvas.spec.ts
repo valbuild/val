@@ -238,12 +238,17 @@ test.describe("the preview modes on a phone", () => {
     await openPreview(page);
 
     // A fresh browser has no preview cookie, so the page mounts none of Val's
-    // client code and reports nothing to pick.
-    const enable = page.getByRole("button", { name: /Turn on preview mode/ });
+    // client code and reports nothing to pick. The pick button turns it on.
+    const enable = page.getByRole("button", {
+      name: "Turn preview on and pick from the page",
+    });
     await expect(enable).toBeVisible({ timeout: 30_000 });
     await enable.click();
     const fields = mode(page, "On page");
-    await expect(fields).toBeVisible({ timeout: 30_000 });
+    // Back in preview mode once the page has reported what is on it - and not
+    // before: the button reads "Stop selecting" through the reload, while the
+    // page under it is still the one that cannot be picked from.
+    await expect(fields).toContainText(/\d/, { timeout: 30_000 });
 
     // On page arms picking; Preview then puts the page in front of you with it
     // still armed, which is the state a pick happens in.
@@ -353,7 +358,9 @@ test.describe("the preview modes on a phone", () => {
     page,
   }) => {
     await openPreview(page);
-    const enable = page.getByRole("button", { name: /Turn on preview mode/ });
+    const enable = page.getByRole("button", {
+      name: "Turn preview on and pick from the page",
+    });
     await expect(enable).toBeVisible({ timeout: 30_000 });
     await enable.click();
     await expect(mode(page, "On page")).toBeVisible({ timeout: 30_000 });

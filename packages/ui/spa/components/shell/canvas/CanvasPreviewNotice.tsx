@@ -46,19 +46,24 @@ export const PREVIEW_WARNING_DELAY_MS = 20000;
  * the long explanation behind a disclosure for the person who wants it.
  *
  * The bottom, because that is where the toolbar is, and the toolbar's pick
- * button is the other way out of this state: pressing it turns preview mode on
- * and then selects (see {@link previewNeedsTurningOn}). The pill sits directly
- * above it so the warning and the button that answers it are read together. It
- * used to be at the top, over the page's header — which is where a site keeps
- * the things most worth looking at. The icon
- * carries the state — a spinner for {@link PREVIEW_WARNING_DELAY_MS}, then a
- * warning, with the colours following — because that is the part someone reads
- * without stopping what they are doing.
+ * button is the way out of this state: pressing it turns preview mode on and
+ * then selects (see {@link previewNeedsTurningOn}). The pill sits directly
+ * above it so the message and the button that answers it are read together.
+ * It used to be at the top, over the page's header — which is where a site
+ * keeps the things most worth looking at.
+ *
+ * The pill has no button of its own. It used to carry "Turn on preview mode",
+ * and with the pick button outlined right under it that was two buttons for
+ * one act, one of which then left you to find the other: nobody turns preview
+ * mode on in the canvas except to select something on the page.
+ *
+ * The colours carry the clock — neutral for {@link PREVIEW_WARNING_DELAY_MS},
+ * then a warning — because that is the part someone reads without stopping
+ * what they are doing.
  */
 export function CanvasPreviewNotice({
   status,
   attempt,
-  onEnable,
   onReload,
   warnAfterMs = PREVIEW_WARNING_DELAY_MS,
 }: {
@@ -73,8 +78,6 @@ export function CanvasPreviewNotice({
    * barely begun, describing the one before it.
    */
   attempt?: string | number;
-  /** Turn preview mode on: sets the cookie and draft mode in one navigation. */
-  onEnable: () => void;
   /** Ask for the page again. */
   onReload: () => void;
   /**
@@ -107,36 +110,29 @@ export function CanvasPreviewNotice({
   }, [status]);
   if (status === "live") return null;
 
-  const label = describePreviewStatus(status, isWarning);
   /**
-   * Whether the pill draws the sentence, or lets the button be it.
+   * Whether the page has said what is wrong, and turning preview mode on is
+   * the fix for it.
    *
-   * The pill says ONE thing. Where the thing to do fits on a button — "Turn on
-   * preview mode" — a sentence beside it is a vaguer copy of the same message:
-   * "Preview is not ready yet" next to the button that makes it ready tells
-   * nobody anything the button did not, and reads as two problems rather than
-   * one act.
-   *
-   * It comes back once the wait is up, because then it is saying something the
-   * button cannot: the button has been there for twenty seconds and the canvas
-   * still is not working, so WHICH way it is failing is now the useful part.
+   * Then the pill says so straight away rather than after
+   * {@link PREVIEW_WARNING_DELAY_MS}: it is no longer a guess about a page that
+   * might be compiling, it is what the page answered, and it is the message
+   * the outlined pick button below is the answer to. "Preview is not ready
+   * yet" above a button that turns preview on would say less than the button.
+   * The clock still decides the COLOURS, so a page that is merely in the
+   * middle of an ordinary first load does not arrive as a warning.
    */
   const hasFix = previewNeedsTurningOn(status);
-  const showsLabel = !hasFix || isWarning;
   /**
    * Whether to say what is KNOWN rather than what is safe to say in passing.
    *
-   * The pill withholds a diagnosis for {@link PREVIEW_WARNING_DELAY_MS}
-   * because it is ambient: it appears without being asked for, over a page
-   * that is very often just compiling, and naming a fault there is how the
-   * thing this replaces came to look like a failure screen.
-   *
-   * The panel is not ambient — it was opened, deliberately, by someone asking
-   * what is going on. Answering "the page has not reported what is on it yet"
-   * to a page that HAS reported, and reported that preview mode is off, is not
-   * caution; it is the one place being unhelpful on purpose.
+   * Withheld for {@link PREVIEW_WARNING_DELAY_MS} while the page has not
+   * answered, because the pill is ambient: it appears without being asked
+   * for, over a page that is very often just compiling, and naming a fault
+   * there is how the thing this replaces came to look like a failure screen.
    */
   const known = isWarning || hasFix;
+  const label = describePreviewStatus(status, known);
   return (
     /*
      * `pointer-events-none` on the layer, `auto` on the pill.
@@ -180,58 +176,24 @@ export function CanvasPreviewNotice({
          * the same thing as the words beside it.
          */}
         {/*
-         * `min-w-0`, because the two controls beside this are `shrink-0`: a
-         * flex item's default minimum is its content, so without this the
-         * label refuses to shrink to its own `truncate` and the pill grows
-         * past the pane instead - taking the controls out of reach on a
-         * narrow canvas.
+         * `min-w-0`, because Details beside this is `shrink-0`: a flex item's
+         * default minimum is its content, so without this the label refuses
+         * to shrink to its own `truncate` and the pill grows past the pane
+         * instead - taking Details out of reach on a narrow canvas.
          */}
-        <span
-          className={cn(
-            "flex min-w-0 items-center gap-1.5",
-            /*
-             * Still in the DOM where it is not drawn.
-             *
-             * `role="status"` is what announces the canvas's state, and a
-             * button appearing announces nothing — so dropping the sentence
-             * from the pill would take the whole state change away from a
-             * screen reader rather than tidying it.
-             */
-            !showsLabel && "sr-only",
-          )}
-          role="status"
-        >
-          {isWarning ? (
+        <span className="flex min-w-0 items-center gap-1.5" role="status">
+          {/*
+           * A spinner only while nothing is known: once the page has said
+           * what is wrong, nothing is loading, and a spinner over a page
+           * that is waiting for YOU reads as a page that will sort itself out.
+           */}
+          {known ? (
             <TriangleAlert size={12} className="shrink-0" aria-hidden />
           ) : (
             <Loader2 size={12} className="shrink-0 animate-spin" aria-hidden />
           )}
           <span className="truncate">{label}</span>
         </span>
-        {/*
-         * The one-click fix, on the pill rather than behind the disclosure.
-         *
-         * Only once there is a DIAGNOSIS: the page has answered that it is
-         * not in draft mode, or it has stopped answering at all. During the
-         * first seconds - a route compiling, an enable redirect in flight -
-         * there is nothing to fix and a button saying so would be the
-         * accusation the pill is careful not to make. Both of those states
-         * are fixed by the same navigation, which is why the old panel
-         * offered this button for both.
-         */}
-        {hasFix && (
-          <button
-            type="button"
-            onClick={onEnable}
-            className={cn(
-              "inline-flex h-5 shrink-0 items-center gap-1 rounded px-1.5 font-medium",
-              "bg-bg-brand-primary text-fg-brand-primary",
-              "hover:bg-bg-brand-primary-hover",
-            )}
-          >
-            Turn on preview mode
-          </button>
-        )}
         <button
           type="button"
           onClick={() => setIsOpen((open) => !open)}
@@ -279,7 +241,7 @@ export function CanvasPreviewNotice({
            * It used to be offered only where the page never answered, on the
            * grounds that a page which answered is wired up correctly. True, and
            * it withheld the checklist from exactly the person who needs it:
-           * someone whose preview mode will not stay on presses the button,
+           * someone whose preview mode will not stay on presses the pick button,
            * lands back on `preview-off`, and is in the one state with no route
            * to the setup help. It is a closed `details` in every state, so
            * offering it everywhere costs one line and asks nothing of the
@@ -287,10 +249,9 @@ export function CanvasPreviewNotice({
            */}
           <SetupInstructions />
           {/*
-           * Reload only. Turning preview mode on is the ONE thing most
-           * people here need, so it is on the pill itself - see above -
-           * rather than a click away behind this. A second copy of it here
-           * would be a second thing to find and the same act.
+           * Reload only. Turning preview mode on is the pick button's job,
+           * outlined under the pill - see above. A copy of it here would be
+           * a second thing to find for the same act.
            */}
           <div className="mt-3 flex items-center gap-2">
             <button
@@ -347,6 +308,13 @@ export function describePreviewStatus(
     : "No answer from the page";
 }
 
+/**
+ * Where the fix is, said in the panel because the pill has no button of its
+ * own: the pick button under the page is what turns preview mode on.
+ */
+const TURN_ON_WITH_PICK =
+  "Press the select button below the page to turn preview mode on and start selecting.";
+
 /** What the disclosure says, which is the whole of the old panel's copy. */
 function explainPreviewStatus(
   status: CanvasPreviewStatus,
@@ -359,9 +327,9 @@ function explainPreviewStatus(
     return "The page has not reported what is on it yet. A route the dev server has not compiled before can take a few seconds the first time it is asked for.";
   }
   if (status === "preview-off") {
-    return "Without preview mode the canvas shows the published page, and nothing on it can be selected or edited. The page itself is fine — you are looking at the real thing, just not at your unpublished changes.";
+    return `Without preview mode the canvas shows the published page, and nothing on it can be selected or edited. The page itself is fine — you are looking at the real thing, just not at your unpublished changes. ${TURN_ON_WITH_PICK}`;
   }
-  return "The page loaded but did not report back. It may be an older version of Val, preview mode may have been turned off elsewhere, or the app may not be wired up yet.";
+  return `The page loaded but did not report back. It may be an older version of Val, preview mode may have been turned off elsewhere, or the app may not be wired up yet. ${TURN_ON_WITH_PICK}`;
 }
 
 /**

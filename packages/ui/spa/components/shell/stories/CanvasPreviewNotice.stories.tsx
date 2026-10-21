@@ -122,7 +122,6 @@ function CanvasPane({
         <CanvasPreviewNotice
           status={status}
           warnAfterMs={warning ? 0 : undefined}
-          onEnable={() => console.log("enable preview mode")}
           onReload={() => console.log("reload")}
         />
       </div>
@@ -145,8 +144,17 @@ function CanvasPane({
   );
 }
 
-/** The first twenty seconds of anything: a spinner, and no accusation. */
+/** The first twenty seconds of a page that has not answered: a spinner. */
 export const NotReadyYet: Story = {
+  render: () => <CanvasPane status="connecting" />,
+};
+
+/**
+ * The page has answered that preview mode is off: said at once, above the
+ * outlined pick button that turns it on, in neutral colours until the wait is
+ * up.
+ */
+export const PreviewModeOffAtFirst: Story = {
   render: () => <CanvasPane status="preview-off" />,
 };
 

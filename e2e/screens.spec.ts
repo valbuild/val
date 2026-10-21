@@ -214,7 +214,9 @@ test("the canvas", async ({ page }) => {
 
   // Preview mode off: the canvas says so rather than showing a dead page.
   await studio.getByRole("button", { name: /Open the canvas/ }).click();
-  const enable = studio.getByRole("button", { name: /Turn on preview mode/ });
+  const enable = studio.getByRole("button", {
+    name: "Turn preview on and pick from the page",
+  });
   await expect(enable).toBeVisible({ timeout: 25000 });
   await page.waitForTimeout(800);
   await shot(page, "10-canvas-preview-off");
