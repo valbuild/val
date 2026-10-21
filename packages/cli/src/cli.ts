@@ -11,6 +11,7 @@ import { debug } from "./debug";
 import { deleteUnappliablePatches } from "./deleteUnappliablePatches";
 import { publish } from "./publish";
 import { ciReport } from "./ciReport";
+import { errors } from "./errors";
 
 async function main(): Promise<void> {
   const { input, flags, showHelp } = meow(
@@ -27,6 +28,7 @@ async function main(): Promise<void> {
         files
         connect
         publish
+        errors
         versions
         lsp
         debug
@@ -95,6 +97,17 @@ async function main(): Promise<void> {
         --dry-run                Verify, and stop before the site changes
         --skip-validation        Publish without running "val validate" first. It runs by
                                  default, and an error stops the publish
+
+      Command: errors
+      Description: what the hosted site has thrown, warned or been stopped for in the last
+        7 days, grouped and newest first, with which ones the live build brought. Kept by
+        Val Build for sites it hosts. Authenticates with the "val login" token in
+        .val/pat.json, else VAL_API_KEY, for the project in val.config (or VAL_PROJECT).
+      Options:
+        --root [root], -r [root] Set project root directory (default process.cwd())
+        --limit [n]              At most this many groups, 1 to 200 (default 100)
+        --json                   Print Val Build's answer as JSON
+        --verbose                Print each error's stack
 
       Command: list-unused-files
       Description: EXPERIMENTAL.
@@ -202,6 +215,12 @@ async function main(): Promise<void> {
         url: {
           type: "string",
         },
+        limit: {
+          type: "number",
+        },
+        json: {
+          type: "boolean",
+        },
       },
       hardRejection: false,
     },
@@ -257,6 +276,13 @@ async function main(): Promise<void> {
         commit: flags.commit,
         branch: flags.branch,
         url: flags.url,
+      });
+    case "errors":
+      return errors({
+        root: flags.root,
+        limit: flags.limit,
+        json: flags.json,
+        verbose: flags.verbose,
       });
     case "publish":
       return publish({

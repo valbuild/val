@@ -51,6 +51,12 @@ export type AccountPanelProps = {
   /** Publishes in flight or recently finished. Absent when there is no feed. */
   deployments?: ShellDeployment[];
   /**
+   * What the hosted site's server threw or warned lately, below the deploys
+   * that put it there. Absent for a project Val Build does not host: there is
+   * nothing to see the errors with. See `SiteErrors`.
+   */
+  siteErrors?: ReactNode;
+  /**
    * Ends the session. Absent where there is not one.
    *
    * Optional rather than a no-op default: running against the working copy on
@@ -89,6 +95,7 @@ export function AccountPanel({
   onAutoSaveChange,
   branch,
   deployments,
+  siteErrors,
   onSignOut,
   onClose,
   navSwitcher,
@@ -194,6 +201,13 @@ export function AccountPanel({
               <DeploymentRows deployments={deployments} />
             </div>
           </>
+        )}
+
+        {siteErrors && (
+          // Its own heading, and a Refresh beside it: the element draws both.
+          <div className="mt-3 px-4 pt-3 border-t border-border-secondary">
+            {siteErrors}
+          </div>
         )}
 
         {onSignOut && (

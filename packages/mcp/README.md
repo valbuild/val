@@ -31,6 +31,7 @@ Reading:
 | `get_source_path_from_route` | the module behind a URL                                   |
 | `get_patches`                | what is edited but not yet published                      |
 | `validate_content`           | what the Studio would show as an error                    |
+| `get_site_errors`            | what the hosted site's server threw or warned lately      |
 
 Writing:
 

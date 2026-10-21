@@ -137,6 +137,7 @@ import { useProposalsBar } from "../proposals/useProposalsBar";
 import { useSiteChanges } from "../../proposals/useSiteChanges";
 import { ProposalSiteCompare } from "../../proposals/ProposalSiteCompare";
 import { AdeptView } from "./AdeptView";
+import { SiteErrors } from "./SiteErrors";
 
 /**
  * The Val studio on the floating shell.
@@ -386,6 +387,15 @@ function ValShellBody({
       : (placement: "top-bar" | "column") => (
           <PlanStatusBar status={planStatusValue} placement={placement} />
         );
+  /**
+   * The hosted site's errors, for a project on Hosted only: Val Build sees a
+   * site's errors because it serves the site, so on any other plan the panel
+   * could only ever say there is nothing to see.
+   */
+  const renderSiteErrors =
+    studioAccess.access?.limits?.plan === "hosted"
+      ? () => <SiteErrors />
+      : undefined;
   const remoteFilesStatusNotice =
     remoteFiles.status === "inactive" && remoteNoticeDismissed ? (
       <UploadsOffChip onClick={() => setRemoteNoticeDismissed(false)} />
@@ -1389,6 +1399,7 @@ function ValShellBody({
         editorOverride={overrideEditor}
         notice={shellNotice}
         renderPlanStatus={planStatus}
+        renderSiteErrors={renderSiteErrors}
         statusNotice={remoteFilesStatusNotice}
         publishSlot={demo !== null ? <DemoPublishButton /> : <PublishButton />}
         publishState={publishState}

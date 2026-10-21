@@ -391,6 +391,12 @@ export type ShellProps = {
    */
   renderPlanStatus?: (placement: "top-bar" | "column") => ReactNode;
   /**
+   * The hosted site's recent errors, in the account panel under the deploy
+   * feed. Absent for a project Val Build does not host. A render prop so it
+   * is only mounted -- and only asks Val Build -- when the panel is open.
+   */
+  renderSiteErrors?: () => ReactNode;
+  /**
    * The past, beside the editor.
    *
    * A render prop rather than a node, because the shell is what knows the
@@ -603,6 +609,7 @@ export function Shell({
   notice,
   statusNotice,
   renderPlanStatus,
+  renderSiteErrors,
   renderHistory,
   onPublish,
   publishSlot,
@@ -1486,6 +1493,10 @@ export function Shell({
              * feed (`mode === "http"`); the panel was missed.
              */
             deployments={mode === "fs" ? undefined : deployments}
+            // In dev too, unlike the feed: a developer working locally on a
+            // hosted project is the person most likely to want to know what
+            // the live site is throwing.
+            siteErrors={renderSiteErrors?.()}
             // Passed through as-is: absent means there is no session to end, and
             // the panel then shows no Sign out button rather than a dead one.
             onSignOut={onSignOut}
