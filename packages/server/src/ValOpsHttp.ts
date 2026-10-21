@@ -961,8 +961,8 @@ export class ValOpsHttp extends ValOps {
 
   /**
    * Which proposal calls the browser may make, by method and the path after
-   * `/proposals`: list and open, read and rename one, and close, reopen and
-   * retry its setup. Not `/save` -- the Studio saves through `/save`, which
+   * `/proposals`: list and open, read and rename one, read what its build
+   * targets, and close, reopen and retry its setup. Not `/save` -- the Studio saves through `/save`, which
    * prepares the commit here -- and not `/patches`, which moves the site's
    * changes into a proposal and has no screen yet.
    */
@@ -971,7 +971,9 @@ export class ValOpsHttp extends ValOps {
     const one = /^\/[0-9a-f]{20}$/.test(path);
     if (one) return method === "GET" || method === "PATCH";
     if (method === "GET")
-      return /^\/[0-9a-f]{20}\/(merge-checks|files|merge-trees)$/.test(path);
+      return /^\/[0-9a-f]{20}\/(merge-checks|files|merge-trees|build-target)$/.test(
+        path,
+      );
     return (
       method === "POST" &&
       /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|build|update-from-site|restore-code)$/.test(

@@ -3,6 +3,8 @@ import type { SerializedSchema } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import {
   JSONValue as JSONValueSchema,
+  parseBuildTarget,
+  type BuildTargetResponse,
   type SchemaError,
 } from "@valbuild/shared/internal";
 import type {
@@ -340,12 +342,31 @@ export type ProposalsClient = {
    * step 9.
    */
   restoreCode(name: string, commit: string): Promise<ProposalJson>;
+  /**
+   * What a build of it targets: the site's, or -- when it changed the
+   * project's dependencies -- its own framework and layer, which content had
+   * adept build (valbuild/home `docs/adept.md`, step 6). A 409 while they are
+   * being built or when they could not be, which says so.
+   */
+  buildTarget(name: string): Promise<ProposalBuildTarget>;
   /** Serve a build of its staged files, uploaded as `publishId`, at its address. */
   serveBuild(
     name: string,
     build: { publishId: string; inputs: string },
   ): Promise<ProposalJson>;
 };
+
+/**
+ * A proposal's build target, and whose layer it is: `own` when the proposal
+ * changed the dependencies and builds on the layer content had built for it,
+ * `site` otherwise.
+ */
+export type ProposalBuildTarget = {
+  target: BuildTargetResponse;
+  layer: "site" | "own";
+};
+
+const LayerOf = z.object({ layer: z.enum(["site", "own"]).optional() });
 
 export function createProposalsClient(options: {
   /** This deployment's Val API, e.g. `/api/val`. */
@@ -410,6 +431,13 @@ export function createProposalsClient(options: {
           ...(message !== undefined ? { message } : {}),
         }),
       ),
+    buildTarget: async (name) => {
+      const answer = await call(`${at(name)}/build-target`, "GET");
+      return {
+        target: parseBuildTarget(answer),
+        layer: LayerOf.parse(answer).layer ?? "site",
+      };
+    },
     serveBuild: (name, build) => one(`${at(name)}/build`, "POST", build),
     updateFromSite: (name) => one(`${at(name)}/update-from-site`, "POST", {}),
     updateContent: async (name, resolutions, heads) =>

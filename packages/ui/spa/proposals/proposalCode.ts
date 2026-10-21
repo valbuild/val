@@ -1,9 +1,11 @@
 import type { AITool } from "../hooks/useAIWebSocket";
 import type { StudioDeployResult } from "../publish/runStudioDeploy";
-import type {
-  ProposalJson,
-  ProposalsClient,
-  ProposalStaged,
+import type { BuildTargetResponse } from "@valbuild/shared/internal";
+import {
+  ProposalsApiError,
+  type ProposalJson,
+  type ProposalsClient,
+  type ProposalStaged,
 } from "./proposalsClient";
 
 /**
@@ -149,8 +151,16 @@ export type ProposalBuildOutcome =
  */
 export async function buildProposal(deps: {
   name: string;
-  client: Pick<ProposalsClient, "files" | "serveBuild">;
-  deploy: (files: Record<string, string | null>) => Promise<StudioDeployResult>;
+  client: Pick<ProposalsClient, "files" | "serveBuild" | "buildTarget">;
+  /**
+   * `target`: the proposal's own, when it changed the dependencies and builds
+   * on the layer content had built for it; `undefined` builds on the site's,
+   * as every build of a proposal did before.
+   */
+  deploy: (
+    files: Record<string, string | null>,
+    target: BuildTargetResponse | undefined,
+  ) => Promise<StudioDeployResult>;
   /**
    * Whether this document can build at all (`canBuildHere`): Safari cannot,
    * and a proposal's build has no builder tab to hand off to yet.
@@ -173,7 +183,20 @@ export async function buildProposal(deps: {
   const { files, staged } = read;
   if (staged.inputs === null) return { status: "nothing-staged" };
   if (!staged.buildRequired) return { status: "already-built", hash: null };
-  const built = await deps.deploy(files);
+  let target: BuildTargetResponse | undefined;
+  try {
+    const asked = await deps.client.buildTarget(deps.name);
+    target = asked.layer === "own" ? asked.target : undefined;
+  } catch (error) {
+    // A content service from before proposals had targets of their own:
+    // every proposal builds on the site's layer there, as it always did.
+    if (!(error instanceof ProposalsApiError && error.status === 404)) {
+      // Content's words: the dependencies are being built, or why they
+      // could not be.
+      return { status: "failed", message: messageOf(error) };
+    }
+  }
+  const built = await deps.deploy(files, target);
   if (built.status !== "uploaded") {
     return {
       status: "failed",
