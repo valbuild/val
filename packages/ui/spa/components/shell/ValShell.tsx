@@ -1244,6 +1244,8 @@ function ValShellBody({
    * this from inside it), which is what keeps a project without a settings
    * module from calling hooks with a path it does not have.
    */
+  const updates = studioIsDeployer ? upgradeSettings : null;
+  const settingsModule = data.settings?.moduleFilePath;
   const renderSettings = useCallback(
     () => (
       <>
@@ -1253,13 +1255,18 @@ function ValShellBody({
          * the Studio's job for a managed project and nobody's here for a
          * connected one.
          */}
-        {studioIsDeployer && upgradeSettings !== null && (
-          <SiteUpdateSection upgrade={upgradeSettings} />
+        {updates !== null && <SiteUpdateSection upgrade={updates} />}
+        {/*
+         * A hosted project made from a template has no settings module, and
+         * Updates is what it opened Settings for: telling it how to add one
+         * is for a developer, who would see it in a project without Updates.
+         */}
+        {(settingsModule !== undefined || updates === null) && (
+          <ValSettingsSections moduleFilePath={settingsModule} />
         )}
-        <ValSettingsSections moduleFilePath={data.settings?.moduleFilePath} />
       </>
     ),
-    [data.settings?.moduleFilePath, studioIsDeployer, upgradeSettings],
+    [settingsModule, updates],
   );
   // A merged proposal's notice first: it says this whole Studio is finished.
   const shellNotice =
