@@ -2,11 +2,12 @@
  * What `<ValProvider analytics>` is handed: whether content analytics is on
  * for this site, and the content version the page is rendered from.
  *
- * Both come from the server, read in the site layout's loader. On a site Val
- * hosts, `fetchValAnalytics()` in the `val.server.ts` the platform writes
- * reads them from what the platform hands each render: the project's
+ * Both come from what Val's hosting hands each render: the project's
  * `VAL_ANALYTICS` setting, and `VAL_CONTENT_VERSION`, the id of the content
- * version being served.
+ * version being served. A provider that is passed nothing reads them itself
+ * (`platformAnalytics.tsx`); a layout that wants to decide reads them in its
+ * loader with `fetchValAnalytics()`, from the `val.server.ts` the platform
+ * writes, and passes them.
  */
 export type ValAnalytics = {
   /** Off unless this says so. */

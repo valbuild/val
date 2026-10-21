@@ -40,8 +40,10 @@ import {
  *
  * With analytics on and draft mode off, the same rule for every visitor: no
  * tags on the server or while hydrating, tags from the render after. So the
- * HTML a visitor is sent, prerendered or not, is the same with analytics on or
- * off, and no edit tag ever reaches a crawler that does not run the page.
+ * content of the HTML a visitor is sent, prerendered or not, is the same with
+ * analytics on or off -- what differs is the few bytes of JSON that say it is
+ * on (`platformAnalytics.tsx`) -- and no edit tag ever reaches a crawler that
+ * does not run the page.
  *
  * Because JSX auto-tagging turns a tagged string into a `data-val-path`
  * attribute as the element is created, and the switch for it is process-wide.

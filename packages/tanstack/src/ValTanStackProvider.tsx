@@ -35,6 +35,7 @@ import { ValCanvasBridge } from "./ValCanvasBridge";
 import { shouldSafetyRefresh } from "./safetyRefresh";
 import type { ValDraft } from "./ValDraft";
 import type { ValAnalytics } from "./ValAnalytics";
+import { PlatformAnalytics, analyticsOfThisPage } from "./platformAnalytics";
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
@@ -170,12 +171,13 @@ export const ValTanStackProvider = (props: {
    * the page is rendered from. Off unless this says so.
    *
    * It is a setting of the hosted PROJECT, not of the code: the owner turns it
-   * on in the project's settings, the platform hands it to the site as the
-   * `VAL_ANALYTICS` secret, and the site layout's loader reads it on the
-   * server and passes it here -- `fetchValAnalytics()` from the generated
-   * `val.server.ts`, beside `fetchValDraft()`. See `ValAnalytics`. So switching it needs no code
-   * change and no rebuild, and there is deliberately no `val.config.ts` option
-   * for it: a second switch, in the code, is one the owner cannot see.
+   * on in the project's settings, and the platform hands it to the site as the
+   * `VAL_ANALYTICS` secret. Leave this out and the provider reads that itself
+   * (`platformAnalytics.tsx`), so switching it needs no code change and no
+   * rebuild. Pass it -- `fetchValAnalytics()` from the generated
+   * `val.server.ts` -- only to decide in the code instead; what is passed
+   * wins. There is deliberately no `val.config.ts` option for it: a second
+   * switch, in the code, is one the owner cannot see.
    *
    * Read once, when the provider mounts, as `draft` is: the loader runs only
    * on the server, so a client navigation hands this `undefined`, and the
@@ -246,8 +248,20 @@ export const ValTanStackProvider = (props: {
    * As the page was rendered. A ref, not the prop, for the reason
    * `initialDraft` is one: a later render's prop is a client navigation's
    * loader, which reads nothing.
+   *
+   * A layout that passes nothing gets the project's setting from Val's
+   * hosting itself (`platformAnalytics.tsx`): the server render reads what
+   * the platform handed it and writes it into the page, and the browser
+   * reads it back. So switching analytics on in the project's settings is
+   * enough; the layout does not have to read it.
    */
-  const analyticsSetting = React.useRef(props.analytics ?? null).current;
+  // Not in a demo: its `/api/val` is static files, with nowhere to count.
+  const [platformAnalytics] = React.useState(() =>
+    props.analytics === undefined && !props.demo ? analyticsOfThisPage() : null,
+  );
+  const [analyticsSetting] = React.useState(
+    () => props.analytics ?? platformAnalytics,
+  );
   const analytics = analyticsSetting?.enabled === true;
   const contentVersion = analyticsSetting?.contentVersion;
   const snapshot = initialDraft?.snapshot;
@@ -931,6 +945,9 @@ export const ValTanStackProvider = (props: {
       store={valStore}
     >
       {props.children}
+      {platformAnalytics !== null && (
+        <PlatformAnalytics value={platformAnalytics} />
+      )}
       {dropZone !== null &&
         !spaLoaded &&
         mountOverlay &&
