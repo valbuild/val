@@ -353,13 +353,23 @@ export function TopBar({
     <header
       className={cn(
         "absolute z-full top-3 h-11 flex items-center gap-1.5 px-2 rounded-lg",
+        /*
+         * While one of the bar's own menus is open, the bar goes above the
+         * panels. They are `z-full` too and come later in the shell, so a
+         * menu dropping out of the bar was drawn underneath an open panel.
+         */
+        "has-[[role=menu]]:z-overlay",
         "bg-bg-float border shadow-sm",
         /*
          * In a proposal the bar wears the proposal colour: where you are must
          * never be in doubt, and a screenshot should say where it was taken.
+         *
+         * The tint is LAYERED over `bg-bg-float` as an image, never swapped
+         * in for it: `--bg-proposal-soft` is translucent in dark mode, so as
+         * the background colour it let the editor show through the bar.
          */
         proposalLocation !== null
-          ? "border-border-proposal ring-1 ring-border-proposal bg-bg-proposal-soft"
+          ? "border-border-proposal ring-1 ring-border-proposal bg-[linear-gradient(var(--bg-proposal-soft),var(--bg-proposal-soft))]"
           : "border-border-float",
         // Leaves room for the rail on desktop; full-bleed below that.
         isDesktop ? "left-[4.75rem] right-3" : "left-3 right-3",
