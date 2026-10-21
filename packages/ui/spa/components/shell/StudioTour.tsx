@@ -10,8 +10,11 @@ import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
 /** Where the card is drawn, in shell coordinates. */
 type Box = { top: number; left: number; width: number; height: number };
 
-/** How far the card sits from the thing it points at, in px. */
-const GAP = 10;
+/**
+ * How far the card sits from the thing it points at, in px: room for the
+ * arrow, whose tip then reaches the ring (4-6px outside the target).
+ */
+const GAP = 14;
 /** Never closer than this to the edge of the shell. */
 const MARGIN = 12;
 const CARD_WIDTH = 296;
@@ -217,6 +220,71 @@ export function placeCard(
 }
 
 /**
+ * The card's arrow: which of its edges faces the target, and how far along
+ * that edge the arrow sits, in px from the edge's start (its left, or its top).
+ */
+export type CardArrow = {
+  side: "top" | "bottom" | "left" | "right";
+  offset: number;
+};
+
+/** The arrow keeps this far from the card's corners, which are rounded. */
+const ARROW_INSET = 16;
+
+/**
+ * Where the card's arrow goes, from where the card ended up rather than from
+ * which rule put it there: `placeCard` clamps, and steps aside for panels.
+ *
+ * The edge facing the target, aimed at the middle of what the two share along
+ * that edge. Null when they share nothing -- a card moved beside a panel, or
+ * centred because there is no target -- since an arrow pointing past the
+ * thing it is about is worse than none.
+ */
+export function pointArrow(target: Box | null, card: Box): CardArrow | null {
+  if (!target) return null;
+  const along = (
+    cardStart: number,
+    cardSize: number,
+    targetStart: number,
+    targetSize: number,
+  ): number | null => {
+    const from = Math.max(cardStart, targetStart);
+    const to = Math.min(cardStart + cardSize, targetStart + targetSize);
+    if (to <= from || cardSize < ARROW_INSET * 2) return null;
+    const middle = (from + to) / 2 - cardStart;
+    return Math.min(Math.max(middle, ARROW_INSET), cardSize - ARROW_INSET);
+  };
+  const side: CardArrow["side"] | null =
+    card.top >= target.top + target.height
+      ? "top"
+      : card.top + card.height <= target.top
+        ? "bottom"
+        : card.left >= target.left + target.width
+          ? "left"
+          : card.left + card.width <= target.left
+            ? "right"
+            : null;
+  if (side === null) return null;
+  const offset =
+    side === "top" || side === "bottom"
+      ? along(card.left, card.width, target.left, target.width)
+      : along(card.top, card.height, target.top, target.height);
+  return offset === null ? null : { side, offset };
+}
+
+/**
+ * The arrow itself: a small square turned 45 degrees, half over the card's
+ * edge, with the card's fill and its border on the two sides that show, so
+ * it reads as part of the card rather than something stuck to it.
+ */
+const ARROW_EDGE: Record<CardArrow["side"], string> = {
+  top: "-top-[6px] border-l border-t",
+  bottom: "-bottom-[6px] border-b border-r",
+  left: "-left-[6px] border-b border-l",
+  right: "-right-[6px] border-r border-t",
+};
+
+/**
  * What the Studio is doing, as far as a step that moves on by itself cares.
  * See `TourMoveOn`.
  */
@@ -378,6 +446,7 @@ export function StudioTour({
     left: number;
   } | null>(null);
   const [asSheet, setAsSheet] = useState(false);
+  const [arrow, setArrow] = useState<CardArrow | null>(null);
   const step = steps[stepIndex];
   const isLast = stepIndex === steps.length - 1;
 
@@ -457,15 +526,19 @@ export function StudioTour({
       const box = measureTarget(root, step?.target, step?.field);
       setTarget(box);
       const rootRect = root.getBoundingClientRect();
-      setAsSheet(ring && rootRect.width < SHEET_BELOW);
-      setPlacement(
-        placeCard(
-          box,
-          { width: rootRect.width, height: rootRect.height },
-          { width: card.offsetWidth, height: card.offsetHeight },
-          measureAvoid(root),
-        ),
+      const sheet = ring && rootRect.width < SHEET_BELOW;
+      setAsSheet(sheet);
+      const size = { width: card.offsetWidth, height: card.offsetHeight };
+      const at = placeCard(
+        box,
+        { width: rootRect.width, height: rootRect.height },
+        size,
+        measureAvoid(root),
       );
+      setPlacement(at);
+      // A sheet along the bottom is not beside anything, so it points at
+      // nothing; the ring above it does that.
+      setArrow(sheet ? null : pointArrow(box, { ...at, ...size }));
     };
     measure();
     /*
@@ -705,6 +778,21 @@ export function StudioTour({
           asSheet && ["left-3 right-3", CLEAR_OF_BOTTOM_BARS],
         )}
       >
+        {arrow && (
+          <div
+            aria-hidden
+            data-val-tour-arrow={arrow.side}
+            className={cn(
+              "pointer-events-none absolute h-[10px] w-[10px] rotate-45 border-border-float bg-bg-float",
+              ARROW_EDGE[arrow.side],
+            )}
+            style={
+              arrow.side === "top" || arrow.side === "bottom"
+                ? { left: arrow.offset - 5 }
+                : { top: arrow.offset - 5 }
+            }
+          />
+        )}
         <div className="flex items-start gap-2">
           {/*
            * The same green as the spotlight ring, which is the tour's colour.
