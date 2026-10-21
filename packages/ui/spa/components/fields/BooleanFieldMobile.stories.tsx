@@ -27,7 +27,7 @@ import { ValSystemProvider } from "../../stores/react/SystemContext";
  * still holds it when there is room.
  *
  * The breakpoint is the VIEWPORT's, so `width` alone does not switch the
- * layout: look at the narrow stories with Storybook's viewport at phone size.
+ * layout: each story opens in a viewport of the matching size.
  *
  * Driven through `Module`, the component the Studio renders for a module, so
  * what is drawn here is what ships. The edits are real patches in the story's
@@ -37,6 +37,16 @@ import { ValSystemProvider } from "../../stores/react/SystemContext";
 
 const { s, c } = initVal();
 const MODULE = "/content/settings.val.ts" as ModuleFilePath;
+
+/** The module's source, typed, so a seeded edit can read what it flips. */
+const initialSettings = {
+  title: "Sommerkampanje",
+  published: true,
+  featured: false,
+  showInNavigationMenu: true,
+  allowCommentsFromAnonymousVisitors: false,
+  hideFromSearchEngines: null,
+};
 
 const settingsModule = c.define(
   MODULE,
@@ -50,14 +60,7 @@ const settingsModule = c.define(
       .describe("Visitors can comment without signing in"),
     hideFromSearchEngines: s.boolean().nullable(),
   }),
-  {
-    title: "Sommerkampanje",
-    published: true,
-    featured: false,
-    showInNavigationMenu: true,
-    allowCommentsFromAnonymousVisitors: false,
-    hideFromSearchEngines: null,
-  },
+  initialSettings,
 );
 
 function toStoreData(
@@ -98,12 +101,7 @@ function createMockClient(): ValClient {
     })) as unknown as ValClient;
 }
 
-type SettingsKey =
-  | "published"
-  | "featured"
-  | "showInNavigationMenu"
-  | "allowCommentsFromAnonymousVisitors"
-  | "hideFromSearchEngines";
+type SettingsKey = Exclude<keyof typeof initialSettings, "title">;
 
 function MobileModule({
   changed,
@@ -114,12 +112,18 @@ function MobileModule({
   /** The phone's CSS width. 390 is an iPhone 14/15, 360 a common Android. */
   width: number;
 }) {
-  const system = useMemo(() => createStorySystem(storeData), []);
+  // A fresh store whenever the seeded edits change (the Controls panel), so
+  // the patches below always start from the module as written, never on top
+  // of an earlier set.
+  const system = useMemo(() => {
+    void changed;
+    return createStorySystem(storeData);
+  }, [changed]);
   const [theme, setTheme] = useState<Themes | null>("dark");
   const client = useMemo(() => createMockClient(), []);
   useEffect(() => {
     for (const key of changed) {
-      const current = (storeData.sources[MODULE] as Record<string, Json>)[key];
+      const current = initialSettings[key];
       void system.patchStore.createPatch(MODULE, [
         {
           op: "replace",
@@ -128,7 +132,6 @@ function MobileModule({
         },
       ]);
     }
-    // Seeded when the story opens: later edits are the reader's own clicks.
   }, [system, changed]);
   return (
     <ValSystemProvider system={system}>
@@ -165,6 +168,9 @@ const meta: Meta<typeof MobileModule> = {
   title: "Fields/Boolean on mobile",
   component: MobileModule,
   parameters: { layout: "fullscreen" },
+  // The layout switches on the VIEWPORT (`sm:`), so the phone stories open in
+  // a phone-sized one: "Large mobile", 414px, which both widths below fit in.
+  globals: { viewport: { value: "mobile2", isRotated: false } },
   args: { width: 390, changed: [] },
 };
 export default meta;
@@ -199,6 +205,7 @@ export const AllChangedNarrow: Story = {
 
 /** The same edits with room to spare: the history stays in the right column. */
 export const WideScreen: Story = {
+  globals: { viewport: { value: "tablet", isRotated: false } },
   args: {
     width: 720,
     changed: ["published", "showInNavigationMenu", "hideFromSearchEngines"],

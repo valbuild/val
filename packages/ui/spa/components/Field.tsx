@@ -96,9 +96,13 @@ export function Field({
     });
   };
   const labelClickable = errorDisplay === "compact";
-  const showsNullToggle =
-    !hasOverrides && !!schema && !isBoolean && (isNullable || source === null);
-  const hasLeadingCheckbox = isBoolean || showsNullToggle;
+  // The schema when this field draws the create/clear toggle, else undefined:
+  // one value that both says so and narrows, rather than a flag beside it.
+  const nullToggleSchema =
+    !hasOverrides && !isBoolean && (isNullable || source === null)
+      ? schema
+      : undefined;
+  const hasLeadingCheckbox = isBoolean || nullToggleSchema !== undefined;
   /*
    * Restore mode, if one is running around this subtree.
    *
@@ -143,7 +147,7 @@ export function Field({
                 "pt-2": compact && isBoolean,
               })}
             >
-              {showsNullToggle && schema && (
+              {nullToggleSchema && (
                 <Checkbox
                   disabled={effectiveReadonly || loadingStatus === "loading"}
                   checked={source !== null || showEmptyFileOrImage}
@@ -162,9 +166,9 @@ export function Field({
                      * not be cleared at all once it had been added.
                      */
                     const isMedia =
-                      schema.type === "image" ||
-                      schema.type === "file" ||
-                      schema.type === "video";
+                      nullToggleSchema.type === "image" ||
+                      nullToggleSchema.type === "file" ||
+                      nullToggleSchema.type === "video";
                     const isChecked = source !== null || showEmptyFileOrImage;
                     if (!isChecked) {
                       if (isMedia) {
@@ -179,12 +183,12 @@ export function Field({
                               op: "replace",
                               path: patchPath,
                               value: emptyOf({
-                                ...schema,
+                                ...nullToggleSchema,
                                 opt: false,
                               }) as JSONValue,
                             },
                           ],
-                          schema.type,
+                          nullToggleSchema.type,
                         );
                       }
                       return;
@@ -201,7 +205,7 @@ export function Field({
                             value: null,
                           },
                         ],
-                        schema.type,
+                        nullToggleSchema.type,
                       );
                     }
                   }}
