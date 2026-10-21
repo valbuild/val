@@ -95,6 +95,7 @@ describe("buildValidateGroups", () => {
 
   test("a local file in a project with remote files is an error the Studio fixes by uploading it", () => {
     const entry = at(MEDIA, '"/public/val/images/hero.png"');
+    const video = at(MEDIA, '"/public/val/videos/dusk.mp4"');
     const field = at(BLOG, '"cover"');
     const res = build({
       results: new Map<ModuleFilePath, ModuleCheckResult>([
@@ -107,6 +108,14 @@ describe("buildValidateGroups", () => {
                 {
                   message: "Expected a remote image, but got a local path.",
                   fixes: ["images:upload-remote"],
+                  keyError: true,
+                },
+              ],
+              [video]: [
+                {
+                  message:
+                    "Expected a remote video, but got a local path. Use Val tooling (CLI --fix, VS Code extension, or Val Studio) to upload it. Got: /public/val/videos/dusk.mp4",
+                  fixes: ["videos:upload-remote"],
                   keyError: true,
                 },
               ],
@@ -130,7 +139,7 @@ describe("buildValidateGroups", () => {
       ]),
     });
     const rows = rowsOf(res);
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     for (const row of rows) {
       expect(row).toMatchObject({
         tone: "fixable",
@@ -138,9 +147,15 @@ describe("buildValidateGroups", () => {
         message: expect.stringContaining("Fix uploads it"),
       });
     }
-    expect(openRowCount(res.groups)).toBe(2);
+    expect(openRowCount(res.groups)).toBe(3);
     expect([...res.targets.values()]).toEqual(
       expect.arrayContaining([
+        {
+          kind: "full",
+          moduleFilePath: MEDIA,
+          sourcePath: video,
+          fix: "videos:upload-remote",
+        },
         {
           kind: "full",
           moduleFilePath: MEDIA,
