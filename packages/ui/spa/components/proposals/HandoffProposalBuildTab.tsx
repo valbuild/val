@@ -90,12 +90,13 @@ export function HandoffProposalBuildTab({
       client: proposals,
       // This tab is the one that can: it is opened cross-origin isolated.
       canBuildHere: () => globalThis.crossOriginIsolated === true,
-      deploy: async (files) =>
+      deploy: async (files, target) =>
         (
           await deploy(null, files, {
             binaryFiles: null,
             branch: null,
             until: "confirmed",
+            ...(target ? { target } : {}),
           })
         ).result,
     })

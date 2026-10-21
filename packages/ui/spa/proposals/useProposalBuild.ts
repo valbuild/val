@@ -135,12 +135,13 @@ export function useProposalBuild(client?: ProposalsClient): {
               name: name ?? "",
               client: proposals,
               canBuildHere,
-              deploy: async (files) =>
+              deploy: async (files, target) =>
                 (
                   await deploy(null, files, {
                     binaryFiles: null,
                     branch: null,
                     until: "confirmed",
+                    ...(target ? { target } : {}),
                   })
                 ).result,
             }),

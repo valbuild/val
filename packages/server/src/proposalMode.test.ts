@@ -538,6 +538,22 @@ describe("the proposals API, for the Studio", () => {
     expect(sent).toHaveLength(1);
   });
 
+  test("what a proposal's build targets is read through the proposals API, and only read", async () => {
+    const own = ops(proposal("save-2"));
+    await own.proposalsApi(`/${NAME}/build-target`, { method: "GET" }, "p");
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `GET /v1/org/project/proposals/${NAME}/build-target`,
+    ]);
+    sent.length = 0;
+    const written = await own.proposalsApi(
+      `/${NAME}/build-target`,
+      { method: "POST", body: "{}" },
+      "p",
+    );
+    expect(written.status).toBe(403);
+    expect(sent).toEqual([]);
+  });
+
   test("Update from the site is asked by the proposal's own server, and nobody else's", async () => {
     const own = ops(proposal("save-2"));
     await own.proposalsApi(

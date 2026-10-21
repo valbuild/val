@@ -6,7 +6,12 @@ import {
   runCodeTool,
   type CodeToolDeps,
 } from "./proposalCode";
-import type { ProposalJson, ProposalStaged } from "./proposalsClient";
+import {
+  ProposalsApiError,
+  type ProposalBuildTarget,
+  type ProposalJson,
+  type ProposalStaged,
+} from "./proposalsClient";
 
 const NAME = "0123456789abcdef0123";
 const INPUTS = "a".repeat(64);
@@ -23,6 +28,38 @@ const proposal = (built: string | null): ProposalJson => ({
   status: "open",
   updatedAt: "2026-10-14T10:00:00.000Z",
   built: built === null ? null : { hash: built, inputs: INPUTS },
+});
+
+/** A build target, as content answers one; what is in it is the deploy's. */
+const TARGET: ProposalBuildTarget["target"] = {
+  base: {
+    rev: "set-0123456789abcdef01234567",
+    shellRev: "s",
+    rscShellRev: "r",
+    modules: {},
+    rscModules: {},
+    paths: {
+      baseFromProject: "../vendor",
+      projectVendorDir: "pvendor",
+      rscVendorBase: "rsc",
+      rscRuntimeSpecifier: "rsc",
+      rscRuntimePath: "rsc",
+      flightServer: "flight",
+      serverFnBase: "/_serverFn",
+    },
+  },
+  project: {
+    rev: "proposal-layer",
+    rsc: false,
+    modules: { zod: "zod" },
+    css: {},
+    workerOnly: [],
+  },
+};
+/** A proposal that changed no dependencies: it builds on the site's layer. */
+const siteTarget = async (): Promise<ProposalBuildTarget> => ({
+  target: TARGET,
+  layer: "site",
 });
 
 const SITE = {
@@ -49,6 +86,7 @@ describe("buildProposal", () => {
       name: NAME,
       client: {
         files: async () => ({ files: OWN, staged: staged() }),
+        buildTarget: siteTarget,
         serveBuild: async (name, build) => {
           served.push([name, build]);
           return proposal("b1");
@@ -76,6 +114,7 @@ describe("buildProposal", () => {
             files: {},
             staged: staged({ inputs: null, files: [], buildRequired: false }),
           }),
+          buildTarget: siteTarget,
           serveBuild,
         },
         deploy,
@@ -90,6 +129,7 @@ describe("buildProposal", () => {
             files: OWN,
             staged: staged({ buildRequired: false }),
           }),
+          buildTarget: siteTarget,
           serveBuild,
         },
         deploy,
@@ -107,6 +147,7 @@ describe("buildProposal", () => {
         name: NAME,
         client: {
           files: async () => ({ files: OWN, staged: staged() }),
+          buildTarget: siteTarget,
           serveBuild,
         },
         deploy: async () => ({
@@ -123,6 +164,7 @@ describe("buildProposal", () => {
         name: NAME,
         client: {
           files: async () => ({ files: OWN, staged: staged() }),
+          buildTarget: siteTarget,
           serveBuild: async () => {
             throw new Error(
               "The proposal's files changed while it was being built. Build it again.",
@@ -140,13 +182,75 @@ describe("buildProposal", () => {
   });
 });
 
+describe("buildProposal, and what it builds against", () => {
+  const build = (
+    buildTarget: () => Promise<ProposalBuildTarget>,
+    deployed: unknown[],
+  ) =>
+    buildProposal({
+      name: NAME,
+      client: {
+        files: async () => ({ files: OWN, staged: staged() }),
+        buildTarget,
+        serveBuild: async () => proposal("b1"),
+      },
+      deploy: async (_files, target) => {
+        deployed.push(target);
+        return { status: "uploaded", publishId: "p-1" };
+      },
+      canBuildHere: () => true,
+    });
+
+  test("its own layer, when it changed the dependencies", async () => {
+    const deployed: unknown[] = [];
+    const outcome = await build(
+      async () => ({ target: TARGET, layer: "own" }),
+      deployed,
+    );
+    expect(deployed).toEqual([TARGET]);
+    expect(outcome.status).toBe("built");
+  });
+
+  test("the site's otherwise, read by the deploy as every build reads it", async () => {
+    const deployed: unknown[] = [];
+    await build(siteTarget, deployed);
+    expect(deployed).toEqual([undefined]);
+  });
+
+  test("nothing while its dependencies are being built, or could not be: content says which", async () => {
+    const deployed: unknown[] = [];
+    const outcome = await build(async () => {
+      throw new ProposalsApiError(
+        409,
+        "This proposal changed its dependencies, and they are being built. It can be built once they are.",
+        { details: { layer: "pending" } },
+      );
+    }, deployed);
+    expect(outcome).toEqual({
+      status: "failed",
+      message:
+        "This proposal changed its dependencies, and they are being built. It can be built once they are.",
+    });
+    expect(deployed).toEqual([]);
+  });
+
+  test("the site's, from a content service that predates proposals' own targets", async () => {
+    const deployed: unknown[] = [];
+    const outcome = await build(async () => {
+      throw new ProposalsApiError(404, "Not found", undefined);
+    }, deployed);
+    expect(deployed).toEqual([undefined]);
+    expect(outcome.status).toBe("built");
+  });
+});
+
 describe("buildProposal, where the browser cannot build", () => {
   test("says so, and which browsers can, before reading or building anything", async () => {
     const files = jest.fn();
     const deploy = jest.fn();
     const outcome = await buildProposal({
       name: NAME,
-      client: { files, serveBuild: jest.fn() },
+      client: { files, buildTarget: siteTarget, serveBuild: jest.fn() },
       deploy,
       canBuildHere: () => false,
     });
