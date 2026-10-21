@@ -1,5 +1,21 @@
 # @valbuild/ui
 
+## 0.148.8
+
+### Patch Changes
+
+- [#909](https://github.com/valbuild/val/pull/909) [`213c6fc`](https://github.com/valbuild/val/commit/213c6fca9636f9b4bb54f15336a21d2ac4846a9b) Thanks [@freekh](https://github.com/freekh)! - A proposal that changed its dependencies now goes live on those dependencies when the Studio builds its merge. Before this, a merge built in the tab used the site's existing dependencies.
+
+- [#905](https://github.com/valbuild/val/pull/905) [`1856a4a`](https://github.com/valbuild/val/commit/1856a4af7827794cbcd50d66a0800394bc386f87) Thanks [@freekh](https://github.com/freekh)! - The Studio on a phone has one way into each thing, and its bars no longer overflow.
+
+  - **Top bar:** the menu, where you are, Search and your account. In a proposal the bar is in the proposal's colour and shows an icon instead of the name; tap it to see the full name, the proposal's actions (compare, rename, copy link, close) and the way to the site or another proposal.
+  - **Bottom bar:** the assistant, the activity bell, Preview and one primary action. In a proposal that action is Save, then Build, then Publish, whichever comes next, and it reads "Fix N" while errors would stop a save. The caret beside it holds the rest: Save, Review, Build, Publish and Discard.
+  - **The bell** combines notifications, validation errors and history, with one count.
+  - **Your account** holds the theme, Members, the project's settings, the branch, deployments and the tour.
+  - **The project name** is at the top of the navigation menu, and the language filter sits beside the page heading.
+
+- [#905](https://github.com/valbuild/val/pull/905) [`1856a4a`](https://github.com/valbuild/val/commit/1856a4af7827794cbcd50d66a0800394bc386f87) Thanks [@freekh](https://github.com/freekh)! - The top bar in a proposal is no longer see-through in dark mode, and its menus open above an open panel instead of underneath it.
+
 ## 0.148.7
 
 ### Patch Changes
