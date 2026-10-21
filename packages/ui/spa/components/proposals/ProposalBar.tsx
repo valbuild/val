@@ -210,16 +210,14 @@ export function ProposalPublishButton({
 }
 
 /**
- * The proposal's own menu: compare, rename, copy its link, close. On a phone,
- * where the bottom bar has room for one action, it also carries Publish.
+ * The proposal's own menu, above a phone: compare, rename, copy its link,
+ * close. On a phone the same acts are in `ProposalSheet`.
  */
 export function ProposalMenu({
   onCompare,
   onRename,
   onCopyLink,
   onClose,
-  onPublish,
-  publishBlockedBy = null,
   defaultOpen = false,
   menuPlacement = "below",
 }: {
@@ -228,9 +226,6 @@ export function ProposalMenu({
   onRename: () => void;
   onCopyLink: () => void;
   onClose: () => void;
-  /** Offer Publish here too: the phone layout. */
-  onPublish?: () => void;
-  publishBlockedBy?: string | null;
   defaultOpen?: boolean;
   menuPlacement?: "below" | "above";
 }) {
@@ -270,19 +265,6 @@ export function ProposalMenu({
             menuPlacement === "above" ? "bottom-full mb-1" : "top-full mt-1",
           )}
         >
-          {onPublish !== undefined && (
-            <>
-              <MenuItem
-                icon={<Upload size={14} />}
-                onClick={choose(onPublish)}
-                disabled={publishBlockedBy !== null}
-                detail={publishBlockedBy ?? undefined}
-              >
-                Publish to the site
-              </MenuItem>
-              <div className="my-1 border-t border-border-float" />
-            </>
-          )}
           {onCompare !== undefined && (
             <MenuItem
               icon={<GitCompare size={14} />}

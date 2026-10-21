@@ -37,6 +37,7 @@ import {
 } from "./ValProvider";
 import { ModuleGallery } from "./fields/ModuleGallery";
 import { ScopeTrail, scopePartsBelowPageRouter } from "./ModuleScope";
+import { useHeadingTools } from "./shell/headingTools";
 import { PathHeading } from "./PathHeading";
 import { useEditorDensity } from "./EditorDensity";
 import { useDescription } from "./useDescription";
@@ -56,6 +57,8 @@ export function Module({
     ? pendingPatchesRes.length > 0
     : false;
   const profilesByAuthorIds = useProfilesByAuthorId();
+  // Whatever the shell puts beside the heading: the phone's locale filter.
+  const headingTools = useHeadingTools();
   const patchesByAuthorIds = useMemo((): Record<string, PendingPatch[]> => {
     const byAuthors: Record<string, PendingPatch[]> = {};
     for (const patch of pendingPatchesRes || []) {
@@ -163,6 +166,7 @@ export function Module({
   /** The record tools, beside the title. */
   const tools = !isMediaGallery && (
     <div className="shrink-0 flex gap-2 items-center">
+      {headingTools}
       {hasPendingPatches && (
         <FieldPatchAuthors
           patchesByAuthorIds={patchesByAuthorIds}

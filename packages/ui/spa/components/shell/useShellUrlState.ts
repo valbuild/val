@@ -56,6 +56,8 @@ const PANEL_NAMES: Record<ShellPanel, true> = {
   utility: true,
   ai: true,
   notifications: true,
+  proposals: true,
+  changes: true,
 };
 const PANELS = Object.keys(PANEL_NAMES) as ShellPanel[];
 
