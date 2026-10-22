@@ -1,5 +1,13 @@
 # @valbuild/cli
 
+## 0.149.2
+
+### Patch Changes
+
+- [#917](https://github.com/valbuild/val/pull/917) [`48ca810`](https://github.com/valbuild/val/commit/48ca810a985af2a0af845c779d39c3da7f7fb0fc) Thanks [@freekh](https://github.com/freekh)! - `val publish` now declares `@valbuild/ui` at the version your project actually runs. A project that does not declare `@valbuild/ui` gets it added when it is wired for the platform, because the Studio's bundle lives there. It used to be added at `@valbuild/core`'s version, which can be an older release than the `@valbuild/ui` your `@valbuild/tanstack` uses. The two are no longer always released together, and the mismatch could install a second, older Studio. It now takes the version installed beside `@valbuild/tanstack`, and if no installed copy can be found it says so in a warning. A project that declares `@valbuild/ui` itself is left unchanged.
+- Updated dependencies [[`48ca810`](https://github.com/valbuild/val/commit/48ca810a985af2a0af845c779d39c3da7f7fb0fc)]:
+  - @valbuild/tanstack-build@0.149.2
+
 ## 0.149.1
 
 ### Patch Changes
