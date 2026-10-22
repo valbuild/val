@@ -1,24 +1,22 @@
 import {
+  AlertTriangle,
   ArrowRight,
   Check,
   Circle,
+  ExternalLink,
   Hammer,
   Loader2,
   Package,
   RefreshCw,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
 import { Button } from "../components/designSystem/button";
 import { cn } from "../components/designSystem/cn";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "../components/designSystem/dialog";
 import type { PublishProposalState } from "../components/proposals/PublishProposalDialog";
 import { errorsByFile } from "../proposals/proposalTypecheck";
+import { withoutUpgradeTab } from "./upgradeTab";
 import type {
   UpgradeFooter,
   UpgradeProgressView,
@@ -123,21 +121,22 @@ function publishStep(publish: PublishProposalState): {
 }
 
 /**
- * An upgrade, from the moment its proposal opens to the site running it
- * (valbuild/home `docs/adept.md`, "How one Upgrade goes"): computed, its
- * dependencies built, typechecked, built, published -- in this one dialog.
+ * The upgrade tab's page (`upgradeTab.ts`): an upgrade from the moment its
+ * proposal opens to the site running it (valbuild/home `docs/adept.md`, "How
+ * one Upgrade goes"): computed, its dependencies built, typechecked, built,
+ * published -- in this one tab, on every device.
  *
- * The steps run by themselves. What needs a person is the footer's one
- * button, where Publish is: Try again when a step failed, Publish when it is
- * ready, Go to site once it is published, and -- where this page cannot build
- * and the browser opens the tab that does only from a tap -- Build.
+ * The steps run by themselves. What needs a person is in the footer, and the
+ * next step is always its right-hand button, where Publish is: Try again
+ * when a step failed, Publish when it is ready, Go to site once it is
+ * published. Beside Publish, Review opens the proposal in the Studio, to see
+ * its preview and check the merge there. On the left, Discard upgrade closes
+ * the proposal; once it is published, Close tab.
  *
- * `view` is `null` while the proposal is being read: the dialog is open from
- * the moment the page is, rather than after everything has loaded.
+ * `view` is `null` while the proposal is being read: the page is up from the
+ * moment the tab is, rather than after everything has loaded.
  */
-export function UpgradeProgressDialog({
-  open,
-  onOpenChange,
+export function UpgradeProgressPage({
   displayName,
   view,
   publish,
@@ -147,12 +146,12 @@ export function UpgradeProgressDialog({
   onBuild,
   onPublish,
   onRetryPublish,
+  onCheckMerge,
   onReview,
+  onDiscard,
   onGoToSite,
-  portalContainer,
+  onCloseTab,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   /** `null` while the proposal is being read. */
   displayName: string | null;
   view: UpgradeProgressView | null;
@@ -164,58 +163,88 @@ export function UpgradeProgressDialog({
   onPublish: () => void;
   onRetryPublish: () => void;
   /** The proposal's own Publish dialog, for a check only it can clear. */
+  onCheckMerge: () => void;
+  /** The proposal in the Studio: its preview, and the merge checked there. */
   onReview: () => void;
+  /** Close the proposal, after asking. */
+  onDiscard: () => void;
   /** `undefined` when the project has not said where its site is. */
   onGoToSite?: () => void;
-  portalContainer?: HTMLElement | null;
+  onCloseTab: () => void;
 }) {
+  const settled = publish.kind === "merged";
+  const pressed = publish.kind === "publishing";
+  const staged = view !== null && view.upgrade.state === "staged";
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        container={portalContainer}
-        className="max-w-lg gap-0 border-border-float bg-bg-float p-0"
-      >
+    <div className="flex min-h-svh w-full items-start justify-center bg-bg-primary p-4 text-fg-primary sm:items-center sm:p-6">
+      <main className="flex w-full max-w-lg flex-col rounded-xl border border-border-float bg-bg-float shadow-sm">
         <div className="flex flex-col gap-1.5 px-5 pb-3 pt-5">
-          <DialogTitle className="text-sm font-semibold">
+          <h1 className="text-base font-semibold">
             {displayName ?? "Upgrade"}
-          </DialogTitle>
-          <DialogDescription className="text-xs text-fg-secondary">
+          </h1>
+          <p className="text-xs text-fg-secondary">
             An upgrade of the site&apos;s dependencies, in a proposal of its
             own. The site changes when it is published.
-          </DialogDescription>
+          </p>
         </div>
-        <ol className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto px-5 pb-4">
+        <ol className="flex flex-col gap-3 px-5 pb-4">
           {view === null ? (
             <Step state="running" title="Loading the upgrade…" />
           ) : (
             <Steps view={view} publish={publish} />
           )}
         </ol>
-        <div
-          role="group"
-          aria-label="Next step"
-          className="flex items-center justify-between gap-3 border-t border-border-float px-5 py-3"
-        >
+        {!settled && !pressed && view !== null && (
+          <p className="px-5 pb-3 text-xs text-fg-secondary-alt">
+            Keep this tab open until it is done. Closed, it can be opened again
+            from the upgrade&apos;s proposal.
+          </p>
+        )}
+        <div className="flex flex-col gap-2 border-t border-border-float px-5 py-3">
           <span
             role={footer.action.kind === "retry" ? "alert" : undefined}
             className="text-xs text-fg-secondary"
           >
             {footer.note}
           </span>
-          <FooterButton
-            footer={footer}
-            onClose={() => onOpenChange(false)}
-            onComputeLockfile={onComputeLockfile}
-            onTypecheck={onTypecheck}
-            onBuild={onBuild}
-            onPublish={onPublish}
-            onRetryPublish={onRetryPublish}
-            onReview={onReview}
-            {...(onGoToSite !== undefined ? { onGoToSite } : {})}
-          />
+          <div
+            role="group"
+            aria-label="Next step"
+            className="flex items-center justify-between gap-2"
+          >
+            {settled ? (
+              <Button size="sm" variant="outline" onClick={onCloseTab}>
+                Close tab
+              </Button>
+            ) : view !== null && !pressed ? (
+              <Button size="sm" variant="ghost" onClick={onDiscard}>
+                <Trash2 size={13} /> Discard upgrade
+              </Button>
+            ) : (
+              <span />
+            )}
+            <span className="flex items-center gap-2">
+              {staged && !settled && !pressed && (
+                <Button size="sm" variant="secondary" onClick={onReview}>
+                  Review <ExternalLink size={13} />
+                </Button>
+              )}
+              <NextStep
+                footer={footer}
+                onComputeLockfile={onComputeLockfile}
+                onTypecheck={onTypecheck}
+                onBuild={onBuild}
+                onPublish={onPublish}
+                onRetryPublish={onRetryPublish}
+                onCheckMerge={onCheckMerge}
+                onCloseTab={onCloseTab}
+                {...(onGoToSite !== undefined ? { onGoToSite } : {})}
+              />
+            </span>
+          </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </main>
+    </div>
   );
 }
 
@@ -362,26 +391,27 @@ function Steps({
   );
 }
 
-function FooterButton({
+/** The footer's right-hand button: the next step, where Publish is. */
+function NextStep({
   footer,
-  onClose,
   onComputeLockfile,
   onTypecheck,
   onBuild,
   onPublish,
   onRetryPublish,
-  onReview,
+  onCheckMerge,
   onGoToSite,
+  onCloseTab,
 }: {
   footer: UpgradeFooter;
-  onClose: () => void;
   onComputeLockfile: () => void;
   onTypecheck: () => void;
   onBuild: () => void;
   onPublish: () => void;
   onRetryPublish: () => void;
-  onReview: () => void;
+  onCheckMerge: () => void;
   onGoToSite?: () => void;
+  onCloseTab: () => void;
 }) {
   const { action } = footer;
   switch (action.kind) {
@@ -425,8 +455,8 @@ function FooterButton({
       );
     case "review":
       return (
-        <Button size="sm" onClick={onReview}>
-          Review <ArrowRight size={13} />
+        <Button size="sm" onClick={onCheckMerge}>
+          Check the merge <ArrowRight size={13} />
         </Button>
       );
     case "site":
@@ -435,15 +465,41 @@ function FooterButton({
           Go to site <ArrowRight size={13} />
         </Button>
       ) : (
-        <Button size="sm" variant="outline" onClick={onClose}>
-          Close
+        <Button size="sm" variant="outline" onClick={onCloseTab}>
+          Close tab
         </Button>
       );
     case "close":
-      return (
-        <Button size="sm" variant="outline" onClick={onClose}>
-          Close
-        </Button>
-      );
+      // Nothing more can happen here: Discard, on the left, closes it.
+      return null;
   }
+}
+
+/** The upgrade tab, somewhere it has no upgrade to run: the way to the Studio. */
+export function UpgradeTabMessage({ message }: { message: string }) {
+  return (
+    <div className="flex min-h-svh w-full items-center justify-center bg-bg-primary p-6 text-fg-primary">
+      <div
+        role="status"
+        className="w-full max-w-md rounded-xl border border-border-float bg-bg-float p-6 shadow-sm"
+      >
+        <div className="flex items-center gap-2">
+          <AlertTriangle
+            size={18}
+            className="shrink-0 text-fg-warning-primary"
+          />
+          <h1 className="text-lg font-semibold">No upgrade here</h1>
+        </div>
+        <p className="mt-2 text-sm text-fg-secondary">{message}</p>
+        <div className="mt-4">
+          <a
+            href={withoutUpgradeTab(window.location.href)}
+            className="inline-flex h-8 items-center rounded-md border border-border-primary px-3 text-sm font-medium hover:bg-bg-float-raised"
+          >
+            Open the Studio
+          </a>
+        </div>
+      </div>
+    </div>
+  );
 }

@@ -2,7 +2,7 @@ import { GitBranch, Loader2, Plus } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../designSystem/cn";
 import { relativeLocalDate } from "../../utils/relativeLocalDate";
-import { changesLabel } from "./ProposalSwitcher";
+import { proposalChangesLabel } from "./ProposalSwitcher";
 import { Dialog, DialogContent, DialogTitle } from "../designSystem/dialog";
 import type { ProposalSummary } from "./types";
 
@@ -152,7 +152,7 @@ function ProposalRow({
           </div>
         )}
         <div className="mt-0.5 text-[0.6875rem] text-fg-secondary-alt">
-          {changesLabel(proposal.changes)} ·{" "}
+          {proposalChangesLabel(proposal)} ·{" "}
           {proposal.status === "closed"
             ? `closed${proposal.closedBy ? ` by ${proposal.closedBy.name}` : ""} ${relativeLocalDate(now, proposal.updatedAt)}`
             : proposal.status === "merged"

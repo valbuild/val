@@ -31,6 +31,8 @@ export type ProposalSummary = {
   ownedByViewer: boolean;
   /** Changes in it, saved or not. */
   changes: number;
+  /** An upgrade of the site's dependencies: it holds no content changes. */
+  upgrade?: boolean;
   /** ISO time of its last change. */
   updatedAt: string;
   /** Making its address. Absent on a list, where it is not read. */

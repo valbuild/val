@@ -601,8 +601,11 @@ export function HandoffPublishTab({ id }: { id: string }) {
       }, NO_INTENT_TIMEOUT_MS);
     } else if (remembered !== null) {
       // Opened again: it shows how it ended, set from `remembered` above.
-    } else if (intent.kind === "build-proposal") {
-      // `HandoffProposalBuildTab`'s, which `ValStudio` mounts for it instead.
+    } else if (
+      intent.kind === "build-proposal" ||
+      intent.kind === "start-upgrade"
+    ) {
+      // Another tab's, which `ValStudio` mounts for it instead.
       setWaiting({ kind: "cancelled", message: NO_INTENT_MESSAGE });
     } else {
       ownPending.current = true;
