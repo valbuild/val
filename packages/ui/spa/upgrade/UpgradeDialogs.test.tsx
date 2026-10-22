@@ -2,14 +2,14 @@
 import "../stores/react/testPolyfills";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { UpgradeChooser } from "./UpgradeChooser";
-import { UpgradeProgressDialog } from "./UpgradeProgressDialog";
+import { UpgradeProgressPage } from "./UpgradeProgressPage";
 import { upgradeFooterOf, type UpgradeProgressView } from "./upgradeProgress";
 import type { PublishProposalState } from "../components/proposals/PublishProposalDialog";
 import type { UpgradeCheckState } from "./useUpgradeCheck";
 
 /*
  * The Upgrade (valbuild/home `docs/adept.md`, step 7): which kind, and an
- * upgrade proposal followed in one dialog to Go to site (decision 20).
+ * upgrade proposal followed in its own tab to Go to site (decision 20).
  */
 const CHECKED: UpgradeCheckState = {
   status: "checked",
@@ -176,20 +176,21 @@ type Handlers = {
   onBuild: () => void;
   onPublish: () => void;
   onRetryPublish: () => void;
+  onCheckMerge: () => void;
   onReview: () => void;
+  onDiscard: () => void;
   onGoToSite: () => void;
+  onCloseTab: () => void;
 };
 
-/** The dialog, with the footer it derives from the view and the publish. */
+/** The tab's page, with the footer it derives from the view and the publish. */
 const progress = (
   v: UpgradeProgressView | null,
   publish: PublishProposalState = READY,
   handlers: Partial<Handlers> = {},
 ) =>
   render(
-    <UpgradeProgressDialog
-      open
-      onOpenChange={() => {}}
+    <UpgradeProgressPage
       displayName={v === null ? null : "Upgrade to new major versions"}
       view={v}
       publish={publish}
@@ -199,16 +200,25 @@ const progress = (
       onBuild={handlers.onBuild ?? (() => {})}
       onPublish={handlers.onPublish ?? (() => {})}
       onRetryPublish={handlers.onRetryPublish ?? (() => {})}
+      onCheckMerge={handlers.onCheckMerge ?? (() => {})}
       onReview={handlers.onReview ?? (() => {})}
+      onDiscard={handlers.onDiscard ?? (() => {})}
       onGoToSite={handlers.onGoToSite ?? (() => {})}
+      onCloseTab={handlers.onCloseTab ?? (() => {})}
     />,
   );
 
-/** The footer's one button, where Publish is. */
-const footerButton = () =>
-  within(screen.getByRole("group", { name: "Next step" })).getByRole("button");
+/** The footer's right-hand button: the next step, where Publish is. */
+const footerButton = () => {
+  const buttons = within(
+    screen.getByRole("group", { name: "Next step" }),
+  ).getAllByRole("button");
+  const last = buttons[buttons.length - 1];
+  if (last === undefined) throw new Error("no button in the footer");
+  return last;
+};
 
-describe("an upgrade, in one dialog to Go to site", () => {
+describe("an upgrade, in its own tab to Go to site", () => {
   test("open before the proposal is read: it says it is loading, and Publish waits", () => {
     progress(null, { kind: "checking" });
     expect(screen.getAllByText(/Loading the upgrade/).length).toBeGreaterThan(
@@ -366,7 +376,7 @@ describe("an upgrade, in one dialog to Go to site", () => {
   });
 
   test("a check only the Publish dialog can clear leads there", () => {
-    const onReview = jest.fn();
+    const onCheckMerge = jest.fn();
     progress(
       view(),
       {
@@ -380,10 +390,36 @@ describe("an upgrade, in one dialog to Go to site", () => {
           },
         ],
       },
-      { onReview },
+      { onCheckMerge },
     );
+    fireEvent.click(screen.getByRole("button", { name: /check the merge/i }));
+    expect(onCheckMerge).toHaveBeenCalledTimes(1);
+  });
+
+  test("ready: Review opens the proposal beside Publish, which publishes directly", () => {
+    const onReview = jest.fn();
+    const onPublish = jest.fn();
+    progress(view(), READY, { onReview, onPublish });
     fireEvent.click(screen.getByRole("button", { name: /review/i }));
     expect(onReview).toHaveBeenCalledTimes(1);
+    expect(footerButton().textContent).toMatch(/Publish/);
+    fireEvent.click(footerButton());
+    expect(onPublish).toHaveBeenCalledTimes(1);
+  });
+
+  test("an open upgrade can be discarded, and a published one only left", () => {
+    const onDiscard = jest.fn();
+    const { unmount } = progress(view(), READY, { onDiscard });
+    fireEvent.click(screen.getByRole("button", { name: /discard upgrade/i }));
+    expect(onDiscard).toHaveBeenCalledTimes(1);
+    unmount();
+
+    const onCloseTab = jest.fn();
+    progress(view(), { kind: "merged" }, { onCloseTab });
+    expect(screen.queryByRole("button", { name: /discard/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /review/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /close tab/i }));
+    expect(onCloseTab).toHaveBeenCalledTimes(1);
   });
 
   test("an upgrade adept could not compute says why, nothing after it is shown, and it can be closed", () => {
@@ -402,6 +438,6 @@ describe("an upgrade, in one dialog to Go to site", () => {
     );
     expect(screen.getByText(/No fix is strictly better/)).toBeTruthy();
     expect(screen.queryByText(/Typecheck/)).toBeNull();
-    expect(footerButton().textContent).toMatch(/Close/);
+    expect(footerButton().textContent).toMatch(/Discard upgrade/);
   });
 });

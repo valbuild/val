@@ -12,7 +12,7 @@ import { FloatingPanel, PanelSectionLabel } from "../shell/FloatingPanel";
 import { SheetHeading, SheetRow } from "../shell/PhoneSheet";
 import type { TopBarProposals } from "../shell/TopBar";
 import type { ShellBreakpoint } from "../shell/types";
-import { changesLabel } from "./ProposalSwitcher";
+import { proposalChangesLabel } from "./ProposalSwitcher";
 import type { ProposalSummary } from "./types";
 
 /**
@@ -68,7 +68,7 @@ export function ProposalSheet({
             title={here.proposal.displayName}
             detail={[
               ownerLabel(here.proposal),
-              changesLabel(here.proposal.changes),
+              proposalChangesLabel(here.proposal),
               here.unsaved > 0 ? `${here.unsaved} unsaved` : null,
             ]
               .filter((part) => part !== null)
@@ -139,7 +139,7 @@ export function ProposalSheet({
           <SheetRow
             key={proposal.name}
             icon={<GitBranch size={16} className="text-fg-proposal" />}
-            detail={`${ownerLabel(proposal)} · ${changesLabel(proposal.changes)}`}
+            detail={`${ownerLabel(proposal)} · ${proposalChangesLabel(proposal)}`}
             onClick={choose(() => proposals.onOpenProposal(proposal.name))}
           >
             {proposal.displayName}

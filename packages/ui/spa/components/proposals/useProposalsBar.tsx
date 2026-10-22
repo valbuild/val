@@ -65,6 +65,7 @@ import { updateProposalWithCode } from "../../proposals/updateWithCode";
 import { studioCodeUpdateDeps } from "../../proposals/studioCodeUpdate";
 import { mergeNeedsBuild } from "../../proposals/mergeNeedsBuild";
 import { randomUUID } from "../../utils/randomUUID";
+import { withoutUpgradeTab } from "../../upgrade/upgradeTab";
 import {
   restoreCodeOf,
   withRestoreCode,
@@ -101,6 +102,9 @@ function publishBlockedByStatus(status: string | undefined): string | null {
 
 type Dialog = "new" | "close" | "rename" | "all" | "publish" | null;
 
+/** No list yet: one array, so what reads it does not see a new one each render. */
+const NO_PROPOSALS: ProposalJson[] = [];
+
 /** How often a proposal waiting on its dependencies is read again. */
 const DEPENDENCIES_POLL_MS = 5_000;
 
@@ -118,9 +122,15 @@ export function useProposalsBar({
   unsaved,
   portalContainer,
   onCompare,
+  upgradeTab = false,
 }: {
   /** Changes made since the last save: the Save button's count. */
   unsaved: number;
+  /**
+   * This document is an upgrade proposal's upgrade tab (`upgradeTab.ts`):
+   * the upgrade runs here, built in place, and `upgradePage` is the page.
+   */
+  upgradeTab?: boolean;
   portalContainer?: HTMLElement | null;
   /** Compare with the site: what Publish would publish. */
   onCompare?: () => void;
@@ -139,6 +149,8 @@ export function useProposalsBar({
   upgrade: UpgradeButton | null;
   /** Settings → Updates: upgrade in a proposal. */
   upgradeSettings: UpgradeSettings | null;
+  /** In the upgrade tab, the page; `null` anywhere else. */
+  upgradePage: ReactNode | null;
 } {
   const mode = useValMode();
   const here = useCurrentProposal();
@@ -199,8 +211,11 @@ export function useProposalsBar({
         ready?.proposals.find((p) => p.name === here.name) ??
         null);
 
+  // Never as the upgrade tab: that is one proposal's, and only at its address.
   const go = useCallback((origin: string) => {
-    window.location.assign(sameStudioPageAt(origin, window.location));
+    window.location.assign(
+      withoutUpgradeTab(sameStudioPageAt(origin, window.location)),
+    );
   }, []);
 
   const failed = useCallback(
@@ -333,11 +348,12 @@ export function useProposalsBar({
    * An upgrade builds by itself once its dependencies are built: nothing is
    * left for a person to decide before its preview (valbuild/home
    * `docs/adept.md`, "How one Upgrade goes"). Once per staged inputs, as the
-   * typecheck below: a build that failed is tried again by a press. Where
-   * this page cannot build, the build waits for a builder tab, which only a
-   * tap may open (`buildInTab`): the upgrade's dialog asks for that one.
+   * typecheck below: a build that failed is tried again by a press. In its
+   * upgrade tab only, which can build in every browser; the Studio at the
+   * same address is where Review goes, and builds nothing by itself.
    */
   const upgradeBuildDue =
+    upgradeTab &&
     here !== null &&
     currentJson?.upgrade?.state === "staged" &&
     code?.state === "required" &&
@@ -999,8 +1015,9 @@ export function useProposalsBar({
   const upgradeSiteUrl = ready?.siteUrl ?? null;
   const upgrade = useUpgrade({
     enabled: state.status !== "off",
-    client,
+    inTab: upgradeTab,
     here,
+    proposals: ready?.proposals ?? NO_PROPOSALS,
     current: currentJson,
     code,
     typecheck: typecheckState,
@@ -1016,7 +1033,7 @@ export function useProposalsBar({
         if (publishState.kind === "error") return void loadChecks();
         void retryPublish();
       },
-      onReview: () => {
+      onCheckMerge: () => {
         openDialog("publish");
         void loadChecks();
       },
@@ -1024,6 +1041,9 @@ export function useProposalsBar({
         ? { onGoToSite: () => go(upgradeSiteUrl) }
         : {}),
     },
+    onDiscard: () => openDialog("close"),
+    onReview: () =>
+      window.location.assign(withoutUpgradeTab(window.location.href)),
     onRefresh: onTypechecked,
     portalContainer,
   });
@@ -1036,6 +1056,7 @@ export function useProposalsBar({
       restoreDestination,
       upgrade: null,
       upgradeSettings: null,
+      upgradePage: upgrade.page,
     };
   }
 
@@ -1071,7 +1092,10 @@ export function useProposalsBar({
       openDialog("all");
     },
     onSave: () => void save(),
-    ...(build !== null ? { onBuild: () => void runBuild() } : {}),
+    // An upgrade is built in its tab, which the notice above the editor opens.
+    ...(build !== null && currentJson?.upgrade === undefined
+      ? { onBuild: () => void runBuild() }
+      : {}),
     onPublish: () => {
       openDialog("publish");
       void loadChecks();
@@ -1161,6 +1185,7 @@ export function useProposalsBar({
             onOpenChange={(isOpen) => setDialog(isOpen ? "close" : null)}
             displayName={currentSummary.displayName}
             changes={currentSummary.changes}
+            upgrade={currentSummary.upgrade === true}
             merging={currentJson?.status === "merging"}
             onConfirm={() => void close()}
             closing={busy === "closing"}
@@ -1238,6 +1263,7 @@ export function useProposalsBar({
     restoreDestination,
     upgrade: upgrade.button,
     upgradeSettings: upgrade.settings,
+    upgradePage: upgrade.page,
   };
 }
 

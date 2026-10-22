@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { UpgradeDialog } from "../../../upgrade/UpgradeDialog";
-import { UpgradeProgressDialog } from "../../../upgrade/UpgradeProgressDialog";
+import { UpgradeProgressPage } from "../../../upgrade/UpgradeProgressPage";
 import type { UpgradeStart } from "../../../upgrade/UpgradeChooser";
 import {
   upgradeFooterOf,
@@ -12,8 +12,8 @@ import type { UpgradeCheckState } from "../../../upgrade/useUpgradeCheck";
 
 /**
  * The Upgrade (valbuild/home `docs/adept.md`, step 7): the button's dialog,
- * which opens an upgrade proposal, and that proposal followed in one dialog
- * to Go to site -- computed, its dependencies built, typechecked, built,
+ * which opens the upgrade in a tab of its own, and that tab's page following
+ * the upgrade proposal to Go to site -- computed, its dependencies built, typechecked, built,
  * published (decision 20). Nothing here talks to content: each story is one
  * state.
  */
@@ -132,12 +132,9 @@ function Follow({
   view: UpgradeProgressView | null;
   publish?: PublishProposalState;
 }) {
-  const [open, setOpen] = useState(true);
   return (
     <div className="h-screen bg-bg-primary text-fg-primary">
-      <UpgradeProgressDialog
-        open={open}
-        onOpenChange={setOpen}
+      <UpgradeProgressPage
         displayName={view === null ? null : "Upgrade to new major versions"}
         view={view}
         publish={publish}
@@ -147,8 +144,11 @@ function Follow({
         onBuild={() => {}}
         onPublish={() => {}}
         onRetryPublish={() => {}}
+        onCheckMerge={() => {}}
         onReview={() => {}}
+        onDiscard={() => {}}
         onGoToSite={() => {}}
+        onCloseTab={() => {}}
       />
     </div>
   );

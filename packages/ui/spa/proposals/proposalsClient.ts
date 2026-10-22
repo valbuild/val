@@ -626,6 +626,7 @@ export function toSummary(
       viewer !== null &&
       (json.ownerIds ?? (json.ownerId ? [json.ownerId] : [])).includes(viewer),
     changes: json.changes ?? 0,
+    ...(json.upgrade !== undefined ? { upgrade: true } : {}),
     updatedAt: json.updatedAt,
     ...(json.setup !== undefined ? { setup: jobState(json.setup) } : {}),
     ...(json.closedBy ? { closedBy: people(json.closedBy) } : {}),

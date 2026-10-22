@@ -18,6 +18,7 @@ export function CloseProposalDialog({
   onOpenChange,
   displayName,
   changes,
+  upgrade = false,
   onConfirm,
   merging = false,
   closing = false,
@@ -28,6 +29,8 @@ export function CloseProposalDialog({
   onOpenChange: (open: boolean) => void;
   displayName: string;
   changes: number;
+  /** An upgrade: discarding it leaves the site's dependencies as they are. */
+  upgrade?: boolean;
   onConfirm: () => void;
   /** Being published: closing stops that first. */
   merging?: boolean;
@@ -43,12 +46,14 @@ export function CloseProposalDialog({
       >
         <div className="flex flex-col gap-1.5 px-5 pb-4 pt-5">
           <DialogTitle className="text-sm font-semibold">
-            Close “{displayName}”?
+            {upgrade ? "Discard" : "Close"} “{displayName}”?
           </DialogTitle>
           <DialogDescription className="text-xs text-fg-secondary">
-            {changes === 0
-              ? "It has no changes."
-              : `Its ${changesLabel(changes)} will not be published.`}{" "}
+            {upgrade
+              ? "The site keeps the dependencies it has."
+              : changes === 0
+                ? "It has no changes."
+                : `Its ${changesLabel(changes)} will not be published.`}{" "}
             You can reopen it from All proposals › Closed.
             {merging &&
               " It is being published: that is stopped first, and nothing reaches the site."}
@@ -81,7 +86,11 @@ export function CloseProposalDialog({
             )}
           >
             {closing && <Loader2 size={14} className="animate-spin" />}
-            {closing ? "Closing…" : "Close proposal"}
+            {closing
+              ? "Closing…"
+              : upgrade
+                ? "Discard upgrade"
+                : "Close proposal"}
           </button>
         </div>
       </DialogContent>

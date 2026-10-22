@@ -111,7 +111,7 @@ export function ProposalSwitcher({
                 key={proposal.name}
                 icon={<GitBranch size={14} className="text-fg-proposal" />}
                 label={proposal.displayName}
-                detail={`${proposal.ownedByViewer ? "You" : (proposal.owner?.name ?? "Someone")} · ${changesLabel(proposal.changes)}`}
+                detail={`${proposal.ownedByViewer ? "You" : (proposal.owner?.name ?? "Someone")} · ${proposalChangesLabel(proposal)}`}
                 current={here === proposal.name}
                 onClick={choose(() => onOpenProposal(proposal.name))}
               />
@@ -185,6 +185,17 @@ export function ProposalLocationChip({
 
 export function changesLabel(count: number): string {
   return count === 1 ? "1 change" : `${count} changes`;
+}
+
+/**
+ * What a proposal holds, for a list or a heading: its changes -- or, for an
+ * upgrade, that it is one. An upgrade stages dependencies rather than
+ * content, so its count of changes is always 0 and says nothing.
+ */
+export function proposalChangesLabel(
+  proposal: Pick<ProposalSummary, "changes" | "upgrade">,
+): string {
+  return proposal.upgrade ? "Upgrade" : changesLabel(proposal.changes);
 }
 
 function MenuRow({
