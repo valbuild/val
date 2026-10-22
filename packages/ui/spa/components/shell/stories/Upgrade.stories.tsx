@@ -3,14 +3,19 @@ import { useState } from "react";
 import { UpgradeDialog } from "../../../upgrade/UpgradeDialog";
 import { UpgradeProgressDialog } from "../../../upgrade/UpgradeProgressDialog";
 import type { UpgradeStart } from "../../../upgrade/UpgradeChooser";
-import type { UpgradeProgressView } from "../../../upgrade/upgradeProgress";
+import {
+  upgradeFooterOf,
+  type UpgradeProgressView,
+} from "../../../upgrade/upgradeProgress";
+import type { PublishProposalState } from "../../proposals/PublishProposalDialog";
 import type { UpgradeCheckState } from "../../../upgrade/useUpgradeCheck";
 
 /**
  * The Upgrade (valbuild/home `docs/adept.md`, step 7): the button's dialog,
- * which opens an upgrade proposal, and that proposal followed to Publish --
- * computed, its dependencies built, typechecked, built (decision 20). Nothing
- * here talks to content: each story is one state.
+ * which opens an upgrade proposal, and that proposal followed in one dialog
+ * to Go to site -- computed, its dependencies built, typechecked, built,
+ * published (decision 20). Nothing here talks to content: each story is one
+ * state.
  */
 const meta: Meta = {
   title: "Shell/Upgrade",
@@ -107,27 +112,52 @@ const READY: UpgradeProgressView = {
     detail: null,
     retryable: true,
   },
-  build: { state: "done", detail: null },
+  build: { state: "done", detail: null, percent: null },
   canPublish: true,
 };
 
-function Follow({ view }: { view: UpgradeProgressView }) {
+const CHECKS_PASS: PublishProposalState = {
+  kind: "ready",
+  checks: [
+    { id: "site-code", ok: true, message: "The site's code is as it was." },
+  ],
+  changes: 2,
+  unsaved: 0,
+};
+
+function Follow({
+  view,
+  publish = CHECKS_PASS,
+}: {
+  view: UpgradeProgressView | null;
+  publish?: PublishProposalState;
+}) {
   const [open, setOpen] = useState(true);
   return (
     <div className="h-screen bg-bg-primary text-fg-primary">
       <UpgradeProgressDialog
         open={open}
         onOpenChange={setOpen}
-        displayName="Upgrade to new major versions"
+        displayName={view === null ? null : "Upgrade to new major versions"}
         view={view}
+        publish={publish}
+        footer={upgradeFooterOf(view, publish)}
         onComputeLockfile={() => {}}
         onTypecheck={() => {}}
         onBuild={() => {}}
         onPublish={() => {}}
+        onRetryPublish={() => {}}
+        onReview={() => {}}
+        onGoToSite={() => {}}
       />
     </div>
   );
 }
+
+/** The page has just opened at the proposal's address. */
+export const Loading: StoryObj = {
+  render: () => <Follow view={null} publish={{ kind: "checking" }} />,
+};
 
 export const Computing: StoryObj = {
   render: () => (
@@ -137,7 +167,7 @@ export const Computing: StoryObj = {
         upgrade: { ...READY.upgrade, state: "computing", changes: [] },
         dependencies: { state: "waiting", detail: null },
         typecheck: { ...READY.typecheck, state: "waiting", newErrors: null },
-        build: { state: "waiting", detail: null },
+        build: { state: "waiting", detail: null, percent: null },
         canPublish: false,
       }}
     />
@@ -156,7 +186,53 @@ export const Typechecking: StoryObj = {
           detail: "The upgrade: Loading types (214)",
           retryable: false,
         },
-        build: { state: "required", detail: null },
+        build: { state: "required", detail: null, percent: null },
+        canPublish: false,
+      }}
+    />
+  ),
+};
+
+/** Started by itself once the dependencies were built. */
+export const Building: StoryObj = {
+  render: () => (
+    <Follow
+      view={{
+        ...READY,
+        build: {
+          state: "running",
+          detail: "Uploading 41 of 112",
+          percent: 46,
+        },
+        canPublish: false,
+      }}
+    />
+  ),
+};
+
+export const BuildFailed: StoryObj = {
+  render: () => (
+    <Follow
+      view={{
+        ...READY,
+        build: {
+          state: "failed",
+          detail: "The proposals API answered 502.",
+          percent: null,
+        },
+        canPublish: false,
+      }}
+    />
+  ),
+};
+
+/** An iPhone: the builder tab opens only from a tap. */
+export const BuildNeedsATap: StoryObj = {
+  render: () => (
+    <Follow
+      view={{
+        ...READY,
+        build: { state: "tap", detail: null, percent: null },
         canPublish: false,
       }}
     />
@@ -206,4 +282,26 @@ export const NewTypeErrors: StoryObj = {
 
 export const ReadyToPublish: StoryObj = {
   render: () => <Follow view={READY} />,
+};
+
+export const Publishing: StoryObj = {
+  render: () => (
+    <Follow view={READY} publish={{ kind: "publishing", step: "publishing" }} />
+  ),
+};
+
+export const PublishFailed: StoryObj = {
+  render: () => (
+    <Follow
+      view={READY}
+      publish={{
+        kind: "failed",
+        message: "The site moved on while it was being published",
+      }}
+    />
+  ),
+};
+
+export const Published: StoryObj = {
+  render: () => <Follow view={READY} publish={{ kind: "merged" }} />,
 };

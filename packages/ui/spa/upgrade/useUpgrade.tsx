@@ -16,21 +16,23 @@ import {
 } from "../proposals/proposalsClient";
 import { waitForAddress } from "../proposals/useProposals";
 import type { ProposalTypecheckState } from "../proposals/useProposalTypecheck";
+import type { ProposalBuildProgress } from "../proposals/proposalBuildProgress";
+import type { PublishProposalState } from "../components/proposals/PublishProposalDialog";
 import { randomUUID } from "../utils/randomUUID";
 import type { UpgradeStart } from "./UpgradeChooser";
 import { UpgradeDialog } from "./UpgradeDialog";
 import { UpgradeProgressDialog } from "./UpgradeProgressDialog";
-import { upgradeProgressOf } from "./upgradeProgress";
+import { upgradeFooterOf, upgradeProgressOf } from "./upgradeProgress";
 import { useUpgradeCheck, type UpgradeCheckState } from "./useUpgradeCheck";
 import { upgradeDisplayName, type UpgradePath } from "./upgradesClient";
 
 /*
  * The Upgrade (valbuild/home `docs/adept.md`, step 7, "How one Upgrade goes"):
  * the button, shown while the check says there is something; its dialog,
- * which opens an upgrade proposal; and, at that proposal's address, the same
- * dialog following it to Publish -- computed, its dependencies built,
- * typechecked, built. The proposal is otherwise an ordinary one: Build and
- * Publish are the proposals bar's.
+ * which opens an upgrade proposal; and, at that proposal's address, one
+ * dialog following it all the way -- computed, its dependencies built,
+ * typechecked, built, published -- to Go to site. The proposals bar builds
+ * and publishes it, as any proposal; this is what a person sees of that.
  */
 
 /** A query parameter: the upgrade dialog opens on arrival at the proposal. */
@@ -78,7 +80,20 @@ export function useUpgrade(input: {
   onTypecheck: (() => void) | null;
   onComputeLockfile: () => void;
   onBuild: () => void;
-  onPublish: () => void;
+  /** How far a running build of the proposal is. */
+  buildProgress: ProposalBuildProgress | null;
+  /** The proposal's publish, as the bar runs it. */
+  publish: {
+    state: PublishProposalState;
+    /** Read whether it can be published: the checks. */
+    onPrepare: () => void;
+    onPublish: () => void;
+    onRetry: () => void;
+    /** The proposal's own Publish dialog, for a check only it clears. */
+    onReview: () => void;
+    /** `undefined` when the project has not said where its site is. */
+    onGoToSite?: () => void;
+  };
   onRefresh: () => void;
   portalContainer?: HTMLElement | null;
 }): {
@@ -164,10 +179,32 @@ export function useUpgrade(input: {
             upgrade,
             typecheck: input.typecheck,
             code: input.code,
+            buildProgress: input.buildProgress,
           })
         : null,
-    [upgrade, current, input.typecheck, input.code],
+    [upgrade, current, input.typecheck, input.code, input.buildProgress],
   );
+  // Ready to publish: read the checks, so one press of Publish publishes.
+  // Again whenever what is staged moves, since that is what they check.
+  const { publish } = input;
+  const onPrepare = publish.onPrepare;
+  const prepared = useRef<string | null>(null);
+  const readyFor = view?.canPublish ? (current?.staged?.inputs ?? "") : null;
+  useEffect(() => {
+    if (readyFor === null || prepared.current === readyFor) return;
+    prepared.current = readyFor;
+    onPrepare();
+  }, [readyFor, onPrepare]);
+  // Arrived at a proposal that is not an upgrade after all: nothing to follow.
+  const notAnUpgrade =
+    here !== null &&
+    current !== null &&
+    current.name === here.name &&
+    current.upgrade === undefined;
+  useEffect(() => {
+    if (notAnUpgrade) setFollowing(false);
+  }, [notAnUpgrade]);
+  const footer = upgradeFooterOf(view, publish.state);
 
   const vulnerable =
     check.status === "checked" &&
@@ -190,13 +227,7 @@ export function useUpgrade(input: {
       }
     : null;
 
-  const {
-    onTypecheck,
-    onComputeLockfile,
-    onBuild,
-    onPublish,
-    portalContainer,
-  } = input;
+  const { onTypecheck, onComputeLockfile, onBuild, portalContainer } = input;
   const dialogs = (
     <>
       {usable && (
@@ -210,19 +241,26 @@ export function useUpgrade(input: {
           portalContainer={portalContainer}
         />
       )}
-      {view !== null && current !== null && (
+      {here !== null && (view !== null || following) && (
         <UpgradeProgressDialog
           open={following}
           onOpenChange={setFollowing}
-          displayName={current.displayName}
+          displayName={view !== null ? (current?.displayName ?? null) : null}
           view={view}
+          publish={publish.state}
+          footer={footer}
           onComputeLockfile={onComputeLockfile}
           onTypecheck={() => onTypecheck?.()}
           onBuild={onBuild}
-          onPublish={() => {
+          onPublish={publish.onPublish}
+          onRetryPublish={publish.onRetry}
+          onReview={() => {
             setFollowing(false);
-            onPublish();
+            publish.onReview();
           }}
+          {...(publish.onGoToSite !== undefined
+            ? { onGoToSite: publish.onGoToSite }
+            : {})}
           portalContainer={portalContainer}
         />
       )}

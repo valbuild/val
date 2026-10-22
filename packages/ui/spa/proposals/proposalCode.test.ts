@@ -21,6 +21,10 @@ const staged = (over: Partial<ProposalStaged> = {}): ProposalStaged => ({
   buildRequired: true,
   ...over,
 });
+/** For a build whose serving answers: nothing reads the proposal back. */
+const notRead = async (): Promise<ProposalJson> => {
+  throw new Error("the proposal is not read back in this test");
+};
 const proposal = (built: string | null): ProposalJson => ({
   name: NAME,
   branch: `val/p/${NAME}`,
@@ -87,6 +91,7 @@ describe("buildProposal", () => {
       client: {
         files: async () => ({ files: OWN, staged: staged() }),
         buildTarget: siteTarget,
+        get: notRead,
         serveBuild: async (name, build) => {
           served.push([name, build]);
           return proposal("b1");
@@ -115,6 +120,7 @@ describe("buildProposal", () => {
             staged: staged({ inputs: null, files: [], buildRequired: false }),
           }),
           buildTarget: siteTarget,
+          get: notRead,
           serveBuild,
         },
         deploy,
@@ -130,6 +136,7 @@ describe("buildProposal", () => {
             staged: staged({ buildRequired: false }),
           }),
           buildTarget: siteTarget,
+          get: notRead,
           serveBuild,
         },
         deploy,
@@ -148,6 +155,7 @@ describe("buildProposal", () => {
         client: {
           files: async () => ({ files: OWN, staged: staged() }),
           buildTarget: siteTarget,
+          get: notRead,
           serveBuild,
         },
         deploy: async () => ({
@@ -165,6 +173,7 @@ describe("buildProposal", () => {
         client: {
           files: async () => ({ files: OWN, staged: staged() }),
           buildTarget: siteTarget,
+          get: notRead,
           serveBuild: async () => {
             throw new Error(
               "The proposal's files changed while it was being built. Build it again.",
@@ -192,6 +201,7 @@ describe("buildProposal, and what it builds against", () => {
       client: {
         files: async () => ({ files: OWN, staged: staged() }),
         buildTarget,
+        get: notRead,
         serveBuild: async () => proposal("b1"),
       },
       deploy: async (_files, target) => {
@@ -250,7 +260,12 @@ describe("buildProposal, where the browser cannot build", () => {
     const deploy = jest.fn();
     const outcome = await buildProposal({
       name: NAME,
-      client: { files, buildTarget: siteTarget, serveBuild: jest.fn() },
+      client: {
+        files,
+        buildTarget: siteTarget,
+        get: notRead,
+        serveBuild: jest.fn(),
+      },
       deploy,
       canBuildHere: () => false,
     });
@@ -402,5 +417,138 @@ describe("the code tools", () => {
       result: { success: false, error: "Could not build: x" },
       isError: true,
     });
+  });
+});
+
+describe("buildProposal, serving the build", () => {
+  /** A clock the waits move, so a four-minute wait takes no time. */
+  const clock = () => {
+    let at = 0;
+    return {
+      now: () => at,
+      sleep: async (ms: number) => {
+        at += ms;
+      },
+    };
+  };
+  const servedProposal = (): ProposalJson => ({
+    ...proposal("b1"),
+    staged: {
+      files: ["src/components/Hero.tsx"],
+      inputs: INPUTS,
+      buildRequired: false,
+    },
+  });
+  const notServed = (): ProposalJson => ({
+    ...proposal(null),
+    staged: {
+      files: ["src/components/Hero.tsx"],
+      inputs: INPUTS,
+      buildRequired: true,
+    },
+  });
+  const timedOut = () =>
+    new ProposalsApiError(524, "The proposals API answered 524.", undefined);
+
+  test("builds without the lockfiles, so a merge finds the build by name", async () => {
+    const deployed: unknown[] = [];
+    await buildProposal({
+      name: NAME,
+      client: {
+        files: async () => ({
+          files: {
+            ...OWN,
+            "package.json": "{}",
+            "pnpm-lock.yaml": "lockfileVersion: '9.0'",
+            "pnpm-workspace.yaml": "packages: []",
+            "packages/a/yarn.lock": "",
+          },
+          staged: staged(),
+        }),
+        buildTarget: siteTarget,
+        get: notRead,
+        serveBuild: async () => proposal("b1"),
+      },
+      deploy: async (files) => {
+        deployed.push(files);
+        return { status: "uploaded", publishId: "p-1" };
+      },
+      canBuildHere: () => true,
+    });
+    expect(deployed).toEqual([{ ...OWN, "package.json": "{}" }]);
+  });
+
+  test("a gateway that gives up is not a failure: the proposal is read until it is built", async () => {
+    const { now, sleep } = clock();
+    const serveBuild = jest.fn().mockRejectedValue(timedOut());
+    const reads = [notServed(), notServed(), servedProposal()];
+    const steps: string[] = [];
+    const outcome = await buildProposal({
+      name: NAME,
+      client: {
+        files: async () => ({ files: OWN, staged: staged() }),
+        buildTarget: siteTarget,
+        get: async () => reads.shift() ?? servedProposal(),
+        serveBuild,
+      },
+      deploy: async () => ({ status: "uploaded", publishId: "p-1" }),
+      canBuildHere: () => true,
+      onStep: (step) => steps.push(step.kind),
+      now,
+      sleep,
+    });
+    expect(outcome).toMatchObject({ status: "built", hash: "b1" });
+    expect(serveBuild).toHaveBeenCalledTimes(1);
+    expect(steps).toEqual(["reading", "deploying", "serving", "waiting"]);
+  });
+
+  test("a proposal never said to be built is served once more, and that answer stands", async () => {
+    const { now, sleep } = clock();
+    const serveBuild = jest
+      .fn()
+      .mockRejectedValueOnce(timedOut())
+      .mockResolvedValueOnce(proposal("b2"));
+    const outcome = await buildProposal({
+      name: NAME,
+      client: {
+        files: async () => ({ files: OWN, staged: staged() }),
+        buildTarget: siteTarget,
+        get: async () => notServed(),
+        serveBuild,
+      },
+      deploy: async () => ({ status: "uploaded", publishId: "p-1" }),
+      canBuildHere: () => true,
+      now,
+      sleep,
+    });
+    expect(serveBuild).toHaveBeenCalledTimes(2);
+    expect(outcome).toMatchObject({ status: "built", hash: "b2" });
+  });
+
+  test("content refusing the build fails at once, in its words", async () => {
+    const get = jest.fn();
+    const outcome = await buildProposal({
+      name: NAME,
+      client: {
+        files: async () => ({ files: OWN, staged: staged() }),
+        buildTarget: siteTarget,
+        get,
+        serveBuild: async () => {
+          throw new ProposalsApiError(
+            409,
+            "The proposal's files changed while it was being built. Build it again.",
+            undefined,
+          );
+        },
+      },
+      deploy: async () => ({ status: "uploaded", publishId: "p-1" }),
+      canBuildHere: () => true,
+    });
+    expect(outcome).toEqual({
+      status: "failed",
+      message:
+        "The proposal's files changed while it was being built. Build it again.",
+    });
+    expect(get).not.toHaveBeenCalled();
   });
 });
