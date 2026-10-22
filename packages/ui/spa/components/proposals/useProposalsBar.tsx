@@ -329,6 +329,26 @@ export function useProposalsBar({
     currentJson?.typecheck?.inputs !== stagedInputs;
   const typecheckState = typecheck.state;
   const runTypecheck = typecheck.run;
+  /*
+   * An upgrade builds by itself once its dependencies are built: nothing is
+   * left for a person to decide before its preview (valbuild/home
+   * `docs/adept.md`, "How one Upgrade goes"). Once per staged inputs, as the
+   * typecheck below: a build that failed is tried again by a press. Where
+   * this page cannot build, the build waits for a builder tab, which only a
+   * tap may open (`buildInTab`): the upgrade's dialog asks for that one.
+   */
+  const upgradeBuildDue =
+    here !== null &&
+    currentJson?.upgrade?.state === "staged" &&
+    code?.state === "required" &&
+    stagedInputs !== null;
+  const upgradeBuildTried = useRef<string | null>(null);
+  useEffect(() => {
+    if (!upgradeBuildDue || stagedInputs === null) return;
+    if (upgradeBuildTried.current === stagedInputs) return;
+    upgradeBuildTried.current = stagedInputs;
+    void runBuild();
+  }, [upgradeBuildDue, stagedInputs, runBuild]);
   const typecheckTried = useRef<string | null>(null);
   useEffect(() => {
     if (!typecheckDue || runTypecheck === null || stagedInputs === null) return;
@@ -976,6 +996,7 @@ export function useProposalsBar({
     setDialog(next);
   };
 
+  const upgradeSiteUrl = ready?.siteUrl ?? null;
   const upgrade = useUpgrade({
     enabled: state.status !== "off",
     client,
@@ -986,9 +1007,22 @@ export function useProposalsBar({
     onTypecheck: runTypecheck === null ? null : () => void runTypecheck(),
     onComputeLockfile: () => void computeLockfile(),
     onBuild: () => void runBuild(),
-    onPublish: () => {
-      openDialog("publish");
-      void loadChecks();
+    buildProgress: proposalBuild.progress,
+    publish: {
+      state: dialogState,
+      onPrepare: () => void loadChecks(),
+      onPublish: () => void runPublish(),
+      onRetry: () => {
+        if (publishState.kind === "error") return void loadChecks();
+        void retryPublish();
+      },
+      onReview: () => {
+        openDialog("publish");
+        void loadChecks();
+      },
+      ...(upgradeSiteUrl !== null
+        ? { onGoToSite: () => go(upgradeSiteUrl) }
+        : {}),
     },
     onRefresh: onTypechecked,
     portalContainer,

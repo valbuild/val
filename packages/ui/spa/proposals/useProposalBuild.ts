@@ -5,7 +5,15 @@ import {
 } from "../components/ValProvider";
 import { canBuildHere } from "../publish/handoff";
 import { buildInTab, openBuilder as openBuilderTab } from "./buildInTab";
-import { buildProposal, type ProposalBuildOutcome } from "./proposalCode";
+import {
+  buildProposal,
+  type ProposalBuildOutcome,
+  type ProposalBuildStep,
+} from "./proposalCode";
+import {
+  proposalBuildProgress,
+  type ProposalBuildProgress,
+} from "./proposalBuildProgress";
 import { createProposalsClient, type ProposalsClient } from "./proposalsClient";
 
 /**
@@ -34,7 +42,13 @@ export type ProposalBuildState = {
    * -- the assistant's `build_proposal` is no tap -- and then Build opens it
    * (`openBuilder`). `step` is the tab's, as it reports it.
    */
-  inTab: { blocked: boolean; step: string | null } | null;
+  inTab: {
+    blocked: boolean;
+    step: string | null;
+    percent?: number | null;
+  } | null;
+  /** Where a build in this page is, around its deploy; `null` when none is. */
+  step: ProposalBuildStep | null;
 };
 
 const INITIAL: ProposalBuildState = {
@@ -43,6 +57,7 @@ const INITIAL: ProposalBuildState = {
   changed: 0,
   proposalRequested: 0,
   inTab: null,
+  step: null,
 };
 let current: ProposalBuildState = INITIAL;
 const listeners = new Set<() => void>();
@@ -94,6 +109,7 @@ export function runProposalBuild(
         building: false,
         error: outcome.status === "failed" ? outcome.message : null,
         changed: current.changed + 1,
+        step: null,
       });
       return outcome;
     })
@@ -115,10 +131,12 @@ export function useProposalBuild(client?: ProposalsClient): {
   state: ProposalBuildState;
   /** `null` off a proposal: nothing to build. */
   build: (() => Promise<ProposalBuildOutcome>) | null;
+  /** How far the running build is, in words; `null` when none runs. */
+  progress: ProposalBuildProgress | null;
 } {
   const state = useSyncExternalStore(subscribe, snapshot, snapshot);
   const here = useCurrentProposal();
-  const { deploy } = useStudioDeployState();
+  const { deploy, state: deployState } = useStudioDeployState();
   const proposals = useMemo(
     () => client ?? createProposalsClient({ api: "/api/val" }),
     [client],
@@ -144,9 +162,20 @@ export function useProposalBuild(client?: ProposalsClient): {
                     ...(target ? { target } : {}),
                   })
                 ).result,
+              onStep: (step) => set({ step }),
             }),
       ),
     [deploy, name, proposals],
   );
-  return { state, build: name === null ? null : build };
+  const progress: ProposalBuildProgress | null = !state.building
+    ? null
+    : state.inTab !== null
+      ? {
+          label: state.inTab.blocked
+            ? "Waiting for the builder tab"
+            : (state.inTab.step ?? "Opening the builder tab"),
+          percent: state.inTab.percent ?? null,
+        }
+      : proposalBuildProgress(state.step, deployState);
+  return { state, build: name === null ? null : build, progress };
 }

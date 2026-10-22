@@ -1,14 +1,15 @@
 /** @jest-environment jsdom */
 import "../stores/react/testPolyfills";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { UpgradeChooser } from "./UpgradeChooser";
 import { UpgradeProgressDialog } from "./UpgradeProgressDialog";
-import type { UpgradeProgressView } from "./upgradeProgress";
+import { upgradeFooterOf, type UpgradeProgressView } from "./upgradeProgress";
+import type { PublishProposalState } from "../components/proposals/PublishProposalDialog";
 import type { UpgradeCheckState } from "./useUpgradeCheck";
 
 /*
  * The Upgrade (valbuild/home `docs/adept.md`, step 7): which kind, and an
- * upgrade proposal followed to Publish (decision 20).
+ * upgrade proposal followed in one dialog to Go to site (decision 20).
  */
 const CHECKED: UpgradeCheckState = {
   status: "checked",
@@ -155,44 +156,78 @@ const view = (
     detail: null,
     retryable: true,
   },
-  build: { state: "done", detail: null },
+  build: { state: "done", detail: null, percent: null },
   canPublish: true,
   ...over,
 });
 
+const READY: PublishProposalState = {
+  kind: "ready",
+  checks: [
+    { id: "site-code", ok: true, message: "The site's code is as it was." },
+  ],
+  changes: 2,
+  unsaved: 0,
+};
+
+type Handlers = {
+  onComputeLockfile: () => void;
+  onTypecheck: () => void;
+  onBuild: () => void;
+  onPublish: () => void;
+  onRetryPublish: () => void;
+  onReview: () => void;
+  onGoToSite: () => void;
+};
+
+/** The dialog, with the footer it derives from the view and the publish. */
 const progress = (
-  v: UpgradeProgressView,
-  handlers: Partial<{
-    onComputeLockfile: () => void;
-    onTypecheck: () => void;
-    onBuild: () => void;
-    onPublish: () => void;
-  }> = {},
+  v: UpgradeProgressView | null,
+  publish: PublishProposalState = READY,
+  handlers: Partial<Handlers> = {},
 ) =>
   render(
     <UpgradeProgressDialog
       open
       onOpenChange={() => {}}
-      displayName="Upgrade to new major versions"
+      displayName={v === null ? null : "Upgrade to new major versions"}
       view={v}
+      publish={publish}
+      footer={upgradeFooterOf(v, publish)}
       onComputeLockfile={handlers.onComputeLockfile ?? (() => {})}
       onTypecheck={handlers.onTypecheck ?? (() => {})}
       onBuild={handlers.onBuild ?? (() => {})}
       onPublish={handlers.onPublish ?? (() => {})}
+      onRetryPublish={handlers.onRetryPublish ?? (() => {})}
+      onReview={handlers.onReview ?? (() => {})}
+      onGoToSite={handlers.onGoToSite ?? (() => {})}
     />,
   );
 
-describe("an upgrade, followed to Publish", () => {
-  test("no new errors and built: Publish", () => {
+/** The footer's one button, where Publish is. */
+const footerButton = () =>
+  within(screen.getByRole("group", { name: "Next step" })).getByRole("button");
+
+describe("an upgrade, in one dialog to Go to site", () => {
+  test("open before the proposal is read: it says it is loading, and Publish waits", () => {
+    progress(null, { kind: "checking" });
+    expect(screen.getAllByText(/Loading the upgrade/).length).toBeGreaterThan(
+      0,
+    );
+    expect(footerButton().textContent).toMatch(/Publish/);
+    expect(footerButton().hasAttribute("disabled")).toBe(true);
+  });
+
+  test("built, no new errors, and the checks pass: one press publishes", () => {
     const onPublish = jest.fn();
-    progress(view(), { onPublish });
-    expect(screen.getByText("0 new type errors")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /publish/i }));
+    progress(view(), READY, { onPublish });
+    expect(screen.getByText("Typechecked: 0 new type errors")).toBeTruthy();
+    expect(screen.getByText("Built, and no new type errors.")).toBeTruthy();
+    fireEvent.click(footerButton());
     expect(onPublish).toHaveBeenCalledTimes(1);
   });
 
-  test("new errors are listed by file, Publish waits, and Typecheck again is offered", () => {
-    const onTypecheck = jest.fn();
+  test("new errors are listed by file, and Publish waits until they are fixed", () => {
     progress(
       view({
         typecheck: {
@@ -219,19 +254,17 @@ describe("an upgrade, followed to Publish", () => {
         },
         canPublish: false,
       }),
-      { onTypecheck },
     );
     expect(screen.getByText(/2 new type errors/)).toBeTruthy();
     expect(screen.getByText("src/a.tsx")).toBeTruthy();
     expect(screen.getByText("src/b.tsx")).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /publish/i }).hasAttribute("disabled"),
-    ).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: /typecheck again/i }));
-    expect(onTypecheck).toHaveBeenCalledTimes(1);
+      screen.getByText(/stays open until the new type errors/),
+    ).toBeTruthy();
+    expect(footerButton().hasAttribute("disabled")).toBe(true);
   });
 
-  test("a lockfile that does not match offers to compute it", () => {
+  test("a lockfile that does not match: the footer computes it", () => {
     const onComputeLockfile = jest.fn();
     progress(
       view({
@@ -245,23 +278,115 @@ describe("an upgrade, followed to Publish", () => {
         },
         canPublish: false,
       }),
+      READY,
       { onComputeLockfile },
     );
     fireEvent.click(screen.getByRole("button", { name: /compute lockfile/i }));
     expect(onComputeLockfile).toHaveBeenCalledTimes(1);
   });
 
-  test("not built yet: Build is offered", () => {
+  test("building: it says which step, how far, and Publish waits for it", () => {
+    progress(
+      view({
+        build: { state: "running", detail: "Uploading 41 of 112", percent: 40 },
+        canPublish: false,
+      }),
+    );
+    expect(screen.getByText("Building… Uploading 41 of 112")).toBeTruthy();
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
+      "40",
+    );
+    expect(screen.getByText("Publish waits for the build.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^build$/i })).toBeNull();
+  });
+
+  test("a build that failed says why, and Try again is where Publish is", () => {
     const onBuild = jest.fn();
     progress(
-      view({ build: { state: "required", detail: null }, canPublish: false }),
+      view({
+        build: {
+          state: "failed",
+          detail: "The proposals API answered 524.",
+          percent: null,
+        },
+        canPublish: false,
+      }),
+      READY,
       { onBuild },
     );
-    fireEvent.click(screen.getByRole("button", { name: /^build$/i }));
+    expect(screen.getByText("The proposals API answered 524.")).toBeTruthy();
+    expect(footerButton().textContent).toMatch(/Try again/);
+    fireEvent.click(footerButton());
     expect(onBuild).toHaveBeenCalledTimes(1);
   });
 
-  test("an upgrade adept could not compute says why, and nothing after it is shown", () => {
+  test("where the browser opens the builder tab only from a tap, the footer asks for it", () => {
+    const onBuild = jest.fn();
+    progress(
+      view({
+        build: { state: "tap", detail: null, percent: null },
+        canPublish: false,
+      }),
+      READY,
+      { onBuild },
+    );
+    expect(screen.getByText(/the build runs in a new tab/)).toBeTruthy();
+    fireEvent.click(footerButton());
+    expect(onBuild).toHaveBeenCalledTimes(1);
+  });
+
+  test("publishing: it says so, and nothing can be pressed twice", () => {
+    progress(view(), { kind: "publishing", step: "publishing" });
+    expect(screen.getAllByText("Publishing…").length).toBeGreaterThan(0);
+    expect(footerButton().hasAttribute("disabled")).toBe(true);
+  });
+
+  test("a publish that failed says why, and Try again publishes again", () => {
+    const onRetryPublish = jest.fn();
+    progress(
+      view(),
+      { kind: "failed", message: "The site moved on" },
+      { onRetryPublish },
+    );
+    expect(
+      screen.getByText(/It was not published: The site moved on\./),
+    ).toBeTruthy();
+    fireEvent.click(footerButton());
+    expect(onRetryPublish).toHaveBeenCalledTimes(1);
+  });
+
+  test("published: Go to site is the last press", () => {
+    const onGoToSite = jest.fn();
+    progress(view(), { kind: "merged" }, { onGoToSite });
+    expect(
+      screen.getByText("Published. The site runs the upgrade."),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /go to site/i }));
+    expect(onGoToSite).toHaveBeenCalledTimes(1);
+  });
+
+  test("a check only the Publish dialog can clear leads there", () => {
+    const onReview = jest.fn();
+    progress(
+      view(),
+      {
+        ...READY,
+        checks: [
+          {
+            id: "site-code",
+            ok: false,
+            message: "The site's code changed since this proposal started",
+            action: "update-from-site",
+          },
+        ],
+      },
+      { onReview },
+    );
+    fireEvent.click(screen.getByRole("button", { name: /review/i }));
+    expect(onReview).toHaveBeenCalledTimes(1);
+  });
+
+  test("an upgrade adept could not compute says why, nothing after it is shown, and it can be closed", () => {
     progress(
       view({
         upgrade: {
@@ -277,5 +402,6 @@ describe("an upgrade, followed to Publish", () => {
     );
     expect(screen.getByText(/No fix is strictly better/)).toBeTruthy();
     expect(screen.queryByText(/Typecheck/)).toBeNull();
+    expect(footerButton().textContent).toMatch(/Close/);
   });
 });

@@ -154,4 +154,34 @@ describe("an upgrade's progress", () => {
       retryable: true,
     });
   });
+
+  test("a build running says which step and how far, from the build's own progress", () => {
+    const view = upgradeProgressOf({
+      proposal: proposal({
+        staged: { files: ["package.json"], inputs: "i1", buildRequired: true },
+      }),
+      upgrade: upgrade(),
+      typecheck: { status: "idle" },
+      code: { state: "building" },
+      buildProgress: { label: "Uploading 41 of 112", percent: 46 },
+    });
+    expect(view.build).toEqual({
+      state: "running",
+      detail: "Uploading 41 of 112",
+      percent: 46,
+    });
+    expect(view.canPublish).toBe(false);
+  });
+
+  test("a build waiting on a builder tab the browser would not open asks for a tap", () => {
+    const view = upgradeProgressOf({
+      proposal: proposal({
+        staged: { files: ["package.json"], inputs: "i1", buildRequired: true },
+      }),
+      upgrade: upgrade(),
+      typecheck: { status: "idle" },
+      code: { state: "blocked" },
+    });
+    expect(view.build.state).toBe("tap");
+  });
 });
