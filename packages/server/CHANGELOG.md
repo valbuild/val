@@ -1,5 +1,13 @@
 # @valbuild/server
 
+## 0.149.5
+
+### Patch Changes
+
+- [#925](https://github.com/valbuild/val/pull/925) [`1e18a1b`](https://github.com/valbuild/val/commit/1e18a1ba31e169895fb75074028822dda305d26f) Thanks [@freekh](https://github.com/freekh)! - An upgrade renders its new build on the platform before it can be published. Once the typecheck finds no new errors and the build is done, the upgrade tab asks Val Build to render that build, as a publish does before it goes live. Publish is offered only when it renders. An upgrade can move the framework and React a site runs on, which a typecheck cannot judge and a render can.
+- Updated dependencies [[`1e18a1b`](https://github.com/valbuild/val/commit/1e18a1ba31e169895fb75074028822dda305d26f), [`9e44644`](https://github.com/valbuild/val/commit/9e44644933103d0db38bf72463478d80a1a9b0dd)]:
+  - @valbuild/ui@0.149.5
+
 ## 0.149.4
 
 ### Patch Changes
