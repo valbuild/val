@@ -1,5 +1,13 @@
 # @valbuild/ui
 
+## 0.149.6
+
+### Patch Changes
+
+- [#928](https://github.com/valbuild/val/pull/928) [`8e79b44`](https://github.com/valbuild/val/commit/8e79b44b4610d188a206ed0b6de448c602a99965) Thanks [@freekh](https://github.com/freekh)! - **Create proposal** prepares an upgrade before its page opens. It creates the upgrade's proposal, works out the upgrade, and builds its dependencies, while the button says **Preparing…** with a line beneath saying where it is: for example "Building the dependencies · Installing the packages (1 of 2) · 212 of 412 packages", or how many upgrades are ahead of it while it waits for a builder. When the dependencies are built, the same tab goes to the upgrade's page, which starts at the build.
+
+  An upgrade that cannot be prepared says why, and its proposal is closed again. So is one that turns out to move nothing. Nothing on the site changes either way.
+
 ## 0.149.5
 
 ### Patch Changes
