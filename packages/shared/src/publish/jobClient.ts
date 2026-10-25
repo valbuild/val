@@ -38,6 +38,12 @@ export type StudioJobClient = {
     proposal: string,
     requestId: string,
     tab: string,
+    /**
+     * The checks the person chose to publish over, having been told what
+     * failed: `types`, an upgrade's new type errors (Publish anyway on home's
+     * upgrade page). Content refuses it over anything else.
+     */
+    anyway?: "types"[],
   ): Promise<PressResponse>;
   /** Try again: resume a paused queue and press anew. */
   tryAgain(requestId: string, tab: string): Promise<PressResponse>;
@@ -110,7 +116,7 @@ export function createStudioJobClient(
         await proxy("/publish-requests", "POST", { requestId, tab }),
         "POST /v1/publish-requests",
       ),
-    pressMerge: async (proposal, requestId, tab) =>
+    pressMerge: async (proposal, requestId, tab, anyway) =>
       parsePress(
         /*
          * Through the proposals proxy, not the publish one: the merge is
@@ -120,7 +126,11 @@ export function createStudioJobClient(
           fetchImpl,
           `${proposalsApi}/${encodeURIComponent(proposal)}/merge`,
           "POST",
-          { requestId, tab },
+          {
+            requestId,
+            tab,
+            ...(anyway !== undefined && anyway.length > 0 ? { anyway } : {}),
+          },
         ),
         "POST /v1/proposals/{name}/merge",
       ),
