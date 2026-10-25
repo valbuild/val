@@ -11,11 +11,26 @@ import type { PublishProposalState } from "../components/proposals/PublishPropos
 /*
  * Where an upgrade proposal is, step by step, as its dialog shows it
  * (valbuild/home `docs/adept.md`, "How one Upgrade goes" and decision 20):
- * the upgrade computed, its dependencies built, the typecheck, the build --
- * and Publish once there are no new type errors and it is built. Worked out
- * from what content says about the proposal, the typecheck this tab runs and
- * the bar's build, so the dialog says no more than they do.
+ * the upgrade computed, its dependencies built, the typecheck, the build,
+ * the build rendered on the platform -- and Publish once there are no new
+ * type errors and the build renders. Worked out from what content says about
+ * the proposal, the typecheck this tab runs, the bar's build and the render
+ * this tab asked for, so the dialog says no more than they do.
  */
+
+/**
+ * The proposal's own build, rendered on the platform as a canary
+ * (valbuild/home `docs/plans/upgrades-v2.md`, piece E): an upgrade can move
+ * the framework and React the site runs on, which a typecheck cannot judge
+ * and a render can. For the build `key` names (its hash and inputs).
+ */
+export type UpgradeRenderState =
+  | { status: "idle" }
+  | { status: "running"; key: string }
+  | { status: "passed"; key: string }
+  | { status: "failed"; key: string; message: string; retryable: boolean }
+  /** A content service that cannot render one: the publish still does. */
+  | { status: "unsupported"; key: string };
 
 export type UpgradeStepState = "waiting" | "running" | "done" | "failed";
 
@@ -49,9 +64,26 @@ export type UpgradeProgressView = {
      * from a tap: the footer asks for it.
      */
     | { state: "tap"; detail: null; percent: null };
-  /** No new type errors, and built: Publish can be pressed. */
+  render: {
+    state: UpgradeStepState;
+    detail: string | null;
+    /** Whether Try again can help a failed one: the platform's failure. */
+    retryable: boolean;
+    /** Content could not render it here; the publish renders it. */
+    deferred: boolean;
+  };
+  /** No new type errors, built, and it renders: Publish can be pressed. */
   canPublish: boolean;
 };
+
+/** The build a render is of: what it was built from, and what it is. */
+export function renderKeyOf(proposal: ProposalJson): string | null {
+  const built = proposal.built ?? null;
+  const staged = proposal.staged ?? null;
+  if (built === null || staged === null || staged.buildRequired) return null;
+  if (staged.inputs === null || built.inputs !== staged.inputs) return null;
+  return `${built.hash}:${built.inputs}`;
+}
 
 function stepOfTypecheck(typecheck: ProposalTypecheckState): string | null {
   if (typecheck.status !== "running" || typecheck.step === null) return null;
@@ -72,6 +104,7 @@ export function upgradeProgressOf(input: {
   typecheck: ProposalTypecheckState;
   code: ProposalCodeState | null;
   buildProgress?: ProposalBuildProgress | null;
+  render: UpgradeRenderState;
 }): UpgradeProgressView {
   const { proposal, upgrade, typecheck, code } = input;
   const buildProgress = input.buildProgress ?? null;
@@ -156,17 +189,47 @@ export function upgradeProgressOf(input: {
               ? { state: "required", detail: null, percent: null }
               : { state: "waiting", detail: null, percent: null };
 
+  const checked =
+    staged &&
+    dependenciesView.state === "done" &&
+    typecheckView.state === "done" &&
+    typecheckView.newErrors === 0 &&
+    buildView.state === "done";
+  // Rendered once it is checked and built: a build that adds type errors is
+  // not one to publish, so there is nothing to render it for.
+  const key = renderKeyOf(proposal);
+  const render: UpgradeRenderState =
+    "key" in input.render && input.render.key === key
+      ? input.render
+      : { status: "idle" };
+  const renderView: UpgradeProgressView["render"] = !checked
+    ? { state: "waiting", detail: null, retryable: false, deferred: false }
+    : render.status === "passed"
+      ? { state: "done", detail: null, retryable: false, deferred: false }
+      : render.status === "unsupported"
+        ? { state: "done", detail: null, retryable: false, deferred: true }
+        : render.status === "failed"
+          ? {
+              state: "failed",
+              detail: render.message,
+              retryable: render.retryable,
+              deferred: false,
+            }
+          : // Running, or about to: it starts by itself.
+            {
+              state: "running",
+              detail: null,
+              retryable: false,
+              deferred: false,
+            };
+
   return {
     upgrade,
     dependencies: dependenciesView,
     typecheck: typecheckView,
     build: buildView,
-    canPublish:
-      staged &&
-      dependenciesView.state === "done" &&
-      typecheckView.state === "done" &&
-      typecheckView.newErrors === 0 &&
-      buildView.state === "done",
+    render: renderView,
+    canPublish: checked && renderView.state === "done",
   };
 }
 
@@ -188,7 +251,7 @@ export type UpgradeFooter = {
   action:
     | {
         kind: "retry";
-        step: "typecheck" | "build" | "publish";
+        step: "typecheck" | "build" | "render" | "publish";
       }
     | { kind: "build" }
     | { kind: "lockfile" }
@@ -236,7 +299,7 @@ export function upgradeFooterOf(
         action: { kind: "retry", step: "publish" },
       };
   }
-  const { upgrade, dependencies, typecheck, build } = view;
+  const { upgrade, dependencies, typecheck, build, render } = view;
   if (upgrade.state === "computing") {
     return waitPublish("Publish waits for the upgrade to be computed.");
   }
@@ -287,6 +350,20 @@ export function upgradeFooterOf(
       action: { kind: "build" },
     };
   }
+  if (render.state === "failed") {
+    return render.retryable
+      ? {
+          note: "The new build could not be rendered on the platform. Nothing on the site has changed.",
+          action: { kind: "retry", step: "render" },
+        }
+      : {
+          note: "The new build does not render, so it cannot be published. Nothing on the site has changed.",
+          action: { kind: "close" },
+        };
+  }
+  if (render.state === "running") {
+    return waitPublish("Publish waits for the new build to render.");
+  }
   if (!view.canPublish) {
     return waitPublish(
       build.state === "running" || build.state === "required"
@@ -314,7 +391,9 @@ export function upgradeFooterOf(
     };
   }
   return {
-    note: "Built, and no new type errors.",
+    note: render.deferred
+      ? "Built, and no new type errors."
+      : "Built, no new type errors, and it renders.",
     action: { kind: "publish", enabled: true, busy: false },
   };
 }

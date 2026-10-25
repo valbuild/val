@@ -117,6 +117,7 @@ const READY: UpgradeProgressView = {
     retryable: true,
   },
   build: { state: "done", detail: null, percent: null },
+  render: { state: "done", detail: null, retryable: false, deferred: false },
   canPublish: true,
 };
 
@@ -146,6 +147,7 @@ function Follow({
         onComputeLockfile={() => {}}
         onTypecheck={() => {}}
         onBuild={() => {}}
+        onRender={() => {}}
         onPublish={() => {}}
         onRetryPublish={() => {}}
         onCheckMerge={() => {}}

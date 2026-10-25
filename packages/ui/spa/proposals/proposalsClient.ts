@@ -453,7 +453,29 @@ export type ProposalsClient = {
     name: string,
     build: { publishId: string; inputs: string },
   ): Promise<ProposalJson>;
+  /**
+   * Render its own build on the platform, as a canary, the way a publish
+   * does before it goes live: whether the build of what it stages boots. A
+   * build that rendered already answers at once. A 409 when it is not built
+   * of what it stages; a 404 from a content service without it.
+   */
+  verifyBuild(name: string): Promise<ProposalBuildVerify>;
 };
+
+const VerifyAnswer = z.object({
+  ok: z.boolean(),
+  problems: z.array(
+    z.object({
+      code: z.string(),
+      message: z.string(),
+      hint: z.string().optional(),
+    }),
+  ),
+  /** The platform failed, not the build: asking again can help. */
+  transient: z.boolean(),
+});
+/** What rendering a proposal's own build found. */
+export type ProposalBuildVerify = z.infer<typeof VerifyAnswer>;
 
 /**
  * A proposal's build target, and whose layer it is: `own` when the proposal
@@ -544,6 +566,8 @@ export function createProposalsClient(options: {
       LockfileAnswer.parse(await call(`${at(name)}/lockfile`, "POST", {}))
         .dependencies,
     serveBuild: (name, build) => one(`${at(name)}/build`, "POST", build),
+    verifyBuild: async (name) =>
+      VerifyAnswer.parse(await call(`${at(name)}/verify`, "POST", {})),
     updateFromSite: (name) => one(`${at(name)}/update-from-site`, "POST", {}),
     updateContent: async (name, resolutions, heads) =>
       UpdateContentAnswer.parse(

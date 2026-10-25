@@ -2,7 +2,14 @@ import type {
   ProposalJson,
   ProposalUpgrade,
 } from "../proposals/proposalsClient";
-import { upgradeProgressOf } from "./upgradeProgress";
+import type { PublishProposalState } from "../components/proposals/PublishProposalDialog";
+import {
+  upgradeFooterOf,
+  upgradeProgressOf,
+  type UpgradeRenderState,
+} from "./upgradeProgress";
+
+const IDLE: UpgradeRenderState = { status: "idle" };
 
 /*
  * Where an upgrade proposal is (valbuild/home `docs/adept.md`, decision 20):
@@ -33,6 +40,7 @@ const proposal = (over: Partial<ProposalJson> = {}): ProposalJson => ({
 describe("an upgrade's progress", () => {
   test("computing: nothing after it has started", () => {
     const view = upgradeProgressOf({
+      render: IDLE,
       proposal: proposal({ staged: undefined, dependencies: undefined }),
       upgrade: upgrade({ state: "computing", changes: [] }),
       typecheck: { status: "idle" },
@@ -46,6 +54,7 @@ describe("an upgrade's progress", () => {
 
   test("a lockfile that does not match waits on Compute lockfile, and nothing is typechecked against it", () => {
     const view = upgradeProgressOf({
+      render: IDLE,
       proposal: proposal({
         dependencies: { state: "lockfile", computing: false, error: "stale" },
       }),
@@ -60,6 +69,7 @@ describe("an upgrade's progress", () => {
 
   test("a typecheck of other inputs is not this one's: it runs again", () => {
     const view = upgradeProgressOf({
+      render: IDLE,
       proposal: proposal({
         typecheck: {
           inputs: "older",
@@ -78,6 +88,7 @@ describe("an upgrade's progress", () => {
 
   test("new type errors keep it from being published, and say how many", () => {
     const view = upgradeProgressOf({
+      render: IDLE,
       proposal: proposal({
         typecheck: {
           inputs: "i1",
@@ -98,6 +109,7 @@ describe("an upgrade's progress", () => {
 
   test("no new errors, but not built: Build first", () => {
     const view = upgradeProgressOf({
+      render: IDLE,
       proposal: proposal({
         staged: { files: ["package.json"], inputs: "i1", buildRequired: true },
         typecheck: { inputs: "i1", newErrors: 0, errors: [], checkedAt: "x" },
@@ -110,20 +122,101 @@ describe("an upgrade's progress", () => {
     expect(view.canPublish).toBe(false);
   });
 
-  test("no new errors, built, its dependencies its own: Publish", () => {
-    const view = upgradeProgressOf({
+  const checkedAndBuilt = (render: UpgradeRenderState) =>
+    upgradeProgressOf({
+      render,
       proposal: proposal({
         typecheck: { inputs: "i1", newErrors: 0, errors: [], checkedAt: "x" },
+        built: { hash: "h1", inputs: "i1" },
       }),
       upgrade: upgrade(),
       typecheck: { status: "idle" },
       code: null,
     });
+  const READY: PublishProposalState = {
+    kind: "ready",
+    checks: [],
+    changes: 1,
+    unsaved: 0,
+  };
+
+  test("no new errors and built: the build is rendered on the platform, and Publish waits for it", () => {
+    for (const render of [
+      IDLE,
+      { status: "running", key: "h1:i1" },
+      // A render of another build is not this one's.
+      { status: "passed", key: "h0:i0" },
+    ] satisfies UpgradeRenderState[]) {
+      const view = checkedAndBuilt(render);
+      expect(view.render.state).toBe("running");
+      expect(view.canPublish).toBe(false);
+      expect(upgradeFooterOf(view, READY)).toEqual({
+        note: "Publish waits for the new build to render.",
+        action: { kind: "publish", enabled: false, busy: false },
+      });
+    }
+  });
+
+  test("no new errors, built, and it renders: Publish", () => {
+    const view = checkedAndBuilt({ status: "passed", key: "h1:i1" });
     expect(view.canPublish).toBe(true);
+    expect(upgradeFooterOf(view, READY)).toEqual({
+      note: "Built, no new type errors, and it renders.",
+      action: { kind: "publish", enabled: true, busy: false },
+    });
+  });
+
+  test("a build that does not render cannot be published, and is not offered again", () => {
+    const view = checkedAndBuilt({
+      status: "failed",
+      key: "h1:i1",
+      message: "/ answered 500",
+      retryable: false,
+    });
+    expect(view.render).toMatchObject({
+      state: "failed",
+      detail: "/ answered 500",
+    });
+    expect(view.canPublish).toBe(false);
+    expect(upgradeFooterOf(view, READY).action).toEqual({ kind: "close" });
+  });
+
+  test("a render the platform could not do is tried again from the footer", () => {
+    const view = checkedAndBuilt({
+      status: "failed",
+      key: "h1:i1",
+      message: "The loader did not answer.",
+      retryable: true,
+    });
+    expect(upgradeFooterOf(view, READY).action).toEqual({
+      kind: "retry",
+      step: "render",
+    });
+  });
+
+  test("a content service that cannot render one leaves it to the publish", () => {
+    const view = checkedAndBuilt({ status: "unsupported", key: "h1:i1" });
+    expect(view.render).toMatchObject({ state: "done", deferred: true });
+    expect(view.canPublish).toBe(true);
+  });
+
+  test("nothing is rendered before it is typechecked and built", () => {
+    const view = upgradeProgressOf({
+      render: IDLE,
+      proposal: proposal({
+        staged: { files: ["package.json"], inputs: "i1", buildRequired: true },
+        typecheck: { inputs: "i1", newErrors: 0, errors: [], checkedAt: "x" },
+      }),
+      upgrade: upgrade(),
+      typecheck: { status: "idle" },
+      code: { state: "building" },
+    });
+    expect(view.render.state).toBe("waiting");
   });
 
   test("this tab's typecheck says where it is, and why it stopped", () => {
     const running = upgradeProgressOf({
+      render: IDLE,
       proposal: proposal(),
       upgrade: upgrade(),
       typecheck: {
@@ -138,6 +231,7 @@ describe("an upgrade's progress", () => {
       detail: "The upgrade: Loading types",
     });
     const failed = upgradeProgressOf({
+      render: IDLE,
       proposal: proposal(),
       upgrade: upgrade(),
       typecheck: {
@@ -157,6 +251,7 @@ describe("an upgrade's progress", () => {
 
   test("a build running says which step and how far, from the build's own progress", () => {
     const view = upgradeProgressOf({
+      render: IDLE,
       proposal: proposal({
         staged: { files: ["package.json"], inputs: "i1", buildRequired: true },
       }),
@@ -175,6 +270,7 @@ describe("an upgrade's progress", () => {
 
   test("a build waiting on a builder tab the browser would not open asks for a tap", () => {
     const view = upgradeProgressOf({
+      render: IDLE,
       proposal: proposal({
         staged: { files: ["package.json"], inputs: "i1", buildRequired: true },
       }),

@@ -144,6 +144,7 @@ export function UpgradeProgressPage({
   onComputeLockfile,
   onTypecheck,
   onBuild,
+  onRender,
   onPublish,
   onRetryPublish,
   onCheckMerge,
@@ -160,6 +161,8 @@ export function UpgradeProgressPage({
   onComputeLockfile: () => void;
   onTypecheck: () => void;
   onBuild: () => void;
+  /** Render the build on the platform again. */
+  onRender: () => void;
   onPublish: () => void;
   onRetryPublish: () => void;
   /** The proposal's own Publish dialog, for a check only it can clear. */
@@ -234,6 +237,7 @@ export function UpgradeProgressPage({
                 onComputeLockfile={onComputeLockfile}
                 onTypecheck={onTypecheck}
                 onBuild={onBuild}
+                onRender={onRender}
                 onPublish={onPublish}
                 onRetryPublish={onRetryPublish}
                 onCheckMerge={onCheckMerge}
@@ -255,7 +259,7 @@ function Steps({
   view: UpgradeProgressView;
   publish: PublishProposalState;
 }) {
-  const { upgrade, dependencies, typecheck, build } = view;
+  const { upgrade, dependencies, typecheck, build, render } = view;
   const moved = upgrade.changes.filter((change) => change.to !== null);
   const listed = typecheck.errors.slice(0, LISTED_ERRORS);
   const more = (typecheck.newErrors ?? 0) - listed.length;
@@ -380,6 +384,26 @@ function Steps({
               <span className="text-fg-secondary">{build.detail}</span>
             )}
           </Step>
+          <Step
+            state={render.state}
+            title={
+              render.state === "running"
+                ? "Rendering the new build on the platform…"
+                : render.state === "failed"
+                  ? render.retryable
+                    ? "The new build could not be rendered"
+                    : "The new build does not render"
+                  : render.state === "done"
+                    ? render.deferred
+                      ? "Rendered on the platform when it is published"
+                      : "Renders on the platform"
+                    : "Rendering on the platform"
+            }
+          >
+            {render.state === "failed" && render.detail !== null && (
+              <span className="text-fg-secondary">{render.detail}</span>
+            )}
+          </Step>
           <Step state={published.state} title={published.title}>
             {publish.kind === "failed" && (
               <span className="text-fg-secondary">{publish.message}</span>
@@ -397,6 +421,7 @@ function NextStep({
   onComputeLockfile,
   onTypecheck,
   onBuild,
+  onRender,
   onPublish,
   onRetryPublish,
   onCheckMerge,
@@ -407,6 +432,7 @@ function NextStep({
   onComputeLockfile: () => void;
   onTypecheck: () => void;
   onBuild: () => void;
+  onRender: () => void;
   onPublish: () => void;
   onRetryPublish: () => void;
   onCheckMerge: () => void;
@@ -424,7 +450,9 @@ function NextStep({
               ? onTypecheck
               : action.step === "build"
                 ? onBuild
-                : onRetryPublish
+                : action.step === "render"
+                  ? onRender
+                  : onRetryPublish
           }
         >
           <RefreshCw size={13} /> Try again

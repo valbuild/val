@@ -229,6 +229,7 @@ const view = (
     retryable: true,
   },
   build: { state: "done", detail: null, percent: null },
+  render: { state: "done", detail: null, retryable: false, deferred: false },
   canPublish: true,
   ...over,
 });
@@ -246,6 +247,7 @@ type Handlers = {
   onComputeLockfile: () => void;
   onTypecheck: () => void;
   onBuild: () => void;
+  onRender: () => void;
   onPublish: () => void;
   onRetryPublish: () => void;
   onCheckMerge: () => void;
@@ -270,6 +272,7 @@ const progress = (
       onComputeLockfile={handlers.onComputeLockfile ?? (() => {})}
       onTypecheck={handlers.onTypecheck ?? (() => {})}
       onBuild={handlers.onBuild ?? (() => {})}
+      onRender={handlers.onRender ?? (() => {})}
       onPublish={handlers.onPublish ?? (() => {})}
       onRetryPublish={handlers.onRetryPublish ?? (() => {})}
       onCheckMerge={handlers.onCheckMerge ?? (() => {})}
@@ -304,9 +307,76 @@ describe("an upgrade, in its own tab to Go to site", () => {
     const onPublish = jest.fn();
     progress(view(), READY, { onPublish });
     expect(screen.getByText("Typechecked: 0 new type errors")).toBeTruthy();
-    expect(screen.getByText("Built, and no new type errors.")).toBeTruthy();
+    expect(screen.getByText("Renders on the platform")).toBeTruthy();
+    expect(
+      screen.getByText("Built, no new type errors, and it renders."),
+    ).toBeTruthy();
     fireEvent.click(footerButton());
     expect(onPublish).toHaveBeenCalledTimes(1);
+  });
+
+  test("the new build renders on the platform before Publish can be pressed", () => {
+    progress(
+      view({
+        render: {
+          state: "running",
+          detail: null,
+          retryable: false,
+          deferred: false,
+        },
+        canPublish: false,
+      }),
+    );
+    expect(
+      screen.getByText("Rendering the new build on the platform…"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Publish waits for the new build to render."),
+    ).toBeTruthy();
+    expect(footerButton().hasAttribute("disabled")).toBe(true);
+  });
+
+  test("a build that does not render says why, and is not offered for Publish", () => {
+    progress(
+      view({
+        render: {
+          state: "failed",
+          detail: "/ answered 500: Cannot find module 'react/jsx-runtime'",
+          retryable: false,
+          deferred: false,
+        },
+        canPublish: false,
+      }),
+    );
+    expect(screen.getByText("The new build does not render")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "/ answered 500: Cannot find module 'react/jsx-runtime'",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/does not render, so it cannot be published/),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /publish/i })).toBeNull();
+  });
+
+  test("a render the platform could not do: Try again renders it again", () => {
+    const onRender = jest.fn();
+    progress(
+      view({
+        render: {
+          state: "failed",
+          detail: "The loader did not answer.",
+          retryable: true,
+          deferred: false,
+        },
+        canPublish: false,
+      }),
+      READY,
+      { onRender },
+    );
+    fireEvent.click(footerButton());
+    expect(onRender).toHaveBeenCalledTimes(1);
   });
 
   test("new errors are listed by file, and Publish waits until they are fixed", () => {
