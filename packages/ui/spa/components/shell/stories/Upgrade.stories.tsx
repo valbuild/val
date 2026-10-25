@@ -32,6 +32,7 @@ const CHECKED: UpgradeCheckState = {
     available: true,
     cves: {
       vulnerable: 2,
+      fixable: 3,
       severity: "high",
       packages: [
         { name: "lodash", version: "4.17.20", severity: "high" },
@@ -40,9 +41,12 @@ const CHECKED: UpgradeCheckState = {
     },
     latest: {
       packages: [
+        { name: "@valbuild/tanstack", from: "0.149.4", to: "0.150.0" },
+        { name: "@valbuild/ui", from: "0.149.4", to: "0.150.0" },
         { name: "zod", from: "3.23.8", to: "3.25.76" },
         { name: "@tanstack/react-router", from: "1.120.3", to: "1.131.2" },
       ],
+      val: { from: "0.149.4", to: "0.150.0" },
     },
     majors: {
       packages: [
