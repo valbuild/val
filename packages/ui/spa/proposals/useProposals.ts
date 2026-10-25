@@ -151,7 +151,7 @@ export function useProposals({
  * Resolves with the address, or rejects with why it cannot be opened.
  */
 export async function waitForAddress(
-  client: ProposalsClient,
+  client: Pick<ProposalsClient, "get">,
   name: string,
   options: { intervalMs?: number; timeoutMs?: number } = {},
 ): Promise<string> {

@@ -8,14 +8,17 @@ import type { UpgradePath } from "./upgradesClient";
 /**
  * What a person picks an upgrade with -- in the Upgrade dialog and in
  * Settings → Updates, which are the same thing in two places: the kinds the
- * check found something for, and **Upgrade in a proposal**, which opens one
- * (valbuild/home `docs/adept.md`, step 7). Nothing changes on the site: the
- * upgrade is computed, built and typechecked in the proposal, and published
- * from there.
+ * check found something for, and **Create proposal**, which prepares one in
+ * place (valbuild/home `docs/plans/upgrades-v2.md`, piece C) and then goes to
+ * its page. Nothing changes on the site: the upgrade is built, typechecked
+ * and rendered in the proposal, and published from there.
  */
 export type UpgradeStart =
   | { status: "idle" }
-  | { status: "starting" }
+  /** Created, and being prepared: `line` says where it is. */
+  | { status: "preparing"; line: string }
+  /** The upgrade moved nothing, and its proposal was closed again. */
+  | { status: "nothing" }
   | { status: "failed"; message: string };
 
 export function UpgradeChooser({
@@ -94,12 +97,13 @@ export function UpgradeChooser({
         onPath={setPath}
         skip={skip}
         onSkip={setSkip}
-        disabled={start.status === "starting"}
+        disabled={start.status === "preparing"}
       />
       <p className="text-xs text-fg-secondary">
-        The upgrade is made in a proposal of its own: built and typechecked
-        there, and published when it adds no type errors. Nothing on the site
-        changes until then.
+        The upgrade is made in a proposal of its own: its dependencies are built
+        here first, then its page builds and typechecks it, and it is published
+        when it adds no type errors and renders. Nothing on the site changes
+        until then.
       </p>
       {start.status === "failed" && (
         <p role="alert" className="flex items-start gap-1.5 text-xs">
@@ -107,25 +111,34 @@ export function UpgradeChooser({
             size={14}
             className="mt-px shrink-0 text-fg-error-on-surface"
           />
-          The proposal was not opened: {start.message} Press Upgrade in a
-          proposal to try again.
+          The upgrade could not be prepared: {start.message} Nothing on the site
+          has changed.
         </p>
       )}
-      <div>
+      {start.status === "nothing" && (
+        <p role="status" className="text-xs text-fg-secondary">
+          There was nothing for this kind of upgrade to move after all, so no
+          proposal was kept.
+        </p>
+      )}
+      <div className="flex flex-col items-start gap-1.5">
         <Button
           size="sm"
-          disabled={start.status === "starting" || allSkipped}
+          disabled={start.status === "preparing" || allSkipped}
           onClick={() => onStart(chosen, chosen === "majors" ? skip : [])}
         >
-          {start.status === "starting" ? (
+          {start.status === "preparing" ? (
             <Loader2 size={13} className="animate-spin" />
           ) : (
             <ArrowUpCircle size={13} />
           )}
-          {start.status === "starting"
-            ? "Opening the proposal…"
-            : "Upgrade in a proposal"}
+          {start.status === "preparing" ? "Preparing…" : "Create proposal"}
         </Button>
+        {start.status === "preparing" && (
+          <span role="status" className="text-xs text-fg-secondary">
+            {start.line}
+          </span>
+        )}
       </div>
     </div>
   );
