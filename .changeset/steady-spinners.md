@@ -4,4 +4,4 @@
 "@valbuild/tanstack": patch
 ---
 
-Loading spinners now turn in place instead of wobbling off centre, most visibly in Safari on a high-resolution screen. That includes the spinner shown while a proposal is published.
+Every loading spinner in the Studio is now drawn the same way, at even sizes. Odd-sized spinners, of which the Studio had several, are known to wobble in Safari.
