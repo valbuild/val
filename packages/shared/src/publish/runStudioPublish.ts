@@ -33,7 +33,7 @@ import {
   parseProblems,
   type DeclareBody,
   type PublishProblem,
-} from "@valbuild/shared/internal";
+} from "../internal";
 import {
   StudioPublishClient,
   StudioPublishError,

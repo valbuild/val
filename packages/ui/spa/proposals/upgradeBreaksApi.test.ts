@@ -4,9 +4,9 @@ import {
   type TypecheckSources,
   type TypesBundle,
   typecheckProject,
+  runProposalTypecheck,
 } from "@valbuild/shared/typecheck";
 import { nodeModulesSources } from "@valbuild/shared/typecheck/testing";
-import { runProposalTypecheck } from "./proposalTypecheck";
 import type { ProposalsClient } from "./proposalsClient";
 
 type Report = Parameters<ProposalsClient["reportTypecheck"]>[1];

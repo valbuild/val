@@ -14,7 +14,7 @@ import {
 import { Button } from "../components/designSystem/button";
 import { cn } from "../components/designSystem/cn";
 import type { PublishProposalState } from "../components/proposals/PublishProposalDialog";
-import { errorsByFile } from "../proposals/proposalTypecheck";
+import { errorsByFile } from "@valbuild/shared/typecheck";
 import { withoutUpgradeTab } from "./upgradeTab";
 import type {
   UpgradeFooter,

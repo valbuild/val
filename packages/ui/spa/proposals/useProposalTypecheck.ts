@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { Internal } from "@valbuild/core";
 import { useCurrentProposal } from "../components/ValProvider";
-import { createStudioPublishClient } from "../publish/publishClient";
+import { createStudioPublishClient } from "@valbuild/shared/publish";
 import { Abandoned, runJob } from "../publish/adeptJob";
 import { createUpgradesClient } from "../upgrade/upgradesClient";
 import { TypecheckAbandoned } from "../typecheck/typecheckProtocol";
@@ -9,7 +9,7 @@ import type { Typechecker } from "../typecheck/typecheckWorkerClient";
 import {
   runProposalTypecheck,
   type ProposalTypecheckStep,
-} from "./proposalTypecheck";
+} from "@valbuild/shared/typecheck";
 import {
   createProposalsClient,
   type ProposalTypeError,

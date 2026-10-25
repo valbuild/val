@@ -1,4 +1,4 @@
-import type { PublishTabJob } from "@valbuild/shared/internal";
+import type { PublishTabJob } from "../internal";
 import type { DeployPhase, StudioDeployResult } from "./runStudioDeploy";
 import type { PreparedJob, StudioJobClient } from "./jobClient";
 import { StudioPublishError } from "./publishClient";

@@ -41,7 +41,7 @@ import {
   parsePromote,
   parseStatus,
   parseVerify,
-} from "@valbuild/shared/internal";
+} from "../internal";
 
 export {
   StudioPublishError,
@@ -116,13 +116,32 @@ export function isExpiredSlot(error: unknown): boolean {
   return error instanceof StudioUploadError && error.statusCode === 403;
 }
 
-export function createStudioPublishClient(options: {
-  /** Val's API root on this origin, e.g. `/api/val`. */
-  api: string;
-  fetchImpl?: typeof fetch;
-}): StudioPublishClient {
+/**
+ * Where content's publish API is reached: through Val's proxy on this origin
+ * (`api`, the Studio), or directly (`publishApi`, `<content>/v1`: home's
+ * upgrade page, whose `fetchImpl` adds the project token).
+ */
+export type PublishApiAt =
+  | {
+      /** Val's API root on this origin, e.g. `/api/val`. */
+      api: string;
+    }
+  | {
+      /** Content's publish API itself, e.g. `https://content.val.build/v1`. */
+      publishApi: string;
+    };
+
+export function publishApiOf(at: PublishApiAt): string {
+  return "publishApi" in at
+    ? at.publishApi.replace(/\/+$/, "")
+    : `${at.api.replace(/\/+$/, "")}/publish-api`;
+}
+
+export function createStudioPublishClient(
+  options: PublishApiAt & { fetchImpl?: typeof fetch },
+): StudioPublishClient {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const proxy = `${options.api.replace(/\/+$/, "")}/publish-api`;
+  const proxy = publishApiOf(options);
 
   const call = (path: string, method: "GET" | "POST", body?: unknown) =>
     callJson(fetchImpl, `${proxy}${path}`, method, body);

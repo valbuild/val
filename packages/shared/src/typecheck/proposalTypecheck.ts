@@ -1,15 +1,6 @@
-import {
-  type TypeErrorEntry,
-  type TypecheckProgress,
-  type TypecheckResult,
-  newErrors,
-} from "@valbuild/shared/typecheck";
-import { proposalProject } from "./proposalCode";
-import type {
-  ProposalTypeError,
-  ProposalTypecheck,
-  ProposalsClient,
-} from "./proposalsClient";
+import { proposalProject } from "../publish/proposalProject";
+import type { TypecheckProgress, TypecheckResult } from "./typecheckProject";
+import { newErrors, type TypeErrorEntry } from "./typecheckProject";
 
 /*
  * The typecheck of a proposal whose dependencies are its own (valbuild/home
@@ -29,9 +20,34 @@ export type ProposalTypecheckStep =
   | { step: "lockfile" }
   | { step: "checking"; which: "site" | "proposal"; detail: string };
 
-export type ProposalTypecheckDeps = {
+/** A new type error as content keeps it: a file always, a position always. */
+export type ProposalTypeError = {
+  file: string;
+  line: number;
+  column: number;
+  code: number;
+  message: string;
+};
+
+/**
+ * The calls a proposal's typecheck makes: the Studio's through its origin,
+ * home's upgrade page to content directly. `T` is the report as content
+ * answers it.
+ */
+export type ProposalTypecheckClient<T> = {
+  files(name: string): Promise<{
+    files: Record<string, string | null>;
+    staged: { inputs: string | null };
+  }>;
+  reportTypecheck(
+    name: string,
+    report: { inputs: string; newErrors: ProposalTypeError[]; count?: number },
+  ): Promise<T>;
+};
+
+export type ProposalTypecheckDeps<T> = {
   name: string;
-  client: Pick<ProposalsClient, "files" | "reportTypecheck">;
+  client: ProposalTypecheckClient<T>;
   /** The site's code, as its live build has it; `null` when nothing is live. */
   siteSource: () => Promise<Record<string, string> | null>;
   /** The site's recorded `pnpm-lock.yaml` and `pnpm-workspace.yaml`. */
@@ -56,7 +72,7 @@ export type ProposalTypecheckDeps = {
   signal: AbortSignal;
 };
 
-export type ProposalTypecheckOutcome =
+export type ProposalTypecheckOutcome<T> =
   /** Nothing staged: there is nothing of the proposal's to check. */
   | { status: "nothing-staged" }
   | {
@@ -64,7 +80,7 @@ export type ProposalTypecheckOutcome =
       inputs: string;
       /** Every new error, not only the ones sent. */
       errors: ProposalTypeError[];
-      typecheck: ProposalTypecheck;
+      typecheck: T;
     };
 
 const LOCKFILE = "pnpm-lock.yaml";
@@ -94,9 +110,9 @@ function describe(progress: TypecheckProgress): string {
   }
 }
 
-export async function runProposalTypecheck(
-  deps: ProposalTypecheckDeps,
-): Promise<ProposalTypecheckOutcome> {
+export async function runProposalTypecheck<T>(
+  deps: ProposalTypecheckDeps<T>,
+): Promise<ProposalTypecheckOutcome<T>> {
   deps.onStep?.({ step: "reading" });
   const read = await deps.client.files(deps.name);
   const inputs = read.staged.inputs;

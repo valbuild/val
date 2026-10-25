@@ -22,6 +22,10 @@
       "module": "./client/dist/valbuild-shared-client.esm.js",
       "default": "./client/dist/valbuild-shared-client.cjs.js"
     },
+    "./publish": {
+      "module": "./publish/dist/valbuild-shared-publish.esm.js",
+      "default": "./publish/dist/valbuild-shared-publish.cjs.js"
+    },
     "./internal": {
       "module": "./internal/dist/valbuild-shared-internal.esm.js",
       "default": "./internal/dist/valbuild-shared-internal.cjs.js"
@@ -42,6 +46,7 @@
       "./index.ts",
       "./client/index.ts",
       "./internal/index.ts",
+      "./publish/index.ts",
       "./typecheck/index.ts",
       "./typecheck/testing/index.ts"
     ],
@@ -61,13 +66,16 @@
     "client/package.json",
     "internal/dist",
     "internal/package.json",
+    "publish/dist",
+    "publish/package.json",
     "typecheck/dist",
     "typecheck/package.json",
     "typecheck/testing/dist",
     "typecheck/testing/package.json"
   ],
   "devDependencies": {
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "@valbuild/tanstack-build": "workspace:*"
   },
   "sideEffects": false
 }

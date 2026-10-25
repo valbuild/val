@@ -46,3 +46,14 @@ export {
   type CompilerBundle,
   type CompilerChoice,
 } from "./typescriptCompiler";
+export {
+  MAX_REPORTED_ERRORS,
+  errorsByFile,
+  reportedError,
+  runProposalTypecheck,
+  type ProposalTypeError,
+  type ProposalTypecheckClient,
+  type ProposalTypecheckDeps,
+  type ProposalTypecheckOutcome,
+  type ProposalTypecheckStep,
+} from "./proposalTypecheck";

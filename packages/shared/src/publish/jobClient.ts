@@ -12,9 +12,9 @@ import {
   type PressResponse,
   type PublishRequestStatus,
   type PublishTabJob,
-} from "@valbuild/shared/internal";
+} from "../internal";
 import { z } from "zod";
-import { callJson } from "./publishClient";
+import { callJson, publishApiOf } from "./publishClient";
 
 /**
  * Publishing as a queued job, as a Studio tab speaks it.
@@ -82,14 +82,25 @@ export type PreparedJob = {
   target?: BuildTargetResponse;
 };
 
-export function createStudioJobClient(options: {
-  api: string;
-  fetchImpl?: typeof fetch;
-}): StudioJobClient {
+export function createStudioJobClient(
+  options: (
+    | { api: string }
+    | {
+        /** Content's publish API itself: see `PublishApiAt`. */
+        publishApi: string;
+        /** The project's proposals on content, `<content>/v1/<org>/<project>/proposals`. */
+        proposalsApi: string;
+      }
+  ) & { fetchImpl?: typeof fetch },
+): StudioJobClient {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const api = options.api.replace(/\/+$/, "");
+  const publishApi = publishApiOf(options);
+  const proposalsApi =
+    "proposalsApi" in options
+      ? options.proposalsApi.replace(/\/+$/, "")
+      : `${options.api.replace(/\/+$/, "")}/proposals-api`;
   const proxy = (path: string, method: "GET" | "POST", body?: unknown) =>
-    callJson(fetchImpl, `${api}/publish-api${path}`, method, body);
+    callJson(fetchImpl, `${publishApi}${path}`, method, body);
   const job = (jobId: string, step: string) =>
     `/publish-jobs/${encodeURIComponent(jobId)}/${step}`;
 
@@ -107,7 +118,7 @@ export function createStudioJobClient(options: {
          */
         await callJson(
           fetchImpl,
-          `${api}/proposals-api/${encodeURIComponent(proposal)}/merge`,
+          `${proposalsApi}/${encodeURIComponent(proposal)}/merge`,
           "POST",
           { requestId, tab },
         ),
@@ -155,9 +166,16 @@ export function createStudioJobClient(options: {
             : {}),
         };
       }
+      // A site change's job is prepared by Val's server, which has the
+      // site's schemas; only the Studio's, through its own origin, runs one.
+      if (!("api" in options)) {
+        throw new Error(
+          "Only a merge's job can be run here: a site change's job needs the Studio.",
+        );
+      }
       const answer = await callJson(
         fetchImpl,
-        `${api}/publish-job-prepare`,
+        `${options.api.replace(/\/+$/, "")}/publish-job-prepare`,
         "POST",
         { jobId: tabJob.id, tab, patchIds: tabJob.patches },
       );

@@ -1,4 +1,4 @@
-import { StudioPublishError } from "../../publish/publishClient";
+import { StudioPublishError } from "@valbuild/shared/publish";
 import { SourceError } from "@valbuild/shared/typecheck";
 import {
   Abandoned,

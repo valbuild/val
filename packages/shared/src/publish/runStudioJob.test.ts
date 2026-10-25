@@ -1,4 +1,4 @@
-import type { JobStepBody, PublishTabJob } from "@valbuild/shared/internal";
+import type { JobStepBody, PublishTabJob } from "../internal";
 import type { PreparedJob, StudioJobClient } from "./jobClient";
 import { StudioPublishError } from "./publishClient";
 import { runStudioJob } from "./runStudioJob";

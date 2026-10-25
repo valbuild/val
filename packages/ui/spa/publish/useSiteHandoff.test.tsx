@@ -14,7 +14,7 @@ import {
   useSiteHandoff,
   type HandoffPressed,
 } from "./useSiteHandoff";
-import { RENEW_EVERY_MS } from "./runStudioJob";
+import { RENEW_EVERY_MS } from "@valbuild/shared/publish";
 import { BroadcastChannel as NodeBroadcastChannel } from "node:worker_threads";
 import type { PublishRequestStatus } from "@valbuild/shared/internal";
 

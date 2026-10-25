@@ -1,5 +1,5 @@
 import type { PublishArtifact } from "@valbuild/tanstack-build";
-import type { DeclareBody } from "@valbuild/shared/internal";
+import type { DeclareBody } from "../internal";
 import {
   StudioPublishClient,
   StudioPublishError,

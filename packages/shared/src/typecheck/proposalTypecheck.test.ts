@@ -1,14 +1,19 @@
-import type {
-  TypeErrorEntry,
-  TypecheckResult,
-} from "@valbuild/shared/typecheck";
 import {
   MAX_REPORTED_ERRORS,
   errorsByFile,
   runProposalTypecheck,
+  type ProposalTypeError,
   type ProposalTypecheckDeps,
 } from "./proposalTypecheck";
-import type { ProposalStaged } from "./proposalsClient";
+import type { TypeErrorEntry, TypecheckResult } from "./typecheckProject";
+
+/** What content answers a report with, as the Studio reads it. */
+type Reported = {
+  inputs: string;
+  newErrors: number;
+  errors: ProposalTypeError[];
+  checkedAt: string;
+};
 
 /*
  * valbuild/home `docs/adept.md`, decision 20: an upgrade is judged by the
@@ -49,16 +54,16 @@ const result = (errors: TypeErrorEntry[]): TypecheckResult => ({
   },
 });
 
-const staged = (inputs: string | null): ProposalStaged => ({
+const staged = (inputs: string | null) => ({
   files: inputs === null ? [] : ["pnpm-lock.yaml", "package.json"],
   inputs,
   buildRequired: false,
 });
 
-function deps(over: Partial<ProposalTypecheckDeps> = {}) {
+function deps(over: Partial<ProposalTypecheckDeps<Reported>> = {}) {
   const checked: { lockfile: string; files: string[] }[] = [];
   const reported: unknown[] = [];
-  const base: ProposalTypecheckDeps = {
+  const base: ProposalTypecheckDeps<Reported> = {
     name: "p1",
     client: {
       files: async () => ({
