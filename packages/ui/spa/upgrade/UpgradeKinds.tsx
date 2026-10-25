@@ -8,55 +8,77 @@ import {
 import type { CheckedUpgrades, UpgradePath } from "./upgradesClient";
 
 /*
- * The three kinds of upgrade (valbuild/home `docs/adept.md`, decision 10), as
- * the Upgrade dialog and Settings → Updates both offer them: each with what
- * the check says it moves, a vulnerability fix first. Majors are listed one
- * by one, each one a box to leave it out.
+ * The three kinds of upgrade (valbuild/home `docs/adept.md`, decision 10;
+ * `docs/plans/upgrades-v2.md`, piece A), as the Upgrade dialog and Settings →
+ * Updates both offer them: only the ones that move something, each by what
+ * it moves -- counts, and the Val it moves to. Which packages is folded
+ * away; there the majors are each a box to leave one out.
  */
 
-/** A kind of upgrade, and whether there is anything for it to do. */
-export function kindsOf(check: CheckedUpgrades): {
+/** A kind of upgrade the check found something for. */
+export type UpgradeKind = {
   path: UpgradePath;
   title: string;
   detail: string;
-  empty: boolean;
-}[] {
-  const plural = (n: number, one: string, many = `${one}s`) =>
-    `${n} ${n === 1 ? one : many}`;
-  return [
-    {
-      path: "cves",
-      title: "Fix vulnerabilities",
-      detail:
-        check.cves.vulnerable > 0
-          ? `${plural(check.cves.vulnerable, "vulnerable package")}${check.cves.severity ? `, the worst ${check.cves.severity}` : ""}. Only the smallest change that fixes them, kept only when it does.`
-          : "No vulnerable packages.",
-      empty: check.cves.vulnerable === 0,
-    },
-    {
-      path: "latest",
-      title: "Latest within the major",
-      detail:
-        check.latest.packages.length > 0
-          ? `${plural(check.latest.packages.length, "dependency", "dependencies")} to the newest version of the major it is on.`
-          : "Every dependency is on the newest version of its major.",
-      empty: check.latest.packages.length === 0,
-    },
-    {
-      path: "majors",
-      title: "New major versions",
-      detail:
-        check.majors.packages.length > 0
-          ? `${plural(check.majors.packages.length, "dependency", "dependencies")} with a new major version. These can change how they work: the upgrade is typechecked, and it is published only when it adds no type errors.`
-          : "No dependency has a new major version.",
-      empty: check.majors.packages.length === 0,
-    },
-  ];
+  recommended: boolean;
+};
+
+const VAL_SCOPE = "@valbuild/";
+
+const plural = (n: number, one: string, many = `${one}s`) =>
+  `${n} ${n === 1 ? one : many}`;
+
+/**
+ * The vulnerabilities Security fixes would fix. A check from before content
+ * counted them says how many packages are vulnerable instead.
+ */
+export function fixableOf(check: CheckedUpgrades): number {
+  return check.cves.fixable ?? check.cves.vulnerable;
 }
 
-/** The kind offered first: a vulnerability fix when there is one. */
-export function firstKind(check: CheckedUpgrades): UpgradePath {
-  return kindsOf(check).find((kind) => !kind.empty)?.path ?? "cves";
+/** The kinds of upgrade that move something, in the order they are offered. */
+export function kindsOf(check: CheckedUpgrades): UpgradeKind[] {
+  const kinds: UpgradeKind[] = [];
+  const fixable = fixableOf(check);
+  if (fixable > 0) {
+    kinds.push({
+      path: "cves",
+      title: "Security fixes",
+      detail: `Fixes ${plural(fixable, "vulnerability", "vulnerabilities")}${check.cves.severity ? `, the worst ${check.cves.severity}` : ""}, with the smallest change that does.`,
+      recommended: false,
+    });
+  }
+  const latest = check.latest.packages;
+  if (latest.length > 0) {
+    const val = check.latest.val ?? null;
+    const others = latest.filter((p) => !p.name.startsWith(VAL_SCOPE)).length;
+    const rest = plural(others, "dependency", "dependencies");
+    kinds.push({
+      path: "latest",
+      title: "Minor versions",
+      detail:
+        val !== null
+          ? `Val ${val.from} → ${val.to}${others > 0 ? `, and ${rest} to the newest version of their major` : ""}.`
+          : `${plural(latest.length, "dependency", "dependencies")} to the newest version of their major.`,
+      recommended: true,
+    });
+  }
+  const majors = check.majors.packages;
+  if (majors.length > 0) {
+    kinds.push({
+      path: "majors",
+      title: "Full",
+      detail: `Minor versions, and ${plural(majors.length, "dependency", "dependencies")} onto a new major version. A new major can change how a dependency works: the upgrade is built and typechecked before it can be published.`,
+      recommended: false,
+    });
+  }
+  return kinds;
+}
+
+/** The kind offered first: the recommended one when there is one. */
+export function firstKind(check: CheckedUpgrades): UpgradePath | null {
+  const kinds = kindsOf(check);
+  return (kinds.find((kind) => kind.recommended) ?? kinds[0])?.path ?? null;
 }
 
 export function UpgradeKinds({
@@ -98,13 +120,13 @@ export function UpgradeKinds({
           <label className="flex cursor-pointer items-start gap-2.5">
             <RadioGroupItem
               value={kind.path}
-              disabled={disabled || kind.empty}
+              disabled={disabled}
               className="mt-0.5"
               aria-label={kind.title}
             />
             <span className="flex flex-col gap-0.5">
               <span className="flex items-center gap-1.5 text-xs font-medium text-fg-primary">
-                {kind.path === "cves" && !kind.empty && (
+                {kind.path === "cves" && (
                   <ShieldAlert
                     size={13}
                     className="text-fg-error-on-surface"
@@ -112,69 +134,77 @@ export function UpgradeKinds({
                   />
                 )}
                 {kind.title}
+                {kind.recommended && (
+                  <span className="font-normal text-fg-secondary">
+                    (recommended)
+                  </span>
+                )}
               </span>
               <span className="text-xs text-fg-secondary">{kind.detail}</span>
             </span>
           </label>
-          {kind.path === "latest" &&
-            path === "latest" &&
-            check.latest.packages.length > 0 && (
-              <ul className="ml-6 flex flex-col gap-0.5 text-xs text-fg-secondary">
-                {check.latest.packages.map((p) => (
-                  <li key={p.name}>
-                    <span className="font-mono text-fg-primary">{p.name}</span>{" "}
-                    {p.from} → {p.to}
-                  </li>
-                ))}
-              </ul>
-            )}
-          {kind.path === "cves" &&
-            path === "cves" &&
-            check.cves.packages.length > 0 && (
-              <ul className="ml-6 flex flex-col gap-0.5 text-xs text-fg-secondary">
-                {check.cves.packages.map((p) => (
-                  <li key={`${p.name}@${p.version}`}>
-                    <span className="font-mono text-fg-primary">{p.name}</span>{" "}
-                    {p.version}, {p.severity}
-                  </li>
-                ))}
-              </ul>
-            )}
-          {kind.path === "majors" &&
-            path === "majors" &&
-            check.majors.packages.length > 0 && (
-              <ul className="ml-6 flex flex-col gap-1 text-xs">
-                {check.majors.packages.map((p) => {
-                  const moves = !skip.includes(p.name);
-                  return (
+          {path === kind.path && (
+            <details className="ml-6 text-xs text-fg-secondary">
+              <summary className="cursor-pointer select-none">Which</summary>
+              {kind.path === "latest" && (
+                <ul className="mt-1 flex flex-col gap-0.5">
+                  {check.latest.packages.map((p) => (
                     <li key={p.name}>
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <Checkbox
-                          checked={moves}
-                          disabled={disabled}
-                          onCheckedChange={(checked) =>
-                            onSkip(
-                              checked === true
-                                ? skip.filter((name) => name !== p.name)
-                                : [...skip, p.name],
-                            )
-                          }
-                          aria-label={`Upgrade ${p.name}`}
-                        />
-                        <span
-                          className={cn(
-                            moves ? "text-fg-primary" : "text-fg-secondary",
-                          )}
-                        >
-                          <span className="font-mono">{p.name}</span> {p.from} →{" "}
-                          {p.to}
-                        </span>
-                      </label>
+                      <span className="font-mono text-fg-primary">
+                        {p.name}
+                      </span>{" "}
+                      {p.from} → {p.to}
                     </li>
-                  );
-                })}
-              </ul>
-            )}
+                  ))}
+                </ul>
+              )}
+              {kind.path === "cves" && (
+                <ul className="mt-1 flex flex-col gap-0.5">
+                  {check.cves.packages.map((p) => (
+                    <li key={`${p.name}@${p.version}`}>
+                      <span className="font-mono text-fg-primary">
+                        {p.name}
+                      </span>{" "}
+                      {p.version}, {p.severity}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {kind.path === "majors" && (
+                <ul className="mt-1 flex flex-col gap-1">
+                  {check.majors.packages.map((p) => {
+                    const moves = !skip.includes(p.name);
+                    return (
+                      <li key={p.name}>
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <Checkbox
+                            checked={moves}
+                            disabled={disabled}
+                            onCheckedChange={(checked) =>
+                              onSkip(
+                                checked === true
+                                  ? skip.filter((name) => name !== p.name)
+                                  : [...skip, p.name],
+                              )
+                            }
+                            aria-label={`Upgrade ${p.name}`}
+                          />
+                          <span
+                            className={cn(
+                              moves ? "text-fg-primary" : "text-fg-secondary",
+                            )}
+                          >
+                            <span className="font-mono">{p.name}</span> {p.from}{" "}
+                            → {p.to}
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </details>
+          )}
         </div>
       ))}
     </RadioGroup>

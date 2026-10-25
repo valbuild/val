@@ -20,10 +20,17 @@ const CHECKED: UpgradeCheckState = {
     available: true,
     cves: {
       vulnerable: 1,
+      fixable: 2,
       severity: "high",
       packages: [{ name: "lodash", version: "4.17.20", severity: "high" }],
     },
-    latest: { packages: [{ name: "zod", from: "3.0.0", to: "3.9.0" }] },
+    latest: {
+      packages: [
+        { name: "@valbuild/ui", from: "0.149.4", to: "0.150.0" },
+        { name: "zod", from: "3.0.0", to: "3.9.0" },
+      ],
+      val: { from: "0.149.4", to: "0.150.0" },
+    },
     majors: {
       packages: [
         { name: "react", from: "18.3.1", to: "19.2.0" },
@@ -34,7 +41,7 @@ const CHECKED: UpgradeCheckState = {
 };
 
 describe("choosing an upgrade", () => {
-  test("a vulnerability fix is offered first, and opens a proposal for it", () => {
+  test("Minor versions is recommended, chosen first, and says which Val it moves to", () => {
     const onStart = jest.fn();
     render(
       <UpgradeChooser
@@ -44,6 +51,34 @@ describe("choosing an upgrade", () => {
         onRecheck={() => {}}
       />,
     );
+    const minor = screen.getByRole("radio", { name: "Minor versions" });
+    expect(minor.getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByText("(recommended)")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Val 0.149.4 → 0.150.0, and 1 dependency to the newest version of their major.",
+      ),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: /upgrade in a proposal/i }),
+    );
+    expect(onStart).toHaveBeenCalledWith("latest", []);
+  });
+
+  test("Security fixes counts what it fixes, and opens a proposal for it", () => {
+    const onStart = jest.fn();
+    render(
+      <UpgradeChooser
+        check={CHECKED}
+        start={{ status: "idle" }}
+        onStart={onStart}
+        onRecheck={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "Security fixes" }));
+    expect(
+      screen.getByText(/^Fixes 2 vulnerabilities, the worst high/),
+    ).toBeTruthy();
     expect(screen.getByText("lodash")).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: /upgrade in a proposal/i }),
@@ -61,7 +96,7 @@ describe("choosing an upgrade", () => {
         onRecheck={() => {}}
       />,
     );
-    fireEvent.click(screen.getByRole("radio", { name: "New major versions" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Full" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Upgrade react" }));
     fireEvent.click(
       screen.getByRole("button", { name: /upgrade in a proposal/i }),
@@ -69,7 +104,7 @@ describe("choosing an upgrade", () => {
     expect(onStart).toHaveBeenCalledWith("majors", ["react"]);
   });
 
-  test("a kind with nothing to do cannot be chosen", () => {
+  test("a kind with nothing to move is not offered", () => {
     render(
       <UpgradeChooser
         check={{
@@ -78,7 +113,15 @@ describe("choosing an upgrade", () => {
             state: "checked",
             checkedAt: "x",
             available: true,
-            cves: { vulnerable: 0, severity: null, packages: [] },
+            // Vulnerable, and nothing an upgrade can take fixes it.
+            cves: {
+              vulnerable: 1,
+              fixable: 0,
+              severity: "high",
+              packages: [
+                { name: "lodash", version: "4.17.20", severity: "high" },
+              ],
+            },
             latest: { packages: [{ name: "zod", from: "3.0.0", to: "3.9.0" }] },
             majors: { packages: [] },
           },
@@ -88,16 +131,45 @@ describe("choosing an upgrade", () => {
         onRecheck={() => {}}
       />,
     );
+    expect(screen.queryByRole("radio", { name: "Security fixes" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Full" })).toBeNull();
     expect(
       screen
-        .getByRole("radio", { name: "Fix vulnerabilities" })
-        .hasAttribute("disabled"),
-    ).toBe(true);
-    expect(
-      screen
-        .getByRole("radio", { name: "Latest within the major" })
+        .getByRole("radio", { name: "Minor versions" })
         .getAttribute("aria-checked"),
     ).toBe("true");
+  });
+
+  test("vulnerable with no fix to take, and nothing else, says so", () => {
+    render(
+      <UpgradeChooser
+        check={{
+          ...CHECKED,
+          check: {
+            state: "checked",
+            checkedAt: "x",
+            available: false,
+            cves: {
+              vulnerable: 2,
+              fixable: 0,
+              severity: "high",
+              packages: [],
+            },
+            latest: { packages: [], val: null },
+            majors: { packages: [] },
+          },
+        }}
+        start={{ status: "idle" }}
+        onStart={() => {}}
+        onRecheck={() => {}}
+      />,
+    );
+    expect(
+      screen.getByText(
+        "The site's dependencies are up to date. 2 packages are vulnerable, with no fix an upgrade can take yet.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   test("a check that failed says so, and Try again asks again", () => {

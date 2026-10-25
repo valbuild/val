@@ -36,7 +36,7 @@ export function UpgradeChooser({
       : null;
   const [path, setPath] = useState<UpgradePath | null>(null);
   const [skip, setSkip] = useState<string[]>([]);
-  // The first kind with something to do, once the check says which.
+  // The recommended kind, once the check says which there are.
   useEffect(() => {
     if (checked !== null && path === null) setPath(firstKind(checked));
   }, [checked, path]);
@@ -70,16 +70,19 @@ export function UpgradeChooser({
     return <p className="text-xs text-fg-secondary">{check.check.message}</p>;
   }
   const result = check.check;
-  if (!result.available) {
+  const first = firstKind(result);
+  if (!result.available || first === null) {
     return (
       <p className="text-xs text-fg-secondary">
-        The site&apos;s dependencies are up to date, and none is vulnerable.
+        {result.cves.vulnerable > 0
+          ? `The site's dependencies are up to date. ${result.cves.vulnerable === 1 ? "1 package is" : `${result.cves.vulnerable} packages are`} vulnerable, with no fix an upgrade can take yet.`
+          : "The site's dependencies are up to date, and none is vulnerable."}
       </p>
     );
   }
-  const chosen = path ?? firstKind(result);
-  const nothing =
-    kindsOf(result).find((kind) => kind.path === chosen)?.empty ?? true;
+  const kinds = kindsOf(result);
+  const chosen =
+    path !== null && kinds.some((kind) => kind.path === path) ? path : first;
   const allSkipped =
     chosen === "majors" &&
     result.majors.packages.every((p) => skip.includes(p.name));
@@ -111,7 +114,7 @@ export function UpgradeChooser({
       <div>
         <Button
           size="sm"
-          disabled={start.status === "starting" || nothing || allSkipped}
+          disabled={start.status === "starting" || allSkipped}
           onClick={() => onStart(chosen, chosen === "majors" ? skip : [])}
         >
           {start.status === "starting" ? (

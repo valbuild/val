@@ -33,6 +33,11 @@ const UpgradeCheck = z.union([
     available: z.boolean(),
     cves: z.object({
       vulnerable: z.number(),
+      /**
+       * The vulnerabilities Security fixes would fix; absent from a content
+       * that did not count them yet.
+       */
+      fixable: z.number().optional(),
       severity: Severity,
       packages: z.array(
         z.object({
@@ -42,7 +47,11 @@ const UpgradeCheck = z.union([
         }),
       ),
     }),
-    latest: z.object({ packages: z.array(UpgradePackage) }),
+    latest: z.object({
+      packages: z.array(UpgradePackage),
+      /** The Val release it moves to, when it moves Val. */
+      val: z.object({ from: z.string(), to: z.string() }).nullish(),
+    }),
     majors: z.object({ packages: z.array(UpgradePackage) }),
   }),
 ]);
@@ -112,10 +121,10 @@ export function packagesOf(
 export function upgradeDisplayName(path: UpgradePath): string {
   switch (path) {
     case "cves":
-      return "Fix vulnerabilities";
+      return "Security fixes";
     case "latest":
-      return "Upgrade dependencies";
+      return "Minor versions";
     case "majors":
-      return "Upgrade to new major versions";
+      return "Full upgrade";
   }
 }
