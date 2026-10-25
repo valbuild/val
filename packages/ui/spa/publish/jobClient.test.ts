@@ -1,5 +1,5 @@
 import type { BuildTargetResponse } from "@valbuild/shared/internal";
-import { createStudioJobClient } from "./jobClient";
+import { createStudioJobClient } from "@valbuild/shared/publish";
 import { deployPreparedJob } from "./useStudioDeploy";
 import { onPlanRefusal } from "../utils/planRefusal";
 

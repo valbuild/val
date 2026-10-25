@@ -1,4 +1,4 @@
-import { StudioPublishError, callJson } from "./callJson";
+import { StudioPublishError, callJson } from "@valbuild/shared/publish";
 
 /*
  * A lockfile or upgrade job on adept, through content's `/adept/*` routes and

@@ -1,6 +1,6 @@
 import type { BuildOutput } from "@valbuild/tanstack-build";
 import { StudioPublishClient, StudioPublishError } from "./publishClient";
-import { StudioBuilder } from "./loadBuilder";
+import type { StudioBuilder } from "./builder";
 import { DeployPhase, runStudioDeploy } from "./runStudioDeploy";
 
 /**

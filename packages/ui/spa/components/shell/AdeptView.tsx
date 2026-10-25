@@ -6,7 +6,7 @@ import {
   callJson,
   createStudioPublishClient,
   isTransientPublishError,
-} from "../../publish/publishClient";
+} from "@valbuild/shared/publish";
 import {
   SourceError,
   lockedPackages,

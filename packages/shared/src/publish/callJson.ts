@@ -1,11 +1,21 @@
-import { reportPlanRefusal } from "../utils/planRefusal";
-
 /*
  * The one JSON call the Studio makes through its own origin's publish proxy,
  * and the errors it throws. Apart from `publishClient.ts` (which re-exports
  * all three) so that a worker can make the same call without importing the
  * publish client's parsers, and `@valbuild/shared` with them.
  */
+
+/**
+ * Who hears of a refusal's body before it is thrown: the Studio's shell, which
+ * says a refusal of the project's plan with the next step (`planRefusal.ts` in
+ * `@valbuild/ui`). One listener; setting it again replaces it.
+ */
+let refusalListener: ((body: unknown) => void) | null = null;
+export function onPublishRefusal(
+  listener: ((body: unknown) => void) | null,
+): void {
+  refusalListener = listener;
+}
 
 /** The publish API refused, and said why. */
 export class StudioPublishError extends Error {
@@ -72,7 +82,7 @@ export async function callJson(
   if (!res.ok) {
     // A publish the plan does not allow (a trial's 3 publishes, a trial that
     // ended): the shell says it, with the next step. See `planRefusal`.
-    reportPlanRefusal(parsed);
+    refusalListener?.(parsed);
     const message =
       typeof parsed === "object" &&
       parsed !== null &&

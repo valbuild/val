@@ -35,14 +35,14 @@
  */
 
 import type { BuildOutput, BuildTarget } from "@valbuild/tanstack-build";
-import { PublishProblem } from "@valbuild/shared/internal";
+import { PublishProblem } from "../internal";
 import { CarriedArtifact, StudioPublishClient } from "./publishClient";
 import {
   PublishPhase,
   StudioPublishResult,
   runStudioPublish,
 } from "./runStudioPublish";
-import { StudioBuilder } from "./loadBuilder";
+import type { StudioBuilder } from "./builder";
 import {
   LayerReading,
   STUDIO_OUT_OF_DATE,
