@@ -1,7 +1,7 @@
 import type {
   TypeErrorEntry,
   TypecheckResult,
-} from "../typecheck/typecheckProject";
+} from "@valbuild/shared/typecheck";
 import {
   MAX_REPORTED_ERRORS,
   errorsByFile,

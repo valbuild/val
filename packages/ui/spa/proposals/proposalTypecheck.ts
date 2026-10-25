@@ -1,9 +1,9 @@
-import type {
-  TypeErrorEntry,
-  TypecheckProgress,
-  TypecheckResult,
-} from "../typecheck/typecheckProject";
-import { newErrors } from "../typecheck/typecheckProject";
+import {
+  type TypeErrorEntry,
+  type TypecheckProgress,
+  type TypecheckResult,
+  newErrors,
+} from "@valbuild/shared/typecheck";
 import { proposalProject } from "./proposalCode";
 import type {
   ProposalTypeError,

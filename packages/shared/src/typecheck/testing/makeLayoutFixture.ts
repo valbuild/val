@@ -7,7 +7,7 @@ import { readInstalledLayout } from "./readInstalledLayout";
  * Makes a fixture for `pnpmLayout.test.ts` from a project that a real
  * `pnpm install` has just run in:
  *
- *     pnpm exec tsx packages/ui/spa/typecheck/testing/makeLayoutFixture.ts \
+ *     pnpm exec tsx packages/shared/src/typecheck/testing/makeLayoutFixture.ts \
  *       <installed project> <fixture name>
  *
  * It copies the lockfile and `pnpm-workspace.yaml`, records each importer's
