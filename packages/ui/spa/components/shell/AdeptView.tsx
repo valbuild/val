@@ -7,17 +7,15 @@ import {
   createStudioPublishClient,
   isTransientPublishError,
 } from "../../publish/publishClient";
-import { SourceError } from "../../typecheck/acquireTypes";
 import {
+  SourceError,
   lockedPackages,
   typescriptVersion,
   type Locked,
-} from "../../typecheck/lockedVersions";
-import type {
-  TypeErrorEntry,
-  TypecheckProgress,
-  TypecheckResult,
-} from "../../typecheck/typecheckProject";
+  type TypeErrorEntry,
+  type TypecheckProgress,
+  type TypecheckResult,
+} from "@valbuild/shared/typecheck";
 import { TypecheckAbandoned } from "../../typecheck/typecheckProtocol";
 import type { Typechecker } from "../../typecheck/typecheckWorkerClient";
 import { Abandoned, UnexpectedAnswer, runJob } from "../../publish/adeptJob";

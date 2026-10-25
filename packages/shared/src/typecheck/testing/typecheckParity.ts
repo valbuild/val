@@ -9,7 +9,7 @@ import { nodeModulesSources } from "./nodeModulesSources";
  * Typechecks a checkout the way the Studio does, and compares the result
  * with `tsc --noEmit` on the same checkout after `pnpm install`:
  *
- *     pnpm exec tsx packages/ui/spa/typecheck/testing/typecheckParity.ts \
+ *     pnpm exec tsx packages/shared/src/typecheck/testing/typecheckParity.ts \
  *       <installed checkout> [--adept http://127.0.0.1:4300/v1] [--json out.json]
  *
  * With `--adept`, bundles and the compiler come from that adept (the

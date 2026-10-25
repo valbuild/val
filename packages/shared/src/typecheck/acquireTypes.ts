@@ -270,7 +270,7 @@ export class TypeAcquisition {
     }
     for (const stub of bundle.stubs) {
       if (!isSafeRelative(stub)) continue;
-      if (!Object.hasOwn(bundle.files, stub)) {
+      if (!Object.prototype.hasOwnProperty.call(bundle.files, stub)) {
         this.fs.writeFile(`${dir}/${stub}`, "");
         this.stats.stubs++;
       }

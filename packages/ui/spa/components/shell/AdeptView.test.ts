@@ -1,5 +1,5 @@
 import { StudioPublishError } from "../../publish/publishClient";
-import { SourceError } from "../../typecheck/acquireTypes";
+import { SourceError } from "@valbuild/shared/typecheck";
 import {
   Abandoned,
   failureOf,

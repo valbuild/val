@@ -329,7 +329,9 @@ function tokenValues(
 ): string[] | null {
   const values: string[] = [];
   for (const token of tokens) {
-    const value = Object.hasOwn(table, token) ? table[token] : undefined;
+    const value = Object.prototype.hasOwnProperty.call(table, token)
+      ? table[token]
+      : undefined;
     if (value !== undefined && !values.includes(value)) values.push(value);
   }
   return values.length > 0 ? values : null;
