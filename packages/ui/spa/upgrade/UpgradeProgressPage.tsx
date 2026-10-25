@@ -5,7 +5,6 @@ import {
   Circle,
   ExternalLink,
   Hammer,
-  Loader2,
   Package,
   RefreshCw,
   Trash2,
@@ -22,6 +21,7 @@ import type {
   UpgradeProgressView,
   UpgradeStepState,
 } from "./upgradeProgress";
+import { Spinner } from "../components/designSystem/spinner";
 
 /** How many new errors are listed before "and N more". */
 const LISTED_ERRORS = 50;
@@ -33,12 +33,7 @@ function StepIcon({ state }: { state: StepMark }) {
     case "done":
       return <Check size={14} className="mt-px shrink-0 text-fg-proposal" />;
     case "running":
-      return (
-        <Loader2
-          size={14}
-          className="mt-px shrink-0 animate-spin text-fg-proposal"
-        />
-      );
+      return <Spinner size={14} className="mt-px text-fg-proposal" />;
     case "failed":
       return (
         <X size={14} className="mt-px shrink-0 text-fg-error-on-surface" />
@@ -473,11 +468,7 @@ function NextStep({
     case "publish":
       return (
         <Button size="sm" disabled={!action.enabled} onClick={onPublish}>
-          {action.busy ? (
-            <Loader2 size={13} className="animate-spin" />
-          ) : (
-            <Upload size={13} />
-          )}
+          {action.busy ? <Spinner size={14} /> : <Upload size={13} />}
           Publish
         </Button>
       );

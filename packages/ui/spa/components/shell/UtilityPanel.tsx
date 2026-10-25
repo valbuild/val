@@ -7,7 +7,6 @@ import {
   FilePlus2,
   GitCompare,
   ImagePlus,
-  Loader2,
   Rocket,
   Sparkles,
   Undo2,
@@ -32,6 +31,7 @@ import {
   ShellDestination,
   ShellValidationError,
 } from "./types";
+import { Spinner } from "../designSystem/spinner";
 
 export type UtilityPanelProps = {
   breakpoint: ShellBreakpoint;
@@ -368,7 +368,7 @@ export function ActivityList({
 function deployIcon(progress: ShellDeployActivity["progress"]) {
   switch (progress) {
     case "building":
-      return <Loader2 size={13} className="animate-spin text-fg-secondary" />;
+      return <Spinner size={14} className="text-fg-secondary" />;
     case "failed":
       return <CircleAlert size={13} className="text-fg-error-on-surface" />;
     case "unknown":

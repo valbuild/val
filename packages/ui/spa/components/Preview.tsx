@@ -21,7 +21,7 @@ import { RichTextPreview } from "./fields/RichTextField";
 import { FilePreview } from "./fields/FileField";
 import { VideoPreview } from "./fields/VideoField";
 import { SettingsPreview } from "./fields/SettingsFields";
-import { Loader2 } from "lucide-react";
+import { Spinner } from "./designSystem/spinner";
 
 export function Preview({
   path,
@@ -103,7 +103,7 @@ export function Preview({
 export function PreviewLoading({ path }: { path: SourcePath }) {
   return (
     <div id={path} key={path + "-loading"}>
-      <Loader2 size={12} className="animate-spin" />
+      <Spinner size={12} />
     </div>
   );
 }

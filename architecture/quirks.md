@@ -1081,6 +1081,25 @@ is a whole-route request avoided, and in development that is a page re-render.
 If you find yourself adding a refresh somewhere, check whether this net already
 covers it.
 
+## A spinner that is centred in Chromium wobbles in Safari
+
+`<Loader2 className="animate-spin" />` turns about its exact centre in
+Chromium: fitting a circle to the arc frame by frame, the centre moves by
+0.03 device pixels. Safari is different. It redraws a spinning SVG every frame
+and rounds its position each time, so a spinner sitting at a fractional offset
+(flex centring makes those all the time: the publish dialog's sits at
+y = 351.5) or with an odd size (there were 11 and 13 px ones) orbits its own
+centre on a 2x screen. It reads as "the spinner is off centre", and no
+Chromium screenshot will show it.
+
+`Spinner` (`designSystem/spinner.tsx`) is the fix. A span spins, on its own
+compositing layer (`will-change: transform`), and the SVG inside it does not
+move, so the bitmap is drawn once and turned as a whole. Its size type only
+allows even numbers. Use it instead of putting `animate-spin` on an icon; the
+two icons that spin only while they are busy (`CanvasToolbar`,
+`RestoreCodeNotice`) wrap theirs in a span for the same reason, and so does the
+loading screen in `@valbuild/next` and `@valbuild/tanstack`.
+
 ## A preview with no background shows the Studio's artboard — or does not
 
 `CanvasFrame` paints a hardcoded `bg-white` artboard behind the preview iframe.

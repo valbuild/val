@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Loader2, RotateCcw } from "lucide-react";
+import { AlertTriangle, Check, RotateCcw } from "lucide-react";
 import { useStudioDeployState } from "../ValProvider";
 import {
   INTENT_MAX_AGE_MS,
@@ -19,6 +19,7 @@ import {
 import { proposalBuildProgress } from "../../proposals/proposalBuildProgress";
 import { createProposalsClient } from "../../proposals/proposalsClient";
 import { cn } from "../designSystem/cn";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * The builder tab a page that cannot build opened to build a proposal's code
@@ -172,7 +173,7 @@ export function HandoffProposalBuildTab({
       >
         <div className="flex items-center gap-2">
           {outcome === null ? (
-            <Loader2 size={18} className="shrink-0 animate-spin" />
+            <Spinner size={18} />
           ) : outcome.status === "failed" ? (
             <AlertTriangle
               size={18}
