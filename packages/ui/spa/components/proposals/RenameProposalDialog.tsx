@@ -1,4 +1,3 @@
-import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "../designSystem/cn";
 import {
@@ -8,6 +7,7 @@ import {
   DialogTitle,
 } from "../designSystem/dialog";
 import { fieldClass } from "./NewProposalDialog";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * Rename a proposal: what people call it. Its name -- the hash its address
@@ -95,7 +95,7 @@ export function RenameProposalDialog({
                 "disabled:bg-bg-disabled disabled:text-fg-disabled",
               )}
             >
-              {renaming && <Loader2 size={14} className="animate-spin" />}
+              {renaming && <Spinner size={14} />}
               {renaming ? "Renaming…" : "Rename"}
             </button>
           </div>

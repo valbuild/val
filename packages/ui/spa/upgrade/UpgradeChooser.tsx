@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowUpCircle, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, ArrowUpCircle, RefreshCw } from "lucide-react";
 import { Button } from "../components/designSystem/button";
 import { firstKind, kindsOf, UpgradeKinds } from "./UpgradeKinds";
 import type { UpgradeCheckState } from "./useUpgradeCheck";
 import type { UpgradePath } from "./upgradesClient";
+import { Spinner } from "../components/designSystem/spinner";
 
 /**
  * What a person picks an upgrade with -- in the Upgrade dialog and in
@@ -47,8 +48,7 @@ export function UpgradeChooser({
   if (check.status === "idle" || check.status === "checking") {
     return (
       <div className="flex items-center gap-2 text-xs text-fg-secondary">
-        <Loader2 size={14} className="animate-spin" /> Checking the site&apos;s
-        dependencies…
+        <Spinner size={14} /> Checking the site&apos;s dependencies…
       </div>
     );
   }
@@ -128,7 +128,7 @@ export function UpgradeChooser({
           onClick={() => onStart(chosen, chosen === "majors" ? skip : [])}
         >
           {start.status === "preparing" ? (
-            <Loader2 size={13} className="animate-spin" />
+            <Spinner size={14} />
           ) : (
             <ArrowUpCircle size={13} />
           )}

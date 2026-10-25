@@ -18,7 +18,6 @@ import {
   Square,
   RotateCcw,
   Sparkles,
-  Loader2,
   LogIn,
   FileText,
   Pencil,
@@ -68,6 +67,7 @@ import type {
   AskUserQuestionItem,
   ToolActivity,
 } from "./AIChatToolActivities";
+import { Spinner } from "./designSystem/spinner";
 
 export type {
   AskUserQuestionAnswer,
@@ -1358,7 +1358,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
             <AuthPrompt mode={mode} />
           ) : isLoadingSession && isEmpty ? (
             <div className="flex flex-col items-center justify-center gap-2 py-12 text-fg-secondary">
-              <Loader2 className="h-5 w-5 animate-spin" />
+              <Spinner size={20} />
               <span className="text-sm">Loading conversation…</span>
             </div>
           ) : isEmpty && emptyStateOverride !== undefined ? (
@@ -1429,7 +1429,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                       {f.file.name}
                     </span>
                     {f.status === "uploading" && (
-                      <Loader2 className="h-3 w-3 animate-spin text-fg-secondary" />
+                      <Spinner size={12} className="text-fg-secondary" />
                     )}
                     {f.status === "error" && (
                       <XCircle className="h-3 w-3 text-fg-error-primary" />

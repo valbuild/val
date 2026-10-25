@@ -6,7 +6,6 @@ import {
   ValidationError,
 } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
-import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnyField } from "../AnyField";
 import { FieldErrorsOwned } from "../FieldErrorsOwner";
@@ -31,6 +30,7 @@ import {
   validateSession,
   type CheckRun,
 } from "./validateSession";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * `/val/validate`, connected: the Studio's own errors, "Check everything"
@@ -362,7 +362,7 @@ function OwnFieldBody({ sourcePath }: { sourcePath: SourcePath }) {
   if (schemaAtPath.status !== "success") {
     return (
       <div className="flex items-center gap-2 text-sm text-fg-secondary">
-        <Loader2 size={14} className="animate-spin" aria-hidden />
+        <Spinner size={14} aria-hidden />
         <span>Loading field&hellip;</span>
       </div>
     );

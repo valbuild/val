@@ -4,13 +4,13 @@ import {
   ExternalLink,
   FileText,
   Image as ImageIcon,
-  Loader2,
   History,
   Search,
   TextSearch,
 } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { ShellData } from "./types";
+import { Spinner } from "../designSystem/spinner";
 
 /** One thing the global search can take you to. */
 export type SearchResult = {
@@ -330,7 +330,7 @@ export function GlobalSearch({
            */}
           {isSearchingContent && matches.length > 0 && (
             <p className="flex items-center gap-1.5 px-4 py-2 text-[0.6875rem] text-fg-secondary-alt">
-              <Loader2 size={11} className="animate-spin" />
+              <Spinner size={12} />
               Still searching content…
             </p>
           )}

@@ -8,7 +8,6 @@ import {
   GitCompare,
   History,
   Link2,
-  Loader2,
   LucideIcon,
   Menu,
   PanelRight,
@@ -48,6 +47,7 @@ import {
   ProposalSaveButton,
 } from "../proposals/ProposalBar";
 import type { ProposalSummary, StudioLocation } from "../proposals/types";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * Proposals, when this project has them: the switcher, and in a proposal the
@@ -1092,7 +1092,7 @@ export function PublishButton({
       )}
     >
       {publishState === "publishing" ? (
-        <Loader2 size={14} className="shrink-0 animate-spin" />
+        <Spinner size={14} />
       ) : publishState === "error" ? (
         <AlertTriangle size={14} className="shrink-0" />
       ) : (

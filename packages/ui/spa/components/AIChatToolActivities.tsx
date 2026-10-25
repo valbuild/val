@@ -11,7 +11,6 @@ import {
   Hash,
   HelpCircle,
   List,
-  Loader2,
   Navigation,
   Paperclip,
   Pencil,
@@ -25,6 +24,7 @@ import {
 import { Button } from "./designSystem/button";
 import { cn } from "./designSystem/cn";
 import { ToolName } from "@valbuild/shared/internal";
+import { Spinner } from "./designSystem/spinner";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -340,7 +340,7 @@ function ToolCallGroup({
                     failed and done. */}
                 <span className="shrink-0" aria-hidden="true">
                   {activity.status === "pending" ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <Spinner size={12} />
                   ) : activity.status === "error" ? (
                     <XCircle className="h-3 w-3" />
                   ) : (

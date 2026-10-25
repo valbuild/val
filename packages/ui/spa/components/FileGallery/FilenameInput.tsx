@@ -1,8 +1,9 @@
 import * as React from "react";
-import { Check, Loader2, Pencil, X } from "lucide-react";
+import { Check, Pencil, X } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { Input } from "../designSystem/input";
 import { splitEditableFilename } from "../../utils/renameMediaFile";
+import { Spinner } from "../designSystem/spinner";
 
 interface FilenameInputProps {
   filename: string;
@@ -134,11 +135,7 @@ export function FilenameInput({
             title="Save"
             aria-label="Save file name"
           >
-            {saving ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Check className="h-4 w-4" />
-            )}
+            {saving ? <Spinner size={16} /> : <Check className="h-4 w-4" />}
           </button>
           <button
             type="button"
