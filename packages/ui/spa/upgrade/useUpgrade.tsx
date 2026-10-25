@@ -9,7 +9,11 @@ import {
 import { ArrowUpCircle, ExternalLink, X } from "lucide-react";
 import { useStudioIsDeployer } from "../components/ValProvider";
 import type { ProposalCodeState } from "../components/proposals/types";
-import type { ProposalJson } from "../proposals/proposalsClient";
+import {
+  ProposalsApiError,
+  type ProposalBuildVerify,
+  type ProposalJson,
+} from "../proposals/proposalsClient";
 import type { ProposalTypecheckState } from "../proposals/useProposalTypecheck";
 import type { ProposalBuildProgress } from "../proposals/proposalBuildProgress";
 import type { PublishProposalState } from "../components/proposals/PublishProposalDialog";
@@ -17,7 +21,12 @@ import { randomUUID } from "../utils/randomUUID";
 import type { UpgradeStart } from "./UpgradeChooser";
 import { UpgradeDialog } from "./UpgradeDialog";
 import { UpgradeProgressPage, UpgradeTabMessage } from "./UpgradeProgressPage";
-import { upgradeFooterOf, upgradeProgressOf } from "./upgradeProgress";
+import {
+  renderKeyOf,
+  upgradeFooterOf,
+  upgradeProgressOf,
+  type UpgradeRenderState,
+} from "./upgradeProgress";
 import { useUpgradeCheck, type UpgradeCheckState } from "./useUpgradeCheck";
 import type { UpgradePath } from "./upgradesClient";
 import {
@@ -73,6 +82,11 @@ export function useUpgrade(input: {
   onTypecheck: (() => void) | null;
   onComputeLockfile: () => void;
   onBuild: () => void;
+  /**
+   * Render the proposal's own build on the platform, as a publish does
+   * before it goes live; `null` where this Studio cannot.
+   */
+  verifyBuild: ((name: string) => Promise<ProposalBuildVerify>) | null;
   /** How far a running build of the proposal is. */
   buildProgress: ProposalBuildProgress | null;
   /** The proposal's publish, as the bar runs it. */
@@ -164,6 +178,7 @@ export function useUpgrade(input: {
     return () => clearInterval(timer);
   }, [computing, onRefresh]);
 
+  const [render, setRender] = useState<UpgradeRenderState>({ status: "idle" });
   const view = useMemo(
     () =>
       upgrade !== null && current !== null
@@ -173,10 +188,70 @@ export function useUpgrade(input: {
             typecheck: input.typecheck,
             code: input.code,
             buildProgress: input.buildProgress,
+            render,
           })
         : null,
-    [upgrade, current, input.typecheck, input.code, input.buildProgress],
+    [
+      upgrade,
+      current,
+      input.typecheck,
+      input.code,
+      input.buildProgress,
+      render,
+    ],
   );
+  /*
+   * Typechecked with no new errors and built: the build is rendered on the
+   * platform, by itself, before Publish is offered. A render this tab has
+   * asked for is not asked for again until Try again.
+   */
+  const { verifyBuild } = input;
+  const renderKey = current !== null ? renderKeyOf(current) : null;
+  const renderName = current?.name ?? null;
+  const toRender =
+    inTab &&
+    view?.render.state === "running" &&
+    !("key" in render && render.key === renderKey)
+      ? renderKey
+      : null;
+  useEffect(() => {
+    if (toRender === null || renderName === null) return;
+    const key = toRender;
+    if (verifyBuild === null) {
+      setRender({ status: "unsupported", key });
+      return;
+    }
+    setRender({ status: "running", key });
+    verifyBuild(renderName).then(
+      (verified) =>
+        setRender(
+          verified.ok
+            ? { status: "passed", key }
+            : {
+                status: "failed",
+                key,
+                message:
+                  verified.problems.map((p) => p.message).join(" ") ||
+                  "The new build did not render.",
+                retryable: verified.transient,
+              },
+        ),
+      (error: unknown) =>
+        setRender(
+          // A content service from before it could render one: the publish
+          // renders it, as it always did.
+          error instanceof ProposalsApiError && error.status === 404
+            ? { status: "unsupported", key }
+            : {
+                status: "failed",
+                key,
+                message: error instanceof Error ? error.message : String(error),
+                retryable: true,
+              },
+        ),
+    );
+  }, [toRender, renderName, verifyBuild]);
+  const onRender = useCallback(() => setRender({ status: "idle" }), []);
   // Ready to publish: read the checks, so one press of Publish publishes.
   // Again whenever what is staged moves, since that is what they check.
   const { publish } = input;
@@ -241,6 +316,7 @@ export function useUpgrade(input: {
       onComputeLockfile={onComputeLockfile}
       onTypecheck={() => onTypecheck?.()}
       onBuild={onBuild}
+      onRender={onRender}
       onPublish={publish.onPublish}
       onRetryPublish={publish.onRetry}
       onCheckMerge={publish.onCheckMerge}
