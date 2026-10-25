@@ -9,6 +9,11 @@ import {
   HTTP_APP_PORT,
 } from "./e2e/http/config";
 import { TANSTACK_APP_PORT } from "./e2e/tanstack/config";
+import {
+  TANSTACK_HTTP_APP_PORT,
+  TANSTACK_HTTP_PROJECT,
+  TANSTACK_MOCK_CONTENT_PORT,
+} from "./e2e/tanstack-http/config";
 
 const PREINSTALLED_CHROMIUM =
   "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
@@ -76,6 +81,13 @@ const webkitRequested =
 if (requestedProjects.has("webkit-http")) {
   process.env.VAL_E2E_WEBKIT = "1";
 }
+/** `--project=webkit-tanstack-http`, opt-in for the same reason. */
+const webkitTanstackRequested =
+  requestedProjects.has("webkit-tanstack-http") ||
+  process.env.VAL_E2E_WEBKIT_TANSTACK === "1";
+if (requestedProjects.has("webkit-tanstack-http")) {
+  process.env.VAL_E2E_WEBKIT_TANSTACK = "1";
+}
 
 /**
  * Which apps this run needs, and therefore which servers start.
@@ -98,6 +110,13 @@ const needsHttpApp =
   willRun("chromium-http") || (webkitRequested && willRun("webkit-http"));
 /** `examples/tanstack`. */
 const needsTanstackApp = willRun("tanstack") || willRun("tanstack-warmup");
+/** `examples/tanstack` again, in proxy mode, plus a mock content host of its own. */
+const needsTanstackHttpApp =
+  willRun("tanstack-http") ||
+  willRun("tanstack-http-warmup") ||
+  (webkitTanstackRequested &&
+    (willRun("webkit-tanstack-http") ||
+      willRun("webkit-tanstack-http-warmup")));
 
 /**
  * End-to-end tests for the Val Studio.
@@ -131,8 +150,9 @@ const needsTanstackApp = willRun("tanstack") || willRun("tanstack-warmup");
  * with no per-project form, so the selection is made in the config itself (see
  * `needsNextApp` and friends above): a `chromium` shard starts the SPA and the
  * fs-mode app, `chromium-http` swaps in the mock host and the proxy-mode app,
- * and `tanstack` starts neither copy of Next. A bare `playwright test` starts
- * all of them, because it runs all of them.
+ * `tanstack` starts neither copy of Next, and `tanstack-http` starts a proxy-mode
+ * copy of the TanStack app with a mock host of its own. A bare `playwright test`
+ * starts all of them, because it runs all of them.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -181,7 +201,12 @@ export default defineConfig({
       // fixed schedule of `waitForTimeout`s that adds up to ~40s of its own —
       // and it should not be able to turn a run red or fail a CI gate. Run it
       // explicitly with the `screens` project below.
-      testIgnore: ["http/**", "tanstack/**", "screens.spec.ts"],
+      testIgnore: [
+        "http/**",
+        "tanstack/**",
+        "tanstack-http/**",
+        "screens.spec.ts",
+      ],
       use: {
         launchOptions: {
           /**
@@ -249,15 +274,50 @@ export default defineConfig({
         },
       },
     },
+    {
+      // Not a test: the `tanstack-warmup` of the proxy-mode copy. See
+      // `e2e/tanstack-http/warm.setup.ts`.
+      name: "tanstack-http-warmup",
+      testMatch: "tanstack-http/warm.setup.ts",
+      use: {
+        baseURL: `http://localhost:${TANSTACK_HTTP_APP_PORT}`,
+        launchOptions: {
+          ...(existsSync(PREINSTALLED_CHROMIUM)
+            ? { executablePath: PREINSTALLED_CHROMIUM }
+            : {}),
+          args: ["--no-sandbox", "--disable-dev-shm-usage"],
+        },
+      },
+    },
+    {
+      /**
+       * `examples/tanstack` in proxy mode, against a mock content host of its
+       * own: the builder tab (`publishHandoff.spec.ts`).
+       *
+       * It ran in `chromium-http` until `next dev` kept failing it with
+       * "Manifest file is empty" just as the builder tab loaded. The tab is
+       * Studio code, so which framework serves it changes nothing it does,
+       * and TanStack Start is the primary release target.
+       */
+      name: "tanstack-http",
+      dependencies: ["tanstack-http-warmup"],
+      testMatch: "tanstack-http/**/*.spec.ts",
+      use: {
+        baseURL: `http://localhost:${TANSTACK_HTTP_APP_PORT}`,
+        launchOptions: {
+          ...(existsSync(PREINSTALLED_CHROMIUM)
+            ? { executablePath: PREINSTALLED_CHROMIUM }
+            : {}),
+          args: ["--no-sandbox", "--disable-dev-shm-usage"],
+        },
+      },
+    },
     /*
      * Publishing in Safari's engine: what an editor on an iPhone or a Mac
      * runs, and what `chromium-http` cannot speak for. The specs that publish
      * and then hold the open Studio to what a reload shows -- the bugs there
      * lived in the websocket and the stores, which every engine runs, but only
-     * running them says so. And the Publish BUTTON on a Studio that cannot
-     * build, which opens a builder tab: until `publishHandoff.spec.ts` was
-     * here no spec pressed it in WebKit, so a hand-off that hung in Safari
-     * showed up on a phone first. Only present when asked for by name: see
+     * running them says so. Only present when asked for by name: see
      * `webkitRequested`.
      */
     ...(webkitRequested
@@ -267,10 +327,40 @@ export default defineConfig({
             testMatch: [
               "http/reloadEquivalence.spec.ts",
               "http/publish.spec.ts",
-              "http/publishHandoff.spec.ts",
             ],
             use: {
               baseURL: `http://localhost:${HTTP_APP_PORT}`,
+              browserName: "webkit" as const,
+            },
+          },
+        ]
+      : []),
+    /*
+     * The Publish BUTTON on a Studio that cannot build, in WebKit: it opens a
+     * builder tab, and until `publishHandoff.spec.ts` ran here no spec pressed
+     * it in Safari's engine, so a hand-off that hung there showed up on a
+     * phone first. `tanstack-http`'s specs, on that project's app; the one
+     * that freezes a page skips itself, since freezing is a CDP command. Only
+     * present when asked for by name, like `webkit-http`.
+     */
+    ...(webkitTanstackRequested
+      ? [
+          {
+            // The same warm-up, in WebKit: the job that runs this project
+            // installs no other browser.
+            name: "webkit-tanstack-http-warmup",
+            testMatch: "tanstack-http/warm.setup.ts",
+            use: {
+              baseURL: `http://localhost:${TANSTACK_HTTP_APP_PORT}`,
+              browserName: "webkit" as const,
+            },
+          },
+          {
+            name: "webkit-tanstack-http",
+            dependencies: ["webkit-tanstack-http-warmup"],
+            testMatch: "tanstack-http/**/*.spec.ts",
+            use: {
+              baseURL: `http://localhost:${TANSTACK_HTTP_APP_PORT}`,
               browserName: "webkit" as const,
             },
           },
@@ -302,7 +392,7 @@ export default defineConfig({
   webServer: [
     {
       // The SPA, which every app proxies at `/api/val/static` in dev. Always
-      // started: it is the thing under test in all three projects.
+      // started: it is the thing under test in every project.
       command: "pnpm --filter @valbuild/ui run dev",
       url: "http://localhost:5173/api/val/static",
       reuseExistingServer: true,
@@ -418,6 +508,71 @@ export default defineConfig({
                   }),
               VAL_CONTENT_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
               VAL_BUILD_URL: `http://localhost:${MOCK_CONTENT_PORT}`,
+            },
+          },
+        ]
+      : []),
+    ...(needsTanstackHttpApp
+      ? [
+          {
+            /*
+             * A second mock content host, for the TanStack app's project.
+             *
+             * The mock is one project: every route is under `/v1/{project}`
+             * and it answers only the one it was started with, so the Next
+             * app's mock cannot also answer `valbuild/val-examples-tanstack`.
+             * A process of its own also keeps the two suites' state apart: a
+             * `reset` in one cannot reach the other's.
+             *
+             * Always a CONNECTED project, unlike the Next app's: that is what
+             * the publish jobs `publishHandoff.spec.ts` drives are (see the
+             * mock's note on them), and `VAL_E2E_MANAGED` is about the specs
+             * in `e2e/http/`.
+             */
+            command: "pnpm exec tsx e2e/mock-content-host/server.ts",
+            url: `http://localhost:${TANSTACK_MOCK_CONTENT_PORT}/__test__/ping`,
+            reuseExistingServer: true,
+            timeout: 60_000,
+            cwd: ".",
+            env: {
+              MOCK_CONTENT_PORT: String(TANSTACK_MOCK_CONTENT_PORT),
+              MOCK_CONTENT_API_KEY: MOCK_API_KEY,
+              MOCK_CONTENT_PROJECT: TANSTACK_HTTP_PROJECT,
+              MOCK_CONTENT_REPO_ROOT: process.cwd(),
+              MOCK_CONTENT_INITIAL_COMMIT: MOCK_INITIAL_COMMIT,
+              MOCK_CONTENT_SOURCE_MODE: "connected",
+            },
+          },
+          {
+            /**
+             * `examples/tanstack` again, in proxy mode.
+             *
+             * No product code and no second config, as for the Next app:
+             * `initHandlerOptions` reads `VAL_API_KEY` and `VAL_SECRET` from the
+             * environment and they select proxy mode, and `vite dev` runs the
+             * server in this process's environment. The project comes from
+             * the app's own `val.config.ts`, which the mock above was started
+             * with.
+             *
+             * `vite dev` rather than the `dev` script, which binds 3458;
+             * `--strictPort` so a busy port fails here instead of moving the
+             * app somewhere the tests are not looking. Its own Vite cache,
+             * for the reason `NEXT_DIST_DIR` keeps the two Next servers' builds
+             * apart (see `examples/tanstack/vite.config.ts`).
+             */
+            command: `pnpm exec vite dev --port ${TANSTACK_HTTP_APP_PORT} --strictPort`,
+            url: `http://localhost:${TANSTACK_HTTP_APP_PORT}`,
+            reuseExistingServer: true,
+            timeout: 180_000,
+            cwd: "./examples/tanstack",
+            env: {
+              VAL_E2E_VITE_CACHE_DIR: "node_modules/.vite-http",
+              VAL_API_KEY: MOCK_API_KEY,
+              VAL_SECRET: MOCK_SECRET,
+              VAL_GIT_COMMIT: MOCK_INITIAL_COMMIT,
+              VAL_GIT_BRANCH: "main",
+              VAL_CONTENT_URL: `http://localhost:${TANSTACK_MOCK_CONTENT_PORT}`,
+              VAL_BUILD_URL: `http://localhost:${TANSTACK_MOCK_CONTENT_PORT}`,
             },
           },
         ]
