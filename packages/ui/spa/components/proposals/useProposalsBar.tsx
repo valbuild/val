@@ -1024,6 +1024,7 @@ export function useProposalsBar({
     onTypecheck: runTypecheck === null ? null : () => void runTypecheck(),
     onComputeLockfile: () => void computeLockfile(),
     onBuild: () => void runBuild(),
+    client,
     verifyBuild: client.verifyBuild,
     buildProgress: proposalBuild.progress,
     publish: {

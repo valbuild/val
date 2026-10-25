@@ -13,6 +13,7 @@ import {
   ProposalsApiError,
   type ProposalBuildVerify,
   type ProposalJson,
+  type ProposalsClient,
 } from "../proposals/proposalsClient";
 import type { ProposalTypecheckState } from "../proposals/useProposalTypecheck";
 import type { ProposalBuildProgress } from "../proposals/proposalBuildProgress";
@@ -29,23 +30,20 @@ import {
 } from "./upgradeProgress";
 import { useUpgradeCheck, type UpgradeCheckState } from "./useUpgradeCheck";
 import type { UpgradePath } from "./upgradesClient";
-import {
-  openUpgradeTab,
-  startUpgradeInTab,
-  upgradeTabUrl,
-  type StartedUpgrade,
-} from "./upgradeTab";
+import { openUpgradeTab, upgradeTabUrl } from "./upgradeTab";
+import { prepareUpgrade } from "./prepareUpgrade";
 
 /*
  * The Upgrade (valbuild/home `docs/adept.md`, step 7, "How one Upgrade goes"):
  * the button, shown while the check says there is something; its dialog,
- * whose Upgrade opens the upgrade in a tab of its own (`upgradeTab.ts`); and
- * that tab's page, following it all the way -- computed, its dependencies
- * built, typechecked, built, published -- to Go to site. The proposals bar
- * builds and publishes it, as any proposal; this is what a person sees of
+ * whose Create proposal prepares the upgrade in place -- worked out and its
+ * dependencies built, Preparing… saying where it is (`prepareUpgrade.ts`) --
+ * and then goes to its page (`upgradeTab.ts`), which follows it the rest of
+ * the way: typechecked, built, rendered, published, Go to site. The proposals
+ * bar builds and publishes it, as any proposal; this is what a person sees of
  * that.
  *
- * Outside the tab an upgrade proposal is a way back to it: the Studio on the
+ * Outside its page an upgrade proposal is a way back to it: the Studio on the
  * site says one is running, and the Studio at its address -- where Review
  * goes -- offers Open upgrade.
  */
@@ -82,6 +80,8 @@ export function useUpgrade(input: {
   onTypecheck: (() => void) | null;
   onComputeLockfile: () => void;
   onBuild: () => void;
+  /** What Create proposal makes the proposal with, and follows it by. */
+  client: Pick<ProposalsClient, "create" | "get" | "close" | "preparation">;
   /**
    * Render the proposal's own build on the platform, as a publish does
    * before it goes live; `null` where this Studio cannot.
@@ -136,33 +136,39 @@ export function useUpgrade(input: {
     setChoosing(true);
   }, []);
   /*
-   * In the tap: the tab opens before anything here awaits, and it is the tab
-   * that creates the proposal (`startUpgradeInTab`).
+   * Create proposal: prepared here, Preparing… saying where it is, and then
+   * this tab goes to the upgrade's page. Pressed again after a failure, it is
+   * a new proposal: the failed one was closed.
    */
-  const [started, setStarted] = useState<Exclude<
-    StartedUpgrade,
-    { status: "not-stored" }
-  > | null>(null);
+  const { client } = input;
+  const preparing = start.status === "preparing";
   const onStart = useCallback(
     (path: UpgradePath, skip: string[]) => {
-      const tab = startUpgradeInTab({
+      if (preparing) return;
+      const pressed = requestId.current;
+      setStart({ status: "preparing", line: "Creating the proposal…" });
+      void prepareUpgrade({
+        client,
         path,
         skip,
-        requestId: requestId.current,
+        requestId: pressed,
+        onLine: (line) => setStart({ status: "preparing", line }),
+      }).then((prepared) => {
+        if (prepared.status === "ready") {
+          // Pushed, not replaced: Back from the upgrade is the Studio again.
+          window.location.assign(prepared.url);
+          return;
+        }
+        requestId.current = randomUUID();
+        setStart(
+          prepared.status === "nothing"
+            ? { status: "nothing" }
+            : { status: "failed", message: prepared.message },
+        );
+        onRefresh();
       });
-      if (tab.status === "not-stored") {
-        setStart({
-          status: "failed",
-          message:
-            "This browser would not let Val hand the upgrade to a new tab, so nothing was started. Allow site data for this site, or leave private browsing, then press Upgrade again.",
-        });
-        return;
-      }
-      setStarted(tab);
-      setChoosing(false);
-      onRefresh();
     },
-    [onRefresh],
+    [client, onRefresh, preparing],
   );
 
   // At an upgrade proposal's address: the upgrade it is.
@@ -330,9 +336,9 @@ export function useUpgrade(input: {
   );
 
   /*
-   * On the site: the upgrade running in its tab, from the tap until it is
-   * published, with the way back to the tab. The list is read again while
-   * there is one, since nothing else tells this page how the tab is doing.
+   * On the site: an upgrade under way, until it is published or discarded,
+   * with the way to its page. The list is read again while there is one,
+   * since nothing else tells this page how it is doing.
    */
   const running =
     here === null
@@ -343,20 +349,8 @@ export function useUpgrade(input: {
             p.status !== "closed",
         ) ?? null)
       : null;
-  // The upgrade the tap here started, once the list has it.
-  const [followed, setFollowed] = useState<string | null>(null);
-  const runningName = running?.name ?? null;
-  useEffect(() => {
-    if (started !== null && runningName !== null) setFollowed(runningName);
-  }, [started, runningName]);
-  const finished =
-    started !== null && followed !== null && running === null
-      ? (proposals.find((p) => p.name === followed) ?? null)
-      : null;
-  const [dismissed, setDismissed] = useState(false);
-  const following =
-    here === null &&
-    (running !== null || (started !== null && followed === null));
+  // While this page prepares one, it says so itself, beside its button.
+  const following = running !== null && !preparing;
   useEffect(() => {
     if (!following) return;
     const timer = setInterval(() => {
@@ -373,9 +367,9 @@ export function useUpgrade(input: {
   }, [following, onRefresh]);
   const runningAddress = running?.address ?? null;
   const siteNotice =
-    here !== null ? null : running !== null ? (
+    running === null || preparing ? null : (
       <UpgradeNotice
-        text={`${running.displayName}: running in its own tab.`}
+        text={`${running.displayName}: an upgrade is under way.`}
         {...(runningAddress !== null
           ? {
               action: {
@@ -389,32 +383,7 @@ export function useUpgrade(input: {
             }
           : {})}
       />
-    ) : finished !== null && !dismissed ? (
-      <UpgradeNotice
-        text={
-          finished.status === "merged"
-            ? `${finished.displayName}: published. The site runs the upgrade.`
-            : `${finished.displayName}: discarded. Nothing on the site changed.`
-        }
-        onDismiss={() => setDismissed(true)}
-      />
-    ) : started !== null && followed === null ? (
-      <UpgradeNotice
-        text={
-          started.status === "blocked"
-            ? "The browser did not open the upgrade's tab."
-            : "Starting the upgrade in a new tab…"
-        }
-        action={{
-          label: "Open tab",
-          onClick: () => {
-            if (openUpgradeTab(started.url, started.target)) {
-              setStarted({ ...started, status: "opened" });
-            }
-          },
-        }}
-      />
-    ) : null;
+    );
 
   /*
    * At an upgrade proposal's address, outside its tab -- where Review goes:

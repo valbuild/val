@@ -59,9 +59,7 @@ describe("choosing an upgrade", () => {
         "Val 0.149.4 → 0.150.0, and 1 dependency to the newest version of their major.",
       ),
     ).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: /upgrade in a proposal/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /create proposal/i }));
     expect(onStart).toHaveBeenCalledWith("latest", []);
   });
 
@@ -80,9 +78,7 @@ describe("choosing an upgrade", () => {
       screen.getByText(/^Fixes 2 vulnerabilities, the worst high/),
     ).toBeTruthy();
     expect(screen.getByText("lodash")).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole("button", { name: /upgrade in a proposal/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /create proposal/i }));
     expect(onStart).toHaveBeenCalledWith("cves", []);
   });
 
@@ -98,9 +94,7 @@ describe("choosing an upgrade", () => {
     );
     fireEvent.click(screen.getByRole("radio", { name: "Full" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Upgrade react" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: /upgrade in a proposal/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /create proposal/i }));
     expect(onStart).toHaveBeenCalledWith("majors", ["react"]);
   });
 
@@ -202,10 +196,32 @@ describe("choosing an upgrade", () => {
     expect(screen.getByRole("alert").textContent).toContain(
       "Proposals are off.",
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: /upgrade in a proposal/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /create proposal/i }));
     expect(onStart).toHaveBeenCalledTimes(1);
+  });
+
+  test("Preparing… says where the upgrade is, and nothing can be pressed again meanwhile", () => {
+    const onStart = jest.fn();
+    render(
+      <UpgradeChooser
+        check={CHECKED}
+        start={{
+          status: "preparing",
+          line: "Building the dependencies · Installing the packages (1 of 2)",
+        }}
+        onStart={onStart}
+        onRecheck={() => {}}
+      />,
+    );
+    const button = screen.getByRole("button", { name: /preparing/i });
+    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(
+      screen.getByText(
+        "Building the dependencies · Installing the packages (1 of 2)",
+      ),
+    ).toBeTruthy();
+    fireEvent.click(button);
+    expect(onStart).not.toHaveBeenCalled();
   });
 });
 

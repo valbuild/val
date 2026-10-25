@@ -34,8 +34,9 @@ export function UpgradeDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        // Not while the proposal is being opened: closing would not stop it.
-        if (start.status !== "starting") onOpenChange(next);
+        // Not while it is being prepared: closing would not stop it, and the
+        // page goes to the upgrade when it is ready.
+        if (start.status !== "preparing") onOpenChange(next);
       }}
     >
       <DialogContent

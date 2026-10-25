@@ -2,7 +2,6 @@ import { FC, useState } from "react";
 import { HANDOFF_PARAM, storedHandoffIntent } from "../publish/handoff";
 import { HandoffPublishTab } from "./shell/HandoffPublishTab";
 import { HandoffProposalBuildTab } from "./proposals/HandoffProposalBuildTab";
-import { StartUpgradeTab } from "../upgrade/StartUpgradeTab";
 import { UpgradeTabApp } from "../upgrade/UpgradeTabApp";
 import { upgradeTabOf } from "../upgrade/upgradeTab";
 import { ValClient } from "@valbuild/shared/internal";
@@ -56,17 +55,6 @@ export const ValStudio: FC<ValFullscreenProps> = ({
       : null;
   });
   /*
-   * Or to start an upgrade: the tab that creates its proposal, then goes to
-   * the proposal's address as its upgrade tab (`upgrade/upgradeTab.ts`).
-   */
-  const [startUpgrade] = useState(() => {
-    if (handoffId === null) return null;
-    const stored = storedHandoffIntent(handoffId);
-    return stored?.intent.kind === "start-upgrade"
-      ? { ...stored.intent, at: stored.at }
-      : null;
-  });
-  /*
    * An upgrade proposal's upgrade tab: by the URL, because the loader serves
    * it isolated by the URL, before any script runs. What it does on arrival
    * is build a preview; publishing is a press.
@@ -103,14 +91,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({
              */}
             <UploadRequestProvider>
               {cssLoaded &&
-                (handoffId !== null && startUpgrade !== null ? (
-                  <StartUpgradeTab
-                    path={startUpgrade.path}
-                    skip={startUpgrade.skip}
-                    requestId={startUpgrade.requestId}
-                    at={startUpgrade.at}
-                  />
-                ) : handoffId !== null && proposalBuild !== null ? (
+                (handoffId !== null && proposalBuild !== null ? (
                   <HandoffProposalBuildTab
                     id={handoffId}
                     name={proposalBuild.name}

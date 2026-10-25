@@ -414,6 +414,8 @@ describe("the proposals API, for the Studio", () => {
     await o.proposalsApi(`/${NAME}/setup/retry`, { method: "POST" }, "p");
     // Its build rendered as a canary, before Publish is offered for it.
     await o.proposalsApi(`/${NAME}/verify`, { method: "POST" }, "p");
+    // Where an upgrade's preparation is, beneath Preparing….
+    await o.proposalsApi(`/${NAME}/preparation`, { method: "GET" }, "p");
     expect(sent.map((r) => `${r.method} ${r.url}`)).toEqual([
       "GET https://content.example/v1/org/project/proposals",
       "POST https://content.example/v1/org/project/proposals",
@@ -421,6 +423,7 @@ describe("the proposals API, for the Studio", () => {
       `POST https://content.example/v1/org/project/proposals/${NAME}/close`,
       `POST https://content.example/v1/org/project/proposals/${NAME}/setup/retry`,
       `POST https://content.example/v1/org/project/proposals/${NAME}/verify`,
+      `GET https://content.example/v1/org/project/proposals/${NAME}/preparation`,
     ]);
     expect(sent[0]!.headers).not.toHaveProperty("x-val-profile-id");
     expect(sent[1]!.headers).toMatchObject({
