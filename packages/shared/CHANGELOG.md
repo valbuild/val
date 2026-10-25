@@ -1,5 +1,15 @@
 # @valbuild/shared
 
+## 0.149.7
+
+### Patch Changes
+
+- [#932](https://github.com/valbuild/val/pull/932) [`8be6e6a`](https://github.com/valbuild/val/commit/8be6e6abd2536b5758f0d5f8dfb1e468f29a7015) Thanks [@freekh](https://github.com/freekh)! - A site's Val can now check the site's content with its own rules: `Internal.selfCheck` in `@valbuild/tanstack`. The platform's upgrade page calls it on the version an upgrade moves to, so content the new version would reject is found before the upgrade is published, not after. It answers the errors that would hold a publish back, the same ones the Studio shows, and loads nothing until it is called, so it adds nothing to a site's pages.
+
+- [#934](https://github.com/valbuild/val/pull/934) [`cc2a37a`](https://github.com/valbuild/val/commit/cc2a37a74c52cab6fa062e8252fb292b84a479c3) Thanks [@freekh](https://github.com/freekh)! - The Studio's deploy, the publish job a tab runs, a proposal's build and a proposal's typecheck are now `@valbuild/shared/publish` and `@valbuild/shared/typecheck`, so home's upgrade page can build, check and publish an upgrade with the same code, pinned at a version of its own. The clients reach content through the Studio's proxy as before, or directly (`publishApi`, `proposalsApi`) with a `fetch` that adds the credential. Nothing changes in the Studio.
+
+- [#933](https://github.com/valbuild/val/pull/933) [`7e78b1f`](https://github.com/valbuild/val/commit/7e78b1f863c47d4f38d9f1c9855a92e711170865) Thanks [@freekh](https://github.com/freekh)! - The typecheck the Studio runs on an upgrade, which reports the type errors a project would have after `pnpm install`, is now `@valbuild/shared/typecheck`, so the platform's upgrade page can run the same check. The Studio's typecheck works as before. Type bundles and compilers can now also be fetched with a credential of the caller's own (`adeptSources({ base, headers, credentials })`).
+
 ## 0.148.7
 
 ### Patch Changes
