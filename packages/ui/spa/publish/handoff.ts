@@ -110,18 +110,7 @@ export type HandoffIntent =
    * cannot build (`buildProposal`). Nothing goes live on the site. The tab is
    * opened at the proposal's address, so it reads the proposal's files there.
    */
-  | { kind: "build-proposal"; name: string }
-  /**
-   * Start an upgrade (`upgrade/upgradeTab.ts`): create its proposal, under
-   * `requestId` so a tab opened again makes the same one, and go to its
-   * address as the upgrade tab. The tap that stored it is the Upgrade press.
-   */
-  | {
-      kind: "start-upgrade";
-      requestId: string;
-      path: "cves" | "latest" | "majors";
-      skip: string[];
-    };
+  | { kind: "build-proposal"; name: string };
 
 /**
  * How a proposal build in a builder tab ended, as the tab reports it: the
@@ -297,16 +286,6 @@ function asIntent(value: unknown): HandoffIntent | null {
       : null;
   }
   const requestId = text("requestId");
-  if (value.kind === "start-upgrade") {
-    const path = text("path");
-    const skip: unknown = "skip" in value ? Reflect.get(value, "skip") : [];
-    return requestId !== null &&
-      (path === "cves" || path === "latest" || path === "majors") &&
-      Array.isArray(skip) &&
-      skip.every((each): each is string => typeof each === "string")
-      ? { kind: "start-upgrade", requestId, path, skip }
-      : null;
-  }
   const tab = text("tab");
   if (requestId === null || tab === null) return null;
   const after = text("after");

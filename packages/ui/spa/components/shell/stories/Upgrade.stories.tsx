@@ -83,8 +83,29 @@ export const Choosing: StoryObj = {
   render: () => <Choose check={CHECKED} start={{ status: "idle" }} />,
 };
 
-export const Opening: StoryObj = {
-  render: () => <Choose check={CHECKED} start={{ status: "starting" }} />,
+export const Preparing: StoryObj = {
+  render: () => (
+    <Choose
+      check={CHECKED}
+      start={{
+        status: "preparing",
+        line: "Building the dependencies · Installing the packages (1 of 2) · 212 of 412 packages",
+      }}
+    />
+  ),
+};
+
+export const PreparingFailed: StoryObj = {
+  render: () => (
+    <Choose
+      check={CHECKED}
+      start={{
+        status: "failed",
+        message:
+          "The dependencies could not be built: sharp@0.35.5 has no prebuilt binary for this platform.",
+      }}
+    />
+  ),
 };
 
 export const CheckFailed: StoryObj = {
