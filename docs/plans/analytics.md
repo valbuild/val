@@ -409,5 +409,15 @@ The showcase list in `CLAUDE.md` names analytics.
 - **Next.js**: the same mode in `initValRsc` / `initValClient`, and
   `generateMetadata` checked against the leak warning first.
 - **Self-hosted**: forwarding from `/api/val/analytics` to Val's ingest.
-- **In the Studio**: views shown beside the content being edited, named through
-  `describePath`.
+- **In the Studio** (built): views shown beside the content being edited.
+  Val Build answers one module at a time
+  (`GET /v1/studio/orgs/:org/projects/:project/analytics/module?module=`,
+  valbuild/home), through this app's `/api/val/admin/proxy` like every other
+  Val Build call the Studio makes, so it works deployed and, after
+  `val login`, locally. `packages/ui/spa/analytics/`: one request per module,
+  kept five minutes; a field, a list row or a module gets the most any path
+  inside it got (a page view has no "item", only the elements it showed, so
+  adding them would count a page view once per field); the heading of what is
+  open lists what in it was seen most, named through `describePath`. Nothing
+  is shown where there is nothing to say: analytics off, not signed in to Val
+  Build, the demo, or a request that failed.
