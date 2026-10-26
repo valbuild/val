@@ -1,5 +1,17 @@
 # @valbuild/ui
 
+## 0.150.0
+
+### Minor Changes
+
+- [#935](https://github.com/valbuild/val/pull/935) [`baf2f56`](https://github.com/valbuild/val/commit/baf2f56498ca2ae5ec1f5bef356faf09a382b768) Thanks [@freekh](https://github.com/freekh)! - Upgrades are now made in Val Build. The Studio no longer has an Upgrade dialog or an upgrade tab of its own. Instead, it says when there is something to upgrade ("Val 0.150.0 is out", or that security fixes or updates are out), and that opens the project's **Updates** in Val Build in a new tab. There, the upgrade is typechecked, built, checked by the new Val against the site's content, its pages are rendered, and then it is published.
+
+  Settings → Updates lists what there is to upgrade, with **Open in Val Build**. An upgrade already under way is shown above the editor, with a link to its page in Val Build.
+
+### Patch Changes
+
+- [#937](https://github.com/valbuild/val/pull/937) [`f638188`](https://github.com/valbuild/val/commit/f638188c27fc338ace3d8282f59e83084adcb002) Thanks [@freekh](https://github.com/freekh)! - In an upgrade proposal, the Studio now says what the proposal upgrades — for example "This proposal upgrades Val 0.149.4 → 0.149.7", or that it fixes security issues — that it holds no content changes, and that publishing it updates the site. The notice has a **Publish to update your site** button, the packages it changes (majors marked), and a link to the upgrade's checks in Val Build.
+
 ## 0.149.7
 
 ### Patch Changes
