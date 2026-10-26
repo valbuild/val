@@ -137,3 +137,12 @@ test("and one that is not connected is told only about the module", () => {
   expect(screen.queryByRole("tab")).toBeNull();
   expect(container.querySelector("val-env-vars")).toBeNull();
 });
+
+test("where Settings opens on Updates, the Variables tab is there without the notice", () => {
+  const { container } = render(
+    <ValSettingsSections explainMissingModule={false} />,
+  );
+  expect(screen.queryByText(/This project has no settings module/)).toBeNull();
+  expect(screen.getByRole("tab", { name: "Variables" })).toBeTruthy();
+  expect(container.querySelector("val-env-vars")).not.toBeNull();
+});

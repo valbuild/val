@@ -60,14 +60,26 @@ import { PanelSkeleton } from "./PanelPrimitives";
  */
 export function ValSettingsSections({
   moduleFilePath,
+  explainMissingModule = true,
 }: {
   moduleFilePath?: ModuleFilePath;
+  /**
+   * Whether a project without a settings module is told how to add one. Not
+   * where Settings opens on Updates: that project's editor did not come for
+   * it (see `ValShell`'s `renderSettings`).
+   */
+  explainMissingModule?: boolean;
 }) {
   // Asked once, here, for the AI setup and the Variables tab both: each would
   // otherwise ask `/admin/status` itself.
   const valBuild = useValBuildAccess(useValMode());
   if (!moduleFilePath) {
-    return <WithoutSettingsModule valBuild={valBuild} />;
+    return (
+      <WithoutSettingsModule
+        valBuild={valBuild}
+        explainMissingModule={explainMissingModule}
+      />
+    );
   }
   return <Sections moduleFilePath={moduleFilePath} valBuild={valBuild} />;
 }
@@ -77,14 +89,21 @@ export function ValSettingsSections({
  * they are Val Build's, not the module's, and a site that reads them needs
  * them set whether it has settings or not.
  */
-function WithoutSettingsModule({ valBuild }: { valBuild: ValBuildAccess }) {
+function WithoutSettingsModule({
+  valBuild,
+  explainMissingModule,
+}: {
+  valBuild: ValBuildAccess;
+  explainMissingModule: boolean;
+}) {
   const envVars = useEnvVarsTarget(valBuild);
+  const notice = explainMissingModule ? <NoSettingsModule /> : null;
   if (envVars === null) {
-    return <NoSettingsModule />;
+    return notice;
   }
   return (
     <>
-      <NoSettingsModule />
+      {notice}
       <SettingsTabs tabs={[variablesTab(envVars)]} />
     </>
   );

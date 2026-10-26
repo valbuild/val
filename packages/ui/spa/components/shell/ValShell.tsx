@@ -1260,10 +1260,13 @@ function ValShellBody({
          * A hosted project made from a template has no settings module, and
          * Updates is what it opened Settings for: telling it how to add one
          * is for a developer, who would see it in a project without Updates.
+         * Its variables and secrets are still shown -- a hosted site is
+         * where they are set from here.
          */}
-        {(settingsModule !== undefined || updates === null) && (
-          <ValSettingsSections moduleFilePath={settingsModule} />
-        )}
+        <ValSettingsSections
+          moduleFilePath={settingsModule}
+          explainMissingModule={updates === null}
+        />
       </>
     ),
     [settingsModule, updates],
