@@ -99,7 +99,7 @@ describe("picking with preview mode off", () => {
     renderWorkspace("normal");
     expect(
       screen.queryByRole("button", {
-        name: "Turn preview on and pick from the page",
+        name: "Turn on preview and select from the page",
       }),
     ).not.toBeNull();
   });
@@ -109,7 +109,7 @@ describe("picking with preview mode off", () => {
     expect(canvas).toEqual({ isPicking: false, enableKey: 0 });
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Turn preview on and pick from the page",
+        name: "Turn on preview and select from the page",
       }),
     );
     expect(canvas).toEqual({ isPicking: true, enableKey: 1 });
@@ -123,7 +123,7 @@ describe("picking with preview mode off", () => {
     expect(canvas.isPicking).toBe(true);
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Turn preview on and pick from the page",
+        name: "Turn on preview and select from the page",
       }),
     );
     expect(canvas).toEqual({ isPicking: true, enableKey: 1 });
@@ -133,7 +133,7 @@ describe("picking with preview mode off", () => {
     renderWorkspace("normal");
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Turn preview on and pick from the page",
+        name: "Turn on preview and select from the page",
       }),
     );
     act(() => reportStatus("enabling"));
@@ -179,7 +179,7 @@ describe("the toolbar's pick button", () => {
       }),
     );
     const button = screen.getByRole("button", {
-      name: "Turn preview on and pick from the page",
+      name: "Turn on preview and select from the page",
     });
     expect(button.getAttribute("aria-pressed")).toBe("false");
     // An outline, and not the fill that says picking is on.

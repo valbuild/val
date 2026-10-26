@@ -229,7 +229,7 @@ test.describe("the canvas", () => {
     // has to notice that rather than sit on a spinner - and offer the pick
     // button, which turns preview mode on.
     const enable = studio.getByRole("button", {
-      name: "Turn preview on and pick from the page",
+      name: "Turn on preview and select from the page",
     });
     await expect(
       enable,
@@ -319,7 +319,7 @@ test.describe("the canvas", () => {
     await studio.getByRole("button", { name: /Open the canvas/ }).click();
 
     const enable = studio.getByRole("button", {
-      name: "Turn preview on and pick from the page",
+      name: "Turn on preview and select from the page",
     });
     await expect(enable).toBeVisible({ timeout: 25000 });
     await enable.click();
@@ -630,7 +630,7 @@ test.describe("the canvas", () => {
     await studio.getByRole("button", { name: /Open the canvas/ }).click();
 
     const enable = studio.getByRole("button", {
-      name: "Turn preview on and pick from the page",
+      name: "Turn on preview and select from the page",
     });
     await expect(enable).toBeVisible({ timeout: 25000 });
     await enable.click();
@@ -729,7 +729,7 @@ test.describe("the canvas", () => {
 
     // Preview mode is turned on by the pick button, so picking starts on.
     const enable = studio.getByRole("button", {
-      name: "Turn preview on and pick from the page",
+      name: "Turn on preview and select from the page",
     });
     await expect(enable).toBeVisible({ timeout: 25000 });
     await enable.click();
@@ -784,7 +784,7 @@ test.describe("the canvas", () => {
     await studio.getByRole("button", { name: /Open the canvas/ }).click();
 
     const pick = studio.getByRole("button", {
-      name: "Turn preview on and pick from the page",
+      name: "Turn on preview and select from the page",
     });
     await expect(
       pick,

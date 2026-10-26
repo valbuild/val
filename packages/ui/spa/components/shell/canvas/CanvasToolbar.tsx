@@ -197,7 +197,7 @@ export function CanvasToolbar({
             type="button"
             aria-label={
               pickNeedsPreview
-                ? "Turn preview on and pick from the page"
+                ? "Turn on preview and select from the page"
                 : isPicking
                   ? "Stop selecting on the page"
                   : "Select on the page"

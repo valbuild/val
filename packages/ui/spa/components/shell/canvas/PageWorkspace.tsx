@@ -683,9 +683,9 @@ export function PageWorkspace({
    * With preview mode off the page tags nothing, so a click on it can select
    * nothing — and the button used to be missing in exactly that state, since
    * the page had reported no fields. Pressing it there now does what the
-   * person meant by pressing it: turns preview mode on (the same navigation as
-   * the notice used to have a button for) and asks for picking, which the frame passes on
-   * to the page as soon as the new document reports in.
+   * person meant by pressing it: turns preview mode on and asks for picking,
+   * which the frame passes on to the page as soon as the new document reports
+   * in.
    */
   const pickNeedsPreview = previewNeedsTurningOn(previewStatus);
   const changePicking = useCallback(
