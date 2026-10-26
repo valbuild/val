@@ -12,7 +12,7 @@ import {
   revertBasisModel,
   singleModuleModel,
 } from "./fixtures";
-import type { CompareModel } from "./types";
+import type { CompareModel, ComparePageView } from "./types";
 
 /**
  * The compare dialog, on fixtures rather than on a store.
@@ -38,12 +38,14 @@ function Harness({
   authorFilter,
   undoMode,
   tone,
+  renderPage,
 }: {
   model: CompareModel;
   layout?: "desktop" | "mobile";
   authorFilter?: string | null;
   undoMode?: boolean;
   tone?: "alarm" | "calm";
+  renderPage?: (page: ComparePageView) => React.ReactNode;
 }) {
   const [basisId, setBasisId] = useState(model.selectedBasisId);
   return (
@@ -60,6 +62,7 @@ function Harness({
         currentAuthorId="profile-linus"
         onUndo={() => undefined}
         onRevertAll={() => undefined}
+        renderPage={renderPage}
       />
     </div>
   );
@@ -161,6 +164,36 @@ export const AgainstACommit: Story = { args: { model: commitBasisModel } };
  * unsaved alike -- what Publish would change. Read-only.
  */
 export const AgainstTheSite: Story = { args: { model: siteBasisModel } };
+
+/**
+ * Against the site, a page can be read as a page: the site's render beside the
+ * proposal's. In the Studio both sides are live frames (`ProposalPage`); here
+ * they are drawings, so press Page to see the layout, and pick the new or the
+ * removed page to see the side that has none.
+ */
+export const AgainstTheSitePages: Story = {
+  args: { model: siteBasisModel, renderPage: (page) => <MockPage {...page} /> },
+};
+
+function MockPage({ url, side, device }: ComparePageView) {
+  return (
+    <div
+      className="flex flex-1 flex-col gap-3 rounded border border-border-primary bg-white p-4 text-black"
+      style={{ maxWidth: device === "mobile" ? 200 : undefined }}
+    >
+      <div className="text-[10px] uppercase tracking-wider text-gray-500">
+        {side === "left" ? "example.com" : "spring-campaign.valstart.dev"}
+        {url}
+      </div>
+      <div className="h-24 rounded bg-gray-200" />
+      <div className="text-lg font-semibold">
+        {side === "left" ? "Welcome" : "Welcome to spring"}
+      </div>
+      <div className="h-3 w-3/4 rounded bg-gray-200" />
+      <div className="h-3 w-2/3 rounded bg-gray-200" />
+    </div>
+  );
+}
 
 /**
  * A commit message long enough to break the header.

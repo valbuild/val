@@ -6,6 +6,7 @@ import {
   CompareValue,
 } from "../compare/CompareValue";
 import { useCompareModel } from "../compare/useCompareModel";
+import type { ComparePageView } from "../compare/types";
 import {
   Dialog,
   DialogContent,
@@ -15,6 +16,7 @@ import {
 import { useCurrentAuthorId } from "../components/ValProvider";
 import type { SiteChanges } from "./useSiteChanges";
 import { Spinner } from "../components/designSystem/spinner";
+import { ProposalPage } from "./ProposalPageCompare";
 
 /**
  * Compare with the site, in a proposal: what Publish -- merging it -- would
@@ -23,14 +25,20 @@ import { Spinner } from "../components/designSystem/spinner";
  * The same dialog the review page opens, against another basis: the site on
  * the left, the proposal on the right. Read-only, because a saved change is
  * the proposal's and not a patch anyone here could drop.
+ *
+ * A page can be compared as a page, too: the site's render beside the
+ * proposal's, once the site's address is known. See `ProposalPage`.
  */
 export function ProposalSiteCompare({
   changes,
+  siteUrl,
   open,
   onOpenChange,
   portalContainer,
 }: {
   changes: SiteChanges;
+  /** Where the site is served; null until the proposals list has said. */
+  siteUrl: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   portalContainer?: HTMLElement | null;
@@ -75,7 +83,11 @@ export function ProposalSiteCompare({
   }
   return (
     <CompareBeforeSourcesContext.Provider value={changes.siteSources}>
-      <MountedSiteCompare changes={changes} onOpenChange={onOpenChange} />
+      <MountedSiteCompare
+        changes={changes}
+        siteUrl={siteUrl}
+        onOpenChange={onOpenChange}
+      />
     </CompareBeforeSourcesContext.Provider>
   );
 }
@@ -84,9 +96,11 @@ const NO_PATCH_SETS: never[] = [];
 
 function MountedSiteCompare({
   changes,
+  siteUrl,
   onOpenChange,
 }: {
   changes: Extract<SiteChanges, { status: "ready" }>;
+  siteUrl: string | null;
   onOpenChange: (open: boolean) => void;
 }) {
   const currentAuthorId = useCurrentAuthorId();
@@ -97,6 +111,17 @@ function MountedSiteCompare({
     [],
   );
   const site = useMemo(() => ({ trees: changes.trees }), [changes.trees]);
+  // Without the site's address there is no left page, and one side of a
+  // comparison is not one.
+  const renderPage = useMemo(
+    () =>
+      siteUrl === null
+        ? undefined
+        : (page: ComparePageView) => (
+            <ProposalPage siteUrl={siteUrl} page={page} />
+          ),
+    [siteUrl],
+  );
   const { model } = useCompareModel({
     patchSets: NO_PATCH_SETS,
     mode: "http",
@@ -110,6 +135,7 @@ function MountedSiteCompare({
       model={model}
       mode="http"
       currentAuthorId={currentAuthorId}
+      renderPage={renderPage}
     />
   );
 }
