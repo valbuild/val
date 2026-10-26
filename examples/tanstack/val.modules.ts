@@ -94,6 +94,7 @@ export default modules(config, [
     ? [
         { def: () => import("./content/remoteImages.val") },
         { def: () => import("./content/remoteFields.val") },
+        { def: () => import("./content/remoteVideos.val") },
       ]
     : []),
 ]);
