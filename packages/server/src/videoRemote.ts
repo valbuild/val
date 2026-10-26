@@ -28,6 +28,7 @@ import type {
 } from "./fixHandlers";
 import { mapHlsUris } from "./hls";
 import {
+  localFilesWarning,
   openRemoteUploadSession,
   uploadBytesToRemote,
   type RemoteUploadSession,
@@ -302,12 +303,6 @@ function movablePathsOf(
 export async function handleVideoUploadRemote(
   ctx: FixHandlerContext,
 ): Promise<FixHandlerResult> {
-  if (!ctx.fix) {
-    return {
-      success: false,
-      errorMessage: `Video needs to be uploaded to Val Remote (use --fix to upload)`,
-    };
-  }
   const resolved = resolveVideo(ctx);
   if (!resolved.success) {
     return resolved.result;
@@ -342,6 +337,10 @@ export async function handleVideoUploadRemote(
       success: false,
       errorMessage: `File ${missing} does not exist`,
     };
+  }
+
+  if (!ctx.fix) {
+    return localFilesWarning(toUpload.map(({ path: ref }) => ref));
   }
 
   const opened = await openRemoteUploadSession(ctx);
