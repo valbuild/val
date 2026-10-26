@@ -167,7 +167,7 @@ export function useUpgrade(input: {
   return { button, settings, notice: siteNotice ?? proposalNotice };
 }
 
-function UpgradeNotice({
+export function UpgradeNotice({
   text,
   action,
 }: {
