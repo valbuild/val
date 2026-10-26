@@ -1018,6 +1018,41 @@ nothing. Chromium can, on request: `Page.setWebLifecycleState` with
 `e2e/http/publishHandoff.spec.ts` freezes the Studio straight after the tap.
 That spec fails on the old hand-off with the same screen an iPhone showed.
 
+## `val publish` builds with native rolldown, the tab with `@rolldown/browser`
+
+_Noted 2026-10-26. The incident below can be deleted once `@rolldown/browser`
+pairs `@napi-rs/wasm-runtime` 1.2.6 or later with an `@emnapi/core` it works
+with; the rule itself is permanent and documented in
+`packages/tanstack-build/src/rolldown.ts`._
+
+`@valbuild/tanstack-build` builds a site in a browser tab and in Node with the
+same code, and rolldown has two builds with one API. Nothing in the package
+imports either statically: `loadRolldown()` picks, and Node is handed the
+native one (`useRolldown(nativeRolldown)`, which `val publish` does), while
+anything not handed one loads `@rolldown/browser` on first use.
+
+What forced it: on 2026-10-25 `@napi-rs/wasm-runtime` 1.2.6 was released, and
+`@rolldown/browser` 1.2.15 accepts it (`~1.2.5`) while pinning
+`@emnapi/core` 2.0.0-alpha.5, which 1.2.6 does not work with. Loading the
+WebAssembly build in Node then throws `Cannot set properties of undefined
+(setting 'initWorker')`, and `val publish` reported it as "@valbuild/tanstack-build
+and rolldown … could not be loaded". A site's lockfile chooses that version,
+so a Val Build upgrade (or any `pnpm update`) broke the site's CI publish
+while every check on Val Build passed — those build with Val Build's own
+lockfile, not the site's. Native rolldown has no WebAssembly glue, so the
+site's `@napi-rs/wasm-runtime` no longer matters in Node.
+
+The browser side is still exposed, but only to lockfiles we own: the Studio
+bundles `@rolldown/browser` from this repository's, and Val Build's upgrade
+page from valbuild/home's. **Do not move `@rolldown/browser` to a release that
+resolves `@napi-rs/wasm-runtime` 1.2.6 until the pair loads** — the
+`tanstack-build` tests that run it will say so. Val's dev copy of native
+`rolldown` is pinned to the same release as `@rolldown/browser`, because
+`Rolldown` is typed by the browser build and two releases' types disagree.
+
+A site whose `@valbuild/tanstack-build` predates this still loads the
+WebAssembly build in Node; its next upgrade brings the fix.
+
 ## A request "pending" in dev is usually queued, not slow
 
 The devtools show a request as pending from the moment it is _created_, which

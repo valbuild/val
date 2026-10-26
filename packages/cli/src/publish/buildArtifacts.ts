@@ -60,6 +60,14 @@ async function loadBuilder(): Promise<
       import("@valbuild/tanstack-build"),
       import("@valbuild/tanstack-build/node"),
     ]);
+    /*
+     * Native rolldown rather than its WebAssembly build, whose glue the site's
+     * lockfile picks and can break (`rolldown.ts` in tanstack-build). Asked
+     * for, because the project's own tanstack-build may predate the choice.
+     */
+    if ("useRolldown" in build && "nativeRolldown" in node) {
+      build.useRolldown(node.nativeRolldown);
+    }
     return { status: "ok", build, node };
   } catch (e) {
     return {
