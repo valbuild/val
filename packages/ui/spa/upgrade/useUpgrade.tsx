@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { ArrowUpCircle, ExternalLink } from "lucide-react";
 import { useStudioIsDeployer } from "../components/ValProvider";
+import { UpgradeProposalNotice } from "../components/proposals/UpgradeProposalNotice";
 import type { ProposalJson } from "../proposals/proposalsClient";
 import { useUpgradeCheck, type UpgradeCheckState } from "./useUpgradeCheck";
 import { upgradeLabelOf } from "./upgradeLabel";
@@ -15,8 +16,10 @@ import { upgradeLabelOf } from "./upgradeLabel";
  * in a new tab.
  *
  * An upgrade already under way is followed there too: the Studio on the site
- * says one is running, and the Studio at its proposal's address -- where
- * Review goes -- says where it is followed.
+ * says one is running. The Studio at its proposal's address -- where Val
+ * Build's Open the proposal goes -- says what it upgrades, that it holds no
+ * content changes, and that publishing it updates the site, with Publish and
+ * the way to its checks.
  */
 
 /** How often the Studio on the site reads the list while an upgrade runs. */
@@ -58,6 +61,10 @@ export function useUpgrade(input: {
   proposals: ProposalJson[];
   current: ProposalJson | null;
   onRefresh: () => void;
+  /** The project's own name, "quiet-harbor-24": what Publish updates. */
+  siteName?: string;
+  /** Publish this proposal, as the bar's Publish does. */
+  onPublish?: () => void;
 }): {
   /** `null` while there is nothing to upgrade, or nobody here can. */
   button: UpgradeButton | null;
@@ -70,6 +77,7 @@ export function useUpgrade(input: {
   notice: ReactNode | null;
 } {
   const { enabled, adminProject, here, current, proposals, onRefresh } = input;
+  const { siteName, onPublish } = input;
   const deploys = useStudioIsDeployer();
   const usable = enabled && deploys && adminProject !== null;
   const { state: check, recheck } = useUpgradeCheck({ enabled: usable });
@@ -144,16 +152,15 @@ export function useUpgrade(input: {
       />
     );
   const proposalNotice =
-    hereUpgrade === null || hereUpgrade.status !== "open" ? null : (
-      <UpgradeNotice
-        text="This upgrade is typechecked, built and published in Val Build."
+    hereUpgrade === null ||
+    hereUpgrade.status !== "open" ||
+    hereUpgrade.upgrade === undefined ? null : (
+      <UpgradeProposalNotice
+        upgrade={hereUpgrade.upgrade}
+        {...(siteName !== undefined ? { siteName } : {})}
+        {...(onPublish !== undefined ? { onPublish } : {})}
         {...(adminProject !== null
-          ? {
-              action: {
-                label: "Open upgrade",
-                onClick: () => openInValBuild(upgradeUrl(hereUpgrade.name)),
-              },
-            }
+          ? { checksHref: upgradeUrl(hereUpgrade.name) }
           : {})}
       />
     );

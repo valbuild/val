@@ -989,6 +989,13 @@ export function useProposalsBar({
     proposals: ready?.proposals ?? NO_PROPOSALS,
     current: currentJson,
     onRefresh: onTypechecked,
+    ...(config?.project?.split("/")[1]
+      ? { siteName: config.project.split("/")[1] }
+      : {}),
+    onPublish: () => {
+      openDialog("publish");
+      void loadChecks();
+    },
   });
 
   if (state.status === "off" || (ready === null && here === null)) {
