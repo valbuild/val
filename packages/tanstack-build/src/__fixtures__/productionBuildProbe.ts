@@ -4,9 +4,10 @@
  * -- with a splitter and without, and reports what reached each bundle.
  *
  * A separate process for the reason splitEnvMarkersProbe.ts gives:
- * `@rolldown/browser` is ESM-only and jest runs CommonJS here. The assertions
+ * rolldown is ESM-only and jest runs CommonJS here. The assertions
  * stay in the test -- this only reports.
  */
+import "./nativeBundler";
 import { buildUserApp } from "../build";
 import type { BuildTarget } from "../contract";
 import type { RouteSplitter } from "../routeSplit";

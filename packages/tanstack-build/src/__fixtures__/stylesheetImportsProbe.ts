@@ -6,8 +6,9 @@
  * The font package is a real directory on disk, because what is being tested
  * is the CI half (`collectDependencyCss` reading node_modules) handing over to
  * the builder half. A separate process for the reason productionBuildProbe.ts
- * gives: `@rolldown/browser` is ESM-only and jest runs CommonJS here.
+ * gives: rolldown is ESM-only and jest runs CommonJS here.
  */
+import "./nativeBundler";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -23,7 +23,8 @@ import type { parseAstAsync } from "@rolldown/browser/parseAst";
  * lockfile was resolved after that release (an upgrade, a `pnpm update`)
  * could no longer `val publish`. The Studio's tab and Val Build's upgrade page
  * are not exposed to it: they bundle the browser build from their own
- * lockfiles, where Val's own tests load it before a release.
+ * lockfiles, where the builder tab's end-to-end specs load it before a
+ * release.
  */
 export interface Rolldown {
   build: typeof build;

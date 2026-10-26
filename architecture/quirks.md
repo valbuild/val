@@ -1046,7 +1046,10 @@ The browser side is still exposed, but only to lockfiles we own: the Studio
 bundles `@rolldown/browser` from this repository's, and Val Build's upgrade
 page from valbuild/home's. **Do not move `@rolldown/browser` to a release that
 resolves `@napi-rs/wasm-runtime` 1.2.6 until the pair loads** — the
-`tanstack-build` tests that run it will say so. Val's dev copy of native
+end-to-end specs that publish from the builder tab (`publishHandoff.spec.ts`)
+are what load it; the `tanstack-build` probes build with native rolldown, as
+Node does, because the WebAssembly build crashed in Node's worker threads
+under a loaded test run. Val's dev copy of native
 `rolldown` is pinned to the same release as `@rolldown/browser`, because
 `Rolldown` is typed by the browser build and two releases' types disagree.
 
