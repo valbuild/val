@@ -283,6 +283,21 @@ export function getValRouteUrlFromVal(
         // An optional segment the URL left out (`{-$locale}`): it contributes
         // nothing to the key, so `/about` is the key for `{ locale: undefined }`.
         delete missingParamKeys[key as keyof typeof missingParamKeys];
+      } else if (
+        part.type === "array-param" &&
+        part.optional &&
+        (value === undefined ||
+          value === null ||
+          value === "" ||
+          (Array.isArray(value) && value.length === 0))
+      ) {
+        // A splat with nothing in it: `/docs` on a `docs.$` route, which
+        // TanStack hands over as an empty `_splat`. The directory's own page,
+        // so its key is `/docs` -- not `/docs/`, which no one wrote.
+        delete missingParamKeys[key as keyof typeof missingParamKeys];
+        if ("*" in missingParamKeys) {
+          delete missingParamKeys["*"];
+        }
       } else if (typeof value !== "string" && !Array.isArray(value)) {
         missingPatterns.push(part);
       } else if (Array.isArray(value)) {
