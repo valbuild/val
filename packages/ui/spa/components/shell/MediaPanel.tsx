@@ -12,7 +12,6 @@ import {
   FileText,
   Film,
   Image as ImageIcon,
-  Loader2,
   Plus,
   Type,
 } from "lucide-react";
@@ -29,6 +28,7 @@ import { servedPath } from "../../utils/mediaPath";
 import { MediaThumbnail } from "../MediaThumbnail";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 import { Internal, type MediaCollectionType } from "@valbuild/core";
+import { Spinner } from "../designSystem/spinner";
 
 const MEDIA_COLLECTION_LABEL: Record<MediaCollectionType, string> = {
   images: "Images",
@@ -319,7 +319,7 @@ function GalleryFiles({
   if (files === undefined) {
     return (
       <p className="flex items-center gap-1.5 pl-8 py-1.5 text-[0.6875rem] text-fg-secondary-alt">
-        <Loader2 size={11} className="animate-spin" />
+        <Spinner size={12} />
         Loading files…
       </p>
     );

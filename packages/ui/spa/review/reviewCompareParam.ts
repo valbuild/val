@@ -1,5 +1,5 @@
-import { Internal, type SourcePath } from "@valbuild/core";
-import { isPathWithin } from "../utils/sourcePath";
+import type { SourcePath } from "@valbuild/core";
+import { isPathWithin, isSourcePath } from "../utils/sourcePath";
 import type { SerializedPatchSet } from "../utils/PatchSets";
 import { reviewSourcePath } from "./toReviewModel";
 
@@ -39,22 +39,6 @@ export function parseReviewCompareParam(
   const value = params.get(REVIEW_COMPARE_PARAM);
   if (!value) return { sourcePath: null };
   return isSourcePath(value) ? { sourcePath: value } : null;
-}
-
-/**
- * Whether a string from the URL is shaped like a source path: a module file
- * (`/…/name.val.ts`), optionally followed by `?p=` and a module path.
- *
- * A shape check, not a lookup — whether the module exists is the dialog's
- * question, and it answers it by finding nothing.
- */
-function isSourcePath(value: string): value is SourcePath {
-  const sep = value.indexOf(Internal.ModuleFilePathSep);
-  const moduleFilePath = sep === -1 ? value : value.slice(0, sep);
-  if (!moduleFilePath.startsWith("/") || !moduleFilePath.includes(".val.")) {
-    return false;
-  }
-  return sep === -1 || value.length > sep + Internal.ModuleFilePathSep.length;
 }
 
 /** Write the dialog's state into a URL's params, in place. Writes AND clears. */

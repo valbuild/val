@@ -18,12 +18,12 @@ import {
   ChevronUp,
   CircleAlert,
   CircleHelp,
-  Loader2,
   Rocket,
   X,
 } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { DeploymentProgress, ShellDeployment } from "./types";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * What the deploy feed adds up to right now.
@@ -366,7 +366,7 @@ function IndeterminateBar({ className }: { className?: string }) {
 
 function IndicatorIcon({ indicator }: { indicator: PublishIndicator }) {
   if (isInFlight(indicator)) {
-    return <Loader2 size={13} className="animate-spin" />;
+    return <Spinner size={14} />;
   }
   if (indicator.kind === "failed") {
     return <CircleAlert size={13} />;

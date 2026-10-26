@@ -359,7 +359,15 @@ export type ShellPanel =
   | "account"
   | "utility"
   | "ai"
-  | "notifications";
+  /** On a phone this is the activity sheet: notifications, errors, history. */
+  | "notifications"
+  /**
+   * Phone only: where you are -- the site or a proposal, named in full -- and
+   * the way somewhere else. Behind the top bar's location chip.
+   */
+  | "proposals"
+  /** Phone only: what can be done with the changes. Behind the primary's caret. */
+  | "changes";
 /*
  * There is no `"history"` panel. The list of publishes is a PAGE — see
  * `VAL_HISTORY_ROUTE` — because every step of a restore after picking the

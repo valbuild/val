@@ -1,10 +1,11 @@
-import { GitBranch, Loader2, Plus } from "lucide-react";
+import { GitBranch, Plus } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../designSystem/cn";
 import { relativeLocalDate } from "../../utils/relativeLocalDate";
-import { changesLabel } from "./ProposalSwitcher";
+import { proposalChangesLabel } from "./ProposalSwitcher";
 import { Dialog, DialogContent, DialogTitle } from "../designSystem/dialog";
 import type { ProposalSummary } from "./types";
+import { Spinner } from "../designSystem/spinner";
 
 type Tab = ProposalSummary["status"];
 const TABS: { tab: Tab; label: string }[] = [
@@ -89,7 +90,7 @@ export function ProposalsList({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex items-center gap-2 px-4 py-6 text-xs text-fg-secondary">
-            <Loader2 size={14} className="animate-spin" /> Loading proposals…
+            <Spinner size={14} /> Loading proposals…
           </div>
         ) : shown.length === 0 ? (
           <div className="px-4 py-6 text-xs text-fg-secondary">
@@ -152,7 +153,7 @@ function ProposalRow({
           </div>
         )}
         <div className="mt-0.5 text-[0.6875rem] text-fg-secondary-alt">
-          {changesLabel(proposal.changes)} ·{" "}
+          {proposalChangesLabel(proposal)} ·{" "}
           {proposal.status === "closed"
             ? `closed${proposal.closedBy ? ` by ${proposal.closedBy.name}` : ""} ${relativeLocalDate(now, proposal.updatedAt)}`
             : proposal.status === "merged"
@@ -176,7 +177,7 @@ function ProposalRow({
           disabled={reopening}
           className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border-float px-2.5 text-xs font-medium text-fg-primary hover:bg-bg-float-raised disabled:opacity-60"
         >
-          {reopening && <Loader2 size={12} className="animate-spin" />}
+          {reopening && <Spinner size={12} />}
           Reopen
         </button>
       )}

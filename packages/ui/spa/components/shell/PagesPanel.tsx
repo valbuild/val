@@ -98,6 +98,7 @@ function NewPageButton({
         type="button"
         aria-label="New page"
         aria-expanded={isOpen}
+        data-val-tour="new-page"
         onClick={() => onOpenChange(!isOpen)}
         className={cn(
           "inline-flex items-center gap-1 h-7 px-2 rounded-md text-xs font-medium",

@@ -59,6 +59,20 @@ export interface WireOptions {
    * the generated file decides in one place rather than failing five ways.
    */
   git?: { commit: string; branch: string };
+  /**
+   * The version of `@valbuild/ui` the checkout has installed: the Studio its
+   * `@valbuild/tanstack` runs. What `@valbuild/ui` is declared at when the
+   * project does not declare it, so the layer ships the Studio the project
+   * already runs.
+   *
+   * Only a caller with the installed packages can say -- this sees source
+   * files, never `node_modules` or a lockfile. Without it, `@valbuild/core`'s
+   * version stands in, which always names a published `@valbuild/ui` (ui
+   * depends on core, so a core release is a ui release) but can name an older
+   * one: the packages are versioned together only when they are released
+   * together.
+   */
+  studioVersion?: string;
 }
 
 /**
@@ -945,6 +959,13 @@ export function wireUp(
    * a TRANSITIVE dependency, and the vendor layer is built from what a project
    * DECLARES intersected with what it imports. Undeclared, the Studio loads its
    * shell and then 404s on its own bundle.
+   *
+   * At the version the project already runs (`studioVersion`), not at
+   * `@valbuild/core`'s: the two stopped moving together, and a site declaring
+   * an older ui than its `@valbuild/tanstack` installs a second, older Studio
+   * the next time anything installs from this `package.json`. A rewrite also
+   * means the site's `package.json` is no longer its template's, so the
+   * templates declare it themselves and this leaves them alone.
    */
   const manifestRaw = files["package.json"];
   if (manifestRaw) {
@@ -953,8 +974,9 @@ export function wireUp(
         dependencies?: Record<string, string>;
       };
       const deps = manifest.dependencies ?? {};
-      if (deps["@valbuild/core"] && !deps["@valbuild/ui"]) {
-        deps["@valbuild/ui"] = deps["@valbuild/core"];
+      const core = deps["@valbuild/core"];
+      if (core && !deps["@valbuild/ui"]) {
+        deps["@valbuild/ui"] = options.studioVersion ?? core;
         manifest.dependencies = deps;
         out["package.json"] = `${JSON.stringify(manifest, null, 2)}\n`;
         changes.push({
@@ -963,6 +985,13 @@ export function wireUp(
             "it carries the Studio bundle and was only a transitive dependency; the vendor " +
             "layer is built from what the project declares",
         });
+        if (!options.studioVersion) {
+          warnings.push(
+            `@valbuild/ui was declared at @valbuild/core's version (${core}), because the ` +
+              "installed one could not be read. Declare @valbuild/ui in package.json at the " +
+              "version your @valbuild/tanstack depends on to be sure it is the Studio you run.",
+          );
+        }
       }
     } catch {
       warnings.push(

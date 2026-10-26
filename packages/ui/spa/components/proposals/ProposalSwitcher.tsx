@@ -111,7 +111,7 @@ export function ProposalSwitcher({
                 key={proposal.name}
                 icon={<GitBranch size={14} className="text-fg-proposal" />}
                 label={proposal.displayName}
-                detail={`${proposal.ownedByViewer ? "You" : (proposal.owner?.name ?? "Someone")} · ${changesLabel(proposal.changes)}`}
+                detail={`${proposal.ownedByViewer ? "You" : (proposal.owner?.name ?? "Someone")} · ${proposalChangesLabel(proposal)}`}
                 current={here === proposal.name}
                 onClick={choose(() => onOpenProposal(proposal.name))}
               />
@@ -134,8 +134,68 @@ export function ProposalSwitcher({
   );
 }
 
+/**
+ * Where you are, on a phone: the switcher reduced to its icon.
+ *
+ * A proposal's name is whatever its author wrote, and a phone's top bar has no
+ * width for it - squeezed in, it crushed the switcher to an icon anyway and
+ * pushed the buttons beside it on top of each other. So the chip never names
+ * the place. The colour does (the bar wears the proposal's in one), the icon
+ * says which kind of place it is, and the chip is the same width in both, so
+ * nothing beside it moves when you switch. The name is read in full in the
+ * sheet it opens - see `ProposalSheet`.
+ */
+export function ProposalLocationChip({
+  location,
+  open,
+  onClick,
+}: {
+  location: StudioLocation;
+  /** Whether its sheet is the one open. */
+  open: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      aria-label={
+        location.kind === "proposal"
+          ? `In the proposal ${location.proposal.displayName}. Switch`
+          : "On the site. Switch to a proposal"
+      }
+      onClick={onClick}
+      className={cn(
+        "inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-2",
+        location.kind === "proposal"
+          ? "border-border-proposal bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover"
+          : "border-border-float text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
+      )}
+    >
+      {location.kind === "proposal" ? (
+        <GitBranch size={15} className="shrink-0" />
+      ) : (
+        <Globe size={15} className="shrink-0" />
+      )}
+      <ChevronDown size={13} className="shrink-0 opacity-70" />
+    </button>
+  );
+}
+
 export function changesLabel(count: number): string {
   return count === 1 ? "1 change" : `${count} changes`;
+}
+
+/**
+ * What a proposal holds, for a list or a heading: its changes -- or, for an
+ * upgrade, that it is one. An upgrade stages dependencies rather than
+ * content, so its count of changes is always 0 and says nothing.
+ */
+export function proposalChangesLabel(
+  proposal: Pick<ProposalSummary, "changes" | "upgrade">,
+): string {
+  return proposal.upgrade ? "Upgrade" : changesLabel(proposal.changes);
 }
 
 function MenuRow({

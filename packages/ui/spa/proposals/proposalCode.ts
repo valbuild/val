@@ -1,10 +1,22 @@
 import type { AITool } from "../hooks/useAIWebSocket";
-import type { StudioDeployResult } from "../publish/runStudioDeploy";
+import type { ProposalBuildOutcome as Outcome } from "@valbuild/shared/publish";
+import { proposalProject } from "@valbuild/shared/publish";
+export { proposalProject };
 import type {
   ProposalJson,
   ProposalsClient,
   ProposalStaged,
 } from "./proposalsClient";
+
+/** What a build of the proposal came to, with the proposal as content answers it. */
+export type ProposalBuildOutcome = Outcome<ProposalJson>;
+export {
+  buildProposal,
+  withoutLockfiles,
+  SERVE_POLL_MS,
+  SERVE_WAIT_MS,
+  type ProposalBuildStep,
+} from "@valbuild/shared/publish";
 
 /**
  * A proposal's CODE: the project's files, changed in a proposal and built for
@@ -19,19 +31,6 @@ import type {
  * is merged, never directly, which is what keeps "build only when files are
  * staged" true for the site.
  */
-
-/** The proposal's project: the site's source, with what the proposal changed laid over it. */
-export function proposalProject(
-  site: Record<string, string>,
-  own: Record<string, string | null>,
-): Record<string, string> {
-  const out = { ...site };
-  for (const [path, text] of Object.entries(own)) {
-    if (text === null) delete out[path];
-    else out[path] = text;
-  }
-  return out;
-}
 
 const LIST_FILES_TOOL: AITool = {
   name: "list_files",
@@ -130,68 +129,6 @@ Besides content, you can read the project's code (list_files, read_file) and, in
 const CODE_TOOL_NAMES = new Set(CODE_TOOLS.map((tool) => tool.name));
 export function isCodeTool(name: string): boolean {
   return CODE_TOOL_NAMES.has(name);
-}
-
-/** What a build of the proposal came to. */
-export type ProposalBuildOutcome =
-  | { status: "built"; hash: string | null; proposal: ProposalJson }
-  | { status: "nothing-staged" }
-  | { status: "already-built"; hash: string | null }
-  | { status: "failed"; message: string };
-
-/**
- * Build the proposal's staged files and serve the build at its address.
- *
- * The files and what they are for (`inputs`) come in one answer, so the build
- * names exactly what it was made of; content refuses it if they were staged
- * again meanwhile. The tab builds as for a publish and stops once the build is
- * uploaded -- nothing goes live -- and content hands it to the platform.
- */
-export async function buildProposal(deps: {
-  name: string;
-  client: Pick<ProposalsClient, "files" | "serveBuild">;
-  deploy: (files: Record<string, string | null>) => Promise<StudioDeployResult>;
-  /**
-   * Whether this document can build at all (`canBuildHere`): Safari cannot,
-   * and a proposal's build has no builder tab to hand off to yet.
-   */
-  canBuildHere: () => boolean;
-}): Promise<ProposalBuildOutcome> {
-  if (!deps.canBuildHere()) {
-    return {
-      status: "failed",
-      message:
-        "This browser cannot build in this tab. Open the proposal in Chrome, Edge or Firefox and build it there",
-    };
-  }
-  let read;
-  try {
-    read = await deps.client.files(deps.name);
-  } catch (error) {
-    return { status: "failed", message: messageOf(error) };
-  }
-  const { files, staged } = read;
-  if (staged.inputs === null) return { status: "nothing-staged" };
-  if (!staged.buildRequired) return { status: "already-built", hash: null };
-  const built = await deps.deploy(files);
-  if (built.status !== "uploaded") {
-    return {
-      status: "failed",
-      message:
-        built.status === "failed"
-          ? built.message
-          : "The build went live instead of stopping once uploaded.",
-    };
-  }
-  try {
-    const proposal = await deps.client.serveBuild(deps.name, {
-      publishId: built.publishId,
-      inputs: staged.inputs,
-    });
-    return { status: "built", hash: proposal.built?.hash ?? null, proposal };
-  } catch (error) {
-    return { status: "failed", message: messageOf(error) };
-  }
 }
 
 export type CodeToolDeps = {

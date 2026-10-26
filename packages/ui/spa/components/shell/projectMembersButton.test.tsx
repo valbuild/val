@@ -110,13 +110,29 @@ test("a panel that cannot load opens the project's page in Val Build", async () 
   open.mockRestore();
 });
 
-test("on a phone it is an icon that opens a sheet", () => {
-  const { container } = render(
+/*
+ * On a phone it is not in the top bar, which there holds where you are and who
+ * you are and nothing else. It is a row in the account sheet, behind the
+ * avatar, and it still opens Val Build's own members sheet.
+ */
+test("on a phone it is a row in the account sheet that opens a sheet", () => {
+  const { container: bar } = render(
     topBar({
       projectHref: PROJECT_HREF,
       webComponentsUrl: WC,
       breakpoint: "mobile",
     }),
+  );
+  expect(bar.querySelector("val-project-members")).toBeNull();
+  const { container } = render(
+    <ProjectMembersButton
+      variant="row"
+      projectName="acme/marketing-site"
+      projectHref={PROJECT_HREF}
+      webComponentsUrl={WC}
+      breakpoint="mobile"
+      loadScript={() => Promise.resolve()}
+    />,
   );
   const element = container.querySelector("val-project-members");
   expect(element?.getAttribute("layout")).toBe("sheet");
@@ -158,7 +174,21 @@ test("tells the component where the Studio runs", () => {
 
 test("there is no Share button beside it, on a phone or above one", () => {
   // Inviting someone new is "Invite to {org}" inside the Members panel.
-  for (const breakpoint of ["mobile", "tablet", "desktop"] as const) {
+  const { container: row, unmount: unmountRow } = render(
+    <ProjectMembersButton
+      variant="row"
+      projectName="acme/marketing-site"
+      projectHref={PROJECT_HREF}
+      webComponentsUrl={WC}
+      breakpoint="mobile"
+      loadScript={() => Promise.resolve()}
+    />,
+  );
+  expect(row.querySelector("val-members")).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Share/ })).toBeNull();
+  unmountRow();
+  const aboveAPhone: ShellBreakpoint[] = ["tablet", "desktop"];
+  for (const breakpoint of aboveAPhone) {
     const { container, unmount } = render(
       topBar({ projectHref: PROJECT_HREF, webComponentsUrl: WC, breakpoint }),
     );

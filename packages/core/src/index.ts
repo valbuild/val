@@ -144,7 +144,7 @@ import {
 const ModuleFilePathSep = "?p=";
 export { ModuleFilePathSep };
 import { SelectorSource, getSchema } from "./selector";
-import { ModulePath, SourcePath, getValPath, isVal } from "./val";
+import { ModulePath, SourcePath, getValPath, isVal, setValPath } from "./val";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { createHash, getSHA256Hash } from "./getSha256";
 import { Operation } from "./patch";
@@ -468,6 +468,7 @@ const Internal = {
   },
   getSchema,
   getValPath,
+  setValPath,
   getSource,
   isValModule,
   resolvePath,

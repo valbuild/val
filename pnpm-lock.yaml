@@ -725,6 +725,9 @@ importers:
       flexsearch:
         specifier: ^0.8.212
         version: 0.8.212
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -732,6 +735,9 @@ importers:
         specifier: ^5.0.0
         version: 5.0.0(zod@4.4.3)
     devDependencies:
+      '@valbuild/tanstack-build':
+        specifier: workspace:*
+        version: link:../tanstack-build
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -1211,9 +1217,6 @@ importers:
       wasm-feature-detect:
         specifier: 1.9.0
         version: 1.9.0
-      yaml:
-        specifier: ^2.9.0
-        version: 2.9.0
       zod:
         specifier: ^4.4.3
         version: 4.4.3

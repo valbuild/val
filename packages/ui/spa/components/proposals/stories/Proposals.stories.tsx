@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Shell } from "../../shell/Shell";
 import { mockShellData } from "../../shell/mockShellData";
 import type { TopBarProposals } from "../../shell/TopBar";
+import type { ShellPanel } from "../../shell/types";
 import {
   NewProposalDialog,
   type NewProposalProblem,
@@ -105,6 +106,8 @@ type HarnessProps = {
   newProblem?: NewProposalProblem | null;
   /** Validation errors a save would be refused for. */
   validationErrors?: number;
+  /** A panel open from the start: the phone's sheets, say. */
+  panel?: ShellPanel;
 };
 
 /**
@@ -120,6 +123,7 @@ function ProposalsShell({
   dialog: initialDialog = null,
   newProblem = null,
   validationErrors = 0,
+  panel,
 }: HarnessProps) {
   const [theme, setTheme] = useState(initialTheme);
   const [location, setLocation] = useState<StudioLocation>(initialLocation);
@@ -215,6 +219,7 @@ function ProposalsShell({
   return (
     <>
       <Shell
+        initialPanel={panel ?? null}
         data={mockShellData}
         theme={theme}
         onThemeChange={setTheme}
@@ -577,11 +582,22 @@ function ListFrame({ children }: { children: React.ReactNode }) {
  */
 export const PhoneOnTheSite = shell({ location: { kind: "site" } });
 export const PhoneInAProposal = shell({ location: inProposal() });
-export const PhoneProposalMenu = shell({
+/** The chip, pressed: the proposal named in full, its acts, and the way out. */
+export const PhoneProposalSheet = shell({
   location: inProposal(),
-  menuOpen: true,
+  panel: "proposals",
 });
-export const PhoneSwitcherOpen = shell({
-  location: inProposal(),
-  switcherOpen: true,
+/** The same chip on the site: the way into a proposal. */
+export const PhoneSiteSheet = shell({
+  location: { kind: "site" },
+  panel: "proposals",
+});
+/** The caret beside Save: everything else to do with the changes. */
+export const PhoneChangesSheet = shell({
+  location: inProposal({ code: { state: "required" } }),
+  panel: "changes",
+});
+/** Saved and built: the one action is Publish. */
+export const PhoneReadyToPublish = shell({
+  location: inProposal({ unsaved: 0, publishBlockedBy: null }),
 });

@@ -1,5 +1,5 @@
 import { Internal, ModuleFilePath } from "@valbuild/core";
-import { ChevronRight, Plus, Loader2, FileText, Folder } from "lucide-react";
+import { ChevronRight, Plus, FileText, Folder } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Remote } from "../utils/Remote";
 import {
@@ -16,6 +16,7 @@ import {
 import { cn } from "./designSystem/cn";
 import { parseRoutePattern } from "@valbuild/shared/internal";
 import { AddRecordPopover } from "./AddRecordPopover";
+import { Spinner } from "./designSystem/spinner";
 
 // TODO: technically this shouldn't be defined here in the ui package, but it
 // should be in the framework packages.
@@ -76,7 +77,7 @@ export function PageRouterSitemap({
   if (rootNode.status === "loading" || rootNode.status === "not-asked") {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 size={16} className="animate-spin" />
+        <Spinner size={16} />
       </div>
     );
   }

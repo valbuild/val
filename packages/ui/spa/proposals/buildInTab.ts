@@ -38,7 +38,13 @@ export function buildInTab(
     open?: (url: string, target: string) => unknown;
     storage?: Storage | null;
     /** The tab's state, for the Build button: see `ProposalBuildState.inTab`. */
-    onTab: (inTab: { blocked: boolean; step: string | null } | null) => void;
+    onTab: (
+      inTab: {
+        blocked: boolean;
+        step: string | null;
+        percent?: number | null;
+      } | null,
+    ) => void;
     now?: () => number;
     every?: (tick: () => void, ms: number) => () => void;
   },
@@ -93,7 +99,11 @@ export function buildInTab(
       lastHeard = now();
       if (message.type === "phase") {
         blocked = false;
-        deps.onTab({ blocked: false, step: message.label });
+        deps.onTab({
+          blocked: false,
+          step: message.label,
+          percent: message.percent ?? null,
+        });
       } else if (message.type === "proposal-built") {
         void outcomeOf(message.outcome, name, proposals).then(finish);
       }

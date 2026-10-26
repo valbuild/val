@@ -1,5 +1,73 @@
 # @valbuild/shared
 
+## 0.149.7
+
+### Patch Changes
+
+- [#932](https://github.com/valbuild/val/pull/932) [`8be6e6a`](https://github.com/valbuild/val/commit/8be6e6abd2536b5758f0d5f8dfb1e468f29a7015) Thanks [@freekh](https://github.com/freekh)! - A site's Val can now check the site's content with its own rules: `Internal.selfCheck` in `@valbuild/tanstack`. The platform's upgrade page calls it on the version an upgrade moves to, so content the new version would reject is found before the upgrade is published, not after. It answers the errors that would hold a publish back, the same ones the Studio shows, and loads nothing until it is called, so it adds nothing to a site's pages.
+
+- [#934](https://github.com/valbuild/val/pull/934) [`cc2a37a`](https://github.com/valbuild/val/commit/cc2a37a74c52cab6fa062e8252fb292b84a479c3) Thanks [@freekh](https://github.com/freekh)! - The Studio's deploy, the publish job a tab runs, a proposal's build and a proposal's typecheck are now `@valbuild/shared/publish` and `@valbuild/shared/typecheck`, so home's upgrade page can build, check and publish an upgrade with the same code, pinned at a version of its own. The clients reach content through the Studio's proxy as before, or directly (`publishApi`, `proposalsApi`) with a `fetch` that adds the credential. Nothing changes in the Studio.
+
+- [#933](https://github.com/valbuild/val/pull/933) [`7e78b1f`](https://github.com/valbuild/val/commit/7e78b1f863c47d4f38d9f1c9855a92e711170865) Thanks [@freekh](https://github.com/freekh)! - The typecheck the Studio runs on an upgrade, which reports the type errors a project would have after `pnpm install`, is now `@valbuild/shared/typecheck`, so the platform's upgrade page can run the same check. The Studio's typecheck works as before. Type bundles and compilers can now also be fetched with a credential of the caller's own (`adeptSources({ base, headers, credentials })`).
+
+## 0.148.7
+
+### Patch Changes
+
+- Updated dependencies [[`fb2eed8`](https://github.com/valbuild/val/commit/fb2eed8b51092cc2ad5c812bdf88b528913c824a)]:
+  - @valbuild/core@0.148.7
+
+## 0.148.6
+
+### Patch Changes
+
+- [#902](https://github.com/valbuild/val/pull/902) [`b580292`](https://github.com/valbuild/val/commit/b580292ac3c335b055f5ed5f18d6a12d075169c7) Thanks [@freekh](https://github.com/freekh)! - The demo has a script: `<ValApp demo={{ tours, audiences }}>`. Instead of a tour that opens by itself, the demo card asks "What brings you here?" and lists short tours for the answer, each ticked off once done. `/val?tour=<id>` starts one from a link.
+
+  A tour can start on a page of its own (`start`). A step can ask for a new page (`moveOn: { newPage }`), write any value or add one (`moveOn: { edit, value, add }`), and show the code behind what it is about (`code`).
+
+## 0.148.3
+
+### Patch Changes
+
+- [#881](https://github.com/valbuild/val/pull/881) [`0139436`](https://github.com/valbuild/val/commit/0139436426142d91cbb29ec6c696dfb86f34ab9d) Thanks [@freekh](https://github.com/freekh)! - The content analytics script. With analytics on (it is off by default, and turned on in a hosted project's settings), a TanStack site counts which content each visitor's page **rendered** and which they actually **viewed** (at least half on screen for a second), and sends it to `/api/val/analytics`.
+
+  - No cookies, no storage, no visitor IDs. Each page view also says where it came from (the referring site's host and any `utm_source` / `utm_medium` / `utm_campaign`) and whether it was a phone, tablet or desktop.
+  - A page is sent as its route's pattern (`/posts/$postId`), never its address, so a path that holds something about one visitor (an order number, a token) is never stored. `startValAnalytics` takes this as `routeFor`; `ValProvider` passes TanStack's matched route.
+  - Editors are never counted: nothing is sent in draft mode, in the Studio, with Val enabled, or at a proposal's address, and nothing from automated browsers. A page the browser prerenders counts nothing until it is shown.
+  - The script is the new `@valbuild/react/analytics` entry, loaded only for visitors of a site with analytics on, after the page has hydrated. It imports nothing else from Val.
+  - Storing the counts and showing them is part of Val's hosting, which takes these beacons before they reach the site. Anywhere else, `/api/val/analytics` checks each beacon and stores nothing; in local development, with `VAL_DEBUG=1`, it logs a line per beacon, so you can see it working.
+  - `ValProvider`'s Studio check now matches `/val` and what is below it only, not every route starting with those letters (`/values`). The same fix is in `@valbuild/next`.
+
+- [#896](https://github.com/valbuild/val/pull/896) [`5eff8a0`](https://github.com/valbuild/val/commit/5eff8a055a4ef50d476797c28f9c3e50deb73c89) Thanks [@freekh](https://github.com/freekh)! - A demo's tour can now be written by the site: `<ValApp demo={{ tour }}>`, with each step as data (`ValDemoTourStep`), so what it says changes with the site rather than with a Val release.
+
+  It is drawn as a ring around what a step is about, with nothing dimmed and the Studio usable underneath, and a step can move on by itself once the visitor has done what it asks:
+
+  ```ts
+  const tour: ValDemoTourStep[] = [
+    {
+      id: "click",
+      title: "This is Val",
+      body: "Click the heading on the page.",
+      target: "canvas",
+      page: HEADING, // outlined on the page
+      moveOn: { open: HEADING },
+    },
+    {
+      id: "type",
+      title: "Change a word",
+      body: "The page changes as you type.",
+      field: HEADING, // ringed wherever the field is shown
+      moveOn: {
+        edit: true,
+        path: HEADING,
+        value: "Coffee, roasted this weekend",
+      },
+    },
+  ];
+  ```
+
+  A step that moves on has **Do it for me**, which does it the way the Studio would, and **Skip**. On a phone the card is a sheet along the bottom. The Studio's own tour is unchanged.
+
 ## 0.148.2
 
 ### Patch Changes

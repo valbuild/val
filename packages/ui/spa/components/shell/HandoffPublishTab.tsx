@@ -30,24 +30,22 @@ import {
   describeDeployPhase,
   describeDeployStep,
 } from "../../publish/deployProgress";
-import type { DeployPhase } from "../../publish/runStudioDeploy";
+import {
+  type DeployPhase,
+  createStudioJobClient,
+  runJobToEnd,
+  runStudioJob,
+} from "@valbuild/shared/publish";
 import {
   deployPreparedJob,
   type StudioDeployState,
 } from "../../publish/useStudioDeploy";
-import { createStudioPublishClient } from "../../publish/publishClient";
-import { createStudioJobClient } from "../../publish/jobClient";
-import { runJobToEnd, runStudioJob } from "../../publish/runStudioJob";
 import { isSettled } from "../../publish/publishJobs";
 import { withinDeadline } from "../../publish/withinDeadline";
 import type {
   PublishRequestStatus,
   PublishTabJob,
 } from "@valbuild/shared/internal";
-import {
-  runSiteUpdate,
-  type SiteUpdateOutcome,
-} from "../../publish/runSiteUpdate";
 import {
   StudioPublishPage,
   type PublishPageResult,
@@ -74,7 +72,7 @@ import {
  * publish it was opened for and never makes it a second time: it asks content
  * where that request is first, and follows it if it was made (taking its
  * build up again if a reload cut it short), and what content cannot say --
- * a press the gate refused, an update -- it remembers itself.
+ * a press the gate refused -- it remembers itself.
  */
 
 const ORDER: DeployPhase["kind"][] = [
@@ -197,43 +195,11 @@ export function HandoffPublishTab({ id }: { id: string }) {
    * closes the tab, nor says on the page's card that the publish is done.
    */
   const ownPending = useRef(false);
-  /**
-   * An update rather than a publish job: the page that cannot build pressed
-   * Update site. Reported with `update-done`, never `done`, because it can end
-   * without a deploy -- see `ToSite`.
-   */
-  const updating = useRef(remembered?.kind === "update");
-  const [updateOutcome, setUpdateOutcome] = useState<SiteUpdateOutcome | null>(
-    () => (remembered?.kind === "update" ? remembered.outcome : null),
-  );
-
   useEffect(() => {
     let closed = false;
     const client = createStudioJobClient({ api: "/api/val" });
     const report = (message: Parameters<TabHandoff["report"]>[0]) =>
       tab.current?.report(message);
-
-    const startUpdate = () => {
-      /*
-       * Never from a stale intent -- and this is where that is checked, not
-       * only at the start: a page from before intents sends `update` over the
-       * channel too, and a check before this let that start it anyway.
-       */
-      if (started.current || stale) return;
-      started.current = true;
-      updating.current = true;
-      setWaiting({ kind: "started", waitedMs: 0, jobId: null });
-      void runSiteUpdate({
-        client: createStudioPublishClient({ api: "/api/val" }),
-        deploy,
-      }).then((outcome) => {
-        setUpdateOutcome(outcome);
-        // Opened again, the tab shows this rather than updating again.
-        rememberEnding(id, { kind: "update", outcome });
-        report({ type: "update-done", outcome });
-        if (outcome.status === "updated") setClosingIn(CLOSE_AFTER_S);
-      });
-    };
 
     /*
      * Jobs waiting for the one being run. The tab's own press can start a job
@@ -262,7 +228,6 @@ export function HandoffPublishTab({ id }: { id: string }) {
       /** The job of this tab's own press, rather than one the page handed it. */
       own: boolean,
     ) => {
-      if (updating.current) return;
       if (running.current) {
         /*
          * The same job twice -- the page and this tab are the same tab to
@@ -627,10 +592,6 @@ export function HandoffPublishTab({ id }: { id: string }) {
         }
         return;
       }
-      if (message.type === "update") {
-        startUpdate();
-        return;
-      }
       runJob(message.job, message.tab, message.requestId, false);
     });
     tab.current = handoff;
@@ -643,22 +604,8 @@ export function HandoffPublishTab({ id }: { id: string }) {
       }, NO_INTENT_TIMEOUT_MS);
     } else if (remembered !== null) {
       // Opened again: it shows how it ended, set from `remembered` above.
-    } else if (intent.kind === "update") {
-      if (stale) {
-        setWaiting({ kind: "cancelled", message: STALE_MESSAGE });
-        // Said to the page too, so its update ends rather than waits on this.
-        report({
-          type: "update-done",
-          outcome: {
-            status: "failed",
-            message: STALE_MESSAGE,
-            details: "",
-            deploy: null,
-          },
-        });
-      } else startUpdate();
     } else if (intent.kind === "build-proposal") {
-      // `HandoffProposalBuildTab`'s, which `ValStudio` mounts for it instead.
+      // Another tab's, which `ValStudio` mounts for it instead.
       setWaiting({ kind: "cancelled", message: NO_INTENT_MESSAGE });
     } else {
       ownPending.current = true;
@@ -677,16 +624,6 @@ export function HandoffPublishTab({ id }: { id: string }) {
     return () => clearInterval(timer);
   }, []);
   useEffect(() => {
-    if (updating.current) {
-      if (state.status !== "running") return;
-      tab.current?.report({
-        type: "phase",
-        label: describeDeployPhase(state.phase),
-        elapsedMs: now - state.startedAt,
-        percent: deployPercent(state.phase),
-      });
-      return;
-    }
     if (!started.current || startedAt.current === null) return;
     if (state.status !== "running" || goingLive !== null) return;
     tab.current?.report({
@@ -707,11 +644,10 @@ export function HandoffPublishTab({ id }: { id: string }) {
     return () => clearTimeout(timer);
   }, [closingIn]);
 
-  const steps = stepsOf(waiting, state, updating.current, goingLive, settled);
+  const steps = stepsOf(waiting, state, goingLive, settled);
   const settledResult = settled === null ? null : settledMessage(settled);
-  const result: PublishPageResult | undefined = updating.current
-    ? updateResultOf(updateOutcome, closingIn)
-    : waiting.kind === "cancelled"
+  const result: PublishPageResult | undefined =
+    waiting.kind === "cancelled"
       ? {
           kind: "failed",
           message: waiting.message,
@@ -740,15 +676,9 @@ export function HandoffPublishTab({ id }: { id: string }) {
   const elapsedMs =
     waiting.kind === "waiting" || waiting.kind === "following"
       ? now - waiting.since
-      : updating.current
-        ? state.status === "running"
-          ? now - state.startedAt
-          : state.status === "done"
-            ? state.ms
-            : 0
-        : startedAt.current !== null
-          ? now - startedAt.current
-          : 0;
+      : startedAt.current !== null
+        ? now - startedAt.current
+        : 0;
 
   return (
     <div style={{ height: "100svh" }}>
@@ -767,38 +697,9 @@ export function HandoffPublishTab({ id }: { id: string }) {
   );
 }
 
-/** What the page says when the tab ran an update. `undefined` while it runs. */
-function updateResultOf(
-  outcome: SiteUpdateOutcome | null,
-  closingIn: number | null,
-): PublishPageResult | undefined {
-  if (outcome === null) return undefined;
-  switch (outcome.status) {
-    case "updated":
-      return {
-        kind: "live",
-        ms: 0,
-        ...(closingIn !== null && closingIn > 0
-          ? { closingInS: closingIn }
-          : {}),
-      };
-    case "current":
-      return { kind: "failed", message: "The site is already up to date." };
-    case "unavailable":
-      return { kind: "failed", message: outcome.message };
-    case "failed":
-      return {
-        kind: "failed",
-        message: outcome.message,
-        details: outcome.details,
-      };
-  }
-}
-
 function stepsOf(
   waiting: Waiting,
   state: StudioDeployState,
-  update: boolean,
   goingLive: GoingLive | null,
   settled: PublishRequestStatus | null,
 ): PublishStep[] {
@@ -806,7 +707,7 @@ function stepsOf(
    * Following a publish rather than building it: its steps are another tab's,
    * or content's, so the one step here is the wait for it to end.
    */
-  if (waiting.kind === "following" || (settled !== null && !update)) {
+  if (waiting.kind === "following" || settled !== null) {
     const label =
       waiting.kind === "following" ? waiting.label : "Finishing the publish";
     return [
@@ -821,8 +722,7 @@ function stepsOf(
       },
     ];
   }
-  // An update requests nothing; its first step is asking the platform for it.
-  const first = update ? "Starting the update" : "Starting the publish";
+  const first = "Starting the publish";
   const begun: PublishStep =
     waiting.kind === "waiting"
       ? { label: first, status: "current" }
@@ -848,16 +748,14 @@ function stepsOf(
   /*
    * A publish job's steps end at the upload: checking the site renders and
    * putting it live are content's, run without this tab, so they are not
-   * listed as steps it is waiting for. An update runs them here.
+   * listed as steps it is waiting for.
    */
-  const order = update
-    ? ORDER
-    : ORDER.filter(
-        (kind) =>
-          (kind !== "verifying" && kind !== "promoting") ||
-          finished.has(kind) ||
-          current?.kind === kind,
-      );
+  const order = ORDER.filter(
+    (kind) =>
+      (kind !== "verifying" && kind !== "promoting") ||
+      finished.has(kind) ||
+      current?.kind === kind,
+  );
   const rest = order.map((kind): PublishStep => {
     if (current !== null && current.kind === kind) {
       // The live wording while it runs: "Uploading 3 of 7".

@@ -75,6 +75,54 @@ async function loadBuilder(): Promise<
 }
 
 /**
+ * The `@valbuild/ui` this checkout runs: the one its `@valbuild/tanstack`
+ * resolves, which is a transitive dependency pnpm does not hoist -- so it is
+ * looked for FROM that package, and only then from the project itself. `null`
+ * when neither has one installed.
+ *
+ * Handed to `wireUp`, which declares `@valbuild/ui` for a project that does
+ * not and can only see source files.
+ */
+export function installedStudioVersion(root: string): string | null {
+  const tanstack = installedPackageDir(root, "@valbuild/tanstack");
+  const ui =
+    (tanstack ? installedPackageDir(tanstack, "@valbuild/ui") : null) ??
+    installedPackageDir(root, "@valbuild/ui");
+  if (ui === null) return null;
+  try {
+    const manifest: unknown = JSON.parse(
+      fs.readFileSync(path.join(ui, "package.json"), "utf8"),
+    );
+    return typeof manifest === "object" &&
+      manifest !== null &&
+      "version" in manifest &&
+      typeof manifest.version === "string"
+      ? manifest.version
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where `name` is installed as Node would find it from `from`: in the nearest
+ * `node_modules` upward, through pnpm's symlinks. Walked by hand rather than
+ * with `require.resolve`, which a test runner replaces with its own resolver.
+ */
+function installedPackageDir(from: string, name: string): string | null {
+  let dir = path.resolve(from);
+  for (;;) {
+    const candidate = path.join(dir, "node_modules", name);
+    if (fs.existsSync(path.join(candidate, "package.json"))) {
+      return fs.realpathSync(candidate);
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/**
  * Never the project's own files, at any depth: installed packages. Dot
  * directories (`.git`, `.tanstack`, `.val`, `.output`) are tooling too.
  */
@@ -254,12 +302,14 @@ export async function buildArtifacts(options: {
      * same thing for a record that is already wired.
      */
     const { sources: onDisk, assets } = readProjectFiles(root, builder.isAsset);
+    const studioVersion = installedStudioVersion(root);
     const wiring =
       builder.isValProject(onDisk) && !builder.isWired(onDisk)
         ? builder.wireUp(onDisk, {
             project: options.project,
             loader: options.contentHost,
             ...(options.git ? { git: options.git } : {}),
+            ...(studioVersion ? { studioVersion } : {}),
           })
         : null;
     // Less the one about the layer, which is the thing this goes on to build.

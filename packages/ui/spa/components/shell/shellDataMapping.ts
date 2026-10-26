@@ -614,12 +614,11 @@ export function toWebComponentsUrl(
  * Pages hangs off `hasRouters` rather than off `pages` being non-empty, because
  * a router with no entries yet is a site map to add the first page to.
  *
- * Media, Data and Settings hang off their own data, which is already exactly
- * the right question. `media` is the `s.imagedir()`/`s.filedir()` modules, and an
- * empty gallery still lists as a gallery — so an empty `media` means no gallery
- * module exists. `settings` is the project's `s.settings()` module, and an empty
- * settings module (`{}`, which is the normal starting point) still resolves —
- * so its absence means the project has no settings module, or none it can use.
+ * Media and Data hang off their own data, which is already exactly the right
+ * question. `media` is the `s.imagedir()`/`s.filedir()` modules, and an empty
+ * gallery still lists as a gallery — so an empty `media` means no gallery
+ * module exists. Settings is always there once loaded: it holds more than the
+ * project's `s.settings()` module, and says how to add one where there is none.
  * `data` is what is left after the routers, the galleries and settings have been
  * taken out of the module tree, so "every module is a router, a gallery or
  * settings" and "`data` is empty" are the same statement.
@@ -629,19 +628,22 @@ export function toWebComponentsUrl(
  * worse than one that starts full.
  */
 export function availableDestinations(
-  data: Pick<ShellData, "hasRouters" | "media" | "settings" | "data">,
+  data: Pick<ShellData, "hasRouters" | "media" | "data">,
   isLoading: boolean,
 ): ShellDestination[] {
   // Settings is NOT offered while loading, unlike the other three: it is the
   // only one whose icon sits on its own at the foot of the rail, so a cog that
   // appears and then goes reads as something that broke rather than as data
-  // arriving. A project without `s.settings()` never shows it at all.
+  // arriving.
   if (isLoading) return ["pages", "media", "data"];
   const available: ShellDestination[] = [];
   if (data.hasRouters) available.push("pages");
   if (data.media.length > 0) available.push("media");
   if (data.data.length > 0) available.push("data");
-  if (data.settings) available.push("settings");
+  // Always, with or without `s.settings()`: the panel has more in it than the
+  // settings module (Updates, for a project whose code the Studio builds), and
+  // without a module it says how to add one.
+  available.push("settings");
   return available;
 }
 
