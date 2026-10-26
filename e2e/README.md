@@ -21,32 +21,35 @@ converted; it is proof nothing obvious was added.
 
 ## The projects, and which app each one drives
 
-| project                      | app                         | what it is for                                                |
-| ---------------------------- | --------------------------- | ------------------------------------------------------------- |
-| `chromium`                   | `examples/next`, fs mode    | most of the suite                                             |
-| `chromium-http`              | `examples/next`, proxy mode | publishing, deployments, two editors — `e2e/http/`            |
-| `tanstack`                   | `examples/tanstack`         | "does the Studio come up on TanStack Start, and can it write" |
-| `tanstack-http`              | `examples/tanstack`, proxy  | the builder tab — `e2e/tanstack-http/`                        |
-| `warmup` / `tanstack-warmup` | the two above               | not tests: they pay the first compile so no test does         |
-| `tanstack-http-warmup`       | `examples/tanstack`, proxy  | the same, for `tanstack-http`                                 |
-| `webkit-http`                | `examples/next`, proxy mode | publishing in WebKit; opt-in by name                          |
-| `webkit-tanstack-http`       | `examples/tanstack`, proxy  | the builder tab in WebKit; opt-in by name                     |
-| `screens`                    | `examples/next`             | screenshots for a human; opt-in by name, asserts nothing      |
+| project                      | app                        | what it is for                                                |
+| ---------------------------- | -------------------------- | ------------------------------------------------------------- |
+| `chromium`                   | `examples/next`, fs mode   | most of the suite                                             |
+| `chromium-http`              | `examples/tanstack`, proxy | publishing, deployments, history, two editors — `e2e/http/`   |
+| `tanstack`                   | `examples/tanstack`        | "does the Studio come up on TanStack Start, and can it write" |
+| `tanstack-http`              | `examples/tanstack`, proxy | the builder tab — `e2e/tanstack-http/`                        |
+| `warmup` / `tanstack-warmup` | the two fs-mode apps       | not tests: they pay the first compile so no test does         |
+| `http-warmup`                | `examples/tanstack`, proxy | the same, for both proxy-mode projects                        |
+| `webkit-http`                | `examples/tanstack`, proxy | publishing in WebKit; opt-in by name                          |
+| `webkit-tanstack-http`       | `examples/tanstack`, proxy | the builder tab in WebKit; opt-in by name                     |
+| `screens`                    | `examples/next`            | screenshots for a human; opt-in by name, asserts nothing      |
 
 `playwright.config.ts` starts only the servers the selected project needs, so
 `--project=tanstack` never starts `next dev` and a `chromium` shard never starts
 the mock content host.
 
-Each proxy-mode app has a mock content host of its own: 4567 for the Next app,
-4568 for the TanStack one (`e2e/tanstack-http/config.ts`). The mock answers for
-one project, and the two examples are two projects. The helpers in
-`e2e/http/httpMode.ts` are built per app by `httpTarget`, and
-`e2e/tanstack-http/httpMode.ts` is that, bound to the TanStack app.
+Every proxy-mode project drives ONE app: a copy of `examples/tanstack` on 3459,
+in proxy mode against the mock content host on 4568 (`e2e/http/config.ts`). It
+was a copy of `examples/next` until `next dev` kept failing these specs on its
+own manifests ("Manifest file is empty", "Unexpected end of JSON input", just as
+a Studio loaded). The Studio is the same code on either framework, and TanStack
+Start is the primary release target. `chromium-http` and `tanstack-http` are two
+projects only because CI's matrix names them; both are that app.
 
-`tanstack-http` exists because `publishHandoff.spec.ts` kept failing in
-`chromium-http` on `next dev` itself ("Manifest file is empty", just as the
-builder tab loaded). The builder tab is Studio code, and TanStack Start is the
-primary release target, so that is where the test runs now.
+The specs edit the e2e FIXTURES, not the showcase: `examples/tanstack/content/`,
+the same `/content/*.val.ts` modules the Next example has. They are registered
+only when `VAL_E2E_FIXTURES=true` (and the remote ones only with
+`VAL_E2E_REMOTE_MEDIA=true`), which the suite's servers set and a plain `pnpm
+dev` does not -- see `examples/tanstack/val.modules.ts`.
 
 The `tanstack` project is deliberately three tests. Everything about the stores
 is framework-independent and covered against the Next app; what is not covered

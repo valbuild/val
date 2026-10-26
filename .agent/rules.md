@@ -933,8 +933,9 @@ no amount of clicking in the normal dev loop reaches that UI.
 
 What DOES exercise it is the `chromium-http` Playwright project, which starts
 `e2e/mock-content-host` — a faithful stand-in for `home` implementing all five
-history endpoints — alongside a second `examples/next` in proxy mode. Ports and
-secrets live in `e2e/http/config.ts`.
+history endpoints — alongside a second `examples/tanstack` in proxy mode, with
+the e2e fixtures (`examples/tanstack/content/`) switched on. Ports and secrets
+live in `e2e/http/config.ts`.
 
 **Do not add a second history implementation to `ValOpsFS`.** The mock content
 host is already a full stand-in for `home`, pinned by `homeWireContract.test.ts`
