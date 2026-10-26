@@ -40,6 +40,7 @@ import {
   SourcePath,
   ValidationFix,
 } from "@valbuild/core";
+import { richTextImageSchema } from "@valbuild/shared/internal";
 import { collectionReferencePatches } from "./collectionReferences";
 import { extractJsonValuesEntry } from "./extractJsonValuesEntry";
 import {
@@ -455,7 +456,13 @@ export async function handleRemoteFileUpload(
     };
   }
 
-  const resolveRemoteFileSchema = resolvedRemoteFileAtSourcePath.schema;
+  // A rich text image's `src` resolves to the RICH TEXT schema when the schema
+  // is serialized, as it is here: the image schema is its `img` option.
+  const resolvedSchema = resolvedRemoteFileAtSourcePath.schema;
+  const resolveRemoteFileSchema =
+    resolvedSchema?.type === "richtext"
+      ? richTextImageSchema(resolvedSchema)
+      : resolvedSchema;
   if (!resolveRemoteFileSchema) {
     return {
       success: false,
@@ -565,24 +572,7 @@ export async function handleRemoteGalleryFileUpload(
       }`,
     };
   }
-  const { accept, dir } = recordSchema;
-  const schema: SerializedImageSchema | SerializedFileSchema =
-    mediaType === "image"
-      ? {
-          type: "image",
-          opt: false,
-          options: {
-            ...(accept ? { accept } : {}),
-            ...(dir ? { dir } : {}),
-          },
-        }
-      : {
-          type: "file",
-          opt: false,
-          options: {
-            ...(accept ? { accept } : {}),
-          },
-        };
+  const schema = Internal.galleryEntryMediaSchema(mediaType, recordSchema);
 
   const uploaded = await uploadRemoteFileCore(ctx, fileRef, metadata, schema);
   const ref = ctx.remoteFiles[ctx.sourcePath]?.ref;

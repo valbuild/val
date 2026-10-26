@@ -410,19 +410,49 @@ function missingFileRef({
       content.source,
       content.schema,
     );
-    const ref = fixes.some((fix) => KEYED_BY_FILE.includes(fix))
+    const value: unknown = resolved.source;
+    const source = isRecord(value) ? value : undefined;
+    const refs: unknown[] = fixes.some((fix) => KEYED_BY_FILE.includes(fix))
       ? // A collection entry is keyed by its file; the value has no `path`.
-        Internal.splitModulePath(modulePath).pop()
-      : (resolved.source as Record<string, unknown> | undefined)?.path;
-    if (typeof ref !== "string") {
-      return undefined;
+        [Internal.splitModulePath(modulePath).pop()]
+      : [source?.path];
+    if (
+      fixes.includes("video:upload-remote") ||
+      fixes.includes("videos:upload-remote")
+    ) {
+      // Every file the upload moves, as the CLI checks before it moves any:
+      // the poster and captions too. A field picked from a set moves only
+      // those -- the video is the set's (`movablePathsOf`).
+      if (
+        fixes.includes("video:upload-remote") &&
+        resolved.schema.type === "video" &&
+        resolved.schema.referencedModule !== undefined
+      ) {
+        refs.length = 0;
+      }
+      if (isRecord(source?.poster)) {
+        refs.push(source.poster.path);
+      }
+      if (Array.isArray(source?.captions)) {
+        for (const track of source.captions) {
+          if (isRecord(track)) refs.push(track.path);
+        }
+      }
     }
-    // Remote references are URLs and are not expected on disk.
-    if (Internal.remote.splitRemoteRef(ref).status === "success") {
-      return undefined;
+    for (const ref of refs) {
+      // Remote references are URLs and are not expected on disk.
+      if (
+        typeof ref !== "string" ||
+        Internal.remote.splitRemoteRef(ref).status === "success"
+      ) {
+        continue;
+      }
+      const filePath = path.join(valRoot, ref);
+      if (!fs.existsSync(filePath)) {
+        return filePath;
+      }
     }
-    const filePath = path.join(valRoot, ref);
-    return fs.existsSync(filePath) ? undefined : filePath;
+    return undefined;
   } catch {
     // Resolution can fail when the schema failed to serialize; skip the check
     // rather than dropping the underlying validation error.
@@ -829,4 +859,8 @@ export function galleryMembershipAt({
     path: currentPath,
     mediaType: schema.type,
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

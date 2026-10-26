@@ -120,7 +120,10 @@ export function buildLocalMediaUploadPatches(args: {
     target.kind === "field"
       ? { schema: target.schema, metadata: withoutPath(target.value) }
       : {
-          schema: galleryEntrySchema(target.record),
+          schema: Internal.galleryEntryMediaSchema(
+            target.record.mediaType === "files" ? "file" : "image",
+            target.record,
+          ),
           metadata: target.entry,
         };
   const fileMetadata = fileMetadataOf(schema.type, metadata, bytes.dataUrl);
@@ -209,32 +212,6 @@ export function buildLocalMediaUploadPatches(args: {
       referrers: Array.from(byModule.entries()).map(
         ([moduleFilePath, patch]) => ({ moduleFilePath, patch }),
       ),
-    },
-  };
-}
-
-/**
- * The image or file schema a gallery ENTRY's ref is hashed with: the record's
- * `accept`, and for images its `dir`. `handleRemoteGalleryFileUpload`'s
- * synthesis, which this has to stay identical to -- a different shape bakes a
- * hash the CLI and the check will never agree with.
- */
-function galleryEntrySchema(
-  record: SerializedRecordSchema,
-): SerializedImageSchema | SerializedFileSchema {
-  if (record.mediaType === "files") {
-    return {
-      type: "file",
-      opt: false,
-      options: { ...(record.accept ? { accept: record.accept } : {}) },
-    };
-  }
-  return {
-    type: "image",
-    opt: false,
-    options: {
-      ...(record.accept ? { accept: record.accept } : {}),
-      ...(record.dir ? { dir: record.dir } : {}),
     },
   };
 }

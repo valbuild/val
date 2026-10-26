@@ -125,4 +125,46 @@ describe("val validate: a local file in a project with remote files", () => {
     expect(text).toContain("not logged in");
     expect(text).not.toContain("⚠");
   });
+
+  test("an image inside rich text is a warning too", async () => {
+    // A rich text image's `src` resolves to the rich text schema, not the
+    // image one, once the schema is serialized -- which the handler read as
+    // "neither image nor file" and reported as an error.
+    fs.writeFileSync(
+      path.join(root, "val.modules.ts"),
+      `import { modules } from "@valbuild/core";
+import { config } from "./val.config";
+
+export default modules(config, [
+  { def: () => import("./content/page.val") },
+]);
+`,
+    );
+    fs.writeFileSync(
+      path.join(root, "content/page.val.ts"),
+      `import { c, s } from "../val.config";
+
+export default c.define(
+  "/content/page.val.ts",
+  s.richtext({ img: s.image().remote() }),
+  [
+    {
+      tag: "p",
+      children: [
+        "Look: ",
+        {
+          tag: "img",
+          src: { path: "${IMAGES[0]}", width: 8, height: 8, mimeType: "image/png" },
+        },
+      ],
+    },
+  ],
+);
+`,
+    );
+    expect(await validateOnce({ projectRoot: root, fix: false })).toBe(0);
+    const text = plain();
+    expect(text).toContain("content/page.val.ts  ⚠ 1 warning");
+    expect(text).not.toContain("neither image nor file");
+  });
 });

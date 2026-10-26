@@ -109,10 +109,21 @@ export async function checkModuleForStudio(
   // not judge without the bytes — which is every image that has metadata at
   // all. Reading them is what turns "has metadata" into "has the RIGHT
   // metadata".
+  // A published file this server cannot read is not judged at all: in a
+  // hosted project a template's files are in the built site, not the content
+  // service (`ValOps.canReadPublishedFiles`), and reading them reported every
+  // one as unreadable.
+  const readableFiles = ops.canReadPublishedFiles()
+    ? validation.files
+    : Object.fromEntries(
+        Object.entries(validation.files).filter(
+          ([, file]) => input.fileLastUpdatedByPatchId[file.path] !== undefined,
+        ),
+      );
   const fileErrors = await ops.validateFiles(
     schemas,
     sources,
-    validation.files,
+    readableFiles,
     input.fileLastUpdatedByPatchId,
   );
   for (const [sourcePath, found] of Object.entries(fileErrors)) {

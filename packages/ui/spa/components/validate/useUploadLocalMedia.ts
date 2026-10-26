@@ -12,6 +12,7 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
+import { richTextImageSchema } from "@valbuild/shared/internal";
 import { useSchemas } from "../ValFieldProvider";
 import {
   useCurrentRemoteFileBucket,
@@ -109,13 +110,19 @@ export function useUploadLocalMedia(): (
           retry: true,
         };
       }
+      if (remoteFiles.status === "inactive") {
+        // Asked once per Studio, so pressing Fix again asks nobody anything:
+        // no Try again. The message says what is wrong in its own words.
+        return {
+          status: "error",
+          message: `Val cannot upload files for this project, so nothing was uploaded: ${remoteFiles.message}`,
+          retry: false,
+        };
+      }
       if (remoteFiles.status !== "ready" || bucket === null) {
         return {
           status: "error",
-          message:
-            remoteFiles.status === "inactive"
-              ? "Val Build could not say where to upload files for this project, so nothing was uploaded."
-              : "Uploads are still being prepared, so nothing was uploaded.",
+          message: "Uploads are still being prepared, so nothing was uploaded.",
           retry: true,
         };
       }
@@ -158,6 +165,7 @@ export function useUploadLocalMedia(): (
       }
       return writeAll(
         patchStore,
+        (patchIds) => val.system.discard(patchIds),
         built,
         located.mediaType === "image" ? "image" : "file",
       );
@@ -217,7 +225,8 @@ async function imageOrFilePatches(
     return {
       status: "error",
       message: `${fetched.message} Nothing was uploaded.`,
-      retry: true,
+      // A file that is not there will not be there on a second press.
+      retry: !fetched.notFound,
     };
   }
   let target: LocalMediaUploadTarget;
@@ -271,7 +280,7 @@ async function videoPatches(
     }
     const fetched = await fetchMediaBlob(url, filename, undefined);
     if (fetched.status === "error") {
-      throw new Error(fetched.message);
+      throw new UnreadableFile(fetched.message, !fetched.notFound);
     }
     return new Uint8Array(await fetched.blob.arrayBuffer());
   };
@@ -313,7 +322,7 @@ async function videoPatches(
     return {
       status: "error",
       message: `${err instanceof Error ? err.message : String(err)} Nothing was uploaded.`,
-      retry: true,
+      retry: err instanceof UnreadableFile ? err.retry : true,
     };
   }
   if (files.length === 0) {
@@ -356,8 +365,19 @@ async function videoPatches(
   return { primary: built.primary, referrers: built.referrers, what };
 }
 
+/** A file a video's reader could not read, and whether reading again can help. */
+class UnreadableFile extends Error {
+  constructor(
+    message: string,
+    readonly retry: boolean,
+  ) {
+    super(message);
+  }
+}
+
 async function writeAll(
   patchStore: PatchStore,
+  discard: (patchIds: PatchId[]) => Promise<{ status: string }>,
   { primary, referrers, what }: UploadPatches,
   fileType: "image" | "file",
 ): Promise<UploadLocalMediaResult> {
@@ -391,9 +411,18 @@ async function writeAll(
     }
   }
   if (failed.length > 0) {
-    // The file IS uploaded at this point, so this is not a refusal -- but the
-    // fields that could not follow name an entry that is gone. Undo takes
-    // back every patch written, and Fix then starts again from the top.
+    // The fields that could not follow would name an entry that is gone, so
+    // all of it is taken back: half a fix is worse than none, and a row that
+    // read "fixed" over it would drop out of the count.
+    const rolledBack = await discard(patchIds);
+    if (rolledBack.status === "discarded") {
+      return {
+        status: "error",
+        message: `Nothing was changed: the fields using ${what} could not be pointed at the upload (${failed.join("; ")}).`,
+        retry: true,
+      };
+    }
+    // Could not take it back either: say so, and leave Undo to do it.
     return {
       status: "ok",
       patchIds,
@@ -439,11 +468,18 @@ async function locate(
       moduleSource,
       moduleSchema,
     );
+    // A rich text image's `src` resolves to the RICH TEXT schema when the
+    // schema is serialized: the image schema is its `img` option.
+    const schema =
+      resolved.schema.type === "richtext"
+        ? richTextImageSchema(resolved.schema)
+        : resolved.schema;
     const value = resolved.source;
     if (
-      (resolved.schema.type !== "image" &&
-        resolved.schema.type !== "file" &&
-        resolved.schema.type !== "video") ||
+      schema === null ||
+      (schema.type !== "image" &&
+        schema.type !== "file" &&
+        schema.type !== "video") ||
       !isJsonObject(value) ||
       typeof value.path !== "string"
     ) {
@@ -455,10 +491,10 @@ async function locate(
     }
     return {
       kind: "field",
-      mediaType: resolved.schema.type,
+      mediaType: schema.type,
       moduleFilePath,
       patchPath: Internal.createPatchPath(modulePath),
-      schema: resolved.schema,
+      schema,
       value: { ...value, path: value.path },
     };
   }

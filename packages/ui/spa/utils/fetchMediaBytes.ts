@@ -19,9 +19,7 @@ export async function fetchMediaBytes(
   url: string,
   filename: string,
   mimeType: string | undefined,
-): Promise<
-  { status: "ok"; bytes: MediaBytes } | { status: "error"; message: string }
-> {
+): Promise<{ status: "ok"; bytes: MediaBytes } | FetchMediaError> {
   const fetched = await fetchMediaBlob(url, filename, mimeType);
   if (fetched.status === "error") {
     return fetched;
@@ -41,6 +39,16 @@ export async function fetchMediaBytes(
 }
 
 /**
+ * Why a file could not be read. `notFound`: it is not there, so reading it
+ * again cannot help, and a caller should not offer to.
+ */
+export type FetchMediaError = {
+  status: "error";
+  message: string;
+  notFound?: true;
+};
+
+/**
  * The fetch, and the checks that tell a file from something else answering
  * at its URL, without reading it as a data URL: what `fetchMediaBytes` does
  * first, and all a video's reader needs (`useUploadLocalMedia`), which wants
@@ -50,9 +58,7 @@ export async function fetchMediaBlob(
   url: string,
   filename: string,
   mimeType: string | undefined,
-): Promise<
-  { status: "ok"; blob: Blob } | { status: "error"; message: string }
-> {
+): Promise<{ status: "ok"; blob: Blob } | FetchMediaError> {
   let res: Response;
   try {
     res = await fetch(url);
@@ -66,6 +72,7 @@ export async function fetchMediaBlob(
     return {
       status: "error",
       message: `Could not read ${filename} (HTTP ${res.status}).`,
+      ...(res.status === 404 || res.status === 410 ? { notFound: true } : {}),
     };
   }
   const servedAs = res.headers.get("content-type") ?? "";

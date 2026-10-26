@@ -89,3 +89,86 @@ test("a local entry whose file is gone is an error", () => {
   expect(found[0].severity).toBe(DiagnosticSeverity.Error);
   expect(found[0].data).toMatchObject({ code: "val/file-not-found" });
 });
+
+describe("a video still to upload", () => {
+  const PAGE = "/content/page.val.ts" as ModuleFilePath;
+  const VIDEO = "/public/val/clip_00000.mp4";
+  const CAPTIONS = "/public/val/clip-en_00000.vtt";
+  const PAGE_TEXT = `import { c, s } from "../val.config";
+
+export default c.define(
+  "/content/page.val.ts",
+  s.object({ hero: s.video().remote() }),
+  {
+    hero: {
+      path: "/public/val/clip_00000.mp4",
+      mimeType: "video/mp4",
+      width: 8,
+      height: 8,
+      duration: 1,
+      captions: [{ path: "/public/val/clip-en_00000.vtt", srclang: "en" }],
+    },
+  },
+);
+`;
+
+  function pageContent(): ValModuleContent {
+    const module = c.define(PAGE, s.object({ hero: s.video().remote() }), {
+      hero: {
+        path: VIDEO,
+        mimeType: "video/mp4",
+        width: 8,
+        height: 8,
+        duration: 1,
+        captions: [{ path: CAPTIONS, srclang: "en" }],
+      },
+    });
+    const schema = Internal.getSchema(module);
+    const serialized = schema?.["executeSerialize"]();
+    if (!schema || !serialized) throw new Error("no schema");
+    const source = Internal.getSource(module);
+    const validation = schema["executeValidate"](
+      PAGE as string as SourcePath,
+      source,
+    );
+    return {
+      path: PAGE as string as SourcePath,
+      source,
+      schema: serialized,
+      errors: validation ? { validation } : false,
+    };
+  }
+
+  function heroDiagnostics() {
+    return createValDiagnostics({
+      moduleFilePath: PAGE,
+      content: pageContent(),
+      text: PAGE_TEXT,
+      valRoot,
+    }).filter((d) => {
+      const data = d.data as ValDiagnosticData | undefined;
+      return data?.sourcePath.endsWith('"hero"');
+    });
+  }
+
+  beforeEach(() => {
+    fs.writeFileSync(path.join(valRoot, VIDEO), "mp4");
+  });
+
+  test("is a warning while every file it would move is there", () => {
+    fs.writeFileSync(path.join(valRoot, CAPTIONS), "WEBVTT");
+    const found = heroDiagnostics();
+    expect(found).toHaveLength(1);
+    expect(found[0].severity).toBe(DiagnosticSeverity.Warning);
+  });
+
+  test("is an error when its captions are gone, as the CLI says", () => {
+    const found = heroDiagnostics();
+    expect(found).toHaveLength(1);
+    expect(found[0].severity).toBe(DiagnosticSeverity.Error);
+    expect(found[0].data).toMatchObject({
+      code: "val/file-not-found",
+      filePath: path.join(valRoot, CAPTIONS),
+    });
+  });
+});
