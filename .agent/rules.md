@@ -631,7 +631,9 @@ partly overrides, and an image gallery entry with a default focal point; and `s.
 content analytics, switched on by `VAL_ANALYTICS=true` in its `.env.development`
 (on a hosted site it is a project setting, so there is no `val.config.ts`
 option) and read in `_site.tsx`'s loader, so its content is tagged for every
-visitor after hydration (`e2e/tanstack/analytics.spec.ts`). What it does NOT cover, and why: `.remote()` on media (and
+visitor after hydration (`e2e/tanstack/analytics.spec.ts`), with the post
+page writing JSON-LD and a share link through `val.raw()`, which the dev-only
+leak warning checks (`e2e/tanstack/leakWarning.spec.ts`). What it does NOT cover, and why: `.remote()` on media (and
 `files: { remote: true }` in `val.config.ts`, which turns it on for every media
 schema) and `.external()` on a record, because both need credentials or an
 adapter a plain `pnpm dev` does not have — `examples/next` gates the remote one behind
