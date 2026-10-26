@@ -40,3 +40,4 @@ export * from "./artifacts";
 export * from "./gitTree";
 export * from "./wire";
 export { bundleValModules } from "./valModules";
+export { loadRolldown, useRolldown, type Rolldown } from "./rolldown";

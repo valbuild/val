@@ -1,4 +1,4 @@
-import { build } from "@rolldown/browser";
+import { loadRolldown } from "./rolldown";
 import type { BuildTarget } from "./contract";
 import { dirname, resolve, resolveInFiles } from "./paths";
 import { aliasMap } from "./tsconfigPaths";
@@ -47,6 +47,7 @@ export async function bundleValModules(input: {
       : `${origin}/_pvendor/${target.project.rev}/`;
 
   const resolveProjectPath = (path: string) => resolveInFiles(path, files);
+  const { build } = await loadRolldown();
   let result;
   try {
     result = await build({

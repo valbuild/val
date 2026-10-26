@@ -1,4 +1,4 @@
-import { build } from "@rolldown/browser";
+import { loadRolldown } from "./rolldown";
 import type { BuildTarget } from "./contract";
 import { ENTRY } from "./projectPaths";
 import { dirname, resolve, resolveInFiles } from "./paths";
@@ -841,6 +841,7 @@ async function buildOnce(
   // The RSC pass is a server build in every respect the transforms care about:
   // it runs on the server, so server-only code stays and client-only code goes.
   // Only the vendor layer differs.
+  const { build } = await loadRolldown();
   const result = await build({
     input: isRsc ? RSC_ENTRY_ID : ENTRY,
     // Required in the browser. rolldown computes `cwd: inputOptions.cwd ??

@@ -73,7 +73,7 @@
     "@tanstack/router-plugin": "1.168.34",
     "@valbuild/tanstack-build": "workspace:*",
     "prettier": "~3.8.5",
-    "rolldown": "^1.2.5",
+    "rolldown": "1.2.9",
     "tsx": "^4.23.12"
   }
 }

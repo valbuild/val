@@ -4,7 +4,7 @@
 // should become in *this* target, and splice the source. They are separate from
 // each other because TanStack Start implements them as separate Babel passes,
 // and keeping the correspondence makes them checkable against the originals.
-import { parseAstAsync } from "@rolldown/browser/parseAst";
+import { loadRolldown } from "./rolldown";
 
 export interface Node {
   type: string;
@@ -30,6 +30,7 @@ export const langOf = (path: string) =>
     : ("ts" as const);
 
 export async function parse(path: string, code: string) {
+  const { parseAstAsync } = await loadRolldown();
   return (await parseAstAsync(
     code,
     { lang: langOf(path) },

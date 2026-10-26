@@ -11,6 +11,7 @@ import { debug } from "./debug";
 import { deleteUnappliablePatches } from "./deleteUnappliablePatches";
 import { publish } from "./publish";
 import { ciReport } from "./ciReport";
+import { checkBuildTools } from "./checkBuildTools";
 
 async function main(): Promise<void> {
   const { input, flags, showHelp } = meow(
@@ -95,6 +96,12 @@ async function main(): Promise<void> {
         --dry-run                Verify, and stop before the site changes
         --skip-validation        Publish without running "val validate" first. It runs by
                                  default, and an error stops the publish
+
+      Command: check-build-tools
+      Description: load what "val publish" builds with, and build a one-line module with
+        it: whether this install could publish, without asking content anything. Val Build
+        runs it on an upgrade's install before a connected project can publish the upgrade.
+        Fails when it could not.
 
       Command: list-unused-files
       Description: EXPERIMENTAL.
@@ -250,6 +257,8 @@ async function main(): Promise<void> {
         yes: flags.yes,
         verbose: flags.verbose,
       });
+    case "check-build-tools":
+      return checkBuildTools();
     case "ci-report":
       return ciReport({
         root: flags.root,
