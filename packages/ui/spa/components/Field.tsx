@@ -23,6 +23,7 @@ import { useFieldState } from "./useFieldState";
 import { useNavigation } from "./ValRouter";
 import { useEmptyOf } from "../hooks/useEmptyOf";
 import { RestoreChrome } from "../history/RestoreChrome";
+import { ContentViewsBadge } from "../analytics/ContentViewsBadge";
 
 export function Field({
   label,
@@ -271,6 +272,7 @@ export function Field({
                 "gap-1.5": compact,
               })}
             >
+              {!hasOverrides && !compact && <ContentViewsBadge path={path} />}
               {!hasOverrides && canMentionField && (
                 <button
                   type="button"
