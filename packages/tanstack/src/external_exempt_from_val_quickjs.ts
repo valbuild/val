@@ -62,6 +62,7 @@ export type {
 export { ValModulesClient, useRegisterValModules } from "./ValModulesClient";
 
 import { Internal as InternalCore } from "@valbuild/core";
+import type { selfCheck as selfCheckOf } from "@valbuild/shared/internal";
 // Auto-tag JSX with Val paths:
 import { autoTagJSX } from "@valbuild/react/stega";
 import { VERSION } from "./version";
@@ -86,7 +87,21 @@ export type { DecodeVal } from "@valbuild/react/stega";
  */
 type InternalWithTanStackVersion = Omit<typeof InternalCore, "VERSION"> & {
   VERSION: typeof InternalCore.VERSION & { tanstack: typeof VERSION };
+  selfCheck: typeof selfCheckOf;
 };
+
+/**
+ * This Val checking a site with its own rules, for the platform's upgrade
+ * page: see `selfCheck` in `@valbuild/shared`. Reached here because this
+ * package is the copy of Val that made the site's schemas, and it is in the
+ * site's vendor layer already (`val.config.ts` imports `initVal` from it).
+ *
+ * Loaded when called, never at import time: `@valbuild/shared/internal` is
+ * one module that holds zod, and a static import would put it in the bundle
+ * of every page of every Val site (see `getClient` in `ValTanStackProvider`).
+ */
+const selfCheck: typeof selfCheckOf = async (valModules, options) =>
+  (await import("@valbuild/shared/internal")).selfCheck(valModules, options);
 
 export const Internal: InternalWithTanStackVersion = {
   ...InternalCore,
@@ -94,4 +109,5 @@ export const Internal: InternalWithTanStackVersion = {
     ...InternalCore.VERSION,
     tanstack: VERSION,
   },
+  selfCheck,
 };

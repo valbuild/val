@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Check,
   GitCompare,
-  Loader2,
   Package,
   ShieldCheck,
   Upload,
@@ -18,6 +17,7 @@ import {
 } from "../designSystem/dialog";
 import { changesLabel } from "./ProposalSwitcher";
 import { conflictKey, UpdateConflicts } from "./UpdateConflicts";
+import { Spinner } from "../designSystem/spinner";
 
 /** One merge check, as the dialog shows it. */
 export type MergeCheckView = {
@@ -235,8 +235,7 @@ export function PublishProposalDialog({
         <div className="flex flex-col gap-3 px-5 pb-4">
           {state.kind === "checking" && (
             <div className="flex items-center gap-2 text-xs text-fg-secondary">
-              <Loader2 size={14} className="animate-spin" /> Checking whether it
-              can be published…
+              <Spinner size={14} /> Checking whether it can be published…
             </div>
           )}
 
@@ -309,7 +308,7 @@ export function PublishProposalDialog({
                               className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border-proposal px-2 text-xs font-medium text-fg-primary hover:bg-bg-proposal-soft disabled:text-fg-disabled"
                             >
                               {updating ? (
-                                <Loader2 size={13} className="animate-spin" />
+                                <Spinner size={14} />
                               ) : (
                                 <ArrowRight size={13} />
                               )}
@@ -339,7 +338,7 @@ export function PublishProposalDialog({
                               className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border-proposal px-2 text-xs font-medium text-fg-primary hover:bg-bg-proposal-soft disabled:text-fg-disabled"
                             >
                               {typechecking ? (
-                                <Loader2 size={13} className="animate-spin" />
+                                <Spinner size={14} />
                               ) : (
                                 <ShieldCheck size={13} />
                               )}
@@ -365,7 +364,7 @@ export function PublishProposalDialog({
 
           {state.kind === "publishing" && (
             <div className="flex items-center gap-2 text-xs text-fg-primary">
-              <Loader2 size={14} className="animate-spin text-fg-proposal" />
+              <Spinner size={14} className="text-fg-proposal" />
               {STEP_WORDS[state.step]}
             </div>
           )}
@@ -475,11 +474,7 @@ export function PublishProposalDialog({
                     "disabled:bg-bg-disabled disabled:text-fg-disabled",
                   )}
                 >
-                  {busy ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <Upload size={14} />
-                  )}
+                  {busy ? <Spinner size={14} /> : <Upload size={14} />}
                   {busy ? "Publishing…" : "Publish"}
                 </button>
               )}

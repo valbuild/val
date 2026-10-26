@@ -1,9 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { TypecheckSources, TypesBundle } from "../typecheck/acquireTypes";
-import { nodeModulesSources } from "../typecheck/testing/nodeModulesSources";
-import { typecheckProject } from "../typecheck/typecheckProject";
-import { runProposalTypecheck } from "./proposalTypecheck";
+import {
+  type TypecheckSources,
+  type TypesBundle,
+  typecheckProject,
+  runProposalTypecheck,
+} from "@valbuild/shared/typecheck";
+import { nodeModulesSources } from "@valbuild/shared/typecheck/testing";
 import type { ProposalsClient } from "./proposalsClient";
 
 type Report = Parameters<ProposalsClient["reportTypecheck"]>[1];
@@ -22,7 +25,7 @@ const REPO = path.resolve(__dirname, "../../../..");
 const siteLockfile = fs.readFileSync(
   path.join(
     __dirname,
-    "../typecheck/fixtures/template-tanstack-minimal/pnpm-lock.yaml",
+    "../../../shared/src/typecheck/fixtures/template-tanstack-minimal/pnpm-lock.yaml",
   ),
   "utf8",
 );

@@ -4,8 +4,10 @@ import type {
 } from "@valbuild/shared/internal";
 import type { PatchId } from "@valbuild/core";
 import type { PressAs, PublishResult } from "../stores/PublishSeam";
-import type { StudioJobClient } from "./jobClient";
-import { StudioPublishError } from "./publishClient";
+import {
+  type StudioJobClient,
+  StudioPublishError,
+} from "@valbuild/shared/publish";
 import {
   askServerAbout,
   hasChange,

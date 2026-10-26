@@ -4,7 +4,6 @@ import {
   Hammer,
   GitCompare,
   Link2,
-  Loader2,
   MoreHorizontal,
   Package,
   Pencil,
@@ -16,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
 import { useDismissOnOutsidePointer } from "../shell/useDismissOnOutsidePointer";
 import type { ProposalCodeState, StudioLocation } from "./types";
+import { Spinner } from "../designSystem/spinner";
 
 type InProposal = Extract<StudioLocation, { kind: "proposal" }>;
 
@@ -79,7 +79,7 @@ export function ProposalSaveButton({
       )}
     >
       {saving ? (
-        <Loader2 size={14} className="shrink-0 animate-spin" />
+        <Spinner size={14} />
       ) : failed !== null || blocked !== null ? (
         <AlertTriangle size={14} className="shrink-0" />
       ) : (
@@ -153,7 +153,7 @@ export function ProposalBuildButton({
       )}
     >
       {building ? (
-        <Loader2 size={14} className="shrink-0 animate-spin" />
+        <Spinner size={14} />
       ) : failed !== null ? (
         <AlertTriangle size={14} className="shrink-0" />
       ) : blocked ? (
@@ -274,7 +274,7 @@ function DependenciesButton({
       )}
     >
       {busy ? (
-        <Loader2 size={14} className="shrink-0 animate-spin" />
+        <Spinner size={14} />
       ) : failed ? (
         <AlertTriangle size={14} className="shrink-0" />
       ) : (

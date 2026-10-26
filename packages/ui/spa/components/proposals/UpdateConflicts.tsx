@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import type { UpdateConflictView } from "./PublishProposalDialog";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * Update from the site, when the site and the proposal both changed the same
@@ -114,7 +114,7 @@ export function UpdateConflicts({
             }
             className="inline-flex h-8 items-center gap-1.5 rounded-md bg-bg-proposal px-3 text-xs font-medium text-fg-on-proposal disabled:bg-bg-disabled disabled:text-fg-disabled"
           >
-            {updating && <Loader2 size={13} className="animate-spin" />}
+            {updating && <Spinner size={14} />}
             {updating ? "Updating from the site…" : "Update from the site"}
           </button>
         )}

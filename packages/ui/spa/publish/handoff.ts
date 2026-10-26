@@ -1,5 +1,7 @@
-import type { StudioDeployResult } from "./runStudioDeploy";
-import type { StudioJobResult } from "./runStudioJob";
+import type {
+  StudioDeployResult,
+  StudioJobResult,
+} from "@valbuild/shared/publish";
 import { randomUUID } from "../utils/randomUUID";
 import {
   browserStorage,

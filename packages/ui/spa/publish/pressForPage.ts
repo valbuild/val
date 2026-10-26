@@ -5,9 +5,12 @@ import type {
 import type { PressAs, PublishResult } from "../stores/PublishSeam";
 import { describePublishRefusal } from "../utils/describePublishRefusal";
 import { forgetHandoffIntent, type HandoffIntent } from "./handoff";
-import type { StudioJobClient } from "./jobClient";
+import {
+  type StudioJobClient,
+  isTransientPublishError,
+  StudioPublishError,
+} from "@valbuild/shared/publish";
 import { browserStorage, readKeyed, writeKeyed } from "./browserStorage";
-import { isTransientPublishError, StudioPublishError } from "./publishClient";
 import { isSettled } from "./publishJobs";
 import { withinDeadline } from "./withinDeadline";
 

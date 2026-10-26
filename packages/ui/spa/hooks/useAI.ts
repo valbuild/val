@@ -98,7 +98,7 @@ import {
   useProposalBuild,
 } from "../proposals/useProposalBuild";
 import { createProposalsClient } from "../proposals/proposalsClient";
-import { createStudioPublishClient } from "../publish/publishClient";
+import { createStudioPublishClient } from "@valbuild/shared/publish";
 
 const GET_ALL_SCHEMA_TOOL: AITool = {
   name: "get_all_schema",

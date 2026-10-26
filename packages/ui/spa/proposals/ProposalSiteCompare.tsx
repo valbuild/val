@@ -1,6 +1,5 @@
 import { useCallback, useMemo } from "react";
 import type { SourcePath } from "@valbuild/core";
-import { Loader2 } from "lucide-react";
 import { CompareDialog } from "../compare/CompareDialog";
 import {
   CompareBeforeSourcesContext,
@@ -15,6 +14,7 @@ import {
 } from "../components/designSystem/dialog";
 import { useCurrentAuthorId } from "../components/ValProvider";
 import type { SiteChanges } from "./useSiteChanges";
+import { Spinner } from "../components/designSystem/spinner";
 
 /**
  * Compare with the site, in a proposal: what Publish -- merging it -- would
@@ -48,7 +48,7 @@ export function ProposalSiteCompare({
           </DialogTitle>
           {changes.status === "loading" ? (
             <DialogDescription className="flex items-center gap-2 text-xs text-fg-secondary">
-              <Loader2 size={14} className="animate-spin" /> Reading the site…
+              <Spinner size={14} /> Reading the site…
             </DialogDescription>
           ) : (
             <>

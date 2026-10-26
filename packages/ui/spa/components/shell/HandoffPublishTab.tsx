@@ -30,13 +30,16 @@ import {
   describeDeployPhase,
   describeDeployStep,
 } from "../../publish/deployProgress";
-import type { DeployPhase } from "../../publish/runStudioDeploy";
+import {
+  type DeployPhase,
+  createStudioJobClient,
+  runJobToEnd,
+  runStudioJob,
+} from "@valbuild/shared/publish";
 import {
   deployPreparedJob,
   type StudioDeployState,
 } from "../../publish/useStudioDeploy";
-import { createStudioJobClient } from "../../publish/jobClient";
-import { runJobToEnd, runStudioJob } from "../../publish/runStudioJob";
 import { isSettled } from "../../publish/publishJobs";
 import { withinDeadline } from "../../publish/withinDeadline";
 import type {

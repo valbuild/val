@@ -1,12 +1,22 @@
 import type { AITool } from "../hooks/useAIWebSocket";
-import type { StudioDeployResult } from "../publish/runStudioDeploy";
-import type { BuildTargetResponse } from "@valbuild/shared/internal";
-import {
-  ProposalsApiError,
-  type ProposalJson,
-  type ProposalsClient,
-  type ProposalStaged,
+import type { ProposalBuildOutcome as Outcome } from "@valbuild/shared/publish";
+import { proposalProject } from "@valbuild/shared/publish";
+export { proposalProject };
+import type {
+  ProposalJson,
+  ProposalsClient,
+  ProposalStaged,
 } from "./proposalsClient";
+
+/** What a build of the proposal came to, with the proposal as content answers it. */
+export type ProposalBuildOutcome = Outcome<ProposalJson>;
+export {
+  buildProposal,
+  withoutLockfiles,
+  SERVE_POLL_MS,
+  SERVE_WAIT_MS,
+  type ProposalBuildStep,
+} from "@valbuild/shared/publish";
 
 /**
  * A proposal's CODE: the project's files, changed in a proposal and built for
@@ -21,19 +31,6 @@ import {
  * is merged, never directly, which is what keeps "build only when files are
  * staged" true for the site.
  */
-
-/** The proposal's project: the site's source, with what the proposal changed laid over it. */
-export function proposalProject(
-  site: Record<string, string>,
-  own: Record<string, string | null>,
-): Record<string, string> {
-  const out = { ...site };
-  for (const [path, text] of Object.entries(own)) {
-    if (text === null) delete out[path];
-    else out[path] = text;
-  }
-  return out;
-}
 
 const LIST_FILES_TOOL: AITool = {
   name: "list_files",
@@ -132,212 +129,6 @@ Besides content, you can read the project's code (list_files, read_file) and, in
 const CODE_TOOL_NAMES = new Set(CODE_TOOLS.map((tool) => tool.name));
 export function isCodeTool(name: string): boolean {
   return CODE_TOOL_NAMES.has(name);
-}
-
-/** What a build of the proposal came to. */
-export type ProposalBuildOutcome =
-  | { status: "built"; hash: string | null; proposal: ProposalJson }
-  | { status: "nothing-staged" }
-  | { status: "already-built"; hash: string | null }
-  | { status: "failed"; message: string };
-
-/**
- * Where a build of the proposal is, around the deploy: the deploy's own steps
- * are the Studio's deploy state (`useStudioDeployState`), and these are the
- * parts before and after it.
- *
- * - `reading`: the proposal's files and the target to build them on.
- * - `deploying`: the deploy is running; its state says which step.
- * - `serving`: content is putting the build up at the proposal's address.
- * - `waiting`: that request did not come back -- a gateway gave up on it --
- *   and content is asked until it says the proposal is built.
- */
-export type ProposalBuildStep =
-  | { kind: "reading" }
-  | { kind: "deploying" }
-  | { kind: "serving"; since: number }
-  | { kind: "waiting"; since: number };
-
-/**
- * Files that never go into a build: lockfiles, at any depth. The same list as
- * content's `NEVER_SHIPPED` (valbuild/home `content/src/val/dependencyFiles.ts`).
- *
- * A merge builds from the site's source with the proposal's files over it,
- * without these (`shippedFiles` there). The proposal's own build has to be
- * made of the same files, or the two are named differently: a merge then
- * never finds the proposal's build held, and builds the whole site again --
- * which is every upgrade, since an upgrade stages a `pnpm-lock.yaml`.
- */
-const NEVER_SHIPPED = new Set([
-  "pnpm-lock.yaml",
-  "pnpm-workspace.yaml",
-  "package-lock.json",
-  "npm-shrinkwrap.json",
-  "yarn.lock",
-  "bun.lock",
-  "bun.lockb",
-]);
-
-export function withoutLockfiles<T>(
-  files: Record<string, T>,
-): Record<string, T> {
-  return Object.fromEntries(
-    Object.entries(files).filter(
-      ([path]) => !NEVER_SHIPPED.has(path.slice(path.lastIndexOf("/") + 1)),
-    ),
-  );
-}
-
-/**
- * Whether serving got no answer from content rather than a refusal: the
- * connection failed, or a gateway stopped waiting -- Cloudflare's 52x (524 is
- * "no answer in 100 seconds"), and the 502-504 of anything else in between.
- * Content goes on with the request either way, so the build may well be
- * served.
- */
-function gatewayGaveUp(error: unknown): boolean {
-  // No answer at all: `fetch` rejects with a TypeError when the connection
-  // fails or is cut. Anything else is a failure with words of its own.
-  if (error instanceof TypeError) return true;
-  if (!(error instanceof ProposalsApiError)) return false;
-  return (
-    error.status === 502 ||
-    error.status === 503 ||
-    error.status === 504 ||
-    (error.status >= 520 && error.status <= 527)
-  );
-}
-
-/** How long, and how often, content is asked whether it served the build. */
-export const SERVE_WAIT_MS = 4 * 60_000;
-export const SERVE_POLL_MS = 5_000;
-
-/**
- * Build the proposal's staged files and serve the build at its address.
- *
- * The files and what they are for (`inputs`) come in one answer, so the build
- * names exactly what it was made of; content refuses it if they were staged
- * again meanwhile. The tab builds as for a publish and stops once the build is
- * uploaded -- nothing goes live -- and content hands it to the platform.
- *
- * Serving can take longer than a gateway waits for an answer, and content
- * finishes it all the same. So a gateway that gives up is not a failure: the
- * proposal is read until it says it is built from these inputs, and served
- * once more only if it never does.
- */
-export async function buildProposal(deps: {
-  name: string;
-  client: Pick<ProposalsClient, "files" | "serveBuild" | "buildTarget" | "get">;
-  /**
-   * `target`: the proposal's own, when it changed the dependencies and builds
-   * on the layer content had built for it; `undefined` builds on the site's,
-   * as every build of a proposal did before.
-   */
-  deploy: (
-    files: Record<string, string | null>,
-    target: BuildTargetResponse | undefined,
-  ) => Promise<StudioDeployResult>;
-  /**
-   * Whether this document can build at all (`canBuildHere`): Safari cannot,
-   * and a proposal's build has no builder tab to hand off to yet.
-   */
-  canBuildHere: () => boolean;
-  onStep?: (step: ProposalBuildStep) => void;
-  /** For tests: the clock, and waiting on it. */
-  now?: () => number;
-  sleep?: (ms: number) => Promise<void>;
-}): Promise<ProposalBuildOutcome> {
-  const now = deps.now ?? Date.now;
-  const sleep =
-    deps.sleep ??
-    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  const step = deps.onStep ?? (() => {});
-  if (!deps.canBuildHere()) {
-    return {
-      status: "failed",
-      message:
-        "This browser cannot build in this tab. Open the proposal in Chrome, Edge or Firefox and build it there",
-    };
-  }
-  step({ kind: "reading" });
-  let read;
-  try {
-    read = await deps.client.files(deps.name);
-  } catch (error) {
-    return { status: "failed", message: messageOf(error) };
-  }
-  const { files, staged } = read;
-  if (staged.inputs === null) return { status: "nothing-staged" };
-  if (!staged.buildRequired) return { status: "already-built", hash: null };
-  const inputs = staged.inputs;
-  let target: BuildTargetResponse | undefined;
-  try {
-    const asked = await deps.client.buildTarget(deps.name);
-    target = asked.layer === "own" ? asked.target : undefined;
-  } catch (error) {
-    // A content service from before proposals had targets of their own:
-    // every proposal builds on the site's layer there, as it always did.
-    if (!(error instanceof ProposalsApiError && error.status === 404)) {
-      // Content's words: the dependencies are being built, or why they
-      // could not be.
-      return { status: "failed", message: messageOf(error) };
-    }
-  }
-  step({ kind: "deploying" });
-  const built = await deps.deploy(withoutLockfiles(files), target);
-  if (built.status !== "uploaded") {
-    return {
-      status: "failed",
-      message:
-        built.status === "failed"
-          ? built.message
-          : "The build went live instead of stopping once uploaded.",
-    };
-  }
-  const serve = async () => {
-    step({ kind: "serving", since: now() });
-    return deps.client.serveBuild(deps.name, {
-      publishId: built.publishId,
-      inputs,
-    });
-  };
-  const servedNow = async (): Promise<ProposalJson | null> => {
-    try {
-      const proposal = await deps.client.get(deps.name);
-      return proposal.staged?.inputs === inputs &&
-        proposal.staged.buildRequired === false &&
-        proposal.built?.hash
-        ? proposal
-        : null;
-    } catch {
-      return null;
-    }
-  };
-  const builtOf = (proposal: ProposalJson): ProposalBuildOutcome => ({
-    status: "built",
-    hash: proposal.built?.hash ?? null,
-    proposal,
-  });
-  try {
-    return builtOf(await serve());
-  } catch (error) {
-    if (!gatewayGaveUp(error)) {
-      return { status: "failed", message: messageOf(error) };
-    }
-    const since = now();
-    step({ kind: "waiting", since });
-    while (now() - since < SERVE_WAIT_MS) {
-      await sleep(SERVE_POLL_MS);
-      const served = await servedNow();
-      if (served !== null) return builtOf(served);
-    }
-    // Content never said: ask once more, and take its answer.
-    try {
-      return builtOf(await serve());
-    } catch (again) {
-      return { status: "failed", message: messageOf(again) };
-    }
-  }
 }
 
 export type CodeToolDeps = {

@@ -2,8 +2,6 @@ import { FC, useState } from "react";
 import { HANDOFF_PARAM, storedHandoffIntent } from "../publish/handoff";
 import { HandoffPublishTab } from "./shell/HandoffPublishTab";
 import { HandoffProposalBuildTab } from "./proposals/HandoffProposalBuildTab";
-import { UpgradeTabApp } from "../upgrade/UpgradeTabApp";
-import { upgradeTabOf } from "../upgrade/upgradeTab";
 import { ValClient } from "@valbuild/shared/internal";
 import { ValModules } from "@valbuild/core";
 import { ValProvider } from "./ValProvider";
@@ -54,14 +52,6 @@ export const ValStudio: FC<ValFullscreenProps> = ({
       ? { name: stored.intent.name, at: stored.at }
       : null;
   });
-  /*
-   * An upgrade proposal's upgrade tab: by the URL, because the loader serves
-   * it isolated by the URL, before any script runs. What it does on arrival
-   * is build a preview; publishing is a press.
-   */
-  const [upgradeTab] = useState(() =>
-    typeof window === "undefined" ? null : upgradeTabOf(window.location.href),
-  );
   return (
     <ValProvider
       client={client}
@@ -99,8 +89,6 @@ export const ValStudio: FC<ValFullscreenProps> = ({
                   />
                 ) : handoffId !== null ? (
                   <HandoffPublishTab id={handoffId} />
-                ) : upgradeTab !== null ? (
-                  <UpgradeTabApp />
                 ) : (
                   <ValShell />
                 ))}

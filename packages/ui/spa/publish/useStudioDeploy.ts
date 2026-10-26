@@ -24,22 +24,20 @@ import { Internal } from "@valbuild/core";
 
 import { useCallback, useRef, useState } from "react";
 import type { BuildTarget } from "@valbuild/tanstack-build";
-import { createStudioPublishClient } from "./publishClient";
-import { fetchLiveStylesheet, fetchPublicFile } from "./fetchPublicFile";
-import type { PreparedJob } from "./jobClient";
-import { loadBuilder, routeTreeGenerator } from "./loadBuilder";
 import {
+  createStudioPublishClient,
+  type PreparedJob,
   STUDIO_OUT_OF_DATE,
   loadedLayer,
   markStudioOutOfDate,
   readLiveLayer,
-} from "./loadedLayer";
-import {
   CommittedBinaryFiles,
   DeployPhase,
   StudioDeployResult,
   runStudioDeploy,
-} from "./runStudioDeploy";
+} from "@valbuild/shared/publish";
+import { fetchLiveStylesheet, fetchPublicFile } from "./fetchPublicFile";
+import { loadBuilder, routeTreeGenerator } from "./loadBuilder";
 
 /** How long one step of a publish took. */
 export type DeployStep = { kind: DeployPhase["kind"]; ms: number };

@@ -453,57 +453,7 @@ export type ProposalsClient = {
     name: string,
     build: { publishId: string; inputs: string },
   ): Promise<ProposalJson>;
-  /**
-   * Render its own build on the platform, as a canary, the way a publish
-   * does before it goes live: whether the build of what it stages boots. A
-   * build that rendered already answers at once. A 409 when it is not built
-   * of what it stages; a 404 from a content service without it.
-   */
-  verifyBuild(name: string): Promise<ProposalBuildVerify>;
-  /**
-   * Where an upgrade proposal is before its upgrade page takes over: set up,
-   * the upgrade worked out, its dependencies built -- with adept's own account
-   * of the job it is at (valbuild/home `docs/plans/upgrades-v2.md`, piece C).
-   */
-  preparation(name: string): Promise<ProposalPreparation>;
 };
-
-const Preparation = z.object({
-  stage: z.enum([
-    "setup",
-    "upgrade",
-    "dependencies",
-    "ready",
-    "nothing",
-    "failed",
-  ]),
-  error: z.string().nullable(),
-  adept: z
-    .object({
-      step: z.string().nullable(),
-      queued: z.number().nullable(),
-      phase: z.object({ index: z.number(), of: z.number() }).nullable(),
-      packages: z.object({ done: z.number(), expected: z.number() }).nullable(),
-    })
-    .nullable(),
-});
-/** Where an upgrade proposal is before its upgrade page takes over. */
-export type ProposalPreparation = z.infer<typeof Preparation>;
-
-const VerifyAnswer = z.object({
-  ok: z.boolean(),
-  problems: z.array(
-    z.object({
-      code: z.string(),
-      message: z.string(),
-      hint: z.string().optional(),
-    }),
-  ),
-  /** The platform failed, not the build: asking again can help. */
-  transient: z.boolean(),
-});
-/** What rendering a proposal's own build found. */
-export type ProposalBuildVerify = z.infer<typeof VerifyAnswer>;
 
 /**
  * A proposal's build target, and whose layer it is: `own` when the proposal
@@ -594,10 +544,6 @@ export function createProposalsClient(options: {
       LockfileAnswer.parse(await call(`${at(name)}/lockfile`, "POST", {}))
         .dependencies,
     serveBuild: (name, build) => one(`${at(name)}/build`, "POST", build),
-    verifyBuild: async (name) =>
-      VerifyAnswer.parse(await call(`${at(name)}/verify`, "POST", {})),
-    preparation: async (name) =>
-      Preparation.parse(await call(`${at(name)}/preparation`, "GET")),
     updateFromSite: (name) => one(`${at(name)}/update-from-site`, "POST", {}),
     updateContent: async (name, resolutions, heads) =>
       UpdateContentAnswer.parse(

@@ -8,7 +8,6 @@ import {
   GitCompare,
   History,
   Link2,
-  Loader2,
   LucideIcon,
   Menu,
   PanelRight,
@@ -48,6 +47,7 @@ import {
   ProposalSaveButton,
 } from "../proposals/ProposalBar";
 import type { ProposalSummary, StudioLocation } from "../proposals/types";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * Proposals, when this project has them: the switcher, and in a proposal the
@@ -129,9 +129,10 @@ export type TopBarProps = {
    */
   onOpenValidate?: () => void;
   /**
-   * The Upgrade button (valbuild/home `docs/adept.md`, step 7): there only
-   * while there is something to upgrade, and marked when that fixes a
-   * vulnerability. On a phone it is a row in the account sheet.
+   * The Updates notice (valbuild/home `docs/plans/upgrades-v2.md`, piece E):
+   * there only while there is something to upgrade, marked when that fixes a
+   * vulnerability, and opening the project's Updates in Val Build, where
+   * upgrades are made. On a phone it is a row in the account sheet.
    */
   upgrade?: UpgradeButton;
   /** Whether the Validate page is the one being shown. */
@@ -509,11 +510,7 @@ export function TopBar({
          */}
         {upgrade !== undefined && !isMobile && (
           <IconButton
-            label={
-              upgrade.vulnerable
-                ? "Upgrade: fixes vulnerable dependencies"
-                : "Upgrade dependencies"
-            }
+            label={`${upgrade.label}: open Updates in Val Build`}
             onClick={upgrade.onOpen}
           >
             {upgrade.vulnerable ? (
@@ -1092,7 +1089,7 @@ export function PublishButton({
       )}
     >
       {publishState === "publishing" ? (
-        <Loader2 size={14} className="shrink-0 animate-spin" />
+        <Spinner size={14} />
       ) : publishState === "error" ? (
         <AlertTriangle size={14} className="shrink-0" />
       ) : (

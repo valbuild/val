@@ -1081,6 +1081,27 @@ is a whole-route request avoided, and in development that is a page re-render.
 If you find yourself adding a refresh somewhere, check whether this net already
 covers it.
 
+## Spinners: use `Spinner`, and "it wobbles" is not reproduced yet
+
+Spinners have been reported to look off centre while turning, in Chrome on a
+Mac and in Safari on an iPhone, in the Studio and in valbuild/home. It has not
+been reproduced here. In headless Chromium, software and SwiftShader GPU
+alike, at 1x, 1.5x and 2x, at quarter- and half-pixel offsets and at 11 to
+24 px, a circle fitted to the arc frame by frame keeps its centre to within
+0.1 device pixel. The icon is drawn about (12, 12) of its 24 x 24 view box, and
+nothing in the Studio's CSS moves the rotation's origin. So a fix cannot be
+checked from a container: it needs the real browsers.
+
+What is known: Safari redraws a spinning SVG and rounds its position, and
+odd sizes and fractional offsets are reported to make it wobble on a 2x screen
+(WebKit bug 252385). Hence `Spinner` (`designSystem/spinner.tsx`): one place
+that draws a spinner, with an even size type, spinning a span on its own
+compositing layer rather than the SVG. Use it instead of putting
+`animate-spin` on an icon, so that when the cause is found there is one place
+to fix it. The icons that spin only while busy (`CanvasToolbar`,
+`RestoreCodeNotice`) and the loading screen in `@valbuild/next` and
+`@valbuild/tanstack` wrap their SVG in a spinning span the same way.
+
 ## A preview with no background shows the Studio's artboard — or does not
 
 `CanvasFrame` paints a hardcoded `bg-white` artboard behind the preview iframe.

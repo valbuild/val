@@ -20,7 +20,6 @@ import {
   Earth,
   ExternalLink,
   Link2,
-  Loader2,
   Maximize2,
   Plus,
   ShieldCheck,
@@ -68,6 +67,7 @@ import {
   probeIssues,
   probeSummary,
 } from "./externalUrlReachability";
+import { Spinner } from "../designSystem/spinner";
 
 export type ExternalPagesDialogProps = {
   open: boolean;
@@ -747,7 +747,7 @@ function Toolbar({
           // Stop, not a progress bar: checking a few hundred links is a minute
           // of waiting, and the way out of it has to be the same button.
           <Button size="sm" variant="secondary" onClick={onStop}>
-            <Loader2 size={14} className="mr-1 animate-spin" aria-hidden />
+            <Spinner size={14} className="mr-1" aria-hidden />
             Stop
             {progress && ` · ${progress.done}/${progress.total}`}
           </Button>
@@ -984,11 +984,7 @@ function Row({
         )}
       >
         {probe?.state === "checking" ? (
-          <Loader2
-            size={12}
-            aria-hidden
-            className="shrink-0 animate-spin text-fg-secondary-alt"
-          />
+          <Spinner size={12} className="text-fg-secondary-alt" aria-hidden />
         ) : (
           <StatusIcon status={status} issues={issues} />
         )}
@@ -1193,7 +1189,7 @@ function EntryDetail({
 
       {row.probe?.state === "checking" ? (
         <p className="flex items-center gap-1.5 text-[0.6875rem] text-fg-secondary-alt">
-          <Loader2 size={12} aria-hidden className="animate-spin" />
+          <Spinner size={12} aria-hidden />
           Opening it…
         </p>
       ) : (
@@ -1441,10 +1437,10 @@ function CheckReport({
               >
                 <span className="flex items-start gap-1.5">
                   {row.probe?.state === "checking" ? (
-                    <Loader2
+                    <Spinner
                       size={12}
+                      className="mt-0.5 text-fg-secondary-alt"
                       aria-hidden
-                      className="mt-0.5 shrink-0 animate-spin text-fg-secondary-alt"
                     />
                   ) : (
                     <StatusIcon status={row.status} issues={row.issues} />

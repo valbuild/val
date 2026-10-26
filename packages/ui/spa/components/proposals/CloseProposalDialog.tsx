@@ -1,4 +1,3 @@
-import { Loader2 } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import {
   Dialog,
@@ -7,6 +6,7 @@ import {
   DialogTitle,
 } from "../designSystem/dialog";
 import { changesLabel } from "./ProposalSwitcher";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * Close a proposal: how one is discarded, and always recoverable. Anyone can
@@ -85,7 +85,7 @@ export function CloseProposalDialog({
               "disabled:opacity-60",
             )}
           >
-            {closing && <Loader2 size={14} className="animate-spin" />}
+            {closing && <Spinner size={14} />}
             {closing
               ? "Closing…"
               : upgrade

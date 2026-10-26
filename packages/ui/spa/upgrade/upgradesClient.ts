@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { callJson } from "../publish/callJson";
+import { callJson } from "@valbuild/shared/publish";
 
 /*
  * Whether there is anything to upgrade, and the site's lockfile (valbuild/home

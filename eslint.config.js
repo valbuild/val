@@ -279,7 +279,7 @@ module.exports = defineConfig([
       "**/*.stories.{ts,tsx}",
       "**/test/**",
       "**/__fixtures__/**",
-      "packages/ui/spa/typecheck/testing/**",
+      "packages/shared/src/typecheck/testing/**",
     ],
     rules: {
       "no-console": "error",
