@@ -1,4 +1,4 @@
-import { upgradeLabelOf } from "./useUpgrade";
+import { upgradeLabelOf } from "./upgradeLabel";
 import type { CheckedUpgrades } from "./upgradesClient";
 
 /*
