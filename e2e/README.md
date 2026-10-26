@@ -26,12 +26,27 @@ converted; it is proof nothing obvious was added.
 | `chromium`                   | `examples/next`, fs mode    | most of the suite                                             |
 | `chromium-http`              | `examples/next`, proxy mode | publishing, deployments, two editors — `e2e/http/`            |
 | `tanstack`                   | `examples/tanstack`         | "does the Studio come up on TanStack Start, and can it write" |
+| `tanstack-http`              | `examples/tanstack`, proxy  | the builder tab — `e2e/tanstack-http/`                        |
 | `warmup` / `tanstack-warmup` | the two above               | not tests: they pay the first compile so no test does         |
+| `tanstack-http-warmup`       | `examples/tanstack`, proxy  | the same, for `tanstack-http`                                 |
+| `webkit-http`                | `examples/next`, proxy mode | publishing in WebKit; opt-in by name                          |
+| `webkit-tanstack-http`       | `examples/tanstack`, proxy  | the builder tab in WebKit; opt-in by name                     |
 | `screens`                    | `examples/next`             | screenshots for a human; opt-in by name, asserts nothing      |
 
 `playwright.config.ts` starts only the servers the selected project needs, so
 `--project=tanstack` never starts `next dev` and a `chromium` shard never starts
 the mock content host.
+
+Each proxy-mode app has a mock content host of its own: 4567 for the Next app,
+4568 for the TanStack one (`e2e/tanstack-http/config.ts`). The mock answers for
+one project, and the two examples are two projects. The helpers in
+`e2e/http/httpMode.ts` are built per app by `httpTarget`, and
+`e2e/tanstack-http/httpMode.ts` is that, bound to the TanStack app.
+
+`tanstack-http` exists because `publishHandoff.spec.ts` kept failing in
+`chromium-http` on `next dev` itself ("Manifest file is empty", just as the
+builder tab loaded). The builder tab is Studio code, and TanStack Start is the
+primary release target, so that is where the test runs now.
 
 The `tanstack` project is deliberately three tests. Everything about the stores
 is framework-independent and covered against the Next app; what is not covered
@@ -44,7 +59,8 @@ caught).
 
 **In CI as the blocking `smoke` job** (this project plus `smoke.spec.ts` and
 `insecure-context.spec.ts`), beside a `build-tanstack` job. The `e2e` matrix
-selects only `chromium` and `chromium-http` and does not block, so `smoke` is
+selects `chromium`, `chromium-http`, `tanstack-http` and the two WebKit projects,
+and does not block, so `smoke` is
 what gates on them. Run them by hand before pushing:
 
 ```bash

@@ -857,7 +857,8 @@ cd examples/tanstack && pnpm run build # vite build for the TanStack example
 ```
 
 Three more checks are the blocking `smoke` job — separate from the `e2e` matrix,
-which selects only `chromium` and `chromium-http` and does not block. They are
+which selects `chromium`, `chromium-http`, `tanstack-http` and the two WebKit
+projects, and does not block. They are
 the gate for "the Studio does not come up at all", on both frameworks and in an
 insecure context, which is the one class of failure that reaches every user at
 once, so run them before pushing anything the Studio loads through:
@@ -869,11 +870,12 @@ pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
 ```
 
 `webkit-http` runs the publishing specs (`http/reloadEquivalence`, `http/publish`)
-in WebKit — Safari's engine, and every iOS browser's. It is declared only when
-asked for by name (`--project=webkit-http`), because a bare `playwright test`
-runs every project and WebKit is not installed in most places this runs: it
-needs `pnpm exec playwright install --with-deps webkit`. CI runs it as one
-entry of the `e2e` matrix in `.github/workflows/check.yml`, which installs the
+in WebKit — Safari's engine, and every iOS browser's — and `webkit-tanstack-http`
+runs the builder-tab spec (`tanstack-http/publishHandoff`) there. Each is
+declared only when asked for by name (`--project=webkit-http`), because a bare
+`playwright test` runs every project and WebKit is not installed in most places
+this runs: it needs `pnpm exec playwright install --with-deps webkit`. CI runs
+each as one entry of the `e2e` matrix in `.github/workflows/check.yml`, which installs the
 entry's `browser` (chromium when unset).
 
 Notes:

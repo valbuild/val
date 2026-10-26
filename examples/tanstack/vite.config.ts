@@ -3,6 +3,14 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 
 export default defineConfig({
+  /*
+   * Overridable for the e2e suite, which can run a second dev server of this
+   * app in proxy mode beside the fs-mode one (see `playwright.config.ts`). Two
+   * servers re-optimizing dependencies into one cache delete each other's
+   * chunks, and the page that asked for one 404s. `NEXT_DIST_DIR` in the Next
+   * example is the same thing for the same reason.
+   */
+  cacheDir: process.env.VAL_E2E_VITE_CACHE_DIR || "node_modules/.vite",
   plugins: [
     tanstackStart({
       /*

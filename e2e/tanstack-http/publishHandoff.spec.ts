@@ -22,7 +22,15 @@ import {
  * iPhone's does, and Chromium can freeze a page the way iOS does
  * (`Page.setWebLifecycleState`): its timers, fetches and channel messages wait
  * until it is thawed. That test is Chromium's alone; the rest also run in
- * WebKit (`--project=webkit-http`), Safari's engine and every iPhone's.
+ * WebKit (`--project=webkit-tanstack-http`), Safari's engine and every
+ * iPhone's.
+ *
+ * Against `examples/tanstack` in proxy mode, not the Next example: the builder
+ * tab is Studio code and does not care which framework serves it, and on
+ * `next dev` this spec failed on the dev server instead -- "Manifest file is
+ * empty", answered for `/val` and the Studio's own modules just as the builder
+ * tab loaded, so the tab never pressed. TanStack Start is the primary release
+ * target, so it is the one this coverage should depend on.
  */
 
 test.use({
@@ -62,8 +70,12 @@ test("the builder tab publishes on its own while the page that opened it is paus
 }) => {
   test.skip(browserName !== "chromium", "freezing a page is a CDP command");
   await openHttpStudio(page);
-  await writePatch(page, "/content/authors.val.ts", [
-    { op: "replace", path: ["teddy", "name"], value: "Published from a phone" },
+  await writePatch(page, "/src/content/authors.val.ts", [
+    {
+      op: "replace",
+      path: ["freekh", "name"],
+      value: "Published from a phone",
+    },
   ]);
   await expect(publishButton(page)).toBeEnabled({ timeout: 30_000 });
   expect(
@@ -139,8 +151,8 @@ test("a change still being saved at the tap is published with it", async ({
     await route.fulfill({ response: await route.fetch() });
   });
   // Made, not saved: what a field's blur does as Publish is tapped.
-  await createUnsavedPatch(page, "/content/authors.val.ts", [
-    { op: "replace", path: ["teddy", "name"], value: "Saved after the tap" },
+  await createUnsavedPatch(page, "/src/content/authors.val.ts", [
+    { op: "replace", path: ["freekh", "name"], value: "Saved after the tap" },
   ]);
   await expect(publishButton(page)).toBeEnabled({ timeout: 30_000 });
   // On its way, and held there: the save is IN FLIGHT at the tap.
@@ -162,7 +174,7 @@ test("a change still being saved at the tap is published with it", async ({
         message: "the builder tab never published the change",
       })
       .toEqual(["live"]);
-    expect(await mock.committedSource("/content/authors.val.ts")).toContain(
+    expect(await mock.committedSource("/src/content/authors.val.ts")).toContain(
       "Saved after the tap",
     );
   } finally {
@@ -176,8 +188,8 @@ test("a change still being saved at the tap is published with it", async ({
  */
 test("one change, then Publish, goes live", async ({ page }) => {
   await openHttpStudio(page);
-  await writePatch(page, "/content/authors.val.ts", [
-    { op: "replace", path: ["teddy", "name"], value: "One change" },
+  await writePatch(page, "/src/content/authors.val.ts", [
+    { op: "replace", path: ["freekh", "name"], value: "One change" },
   ]);
   await expect(publishButton(page)).toBeEnabled({ timeout: 30_000 });
   const opened = page.waitForEvent("popup");
@@ -190,7 +202,7 @@ test("one change, then Publish, goes live", async ({ page }) => {
         message: "the builder tab never published",
       })
       .toEqual(["live"]);
-    expect(await mock.committedSource("/content/authors.val.ts")).toContain(
+    expect(await mock.committedSource("/src/content/authors.val.ts")).toContain(
       "One change",
     );
   } finally {
@@ -209,8 +221,8 @@ test("the builder tab opened again shows its publish, and publishes nothing new"
   context,
 }) => {
   await openHttpStudio(page);
-  await writePatch(page, "/content/authors.val.ts", [
-    { op: "replace", path: ["teddy", "name"], value: "Published once" },
+  await writePatch(page, "/src/content/authors.val.ts", [
+    { op: "replace", path: ["freekh", "name"], value: "Published once" },
   ]);
   await expect(publishButton(page)).toBeEnabled({ timeout: 30_000 });
   const opened = page.waitForEvent("popup");
@@ -221,8 +233,8 @@ test("the builder tab opened again shows its publish, and publishes nothing new"
   await builder.close().catch(() => {});
 
   // Edited since, and not published: the tab must leave this alone.
-  await writePatch(page, "/content/authors.val.ts", [
-    { op: "replace", path: ["teddy", "name"], value: "Not pressed for" },
+  await writePatch(page, "/src/content/authors.val.ts", [
+    { op: "replace", path: ["freekh", "name"], value: "Not pressed for" },
   ]);
 
   const again = await context.newPage();
@@ -248,9 +260,9 @@ test("the builder tab opened again shows its publish, and publishes nothing new"
   expect(state.publishRequests.map((r) => r.status.kind)).toEqual(["live"]);
   expect(state.publishJobs).toHaveLength(1);
   expect(state.commits).toHaveLength(1);
-  expect(await mock.committedSource("/content/authors.val.ts")).not.toContain(
-    "Not pressed for",
-  );
+  expect(
+    await mock.committedSource("/src/content/authors.val.ts"),
+  ).not.toContain("Not pressed for");
   await again.close();
 });
 
@@ -265,8 +277,8 @@ test("a builder link this browser did not open publishes nothing", async ({
   context,
 }) => {
   await openHttpStudio(page);
-  await writePatch(page, "/content/authors.val.ts", [
-    { op: "replace", path: ["teddy", "name"], value: "Not pressed for" },
+  await writePatch(page, "/src/content/authors.val.ts", [
+    { op: "replace", path: ["freekh", "name"], value: "Not pressed for" },
   ]);
 
   const crafted = await context.newPage();
