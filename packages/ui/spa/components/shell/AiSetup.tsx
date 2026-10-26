@@ -3,7 +3,7 @@ import { useValMode, useRefreshAIModels } from "../ValProvider";
 import { useValConfig } from "../ValFieldProvider";
 import { useValWebComponent } from "./ProjectSwitcher";
 import { toAdminLinks, toWebComponentsUrl } from "./shellDataMapping";
-import { useValBuildAccess } from "./useValBuildAccess";
+import { type ValBuildAccess, useValBuildAccess } from "./useValBuildAccess";
 
 /**
  * `<val-ai-setup>`, Val Build's AI key setup for THIS project: what the
@@ -22,9 +22,15 @@ import { useValBuildAccess } from "./useValBuildAccess";
 export function AiSetup({
   className,
   unavailable = null,
+  valBuild,
   loadScript,
 }: {
   className?: string;
+  /**
+   * Whether Val Build can be reached, when the caller has asked already --
+   * Settings has, for its Variables tab too. Without it this asks itself.
+   */
+  valBuild?: ValBuildAccess;
   /** What to show when it cannot be mounted (a project not connected). */
   unavailable?: ReactNode;
   /** For tests: the real one adds a `<script>` to the page. */
@@ -32,11 +38,13 @@ export function AiSetup({
 }) {
   const config = useValConfig();
   const mode = useValMode();
-  const valBuild = useValBuildAccess(mode);
+  // "unknown" asks nothing: the caller's answer is used instead.
+  const asked = useValBuildAccess(valBuild === undefined ? mode : "unknown");
+  const access = valBuild ?? asked;
   const admin = toAdminLinks(config);
   const webComponentsUrl = toWebComponentsUrl(config);
   if (
-    !valBuild.connected ||
+    !access.connected ||
     admin === undefined ||
     webComponentsUrl === undefined
   ) {
@@ -48,7 +56,7 @@ export function AiSetup({
       project={config?.project ?? ""}
       aiHref={admin.ai}
       webComponentsUrl={webComponentsUrl}
-      studioMode={valBuild.studioMode}
+      studioMode={access.studioMode}
       loadScript={loadScript}
     />
   );

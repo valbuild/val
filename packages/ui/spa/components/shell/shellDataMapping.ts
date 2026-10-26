@@ -532,6 +532,28 @@ export function hostLabel(url: string): string {
 }
 
 /**
+ * `org/name` and the admin host, for the projects Val Build has pages for:
+ * the one parse `toAdminLinks` and `toEnvVarsHref` both make, so the two
+ * cannot disagree about which projects those are.
+ */
+function adminProjectOf(
+  config: { project?: string; appHost?: string } | undefined,
+): { host: string; org: string; project: string } | undefined {
+  if (!config?.project || !config.appHost) {
+    return undefined;
+  }
+  const parts = config.project.split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    return undefined;
+  }
+  return {
+    host: config.appHost.replace(/\/+$/, ""),
+    org: parts[0],
+    project: parts[1],
+  };
+}
+
+/**
  * The project's pages in Val Build's admin app.
  *
  * `config.project` is `"<org>/<project>"` — the format `val connect` insists
@@ -548,20 +570,32 @@ export function hostLabel(url: string): string {
 export function toAdminLinks(
   config: { project?: string; appHost?: string } | undefined,
 ): ShellAdminLinks | undefined {
-  if (!config?.project || !config.appHost) {
+  const at = adminProjectOf(config);
+  if (at === undefined) {
     return undefined;
   }
-  const parts = config.project.split("/");
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    return undefined;
-  }
-  const [org, project] = parts;
-  const host = config.appHost.replace(/\/+$/, "");
+  const { host, org, project } = at;
   return {
     project: `${host}/~/${encodeURIComponent(org)}/${encodeURIComponent(project)}`,
     members: `${host}/manage-members/${encodeURIComponent(org)}`,
     ai: `${host}/manage-ai/${encodeURIComponent(org)}/${encodeURIComponent(project)}`,
   };
+}
+
+/**
+ * The project's variables and secrets in Val Build: `/manage-env/<org>/<project>`,
+ * which the admin app keeps for this and redirects to the project's Variables
+ * section -- the same arrangement as `/manage-ai`. For the same projects
+ * `toAdminLinks` has links for, and none other.
+ */
+export function toEnvVarsHref(
+  config: { project?: string; appHost?: string } | undefined,
+): string | undefined {
+  const at = adminProjectOf(config);
+  if (at === undefined) {
+    return undefined;
+  }
+  return `${at.host}/manage-env/${encodeURIComponent(at.org)}/${encodeURIComponent(at.project)}`;
 }
 
 /**

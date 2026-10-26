@@ -1,4 +1,10 @@
 import { AiSetup } from "./AiSetup";
+import {
+  EnvVarsElement,
+  type EnvVarsTarget,
+  useEnvVarsTarget,
+} from "./EnvVars";
+import type { ValBuildAccess } from "./useValBuildAccess";
 import { useMemo } from "react";
 import type { Json } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
@@ -33,11 +39,12 @@ import {
   NoSettingsModule,
   SettingsLogoPlaceholder,
   SettingsSectionDivider,
+  type SettingsTab,
   SettingsTabs,
   StudioSettingsFields,
   ThemeSettingsFields,
 } from "./SettingsPanel";
-import { AppWindow, Languages, Sparkles } from "lucide-react";
+import { AppWindow, KeyRound, Languages, Sparkles } from "lucide-react";
 import { PanelSkeleton } from "./PanelPrimitives";
 
 /**
@@ -52,16 +59,80 @@ import { PanelSkeleton } from "./PanelPrimitives";
  */
 export function ValSettingsSections({
   moduleFilePath,
+  explainMissingModule = true,
+  valBuild,
 }: {
   moduleFilePath?: ModuleFilePath;
+  /**
+   * Whether Val Build can be reached, as the shell already knows it
+   * (`useShellData`): the AI setup and the Variables tab both need it, and
+   * asking again would be another `/admin/status` per open of Settings.
+   */
+  valBuild: ValBuildAccess;
+  /**
+   * Whether a project without a settings module is told how to add one. Not
+   * where Settings opens on Updates: that project's editor did not come for
+   * it (see `ValShell`'s `renderSettings`).
+   */
+  explainMissingModule?: boolean;
 }) {
   if (!moduleFilePath) {
-    return <NoSettingsModule />;
+    return (
+      <WithoutSettingsModule
+        valBuild={valBuild}
+        explainMissingModule={explainMissingModule}
+      />
+    );
   }
-  return <Sections moduleFilePath={moduleFilePath} />;
+  return <Sections moduleFilePath={moduleFilePath} valBuild={valBuild} />;
 }
 
-function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
+/**
+ * A project with no settings module still has its variables and secrets:
+ * they are Val Build's, not the module's, and a site that reads them needs
+ * them set whether it has settings or not.
+ */
+function WithoutSettingsModule({
+  valBuild,
+  explainMissingModule,
+}: {
+  valBuild: ValBuildAccess;
+  explainMissingModule: boolean;
+}) {
+  const envVars = useEnvVarsTarget(valBuild);
+  const notice = explainMissingModule ? <NoSettingsModule /> : null;
+  if (envVars === null) {
+    return notice;
+  }
+  return (
+    <>
+      {notice}
+      <SettingsTabs tabs={[variablesTab(envVars)]} />
+    </>
+  );
+}
+
+/**
+ * The project's variables and secrets: Val Build's, not the settings
+ * module's, so not `readonly` -- who may change them is Val Build's to say,
+ * and the element says it.
+ */
+function variablesTab(envVars: EnvVarsTarget): SettingsTab {
+  return {
+    id: "variables",
+    label: "Variables",
+    icon: KeyRound,
+    content: <EnvVarsElement className="block mx-4 pb-6" {...envVars} />,
+  };
+}
+
+function Sections({
+  moduleFilePath,
+  valBuild,
+}: {
+  moduleFilePath: ModuleFilePath;
+  valBuild: ValBuildAccess;
+}) {
   const settings = useShallowSourceAtPath(moduleFilePath, "settings");
   const schema = useSchemaAtPath(moduleFilePath);
   /**
@@ -151,6 +222,9 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
   const radiusErrors = useValidationErrors(radiusPath);
   const modeErrors = useValidationErrors(modePath);
   const writeThemeSetting = useWriteThemeSetting(moduleFilePath);
+  // Before the loading return below: a hook, and the tab it decides is not
+  // about the settings module at all.
+  const envVars = useEnvVarsTarget(valBuild);
 
   if (settings.status === "loading" || schema.status === "loading") {
     return <PanelSkeleton rows={4} />;
@@ -171,7 +245,10 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
                * adding it here, in the Studio, is the point. Renders nothing
                * for a project that is not connected to Val Build.
                */}
-              <AiSetup className="block mx-4 pb-6 mb-5 border-b border-border-secondary" />
+              <AiSetup
+                className="block mx-4 pb-6 mb-5 border-b border-border-secondary"
+                valBuild={valBuild}
+              />
               <AssistantSettingsFields
                 value={{
                   enabled: enabledValue,
@@ -277,6 +354,12 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
             />
           ),
         },
+        /*
+         * Last, so the tabs editors know keep their places; only for a
+         * project connected to Val Build, since there is nowhere else they
+         * could be set from here.
+         */
+        ...(envVars === null ? [] : [variablesTab(envVars)]),
       ]}
     />
   );

@@ -278,7 +278,11 @@ export interface BuildInput {
    * `GET /v1/build-target` on content proxies it.
    */
   target: BuildTarget;
-  /** Project env vars, inlined at build time. See PUBLIC_PREFIX. */
+  /**
+   * Env vars to inline at build time, which win over the runtime ones. A
+   * hosted project's are not passed here: they are read at runtime, see
+   * `envFor`. See also PUBLIC_PREFIX.
+   */
   env?: Record<string, string>;
   /**
    * Files under `public/`, base64-encoded, keyed by project-relative path.
@@ -748,23 +752,46 @@ function projectPlugin(
 }
 
 /**
- * Build-time env substitution.
+ * What `import.meta.env` is in a build: Vite's built-ins, inlined, and the
+ * project's `PUBLIC_` variables, read at RUNTIME.
  *
- * Values are inlined as literals rather than read at runtime, which is why they
- * cost nothing to use and why changing one produces a new build hash: the
- * output genuinely differs.
+ * Runtime because a hosted project's variables are set in Val Build, and a
+ * build is made in an editor's browser tab: inlined, a value would sit in that
+ * tab, and changing one would wait for somebody to build before it went live.
+ * So `import.meta.env` is an identifier, and `inject` makes each module that
+ * reads it import {@link RUNTIME_ENV_SPECIFIER} -- a real import, so it is
+ * evaluated before any split chunk that reads it, top level included. That
+ * module ({@link runtimeEnvSource}) reads the variables once:
  *
- * Non-public keys resolve to `undefined` in the client bundle rather than being
- * left alone. An untouched `import.meta.env.SECRET` would throw in the browser,
- * and a silent `undefined` is both safer and easier to reason about.
+ * - in the browser, from the `<head>` script the platform's loader writes
+ *   (`globalThis.__PLATFORM_PUBLIC_ENV`), which runs before any module does;
+ * - on the server, from `process.env`, which the isolate's env fills before the
+ *   app's modules run.
+ *
+ * Only `PUBLIC_` names, on both sides, as in Vite: a secret is
+ * `process.env.NAME` on the server and nothing at all in the browser. The
+ * platform refuses a secret by a `PUBLIC_` name, so nothing read here was ever
+ * a secret.
+ *
+ * `env`, when a caller passes it -- the CLI's `--env` -- is the FALLBACK for
+ * a `PUBLIC_` name: a value set at runtime wins, so changing a variable in Val
+ * Build changes what a build that was also given it reads. A name that is not
+ * `PUBLIC_` is still inlined where it is read by name, on the server only; in
+ * the client bundle it is `undefined` rather than left alone.
  */
-function defineFor(
+function envFor(
   env: Record<string, string>,
   target: "server" | "client",
   warnings: Array<string>,
-) {
+): { define: Record<string, string>; runtime: string } {
   const define: Record<string, string> = {};
-  const visible: Record<string, string> = {};
+  /**
+   * What the `import.meta.env` OBJECT falls back to of `env`: the PUBLIC_
+   * names, on both sides, as Vite's holds. A server-only name is a literal
+   * where it is read by name, and nowhere else -- in the object it would be in
+   * the server bundle whether anything read it or not.
+   */
+  const fallback: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(env)) {
     if (!VALID_KEY.test(key)) {
@@ -774,11 +801,17 @@ function defineFor(
       continue;
     }
 
-    const exposed = target === "server" || key.startsWith(PUBLIC_PREFIX);
-    const literal = exposed ? JSON.stringify(value) : "undefined";
+    if (key.startsWith(PUBLIC_PREFIX)) {
+      // Read through the object, where the runtime value wins over this one.
+      // `import.meta.env.KEY` already is; `process.env.KEY` on the server
+      // would otherwise read `process.env` alone and never see the fallback.
+      fallback[key] = value;
+      define[`process.env.${key}`] = `${RUNTIME_ENV}.${key}`;
+      continue;
+    }
+    const literal = target === "server" ? JSON.stringify(value) : "undefined";
     define[`import.meta.env.${key}`] = literal;
     define[`process.env.${key}`] = literal;
-    if (exposed) visible[key] = value;
   }
 
   // Vite's built-ins, and they win over a project env var of the same name as
@@ -801,11 +834,75 @@ function defineFor(
   // "development" -- so a published site's code was told it was in dev.
   define["process.env.NODE_ENV"] = JSON.stringify("production");
 
-  // Always defined, even when empty: it makes `import.meta.env` destructuring
-  // work and stops a bare reference from throwing. Specific keys above take
-  // precedence over this object.
-  define["import.meta.env"] = JSON.stringify({ ...visible, ...builtins });
-  return define;
+  // Always defined: it makes `import.meta.env` destructuring work and stops a
+  // bare reference from throwing. Specific keys above take precedence.
+  define["import.meta.env"] = RUNTIME_ENV;
+  // In the browser `process` does not exist, so an untouched
+  // `process.env.PUBLIC_X` threw there. Read as the same object instead.
+  if (target === "client") define["process.env"] = RUNTIME_ENV;
+
+  return {
+    define,
+    // In the browser the object is `process.env` too, so it carries what
+    // `process.env.NODE_ENV` reads: `const { NODE_ENV } = process.env` would
+    // otherwise read `undefined` and take the development branch.
+    runtime: runtimeEnvSource(
+      target,
+      fallback,
+      target === "client" ? { ...builtins, NODE_ENV: "production" } : builtins,
+    ),
+  };
+}
+
+/**
+ * The identifier `import.meta.env` becomes, and the module `inject` imports
+ * for it. The specifier is resolved by {@link runtimeEnvPlugin} and nothing
+ * else, and a project cannot name it: `platform:` is not a package.
+ */
+const RUNTIME_ENV = "__PLATFORM_RUNTIME_ENV__";
+const RUNTIME_ENV_SPECIFIER = "platform:runtime-env";
+const RUNTIME_ENV_ID = "\0platform:runtime-env";
+
+/**
+ * The module {@link RUNTIME_ENV} imports: `fallback` (the `PUBLIC_` names the
+ * caller built in), then what is set at runtime, then the built-ins, each
+ * winning over the one before. The built-ins last, as in Vite.
+ *
+ * Not frozen, as Vite's is not: a project that assigns to `import.meta.env`
+ * in a test setup or a polyfill keeps working.
+ *
+ * `globalThis.process?.env` rather than `process.env`: a server bundle that
+ * runs where there is no `process` reads no variables instead of throwing.
+ */
+function runtimeEnvSource(
+  target: "server" | "client",
+  fallback: Record<string, string>,
+  builtins: Record<string, string | boolean>,
+): string {
+  const read =
+    target === "client"
+      ? "globalThis.__PLATFORM_PUBLIC_ENV"
+      : "globalThis.process?.env";
+  return (
+    `const source = ${read} ?? {};\n` +
+    `const runtime = {};\n` +
+    `for (const name of Object.keys(source)) {\n` +
+    `  if (name.startsWith(${JSON.stringify(PUBLIC_PREFIX)})) runtime[name] = source[name];\n` +
+    `}\n` +
+    `export default Object.assign(${JSON.stringify(fallback, null, 2)}, runtime, ${JSON.stringify(builtins, null, 2)});\n`
+  );
+}
+
+function runtimeEnvPlugin(source: string) {
+  return {
+    name: "platform:runtime-env",
+    resolveId(id: string) {
+      return id === RUNTIME_ENV_SPECIFIER ? RUNTIME_ENV_ID : null;
+    },
+    load(id: string) {
+      return id === RUNTIME_ENV_ID ? source : null;
+    },
+  };
 }
 
 async function buildOnce(
@@ -838,6 +935,8 @@ async function buildOnce(
           workerOnly: input.target.project.workerOnly,
         };
 
+  const env = envFor(input.env ?? {}, target, warnings);
+
   // The RSC pass is a server build in every respect the transforms care about:
   // it runs on the server, so server-only code stays and client-only code goes.
   // Only the vendor layer differs.
@@ -854,6 +953,7 @@ async function buildOnce(
     // drops it from the JS graph; the stylesheet itself comes from collectCss.
     moduleTypes: { ".css": "empty" },
     plugins: [
+      runtimeEnvPlugin(env.runtime),
       projectPlugin(
         input.files,
         input.projectSource ?? input.files,
@@ -877,7 +977,8 @@ async function buildOnce(
     // and no type-checking on the publish path. Types are the editor's job.
     transform: {
       jsx: { runtime: "automatic", importSource: "react" },
-      define: defineFor(input.env ?? {}, target, warnings),
+      define: env.define,
+      inject: { [RUNTIME_ENV]: RUNTIME_ENV_SPECIFIER },
     },
     output: {
       format: "esm",
