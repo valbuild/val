@@ -2715,6 +2715,18 @@ export type ClientOf<Api extends ApiGuard> = <
           >;
         }
       : undefined;
+    // Sent as request headers: what a route declares it reads, such as the
+    // admin proxy's `x-val-studio`.
+    headers: Endpoint["req"]["headers"] extends Record<
+      string,
+      z.ZodSchema<string | undefined>
+    >
+      ? {
+          [key in keyof Endpoint["req"]["headers"]]: z.infer<
+            Endpoint["req"]["headers"][key]
+          >;
+        }
+      : undefined;
   }>,
 ) => Promise<z.infer<Endpoint["res"]> | ClientFetchErrors>;
 

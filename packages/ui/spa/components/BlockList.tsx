@@ -59,6 +59,7 @@ import { sourcePathOfItem } from "../utils/sourcePathOfItem";
 import { FieldValidationError } from "./FieldValidationError";
 import { useEmptyOf } from "../hooks/useEmptyOf";
 import { LocaleFiltered } from "./LocaleFilterProvider";
+import { ContentViewsBadge } from "../analytics/ContentViewsBadge";
 
 /**
  * A rebuilt sortable list for arrays, dense enough that a page-builder tree —
@@ -404,6 +405,7 @@ function BlockRow({
             </span>
             <RowSummary path={path} />
           </button>
+          <ContentViewsBadge path={path} />
           {menu}
         </div>
       )}
@@ -440,6 +442,7 @@ function BlockRow({
               errorDisplay="none"
             />
           </div>
+          <ContentViewsBadge path={path} />
           {menu}
         </div>
       )}
@@ -453,6 +456,7 @@ function BlockRow({
           >
             <RefPreview path={path} className="w-full" />
           </button>
+          <ContentViewsBadge path={path} />
           {menu}
         </div>
       )}

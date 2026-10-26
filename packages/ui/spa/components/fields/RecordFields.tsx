@@ -39,6 +39,7 @@ import { Field } from "../../components/Field";
 import { AnyField } from "../../components/AnyField";
 import { LocaleFiltered } from "../LocaleFilterProvider";
 import { FieldNull } from "../../components/FieldNull";
+import { ContentViewsBadge } from "../../analytics/ContentViewsBadge";
 
 export function RecordFields({
   path,
@@ -329,8 +330,12 @@ function RecordCardList({
                   "hover:bg-bg-secondary-hover",
                 )}
               >
-                <div className="flex justify-between items-start">
+                <div className="flex justify-between items-start gap-2">
                   <div className="pb-4 font-semibold text-md">{key}</div>
+                  <ContentViewsBadge
+                    path={sourcePathOfItem(path, key)}
+                    className="ml-auto"
+                  />
                   {isParentError(
                     sourcePathOfItem(path, key),
                     validationErrors,
@@ -470,17 +475,25 @@ function RecordPreviewList({
                   "border rounded-lg cursor-pointer border-border-primary",
                 )}
               >
-                {unloadedKeys.has(key) ? (
-                  <RecordRowSkeleton
+                <div className="flex items-start gap-1">
+                  <div className="flex-1 min-w-0">
+                    {unloadedKeys.has(key) ? (
+                      <RecordRowSkeleton
+                        path={sourcePathOfItem(path, key)}
+                        height={PREVIEW_ROW_CONTENT_HEIGHT}
+                      />
+                    ) : (
+                      <RefPreview
+                        path={sourcePathOfItem(path, key)}
+                        nullLabel={UNTRANSLATED_LABEL(keyDecidesLocale)}
+                      />
+                    )}
+                  </div>
+                  <ContentViewsBadge
                     path={sourcePathOfItem(path, key)}
-                    height={PREVIEW_ROW_CONTENT_HEIGHT}
+                    className="mt-2 mr-2"
                   />
-                ) : (
-                  <RefPreview
-                    path={sourcePathOfItem(path, key)}
-                    nullLabel={UNTRANSLATED_LABEL(keyDecidesLocale)}
-                  />
-                )}
+                </div>
               </button>
             </div>
           </LocaleFilteredRow>
