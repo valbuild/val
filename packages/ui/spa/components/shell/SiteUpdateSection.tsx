@@ -1,201 +1,90 @@
-import type { DependencyChange } from "@valbuild/shared/internal";
-import { Button } from "../designSystem/button";
+import { AlertTriangle, ExternalLink, RefreshCw } from "lucide-react";
 import { SettingsSection, SettingsSectionDivider } from "./SettingsPanel";
-import type { SiteUpdateView } from "../../publish/useSiteUpdate";
+import { Button } from "../designSystem/button";
+import { Spinner } from "../designSystem/spinner";
+import { kindsOf } from "../../upgrade/upgradeKinds";
+import type { UpgradeSettings } from "../../upgrade/useUpgrade";
 
 /**
- * The update section, presentational. The connected half is `ValSiteUpdate`,
- * in its own file so this one imports no provider -- see
- * `settingsPanelPresentational.test.tsx` for why that matters.
+ * Settings → Updates: what there is to upgrade in the site's dependencies,
+ * and **Open in Val Build**, where the upgrade is made (valbuild/home
+ * `docs/plans/upgrades-v2.md`, piece E): chosen there, typechecked, built,
+ * checked by the new Val and published, with nothing of this Studio's code in
+ * the way.
+ *
+ * Presentational: it imports no provider -- see
+ * `settingsPanelPresentational.test.tsx` for why that matters. `ValShell`
+ * hands it what the proposals bar's `useUpgrade` gives.
  */
-export function SiteUpdateSection({
-  view,
-  buildsInNewTab,
-  onUpdate,
-  onRetry,
-  onReload,
-  onOpenBuilderTab,
-}: {
-  view: SiteUpdateView;
-  /**
-   * Whether the update will run in a tab of its own, because this page cannot
-   * run the builder (WebKit). See `canBuildHere`.
-   */
-  buildsInNewTab: boolean;
-  onUpdate: () => void;
-  onRetry: () => void;
-  onReload: () => void;
-  onOpenBuilderTab: () => void;
-}) {
+export function SiteUpdateSection({ upgrade }: { upgrade: UpgradeSettings }) {
   return (
     <>
-      <SettingsSection title="Updates" description={descriptionOf(view)}>
-        <SiteUpdateBody
-          view={view}
-          buildsInNewTab={buildsInNewTab}
-          onUpdate={onUpdate}
-          onRetry={onRetry}
-          onReload={onReload}
-          onOpenBuilderTab={onOpenBuilderTab}
-        />
+      <SettingsSection
+        title="Updates"
+        description="New versions of the packages your site is built with. Val Build makes each upgrade in a proposal, and checks it before anything on the site changes."
+      >
+        <UpdatesFound upgrade={upgrade} />
       </SettingsSection>
       <SettingsSectionDivider />
     </>
   );
 }
 
-function descriptionOf(view: SiteUpdateView): string {
-  switch (view.status) {
-    case "checking":
-      return "Checking for a newer version of the software your site runs on.";
-    case "current":
-      return "Your site runs on the newest version.";
-    case "available":
-      return "A newer version of the software your site runs on is available.";
-    case "unavailable":
-      return view.message;
-    case "check-failed":
-      return "Could not check for updates.";
-    case "updating":
-      return "Updating your site. This takes a minute or two.";
-    case "blocked":
-      return "Updating your site needs a tab of its own.";
-    case "updated":
-      return "Your site was updated and is live.";
-    case "failed":
-      return view.message;
+function UpdatesFound({ upgrade }: { upgrade: UpgradeSettings }) {
+  const { check, onOpen, onRecheck } = upgrade;
+  if (check.status === "idle" || check.status === "checking") {
+    return (
+      <div className="flex items-center gap-2 text-xs text-fg-secondary">
+        <Spinner size={14} /> Checking the site&apos;s dependencies…
+      </div>
+    );
   }
-}
-
-function SiteUpdateBody({
-  view,
-  buildsInNewTab,
-  onUpdate,
-  onRetry,
-  onReload,
-  onOpenBuilderTab,
-}: {
-  view: SiteUpdateView;
-  buildsInNewTab: boolean;
-  onUpdate: () => void;
-  onRetry: () => void;
-  onReload: () => void;
-  onOpenBuilderTab: () => void;
-}) {
-  switch (view.status) {
-    case "checking":
-    case "current":
-    case "unavailable":
-      return null;
-    case "check-failed":
-      return (
-        <div className="flex flex-col gap-2">
-          <Details text={view.message} />
-          <Button size="xs" variant="outline" onClick={onRetry}>
-            Check again
-          </Button>
-        </div>
-      );
-    case "available":
-      return (
-        <div className="flex flex-col gap-3">
-          <ChangeList changes={view.changes} />
-          <p className="text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
-            Updating rebuilds your site on the new version and publishes it.
-            Unpublished changes are kept, and are not published. If the updated
-            site does not pass its check, nothing changes.
-          </p>
-          {buildsInNewTab && (
-            <p className="text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
-              A new tab opens to build the site, and closes when it is done.
-            </p>
-          )}
-          <Button size="sm" onClick={onUpdate}>
-            Update site
-          </Button>
-        </div>
-      );
-    case "blocked":
-      return (
-        <div className="flex flex-col gap-2">
-          <p className="text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
-            Your browser blocked the tab that builds the site.
-          </p>
-          <Button size="sm" onClick={onOpenBuilderTab}>
-            Open it
-          </Button>
-        </div>
-      );
-    case "updating":
-      return (
-        <p className="text-xs font-medium" role="status" aria-live="polite">
-          {view.step}…
+  if (check.status === "failed") {
+    return (
+      <div className="flex flex-col items-start gap-2 text-xs">
+        <p role="alert" className="flex items-start gap-1.5 text-fg-primary">
+          <AlertTriangle
+            size={14}
+            className="mt-px shrink-0 text-fg-error-on-surface"
+          />
+          Val Build could not say whether there is anything to upgrade:{" "}
+          {check.message}
         </p>
-      );
-    case "updated":
-      return (
-        <div className="flex flex-col gap-2">
-          <ChangeList changes={view.changes} />
-          <p className="text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
-            This Studio is still the previous version. Reload to use the new
-            one.
-          </p>
-          <Button size="sm" onClick={onReload}>
-            Reload the Studio
-          </Button>
-        </div>
-      );
-    case "failed":
-      return (
-        <div className="flex flex-col gap-2">
-          {view.details !== "" && <Details text={view.details} />}
-          <Button size="xs" variant="outline" onClick={onRetry}>
-            Check again
-          </Button>
-        </div>
-      );
+        <Button size="sm" variant="outline" onClick={onRecheck}>
+          <RefreshCw size={13} /> Try again
+        </Button>
+      </div>
+    );
   }
-}
-
-/**
- * What moves, runtime dependencies first. A dev dependency is on the list too,
- * because the rewritten `package.json` carries it, but it is not what anyone
- * reading this is deciding on -- so it goes last.
- */
-function ChangeList({ changes }: { changes: DependencyChange[] }) {
-  if (changes.length === 0) {
-    // Only the platform's build of the dependencies moved.
-    return null;
+  if (check.check.state === "unavailable") {
+    return <p className="text-xs text-fg-secondary">{check.check.message}</p>;
   }
-  const ordered = [
-    ...changes.filter((change) => change.section === "dependencies"),
-    ...changes.filter((change) => change.section !== "dependencies"),
-  ];
+  const result = check.check;
+  const kinds = kindsOf(result);
+  if (!result.available || kinds.length === 0) {
+    return (
+      <p className="text-xs text-fg-secondary">
+        {result.cves.vulnerable > 0
+          ? `The site's dependencies are up to date. ${result.cves.vulnerable === 1 ? "1 package is" : `${result.cves.vulnerable} packages are`} vulnerable, with no fix an upgrade can take yet.`
+          : "The site's dependencies are up to date, and none is vulnerable."}
+      </p>
+    );
+  }
   return (
-    <ul className="flex flex-col gap-1 text-xs">
-      {ordered.map((change) => (
-        <li
-          key={`${change.section}:${change.name}`}
-          className="flex items-baseline justify-between gap-3"
-        >
-          <span className="font-mono text-[0.6875rem] truncate">
-            {change.name}
-          </span>
-          <span className="shrink-0 font-mono text-[0.6875rem] text-fg-secondary-alt">
-            {change.to === null
-              ? `${change.from ?? ""} → removed`
-              : `${change.from ?? "new"} → ${change.to}`}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function Details({ text }: { text: string }) {
-  return (
-    <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-bg-secondary p-2 font-mono text-[0.6875rem] text-fg-secondary-alt">
-      {text}
-    </pre>
+    <div className="flex flex-col items-start gap-3">
+      <ul className="flex flex-col gap-2 text-xs">
+        {kinds.map((kind) => (
+          <li key={kind.path}>
+            <span className="font-medium text-fg-primary">{kind.title}</span>
+            <span className="text-fg-secondary"> · {kind.detail}</span>
+          </li>
+        ))}
+      </ul>
+      {onOpen !== null && (
+        <Button size="sm" onClick={onOpen}>
+          Open in Val Build <ExternalLink size={13} />
+        </Button>
+      )}
+    </div>
   );
 }

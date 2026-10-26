@@ -1,0 +1,7 @@
+{
+  "main": "dist/valbuild-react-analytics.cjs.js",
+  "module": "dist/valbuild-react-analytics.esm.js",
+  "browser": {
+    "./dist/valbuild-react-analytics.esm.js": "./dist/valbuild-react-analytics.browser.esm.js"
+  }
+}

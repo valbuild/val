@@ -59,6 +59,20 @@ export interface WireOptions {
    * the generated file decides in one place rather than failing five ways.
    */
   git?: { commit: string; branch: string };
+  /**
+   * The version of `@valbuild/ui` the checkout has installed: the Studio its
+   * `@valbuild/tanstack` runs. What `@valbuild/ui` is declared at when the
+   * project does not declare it, so the layer ships the Studio the project
+   * already runs.
+   *
+   * Only a caller with the installed packages can say -- this sees source
+   * files, never `node_modules` or a lockfile. Without it, `@valbuild/core`'s
+   * version stands in, which always names a published `@valbuild/ui` (ui
+   * depends on core, so a core release is a ui release) but can name an older
+   * one: the packages are versioned together only when they are released
+   * together.
+   */
+  studioVersion?: string;
 }
 
 /**
@@ -511,8 +525,8 @@ const fetchValDraft = async () =>
     : null;
 
 /**
- * Whether content analytics is on: \`<ValProvider analytics>\`, read in the site
- * layout's loader beside \`fetchValDraft\`.
+ * Content analytics for \`<ValProvider analytics>\`, read in the site layout's
+ * loader beside \`fetchValDraft\`: whether it is on, and the content version.
  *
  * A setting of the project, which its owner turns on in the project's settings
  * and the platform hands over as the \`VAL_ANALYTICS\` secret -- at RUNTIME,
@@ -523,13 +537,27 @@ const fetchValDraft = async () =>
  * Off unless that secret says \`true\`. A \`@valbuild/tanstack\` from before analytics ignores the
  * prop, so this is safe to call against any version.
  *
- * The handed-over secret ONLY, not \`secret()\`: that falls back to
+ * With it, the id of the content version this render serves
+ * (\`VAL_CONTENT_VERSION\`, which the loader hands every isolate it starts for
+ * the site, whether the version is the bundle's own or handed over), so every
+ * count is stored with the version it was seen in.
+ *
+ * What the platform handed over ONLY, not \`secret()\`: that falls back to
  * \`process.env\`, which the builder bakes into this bundle, so a
  * \`VAL_ANALYTICS\` set at build time would be a second switch in the code --
  * and one that keeps counting after the owner has turned it off.
  */
-const fetchValAnalytics = async () =>
-  (globalThis.__PLATFORM_SECRETS ?? {})["VAL_ANALYTICS"] === "true";
+const fetchValAnalytics = async (): Promise<{
+  enabled: boolean;
+  contentVersion?: string;
+}> => {
+  const handed = globalThis.__PLATFORM_SECRETS ?? {};
+  const contentVersion = handed["VAL_CONTENT_VERSION"];
+  return {
+    enabled: handed["VAL_ANALYTICS"] === "true",
+    ...(contentVersion ? { contentVersion } : {}),
+  };
+};
 
 /**
  * A build that is MEANT to edit and cannot, refusing instead of pretending to.
@@ -931,6 +959,13 @@ export function wireUp(
    * a TRANSITIVE dependency, and the vendor layer is built from what a project
    * DECLARES intersected with what it imports. Undeclared, the Studio loads its
    * shell and then 404s on its own bundle.
+   *
+   * At the version the project already runs (`studioVersion`), not at
+   * `@valbuild/core`'s: the two stopped moving together, and a site declaring
+   * an older ui than its `@valbuild/tanstack` installs a second, older Studio
+   * the next time anything installs from this `package.json`. A rewrite also
+   * means the site's `package.json` is no longer its template's, so the
+   * templates declare it themselves and this leaves them alone.
    */
   const manifestRaw = files["package.json"];
   if (manifestRaw) {
@@ -939,8 +974,9 @@ export function wireUp(
         dependencies?: Record<string, string>;
       };
       const deps = manifest.dependencies ?? {};
-      if (deps["@valbuild/core"] && !deps["@valbuild/ui"]) {
-        deps["@valbuild/ui"] = deps["@valbuild/core"];
+      const core = deps["@valbuild/core"];
+      if (core && !deps["@valbuild/ui"]) {
+        deps["@valbuild/ui"] = options.studioVersion ?? core;
         manifest.dependencies = deps;
         out["package.json"] = `${JSON.stringify(manifest, null, 2)}\n`;
         changes.push({
@@ -949,6 +985,13 @@ export function wireUp(
             "it carries the Studio bundle and was only a transitive dependency; the vendor " +
             "layer is built from what the project declares",
         });
+        if (!options.studioVersion) {
+          warnings.push(
+            `@valbuild/ui was declared at @valbuild/core's version (${core}), because the ` +
+              "installed one could not be read. Declare @valbuild/ui in package.json at the " +
+              "version your @valbuild/tanstack depends on to be sure it is the Studio you run.",
+          );
+        }
       }
     } catch {
       warnings.push(

@@ -40,6 +40,7 @@ import {
   ValServerError,
   ValServerErrorStatus,
   parseJob,
+  AnalyticsBeacon,
 } from "@valbuild/shared/internal";
 import type { JwtFailureReason, JwtResult } from "./jwt";
 import { clientConfig, historyBranchOf } from "./clientConfig";
@@ -861,6 +862,44 @@ export const ValServer = (
           status: 302,
           redirectTo: redirectToRes,
         };
+      },
+    },
+    /**
+     * Content analytics beacons, outside the hosted platform.
+     *
+     * On a site Val hosts, the platform's loader answers this route before a
+     * request reaches the app, and counts. Everywhere else nothing counts yet:
+     * this checks the beacon and answers, so a site with analytics on does not
+     * fill its visitors' consoles with 404s. In local dev it also logs a line
+     * per beacon, which is how the showcase shows analytics working.
+     */
+    "/analytics": {
+      POST: async (req) => {
+        const parsed = AnalyticsBeacon.safeParse(req.body);
+        if (!parsed.success) {
+          const body = req.body;
+          const version =
+            typeof body === "object" && body !== null && "v" in body
+              ? body.v
+              : undefined;
+          if (typeof version === "number" && version !== 1) {
+            // A newer format than this server knows: not an error.
+            return { status: 200, json: { counted: false } };
+          }
+          return {
+            status: 400,
+            json: { message: "Not a valid Val analytics beacon" },
+          };
+        }
+        if (options.mode === "fs") {
+          const beacon = parsed.data;
+          const count = (paths: Record<string, string[]>) =>
+            Object.values(paths).reduce((n, list) => n + list.length, 0);
+          Internal.log.debug(
+            `analytics: ${beacon.route}${beacon.view ? " (page view)" : ""}: ${count(beacon.rendered)} rendered, ${count(beacon.viewed)} viewed`,
+          );
+        }
+        return { status: 200, json: { counted: false } };
       },
     },
     "/draft/stat": {

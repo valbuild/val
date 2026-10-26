@@ -34,6 +34,8 @@ import { isValCanvasFrame } from "@valbuild/shared/client";
 import { ValCanvasBridge } from "./ValCanvasBridge";
 import { shouldSafetyRefresh } from "./safetyRefresh";
 import type { ValDraft } from "./ValDraft";
+import type { ValAnalytics } from "./ValAnalytics";
+import { PlatformAnalytics, analyticsOfThisPage } from "./platformAnalytics";
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
@@ -165,15 +167,17 @@ export const ValTanStackProvider = (props: {
    */
   draft?: ValDraft | null;
   /**
-   * Whether content analytics is on for this site. Off unless this says so.
+   * Whether content analytics is on for this site, and the content version
+   * the page is rendered from. Off unless this says so.
    *
    * It is a setting of the hosted PROJECT, not of the code: the owner turns it
-   * on in the project's settings, the platform hands it to the site as the
-   * `VAL_ANALYTICS` secret, and the site layout's loader reads it on the
-   * server and passes it here -- `fetchValAnalytics()` from the generated
-   * `val.server.ts`, beside `fetchValDraft()`. So switching it needs no code
-   * change and no rebuild, and there is deliberately no `val.config.ts` option
-   * for it: a second switch, in the code, is one the owner cannot see.
+   * on in the project's settings, and the platform hands it to the site as the
+   * `VAL_ANALYTICS` secret. Leave this out and the provider reads that itself
+   * (`platformAnalytics.tsx`), so switching it needs no code change and no
+   * rebuild. Pass it -- `fetchValAnalytics()` from the generated
+   * `val.server.ts` -- only to decide in the code instead; what is passed
+   * wins. There is deliberately no `val.config.ts` option for it: a second
+   * switch, in the code, is one the owner cannot see.
    *
    * Read once, when the provider mounts, as `draft` is: the loader runs only
    * on the server, so a client navigation hands this `undefined`, and the
@@ -182,7 +186,7 @@ export const ValTanStackProvider = (props: {
    * from a route outside it -- has to be handed the value then too, or it
    * stays off until the next page load.
    */
-  analytics?: boolean;
+  analytics?: ValAnalytics | null;
   /**
    * This site is a Val demo: the Studio runs Val's API in the visitor's tab
    * (`<ValApp demo>`), so there is no server to ask whether draft mode is on.
@@ -244,8 +248,22 @@ export const ValTanStackProvider = (props: {
    * As the page was rendered. A ref, not the prop, for the reason
    * `initialDraft` is one: a later render's prop is a client navigation's
    * loader, which reads nothing.
+   *
+   * A layout that passes nothing gets the project's setting from Val's
+   * hosting itself (`platformAnalytics.tsx`): the server render reads what
+   * the platform handed it and writes it into the page, and the browser
+   * reads it back. So switching analytics on in the project's settings is
+   * enough; the layout does not have to read it.
    */
-  const analytics = React.useRef(props.analytics ?? false).current;
+  // Not in a demo: its `/api/val` is static files, with nowhere to count.
+  const [platformAnalytics] = React.useState(() =>
+    props.analytics === undefined && !props.demo ? analyticsOfThisPage() : null,
+  );
+  const [analyticsSetting] = React.useState(
+    () => props.analytics ?? platformAnalytics,
+  );
+  const analytics = analyticsSetting?.enabled === true;
+  const contentVersion = analyticsSetting?.contentVersion;
   const snapshot = initialDraft?.snapshot;
   /*
    * The base the Studio's overlay must start from, where it is not the
@@ -390,6 +408,68 @@ export const ValTanStackProvider = (props: {
     setIsCanvas(isValCanvasFrame(location.search, readParentPathname()));
     setMountOverlay(hasValEnableCookie(document.cookie));
   }, []);
+
+  /**
+   * The analytics script, for a visitor and nobody else.
+   *
+   * `mountOverlay === false` is "known not to be an editor": no Val enable
+   * cookie, so no draft mode and no canvas. A page the server rendered from a
+   * draft is an editor's too, whatever the enable cookie says -- the draft
+   * mode cookie can outlive it. So is one at a proposal's address, which
+   * comes with a snapshot: its content is not published, and counting it
+   * would credit the live site with it. The Studio's own pages count nothing
+   * either. Loaded with a dynamic import after hydration, so a site
+   * with analytics off never downloads it, and one with it on downloads it
+   * off the critical path. It imports nothing from core, shared or zod.
+   */
+  React.useEffect(() => {
+    if (
+      !analytics ||
+      mountOverlay !== false ||
+      hasDraft ||
+      snapshot !== undefined ||
+      isCanvas ||
+      isValStudioPath(location.pathname)
+    ) {
+      return;
+    }
+    // Where the page was hydrated, read now: the script loads later, and the
+    // visitor may have moved on by then. See `landingPath`.
+    const landingPath = location.pathname;
+    let cancelled = false;
+    let tracker: { stop(): void } | null = null;
+    import("@valbuild/react/analytics")
+      .then(({ startValAnalytics }) => {
+        if (!cancelled) {
+          tracker = startValAnalytics({
+            endpoint: `${route}/analytics`,
+            landingPath,
+            contentVersion,
+            // The route's pattern (`/posts/$postId`), never the pathname,
+            // which can hold something about one visitor. A pathname no
+            // route matches is not a page of the site.
+            routeFor: (pathname) =>
+              router.getMatchedRoutes(pathname)[2]?.fullPath ?? "(not found)",
+          });
+        }
+      })
+      .catch((error) => {
+        Internal.log.warn("could not load analytics", error);
+      });
+    return () => {
+      cancelled = true;
+      tracker?.stop();
+    };
+  }, [
+    analytics,
+    contentVersion,
+    mountOverlay,
+    hasDraft,
+    snapshot,
+    isCanvas,
+    route,
+    router,
+  ]);
 
   React.useEffect(() => {
     // Activate the Suspense gate after hydration. Inside a transition so
@@ -865,6 +945,9 @@ export const ValTanStackProvider = (props: {
       store={valStore}
     >
       {props.children}
+      {platformAnalytics !== null && (
+        <PlatformAnalytics value={platformAnalytics} />
+      )}
       {dropZone !== null &&
         !spaLoaded &&
         mountOverlay &&
@@ -1047,8 +1130,12 @@ function getPositionClassName(dropZone: string | null) {
   return className;
 }
 
+/**
+ * The Studio is `/val` and what is below it -- not every route that starts
+ * with the letters, which would leave `/values` without its overlay.
+ */
 function isValStudioPath(pathname: string): boolean {
-  return pathname.startsWith("/val");
+  return pathname === "/val" || pathname.startsWith("/val/");
 }
 
 /**

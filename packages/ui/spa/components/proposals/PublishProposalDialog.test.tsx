@@ -120,6 +120,94 @@ describe("Publish, blocked", () => {
   });
 });
 
+/*
+ * A proposal with dependencies of its own (valbuild/home `docs/adept.md`,
+ * step 6 and decision 20): its own checks say what to do, and nobody else is
+ * asked for anything.
+ */
+describe("Publish, blocked by the proposal's dependencies", () => {
+  test("a lockfile to compute: the check offers it, and nobody is asked", () => {
+    const onComputeLockfile = jest.fn();
+    render(
+      <PublishProposalDialog
+        open
+        onOpenChange={() => {}}
+        displayName="Spring"
+        state={ready([
+          {
+            id: "dependencies",
+            ok: false,
+            message:
+              "This proposal's dependencies changed: compute the lockfile",
+            action: "compute-lockfile",
+          },
+        ])}
+        onPublish={() => {}}
+        onRetry={() => {}}
+        onComputeLockfile={onComputeLockfile}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /compute lockfile/i }));
+    expect(onComputeLockfile).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/Ask them to publish/)).toBeNull();
+  });
+
+  test("no typecheck yet: the check runs one, and says so while it does", () => {
+    const onTypecheck = jest.fn();
+    const checks = ready([
+      {
+        id: "types",
+        ok: false,
+        message: "Typecheck required",
+        action: "typecheck",
+      },
+    ]);
+    const { rerender } = render(
+      <PublishProposalDialog
+        open
+        onOpenChange={() => {}}
+        displayName="Spring"
+        state={checks}
+        onPublish={() => {}}
+        onRetry={() => {}}
+        onTypecheck={onTypecheck}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^typecheck$/i }));
+    expect(onTypecheck).toHaveBeenCalledTimes(1);
+    rerender(
+      <PublishProposalDialog
+        open
+        onOpenChange={() => {}}
+        displayName="Spring"
+        state={checks}
+        onPublish={() => {}}
+        onRetry={() => {}}
+        onTypecheck={onTypecheck}
+        typechecking
+      />,
+    );
+    const running = screen.getByRole("button", { name: /typechecking/i });
+    expect(running.hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByText(/Ask them to publish/)).toBeNull();
+  });
+
+  test("new type errors, or dependencies being built, are not someone else's to clear", () => {
+    dialog(
+      ready([
+        { id: "types", ok: false, message: "2 new type errors" },
+        {
+          id: "dependencies",
+          ok: false,
+          message: "This proposal's dependencies are being built",
+        },
+      ]),
+    );
+    expect(screen.getByText("2 new type errors")).toBeTruthy();
+    expect(screen.queryByText(/Ask them to publish/)).toBeNull();
+  });
+});
+
 describe("Update from the site, with conflicts (step 8.2)", () => {
   const withConflicts = (
     conflicts?: UpdateConflictView[],

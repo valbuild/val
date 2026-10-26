@@ -1,3 +1,4 @@
+import { Internal, type SourcePath } from "@valbuild/core";
 /**
  * Source path helpers, two of them now living in `@valbuild/shared/internal`.
  *
@@ -30,4 +31,21 @@ export function isPathWithin(path: string, id: string): boolean {
   if (!path.startsWith(id)) return false;
   const next = path[id.length];
   return next === "?" || next === ".";
+}
+
+/**
+ * Whether a string is shaped like a source path: a module file
+ * (`/…/name.val.ts`), optionally followed by `?p=` and a module path.
+ *
+ * A shape check, not a lookup: whether the module exists is the caller's
+ * question. For strings from outside the Studio's own types -- a URL, the
+ * demo's tour, which a site writes.
+ */
+export function isSourcePath(value: string): value is SourcePath {
+  const sep = value.indexOf(Internal.ModuleFilePathSep);
+  const moduleFilePath = sep === -1 ? value : value.slice(0, sep);
+  if (!moduleFilePath.startsWith("/") || !moduleFilePath.includes(".val.")) {
+    return false;
+  }
+  return sep === -1 || value.length > sep + Internal.ModuleFilePathSep.length;
 }

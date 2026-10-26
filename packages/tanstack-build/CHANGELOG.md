@@ -1,5 +1,27 @@
 # @valbuild/tanstack-build
 
+## 0.149.2
+
+### Patch Changes
+
+- [#917](https://github.com/valbuild/val/pull/917) [`48ca810`](https://github.com/valbuild/val/commit/48ca810a985af2a0af845c779d39c3da7f7fb0fc) Thanks [@freekh](https://github.com/freekh)! - `val publish` now declares `@valbuild/ui` at the version your project actually runs. A project that does not declare `@valbuild/ui` gets it added when it is wired for the platform, because the Studio's bundle lives there. It used to be added at `@valbuild/core`'s version, which can be an older release than the `@valbuild/ui` your `@valbuild/tanstack` uses. The two are no longer always released together, and the mismatch could install a second, older Studio. It now takes the version installed beside `@valbuild/tanstack`, and if no installed copy can be found it says so in a warning. A project that declares `@valbuild/ui` itself is left unchanged.
+
+## 0.148.5
+
+### Patch Changes
+
+- [#899](https://github.com/valbuild/val/pull/899) [`acc5fee`](https://github.com/valbuild/val/commit/acc5feef498edbb9a7d3e8715bfb516d26079669) Thanks [@freekh](https://github.com/freekh)! - A project's dependency layer no longer builds Val's server entry points for the browser. `@valbuild/tanstack/server` and `@valbuild/tanstack/demo` go in the worker half only, so the browser half stops carrying code nothing in the browser imports. `@valbuild/tanstack/demo` is about 15 MB: on the Val demo the browser half went from 20.2 to 4.8 million characters, and the whole layer from 40.8 to 25.4. Importing either from client code is still reported by name, as for any server-only dependency.
+
+## 0.148.3
+
+### Patch Changes
+
+- [#887](https://github.com/valbuild/val/pull/887) [`eaa77e0`](https://github.com/valbuild/val/commit/eaa77e0e5028b113037e76722e25e342a8301032) Thanks [@freekh](https://github.com/freekh)! - Content analytics records the content version each page was rendered from. `<ValProvider analytics>` takes a `ValAnalytics` -- `{ enabled, contentVersion? }` -- and the `val.server.ts` Val's hosting writes returns one from `fetchValAnalytics()`, with the id of the content version the platform is serving. Every beacon carries it as `cv`, so counts can be compared across a publish. The site layout passes `fetchValAnalytics()` to the provider exactly as before.
+
+- [#878](https://github.com/valbuild/val/pull/878) [`4d862ce`](https://github.com/valbuild/val/commit/4d862cec40288ecbc415c3c3b8d792ddd6bc1ca3) Thanks [@freekh](https://github.com/freekh)! - TanStack Start: a new analytics mode, the first step towards content analytics. It is off by default. With `<ValProvider analytics>`, content read with the hooks (`useVal`, `useValRoute`, `useValKey`) is tagged for every visitor, not only in draft mode, so each element showing content carries a `data-val-path`. The tags are added in the browser after hydration, so the HTML the server sends is unchanged and a crawler that does not run the page never sees them.
+
+  On a site hosted by Val, analytics is a project setting: the owner turns it on in the project's settings, and the `val.server.ts` the platform writes now exports `fetchValAnalytics()` to read it. Pass it to the provider from the site layout's loader, beside `fetchValDraft()`; see the README.
+
 ## 0.148.0
 
 ### Patch Changes

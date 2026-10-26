@@ -1,4 +1,4 @@
-import type { DeployPhase } from "./runStudioDeploy";
+import type { DeployPhase } from "@valbuild/shared/publish";
 import type { StudioDeployState } from "./useStudioDeploy";
 
 /**

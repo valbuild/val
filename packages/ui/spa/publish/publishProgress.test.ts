@@ -1,8 +1,7 @@
 import type { PublishRequestStatus } from "@valbuild/shared/internal";
 import { deployPercent } from "./deployProgress";
 import type { PublishJobsState, TrackedPublish } from "./publishJobs";
-import type { DeployPhase } from "./runStudioDeploy";
-import type { JobPhase } from "./runStudioJob";
+import type { DeployPhase, JobPhase } from "@valbuild/shared/publish";
 import { publishProgress } from "./publishProgress";
 import type { StudioDeployState } from "./useStudioDeploy";
 

@@ -27,7 +27,6 @@ import {
   Pencil,
   Plus,
   Undo2,
-  Loader2,
 } from "lucide-react";
 import { SerializedPatchSet } from "../utils/PatchSets";
 import {
@@ -80,6 +79,7 @@ import {
 import { useShellPanelLink } from "./shell/shellPanelLink";
 import { useNavLink } from "./navLink";
 import { refToUrl } from "./MediaPicker/refToUrl";
+import { Spinner } from "./designSystem/spinner";
 
 /**
  * ComparePatchSets renders a "review changes" view over a `SerializedPatchSet`.
@@ -641,7 +641,7 @@ export function CompareLoading() {
        * accurate is the flicker this whole file is careful about.
        */}
       <p className="flex items-center gap-2 text-sm text-fg-secondary">
-        <Loader2 size={14} className="animate-spin" aria-hidden />
+        <Spinner size={14} aria-hidden />
         Building the comparison…
       </p>
       {[0, 1].map((i) => (
@@ -942,11 +942,7 @@ function DeployedDividerPure({
         )}
       >
         {isBuilding ? (
-          <Loader2
-            size={14}
-            className="animate-spin shrink-0 mt-0.5 sm:mt-0"
-            aria-hidden
-          />
+          <Spinner size={14} className="mt-0.5 sm:mt-0" aria-hidden />
         ) : isFailed ? (
           <CircleAlert
             size={14}

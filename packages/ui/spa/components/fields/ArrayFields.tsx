@@ -20,12 +20,12 @@ import { BlockList } from "../../components/BlockList";
 import { array } from "@valbuild/core/fp";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { PreviewError } from "../PreviewError";
-import { Loader2 } from "lucide-react";
 import { Field } from "../../components/Field";
 import { AnyField } from "../../components/AnyField";
 import { InlineSortableItem } from "../../components/InlineSortableItem";
 import { LocaleFiltered } from "../LocaleFilterProvider";
 import { FieldNull } from "../../components/FieldNull";
+import { Spinner } from "../designSystem/spinner";
 
 export function ArrayFields({
   path,
@@ -211,7 +211,7 @@ export function ArrayFields({
         // `pointer-events-none` is the whole point: it says something is in
         // flight without standing between the reader and the list.
         <div className="pointer-events-none absolute right-2 top-2 z-[40] flex items-center text-fg-secondary">
-          <Loader2 className="animate-spin h-4 w-4" />
+          <Spinner size={16} />
         </div>
       )}
       <SortableList

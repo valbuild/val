@@ -493,8 +493,8 @@ test.describe("the canvas", () => {
       { timeout: 30000 },
     );
 
-    // Review is in the top bar at this viewport, to the left of Preview; the
-    // Quick actions panel carries it on mobile only, where the top bar does not.
+    // Review is in the top bar at this viewport, to the left of Preview; on a
+    // phone it is under the caret beside the bottom bar's primary action.
     await studio.getByRole("button", { name: /Review \d+ change/ }).click();
 
     await expect(

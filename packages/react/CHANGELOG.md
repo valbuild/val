@@ -1,5 +1,121 @@
 # @valbuild/react
 
+## 0.150.0
+
+### Patch Changes
+
+- Updated dependencies [[`baf2f56`](https://github.com/valbuild/val/commit/baf2f56498ca2ae5ec1f5bef356faf09a382b768), [`f638188`](https://github.com/valbuild/val/commit/f638188c27fc338ace3d8282f59e83084adcb002)]:
+  - @valbuild/ui@0.150.0
+
+## 0.149.7
+
+### Patch Changes
+
+- Updated dependencies [[`8be6e6a`](https://github.com/valbuild/val/commit/8be6e6abd2536b5758f0d5f8dfb1e468f29a7015), [`cc2a37a`](https://github.com/valbuild/val/commit/cc2a37a74c52cab6fa062e8252fb292b84a479c3), [`7e78b1f`](https://github.com/valbuild/val/commit/7e78b1f863c47d4f38d9f1c9855a92e711170865), [`8366c57`](https://github.com/valbuild/val/commit/8366c575df66ee19c3400b7fdbc14a8fd517afd6)]:
+  - @valbuild/shared@0.149.7
+  - @valbuild/ui@0.149.7
+
+## 0.149.6
+
+### Patch Changes
+
+- Updated dependencies [[`8e79b44`](https://github.com/valbuild/val/commit/8e79b44b4610d188a206ed0b6de448c602a99965)]:
+  - @valbuild/ui@0.149.6
+
+## 0.149.5
+
+### Patch Changes
+
+- Updated dependencies [[`1e18a1b`](https://github.com/valbuild/val/commit/1e18a1ba31e169895fb75074028822dda305d26f), [`9e44644`](https://github.com/valbuild/val/commit/9e44644933103d0db38bf72463478d80a1a9b0dd)]:
+  - @valbuild/ui@0.149.5
+
+## 0.149.4
+
+### Patch Changes
+
+- Updated dependencies [[`1a426f4`](https://github.com/valbuild/val/commit/1a426f41759c5f70492be5f1795bdc260ac3572b)]:
+  - @valbuild/ui@0.149.4
+
+## 0.149.3
+
+### Patch Changes
+
+- Updated dependencies [[`ce7d5f4`](https://github.com/valbuild/val/commit/ce7d5f4f0732acb49068ae79a90aeff6fdc9e574)]:
+  - @valbuild/ui@0.149.3
+
+## 0.149.1
+
+### Patch Changes
+
+- Updated dependencies [[`6777ea4`](https://github.com/valbuild/val/commit/6777ea42e3164e913381cccabb1bccca3cf58243), [`357bea6`](https://github.com/valbuild/val/commit/357bea6148467838819d46daa1fb575f41365185)]:
+  - @valbuild/ui@0.149.1
+
+## 0.149.0
+
+### Patch Changes
+
+- Updated dependencies [[`32b3210`](https://github.com/valbuild/val/commit/32b3210c11bbd526c1882177c1870aa0be1d3ca4), [`bf24bc0`](https://github.com/valbuild/val/commit/bf24bc00e8f8c2a08538d59218d9da005943ac03)]:
+  - @valbuild/ui@0.149.0
+
+## 0.148.8
+
+### Patch Changes
+
+- Updated dependencies [[`213c6fc`](https://github.com/valbuild/val/commit/213c6fca9636f9b4bb54f15336a21d2ac4846a9b), [`1856a4a`](https://github.com/valbuild/val/commit/1856a4af7827794cbcd50d66a0800394bc386f87), [`1856a4a`](https://github.com/valbuild/val/commit/1856a4af7827794cbcd50d66a0800394bc386f87)]:
+  - @valbuild/ui@0.148.8
+
+## 0.148.7
+
+### Patch Changes
+
+- [#906](https://github.com/valbuild/val/pull/906) [`fb2eed8`](https://github.com/valbuild/val/commit/fb2eed8b51092cc2ad5c812bdf88b528913c824a) Thanks [@freekh](https://github.com/freekh)! - `val.attrs(post, "author")` tags an element with one field of what it shows. Use it for a value Val never encodes, like an `s.keyOf` key, a date or a colour. A byline that shows the author a post points at can carry the post's `author` field, so clicking it in the Studio opens the choice of author.
+
+  On a phone, a tour step about Pages, Media, Data or Settings points at the menu button, which is where they are when the rail is not drawn.
+
+- Updated dependencies [[`fb2eed8`](https://github.com/valbuild/val/commit/fb2eed8b51092cc2ad5c812bdf88b528913c824a), [`1a5ad65`](https://github.com/valbuild/val/commit/1a5ad65205ff65b54e9c5f2a7b41e24cca9fd68c)]:
+  - @valbuild/core@0.148.7
+  - @valbuild/ui@0.148.7
+  - @valbuild/shared@0.148.7
+
+## 0.148.6
+
+### Patch Changes
+
+- Updated dependencies [[`b580292`](https://github.com/valbuild/val/commit/b580292ac3c335b055f5ed5f18d6a12d075169c7)]:
+  - @valbuild/ui@0.148.6
+  - @valbuild/shared@0.148.6
+
+## 0.148.5
+
+### Patch Changes
+
+- Updated dependencies [[`e1e41e2`](https://github.com/valbuild/val/commit/e1e41e2f2c3a2c511299f57ac36fcae50cc35bf6)]:
+  - @valbuild/ui@0.148.5
+
+## 0.148.4
+
+### Patch Changes
+
+- Updated dependencies [[`7c432b3`](https://github.com/valbuild/val/commit/7c432b3f05af414bd6cbc37cd58a71a783056caa)]:
+  - @valbuild/ui@0.148.4
+
+## 0.148.3
+
+### Patch Changes
+
+- [#881](https://github.com/valbuild/val/pull/881) [`0139436`](https://github.com/valbuild/val/commit/0139436426142d91cbb29ec6c696dfb86f34ab9d) Thanks [@freekh](https://github.com/freekh)! - The content analytics script. With analytics on (it is off by default, and turned on in a hosted project's settings), a TanStack site counts which content each visitor's page **rendered** and which they actually **viewed** (at least half on screen for a second), and sends it to `/api/val/analytics`.
+
+  - No cookies, no storage, no visitor IDs. Each page view also says where it came from (the referring site's host and any `utm_source` / `utm_medium` / `utm_campaign`) and whether it was a phone, tablet or desktop.
+  - A page is sent as its route's pattern (`/posts/$postId`), never its address, so a path that holds something about one visitor (an order number, a token) is never stored. `startValAnalytics` takes this as `routeFor`; `ValProvider` passes TanStack's matched route.
+  - Editors are never counted: nothing is sent in draft mode, in the Studio, with Val enabled, or at a proposal's address, and nothing from automated browsers. A page the browser prerenders counts nothing until it is shown.
+  - The script is the new `@valbuild/react/analytics` entry, loaded only for visitors of a site with analytics on, after the page has hydrated. It imports nothing else from Val.
+  - Storing the counts and showing them is part of Val's hosting, which takes these beacons before they reach the site. Anywhere else, `/api/val/analytics` checks each beacon and stores nothing; in local development, with `VAL_DEBUG=1`, it logs a line per beacon, so you can see it working.
+  - `ValProvider`'s Studio check now matches `/val` and what is below it only, not every route starting with those letters (`/values`). The same fix is in `@valbuild/next`.
+
+- Updated dependencies [[`0139436`](https://github.com/valbuild/val/commit/0139436426142d91cbb29ec6c696dfb86f34ab9d), [`5eff8a0`](https://github.com/valbuild/val/commit/5eff8a055a4ef50d476797c28f9c3e50deb73c89)]:
+  - @valbuild/shared@0.148.3
+  - @valbuild/ui@0.148.3
+
 ## 0.148.2
 
 ### Patch Changes

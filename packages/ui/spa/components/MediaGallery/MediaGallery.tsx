@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { Grid, List, Loader2, Search, Upload, UploadCloud } from "lucide-react";
+import { Grid, List, Search, Upload, UploadCloud } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { Input } from "../designSystem/input";
 import { MediaThumbnail } from "../MediaThumbnail";
@@ -8,6 +8,7 @@ import { useFillScrollContainer } from "./useFillScrollContainer";
 import { MediaTile, UploadTile } from "./MediaTile";
 import { factsOf } from "./format";
 import type { MediaGalleryProps, MediaItem, MediaKind } from "./types";
+import { Spinner } from "../designSystem/spinner";
 
 const NOUN: Record<MediaKind, { one: string; many: string }> = {
   images: { one: "image", many: "images" },
@@ -133,11 +134,7 @@ export function MediaGallery({
             title="Upload file"
             className="inline-flex h-8 items-center gap-1.5 rounded-md bg-bg-brand-primary px-3 text-xs font-medium text-fg-brand-primary hover:opacity-90 disabled:opacity-50"
           >
-            {uploading ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Upload size={14} />
-            )}
+            {uploading ? <Spinner size={14} /> : <Upload size={14} />}
             Upload
           </button>
         )}

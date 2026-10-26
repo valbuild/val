@@ -5,7 +5,7 @@ import { useConfigStorageSave } from "./useConfigStorageSave";
 import { cn, valPrefixedClass } from "./cssUtils";
 import { canvasDarkBg, canvasLightBg } from "./fallbackColors";
 import { ValScript } from "./ValScript";
-import type { ValDemoRuntime } from "@valbuild/shared/internal";
+import type { ValDemoOptions, ValDemoRuntime } from "@valbuild/shared/internal";
 import { startDemoRelay } from "./demo/demoRelayHost";
 
 /**
@@ -56,8 +56,12 @@ export const ValApp = ({
    *
    * Set it from the build -- `demo={import.meta.env.VITE_VAL_DEMO === "true"}`
    * -- never from anything a visitor controls.
+   *
+   * Options instead of `true` give the demo tours of the site's own:
+   * `demo={{ tours, audiences }}`, written as data (`ValDemoOptions`), so what
+   * they say changes with the site rather than with a Val release.
    */
-  demo?: boolean;
+  demo?: boolean | ValDemoOptions;
 }) => {
   const route = "/api/val"; // TODO: make configurable
   const [inMessageMode, setInMessageMode] = useState<boolean>();
@@ -69,8 +73,9 @@ export const ValApp = ({
   // them whenever the server's code had loaded -- before the child was there,
   // on a page that had that code already.
   const demoStart = useDemoServer(
-    demo === true && inMessageMode === false,
+    demo !== undefined && demo !== false && inMessageMode === false,
     config,
+    demo === undefined || typeof demo === "boolean" ? undefined : demo,
   );
   useConfigStorageSave(config);
   const container = useRef<HTMLDivElement>(null);
@@ -194,7 +199,9 @@ export const ValApp = ({
       >
         <style>
           {`.${valPrefixedClass}animate-spin {
+  display: inline-flex;
   animation: ${valPrefixedClass}spin 2s linear infinite;
+  will-change: transform;
 }
 @keyframes ${valPrefixedClass}spin {
   0% {
@@ -205,20 +212,23 @@ export const ValApp = ({
   }
 }`}
         </style>
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={cn(["animate-spin"])}
-        >
-          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-        </svg>
+        {/* The span spins, not the SVG: Safari wobbles a spinning SVG that
+            sits at a fractional pixel offset, which centring produces. */}
+        <span className={cn(["animate-spin"])}>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+        </span>
       </div>
     );
   if (isClientSIde && loadingScreen !== null) {
@@ -273,8 +283,20 @@ type DemoStart =
       retryable: boolean;
     };
 
-function useDemoServer(demo: boolean, config: ValConfig): DemoStart {
+function useDemoServer(
+  demo: boolean,
+  config: ValConfig,
+  options: ValDemoOptions | undefined,
+): DemoStart {
   const [start, setStart] = useState<DemoStart>({ status: "starting" });
+  /*
+   * Read when the demo starts, and not a dependency of the effect: options
+   * written inline (`demo={{ tour }}`) are a new object on every render, and
+   * starting Val's server again for each would throw away every edit. The
+   * Studio reads them once anyway, when its script starts.
+   */
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
   useEffect(() => {
     if (!demo) return;
     let cancelled = false;
@@ -292,7 +314,14 @@ function useDemoServer(demo: boolean, config: ValConfig): DemoStart {
       }
       const fetch = createInTabValFetch(modules, { config });
       const uploads = await startDemoRelay(fetch);
-      const runtime: ValDemoRuntime = { fetch, uploads };
+      const { tour, tours, audiences } = optionsRef.current ?? {};
+      const runtime: ValDemoRuntime = {
+        fetch,
+        uploads,
+        ...(tour ? { tour } : {}),
+        ...(tours ? { tours } : {}),
+        ...(audiences ? { audiences } : {}),
+      };
       window.__VAL_DEMO__ = runtime;
       return { status: "ready" };
     };

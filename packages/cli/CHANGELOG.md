@@ -1,5 +1,132 @@
 # @valbuild/cli
 
+## 0.150.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.150.0
+  - @valbuild/language-server@0.150.0
+
+## 0.149.7
+
+### Patch Changes
+
+- Updated dependencies [[`8be6e6a`](https://github.com/valbuild/val/commit/8be6e6abd2536b5758f0d5f8dfb1e468f29a7015), [`cc2a37a`](https://github.com/valbuild/val/commit/cc2a37a74c52cab6fa062e8252fb292b84a479c3), [`7e78b1f`](https://github.com/valbuild/val/commit/7e78b1f863c47d4f38d9f1c9855a92e711170865)]:
+  - @valbuild/shared@0.149.7
+  - @valbuild/language-server@0.149.7
+  - @valbuild/server@0.149.7
+
+## 0.149.6
+
+### Patch Changes
+
+- Updated dependencies [[`8e79b44`](https://github.com/valbuild/val/commit/8e79b44b4610d188a206ed0b6de448c602a99965)]:
+  - @valbuild/server@0.149.6
+  - @valbuild/language-server@0.149.6
+
+## 0.149.5
+
+### Patch Changes
+
+- Updated dependencies [[`1e18a1b`](https://github.com/valbuild/val/commit/1e18a1ba31e169895fb75074028822dda305d26f)]:
+  - @valbuild/server@0.149.5
+  - @valbuild/language-server@0.149.5
+
+## 0.149.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.149.4
+  - @valbuild/language-server@0.149.4
+
+## 0.149.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.149.3
+  - @valbuild/language-server@0.149.3
+
+## 0.149.2
+
+### Patch Changes
+
+- [#917](https://github.com/valbuild/val/pull/917) [`48ca810`](https://github.com/valbuild/val/commit/48ca810a985af2a0af845c779d39c3da7f7fb0fc) Thanks [@freekh](https://github.com/freekh)! - `val publish` now declares `@valbuild/ui` at the version your project actually runs. A project that does not declare `@valbuild/ui` gets it added when it is wired for the platform, because the Studio's bundle lives there. It used to be added at `@valbuild/core`'s version, which can be an older release than the `@valbuild/ui` your `@valbuild/tanstack` uses. The two are no longer always released together, and the mismatch could install a second, older Studio. It now takes the version installed beside `@valbuild/tanstack`, and if no installed copy can be found it says so in a warning. A project that declares `@valbuild/ui` itself is left unchanged.
+- Updated dependencies [[`48ca810`](https://github.com/valbuild/val/commit/48ca810a985af2a0af845c779d39c3da7f7fb0fc)]:
+  - @valbuild/tanstack-build@0.149.2
+
+## 0.149.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.149.1
+  - @valbuild/language-server@0.149.1
+
+## 0.149.0
+
+### Patch Changes
+
+- Updated dependencies [[`32b3210`](https://github.com/valbuild/val/commit/32b3210c11bbd526c1882177c1870aa0be1d3ca4), [`bf24bc0`](https://github.com/valbuild/val/commit/bf24bc00e8f8c2a08538d59218d9da005943ac03)]:
+  - @valbuild/server@0.149.0
+  - @valbuild/language-server@0.149.0
+
+## 0.148.8
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.148.8
+  - @valbuild/language-server@0.148.8
+
+## 0.148.7
+
+### Patch Changes
+
+- Updated dependencies [[`fb2eed8`](https://github.com/valbuild/val/commit/fb2eed8b51092cc2ad5c812bdf88b528913c824a), [`1a5ad65`](https://github.com/valbuild/val/commit/1a5ad65205ff65b54e9c5f2a7b41e24cca9fd68c)]:
+  - @valbuild/core@0.148.7
+  - @valbuild/server@0.148.7
+  - @valbuild/language-server@0.148.7
+  - @valbuild/shared@0.148.7
+
+## 0.148.6
+
+### Patch Changes
+
+- Updated dependencies [[`b580292`](https://github.com/valbuild/val/commit/b580292ac3c335b055f5ed5f18d6a12d075169c7)]:
+  - @valbuild/shared@0.148.6
+  - @valbuild/server@0.148.6
+  - @valbuild/language-server@0.148.6
+
+## 0.148.5
+
+### Patch Changes
+
+- Updated dependencies [[`acc5fee`](https://github.com/valbuild/val/commit/acc5feef498edbb9a7d3e8715bfb516d26079669)]:
+  - @valbuild/tanstack-build@0.148.5
+  - @valbuild/server@0.148.5
+  - @valbuild/language-server@0.148.5
+
+## 0.148.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @valbuild/server@0.148.4
+  - @valbuild/language-server@0.148.4
+
+## 0.148.3
+
+### Patch Changes
+
+- Updated dependencies [[`0139436`](https://github.com/valbuild/val/commit/0139436426142d91cbb29ec6c696dfb86f34ab9d), [`eaa77e0`](https://github.com/valbuild/val/commit/eaa77e0e5028b113037e76722e25e342a8301032), [`4d862ce`](https://github.com/valbuild/val/commit/4d862cec40288ecbc415c3c3b8d792ddd6bc1ca3), [`5eff8a0`](https://github.com/valbuild/val/commit/5eff8a055a4ef50d476797c28f9c3e50deb73c89)]:
+  - @valbuild/shared@0.148.3
+  - @valbuild/server@0.148.3
+  - @valbuild/tanstack-build@0.148.3
+  - @valbuild/language-server@0.148.3
+
 ## 0.148.2
 
 ### Patch Changes

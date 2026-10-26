@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRight, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
+import { ChevronRight, RefreshCw, TriangleAlert } from "lucide-react";
 import { cn } from "../../designSystem/cn";
 import { useDismissOnOutsidePointer } from "../useDismissOnOutsidePointer";
+import { Spinner } from "../../designSystem/spinner";
 
 /**
  * How the canvas is getting on with the page it is showing.
@@ -190,7 +191,7 @@ export function CanvasPreviewNotice({
           {known ? (
             <TriangleAlert size={12} className="shrink-0" aria-hidden />
           ) : (
-            <Loader2 size={12} className="shrink-0 animate-spin" aria-hidden />
+            <Spinner size={12} aria-hidden />
           )}
           <span className="truncate">{label}</span>
         </span>
