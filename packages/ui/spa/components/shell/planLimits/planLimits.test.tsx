@@ -218,21 +218,25 @@ describe("the notice above the editor", () => {
     expect(noticeOf(state, "editor")).toBeNull();
   });
 
-  test("Free at 1,000 changes: when editing opens again, and Upgrade to Pro", () => {
+  test("Free at 1,000 changes: when editing opens again, and Upgrade to Custom hosting", () => {
     const owner = noticeOf("access-free-at-limit", "owner");
     expect(owner).toMatchObject({
       id: "limit:changes",
       title: "website has used this week's 1,000 changes",
-      body: "Everything so far is saved. Editing opens again on Wednesday at 12:00, as last week's changes drop out of the 7 days. Pro has no limit.",
-      action: { label: "Upgrade to Pro", href: BILLING_URL, external: true },
+      body: "Everything so far is saved. Editing opens again on Wednesday at 12:00, as last week's changes drop out of the 7 days. Custom hosting has no limit.",
+      action: {
+        label: "Upgrade to Custom hosting",
+        href: BILLING_URL,
+        external: true,
+      },
       meter: 1,
       dismiss: null,
     });
     const editor = noticeOf("access-free-at-limit", "editor");
     expect(editor?.body).toContain(
-      "Only an owner of acme can upgrade to Pro: Ada Lovelace and Ole Nordmann.",
+      "Only an owner of acme can upgrade to Custom hosting: Ada Lovelace and Ole Nordmann.",
     );
-    expect(editor?.action?.label).toBe("Ask them to upgrade to Pro");
+    expect(editor?.action?.label).toBe("Ask them to upgrade to Custom hosting");
     const mail = mailtoOf(editor?.action?.href ?? "");
     expect(mail.to).toBe("ada@acme.com,ole@acme.com");
     expect(mail.body).toContain(BILLING_URL);
@@ -402,7 +406,9 @@ describe("the notice above the editor", () => {
       owners: [],
     });
     const notice = planNoticesOf(access, null, CTX)[0];
-    expect(notice?.body).toContain("Only an owner of acme can upgrade to Pro.");
+    expect(notice?.body).toContain(
+      "Only an owner of acme can upgrade to Custom hosting.",
+    );
     expect(notice?.action).toEqual({
       label: "Open in Val Build",
       href: PROJECT_URL,
@@ -433,9 +439,9 @@ describe("the notice above the editor", () => {
     )[0];
     expect(owner).toMatchObject({
       id: "plan:remote-files",
-      title: "Remote files are part of Pro",
+      title: "Remote files are part of Custom hosting",
       body: "website is on the Free plan, so new images and files cannot be uploaded to Val's remote storage. Text edits save and publish as normal.",
-      action: { label: "Upgrade to Pro", href: BILLING_URL },
+      action: { label: "Upgrade to Custom hosting", href: BILLING_URL },
       dismiss: "refusal",
       details: REFUSED_FIXTURES["refused-plan-remote-files"].message,
     });
@@ -444,7 +450,7 @@ describe("the notice above the editor", () => {
       refusal,
       CTX,
     )[0];
-    expect(editor?.action?.label).toBe("Ask them to upgrade to Pro");
+    expect(editor?.action?.label).toBe("Ask them to upgrade to Custom hosting");
   });
 
   test("a refusal /access already explains is said once, as /access says it", () => {
@@ -583,7 +589,7 @@ describe("the status in the top bar", () => {
     });
   });
 
-  test("Free from the warning: changes left, and Upgrade to Pro", () => {
+  test("Free from the warning: changes left, and Upgrade to Custom hosting", () => {
     const status = planStatusOf(
       accessOf("access-free-warn", "owner"),
       "website",
@@ -591,7 +597,7 @@ describe("the status in the top bar", () => {
     expect(status).toMatchObject({
       kind: "free",
       left: 150,
-      action: { label: "Upgrade to Pro", href: BILLING_URL },
+      action: { label: "Upgrade to Custom hosting", href: BILLING_URL },
     });
     expect(status && planStatusParts(status, { locale: "en-GB" })).toEqual([
       "150 changes left this week",
@@ -642,10 +648,14 @@ describe("the card", () => {
       />,
     );
     expect(
-      screen.getByRole("status", { name: "Remote files are part of Pro" }),
+      screen.getByRole("status", {
+        name: "Remote files are part of Custom hosting",
+      }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("link", { name: /Upgrade to Pro/ }).getAttribute("href"),
+      screen
+        .getByRole("link", { name: /Upgrade to Custom hosting/ })
+        .getAttribute("href"),
     ).toBe(BILLING_URL);
     expect(screen.getByText("Details")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
@@ -667,10 +677,18 @@ describe("a toast for a refused write", () => {
   test("an owner gets the fix the plan's refusals have; an editor, the owners", () => {
     expect(
       planToastAction(accessOf("access-free-at-limit", "owner"), details),
-    ).toEqual({ label: "Upgrade to Pro", href: BILLING_URL, external: true });
+    ).toEqual({
+      label: "Upgrade to Custom hosting",
+      href: BILLING_URL,
+      external: true,
+    });
     expect(
       planToastAction(accessOf("access-free-warn", "owner"), details),
-    ).toEqual({ label: "Upgrade to Pro", href: BILLING_URL, external: true });
+    ).toEqual({
+      label: "Upgrade to Custom hosting",
+      href: BILLING_URL,
+      external: true,
+    });
     // Extra usage is set on the project's page, not in Billing.
     expect(
       planToastAction(
@@ -695,7 +713,7 @@ describe("a toast for a refused write", () => {
     expect(editor?.label).toBe("Ask an owner");
     const body = mailtoOf(editor?.href ?? "").body;
     expect(body).toContain(details);
-    expect(body).toContain("Could you upgrade to Pro?");
+    expect(body).toContain("Could you upgrade to Custom hosting?");
   });
 
   test("any other error gets no button", () => {

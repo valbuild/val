@@ -109,8 +109,8 @@ export function planStatusOf(
       action: statusAction(
         access,
         "upgrade",
-        `${named.start}: please upgrade to Pro`,
-        `${named.start} is on the Free plan, which allows ${plural(changes.limit, "change", "changes", en)} in 7 days, and has ${formatCount(changes.left, en)} left this week. Pro has no limit.`,
+        `${named.start}: please upgrade to Custom hosting`,
+        `${named.start} is on the Free plan, which allows ${plural(changes.limit, "change", "changes", en)} in 7 days, and has ${formatCount(changes.left, en)} left this week. Custom hosting has no limit.`,
       ),
     };
   }

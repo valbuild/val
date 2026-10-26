@@ -55,7 +55,7 @@ export type PlanFormat = {
 const DAY = 86_400_000;
 
 const OWNER_LABEL: Record<PlanFix, string> = {
-  upgrade: "Upgrade to Pro",
+  upgrade: "Upgrade to Custom hosting",
   "add-card": "Add a card",
   "update-payment": "Update payment",
   "allow-usage": "Allow extra usage",
@@ -64,7 +64,7 @@ const OWNER_LABEL: Record<PlanFix, string> = {
 
 /** What an owner would do, after "can" or "to". */
 const FIX_VERB: Record<PlanFix, string> = {
-  upgrade: "upgrade to Pro",
+  upgrade: "upgrade to Custom hosting",
   "add-card": "add a card",
   "update-payment": "update the payment",
   "allow-usage": "allow extra usage",

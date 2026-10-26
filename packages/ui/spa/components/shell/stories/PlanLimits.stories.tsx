@@ -144,7 +144,7 @@ export const FreeWarningForAnEditor: Story = {
   args: { scenario: "free-warn", viewer: "editor" },
 };
 
-/** Free at 1,000 changes: when editing opens again, and Upgrade to Pro. */
+/** Free at 1,000 changes: when editing opens again, and Upgrade to Custom hosting. */
 export const FreeAtLimitForAnOwner: Story = {
   args: { scenario: "free-at-limit", viewer: "owner" },
 };
@@ -152,7 +152,7 @@ export const FreeAtLimitForAnEditor: Story = {
   args: { scenario: "free-at-limit", viewer: "editor" },
 };
 
-/** A remote upload on Free, refused: remote files are part of Pro. */
+/** A remote upload on Free, refused: remote files are part of Custom hosting. */
 export const FreeRemoteFilesForAnOwner: Story = {
   args: { scenario: "free-remote-files", viewer: "owner" },
 };

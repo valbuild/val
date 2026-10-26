@@ -192,11 +192,11 @@ function changesNotice(
     icon: "alert",
     title,
     body:
-      `Everything so far is saved. ${reopens} Pro has no limit.` +
+      `Everything so far is saved. ${reopens} Custom hosting has no limit.` +
       whoCanFix(viewer, source.refusal.fix),
     action: fixAction(viewer, source.refusal.fix, {
       subject: title,
-      why: `${title} on the Free plan, so it cannot be edited until older changes drop out of the 7 days. Pro has no limit.`,
+      why: `${title} on the Free plan, so it cannot be edited until older changes drop out of the 7 days. Custom hosting has no limit.`,
     }),
     meter: changes === null ? 1 : Math.min(changes.used / changes.limit, 1),
   };
@@ -294,12 +294,12 @@ function remoteFilesNotice(
     ...base("plan:remote-files", 3, source),
     tone: "warning",
     icon: "alert",
-    title: "Remote files are part of Pro",
+    title: "Remote files are part of Custom hosting",
     body:
       `${named.start} is on the Free plan, so new images and files cannot be uploaded to Val's remote storage. Text edits save and publish as normal.` +
       whoCanFix(viewer, source.refusal.fix),
     action: fixAction(viewer, source.refusal.fix, {
-      subject: `${named.start}: remote files are part of Pro`,
+      subject: `${named.start}: remote files are part of Custom hosting`,
       why: `${named.start} is on the Free plan, so new images and files cannot be uploaded to Val's remote storage.`,
     }),
   };

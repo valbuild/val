@@ -384,7 +384,7 @@ const HOME_CHANGES_REFUSAL = {
   statusCode: 403,
   message:
     "site has used this week's 1,000 changes on the Free plan. Everything saved so far is kept. " +
-    "An owner can upgrade to Pro, which has no limit: https://admin.val.build/orgs/acme/billing",
+    "An owner can upgrade to Custom hosting, which has no limit: https://admin.val.build/orgs/acme/billing",
   error: {
     code: "limit:changes",
     fix: "upgrade",
