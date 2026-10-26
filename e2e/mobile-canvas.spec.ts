@@ -299,7 +299,12 @@ test.describe("the preview modes on a phone", () => {
     await expect(pick).toBeInViewport({ ratio: 1 });
 
     await pick.click();
-    await expect(mode(page, "On page")).toBeVisible({ timeout: 30_000 });
+    // Preview mode is on once the page has reported what is on it; the tab is
+    // there either way, so it is the count that says so.
+    await expect(
+      mode(page, "On page"),
+      "the page never came back in preview mode",
+    ).toContainText(/\d/, { timeout: 30_000 });
     await expect(
       page.getByRole("button", { name: "Stop selecting on the page" }),
       "preview mode came on, but picking did not",
