@@ -4,8 +4,10 @@ import type {
 } from "@valbuild/shared/internal";
 import type { PatchId } from "@valbuild/core";
 import type { PressAs, PublishResult } from "../stores/PublishSeam";
-import type { StudioJobClient } from "./jobClient";
-import { StudioPublishError } from "./publishClient";
+import {
+  type StudioJobClient,
+  StudioPublishError,
+} from "@valbuild/shared/publish";
 import {
   askServerAbout,
   hasChange,
@@ -25,7 +27,6 @@ import {
   whenReady,
 } from "./pressForPage";
 import { createRequestPublish } from "./requestPublish";
-import type { SiteUpdateOutcome } from "./runSiteUpdate";
 import { storedHandoffIntent, storeHandoffIntent } from "./handoff";
 
 /**
@@ -624,25 +625,16 @@ describe("what a tab remembers of its own ending", () => {
     };
   };
 
-  test("a refusal and an update are shown again, by hand-off id", () => {
+  test("a refusal is shown again, by hand-off id", () => {
     const store = storage();
     rememberEnding(
       "h1",
       { kind: "not-pressed", message: "Cannot publish: errors." },
       store,
     );
-    rememberEnding(
-      "h2",
-      { kind: "update", outcome: { status: "current" } },
-      store,
-    );
     expect(rememberedEnding("h1", store)).toEqual({
       kind: "not-pressed",
       message: "Cannot publish: errors.",
-    });
-    expect(rememberedEnding("h2", store)).toEqual({
-      kind: "update",
-      outcome: { status: "current" },
     });
     expect(rememberedEnding("h3", store)).toBeNull();
   });
@@ -679,44 +671,23 @@ describe("what a tab remembers of its own ending", () => {
         `val-publish-handoff-ending:${id}`,
         JSON.stringify({ at: Date.now(), value }),
       );
-    // A tab that took these for its ending would wait on an update it never runs.
-    put("u1", { kind: "update", outcome: { status: "unknown" } });
-    put("u2", { kind: "update", outcome: { status: "failed", message: "x" } });
-    put("u3", { kind: "update", outcome: { status: "updated", changes: [1] } });
     put("n1", { kind: "not-pressed", message: "m", details: 3 });
-    for (const id of ["u1", "u2", "u3", "n1"]) {
+    // An update's, from before the Upgrade replaced it: nothing to show.
+    put("u1", { kind: "update", outcome: { status: "current" } });
+    for (const id of ["n1", "u1"]) {
       expect(rememberedEnding(id, store)).toBeNull();
     }
-    const failed: SiteUpdateOutcome = {
-      status: "failed",
-      message: "The rebuild failed.",
-      details: "exit 1",
-      deploy: null,
-    };
-    rememberEnding("u4", { kind: "update", outcome: failed }, store);
-    expect(rememberedEnding("u4", store)).toEqual({
-      kind: "update",
-      outcome: failed,
-    });
-    rememberEnding(
-      "u5",
-      {
-        kind: "update",
-        outcome: {
-          status: "updated",
-          changes: [
-            { name: "next", section: "dependencies", from: "15", to: "16" },
-          ],
-        },
-      },
-      store,
-    );
-    expect(rememberedEnding("u5", store)).not.toBeNull();
   });
 
   test("an ending storage refuses retires the intent instead", () => {
     const store = storage();
-    expect(storeHandoffIntent("h5", { kind: "update" }, store)).toBe(true);
+    expect(
+      storeHandoffIntent(
+        "h5",
+        { kind: "build-proposal", name: "0123456789abcdef0123" },
+        store,
+      ),
+    ).toBe(true);
     const full: Storage = {
       ...store,
       get length() {

@@ -20,6 +20,20 @@ export type FloatingPanelProps = {
   /** Rendered to the right of the title, e.g. a "New" button. */
   headerAction?: ReactNode;
   /**
+   * The header's content, in place of the one-line `title`.
+   *
+   * For a sheet whose subject has a name of its own that has to be read in
+   * full: a proposal is called whatever its author wrote, and the phone's top
+   * bar does not show it at all, so this is the one place it is spelled out.
+   * `title` still names the dialog for assistive tech and the close button.
+   */
+  heading?: ReactNode;
+  /**
+   * `proposal`: the header wears the proposal tint, as the top bar does in
+   * one. A sheet ABOUT the proposal you are in should say so the same way.
+   */
+  tone?: "proposal";
+  /**
    * Rendered directly below the header, above `sticky`. Used below the desktop
    * breakpoint to carry the destination switcher, since there is no left rail
    * there — see `NavSwitcher`.
@@ -78,6 +92,8 @@ export function FloatingPanel({
   breakpoint,
   onClose,
   headerAction,
+  heading,
+  tone,
   subheader,
   sticky,
   footer,
@@ -166,10 +182,21 @@ export function FloatingPanel({
               ),
         )}
       >
-        <div className="flex items-center gap-2 shrink-0 h-11 pl-4 pr-2 border-b border-border-float">
-          <span className="text-[0.8125rem] font-semibold tracking-tight truncate">
-            {title}
-          </span>
+        <div
+          className={cn(
+            "flex gap-2 shrink-0 pl-4 pr-2 border-b border-border-float",
+            heading === undefined ? "items-center h-11" : "items-start py-3",
+            // The tint runs to the sheet's own rounded edge.
+            tone === "proposal" && "rounded-t-[inherit] bg-bg-proposal-soft",
+          )}
+        >
+          {heading === undefined ? (
+            <span className="text-[0.8125rem] font-semibold tracking-tight truncate">
+              {title}
+            </span>
+          ) : (
+            <div className="min-w-0 flex-1">{heading}</div>
+          )}
           <div className="ml-auto flex items-center gap-1">
             {headerAction}
             <button

@@ -62,11 +62,11 @@ function topBar(aiEnabled: boolean, breakpoint: ShellBreakpoint = "desktop") {
 function mobileBar(onOpenAI?: () => void) {
   return (
     <MobileBottomBar
-      pendingChanges={0}
       onPreview={() => undefined}
-      onPublish={() => undefined}
-      onOpenStatus={() => undefined}
-      onOpenQuickActions={() => undefined}
+      primary={null}
+      onOpenChanges={() => undefined}
+      onOpenActivity={() => undefined}
+      activityCount={0}
       onOpenAI={onOpenAI}
     />
   );
@@ -123,11 +123,11 @@ describe("the ways into the assistant", () => {
     const onOpenAI = jest.fn();
     render(
       <MobileBottomBar
-        pendingChanges={0}
         onPreview={() => undefined}
-        onPublish={() => undefined}
-        onOpenStatus={() => undefined}
-        onOpenQuickActions={() => undefined}
+        primary={null}
+        onOpenChanges={() => undefined}
+        onOpenActivity={() => undefined}
+        activityCount={0}
         onOpenAI={onOpenAI}
         isAIOpen
       />,
@@ -144,7 +144,7 @@ describe("the ways into the assistant", () => {
     render(mobileBar(undefined));
     expect(screen.queryByLabelText("AI assistant")).toBeNull();
     // As above: this hides one button, not the row.
-    expect(screen.queryByLabelText("Quick actions")).not.toBeNull();
+    expect(screen.queryByLabelText("Activity")).not.toBeNull();
   });
 
   test("the quick actions offer one when there is somewhere to go", () => {

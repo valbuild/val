@@ -98,7 +98,7 @@ describe("what the tab is to do", () => {
     const site = openHandoff({
       open,
       storage: full,
-      intent: { kind: "update" },
+      intent: { kind: "build-proposal", name: "0123456789abcdef0123" },
     });
     expect(site.stored).toBe(false);
     expect(site.opened).toBe(false);
@@ -106,7 +106,7 @@ describe("what the tab is to do", () => {
     site.close();
   });
 
-  test("a try again and an update are stored the same way", () => {
+  test("a try again and a proposal's build are stored the same way", () => {
     const storage = memoryStorage();
     storeHandoffIntent(
       "h1",
@@ -119,7 +119,11 @@ describe("what the tab is to do", () => {
       },
       storage,
     );
-    storeHandoffIntent("h2", { kind: "update" }, storage);
+    storeHandoffIntent(
+      "h2",
+      { kind: "build-proposal", name: "0123456789abcdef0123" },
+      storage,
+    );
     expect(storedHandoffIntent("h1", storage)?.intent).toEqual({
       kind: "try-again",
       requestId: "r2",
@@ -128,7 +132,8 @@ describe("what the tab is to do", () => {
       after: null,
     });
     expect(storedHandoffIntent("h2", storage)?.intent).toEqual({
-      kind: "update",
+      kind: "build-proposal",
+      name: "0123456789abcdef0123",
     });
   });
 
@@ -178,7 +183,11 @@ describe("what the tab is to do", () => {
 
   test("a link this browser's tap did not store has nothing to run", () => {
     const storage = memoryStorage();
-    storeHandoffIntent("mine", { kind: "update" }, storage);
+    storeHandoffIntent(
+      "mine",
+      { kind: "build-proposal", name: "0123456789abcdef0123" },
+      storage,
+    );
     // What a crafted link could carry is not read at all.
     expect(storedHandoffIntent("someone-elses", storage)).toBeNull();
     expect(storedHandoffIntent("mine", null)).toBeNull();
@@ -196,12 +205,22 @@ describe("what the tab is to do", () => {
   test("what is stored is read back structurally, and forgotten after a week", () => {
     const storage = memoryStorage();
     const day = 24 * 60 * 60_000;
-    storeHandoffIntent("old", { kind: "update" }, storage, 0);
-    storeHandoffIntent("new", { kind: "update" }, storage, 8 * day);
+    storeHandoffIntent(
+      "old",
+      { kind: "build-proposal", name: "0123456789abcdef0123" },
+      storage,
+      0,
+    );
+    storeHandoffIntent(
+      "new",
+      { kind: "build-proposal", name: "0123456789abcdef0123" },
+      storage,
+      8 * day,
+    );
     expect(storedHandoffIntent("old", storage)).toBeNull();
     expect(storedHandoffIntent("new", storage)).toEqual({
       at: 8 * day,
-      intent: { kind: "update" },
+      intent: { kind: "build-proposal", name: "0123456789abcdef0123" },
     });
     storage.setItem(
       "val-publish-handoff-intent:x",
@@ -222,8 +241,16 @@ describe("what the tab is to do", () => {
       written.push(key);
       setItem(key, value);
     };
-    storeHandoffIntent("a", { kind: "update" }, storage);
-    storeHandoffIntent("b", { kind: "update" }, storage);
+    storeHandoffIntent(
+      "a",
+      { kind: "build-proposal", name: "0123456789abcdef0123" },
+      storage,
+    );
+    storeHandoffIntent(
+      "b",
+      { kind: "build-proposal", name: "0123456789abcdef0123" },
+      storage,
+    );
     expect(written).toEqual([
       "val-publish-handoff-intent:a",
       "val-publish-handoff-intent:b",
@@ -463,143 +490,6 @@ test("a job that is not one is dropped, not built", async () => {
     tab.close();
     site.close();
   }
-});
-
-/*
- * An update handed to a tab: the Studio in WebKit cannot build, so pressing
- * Update site opens a tab that can. Nothing is saved first, so the page sends
- * `update` at once -- and it has to survive a tab that joins late, exactly as
- * a job does.
- */
-describe("an update handed to a tab", () => {
-  test("reaches a tab that joins after it was sent", async () => {
-    const site = openHandoff({ open });
-    site.update();
-    const got: ToTab[] = [];
-    const tab = joinHandoff(site.id, (message) => got.push(message), {
-      retryMs: 10,
-    });
-    await until(() => got.length > 0);
-    expect(got[0]).toEqual({ type: "update" });
-    tab.close();
-    site.close();
-  });
-
-  test("its ending reaches the site as an update, not as a publish", async () => {
-    const site = openHandoff({ open });
-    const heard: ToSite[] = [];
-    site.onMessage((message) => heard.push(message));
-    const tab = joinHandoff(site.id, () => undefined, { retryMs: 10 });
-    tab.report({
-      type: "update-done",
-      outcome: {
-        status: "updated",
-        changes: [
-          {
-            name: "@valbuild/core",
-            section: "dependencies",
-            from: "0.136.8",
-            to: "0.140.0",
-          },
-        ],
-      },
-    });
-    await until(() => heard.some((m) => m.type === "update-done"));
-    expect(heard.find((m) => m.type === "update-done")).toEqual({
-      type: "update-done",
-      outcome: {
-        status: "updated",
-        changes: [
-          {
-            name: "@valbuild/core",
-            section: "dependencies",
-            from: "0.136.8",
-            to: "0.140.0",
-          },
-        ],
-      },
-    });
-    tab.close();
-    site.close();
-  });
-
-  test("a refusal and a failure keep their sentences", async () => {
-    const site = openHandoff({ open });
-    const heard: ToSite[] = [];
-    site.onMessage((message) => heard.push(message));
-    const tab = joinHandoff(site.id, () => undefined, { retryMs: 10 });
-    tab.report({
-      type: "update-done",
-      outcome: { status: "unavailable", message: "Depends on left-pad." },
-    });
-    tab.report({
-      type: "update-done",
-      outcome: {
-        status: "failed",
-        message: "Your site is unchanged.",
-        details: "PLATFORM501",
-        deploy: null,
-      },
-    });
-    await until(
-      () => heard.filter((m) => m.type === "update-done").length === 2,
-    );
-    expect(
-      heard
-        .filter((m) => m.type === "update-done")
-        .map((m) => (m.type === "update-done" ? m.outcome : null)),
-    ).toEqual([
-      { status: "unavailable", message: "Depends on left-pad." },
-      {
-        status: "failed",
-        message: "Your site is unchanged.",
-        details: "PLATFORM501",
-        deploy: null,
-      },
-    ]);
-    tab.close();
-    site.close();
-  });
-
-  test("a change list with junk in it keeps only the changes", async () => {
-    const site = openHandoff({ open });
-    const heard: ToSite[] = [];
-    site.onMessage((message) => heard.push(message));
-    const channel = new BroadcastChannel("val-publish-handoff");
-    channel.postMessage({
-      id: site.id,
-      message: {
-        type: "update-done",
-        outcome: {
-          status: "updated",
-          changes: [
-            { name: "ok", section: "dependencies", from: null, to: "1" },
-            { name: "gone", section: "dependencies", from: "1", to: null },
-            { name: "bad", section: "peerDependencies", from: null, to: "1" },
-            { name: "worse", section: "dependencies", from: null, to: 2 },
-            "not a change",
-          ],
-        },
-      },
-    });
-    try {
-      await until(() => heard.some((m) => m.type === "update-done"));
-      expect(heard.find((m) => m.type === "update-done")).toEqual({
-        type: "update-done",
-        outcome: {
-          status: "updated",
-          changes: [
-            { name: "ok", section: "dependencies", from: null, to: "1" },
-            // A removal is a change; a version that is not one is not.
-            { name: "gone", section: "dependencies", from: "1", to: null },
-          ],
-        },
-      });
-    } finally {
-      channel.close();
-      site.close();
-    }
-  });
 });
 
 test("the builder opens as a popup window, never as noopener", () => {

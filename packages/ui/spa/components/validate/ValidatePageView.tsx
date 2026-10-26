@@ -6,7 +6,6 @@ import {
   Copy,
   FileCode2,
   Globe,
-  Loader2,
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
@@ -14,6 +13,7 @@ import { useState, type ReactNode } from "react";
 import classNames from "classnames";
 import { urlOf } from "@valbuild/shared/internal";
 import { Button } from "../designSystem/button";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * `/val/validate`: the Studio's errors page, grown so it can also run the
@@ -258,7 +258,7 @@ function Summary({
     case "running":
       return (
         <p className="flex items-center gap-2 text-sm text-fg-secondary">
-          <Loader2 size={14} className="animate-spin" aria-hidden />
+          <Spinner size={14} aria-hidden />
           Checking everything&hellip;
         </p>
       );
@@ -316,7 +316,7 @@ function RunProgress({
                 aria-hidden
               />
             ) : module.state === "checking" ? (
-              <Loader2 size={13} className="animate-spin" aria-hidden />
+              <Spinner size={14} aria-hidden />
             ) : (
               <span className="inline-block h-[13px] w-[13px]" aria-hidden />
             )}
@@ -527,7 +527,7 @@ function RowButtons({
           disabled={fixing}
           className="shrink-0"
         >
-          {fixing && <Loader2 size={13} className="animate-spin" aria-hidden />}
+          {fixing && <Spinner size={14} aria-hidden />}
           {row.action.label ?? "Fix"}
         </Button>
       );
@@ -578,7 +578,7 @@ function RowButtons({
           disabled={fixing}
           className="shrink-0"
         >
-          {fixing && <Loader2 size={13} className="animate-spin" aria-hidden />}
+          {fixing && <Spinner size={14} aria-hidden />}
           Try again
         </Button>
       );

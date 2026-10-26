@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FileText, Film, Loader2 } from "lucide-react";
+import { FileText, Film } from "lucide-react";
 import { Internal } from "@valbuild/core";
 import { cn } from "../designSystem/cn";
 import { MediaThumbnail } from "../MediaThumbnail";
@@ -7,6 +7,7 @@ import { FontSpecimen } from "../FontPreview";
 import { VideoPlayer } from "../fields/VideoPlayer";
 import { formatDuration, typeLabel } from "./format";
 import type { MediaItem, MediaKind, MediaUpload } from "./types";
+import { Spinner } from "../designSystem/spinner";
 
 /** How long a pointer rests on a video tile before it starts playing. */
 const HOVER_DELAY_MS = 350;
@@ -200,7 +201,7 @@ export function UploadTile({
         )}
       >
         <div className="flex flex-col items-center gap-1 text-fg-secondary">
-          <Loader2 size={18} className="animate-spin" />
+          <Spinner size={18} />
           <span className="text-[0.6875rem]">
             {label}
             {upload.progress !== null ? ` ${upload.progress}%` : ""}

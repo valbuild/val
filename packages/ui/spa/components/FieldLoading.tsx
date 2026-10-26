@@ -1,6 +1,6 @@
 import { SerializedSchema, SourcePath } from "@valbuild/core";
 import classNames from "classnames";
-import { Loader2 } from "lucide-react";
+import { Spinner } from "./designSystem/spinner";
 
 export function FieldLoading({
   path,
@@ -17,7 +17,7 @@ export function FieldLoading({
         "text-left": type !== "module",
       })}
     >
-      <Loader2 size={type === "module" ? 24 : 16} className="animate-spin" />
+      <Spinner size={type === "module" ? 24 : 16} />
     </div>
   );
 }

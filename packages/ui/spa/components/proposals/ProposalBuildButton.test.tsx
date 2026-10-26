@@ -99,4 +99,90 @@ describe("the Build button", () => {
     fireEvent.click(button);
     expect(onBuild).toHaveBeenCalledTimes(1);
   });
+
+  /*
+   * Its dependencies changed without a lockfile to match (valbuild/home
+   * `docs/adept.md`, step 6): "Build required: dependencies changed", and the
+   * button computes the lockfile.
+   */
+  test("dependencies changed without a lockfile: it computes the lockfile when pressed", () => {
+    const onBuild = jest.fn();
+    render(
+      <ProposalBuildButton
+        location={location({
+          state: "lockfile",
+          computing: false,
+          error: null,
+        })}
+        onBuild={onBuild}
+      />,
+    );
+    const button = screen.getByRole("button", { name: /compute lockfile/i });
+    expect(button.getAttribute("title")).toMatch(
+      /build required: dependencies changed/i,
+    );
+    fireEvent.click(button);
+    expect(onBuild).toHaveBeenCalledTimes(1);
+  });
+
+  test("says why adept found the lockfile stale, or could not compute it", () => {
+    render(
+      <ProposalBuildButton
+        location={location({
+          state: "lockfile",
+          computing: false,
+          error: "No matching version found for zod@99",
+        })}
+        onBuild={() => {}}
+      />,
+    );
+    expect(
+      screen
+        .getByRole("button", { name: /compute lockfile/i })
+        .getAttribute("title"),
+    ).toContain("No matching version found for zod@99");
+  });
+
+  test("cannot be pressed while the lockfile is computed, or the dependencies built", () => {
+    const onBuild = jest.fn();
+    const { rerender } = render(
+      <ProposalBuildButton
+        location={location({ state: "lockfile", computing: true, error: null })}
+        onBuild={onBuild}
+      />,
+    );
+    const computing = screen.getByRole("button", {
+      name: /computing lockfile/i,
+    });
+    expect(computing.hasAttribute("disabled")).toBe(true);
+    rerender(
+      <ProposalBuildButton
+        location={location({ state: "dependencies-building" })}
+        onBuild={onBuild}
+      />,
+    );
+    const building = screen.getByRole("button", {
+      name: /building dependencies/i,
+    });
+    expect(building.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(building);
+    expect(onBuild).not.toHaveBeenCalled();
+  });
+
+  test("dependencies that could not be built say why, and what fixes it, rather than failing again", () => {
+    const onBuild = jest.fn();
+    render(
+      <ProposalBuildButton
+        location={location({
+          state: "dependencies-failed",
+          error: "zod could not be bundled",
+        })}
+        onBuild={onBuild}
+      />,
+    );
+    const button = screen.getByRole("button", { name: /dependencies failed/i });
+    expect(button.getAttribute("title")).toContain("zod could not be bundled");
+    expect(button.getAttribute("title")).toMatch(/package\.json/);
+    expect(button.hasAttribute("disabled")).toBe(true);
+  });
 });

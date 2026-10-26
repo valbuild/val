@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, Loader2, RotateCcw } from "lucide-react";
+import { AlertTriangle, Check, RotateCcw } from "lucide-react";
 import { useStudioDeployState } from "../ValProvider";
 import {
   INTENT_MAX_AGE_MS,
@@ -8,17 +8,18 @@ import {
   type TabHandoff,
 } from "../../publish/handoff";
 import {
-  describeDeployPhase,
-  deployPercent,
-} from "../../publish/deployProgress";
-import {
   browserStorage,
   readKeyed,
   writeKeyed,
 } from "../../publish/browserStorage";
-import { buildProposal } from "../../proposals/proposalCode";
+import {
+  buildProposal,
+  type ProposalBuildStep,
+} from "../../proposals/proposalCode";
+import { proposalBuildProgress } from "../../proposals/proposalBuildProgress";
 import { createProposalsClient } from "../../proposals/proposalsClient";
 import { cn } from "../designSystem/cn";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * The builder tab a page that cannot build opened to build a proposal's code
@@ -81,6 +82,7 @@ export function HandoffProposalBuildTab({
   const runRef = useRef(run);
   runRef.current = run;
 
+  const [buildStep, setBuildStep] = useState<ProposalBuildStep | null>(null);
   const start = useCallback(() => {
     const startedAt = Date.now();
     setRun({ kind: "building", startedAt });
@@ -90,14 +92,16 @@ export function HandoffProposalBuildTab({
       client: proposals,
       // This tab is the one that can: it is opened cross-origin isolated.
       canBuildHere: () => globalThis.crossOriginIsolated === true,
-      deploy: async (files) =>
+      deploy: async (files, target) =>
         (
           await deploy(null, files, {
             binaryFiles: null,
             branch: null,
             until: "confirmed",
+            ...(target ? { target } : {}),
           })
         ).result,
+      onStep: setBuildStep,
     })
       .catch(
         (error): HandedProposalBuild => ({
@@ -134,16 +138,20 @@ export function HandoffProposalBuildTab({
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
-  // The step, relayed to the page that opened this, so it says the same.
+  // The step, relayed to the page that opened this, so it says the same --
+  // every second for the whole build, serving included: the page takes a tab
+  // that has gone quiet for a dead one (`buildInTab`), and serving an
+  // upgrade's build is the longest quiet there is.
+  const progress = proposalBuildProgress(buildStep, state);
   useEffect(() => {
-    if (run?.kind !== "building" || state.status !== "running") return;
+    if (run?.kind !== "building") return;
     tab.current?.report({
       type: "phase",
-      label: describeDeployPhase(state.phase),
+      label: progress.label,
       elapsedMs: now - run.startedAt,
-      percent: deployPercent(state.phase),
+      ...(progress.percent !== null ? { percent: progress.percent } : {}),
     });
-  }, [state, now, run]);
+  }, [progress.label, progress.percent, now, run]);
 
   useEffect(() => {
     if (closingIn === null) return;
@@ -156,10 +164,7 @@ export function HandoffProposalBuildTab({
   }, [closingIn]);
 
   const outcome = run?.kind === "ended" ? run.outcome : null;
-  const step =
-    run?.kind === "building" && state.status === "running"
-      ? describeDeployPhase(state.phase)
-      : "Starting the build";
+  const step = run?.kind === "building" ? progress.label : "Starting the build";
   return (
     <div className="min-h-full w-full flex items-center justify-center bg-bg-primary text-fg-primary p-6">
       <div
@@ -168,7 +173,7 @@ export function HandoffProposalBuildTab({
       >
         <div className="flex items-center gap-2">
           {outcome === null ? (
-            <Loader2 size={18} className="shrink-0 animate-spin" />
+            <Spinner size={18} />
           ) : outcome.status === "failed" ? (
             <AlertTriangle
               size={18}

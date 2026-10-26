@@ -3,7 +3,8 @@ import {
   ArrowRight,
   Check,
   GitCompare,
-  Loader2,
+  Package,
+  ShieldCheck,
   Upload,
   X,
 } from "lucide-react";
@@ -16,6 +17,7 @@ import {
 } from "../designSystem/dialog";
 import { changesLabel } from "./ProposalSwitcher";
 import { conflictKey, UpdateConflicts } from "./UpdateConflicts";
+import { Spinner } from "../designSystem/spinner";
 
 /** One merge check, as the dialog shows it. */
 export type MergeCheckView = {
@@ -27,9 +29,12 @@ export type MergeCheckView = {
    * What clears it, when something here does. "update-from-site": the site
    * changed under the proposal -- its code (site-code), or a page the proposal
    * changes (published-since) -- and the proposal is brought up to it
-   * (valbuild/home `docs/hosted-publishing.md`, step 8).
+   * (valbuild/home `docs/hosted-publishing.md`, step 8). "compute-lockfile":
+   * its dependencies changed without a lockfile to match. "typecheck": it
+   * has dependencies of its own and no typecheck of what it stages
+   * (valbuild/home `docs/adept.md`, step 6 and decision 20).
    */
-  action?: "update-from-site";
+  action?: "update-from-site" | "compute-lockfile" | "typecheck";
 };
 
 /** Something both sides changed, as the person decides it. */
@@ -146,6 +151,9 @@ export function PublishProposalDialog({
   onGoToSite,
   onOpenContinuation,
   onUpdateFromSite,
+  onComputeLockfile,
+  onTypecheck,
+  typechecking = false,
   onResolve,
   onCancelUpdate,
   updating = false,
@@ -166,6 +174,12 @@ export function PublishProposalDialog({
   onOpenContinuation?: () => void;
   /** A check's action: the proposal brought up to the site, for that check. */
   onUpdateFromSite?: (checkId: string) => void;
+  /** The dependencies check's action: compute the lockfile. */
+  onComputeLockfile?: () => void;
+  /** The types check's action: typecheck what the proposal stages. */
+  onTypecheck?: () => void;
+  /** The typecheck is running. */
+  typechecking?: boolean;
   /**
    * The conflicts decided: for each, in order, which side the proposal
    * keeps. Merges the update with those.
@@ -181,10 +195,17 @@ export function PublishProposalDialog({
   const blocked =
     state.kind === "ready" && state.checks.some((check) => !check.ok);
   // Blocked by someone else's changes, which only they can publish or
-  // discard -- not by something an action here clears.
+  // discard -- not by something an action here clears, and not by the
+  // proposal's own dependencies or types, which say what to do themselves.
   const blockedByPeople =
     state.kind === "ready" &&
-    state.checks.some((check) => !check.ok && check.action === undefined);
+    state.checks.some(
+      (check) =>
+        !check.ok &&
+        check.action === undefined &&
+        check.id !== "dependencies" &&
+        check.id !== "types",
+    );
   return (
     <Dialog
       open={open}
@@ -214,8 +235,7 @@ export function PublishProposalDialog({
         <div className="flex flex-col gap-3 px-5 pb-4">
           {state.kind === "checking" && (
             <div className="flex items-center gap-2 text-xs text-fg-secondary">
-              <Loader2 size={14} className="animate-spin" /> Checking whether it
-              can be published…
+              <Spinner size={14} /> Checking whether it can be published…
             </div>
           )}
 
@@ -288,13 +308,41 @@ export function PublishProposalDialog({
                               className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border-proposal px-2 text-xs font-medium text-fg-primary hover:bg-bg-proposal-soft disabled:text-fg-disabled"
                             >
                               {updating ? (
-                                <Loader2 size={13} className="animate-spin" />
+                                <Spinner size={14} />
                               ) : (
                                 <ArrowRight size={13} />
                               )}
                               {updating
                                 ? "Updating from the site…"
                                 : "Update from the site"}
+                            </button>
+                          )}
+                        {!check.ok &&
+                          check.action === "compute-lockfile" &&
+                          onComputeLockfile !== undefined && (
+                            <button
+                              type="button"
+                              onClick={onComputeLockfile}
+                              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border-proposal px-2 text-xs font-medium text-fg-primary hover:bg-bg-proposal-soft"
+                            >
+                              <Package size={13} /> Compute lockfile
+                            </button>
+                          )}
+                        {!check.ok &&
+                          check.action === "typecheck" &&
+                          onTypecheck !== undefined && (
+                            <button
+                              type="button"
+                              onClick={onTypecheck}
+                              disabled={typechecking}
+                              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border-proposal px-2 text-xs font-medium text-fg-primary hover:bg-bg-proposal-soft disabled:text-fg-disabled"
+                            >
+                              {typechecking ? (
+                                <Spinner size={14} />
+                              ) : (
+                                <ShieldCheck size={13} />
+                              )}
+                              {typechecking ? "Typechecking…" : "Typecheck"}
                             </button>
                           )}
                       </span>
@@ -316,7 +364,7 @@ export function PublishProposalDialog({
 
           {state.kind === "publishing" && (
             <div className="flex items-center gap-2 text-xs text-fg-primary">
-              <Loader2 size={14} className="animate-spin text-fg-proposal" />
+              <Spinner size={14} className="text-fg-proposal" />
               {STEP_WORDS[state.step]}
             </div>
           )}
@@ -426,11 +474,7 @@ export function PublishProposalDialog({
                     "disabled:bg-bg-disabled disabled:text-fg-disabled",
                   )}
                 >
-                  {busy ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <Upload size={14} />
-                  )}
+                  {busy ? <Spinner size={14} /> : <Upload size={14} />}
                   {busy ? "Publishing…" : "Publish"}
                 </button>
               )}

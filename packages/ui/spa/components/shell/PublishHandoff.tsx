@@ -4,13 +4,13 @@ import {
   CheckCircle2,
   Circle,
   ExternalLink,
-  Loader2,
   RotateCw,
   X,
 } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { OverlayCard } from "./OverlayMenu";
 import { seconds } from "../../publish/deployProgress";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * Publishing from the overlay, which cannot build.
@@ -176,7 +176,7 @@ function HandoffIcon({ state }: { state: HandoffState }) {
     case "running":
     case "checking":
     case "publishing":
-      return <Loader2 size={16} className="animate-spin text-fg-secondary" />;
+      return <Spinner size={16} className="text-fg-secondary" />;
     case "needs-builder":
       return <AlertTriangle size={16} className="text-fg-secondary" />;
     case "live":
@@ -425,12 +425,7 @@ function StepIcon({ status }: { status: PublishStep["status"] }) {
         <CheckCircle2 size={15} className="shrink-0 text-fg-brand-primary" />
       );
     case "current":
-      return (
-        <Loader2
-          size={15}
-          className="shrink-0 animate-spin text-fg-secondary"
-        />
-      );
+      return <Spinner size={16} className="text-fg-secondary" />;
     case "todo":
       return <Circle size={15} className="shrink-0 text-fg-secondary-alt" />;
     case "failed":

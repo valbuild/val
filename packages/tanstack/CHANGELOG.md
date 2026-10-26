@@ -1,5 +1,220 @@
 # @valbuild/tanstack
 
+## 0.150.0
+
+### Patch Changes
+
+- Updated dependencies [[`baf2f56`](https://github.com/valbuild/val/commit/baf2f56498ca2ae5ec1f5bef356faf09a382b768), [`f638188`](https://github.com/valbuild/val/commit/f638188c27fc338ace3d8282f59e83084adcb002)]:
+  - @valbuild/ui@0.150.0
+  - @valbuild/react@0.150.0
+  - @valbuild/server@0.150.0
+  - @valbuild/language-server@0.150.0
+  - @valbuild/mcp@0.150.0
+
+## 0.149.7
+
+### Patch Changes
+
+- [#932](https://github.com/valbuild/val/pull/932) [`8be6e6a`](https://github.com/valbuild/val/commit/8be6e6abd2536b5758f0d5f8dfb1e468f29a7015) Thanks [@freekh](https://github.com/freekh)! - A site's Val can now check the site's content with its own rules: `Internal.selfCheck` in `@valbuild/tanstack`. The platform's upgrade page calls it on the version an upgrade moves to, so content the new version would reject is found before the upgrade is published, not after. It answers the errors that would hold a publish back, the same ones the Studio shows, and loads nothing until it is called, so it adds nothing to a site's pages.
+
+- [#930](https://github.com/valbuild/val/pull/930) [`8366c57`](https://github.com/valbuild/val/commit/8366c575df66ee19c3400b7fdbc14a8fd517afd6) Thanks [@freekh](https://github.com/freekh)! - Every loading spinner in the Studio is now drawn the same way, at even sizes. Odd-sized spinners, of which the Studio had several, are known to wobble in Safari.
+- Updated dependencies [[`8be6e6a`](https://github.com/valbuild/val/commit/8be6e6abd2536b5758f0d5f8dfb1e468f29a7015), [`cc2a37a`](https://github.com/valbuild/val/commit/cc2a37a74c52cab6fa062e8252fb292b84a479c3), [`7e78b1f`](https://github.com/valbuild/val/commit/7e78b1f863c47d4f38d9f1c9855a92e711170865), [`8366c57`](https://github.com/valbuild/val/commit/8366c575df66ee19c3400b7fdbc14a8fd517afd6)]:
+  - @valbuild/shared@0.149.7
+  - @valbuild/ui@0.149.7
+  - @valbuild/language-server@0.149.7
+  - @valbuild/mcp@0.149.7
+  - @valbuild/react@0.149.7
+  - @valbuild/server@0.149.7
+
+## 0.149.6
+
+### Patch Changes
+
+- Updated dependencies [[`8e79b44`](https://github.com/valbuild/val/commit/8e79b44b4610d188a206ed0b6de448c602a99965)]:
+  - @valbuild/ui@0.149.6
+  - @valbuild/server@0.149.6
+  - @valbuild/react@0.149.6
+  - @valbuild/language-server@0.149.6
+  - @valbuild/mcp@0.149.6
+
+## 0.149.5
+
+### Patch Changes
+
+- Updated dependencies [[`1e18a1b`](https://github.com/valbuild/val/commit/1e18a1ba31e169895fb75074028822dda305d26f), [`9e44644`](https://github.com/valbuild/val/commit/9e44644933103d0db38bf72463478d80a1a9b0dd)]:
+  - @valbuild/ui@0.149.5
+  - @valbuild/server@0.149.5
+  - @valbuild/react@0.149.5
+  - @valbuild/language-server@0.149.5
+  - @valbuild/mcp@0.149.5
+
+## 0.149.4
+
+### Patch Changes
+
+- Updated dependencies [[`1a426f4`](https://github.com/valbuild/val/commit/1a426f41759c5f70492be5f1795bdc260ac3572b)]:
+  - @valbuild/ui@0.149.4
+  - @valbuild/react@0.149.4
+  - @valbuild/server@0.149.4
+  - @valbuild/language-server@0.149.4
+  - @valbuild/mcp@0.149.4
+
+## 0.149.3
+
+### Patch Changes
+
+- Updated dependencies [[`ce7d5f4`](https://github.com/valbuild/val/commit/ce7d5f4f0732acb49068ae79a90aeff6fdc9e574)]:
+  - @valbuild/ui@0.149.3
+  - @valbuild/react@0.149.3
+  - @valbuild/server@0.149.3
+  - @valbuild/language-server@0.149.3
+  - @valbuild/mcp@0.149.3
+
+## 0.149.1
+
+### Patch Changes
+
+- [#916](https://github.com/valbuild/val/pull/916) [`f607bca`](https://github.com/valbuild/val/commit/f607bcae16723505fbd19bdfe791d3eaa1208524) Thanks [@freekh](https://github.com/freekh)! - Content analytics now works with nothing in the code: switching it on in a hosted project's settings is enough. With no `analytics` prop, `<ValProvider>` reads the setting itself -- the server render reads the `VAL_ANALYTICS` value Val's hosting hands the site, with the content version, and writes it into the page as a few bytes of JSON (`<script id="__val_analytics">`), which the browser reads back. Nothing is written while it is off.
+
+  A layout that passes `analytics={...}` from `fetchValAnalytics()` keeps working, and what it passes wins. The browser never reads `VAL_ANALYTICS` from the environment, so it needs no `VITE_` prefix and a build never fixes it: switching it off stops the counting without a rebuild.
+
+- Updated dependencies [[`6777ea4`](https://github.com/valbuild/val/commit/6777ea42e3164e913381cccabb1bccca3cf58243), [`357bea6`](https://github.com/valbuild/val/commit/357bea6148467838819d46daa1fb575f41365185)]:
+  - @valbuild/ui@0.149.1
+  - @valbuild/react@0.149.1
+  - @valbuild/server@0.149.1
+  - @valbuild/language-server@0.149.1
+  - @valbuild/mcp@0.149.1
+
+## 0.149.0
+
+### Patch Changes
+
+- Updated dependencies [[`32b3210`](https://github.com/valbuild/val/commit/32b3210c11bbd526c1882177c1870aa0be1d3ca4), [`bf24bc0`](https://github.com/valbuild/val/commit/bf24bc00e8f8c2a08538d59218d9da005943ac03)]:
+  - @valbuild/ui@0.149.0
+  - @valbuild/server@0.149.0
+  - @valbuild/react@0.149.0
+  - @valbuild/language-server@0.149.0
+  - @valbuild/mcp@0.149.0
+
+## 0.148.8
+
+### Patch Changes
+
+- Updated dependencies [[`213c6fc`](https://github.com/valbuild/val/commit/213c6fca9636f9b4bb54f15336a21d2ac4846a9b), [`1856a4a`](https://github.com/valbuild/val/commit/1856a4af7827794cbcd50d66a0800394bc386f87), [`1856a4a`](https://github.com/valbuild/val/commit/1856a4af7827794cbcd50d66a0800394bc386f87)]:
+  - @valbuild/ui@0.148.8
+  - @valbuild/react@0.148.8
+  - @valbuild/server@0.148.8
+  - @valbuild/language-server@0.148.8
+  - @valbuild/mcp@0.148.8
+
+## 0.148.7
+
+### Patch Changes
+
+- Updated dependencies [[`fb2eed8`](https://github.com/valbuild/val/commit/fb2eed8b51092cc2ad5c812bdf88b528913c824a), [`1a5ad65`](https://github.com/valbuild/val/commit/1a5ad65205ff65b54e9c5f2a7b41e24cca9fd68c)]:
+  - @valbuild/core@0.148.7
+  - @valbuild/react@0.148.7
+  - @valbuild/ui@0.148.7
+  - @valbuild/server@0.148.7
+  - @valbuild/language-server@0.148.7
+  - @valbuild/mcp@0.148.7
+  - @valbuild/shared@0.148.7
+
+## 0.148.6
+
+### Patch Changes
+
+- [#902](https://github.com/valbuild/val/pull/902) [`b580292`](https://github.com/valbuild/val/commit/b580292ac3c335b055f5ed5f18d6a12d075169c7) Thanks [@freekh](https://github.com/freekh)! - The demo has a script: `<ValApp demo={{ tours, audiences }}>`. Instead of a tour that opens by itself, the demo card asks "What brings you here?" and lists short tours for the answer, each ticked off once done. `/val?tour=<id>` starts one from a link.
+
+  A tour can start on a page of its own (`start`). A step can ask for a new page (`moveOn: { newPage }`), write any value or add one (`moveOn: { edit, value, add }`), and show the code behind what it is about (`code`).
+
+- Updated dependencies [[`b580292`](https://github.com/valbuild/val/commit/b580292ac3c335b055f5ed5f18d6a12d075169c7)]:
+  - @valbuild/ui@0.148.6
+  - @valbuild/shared@0.148.6
+  - @valbuild/react@0.148.6
+  - @valbuild/server@0.148.6
+  - @valbuild/language-server@0.148.6
+  - @valbuild/mcp@0.148.6
+
+## 0.148.5
+
+### Patch Changes
+
+- Updated dependencies [[`e1e41e2`](https://github.com/valbuild/val/commit/e1e41e2f2c3a2c511299f57ac36fcae50cc35bf6)]:
+  - @valbuild/ui@0.148.5
+  - @valbuild/react@0.148.5
+  - @valbuild/server@0.148.5
+  - @valbuild/language-server@0.148.5
+  - @valbuild/mcp@0.148.5
+
+## 0.148.4
+
+### Patch Changes
+
+- Updated dependencies [[`7c432b3`](https://github.com/valbuild/val/commit/7c432b3f05af414bd6cbc37cd58a71a783056caa)]:
+  - @valbuild/ui@0.148.4
+  - @valbuild/react@0.148.4
+  - @valbuild/server@0.148.4
+  - @valbuild/language-server@0.148.4
+  - @valbuild/mcp@0.148.4
+
+## 0.148.3
+
+### Patch Changes
+
+- [#881](https://github.com/valbuild/val/pull/881) [`0139436`](https://github.com/valbuild/val/commit/0139436426142d91cbb29ec6c696dfb86f34ab9d) Thanks [@freekh](https://github.com/freekh)! - The content analytics script. With analytics on (it is off by default, and turned on in a hosted project's settings), a TanStack site counts which content each visitor's page **rendered** and which they actually **viewed** (at least half on screen for a second), and sends it to `/api/val/analytics`.
+
+  - No cookies, no storage, no visitor IDs. Each page view also says where it came from (the referring site's host and any `utm_source` / `utm_medium` / `utm_campaign`) and whether it was a phone, tablet or desktop.
+  - A page is sent as its route's pattern (`/posts/$postId`), never its address, so a path that holds something about one visitor (an order number, a token) is never stored. `startValAnalytics` takes this as `routeFor`; `ValProvider` passes TanStack's matched route.
+  - Editors are never counted: nothing is sent in draft mode, in the Studio, with Val enabled, or at a proposal's address, and nothing from automated browsers. A page the browser prerenders counts nothing until it is shown.
+  - The script is the new `@valbuild/react/analytics` entry, loaded only for visitors of a site with analytics on, after the page has hydrated. It imports nothing else from Val.
+  - Storing the counts and showing them is part of Val's hosting, which takes these beacons before they reach the site. Anywhere else, `/api/val/analytics` checks each beacon and stores nothing; in local development, with `VAL_DEBUG=1`, it logs a line per beacon, so you can see it working.
+  - `ValProvider`'s Studio check now matches `/val` and what is below it only, not every route starting with those letters (`/values`). The same fix is in `@valbuild/next`.
+
+- [#887](https://github.com/valbuild/val/pull/887) [`eaa77e0`](https://github.com/valbuild/val/commit/eaa77e0e5028b113037e76722e25e342a8301032) Thanks [@freekh](https://github.com/freekh)! - Content analytics records the content version each page was rendered from. `<ValProvider analytics>` takes a `ValAnalytics` -- `{ enabled, contentVersion? }` -- and the `val.server.ts` Val's hosting writes returns one from `fetchValAnalytics()`, with the id of the content version the platform is serving. Every beacon carries it as `cv`, so counts can be compared across a publish. The site layout passes `fetchValAnalytics()` to the provider exactly as before.
+
+- [#878](https://github.com/valbuild/val/pull/878) [`4d862ce`](https://github.com/valbuild/val/commit/4d862cec40288ecbc415c3c3b8d792ddd6bc1ca3) Thanks [@freekh](https://github.com/freekh)! - TanStack Start: a new analytics mode, the first step towards content analytics. It is off by default. With `<ValProvider analytics>`, content read with the hooks (`useVal`, `useValRoute`, `useValKey`) is tagged for every visitor, not only in draft mode, so each element showing content carries a `data-val-path`. The tags are added in the browser after hydration, so the HTML the server sends is unchanged and a crawler that does not run the page never sees them.
+
+  On a site hosted by Val, analytics is a project setting: the owner turns it on in the project's settings, and the `val.server.ts` the platform writes now exports `fetchValAnalytics()` to read it. Pass it to the provider from the site layout's loader, beside `fetchValDraft()`; see the README.
+
+- [#896](https://github.com/valbuild/val/pull/896) [`5eff8a0`](https://github.com/valbuild/val/commit/5eff8a055a4ef50d476797c28f9c3e50deb73c89) Thanks [@freekh](https://github.com/freekh)! - A demo's tour can now be written by the site: `<ValApp demo={{ tour }}>`, with each step as data (`ValDemoTourStep`), so what it says changes with the site rather than with a Val release.
+
+  It is drawn as a ring around what a step is about, with nothing dimmed and the Studio usable underneath, and a step can move on by itself once the visitor has done what it asks:
+
+  ```ts
+  const tour: ValDemoTourStep[] = [
+    {
+      id: "click",
+      title: "This is Val",
+      body: "Click the heading on the page.",
+      target: "canvas",
+      page: HEADING, // outlined on the page
+      moveOn: { open: HEADING },
+    },
+    {
+      id: "type",
+      title: "Change a word",
+      body: "The page changes as you type.",
+      field: HEADING, // ringed wherever the field is shown
+      moveOn: {
+        edit: true,
+        path: HEADING,
+        value: "Coffee, roasted this weekend",
+      },
+    },
+  ];
+  ```
+
+  A step that moves on has **Do it for me**, which does it the way the Studio would, and **Skip**. On a phone the card is a sheet along the bottom. The Studio's own tour is unchanged.
+
+- Updated dependencies [[`0139436`](https://github.com/valbuild/val/commit/0139436426142d91cbb29ec6c696dfb86f34ab9d), [`5eff8a0`](https://github.com/valbuild/val/commit/5eff8a055a4ef50d476797c28f9c3e50deb73c89)]:
+  - @valbuild/react@0.148.3
+  - @valbuild/shared@0.148.3
+  - @valbuild/server@0.148.3
+  - @valbuild/ui@0.148.3
+  - @valbuild/language-server@0.148.3
+  - @valbuild/mcp@0.148.3
+
 ## 0.148.2
 
 ### Patch Changes

@@ -753,6 +753,29 @@ const SERVER_ENTRIES = [
   "@tanstack/start-server-core",
 ];
 
+/**
+ * Val's own entry points that are server-only by contract, built for the
+ * worker and never for the browser.
+ *
+ * Without this a dependency goes in the browser half whenever it CAN be built
+ * for a browser, whether or not anything there imports it. `@valbuild/tanstack/demo`
+ * can: it is the demo's server half, and its 15.5 MB is the built Studio it
+ * serves, as strings. A project importing it from its API route got that
+ * twice, once in each half, and the browser copy was never loaded -- a third
+ * of the demo's layer, built, uploaded and stored for nothing.
+ *
+ * Only entries whose purpose is the server, named by the package that
+ * defines them. A client import of one is still caught, by name: the layer
+ * lists it in `workerOnly`, and the app build rejects it (`build.ts`).
+ */
+export const SERVER_ONLY_ENTRIES: ReadonlyArray<string> = [
+  "@valbuild/tanstack/server",
+  "@valbuild/tanstack/demo",
+];
+
+const SERVER_ONLY_REASON =
+  "a server entry point: built for the worker only, by design";
+
 const SERVER_ENTRY_STUB = `
 throw new Error(
   'TanStack Start\\'s server entry is not available in the browser. A project ' +
@@ -1644,9 +1667,26 @@ export async function buildVendorLayer(
     const specifierOf = (chunk: string) =>
       Object.entries(modules).find(([, name]) => name === chunk)![0];
 
+    for (const specifier of Object.keys(modules)) {
+      if (!SERVER_ONLY_ENTRIES.includes(specifier)) continue;
+      workerOnly.push(specifier);
+      workerOnlyReasons[specifier] = SERVER_ONLY_REASON;
+    }
+    const forBrowser = (names: Array<string>) =>
+      names.filter((name) => !workerOnly.includes(specifierOf(name)));
+    // Those are listed before the first build, so one that then could not be
+    // built at all is in `skipped`, and is no longer reported as server-only.
+    const forgetUncarried = () => {
+      for (const specifier of [...workerOnly]) {
+        if (specifier in modules) continue;
+        workerOnly.splice(workerOnly.indexOf(specifier), 1);
+        delete workerOnlyReasons[specifier];
+      }
+    };
+
     let usable = Object.values(modules);
     let built = await buildTargets(
-      usable,
+      { worker: usable, browser: forBrowser(usable) },
       input,
       join(stubs, "out"),
       false,
@@ -1666,7 +1706,14 @@ export async function buildVendorLayer(
         // any more than in the first build: `buildTargets` reports it.
         const worked: Record<string, boolean> = {};
         const reasons: Array<string> = [];
+        const serverOnlyByContract = SERVER_ONLY_ENTRIES.includes(
+          specifierOf(name),
+        );
         for (const target of targetsFor(platform)) {
+          if (target.name === "browser" && serverOnlyByContract) {
+            worked.browser = false;
+            continue;
+          }
           try {
             const probe = await buildTargets(
               {
@@ -1691,6 +1738,7 @@ export async function buildVendorLayer(
         if (worked.worker && worked.browser) usable.push(name);
         else if (worked.worker) {
           usable.push(name);
+          if (serverOnlyByContract) continue; // listed before the first build
           workerOnly.push(specifierOf(name));
           // Kept, because throwing it away is what made this class of failure
           // undebuggable. `workerOnly` says a dependency is server-only and
@@ -1712,6 +1760,7 @@ export async function buildVendorLayer(
       // Everything failed: a layer with no entries is the same as no layer, and
       // the skip list is what the caller reports.
       if (usable.length === 0) {
+        forgetUncarried();
         return {
           rev: "none",
           modules: {},
@@ -1726,9 +1775,7 @@ export async function buildVendorLayer(
       built = await buildTargets(
         {
           worker: usable,
-          browser: usable.filter(
-            (name) => !workerOnly.includes(specifierOf(name)),
-          ),
+          browser: forBrowser(usable),
         },
         input,
         join(stubs, "out"),
@@ -1752,6 +1799,8 @@ export async function buildVendorLayer(
       workerOnly.push(specifier);
       workerOnlyReasons[specifier] = reason;
     }
+
+    forgetUncarried();
 
     // The revision covers the stylesheets too: changing one is a different
     // dependency set, and the build hash folds in the revision rather than the

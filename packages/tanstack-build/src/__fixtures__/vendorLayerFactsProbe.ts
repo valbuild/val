@@ -38,6 +38,8 @@ export type ServerOnlyOutcome = {
   workerOnly: Array<string>;
   workerOnlyReasons: Record<string, string>;
   browserCode: string;
+  workerCode: string;
+  browserFiles: Array<string>;
 };
 
 const remote = (facts: Facts): VendorPlatform => ({
@@ -125,6 +127,26 @@ const PROJECT: Record<string, string> = {
     "1.0.0",
     "./index.js",
   ),
+  // Val's server entry point for a demo, which builds for a browser -- and is
+  // nothing a browser imports, so it is built for the worker only.
+  "node_modules/@valbuild/tanstack/package.json": JSON.stringify({
+    name: "@valbuild/tanstack",
+    version: "1.0.0",
+    type: "module",
+    exports: {
+      ".": "./index.js",
+      "./demo": "./demo.js",
+      "./server": "./server.js",
+    },
+  }),
+  "node_modules/@valbuild/tanstack/index.js":
+    "export const ValProvider = () => 'the-provider';\n",
+  // Server-only by contract AND unbuildable: skipped, and not also reported as
+  // server-only.
+  "node_modules/@valbuild/tanstack/server.js":
+    'export * from "./missing.js";\n',
+  "node_modules/@valbuild/tanstack/demo.js":
+    "export const initValDemoServer = () => 'the-built-studio-as-strings';\n",
   "node_modules/emitter-dep/index.js":
     'import { EventEmitter } from "events";\n' +
     "export const emitter = () => new EventEmitter();\n",
@@ -168,6 +190,8 @@ async function serverOnly(deps: Array<string>): Promise<ServerOnlyOutcome> {
       workerOnly: built?.workerOnly ?? [],
       workerOnlyReasons: built?.workerOnlyReasons ?? {},
       browserCode: Object.values(built?.browser ?? {}).join("\n"),
+      workerCode: Object.values(built?.worker ?? {}).join("\n"),
+      browserFiles: Object.keys(built?.browser ?? {}).sort(),
     };
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -205,6 +229,19 @@ async function main() {
     serverOnlyBesideABrokenDependency: await serverOnly([
       "broken",
       "server-dep",
+    ]),
+    serverEntry: await serverOnly([
+      "@valbuild/tanstack",
+      "@valbuild/tanstack/demo",
+    ]),
+    serverEntryBesideABrokenDependency: await serverOnly([
+      "broken",
+      "@valbuild/tanstack",
+      "@valbuild/tanstack/demo",
+    ]),
+    unbuildableServerEntry: await serverOnly([
+      "@valbuild/tanstack",
+      "@valbuild/tanstack/server",
     ]),
   };
   console.log(JSON.stringify(result));

@@ -1,12 +1,21 @@
 import { createRequestPublish } from "../publish/requestPublish";
-import { createStudioJobClient } from "../publish/jobClient";
+import {
+  createStudioJobClient,
+  isTransientPublishError,
+  runStudioJob,
+  STUDIO_OUT_OF_DATE_MESSAGE,
+  markStudioOutOfDate,
+  rememberLoadedLayer,
+  siteMovedSinceLoad,
+  studioOutOfDateRefusals,
+  subscribeStudioOutOfDate,
+} from "@valbuild/shared/publish";
 import { randomUUID } from "../utils/randomUUID";
 import {
   createProposalsClient,
   sameStudioPageAt,
 } from "../proposals/proposalsClient";
 import { waitForAddress } from "../proposals/useProposals";
-import { isTransientPublishError } from "../publish/publishClient";
 import {
   createPublishJobs,
   isSettled,
@@ -24,7 +33,6 @@ import {
   otherEditorsJobs,
   type ObservedJob,
 } from "../publish/publishIndicator";
-import { runStudioJob } from "../publish/runStudioJob";
 import { PUBLISH_TAB_ID } from "../publish/tabId";
 import { canBuildHere } from "../publish/handoff";
 import { toast } from "./designSystem/sonner";
@@ -86,14 +94,6 @@ import {
 import { TooltipProvider } from "./designSystem/tooltip";
 import { SchemaOutOfDateDialog } from "./SchemaOutOfDateDialog";
 import { StudioOutOfDateDialog } from "./StudioOutOfDateDialog";
-import {
-  STUDIO_OUT_OF_DATE_MESSAGE,
-  markStudioOutOfDate,
-  rememberLoadedLayer,
-  siteMovedSinceLoad,
-  studioOutOfDateRefusals,
-  subscribeStudioOutOfDate,
-} from "../publish/loadedLayer";
 import { beginSiteOperation, busyMessage } from "../publish/siteOperation";
 import { LocalModulesErrorBanner } from "./LocalModulesErrorBanner";
 import { useSchemas } from "./ValFieldProvider";

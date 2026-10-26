@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
-import { ChevronRight, Loader2, TriangleAlert, X } from "lucide-react";
+import { ChevronRight, TriangleAlert, X } from "lucide-react";
 import { cn } from "../designSystem/cn";
 import { CLEAR_OF_BOTTOM_BARS } from "./MobileChrome";
 import {
@@ -7,6 +7,7 @@ import {
   describePendingChangesStall,
 } from "../../utils/describePendingChangesStall";
 import { PendingWriteHoldProvider } from "../PendingWriteHold";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * How long to wait before the note becomes a report.
@@ -147,7 +148,7 @@ function LoadingNote({ onDismiss }: { onDismiss: () => void }) {
       )}
     >
       <span className="inline-flex items-center gap-1.5 rounded-md border border-border-float bg-bg-float px-2.5 py-1 text-xs text-fg-secondary shadow-sm">
-        <Loader2 size={12} className="animate-spin" aria-hidden />
+        <Spinner size={12} aria-hidden />
         Loading unpublished changes…
         <button
           type="button"

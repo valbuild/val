@@ -1,4 +1,4 @@
-import { ArrowRight, GitBranch, Loader2 } from "lucide-react";
+import { ArrowRight, GitBranch } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
 import {
@@ -7,6 +7,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "../designSystem/dialog";
+import { Spinner } from "../designSystem/spinner";
 
 /** What creating answered, when it did not open the new proposal. */
 export type NewProposalProblem =
@@ -175,7 +176,7 @@ export function NewProposalDialog({
                 "disabled:bg-bg-disabled disabled:text-fg-disabled",
               )}
             >
-              {creating ? <Loader2 size={14} className="animate-spin" /> : null}
+              {creating ? <Spinner size={14} /> : null}
               {creating ? "Creating…" : "Create and open"}
               {!creating && <ArrowRight size={14} />}
             </button>

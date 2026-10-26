@@ -3,12 +3,12 @@ import type {
   PublishTabJob,
 } from "@valbuild/shared/internal";
 import { randomUUID } from "../utils/randomUUID";
-import type { StudioJobClient } from "./jobClient";
 import {
+  type StudioJobClient,
   runJobToEnd,
   type JobPhase,
   type StudioJobResult,
-} from "./runStudioJob";
+} from "@valbuild/shared/publish";
 
 /**
  * A Studio tab's publish jobs: the presses it made, and the job it builds.

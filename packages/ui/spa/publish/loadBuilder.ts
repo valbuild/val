@@ -78,37 +78,9 @@
  * mechanism shipped on an assumption.
  */
 
-import type * as TanstackBuild from "@valbuild/tanstack-build";
+import type { StudioBuilder } from "@valbuild/shared/publish";
 
-type Builder = typeof TanstackBuild;
-
-/**
- * What the Studio uses out of the builder package: five methods, each of which
- * may answer later.
- *
- * Later because the builder runs in a worker (see {@link importBuilder}), so
- * even `bakedGit` -- synchronous in the package -- is a round trip here. The
- * package module itself still satisfies this type, which is what lets a test
- * hand one in.
- */
-export type StudioBuilder = {
-  bakedGit: (
-    ...args: Parameters<Builder["bakedGit"]>
-  ) =>
-    | ReturnType<Builder["bakedGit"]>
-    | Promise<ReturnType<Builder["bakedGit"]>>;
-  rebakeGit: (
-    ...args: Parameters<Builder["rebakeGit"]>
-  ) =>
-    | ReturnType<Builder["rebakeGit"]>
-    | Promise<ReturnType<Builder["rebakeGit"]>>;
-  buildUserApp: Builder["buildUserApp"];
-  publishArtifacts: Builder["publishArtifacts"];
-  /** A build's name, before building it: see `buildInputId`. */
-  buildInputId: Builder["buildInputId"];
-  /** A tree's Val modules, as one module to evaluate: see `bundleValModules`. */
-  bundleValModules: Builder["bundleValModules"];
-};
+export type { StudioBuilder };
 
 export type BuilderLoader = () => Promise<StudioBuilder>;
 

@@ -4,8 +4,8 @@ import {
   Hammer,
   GitCompare,
   Link2,
-  Loader2,
   MoreHorizontal,
+  Package,
   Pencil,
   Save,
   Upload,
@@ -14,7 +14,8 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
 import { useDismissOnOutsidePointer } from "../shell/useDismissOnOutsidePointer";
-import type { StudioLocation } from "./types";
+import type { ProposalCodeState, StudioLocation } from "./types";
+import { Spinner } from "../designSystem/spinner";
 
 type InProposal = Extract<StudioLocation, { kind: "proposal" }>;
 
@@ -78,7 +79,7 @@ export function ProposalSaveButton({
       )}
     >
       {saving ? (
-        <Loader2 size={14} className="shrink-0 animate-spin" />
+        <Spinner size={14} />
       ) : failed !== null || blocked !== null ? (
         <AlertTriangle size={14} className="shrink-0" />
       ) : (
@@ -120,6 +121,11 @@ export function ProposalBuildButton({
 }) {
   const code = location.code;
   if (code === null) return null;
+  if (isDependenciesState(code)) {
+    return (
+      <DependenciesButton code={code} onPress={onBuild} className={className} />
+    );
+  }
   const building = code.state === "building";
   const blocked = code.state === "blocked";
   const failed = code.state === "failed" ? code : null;
@@ -147,7 +153,7 @@ export function ProposalBuildButton({
       )}
     >
       {building ? (
-        <Loader2 size={14} className="shrink-0 animate-spin" />
+        <Spinner size={14} />
       ) : failed !== null ? (
         <AlertTriangle size={14} className="shrink-0" />
       ) : blocked ? (
@@ -164,6 +170,117 @@ export function ProposalBuildButton({
               ? "Open the tab to build"
               : "Build required"}
       </span>
+    </button>
+  );
+}
+
+/**
+ * What Build says while the proposal's dependencies stand in its way, in the
+ * bar and in the phone's sheet alike. `busy` and `failed` cannot be pressed:
+ * nothing here makes a failed build of the dependencies work -- the package
+ * files do -- so it says why rather than offering the same failure again.
+ */
+export function describeDependencies(
+  code: Extract<
+    ProposalCodeState,
+    {
+      state: "lockfile" | "dependencies-building" | "dependencies-failed";
+    }
+  >,
+): { label: string; detail: string; busy: boolean; failed: boolean } {
+  switch (code.state) {
+    case "dependencies-building":
+      return {
+        label: "Building dependencies…",
+        detail:
+          "The proposal's dependencies changed, and they are being built. Build can be pressed once they are.",
+        busy: true,
+        failed: false,
+      };
+    case "dependencies-failed":
+      return {
+        label: "Dependencies failed",
+        detail: `The proposal's dependencies could not be built${code.error ? `: ${code.error}` : ""}. Change its package.json to build them again.`,
+        busy: false,
+        failed: true,
+      };
+    case "lockfile":
+      return code.computing
+        ? {
+            label: "Computing lockfile…",
+            detail:
+              "Computing the lockfile for the proposal's dependencies. They are built from it next.",
+            busy: true,
+            failed: false,
+          }
+        : {
+            label: "Compute lockfile",
+            detail: `Build required: dependencies changed. Their lockfile does not match them${code.error ? ` (${code.error})` : ""}. Press to compute it, and the dependencies are built from it.`,
+            busy: false,
+            failed: false,
+          };
+  }
+}
+
+/** The dependency states of Build, which {@link describeDependencies} words. */
+export function isDependenciesState(
+  code: ProposalCodeState,
+): code is Extract<
+  ProposalCodeState,
+  { state: "lockfile" | "dependencies-building" | "dependencies-failed" }
+> {
+  return (
+    code.state === "lockfile" ||
+    code.state === "dependencies-building" ||
+    code.state === "dependencies-failed"
+  );
+}
+
+/**
+ * Build, while the proposal's dependencies stand in its way (valbuild/home
+ * `docs/adept.md`, step 6): they changed and the lockfile does not match
+ * them -- "Build required: dependencies changed", and the button computes
+ * the lockfile -- or they are being built, or they could not be.
+ */
+function DependenciesButton({
+  code,
+  onPress,
+  className,
+}: {
+  code: Extract<
+    ProposalCodeState,
+    {
+      state: "lockfile" | "dependencies-building" | "dependencies-failed";
+    }
+  >;
+  onPress: () => void;
+  className?: string;
+}) {
+  const { label, detail: title, busy, failed } = describeDependencies(code);
+  return (
+    <button
+      type="button"
+      onClick={onPress}
+      disabled={busy || failed}
+      title={title}
+      className={cn(
+        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs font-medium",
+        failed
+          ? "border-transparent bg-bg-error-primary text-fg-error-primary"
+          : "border-border-proposal text-fg-primary hover:bg-bg-proposal-soft",
+        "disabled:cursor-default",
+        busy && "disabled:text-fg-disabled",
+        className,
+      )}
+    >
+      {busy ? (
+        <Spinner size={14} />
+      ) : failed ? (
+        <AlertTriangle size={14} className="shrink-0" />
+      ) : (
+        <Package size={14} className="shrink-0" />
+      )}
+      <span className="truncate">{label}</span>
     </button>
   );
 }
@@ -210,16 +327,14 @@ export function ProposalPublishButton({
 }
 
 /**
- * The proposal's own menu: compare, rename, copy its link, close. On a phone,
- * where the bottom bar has room for one action, it also carries Publish.
+ * The proposal's own menu, above a phone: compare, rename, copy its link,
+ * close. On a phone the same acts are in `ProposalSheet`.
  */
 export function ProposalMenu({
   onCompare,
   onRename,
   onCopyLink,
   onClose,
-  onPublish,
-  publishBlockedBy = null,
   defaultOpen = false,
   menuPlacement = "below",
 }: {
@@ -228,9 +343,6 @@ export function ProposalMenu({
   onRename: () => void;
   onCopyLink: () => void;
   onClose: () => void;
-  /** Offer Publish here too: the phone layout. */
-  onPublish?: () => void;
-  publishBlockedBy?: string | null;
   defaultOpen?: boolean;
   menuPlacement?: "below" | "above";
 }) {
@@ -270,19 +382,6 @@ export function ProposalMenu({
             menuPlacement === "above" ? "bottom-full mb-1" : "top-full mt-1",
           )}
         >
-          {onPublish !== undefined && (
-            <>
-              <MenuItem
-                icon={<Upload size={14} />}
-                onClick={choose(onPublish)}
-                disabled={publishBlockedBy !== null}
-                detail={publishBlockedBy ?? undefined}
-              >
-                Publish to the site
-              </MenuItem>
-              <div className="my-1 border-t border-border-float" />
-            </>
-          )}
           {onCompare !== undefined && (
             <MenuItem
               icon={<GitCompare size={14} />}

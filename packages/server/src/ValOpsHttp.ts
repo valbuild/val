@@ -864,9 +864,10 @@ export class ValOpsHttp extends ValOps {
    * An allow list rather than a prefix check, because this method holds a
    * credential and the browser chooses the path. `/publish/{id}` and its three
    * steps are the publish conversation; `/build-target` is what a build needs
-   * to know before it starts; `/project-source` is what it builds;
-   * `/update-target` is the same question as `/build-target` for a managed
-   * project moving onto its template's current dependencies.
+   * to know before it starts; `/project-source` is what it builds. Not
+   * `/update-target` any more: a managed project's dependencies are upgraded
+   * in a proposal (valbuild/home `docs/adept.md`, step 7), not by publishing
+   * its template's.
    *
    * `/project-source` is here rather than on a route of its own because it is
    * one of the three things a publish asks for and none of them are useful
@@ -887,11 +888,15 @@ export class ValOpsHttp extends ValOps {
     if (
       path === "/build-target" ||
       path === "/project-source" ||
-      path === "/update-target" ||
       path === "/publish" ||
       // Where "View run" goes, for a connected build CI reported failed.
       // Read only: reporting a run is CI's, with its own token.
-      path === "/ci-runs/newest"
+      path === "/ci-runs/newest" ||
+      // Whether there is anything to upgrade, and the site's lockfile the
+      // typecheck of an upgrade compares against (valbuild/home
+      // `docs/adept.md`, step 7). Both read only.
+      path === "/upgrades" ||
+      path === "/dependency-files"
     ) {
       return true;
     }
@@ -961,8 +966,9 @@ export class ValOpsHttp extends ValOps {
 
   /**
    * Which proposal calls the browser may make, by method and the path after
-   * `/proposals`: list and open, read and rename one, and close, reopen and
-   * retry its setup. Not `/save` -- the Studio saves through `/save`, which
+   * `/proposals`: list and open, read and rename one, read what its build
+   * targets and how far an upgrade's preparation is, render its build as a
+   * canary (`verify`), and close, reopen and retry its setup. Not `/save` -- the Studio saves through `/save`, which
    * prepares the commit here -- and not `/patches`, which moves the site's
    * changes into a proposal and has no screen yet.
    */
@@ -971,17 +977,21 @@ export class ValOpsHttp extends ValOps {
     const one = /^\/[0-9a-f]{20}$/.test(path);
     if (one) return method === "GET" || method === "PATCH";
     if (method === "GET")
-      return /^\/[0-9a-f]{20}\/(merge-checks|files|merge-trees)$/.test(path);
+      return /^\/[0-9a-f]{20}\/(merge-checks|files|merge-trees|build-target|preparation)$/.test(
+        path,
+      );
     return (
       method === "POST" &&
-      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|build|update-from-site|restore-code)$/.test(
+      /^\/[0-9a-f]{20}\/(close|reopen|setup\/retry|merge|files|lockfile|typecheck|build|verify|update-from-site|restore-code)$/.test(
         path,
       )
     );
   }
 
   /**
-   * A write to a proposal's FILES -- staging code, serving a build of it
+   * A write to a proposal's FILES -- staging code, computing its lockfile
+   * (valbuild/home `docs/adept.md`, step 6), reporting the typecheck of
+   * them (step 7, decision 20), serving a build of it
    * (valbuild/home `docs/hosted-publishing.md`, step 7), or moving it onto the
    * site's code (step 8, "Update from the site") -- is made by the
    * proposal's own server and nobody else's: the file tools act on the
@@ -995,7 +1005,7 @@ export class ValOpsHttp extends ValOps {
   ): string | null {
     if (method !== "POST") return null;
     return (
-      /^\/([0-9a-f]{20})\/(files|build|update-from-site|restore-code)$/.exec(
+      /^\/([0-9a-f]{20})\/(files|lockfile|typecheck|build|update-from-site|restore-code)$/.exec(
         path,
       )?.[1] ?? null
     );
@@ -1014,6 +1024,14 @@ export class ValOpsHttp extends ValOps {
       path === "/build-target" ||
       path === "/project-source" ||
       path === "/publish"
+    ) {
+      return true;
+    }
+    // An upgrade proposal's typecheck compares against the site's lockfile,
+    // and its chrome asks whether there is anything to upgrade. Read only.
+    if (
+      method === "GET" &&
+      (path === "/upgrades" || path === "/dependency-files")
     ) {
       return true;
     }

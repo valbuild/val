@@ -1,5 +1,12 @@
-import type { TourStep } from "../components/shell/tourSteps";
-import type { ShellDestination } from "../components/shell/types";
+import type { JSONValue } from "@valbuild/core/patch";
+import type {
+  ValDemoTourMoveOn,
+  ValDemoTourPanel,
+  ValDemoTourStep,
+} from "@valbuild/shared/internal";
+import type { TourMoveOn, TourStep } from "../components/shell/tourSteps";
+import type { ShellDestination, ShellPanel } from "../components/shell/types";
+import { isSourcePath } from "../utils/sourcePath";
 
 /*
  * THE DEMO'S GUIDED TOUR: its stops and its words.
@@ -91,6 +98,119 @@ export function demoTourSteps({
     },
   );
   return steps;
+}
+
+/**
+ * The tour the site wrote (`<ValApp demo={{ tour }}>`), as the Studio's steps.
+ *
+ * The site's steps arrive at run time from a page that may not be TypeScript,
+ * so nothing here is trusted to be the shape its type says. What cannot be
+ * used is dropped, as narrowly as possible, rather than failing the tour: a
+ * step with no words is left out, a target or panel the Studio does not have
+ * is ignored (the card stands on its own, as it does on a phone), and a
+ * `moveOn` whose path is not a source path makes it a step with Next -- the
+ * visitor can always get past it.
+ */
+export function demoTourStepsFromSite(
+  steps: readonly ValDemoTourStep[],
+): TourStep[] {
+  const out: TourStep[] = [];
+  for (const step of steps) {
+    if (typeof step.title !== "string" || typeof step.body !== "string") {
+      continue;
+    }
+    const panel = panelOf(step.panel);
+    const moveOn = moveOnOf(step.moveOn);
+    const code = codeOf(step.code);
+    out.push({
+      id: typeof step.id === "string" ? step.id : `step-${out.length}`,
+      title: step.title,
+      body: step.body,
+      ...(typeof step.target === "string" ? { target: step.target } : {}),
+      ...(panel ? { panel } : {}),
+      ...(typeof step.field === "string" && isSourcePath(step.field)
+        ? { field: step.field }
+        : {}),
+      ...(typeof step.page === "string" && isSourcePath(step.page)
+        ? { page: step.page }
+        : {}),
+      ...(moveOn ? { moveOn } : {}),
+      ...(code ? { code } : {}),
+    });
+  }
+  return out;
+}
+
+const PANELS: Record<ValDemoTourPanel, ShellPanel> = {
+  pages: "pages",
+  media: "media",
+  data: "data",
+  settings: "settings",
+  ai: "ai",
+};
+
+function panelOf(panel: unknown): ShellPanel | null {
+  if (typeof panel !== "string") return null;
+  for (const [name, shellPanel] of Object.entries(PANELS)) {
+    if (name === panel) return shellPanel;
+  }
+  return null;
+}
+
+function moveOnOf(moveOn: ValDemoTourMoveOn | undefined): TourMoveOn | null {
+  if (typeof moveOn !== "object" || moveOn === null) return null;
+  if ("open" in moveOn) {
+    return typeof moveOn.open === "string" && isSourcePath(moveOn.open)
+      ? { type: "open", path: moveOn.open }
+      : null;
+  }
+  if ("edit" in moveOn) {
+    const { path, value, add } = moveOn;
+    return typeof path === "string" && isSourcePath(path) && isJson(value)
+      ? {
+          type: "edit",
+          write: { path, value, ...(add === true ? { add: true } : {}) },
+        }
+      : { type: "edit" };
+  }
+  if ("newPage" in moveOn) {
+    return typeof moveOn.newPage === "string" && isSourcePath(moveOn.newPage)
+      ? { type: "newPage", path: moveOn.newPage }
+      : null;
+  }
+  if ("panel" in moveOn) {
+    const panel = panelOf(moveOn.panel);
+    return panel ? { type: "panel", panel } : null;
+  }
+  if ("locale" in moveOn) return { type: "locale" };
+  return null;
+}
+
+function codeOf(code: unknown): TourStep["code"] | null {
+  if (typeof code !== "object" || code === null) return null;
+  if (!("file" in code) || !("text" in code)) return null;
+  const { file, text } = code;
+  return typeof file === "string" && typeof text === "string"
+    ? { file, text }
+    : null;
+}
+
+/** A value a patch can write: what JSON can say, and nothing else. */
+function isJson(value: unknown): value is JSONValue {
+  if (value === null) return true;
+  switch (typeof value) {
+    case "string":
+    case "boolean":
+      return true;
+    case "number":
+      return Number.isFinite(value);
+    case "object":
+      return Array.isArray(value)
+        ? value.every(isJson)
+        : Object.values(value).every(isJson);
+    default:
+      return false;
+  }
 }
 
 /**

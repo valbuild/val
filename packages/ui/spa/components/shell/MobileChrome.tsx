@@ -1,8 +1,7 @@
-import { Info, PanelRight, Sparkles } from "lucide-react";
+import { Bell, ChevronDown, Sparkles } from "lucide-react";
 import { ReactNode } from "react";
 import { cn } from "../designSystem/cn";
-import { PreviewButton, PublishButton } from "./TopBar";
-import { LocaleFilter } from "./LocaleFilter";
+import { PreviewButton } from "./TopBar";
 
 /**
  * Where a note floating over the bottom of the Studio is anchored, so it
@@ -18,27 +17,30 @@ export const CLEAR_OF_BOTTOM_BARS =
   "bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.25rem)]";
 
 /**
- * The floating mobile bottom bar. Preview and Publish are always reachable
- * here; auto save, dev mode and branch move behind the status button rather
- * than taking a permanent row.
+ * The floating mobile bottom bar: what you DO, where the thumb is.
+ *
+ * Four controls whatever is switched on, so it never overflows a 320px phone:
+ * the assistant, the activity bell, Preview, and ONE primary action with a
+ * caret for the rest of what can be done with the changes (`ChangesSheet`).
+ * Where you are is the top bar's job, and so is navigating; the account, the
+ * theme and the deploy feed are behind the avatar. Each of those used to have
+ * a second way in from here as well (a status button that opened the account
+ * sheet, and Quick actions), and the bar overflowed in a proposal with code to
+ * build: Preview was covered and Save was pushed off the screen.
  *
  * The assistant is here too, rather than in the top bar. On a phone the top
- * right corner is the furthest point from a thumb, and it was sharing that
- * corner with navigation, notifications and the account avatar - four icons in
- * the row you reach for least. The top bar drops its Sparkles button below the
- * mobile breakpoint, so there is still only one.
+ * right corner is the furthest point from a thumb. The top bar drops its
+ * Sparkles button below the mobile breakpoint, so there is still only one.
  */
 export function MobileBottomBar({
-  pendingChanges,
   onPreview,
   previewHref,
-  onPublish,
-  publishSlot,
-  onOpenStatus,
-  locales,
-  locale = null,
-  onLocaleChange,
-  onOpenQuickActions,
+  primary,
+  onOpenChanges,
+  isChangesOpen,
+  onOpenActivity,
+  isActivityOpen,
+  activityCount,
   onOpenAI,
   isAIOpen,
   onToggleCanvas,
@@ -46,25 +48,23 @@ export function MobileBottomBar({
   canvasActionLabel,
   onExitCanvas,
 }: {
-  pendingChanges: number;
   onPreview: () => void;
   /** The preview URL, so "Open in a new tab" is a link. See `PreviewButton`. */
   previewHref?: string;
-  onPublish: () => void;
-  /** The real publish control, when there is one. See `TopBarProps`. */
-  publishSlot?: ReactNode;
-  onOpenStatus: () => void;
-  /** The project's languages, for the locale filter. Empty hides it. */
-  locales?: string[];
-  /** The language being shown, or `null` for all of them. */
-  locale?: string | null;
-  onLocaleChange?: (locale: string | null) => void;
   /**
-   * Quick actions — the same panel the top bar opens above the mobile
-   * breakpoint. It holds the validation errors, Review changes, New page and
-   * Upload media, none of which were reachable on a phone at all.
+   * The one action this bar has room for: Publish on the site, and in a
+   * proposal whichever of Fix, Save, Build and Publish comes next. See
+   * `Shell`'s `mobilePrimary`.
    */
-  onOpenQuickActions?: () => void;
+  primary: ReactNode;
+  /** The rest of what can be done with the changes. See `ChangesSheet`. */
+  onOpenChanges: () => void;
+  isChangesOpen?: boolean;
+  /** Notifications, validation errors and history. See `ActivitySheet`. */
+  onOpenActivity: () => void;
+  isActivityOpen?: boolean;
+  /** Unread notifications plus validation errors: what is asking to be seen. */
+  activityCount: number;
   /**
    * Open the assistant.
    *
@@ -95,88 +95,47 @@ export function MobileBottomBar({
      *
      * `p-1.5` + `rounded-xl` keeps the corners concentric with the buttons'
      * `rounded-md`, and keeps the bar's top edge (12px + 50px) under
-     * `CLEAR_OF_BOTTOM_BARS`, where the notes floating above it are anchored. `gap-1.5`
-     * rather than `gap-2` gives back the width the inset took, so the row
-     * still fits a 320px phone - see the `min-w-0` note below.
+     * `CLEAR_OF_BOTTOM_BARS`, where the notes floating above it are anchored.
      */
     <div className="absolute z-full inset-x-2 bottom-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-1.5 p-1.5 bg-bg-float border border-border-float rounded-xl shadow-lg">
-      <button
-        type="button"
-        onClick={onOpenStatus}
-        aria-label="Status and settings"
-        className="grid place-items-center w-9 h-9 shrink-0 rounded-md text-fg-secondary border border-border-float"
-      >
-        <Info size={16} />
-      </button>
-      {onOpenQuickActions && (
-        <button
-          type="button"
-          onClick={onOpenQuickActions}
-          aria-label="Quick actions"
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border-float text-fg-secondary"
-        >
-          <PanelRight size={16} />
-        </button>
-      )}
       {onOpenAI && (
-        <button
-          type="button"
+        <BarIconButton
+          label="AI assistant"
           onClick={onOpenAI}
-          aria-label="AI assistant"
-          aria-pressed={isAIOpen}
+          pressed={isAIOpen}
           // The assistant step points here on a phone, where the top bar's
           // button is not drawn. Only one of the two is ever on screen, so the
           // tour's lookup cannot find the wrong one.
-          data-val-tour="ai"
-          className={cn(
-            "grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border-float",
-            // The open state is shown the same way the top bar's icon buttons
-            // show it, so the assistant looks open in the same way everywhere.
-            isAIOpen
-              ? "bg-bg-float-raised text-fg-primary"
-              : "text-fg-secondary",
-          )}
+          tourTarget="ai"
         >
           <Sparkles size={16} />
-        </button>
+        </BarIconButton>
       )}
+      <BarIconButton
+        label={activityCount > 0 ? `Activity (${activityCount})` : "Activity"}
+        onClick={onOpenActivity}
+        pressed={isActivityOpen}
+      >
+        <Bell size={16} />
+        {activityCount > 0 && (
+          <span
+            aria-hidden
+            className="absolute -top-1 -right-1 min-w-[1rem] h-4 px-1 grid place-items-center rounded-full bg-fg-primary text-bg-float text-[0.625rem] font-semibold tabular-nums"
+          >
+            {activityCount > 9 ? "9+" : activityCount}
+          </span>
+        )}
+      </BarIconButton>
       {/*
-       * The phone's home for the locale filter, since the top bar here is the
-       * project name and a menu button. `above`, or the menu opens off the
-       * bottom of the screen.
-       */}
-      {locales !== undefined && onLocaleChange !== undefined && (
-        <LocaleFilter
-          locales={locales}
-          value={locale}
-          onChange={onLocaleChange}
-          menuPlacement="above"
-          className="h-9 shrink-0"
-        />
-      )}
-      {/*
-       * The same control as on desktop, not a second design of it.
+       * The same control as on desktop, not a second design of it: the main
+       * half acts, the caret offers the other way to see the page.
        *
-       * A phone had a canvas icon and a Preview button side by side, which made
-       * "show me the page" a choice about chrome rather than about the page —
-       * the exact thing the split button was built to stop. It also meant the
-       * two behaviours drifted: the desktop menu explains what each one does and
-       * the phone's pair of icons explained nothing.
-       */}
-      {/*
-       * `min-w-0` on both, because a flex item's default minimum is its own
-       * content: without it neither of these can shrink below its label, and
-       * the row - three 36px icons, two labelled controls and the gaps between
-       * them - overflows a 320px phone and takes Publish off the edge. With it
-       * they give up width in step, and each clips its own label (the Preview
-       * split button is already `overflow-hidden`; Publish truncates).
-       */}
-      {/*
        * Wrapped so the tour has something to point at on a phone, where the top
        * bar's copies of these are not drawn — the same markers `TopBar` puts on
        * its own. Only one bar is ever rendered, so the lookup cannot find both.
-       * `flex-1 min-w-0` moves to the wrapper, or the control inside it stops
-       * being able to give up width.
+       * `flex-1 min-w-0` is on the wrapper, or the control inside it could not
+       * give up width: Preview is the one control here that shrinks, and it
+       * clips its own label rather than push the primary off the edge.
        */}
       <span data-val-tour="preview" className="flex min-w-0 flex-1">
         <PreviewButton
@@ -192,23 +151,51 @@ export function MobileBottomBar({
         />
       </span>
       {/*
-       * NOT wrapped for the tour, unlike Preview above.
-       *
-       * The publish control here is the app's own (`publishSlot`), and its
-       * button carries `min-w-[6.5rem]` that a wrapper cannot talk it out of.
-       * Putting it one level down inside a shrinkable span changes what this
-       * row's flex algorithm sees at 320px, where the comment above records
-       * that the fit was already fought for once. The publish STEP simply
-       * centres its card on a phone, which is what every step does where the
-       * control it points at is not drawn — see `TourStep.target`.
+       * NOT wrapped for the tour, unlike Preview above: the publish control is
+       * the app's own (`publishSlot`) and carries a minimum width a wrapper
+       * cannot talk it out of. The publish STEP centres its card on a phone,
+       * which is what every step does where its control is not drawn.
        */}
-      {publishSlot ?? (
-        <PublishButton
-          pendingChanges={pendingChanges}
-          onPublish={onPublish}
-          className="h-9 min-w-0 flex-1"
-        />
-      )}
+      {primary}
+      <BarIconButton
+        label="More for these changes"
+        onClick={onOpenChanges}
+        pressed={isChangesOpen}
+      >
+        <ChevronDown size={16} />
+      </BarIconButton>
     </div>
+  );
+}
+
+function BarIconButton({
+  label,
+  onClick,
+  pressed,
+  tourTarget,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  pressed?: boolean;
+  tourTarget?: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={pressed}
+      data-val-tour={tourTarget}
+      className={cn(
+        "relative grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border-float",
+        // The open state is shown the same way the top bar's icon buttons
+        // show it, so a panel looks open in the same way everywhere.
+        pressed ? "bg-bg-float-raised text-fg-primary" : "text-fg-secondary",
+      )}
+    >
+      {children}
+    </button>
   );
 }

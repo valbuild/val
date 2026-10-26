@@ -1,3 +1,5 @@
+import type { SourcePath } from "@valbuild/core";
+import type { JSONValue } from "@valbuild/core/patch";
 import { ShellDestination, ShellPanel } from "./types";
 import { TOUR_COPY } from "./tourCopy";
 
@@ -40,7 +42,53 @@ export type TourStep = {
    * behind the card rather than described in the abstract.
    */
   panel?: ShellPanel;
+  /**
+   * A field this step is about, ringed wherever the Studio shows it. Before
+   * `target`, which stands in when the field is not on screen.
+   */
+  field?: SourcePath;
+  /**
+   * A place on the PAGE this step is about, as a source path. The page
+   * outlines it and brings it into view (the canvas's `highlight`), because
+   * the page is a frame and only it can draw on itself.
+   */
+  page?: SourcePath;
+  /** What moves the step on by itself. Absent: Next. See `TourMoveOn`. */
+  moveOn?: TourMoveOn;
+  /**
+   * Code shown in the card, under the words: the line of a `.val.ts` behind
+   * what the step is about. The demo's developer tours use it.
+   */
+  code?: { file: string; text: string };
 };
+
+/**
+ * Something the visitor does that moves a step on, because doing it is the
+ * lesson. Each has a "Do it for me" that does it the way the Studio would.
+ * The demo's tour uses them (`ValDemoTourMoveOn`, which a site writes); the
+ * Studio's own tour does not yet.
+ */
+export type TourMoveOn =
+  /** A field at or below `path` is open. Do it for me opens it. */
+  | { type: "open"; path: SourcePath }
+  /**
+   * A change is made. Do it for me writes `value` at `path` -- replacing what
+   * is there, or with `add` adding it -- and is offered only when the step
+   * says what to write.
+   */
+  | {
+      type: "edit";
+      write?: { path: SourcePath; value: JSONValue; add?: boolean };
+    }
+  /**
+   * A page is added. Do it for me adds this one, a page router's module and
+   * the new page's key, as the New page form would, and opens it.
+   */
+  | { type: "newPage"; path: SourcePath }
+  /** That panel is open. Do it for me opens it. */
+  | { type: "panel"; panel: ShellPanel }
+  /** The language shown changes. Do it for me picks the next one. */
+  | { type: "locale" };
 
 /**
  * How Val is running, for the one step whose subject is named differently in
@@ -172,3 +220,15 @@ export function readTourCompleted(): boolean {
 export function writeTourCompleted(completed: boolean): void {
   write(COMPLETED_KEY, completed ? "true" : "false");
 }
+
+/**
+ * A tour other than the usual one, started on purpose: one of the demo
+ * script's (`ValDemoOptions.tours`). `onFinish` is told when its last step
+ * was done, so the script can tick it off.
+ */
+export type TourRun = {
+  steps: TourStep[];
+  /** Called as the tour starts: the demo goes to the tour's page. */
+  onStart?: () => void;
+  onFinish?: () => void;
+};
