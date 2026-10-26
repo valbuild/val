@@ -73,9 +73,9 @@ export type AccountPanelProps = {
    */
   members?: ReactNode;
   /**
-   * The Upgrade button, on a phone, where the top bar has no room for it
-   * (valbuild/home `docs/adept.md`, step 7). Absent while there is nothing
-   * to upgrade.
+   * The Updates notice, on a phone, where the top bar has no room for it
+   * (valbuild/home `docs/plans/upgrades-v2.md`, piece E). Absent while there
+   * is nothing to upgrade.
    */
   upgrade?: UpgradeButton;
   onClose: () => void;
@@ -246,9 +246,7 @@ export function AccountPanel({
                     className="shrink-0 text-fg-secondary"
                   />
                 )}
-                {upgrade.vulnerable
-                  ? "Upgrade: fixes vulnerable dependencies"
-                  : "Upgrade dependencies"}
+                {upgrade.label}
               </button>
             </div>
           </>
