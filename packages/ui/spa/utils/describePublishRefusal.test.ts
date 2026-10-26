@@ -35,10 +35,10 @@ describe("describePublishRefusal", () => {
       reason: "unsaved-changes",
       patchIds: ["p1" as PatchId],
       planRefusal:
-        "site has used this week's 1,000 changes on the Free plan. An owner can upgrade to Pro: https://admin.val.build/orgs/acme/billing",
+        "site has used this week's 1,000 changes on the Free plan. An owner can upgrade to Custom hosting: https://admin.val.build/orgs/acme/billing",
     });
     expect(said.message).toContain("plan");
-    expect(said.details).toContain("upgrade to Pro");
+    expect(said.details).toContain("upgrade to Custom hosting");
     expect(said.details).toContain("changes are kept");
     expect(said.details).not.toMatch(/connection|try again/i);
   });
