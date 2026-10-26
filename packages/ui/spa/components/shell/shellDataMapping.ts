@@ -532,20 +532,6 @@ export function hostLabel(url: string): string {
 }
 
 /**
- * The project's pages in Val Build's admin app.
- *
- * `config.project` is `"<org>/<project>"` — the format `val connect` insists
- * on — so anything else has no page to open: a project that was never
- * connected has no `project` at all, and a malformed one would only produce a
- * link to a 404. Both return `undefined`, which is what hides the link and the
- * settings buttons rather than offering a way out that goes nowhere.
- *
- * The member list is reached through `/manage-members/<org>`, which the admin
- * app keeps for exactly this — it redirects to wherever the org's members
- * currently live, so Val does not have to track that page moving. The
- * project's AI keys are `/manage-ai/<org>/<project>`, for the same reason.
- */
-/**
  * `org/name` and the admin host, for the projects Val Build has pages for:
  * the one parse `toAdminLinks` and `toEnvVarsHref` both make, so the two
  * cannot disagree about which projects those are.
@@ -567,6 +553,20 @@ function adminProjectOf(
   };
 }
 
+/**
+ * The project's pages in Val Build's admin app.
+ *
+ * `config.project` is `"<org>/<project>"` — the format `val connect` insists
+ * on — so anything else has no page to open: a project that was never
+ * connected has no `project` at all, and a malformed one would only produce a
+ * link to a 404. Both return `undefined`, which is what hides the link and the
+ * settings buttons rather than offering a way out that goes nowhere.
+ *
+ * The member list is reached through `/manage-members/<org>`, which the admin
+ * app keeps for exactly this — it redirects to wherever the org's members
+ * currently live, so Val does not have to track that page moving. The
+ * project's AI keys are `/manage-ai/<org>/<project>`, for the same reason.
+ */
 export function toAdminLinks(
   config: { project?: string; appHost?: string } | undefined,
 ): ShellAdminLinks | undefined {

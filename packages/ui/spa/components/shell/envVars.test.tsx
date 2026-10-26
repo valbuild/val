@@ -124,7 +124,9 @@ test("the link is the stable one admin redirects, and only for <org>/<project>",
 });
 
 test("a project with no settings module still has its Variables tab", () => {
-  const { container } = render(<ValSettingsSections />);
+  const { container } = render(
+    <ValSettingsSections valBuild={mockAccess.current} />,
+  );
   expect(screen.getByText(/This project has no settings module/)).toBeTruthy();
   expect(screen.getByRole("tab", { name: "Variables" })).toBeTruthy();
   expect(container.querySelector("val-env-vars")).not.toBeNull();
@@ -132,7 +134,9 @@ test("a project with no settings module still has its Variables tab", () => {
 
 test("and one that is not connected is told only about the module", () => {
   mockConfig.current = { appHost: "https://admin.val.build" };
-  const { container } = render(<ValSettingsSections />);
+  const { container } = render(
+    <ValSettingsSections valBuild={mockAccess.current} />,
+  );
   expect(screen.getByText(/This project has no settings module/)).toBeTruthy();
   expect(screen.queryByRole("tab")).toBeNull();
   expect(container.querySelector("val-env-vars")).toBeNull();
@@ -140,7 +144,10 @@ test("and one that is not connected is told only about the module", () => {
 
 test("where Settings opens on Updates, the Variables tab is there without the notice", () => {
   const { container } = render(
-    <ValSettingsSections explainMissingModule={false} />,
+    <ValSettingsSections
+      explainMissingModule={false}
+      valBuild={mockAccess.current}
+    />,
   );
   expect(screen.queryByText(/This project has no settings module/)).toBeNull();
   expect(screen.getByRole("tab", { name: "Variables" })).toBeTruthy();

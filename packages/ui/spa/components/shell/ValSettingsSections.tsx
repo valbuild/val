@@ -4,8 +4,7 @@ import {
   type EnvVarsTarget,
   useEnvVarsTarget,
 } from "./EnvVars";
-import { type ValBuildAccess, useValBuildAccess } from "./useValBuildAccess";
-import { useValMode } from "../ValProvider";
+import type { ValBuildAccess } from "./useValBuildAccess";
 import { useMemo } from "react";
 import type { Json } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
@@ -61,8 +60,15 @@ import { PanelSkeleton } from "./PanelPrimitives";
 export function ValSettingsSections({
   moduleFilePath,
   explainMissingModule = true,
+  valBuild,
 }: {
   moduleFilePath?: ModuleFilePath;
+  /**
+   * Whether Val Build can be reached, as the shell already knows it
+   * (`useShellData`): the AI setup and the Variables tab both need it, and
+   * asking again would be another `/admin/status` per open of Settings.
+   */
+  valBuild: ValBuildAccess;
   /**
    * Whether a project without a settings module is told how to add one. Not
    * where Settings opens on Updates: that project's editor did not come for
@@ -70,9 +76,6 @@ export function ValSettingsSections({
    */
   explainMissingModule?: boolean;
 }) {
-  // Asked once, here, for the AI setup and the Variables tab both: each would
-  // otherwise ask `/admin/status` itself.
-  const valBuild = useValBuildAccess(useValMode());
   if (!moduleFilePath) {
     return (
       <WithoutSettingsModule

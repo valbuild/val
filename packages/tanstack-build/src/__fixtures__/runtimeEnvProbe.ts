@@ -66,6 +66,14 @@ export function read() {
     inlinedNode: process.env.PUBLIC_INLINED,
     buildOnly: import.meta.env.PUBLIC_BUILD_ONLY,
     buildOnlyNode: process.env.PUBLIC_BUILD_ONLY,
+    // Given at build time and not PUBLIC_: read by name, on both sides.
+    buildServerOnly: process.env.BUILD_SERVER_ONLY,
+    buildServerOnlyMeta: import.meta.env.BUILD_SERVER_ONLY,
+    // Read off the object, not by its dotted name.
+    nodeEnv: (() => {
+      const { NODE_ENV } = process.env;
+      return NODE_ENV;
+    })(),
   };
 }
 `,
@@ -98,6 +106,7 @@ async function main() {
     env: {
       PUBLIC_INLINED: "from-build",
       PUBLIC_BUILD_ONLY: "build-only",
+      BUILD_SERVER_ONLY: "build-server-secret",
       UNREAD_SERVER_ONLY: "unread-build-value",
     },
   });
@@ -128,7 +137,10 @@ async function main() {
       identifierLeft: /__PLATFORM_RUNTIME_ENV__/.test(
         built.clientCode + built.serverCode,
       ),
-      clientHasServerOnly: built.clientCode.includes("server-only"),
+      // A value given to the build that is not PUBLIC_: what this guards is
+      // that it is not inlined into the browser's bundle, where anything is
+      // public. (A runtime one never is: it is not in the build at all.)
+      clientHasServerOnly: built.clientCode.includes("build-server-secret"),
       unreadInlinedAnywhere: (built.clientCode + built.serverCode).includes(
         "unread-build-value",
       ),

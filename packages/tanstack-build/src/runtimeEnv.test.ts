@@ -1,5 +1,4 @@
-import { execFileSync } from "child_process";
-import path from "path";
+import { runProbe } from "./__fixtures__/runProbe";
 
 /**
  * A hosted project's variables are read at RUNTIME, not built in.
@@ -26,22 +25,7 @@ type Probe = {
 let probe: Probe;
 
 beforeAll(() => {
-  const out = execFileSync(
-    path.join(__dirname, "..", "node_modules", ".bin", "tsx"),
-    [path.join(__dirname, "__fixtures__", "runtimeEnvProbe.ts")],
-    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-  );
-  // tsx's WASI warnings share stdout's stream in some shells; take the last
-  // line that parses rather than assuming the output is only JSON.
-  const line = out
-    .trim()
-    .split("\n")
-    .reverse()
-    .find((candidate) => candidate.startsWith("{"));
-  if (line === undefined)
-    throw new Error(`The probe printed no result:\n${out}`);
-  const parsed: Probe = JSON.parse(line);
-  probe = parsed;
+  probe = runProbe<Probe>("runtimeEnvProbe.ts");
 }, 300_000);
 
 test("every read was given something to read", () => {
@@ -84,6 +68,17 @@ describe.each(sides)("the %s bundle", (side) => {
   test("reads no other name through import.meta.env, as in Vite", () => {
     expect(read().notPublic).toBeUndefined();
   });
+});
+
+test("a name given at build time that is not PUBLIC_ is the server's alone", () => {
+  expect(probe.server.buildServerOnly).toBe("build-server-secret");
+  expect(probe.server.buildServerOnlyMeta).toBe("build-server-secret");
+  expect(probe.client.buildServerOnly).toBeUndefined();
+  expect(probe.client.buildServerOnlyMeta).toBeUndefined();
+});
+
+test("NODE_ENV is production however it is read", () => {
+  expect(probe.client.nodeEnv).toBe("production");
 });
 
 test("the server reads any name through process.env", () => {

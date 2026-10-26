@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ValBuildAccess } from "./useValBuildAccess";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import { ValCanvasElement } from "@valbuild/shared/internal";
@@ -1245,6 +1246,15 @@ function ValShellBody({
    * module from calling hooks with a path it does not have.
    */
   const updates = studioIsDeployer ? upgradeSettings : null;
+  // What the shell already asked Val Build (`useShellData`), handed on so
+  // Settings does not ask again. A stable object, or the callback below
+  // changes on every render.
+  const shellConnected = data.webComponentsUrl !== undefined;
+  const shellStudioMode = data.studioMode;
+  const valBuild = useMemo<ValBuildAccess>(
+    () => ({ connected: shellConnected, studioMode: shellStudioMode }),
+    [shellConnected, shellStudioMode],
+  );
   const settingsModule = data.settings?.moduleFilePath;
   const renderSettings = useCallback(
     () => (
@@ -1266,10 +1276,11 @@ function ValShellBody({
         <ValSettingsSections
           moduleFilePath={settingsModule}
           explainMissingModule={updates === null}
+          valBuild={valBuild}
         />
       </>
     ),
-    [settingsModule, updates],
+    [settingsModule, updates, valBuild],
   );
   // A merged proposal's notice first: it says this whole Studio is finished.
   const shellNotice =

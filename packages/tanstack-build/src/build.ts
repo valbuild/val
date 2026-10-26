@@ -843,7 +843,14 @@ function envFor(
 
   return {
     define,
-    runtime: runtimeEnvSource(target, fallback, builtins),
+    // In the browser the object is `process.env` too, so it carries what
+    // `process.env.NODE_ENV` reads: `const { NODE_ENV } = process.env` would
+    // otherwise read `undefined` and take the development branch.
+    runtime: runtimeEnvSource(
+      target,
+      fallback,
+      target === "client" ? { ...builtins, NODE_ENV: "production" } : builtins,
+    ),
   };
 }
 
