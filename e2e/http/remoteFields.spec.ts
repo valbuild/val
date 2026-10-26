@@ -25,7 +25,7 @@ import { mock, openHttpStudio, publishAll, sessionCookie } from "./httpMode";
  *   uploaded flagged remote fails it there.
  *
  * A managed job is not here: it needs a deployment that embeds its source,
- * which `examples/next` is not. valbuild/home's `pnpm loop` drives that one.
+ * which `examples/tanstack` is not. valbuild/home's `pnpm loop` drives that one.
  */
 
 const MODULE = "/content/remoteFields.val.ts";

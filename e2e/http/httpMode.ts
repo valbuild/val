@@ -24,11 +24,11 @@ const INTAKE_TIMEOUT = 60_000;
 /**
  * One proxy-mode app and the mock content host it talks to.
  *
- * There are two: `examples/next` (`chromium-http`, everything under
- * `e2e/http/`) and `examples/tanstack` (`tanstack-http`, under
- * `e2e/tanstack-http/`). Each has its own mock, because the mock is one
- * project and every request names the project it is for -- and so a `reset`
- * in one suite cannot reach into the other's state.
+ * A parameter rather than constants because the mock is ONE project -- every
+ * request names the project it is for -- so a second app needs a second mock,
+ * and these helpers have to be told which pair they are driving. Today there
+ * is one pair, `examples/tanstack` and its mock ({@link PROXY_APP}); the Next
+ * example had its own until every proxy-mode spec moved off `next dev`.
  */
 export type HttpTarget = {
   /** Where the proxy-mode app listens. */
@@ -41,8 +41,8 @@ export type HttpTarget = {
   root: string;
 };
 
-/** The proxy-mode copy of `examples/next`. */
-const NEXT_HTTP: HttpTarget = {
+/** The proxy-mode copy of `examples/tanstack`, which every spec here drives. */
+const PROXY_APP: HttpTarget = {
   appPort: HTTP_APP_PORT,
   mockPort: MOCK_CONTENT_PORT,
   project: MOCK_PROJECT,
@@ -566,9 +566,9 @@ export function httpTarget(target: HttpTarget): {
   };
 }
 
-/** The `e2e/http/` suites' helpers: everything there drives `examples/next`. */
+/** The proxy-mode suites' helpers, bound to {@link PROXY_APP}. */
 export const { sessionCookie, contextAs, openHttpStudio, mock } =
-  httpTarget(NEXT_HTTP);
+  httpTarget(PROXY_APP);
 
 // #endregion
 
