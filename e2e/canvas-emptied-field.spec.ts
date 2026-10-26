@@ -21,7 +21,7 @@ import {
  * they meet: a real page collapsing a real element, and the row still there.
  */
 
-const BLOG = "/app/blogs/[blog]/page.val.ts";
+const BLOG = "/src/routes/_site.blogs.$blog.val.ts";
 /** The row for a field of `/blogs/blog1`, by its module path (`"link"."label"`). */
 const row = (studio: Locator, field: string) =>
   studio.locator(

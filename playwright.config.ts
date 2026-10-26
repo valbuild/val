@@ -9,6 +9,7 @@ import {
   HTTP_APP_PORT,
 } from "./e2e/http/config";
 import { TANSTACK_APP_PORT } from "./e2e/tanstack/config";
+import { TANSTACK_APP_URL } from "./e2e/apps";
 
 const PREINSTALLED_CHROMIUM =
   "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
@@ -97,7 +98,11 @@ if (WEBKIT_PROJECTS.some((name) => requestedProjects.has(name))) {
 const needsNextApp =
   willRun("chromium") || willRun("warmup") || willRun("screens");
 /** `examples/tanstack`. */
-const needsTanstackApp = willRun("tanstack") || willRun("tanstack-warmup");
+const needsTanstackApp =
+  willRun("tanstack") ||
+  willRun("tanstack-warmup") ||
+  willRun("chromium") ||
+  willRun("warmup-tanstack");
 /**
  * `examples/tanstack` again, in proxy mode, plus the mock content host: what
  * every proxy-mode project drives.
@@ -122,30 +127,33 @@ const needsHttpApp =
  * locally and saved nothing. Both needed a real browser, a real server, and a
  * real project.
  *
- * ## Two servers, and why
+ * ## The servers, and why
  *
  * The Studio is a SPA served by Vite in dev; the app and its `/api/val` routes
- * are Next. Neither alone is the thing users run. So both start, and the tests
- * drive the app's `/val` route the way an editor would.
+ * are the framework's (TanStack Start, or Next). Neither alone is the thing
+ * users run. So both start, and the tests drive the app's `/val` route the way
+ * an editor would. Most of the suite drives `examples/tanstack` with its e2e
+ * fixtures on; the specs that pin themselves to `examples/next` (see
+ * `e2e/apps.ts`) are why a `chromium` shard starts that app too.
  *
  * `reuseExistingServer` so a developer with servers already up does not wait for
  * two more, and so a failing test can be re-run against the same processes.
  *
  * ## And two more, for `http` mode
  *
- * Everything under `e2e/http/` needs the app running in proxy mode against a
- * content service, which `fs` mode has no equivalent of: publishing as a git
- * commit, patches marked applied instead of deleted, deployment and build events
- * arriving over a WebSocket. So a mock content host (`e2e/mock-content-host`) and
- * a second `next dev` configured to talk to it come up alongside the other two.
+ * Everything under `e2e/http/` and `e2e/tanstack-http/` needs the app running
+ * in proxy mode against a content service, which `fs` mode has no equivalent
+ * of: publishing as a git commit, patches marked applied instead of deleted,
+ * deployment and build events arriving over a WebSocket. So a mock content host
+ * (`e2e/mock-content-host`) and a second `vite dev` of `examples/tanstack`
+ * configured to talk to it come up alongside the others.
  *
  * Which of these start depends on the project asked for. `webServer` is global
  * with no per-project form, so the selection is made in the config itself (see
- * `needsNextApp` and friends above): a `chromium` shard starts the SPA and the
- * fs-mode app, `chromium-http` swaps in the mock host and the proxy-mode app,
- * `tanstack` starts neither copy of Next, and `tanstack-http` starts a proxy-mode
- * copy of the TanStack app with a mock host of its own. A bare `playwright test`
- * starts all of them, because it runs all of them.
+ * `needsNextApp` and friends above): a `chromium` shard starts the SPA and both
+ * fs-mode apps, the proxy-mode projects start the mock host and the proxy-mode
+ * app, and `tanstack` starts neither Next nor the mock. A bare `playwright
+ * test` starts all of them, because it runs all of them.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -182,12 +190,36 @@ export default defineConfig({
       },
     },
     {
+      // The same warm-up, for the TanStack app the `chromium` project drives
+      // by default: every route it asks for is one of the e2e fixtures there
+      // too.
+      name: "warmup-tanstack",
+      testMatch: "warmup.setup.ts",
+      use: {
+        baseURL: TANSTACK_APP_URL,
+        launchOptions: {
+          ...(existsSync(PREINSTALLED_CHROMIUM)
+            ? { executablePath: PREINSTALLED_CHROMIUM }
+            : {}),
+          args: ["--no-sandbox", "--disable-dev-shm-usage"],
+        },
+      },
+    },
+    {
+      /**
+       * The fs-mode suite: `examples/tanstack`, with the e2e fixtures on.
+       *
+       * It drove `examples/next` until the move to TanStack Start, the primary
+       * release target. The specs that pin themselves to Next (see
+       * `e2e/apps.ts`) keep `@valbuild/next` covered, which is why both
+       * warm-ups run and both apps start.
+       */
       name: "chromium",
       // Every fs-mode test starts against an app that has already compiled its
       // routes, rather than against whichever route the run happened to hit
       // first. This is why the timeouts below can be read as claims about the
       // app rather than about the runner.
-      dependencies: ["warmup"],
+      dependencies: ["warmup", "warmup-tanstack"],
       // The `fs`-mode suites. `e2e/http/` is excluded because those tests need
       // the other app, on the other port. `screens.spec.ts` is excluded because
       // it is not a test — it takes screenshots for a human to look at, on a
@@ -216,6 +248,7 @@ export default defineConfig({
             : {}),
           args: ["--no-sandbox", "--disable-dev-shm-usage"],
         },
+        baseURL: TANSTACK_APP_URL,
       },
     },
     {
@@ -424,6 +457,10 @@ export default defineConfig({
             reuseExistingServer: true,
             timeout: 180_000,
             cwd: "./examples/tanstack",
+            // The e2e fixtures (`examples/tanstack/content/`), which the
+            // `chromium` project's specs edit. Local media only: the remote
+            // fixtures need a content host, which only the proxy-mode copy has.
+            env: { VAL_E2E_FIXTURES: "true" },
           },
         ]
       : []),
