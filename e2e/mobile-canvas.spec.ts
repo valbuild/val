@@ -238,12 +238,17 @@ test.describe("the preview modes on a phone", () => {
     await openPreview(page);
 
     // A fresh browser has no preview cookie, so the page mounts none of Val's
-    // client code and reports nothing to pick.
-    const enable = page.getByRole("button", { name: /Turn on preview mode/ });
+    // client code and reports nothing to pick. The pick button turns it on.
+    const enable = page.getByRole("button", {
+      name: "Turn on preview and select from the page",
+    });
     await expect(enable).toBeVisible({ timeout: 30_000 });
     await enable.click();
     const fields = mode(page, "On page");
-    await expect(fields).toBeVisible({ timeout: 30_000 });
+    // Back in preview mode once the page has reported what is on it - and not
+    // before: the button reads "Stop selecting" through the reload, while the
+    // page under it is still the one that cannot be picked from.
+    await expect(fields).toContainText(/\d/, { timeout: 30_000 });
 
     // On page arms picking; Preview then puts the page in front of you with it
     // still armed, which is the state a pick happens in.
@@ -277,6 +282,38 @@ test.describe("the preview modes on a phone", () => {
     // Scrolled to it, rather than listing it somewhere below the fold.
     const row = page.locator(`[data-canvas-field='${TEXT_FIELD}']`);
     await expect(row).toBeInViewport();
+  });
+
+  test("the pick button turns preview mode on, and is in view to press", async ({
+    page,
+  }) => {
+    await openPreview(page);
+
+    // The toolbar scrolls on a phone, and the pick button is towards its far
+    // end: with preview mode off it is the button the notice above points
+    // at, so it has to be on screen rather than scrolled off it.
+    const pick = page.getByRole("button", {
+      name: "Turn on preview and select from the page",
+    });
+    await expect(pick).toBeVisible({ timeout: 30_000 });
+    await expect(pick).toBeInViewport({ ratio: 1 });
+
+    await pick.click();
+    // Preview mode is on once the page has reported what is on it; the tab is
+    // there either way, so it is the count that says so.
+    await expect(
+      mode(page, "On page"),
+      "the page never came back in preview mode",
+    ).toContainText(/\d/, { timeout: 30_000 });
+    await expect(
+      page.getByRole("button", { name: "Stop selecting on the page" }),
+      "preview mode came on, but picking did not",
+    ).toBeVisible();
+    // Still looking at the page: picking is done here.
+    await expect(mode(page, "Preview")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
   test("stops the page when you exit", async ({ page }) => {
@@ -326,7 +363,9 @@ test.describe("the preview modes on a phone", () => {
     page,
   }) => {
     await openPreview(page);
-    const enable = page.getByRole("button", { name: /Turn on preview mode/ });
+    const enable = page.getByRole("button", {
+      name: "Turn on preview and select from the page",
+    });
     await expect(enable).toBeVisible({ timeout: 30_000 });
     await enable.click();
     await expect(mode(page, "On page")).toBeVisible({ timeout: 30_000 });

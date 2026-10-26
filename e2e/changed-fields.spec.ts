@@ -35,7 +35,9 @@ async function openFieldsView(page: Page) {
   await expandRow(studio, "blog1");
   await closeNavPanel(studio, "Pages");
   await studio.getByRole("button", { name: /Open the canvas/ }).click();
-  const enable = studio.getByRole("button", { name: /Turn on preview mode/ });
+  const enable = studio.getByRole("button", {
+    name: "Turn on preview and select from the page",
+  });
   await expect(enable).toBeVisible({ timeout: 25000 });
   await enable.click();
   const fieldsTab = studio.getByRole("tab", { name: /On page/ });

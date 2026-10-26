@@ -29,11 +29,7 @@ import { ANSWER_TIMEOUT_MS, CanvasFrame } from "./CanvasFrame";
  */
 describe("the canvas preview notice", () => {
   const notice = (status: CanvasPreviewStatus) => (
-    <CanvasPreviewNotice
-      status={status}
-      onEnable={() => undefined}
-      onReload={() => undefined}
-    />
+    <CanvasPreviewNotice status={status} onReload={() => undefined} />
   );
 
   test("says nothing at all once the canvas works", () => {
@@ -71,35 +67,25 @@ describe("the canvas preview notice", () => {
   });
 
   /**
-   * One thing on the pill.
+   * What the page answered, said at once.
    *
-   * Where the fix fits on a button, the button IS the message: a sentence
-   * beside it saying "Preview is not ready yet" is a vaguer copy of what the
-   * button already says, and two of them read as two problems rather than one
-   * act. The sentence is kept for a screen reader, because `role="status"` is
-   * what announces the canvas's state and a button appearing announces
-   * nothing.
+   * The pill has no button: the pick button under it is what turns preview
+   * mode on, so the pill's job is to say why that is needed - and a page
+   * that has ANSWERED that preview mode is off is not a guess about a page
+   * that might still be compiling. The clock still decides the colours.
    */
-  test("where there is a button to press, the button is the whole message", () => {
+  test("a page that answered is described as it answered, without waiting", () => {
     jest.useFakeTimers();
     try {
-      render(notice("preview-off"));
-      const said = screen.getByText("Preview is not ready yet");
-      expect(said.closest(".sr-only")).not.toBeNull();
-      expect(
-        screen.queryByRole("button", { name: /Turn on preview mode/ }),
-      ).not.toBeNull();
-
-      /*
-       * And the diagnosis comes back once the wait is up, drawn this time: by
-       * then the button has been on screen for twenty seconds without working,
-       * so which way it is failing is the part that is worth reading.
-       */
+      const { container } = render(notice("preview-off"));
+      const said = screen.getByText("Preview mode is off");
+      expect(said.closest(".sr-only")).toBeNull();
+      // Not a warning yet: an ordinary first load passes through this.
+      expect(container.querySelector(".bg-bg-warning-primary")).toBeNull();
       act(() => {
         jest.advanceTimersByTime(PREVIEW_WARNING_DELAY_MS);
       });
-      const diagnosed = screen.getByText("Preview mode is off");
-      expect(diagnosed.closest(".sr-only")).toBeNull();
+      expect(container.querySelector(".bg-bg-warning-primary")).not.toBeNull();
     } finally {
       jest.useRealTimers();
     }
@@ -150,31 +136,34 @@ describe("the canvas preview notice", () => {
   });
 
   /**
-   * The one-click fix is one click. It used to be behind the disclosure, which
-   * put the commonest act in the Studio's canvas - "turn preview mode on" -
-   * two clicks away, and the E2E suites that drive the canvas found it there.
+   * No button of its own, in any state.
+   *
+   * It used to carry "Turn on preview mode". With the pick button outlined
+   * right under the pill, that was two buttons for one act, and the one on
+   * the pill left you to find the other afterwards to select anything.
    */
-  test("the fix is on the pill, once there is something to fix", () => {
-    render(notice("preview-off"));
-    expect(
-      screen.queryByRole("button", { name: /Turn on preview mode/ }),
-    ).not.toBeNull();
+  test("turning preview on is the pick button's, not the pill's", () => {
+    for (const status of [
+      "connecting",
+      "enabling",
+      "no-answer",
+      "preview-off",
+    ] as const) {
+      const { unmount } = render(notice(status));
+      expect(
+        screen.queryByRole("button", { name: /Turn on preview mode/ }),
+      ).toBeNull();
+      unmount();
+    }
   });
 
-  test("and not before: a page that has not answered yet is not accused", () => {
-    render(notice("connecting"));
-    expect(
-      screen.queryByRole("button", { name: /Turn on preview mode/ }),
-    ).toBeNull();
-  });
-
-  test("a page that never answered is offered it too", () => {
-    // The same navigation fixes both, which is why the old panel offered this
-    // button for both.
-    render(notice("no-answer"));
-    expect(
-      screen.queryByRole("button", { name: /Turn on preview mode/ }),
-    ).not.toBeNull();
+  test("and the explanation says where it is", () => {
+    for (const status of ["no-answer", "preview-off"] as const) {
+      const { unmount } = render(notice(status));
+      fireEvent.click(screen.getByRole("button", { name: /Details/ }));
+      expect(screen.queryByText(/Press the select button/)).not.toBeNull();
+      unmount();
+    }
   });
 
   /**
@@ -186,31 +175,33 @@ describe("the canvas preview notice", () => {
   test("a fresh attempt restarts the wait, whatever the status does", () => {
     jest.useFakeTimers();
     try {
+      // The label is the page's answer either way, so the clock shows in the
+      // colours: a warning is what the wait being up looks like.
+      const isWarning = () =>
+        document.querySelector(".bg-bg-warning-primary") !== null;
       const { rerender } = render(
         <CanvasPreviewNotice
           status="no-answer"
           attempt="1:0"
-          onEnable={() => undefined}
           onReload={() => undefined}
         />,
       );
       act(() => {
         jest.advanceTimersByTime(PREVIEW_WARNING_DELAY_MS);
       });
-      expect(screen.queryByText("No answer from the page")).not.toBeNull();
+      expect(isWarning()).toBe(true);
       rerender(
         <CanvasPreviewNotice
           status="no-answer"
           attempt="2:0"
-          onEnable={() => undefined}
           onReload={() => undefined}
         />,
       );
-      expect(screen.queryByText("Preview is not ready yet")).not.toBeNull();
+      expect(isWarning()).toBe(false);
       act(() => {
         jest.advanceTimersByTime(PREVIEW_WARNING_DELAY_MS);
       });
-      expect(screen.queryByText("No answer from the page")).not.toBeNull();
+      expect(isWarning()).toBe(true);
     } finally {
       jest.useRealTimers();
     }
