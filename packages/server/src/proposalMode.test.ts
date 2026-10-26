@@ -412,12 +412,18 @@ describe("the proposals API, for the Studio", () => {
     );
     await o.proposalsApi(`/${NAME}/close`, { method: "POST" }, "profile-1");
     await o.proposalsApi(`/${NAME}/setup/retry`, { method: "POST" }, "p");
+    // Its build rendered as a canary, before Publish is offered for it.
+    await o.proposalsApi(`/${NAME}/verify`, { method: "POST" }, "p");
+    // Where an upgrade's preparation is, beneath Preparing….
+    await o.proposalsApi(`/${NAME}/preparation`, { method: "GET" }, "p");
     expect(sent.map((r) => `${r.method} ${r.url}`)).toEqual([
       "GET https://content.example/v1/org/project/proposals",
       "POST https://content.example/v1/org/project/proposals",
       `PATCH https://content.example/v1/org/project/proposals/${NAME}`,
       `POST https://content.example/v1/org/project/proposals/${NAME}/close`,
       `POST https://content.example/v1/org/project/proposals/${NAME}/setup/retry`,
+      `POST https://content.example/v1/org/project/proposals/${NAME}/verify`,
+      `GET https://content.example/v1/org/project/proposals/${NAME}/preparation`,
     ]);
     expect(sent[0]!.headers).not.toHaveProperty("x-val-profile-id");
     expect(sent[1]!.headers).toMatchObject({
@@ -538,6 +544,22 @@ describe("the proposals API, for the Studio", () => {
     expect(sent).toHaveLength(1);
   });
 
+  test("what a proposal's build targets is read through the proposals API, and only read", async () => {
+    const own = ops(proposal("save-2"));
+    await own.proposalsApi(`/${NAME}/build-target`, { method: "GET" }, "p");
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `GET /v1/org/project/proposals/${NAME}/build-target`,
+    ]);
+    sent.length = 0;
+    const written = await own.proposalsApi(
+      `/${NAME}/build-target`,
+      { method: "POST", body: "{}" },
+      "p",
+    );
+    expect(written.status).toBe(403);
+    expect(sent).toEqual([]);
+  });
+
   test("Update from the site is asked by the proposal's own server, and nobody else's", async () => {
     const own = ops(proposal("save-2"));
     await own.proposalsApi(
@@ -580,6 +602,52 @@ describe("the proposals API, for the Studio", () => {
     for (const [o, path] of [
       [own, `/${"f".repeat(20)}/restore-code`],
       [ops(undefined), `/${NAME}/restore-code`],
+    ] as const) {
+      const answer = await o.proposalsApi(path, { method: "POST", body }, "p");
+      expect([path, answer.status]).toEqual([path, 403]);
+    }
+    expect(sent).toEqual([]);
+  });
+
+  test("computing a proposal's lockfile is asked by its own server, and nobody else's", async () => {
+    // valbuild/home docs/adept.md, step 6: it stages the lockfile, a write to
+    // the proposal's files.
+    const own = ops(proposal("save-2"));
+    await own.proposalsApi(
+      `/${NAME}/lockfile`,
+      { method: "POST", body: "{}" },
+      "p",
+    );
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `POST /v1/org/project/proposals/${NAME}/lockfile`,
+    ]);
+    sent.length = 0;
+    for (const [o, path] of [
+      [own, `/${"f".repeat(20)}/lockfile`],
+      [ops(undefined), `/${NAME}/lockfile`],
+    ] as const) {
+      const answer = await o.proposalsApi(
+        path,
+        { method: "POST", body: "{}" },
+        "p",
+      );
+      expect([path, answer.status]).toEqual([path, 403]);
+    }
+    expect(sent).toEqual([]);
+  });
+
+  test("reporting a proposal's typecheck is its own server's, and nobody else's", async () => {
+    // valbuild/home docs/adept.md, step 7, decision 20: what blocks Publish.
+    const own = ops(proposal("save-2"));
+    const body = JSON.stringify({ inputs: "i", newErrors: [] });
+    await own.proposalsApi(`/${NAME}/typecheck`, { method: "POST", body }, "p");
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `POST /v1/org/project/proposals/${NAME}/typecheck`,
+    ]);
+    sent.length = 0;
+    for (const [o, path] of [
+      [own, `/${"f".repeat(20)}/typecheck`],
+      [ops(undefined), `/${NAME}/typecheck`],
     ] as const) {
       const answer = await o.proposalsApi(path, { method: "POST", body }, "p");
       expect([path, answer.status]).toEqual([path, 403]);

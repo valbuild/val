@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { PublishIndicator } from "../../publish/publishIndicatorView";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
+import type { JSONValue } from "@valbuild/core/patch";
 import { AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
 import { checkExternalUrls } from "./externalUrlChecks";
@@ -37,27 +38,43 @@ import { LeftRail } from "./LeftRail";
 import { MediaPanel } from "./MediaPanel";
 import { MobileBottomBar } from "./MobileChrome";
 import { NavSwitcher, needsNavSwitcher } from "./NavSwitcher";
+import { ProjectSwitcher } from "./ProjectSwitcher";
+import { ProjectMembersButton, orgOfProject } from "./ProjectMembersButton";
+import { HeadingToolsProvider } from "./headingTools";
+import { LocaleFilter } from "./LocaleFilter";
 import { PendingChangesGate } from "./PendingChangesGate";
 import type { ChainProgress } from "../../utils/describePendingChangesStall";
 
 import { NotificationsPanel } from "./NotificationsPanel";
+import { ActivitySheet } from "./ActivitySheet";
+import { ChangesSheet } from "./ChangesSheet";
+import { ProposalSheet } from "../proposals/ProposalSheet";
 import { PagesPanel } from "./PagesPanel";
 import { AccountPanel } from "./AccountPanel";
 import { NoSettingsModule, SettingsPanel } from "./SettingsPanel";
 import { ShellAccountError } from "./AccountError";
 import { StatusBar, SaveState, StatusBarProps } from "./StatusBar";
-import { PublishState, TopBar, type TopBarProposals } from "./TopBar";
+import {
+  ProjectName,
+  PublishButton,
+  PublishState,
+  TopBar,
+  type TopBarProposals,
+} from "./TopBar";
+import type { UpgradeButton } from "../../upgrade/useUpgrade";
 import {
   ProposalBuildButton,
+  ProposalPublishButton,
   ProposalSaveButton,
 } from "../proposals/ProposalBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
-import { StudioTour } from "./StudioTour";
+import { StudioTour, TourActions, TourObserved } from "./StudioTour";
 import {
   readTourCompleted,
   studioTourSteps,
   writeTourCompleted,
+  type TourRun,
   type TourStep,
 } from "./tourSteps";
 import { servedPath } from "../../utils/mediaPath";
@@ -152,17 +169,33 @@ export type ShellProps = {
   }) => TourStep[];
   /**
    * Open the tour once, as soon as it can be started -- the demo, where the
-   * tour is how a first visit begins. Waits for the navigation to load, for
-   * the reason `canStartTour` gives.
+   * tour is how a first visit begins, or a link names one (`?tour=`). Waits
+   * for the navigation to load, for the reason `canStartTour` gives. A
+   * `TourRun` is that tour rather than the usual one.
    */
-  autoStartTour?: boolean;
+  autoStartTour?: boolean | TourRun;
+  /** How the tour looks. See `StudioTourProps.look`; the demo's is `ring`. */
+  tourLook?: "spotlight" | "ring";
+  /**
+   * Outline a place on the page for the tour (a step's `page`). The canvas is
+   * the caller's (`renderCanvas`), so the outline is too.
+   */
+  onTourHighlightPage?: (path: SourcePath | null) => void;
+  /**
+   * Write a value at a path, for a step's "Do it for me". Absent: no step
+   * offers to make an edit for the visitor.
+   */
+  onTourWrite?: (path: SourcePath, value: JSONValue, add: boolean) => void;
+  /** Add a page, for a step's "Do it for me". Absent: no step offers to. */
+  onTourAddPage?: (path: SourcePath) => void;
   /** Called when the tour is left, finished or not. */
   onTourClose?: () => void;
   /**
-   * The demo's card, given the way to start the tour. See `DemoBanner`. A
-   * slot, like `publishSlot`: what the demo is lives outside the shell.
+   * The demo's card, given the way to start the tour -- the usual one, or a
+   * `TourRun` of its own: one of the demo script's. See `DemoBanner`. A slot,
+   * like `publishSlot`: what the demo is lives outside the shell.
    */
-  renderDemoBanner?: (startTour: () => void) => ReactNode;
+  renderDemoBanner?: (startTour: (run?: TourRun) => void) => ReactNode;
   theme: "dark" | "light";
   /**
    * The project's theme, as CSS custom properties — see `ValThemeProvider`.
@@ -459,6 +492,8 @@ export type ShellProps = {
   onOpenHistory?: () => void;
   /** See `TopBar`'s `onOpenValidate`. */
   onOpenValidate?: () => void;
+  /** See `TopBar`'s `upgrade`; on a phone, a row in the account sheet. */
+  upgrade?: UpgradeButton;
   validateActive?: boolean;
   validateCount?: number;
   /**
@@ -545,6 +580,10 @@ export function Shell({
   tourEnabled = true,
   buildTourSteps,
   autoStartTour = false,
+  tourLook,
+  onTourHighlightPage,
+  onTourWrite,
+  onTourAddPage,
   onTourClose,
   renderDemoBanner,
   theme,
@@ -602,6 +641,7 @@ export function Shell({
   historyActive = false,
   onOpenHistory,
   onOpenValidate,
+  upgrade,
   validateActive,
   validateCount,
   onMentionField,
@@ -786,7 +826,13 @@ export function Shell({
    * the PROJECT's answer and arrives as a prop.
    */
   const [tourCompleted, setTourCompleted] = useState(readTourCompleted);
-  const startTour = useCallback(() => setIsTourOpen(true), []);
+  /** The tour that is open, when it is not the usual one. See `TourRun`. */
+  const [tourRun, setTourRun] = useState<TourRun | null>(null);
+  const startTour = useCallback((run?: TourRun) => {
+    run?.onStart?.();
+    setTourRun(run ?? null);
+    setIsTourOpen(true);
+  }, []);
   /**
    * The tour opening a panel. Stable, because the tour re-runs it whenever the
    * step changes and an identity that changed every render would reopen the
@@ -810,6 +856,53 @@ export function Shell({
     writeTourCompleted(true);
     onTourClose?.();
   }, [onTourClose]);
+  /** What a step that moves on by itself watches. See `TourObserved`. */
+  const tourObserved = useMemo<TourObserved>(
+    () => ({
+      selectedPath: selectedCanvasPath ?? null,
+      reviewCount: reviewCount ?? 0,
+      openPanel,
+      locale: locale ?? null,
+    }),
+    [selectedCanvasPath, reviewCount, openPanel, locale],
+  );
+  /** "Do it for me": the same calls the visitor's own clicks make. */
+  const tourActions = useMemo<TourActions>(
+    () => ({
+      ...(onSelectCanvasPath
+        ? {
+            openPath: (path: SourcePath) => {
+              onSelectCanvasPath(path);
+              // As a tap on the page does (`onPicked`): on a phone the field
+              // is in the other pane, and opening it without going there
+              // leaves the visitor looking at the page it was opened from.
+              if (breakpoint === "mobile") setWorkspacePane("editor");
+            },
+          }
+        : {}),
+      ...(onTourWrite ? { write: onTourWrite } : {}),
+      ...(onTourAddPage ? { addPage: onTourAddPage } : {}),
+      ...(onLocaleChange && locales && locales.length > 0
+        ? {
+            nextLocale: () => {
+              // All languages, then each in turn, as the filter offers them.
+              const order: (string | null)[] = [null, ...locales];
+              const at = order.indexOf(locale ?? null);
+              onLocaleChange(order[(at + 1) % order.length] ?? null);
+            },
+          }
+        : {}),
+    }),
+    [
+      onSelectCanvasPath,
+      breakpoint,
+      onTourWrite,
+      onTourAddPage,
+      onLocaleChange,
+      locales,
+      locale,
+    ],
+  );
   const tourSteps = useMemo(
     () =>
       buildTourSteps
@@ -832,8 +925,8 @@ export function Shell({
   useEffect(() => {
     if (!autoStartTour || autoStarted.current || !canStartTour) return;
     autoStarted.current = true;
-    setIsTourOpen(true);
-  }, [autoStartTour, canStartTour]);
+    startTour(autoStartTour === true ? undefined : autoStartTour);
+  }, [autoStartTour, canStartTour, startTour]);
   /**
    * Whether to offer it — the glow, and the button on the empty editor.
    *
@@ -873,6 +966,17 @@ export function Shell({
       setOpenPanel(null);
     }
   }, [openPanel, aiEnabled]);
+  // The phone's own sheets. Above a phone the switcher, the proposal's menu and
+  // the top bar's buttons are those things, so a sheet left open across a
+  // resize - or restored from a link - would be a second copy of them.
+  useEffect(() => {
+    if (
+      (openPanel === "proposals" || openPanel === "changes") &&
+      breakpoint !== "mobile"
+    ) {
+      setOpenPanel(null);
+    }
+  }, [openPanel, breakpoint]);
 
   const validationErrorCount = useMemo(
     () => data.validationErrors.reduce((sum, e) => sum + e.count, 0),
@@ -881,6 +985,22 @@ export function Shell({
   const unreadNotifications = useMemo(
     () => notifications.filter((n) => n.unread).length,
     [notifications],
+  );
+  const markNotificationRead = useCallback(
+    (notification: ShellNotification) =>
+      setNotifications((current) =>
+        current.map((n) =>
+          n.id === notification.id ? { ...n, unread: false } : n,
+        ),
+      ),
+    [],
+  );
+  const markAllNotificationsRead = useCallback(
+    () =>
+      setNotifications((current) =>
+        current.map((n) => ({ ...n, unread: false })),
+      ),
+    [],
   );
 
   /**
@@ -1054,13 +1174,43 @@ export function Shell({
    * switcher that renders nothing: `FloatingPanel` gives any subheader it is
    * handed its own bordered band.
    */
-  const navSwitcher = needsNavSwitcher(breakpoint, destinations) ? (
+  const destinationTabs = needsNavSwitcher(breakpoint, destinations) ? (
     <NavSwitcher
       openPanel={openPanel}
       onSelect={setOpenPanel}
       destinations={destinations}
     />
   ) : undefined;
+  /*
+   * On a phone the navigation sheet also says which project this is: the top
+   * bar there has no room for the name, and the menu button that opens this
+   * sheet is the way into the project as a whole.
+   */
+  const navSwitcher =
+    breakpoint === "mobile" ? (
+      <div className="flex flex-col gap-2">
+        <div className="flex min-w-0 items-center">
+          {data.admin?.project !== undefined &&
+          data.webComponentsUrl !== undefined ? (
+            <ProjectSwitcher
+              projectName={data.projectName}
+              projectHref={data.admin.project}
+              webComponentsUrl={data.webComponentsUrl}
+              studioMode={data.studioMode}
+              breakpoint={breakpoint}
+            />
+          ) : (
+            <ProjectName
+              projectName={data.projectName}
+              projectHref={data.admin?.project}
+            />
+          )}
+        </div>
+        {destinationTabs}
+      </div>
+    ) : (
+      destinationTabs
+    );
 
   /**
    * The editor column: whatever the main pane is showing right now.
@@ -1108,10 +1258,71 @@ export function Shell({
       )}
     </PendingChangesGate>
   );
+  /**
+   * The ONE action the phone's bottom bar has room for.
+   *
+   * On the site that is Publish. In a proposal it is whichever comes next:
+   * Save while anything is unsaved (which reads "Fix N" while errors would
+   * refuse the save), then Build while the proposal has code its preview does
+   * not show yet, then Publish. The rest of them stay one press away behind the
+   * caret beside it - see `ChangesSheet`. Showing Build and Save side by side
+   * is what pushed Save off the edge of the screen.
+   */
+  const phoneProposal =
+    proposals?.location.kind === "proposal" ? proposals.location : null;
+  const mobilePrimary =
+    proposals !== undefined && phoneProposal !== null ? (
+      phoneProposal.unsaved > 0 ? (
+        <ProposalSaveButton
+          location={phoneProposal}
+          onSave={proposals.onSave}
+          blockedBy={proposals.saveBlockedBy}
+          className="h-9 min-w-[5.5rem]"
+        />
+      ) : phoneProposal.code !== null && proposals.onBuild !== undefined ? (
+        <ProposalBuildButton
+          location={phoneProposal}
+          onBuild={proposals.onBuild}
+          className="h-9"
+        />
+      ) : (
+        <ProposalPublishButton
+          location={phoneProposal}
+          onPublish={proposals.onPublish}
+          className="h-9"
+        />
+      )
+    ) : (
+      (publishSlot ?? (
+        <PublishButton
+          pendingChanges={pendingChanges}
+          onPublish={onPublish ?? (() => undefined)}
+          publishState={
+            publishState === "idle" && validationErrorCount > 0
+              ? "blocked"
+              : publishState
+          }
+          className="h-9"
+        />
+      ))
+    );
+
   const columnPlanStatus =
     breakpoint === "desktop" ? null : (renderPlanStatus?.("column") ?? null);
   const editorColumn = (
-    <>
+    <HeadingToolsProvider
+      value={
+        breakpoint === "mobile" &&
+        locales !== undefined &&
+        onLocaleChange !== undefined ? (
+          <LocaleFilter
+            locales={locales}
+            value={locale}
+            onChange={onLocaleChange}
+          />
+        ) : null
+      }
+    >
       {columnPlanStatus === null ? null : (
         <div className="mb-3">{columnPlanStatus}</div>
       )}
@@ -1119,7 +1330,7 @@ export function Shell({
         <div className="mb-6">{notice}</div>
       )}
       {editorBody}
-    </>
+    </HeadingToolsProvider>
   );
 
   return (
@@ -1214,6 +1425,7 @@ export function Shell({
           historyActive={historyActive}
           onOpenHistory={onOpenHistory}
           onOpenValidate={onOpenValidate}
+          upgrade={upgrade}
           validateActive={validateActive}
           validateCount={validateCount}
           onPreview={onPreview ?? (() => undefined)}
@@ -1233,72 +1445,46 @@ export function Shell({
         />
 
         {breakpoint === "mobile" ? (
-          <>
-            <MobileBottomBar
-              locales={locales}
-              locale={locale}
-              onLocaleChange={onLocaleChange}
-              pendingChanges={pendingChanges}
-              onPreview={onPreview ?? (() => undefined)}
-              previewHref={previewHref}
-              onToggleCanvas={canCanvas ? togglePreview : undefined}
-              isCanvasOpen={isCanvasOpen}
-              /*
-               * What the button does NEXT, said plainly, because on a phone it is
-               * three different acts depending on where you are — see
-               * `togglePreview`. A control that swaps has to say which way.
-               */
-              canvasActionLabel={
-                !isCanvasOpen
-                  ? "Open the canvas"
-                  : workspacePane === "canvas"
-                    ? "Back to the editor"
-                    : "Back to the preview"
-              }
-              // The main half no longer closes the canvas on a phone, so the way
-              // out has to be somewhere the menu can offer it too.
-              onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
-              onPublish={onPublish ?? (() => undefined)}
-              /*
-               * In a proposal the phone's one action is Save: Publish (the
-               * proposal's, which merges it) is the first thing in its menu
-               * in the top bar. See `TopBar`.
-               */
-              publishSlot={
-                proposals?.location.kind === "proposal" ? (
-                  <>
-                    {proposals.onBuild !== undefined && (
-                      <ProposalBuildButton
-                        location={proposals.location}
-                        onBuild={proposals.onBuild}
-                        className="h-9"
-                      />
-                    )}
-                    <ProposalSaveButton
-                      location={proposals.location}
-                      onSave={proposals.onSave}
-                      blockedBy={proposals.saveBlockedBy}
-                      className="h-9 min-w-[5.5rem]"
-                    />
-                  </>
-                ) : (
-                  publishSlot
-                )
-              }
-              onOpenStatus={() => setOpenPanel("account")}
-              onOpenQuickActions={() => setOpenPanel("utility")}
-              /*
-               * The same gate and the same ACT as the top bar's button above
-               * this breakpoint: absent when there is no assistant, and a
-               * toggle rather than an open, so the button that shows the panel
-               * as open is the button that closes it. It only opened, which on
-               * a phone - where the panel covers the editor - meant the
-               * obvious way to dismiss it did nothing.
-               */
-              onOpenAI={aiEnabled ? () => togglePanel("ai") : undefined}
-              isAIOpen={openPanel === "ai"}
-            />
-          </>
+          <MobileBottomBar
+            onPreview={onPreview ?? (() => undefined)}
+            previewHref={previewHref}
+            onToggleCanvas={canCanvas ? togglePreview : undefined}
+            isCanvasOpen={isCanvasOpen}
+            /*
+             * What the button does NEXT, said plainly, because on a phone it is
+             * three different acts depending on where you are — see
+             * `togglePreview`. A control that swaps has to say which way.
+             */
+            canvasActionLabel={
+              !isCanvasOpen
+                ? "Open the canvas"
+                : workspacePane === "canvas"
+                  ? "Back to the editor"
+                  : "Back to the preview"
+            }
+            // The main half no longer closes the canvas on a phone, so the way
+            // out has to be somewhere the menu can offer it too.
+            onExitCanvas={isCanvasOpen ? closeCanvas : undefined}
+            primary={mobilePrimary}
+            onOpenChanges={() => togglePanel("changes")}
+            isChangesOpen={openPanel === "changes"}
+            onOpenActivity={() => togglePanel("notifications")}
+            isActivityOpen={openPanel === "notifications"}
+            activityCount={
+              (data.notifications === undefined ? 0 : unreadNotifications) +
+              validationErrorCount
+            }
+            /*
+             * The same gate and the same ACT as the top bar's button above
+             * this breakpoint: absent when there is no assistant, and a
+             * toggle rather than an open, so the button that shows the panel
+             * as open is the button that closes it. It only opened, which on
+             * a phone - where the panel covers the editor - meant the
+             * obvious way to dismiss it did nothing.
+             */
+            onOpenAI={aiEnabled ? () => togglePanel("ai") : undefined}
+            isAIOpen={openPanel === "ai"}
+          />
         ) : (
           <StatusBar
             breakpoint={breakpoint}
@@ -1446,8 +1632,30 @@ export function Shell({
             // Passed through as-is: absent means there is no session to end, and
             // the panel then shows no Sign out button rather than a dead one.
             onSignOut={onSignOut}
+            onStartTour={
+              breakpoint === "mobile" && canStartTour ? startTour : undefined
+            }
+            upgrade={breakpoint === "mobile" ? upgrade : undefined}
+            members={
+              breakpoint === "mobile" &&
+              orgOfProject(data.projectName) !== null &&
+              data.admin?.project !== undefined &&
+              data.webComponentsUrl !== undefined ? (
+                <ProjectMembersButton
+                  variant="row"
+                  projectName={data.projectName}
+                  projectHref={data.admin.project}
+                  webComponentsUrl={data.webComponentsUrl}
+                  studioMode={data.studioMode}
+                  breakpoint={breakpoint}
+                />
+              ) : undefined
+            }
             onClose={closePanel}
-            navSwitcher={navSwitcher}
+            // Not on a phone: the account is not a destination, and its sheet
+            // carrying the destination tabs made it a second navigation menu
+            // beside the one behind the menu button.
+            navSwitcher={breakpoint === "mobile" ? undefined : navSwitcher}
           />
         )}
 
@@ -1497,33 +1705,74 @@ export function Shell({
           </AIChatPanel>
         )}
 
-        {openPanel === "notifications" && (
-          <NotificationsPanel
+        {openPanel === "notifications" &&
+          (breakpoint === "mobile" ? (
+            <ActivitySheet
+              breakpoint={breakpoint}
+              notifications={
+                data.notifications === undefined ? undefined : notifications
+              }
+              onSelectNotification={markNotificationRead}
+              onMarkAllRead={markAllNotificationsRead}
+              validationErrors={data.validationErrors}
+              onSelectValidationError={
+                onSelectValidationError ?? (() => undefined)
+              }
+              onOpenValidate={onOpenValidate}
+              activity={data.activity}
+              onSelectActivity={onSelectActivity ?? (() => undefined)}
+              onOpenHistory={historyEnabled ? onOpenHistory : undefined}
+              onClose={closePanel}
+            />
+          ) : (
+            <NotificationsPanel
+              breakpoint={breakpoint}
+              notifications={notifications}
+              onSelect={markNotificationRead}
+              onMarkAllRead={markAllNotificationsRead}
+              onClose={closePanel}
+            />
+          ))}
+
+        {openPanel === "proposals" && proposals !== undefined && (
+          <ProposalSheet
             breakpoint={breakpoint}
-            notifications={notifications}
-            onSelect={(notification) =>
-              setNotifications((current) =>
-                current.map((n) =>
-                  n.id === notification.id ? { ...n, unread: false } : n,
-                ),
-              )
-            }
-            onMarkAllRead={() =>
-              setNotifications((current) =>
-                current.map((n) => ({ ...n, unread: false })),
-              )
-            }
+            proposals={proposals}
             onClose={closePanel}
           />
         )}
 
-        {renderDemoBanner?.(startTour)}
+        {openPanel === "changes" && (
+          <ChangesSheet
+            breakpoint={breakpoint}
+            proposals={proposals}
+            onCompare={onCompare}
+            reviewCount={reviewCount ?? pendingChanges}
+            pendingChanges={pendingChanges}
+            onDiscardAll={onDiscardAll}
+            discardAllDescription={discardAllDescription}
+            portalContainer={portalContainer}
+            onClose={closePanel}
+          />
+        )}
+
+        {/*
+         * Not while the tour is open: one card at a time, and on a phone the
+         * two were stacked on top of each other. The tour is started from it,
+         * so it is back the moment the tour is left.
+         */}
+        {!isTourOpen && renderDemoBanner?.(startTour)}
 
         {isTourOpen && (
           <StudioTour
-            steps={tourSteps}
+            steps={tourRun?.steps ?? tourSteps}
+            onFinish={tourRun?.onFinish}
             onClose={closeTour}
             onOpenPanel={openPanelForTour}
+            look={tourLook}
+            observed={tourObserved}
+            act={tourActions}
+            onHighlightPage={onTourHighlightPage}
           />
         )}
 

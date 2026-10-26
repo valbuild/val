@@ -13,7 +13,7 @@ import {
   type SiteHandoff,
   type ToSite,
 } from "./handoff";
-import { RENEW_EVERY_MS, type StudioJobResult } from "./runStudioJob";
+import { RENEW_EVERY_MS, type StudioJobResult } from "@valbuild/shared/publish";
 import { isSettled } from "./publishJobs";
 import { randomUUID } from "../utils/randomUUID";
 import { PUBLISH_TAB_ID } from "./tabId";

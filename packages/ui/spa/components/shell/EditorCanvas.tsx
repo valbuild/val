@@ -9,6 +9,7 @@ import {
 import { cn } from "../designSystem/cn";
 import { ShellDestination } from "./types";
 import { TourLauncher } from "./StudioTour";
+import { useHeadingTools } from "./headingTools";
 
 /** The content canvas is this wide at most, and never resizes. */
 export const CANVAS_MAX_WIDTH = 1048;
@@ -166,6 +167,8 @@ export function PageEditor({
   isDevMode,
   hasDraft,
 }: PageEditorProps) {
+  // The same slot the real heading reads - see `headingTools`.
+  const headingTools = useHeadingTools();
   return (
     <article>
       <header className="pb-7 mb-8 border-b border-border-float">
@@ -177,6 +180,9 @@ export function PageEditor({
             <span className="inline-flex items-center h-5 px-1.5 rounded bg-bg-float-raised text-fg-primary text-[0.625rem] font-medium uppercase tracking-wide">
               Draft
             </span>
+          )}
+          {headingTools !== null && (
+            <span className="ml-auto">{headingTools}</span>
           )}
         </div>
         <h1 className="text-[1.75rem] leading-tight font-semibold tracking-[-0.02em]">

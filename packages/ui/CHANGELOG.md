@@ -1,5 +1,193 @@
 # @valbuild/ui
 
+## 0.150.0
+
+### Minor Changes
+
+- [#935](https://github.com/valbuild/val/pull/935) [`baf2f56`](https://github.com/valbuild/val/commit/baf2f56498ca2ae5ec1f5bef356faf09a382b768) Thanks [@freekh](https://github.com/freekh)! - Upgrades are now made in Val Build. The Studio no longer has an Upgrade dialog or an upgrade tab of its own. Instead, it says when there is something to upgrade ("Val 0.150.0 is out", or that security fixes or updates are out), and that opens the project's **Updates** in Val Build in a new tab. There, the upgrade is typechecked, built, checked by the new Val against the site's content, its pages are rendered, and then it is published.
+
+  Settings → Updates lists what there is to upgrade, with **Open in Val Build**. An upgrade already under way is shown above the editor, with a link to its page in Val Build.
+
+### Patch Changes
+
+- [#937](https://github.com/valbuild/val/pull/937) [`f638188`](https://github.com/valbuild/val/commit/f638188c27fc338ace3d8282f59e83084adcb002) Thanks [@freekh](https://github.com/freekh)! - In an upgrade proposal, the Studio now says what the proposal upgrades — for example "This proposal upgrades Val 0.149.4 → 0.149.7", or that it fixes security issues — that it holds no content changes, and that publishing it updates the site. The notice has a **Publish to update your site** button, the packages it changes (majors marked), and a link to the upgrade's checks in Val Build.
+
+## 0.149.7
+
+### Patch Changes
+
+- [#934](https://github.com/valbuild/val/pull/934) [`cc2a37a`](https://github.com/valbuild/val/commit/cc2a37a74c52cab6fa062e8252fb292b84a479c3) Thanks [@freekh](https://github.com/freekh)! - The Studio's deploy, the publish job a tab runs, a proposal's build and a proposal's typecheck are now `@valbuild/shared/publish` and `@valbuild/shared/typecheck`, so home's upgrade page can build, check and publish an upgrade with the same code, pinned at a version of its own. The clients reach content through the Studio's proxy as before, or directly (`publishApi`, `proposalsApi`) with a `fetch` that adds the credential. Nothing changes in the Studio.
+
+- [#933](https://github.com/valbuild/val/pull/933) [`7e78b1f`](https://github.com/valbuild/val/commit/7e78b1f863c47d4f38d9f1c9855a92e711170865) Thanks [@freekh](https://github.com/freekh)! - The typecheck the Studio runs on an upgrade, which reports the type errors a project would have after `pnpm install`, is now `@valbuild/shared/typecheck`, so the platform's upgrade page can run the same check. The Studio's typecheck works as before. Type bundles and compilers can now also be fetched with a credential of the caller's own (`adeptSources({ base, headers, credentials })`).
+
+- [#930](https://github.com/valbuild/val/pull/930) [`8366c57`](https://github.com/valbuild/val/commit/8366c575df66ee19c3400b7fdbc14a8fd517afd6) Thanks [@freekh](https://github.com/freekh)! - Every loading spinner in the Studio is now drawn the same way, at even sizes. Odd-sized spinners, of which the Studio had several, are known to wobble in Safari.
+
+## 0.149.6
+
+### Patch Changes
+
+- [#928](https://github.com/valbuild/val/pull/928) [`8e79b44`](https://github.com/valbuild/val/commit/8e79b44b4610d188a206ed0b6de448c602a99965) Thanks [@freekh](https://github.com/freekh)! - **Create proposal** prepares an upgrade before its page opens. It creates the upgrade's proposal, works out the upgrade, and builds its dependencies, while the button says **Preparing…** with a line beneath saying where it is: for example "Building the dependencies · Installing the packages (1 of 2) · 212 of 412 packages", or how many upgrades are ahead of it while it waits for a builder. When the dependencies are built, the same tab goes to the upgrade's page, which starts at the build.
+
+  An upgrade that cannot be prepared says why, and its proposal is closed again. So is one that turns out to move nothing. Nothing on the site changes either way.
+
+## 0.149.5
+
+### Patch Changes
+
+- [#925](https://github.com/valbuild/val/pull/925) [`1e18a1b`](https://github.com/valbuild/val/commit/1e18a1ba31e169895fb75074028822dda305d26f) Thanks [@freekh](https://github.com/freekh)! - An upgrade renders its new build on the platform before it can be published. Once the typecheck finds no new errors and the build is done, the upgrade tab asks Val Build to render that build, as a publish does before it goes live. Publish is offered only when it renders. An upgrade can move the framework and React a site runs on, which a typecheck cannot judge and a render can.
+
+- [#924](https://github.com/valbuild/val/pull/924) [`9e44644`](https://github.com/valbuild/val/commit/9e44644933103d0db38bf72463478d80a1a9b0dd) Thanks [@freekh](https://github.com/freekh)! - Upgrade offers three options, and only the ones that move something: **Security fixes** (with how many vulnerabilities it fixes), **Minor versions** (recommended, and saying which Val it moves to) and **Full**. Which packages each one moves is folded away under "Which".
+
+## 0.149.4
+
+### Patch Changes
+
+- [#921](https://github.com/valbuild/val/pull/921) [`1a426f4`](https://github.com/valbuild/val/commit/1a426f41759c5f70492be5f1795bdc260ac3572b) Thanks [@freekh](https://github.com/freekh)! - An upgrade of a site's dependencies now runs in a tab of its own, on every device, from the moment **Upgrade** is pressed until **Go to site**.
+
+  - The tab computes the upgrade, builds its dependencies, typechecks, builds and publishes it. It is served cross-origin isolated on every browser, so an iPhone builds and publishes there too, instead of opening a second tab for the build.
+  - When the upgrade is ready, **Review** opens its proposal in the Studio to see the preview and check the merge, and **Publish** publishes it directly. A step that fails says why, with **Try again** where **Publish** is. **Discard upgrade** closes the proposal.
+  - The Studio you started from says the upgrade is running, with **Open upgrade** to get back to its tab, and says when it is published. At the upgrade proposal's own address, **Open upgrade** goes back to the tab.
+  - An upgrade proposal is labelled "Upgrade" in lists, rather than "0 changes".
+
+## 0.149.3
+
+### Patch Changes
+
+- [#919](https://github.com/valbuild/val/pull/919) [`ce7d5f4`](https://github.com/valbuild/val/commit/ce7d5f4f0732acb49068ae79a90aeff6fdc9e574) Thanks [@freekh](https://github.com/freekh)! - Upgrading a site's dependencies now happens in one dialog, from the moment the upgrade proposal opens until **Go to site**.
+
+  - The dialog opens straight away at the proposal's address and says it is loading, instead of appearing only once everything has loaded.
+  - The build starts by itself once the upgrade's dependencies are built, and the dialog shows how far it has got: reading, building, uploading N of M, serving at the proposal's address. On an iPhone, where the build runs in a new tab, it asks for one tap to open that tab.
+  - A step that fails says why, with **Try again** where **Publish** is. Publish runs inside the same dialog, which ends with **Go to site**, so there is no second Publish dialog.
+  - A gateway timeout (such as Cloudflare's 524) while the build is put up at the proposal's address no longer fails the build. The Studio waits until Val Build says the proposal is built.
+  - A proposal's build now leaves lockfiles out, as a publish does. Publishing an upgrade can then go live on the build the proposal already has, instead of building the whole site again.
+
+## 0.149.1
+
+### Patch Changes
+
+- [#913](https://github.com/valbuild/val/pull/913) [`6777ea4`](https://github.com/valbuild/val/commit/6777ea42e3164e913381cccabb1bccca3cf58243) Thanks [@freekh](https://github.com/freekh)! - The "Log in required" dialog no longer shows a close button that did nothing: there is nothing behind it to go back to, so logging in is the only way forward. Logging in now also brings you back to the page you were on, rather than to the start of the Studio.
+
+- [#915](https://github.com/valbuild/val/pull/915) [`357bea6`](https://github.com/valbuild/val/commit/357bea6148467838819d46daa1fb575f41365185) Thanks [@freekh](https://github.com/freekh)! - **Settings is always in the Studio's rail.** The cog used to show only in projects with an `s.settings()` module, so a hosted project made from a template had no way to reach Settings → Updates, and with it no way to upgrade. It now shows in every project. Without a settings module, the panel says how to add one, except where it holds Updates.
+
+## 0.149.0
+
+### Minor Changes
+
+- [#911](https://github.com/valbuild/val/pull/911) [`bf24bc0`](https://github.com/valbuild/val/commit/bf24bc00e8f8c2a08538d59218d9da005943ac03) Thanks [@freekh](https://github.com/freekh)! - **Upgrade your site's dependencies from the Studio.** When newer versions of your site's packages are available, an **Upgrade** button appears in the Studio's top bar (on a phone, in the account sheet). It is marked when the upgrade fixes a vulnerability.
+
+  - **Pick a kind:** fix vulnerabilities, move to the latest version within each major, or move to new major versions. For majors, you can untick any package to leave it out.
+  - **Upgrade in a proposal:** this opens a proposal with the upgrade in it, and the Studio follows it there:
+    - computing the upgrade;
+    - building the new dependencies;
+    - typechecking your code against them;
+    - building the proposal.
+  - **Publish:** offered once the upgrade adds no type errors and the proposal is built. If it adds type errors, they are listed by file and the proposal stays open, so you can fix them there.
+  - **Settings → Updates** offers the same choice. "Update site", which published the template's dependencies straight to the live site, is gone.
+
+  A proposal whose dependencies change is typechecked automatically, and it can't be published until the typecheck finds no new errors. The **Typecheck** check in the Publish dialog runs it on request.
+
+### Patch Changes
+
+- [#910](https://github.com/valbuild/val/pull/910) [`32b3210`](https://github.com/valbuild/val/commit/32b3210c11bbd526c1882177c1870aa0be1d3ca4) Thanks [@freekh](https://github.com/freekh)! - When a proposal changes its dependencies without a lockfile to match, its Build button now reads **Compute lockfile** and computes it. Afterwards, the button shows the proposal's dependencies being built, or says why they could not be built.
+
+## 0.148.8
+
+### Patch Changes
+
+- [#909](https://github.com/valbuild/val/pull/909) [`213c6fc`](https://github.com/valbuild/val/commit/213c6fca9636f9b4bb54f15336a21d2ac4846a9b) Thanks [@freekh](https://github.com/freekh)! - A proposal that changed its dependencies now goes live on those dependencies when the Studio builds its merge. Before this, a merge built in the tab used the site's existing dependencies.
+
+- [#905](https://github.com/valbuild/val/pull/905) [`1856a4a`](https://github.com/valbuild/val/commit/1856a4af7827794cbcd50d66a0800394bc386f87) Thanks [@freekh](https://github.com/freekh)! - The Studio on a phone has one way into each thing, and its bars no longer overflow.
+
+  - **Top bar:** the menu, where you are, Search and your account. In a proposal the bar is in the proposal's colour and shows an icon instead of the name; tap it to see the full name, the proposal's actions (compare, rename, copy link, close) and the way to the site or another proposal.
+  - **Bottom bar:** the assistant, the activity bell, Preview and one primary action. In a proposal that action is Save, then Build, then Publish, whichever comes next, and it reads "Fix N" while errors would stop a save. The caret beside it holds the rest: Save, Review, Build, Publish and Discard.
+  - **The bell** combines notifications, validation errors and history, with one count.
+  - **Your account** holds the theme, Members, the project's settings, the branch, deployments and the tour.
+  - **The project name** is at the top of the navigation menu, and the language filter sits beside the page heading.
+
+- [#905](https://github.com/valbuild/val/pull/905) [`1856a4a`](https://github.com/valbuild/val/commit/1856a4af7827794cbcd50d66a0800394bc386f87) Thanks [@freekh](https://github.com/freekh)! - The top bar in a proposal is no longer see-through in dark mode, and its menus open above an open panel instead of underneath it.
+
+## 0.148.7
+
+### Patch Changes
+
+- [#906](https://github.com/valbuild/val/pull/906) [`fb2eed8`](https://github.com/valbuild/val/commit/fb2eed8b51092cc2ad5c812bdf88b528913c824a) Thanks [@freekh](https://github.com/freekh)! - `val.attrs(post, "author")` tags an element with one field of what it shows. Use it for a value Val never encodes, like an `s.keyOf` key, a date or a colour. A byline that shows the author a post points at can carry the post's `author` field, so clicking it in the Studio opens the choice of author.
+
+  On a phone, a tour step about Pages, Media, Data or Settings points at the menu button, which is where they are when the rail is not drawn.
+
+- [#904](https://github.com/valbuild/val/pull/904) [`1a5ad65`](https://github.com/valbuild/val/commit/1a5ad65205ff65b54e9c5f2a7b41e24cca9fd68c) Thanks [@freekh](https://github.com/freekh)! - A proposal that changes the project's dependencies is built against a layer of its own. When a proposal stages a new `package.json` and lockfile, the platform builds a dependency layer for them, and Build in that proposal now uses it instead of the site's. While the layer is being built, or when it could not be, Build says so instead of building against dependencies the proposal no longer has. Proposals that change no dependencies build exactly as before.
+
+## 0.148.6
+
+### Patch Changes
+
+- [#902](https://github.com/valbuild/val/pull/902) [`b580292`](https://github.com/valbuild/val/commit/b580292ac3c335b055f5ed5f18d6a12d075169c7) Thanks [@freekh](https://github.com/freekh)! - The demo has a script: `<ValApp demo={{ tours, audiences }}>`. Instead of a tour that opens by itself, the demo card asks "What brings you here?" and lists short tours for the answer, each ticked off once done. `/val?tour=<id>` starts one from a link.
+
+  A tour can start on a page of its own (`start`). A step can ask for a new page (`moveOn: { newPage }`), write any value or add one (`moveOn: { edit, value, add }`), and show the code behind what it is about (`code`).
+
+## 0.148.5
+
+### Patch Changes
+
+- [#898](https://github.com/valbuild/val/pull/898) [`e1e41e2`](https://github.com/valbuild/val/commit/e1e41e2f2c3a2c511299f57ac36fcae50cc35bf6) Thanks [@freekh](https://github.com/freekh)! - The tour's card has a small arrow on the edge that faces what it is about: the page, a field, or a control in the top bar. A card that has moved aside, for a panel that just opened, or that has nothing to point at, has none.
+
+## 0.148.4
+
+### Patch Changes
+
+- [#897](https://github.com/valbuild/val/pull/897) [`7c432b3`](https://github.com/valbuild/val/commit/7c432b3f05af414bd6cbc37cd58a71a783056caa) Thanks [@freekh](https://github.com/freekh)! - Studio on a phone: when a field has been changed, "just now" and the avatar of whoever changed it now go on their own line under the field's label, instead of taking a column at the right of the row. Labels, especially a checkbox's, no longer get squeezed onto two or three lines the moment you change them. On wider screens it stays at the right of the row.
+
+## 0.148.3
+
+### Patch Changes
+
+- [#896](https://github.com/valbuild/val/pull/896) [`5eff8a0`](https://github.com/valbuild/val/commit/5eff8a055a4ef50d476797c28f9c3e50deb73c89) Thanks [@freekh](https://github.com/freekh)! - A demo's tour can now be written by the site: `<ValApp demo={{ tour }}>`, with each step as data (`ValDemoTourStep`), so what it says changes with the site rather than with a Val release.
+
+  It is drawn as a ring around what a step is about, with nothing dimmed and the Studio usable underneath, and a step can move on by itself once the visitor has done what it asks:
+
+  ```ts
+  const tour: ValDemoTourStep[] = [
+    {
+      id: "click",
+      title: "This is Val",
+      body: "Click the heading on the page.",
+      target: "canvas",
+      page: HEADING, // outlined on the page
+      moveOn: { open: HEADING },
+    },
+    {
+      id: "type",
+      title: "Change a word",
+      body: "The page changes as you type.",
+      field: HEADING, // ringed wherever the field is shown
+      moveOn: {
+        edit: true,
+        path: HEADING,
+        value: "Coffee, roasted this weekend",
+      },
+    },
+  ];
+  ```
+
+  A step that moves on has **Do it for me**, which does it the way the Studio would, and **Skip**. On a phone the card is a sheet along the bottom. The Studio's own tour is unchanged.
+
+## 0.148.2
+
+### Patch Changes
+
+- [#889](https://github.com/valbuild/val/pull/889) [`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a) Thanks [@freekh](https://github.com/freekh)! - Val is quieter in your app's console. Errors and warnings you can act on still
+  print, now prefixed with `[val]` so you can filter them. Val's own debug
+  output, which used to reach your terminal and browser console, is now off by
+  default. That includes the `Invalid JWT` line that printed on every request
+  with an expired session cookie, the "verifying draft mode" and polling notices,
+  and the Studio's sync and WebSocket chatter.
+
+  To turn the debug output back on, for example when reporting a bug:
+
+  - on the server, set `VAL_DEBUG=1`
+  - in the browser, run `localStorage.setItem("val:debug", "1")` in the console.
+    It takes effect immediately, with no reload. Remove the key to turn it off
+    again.
+
 ## 0.148.1
 
 ### Patch Changes

@@ -26,7 +26,14 @@ type Probe = Record<
   | "chunkNotListed",
   Outcome
 > &
-  Record<"serverOnly" | "serverOnlyBesideABrokenDependency", ServerOnlyOutcome>;
+  Record<
+    | "serverOnly"
+    | "serverOnlyBesideABrokenDependency"
+    | "serverEntry"
+    | "serverEntryBesideABrokenDependency"
+    | "unbuildableServerEntry",
+    ServerOnlyOutcome
+  >;
 
 let probe: Probe;
 
@@ -156,6 +163,74 @@ describe("server-only dependencies", () => {
         workerOnlyReasons: {
           "server-dep": expect.stringContaining("reaches Node's 'node:crypto'"),
         },
+      }),
+    );
+  });
+});
+
+describe("Val's server entry points", () => {
+  test("are built for the worker only, though they could be built for a browser", () => {
+    expect(probe.serverEntry).toEqual(
+      expect.objectContaining({
+        modules: {
+          "@valbuild/tanstack": "valbuild__tanstack",
+          "@valbuild/tanstack/demo": "valbuild__tanstack__demo",
+        },
+        skipped: [],
+        workerOnly: ["@valbuild/tanstack/demo"],
+        workerOnlyReasons: {
+          "@valbuild/tanstack/demo":
+            expect.stringContaining("server entry point"),
+        },
+      }),
+    );
+    expect(probe.serverEntry.workerCode).toContain(
+      "the-built-studio-as-strings",
+    );
+    expect(probe.serverEntry.browserCode).not.toContain(
+      "the-built-studio-as-strings",
+    );
+    expect(probe.serverEntry.browserFiles).not.toContain(
+      "valbuild__tanstack__demo.js",
+    );
+  });
+
+  test("the rest of the package still goes to the browser", () => {
+    expect(probe.serverEntry.browserCode).toContain("the-provider");
+  });
+
+  test("on the per-dependency path too, without a browser build of them", () => {
+    expect(probe.serverEntryBesideABrokenDependency).toEqual(
+      expect.objectContaining({
+        modules: {
+          "@valbuild/tanstack": "valbuild__tanstack",
+          "@valbuild/tanstack/demo": "valbuild__tanstack__demo",
+        },
+        skipped: [{ specifier: "broken", reason: expect.any(String) }],
+        workerOnly: ["@valbuild/tanstack/demo"],
+        workerOnlyReasons: {
+          "@valbuild/tanstack/demo":
+            expect.stringContaining("server entry point"),
+        },
+      }),
+    );
+    expect(probe.serverEntryBesideABrokenDependency.browserCode).not.toContain(
+      "the-built-studio-as-strings",
+    );
+  });
+
+  test("one that cannot be built at all is skipped, and not also server-only", () => {
+    expect(probe.unbuildableServerEntry).toEqual(
+      expect.objectContaining({
+        modules: { "@valbuild/tanstack": "valbuild__tanstack" },
+        skipped: [
+          {
+            specifier: "@valbuild/tanstack/server",
+            reason: expect.any(String),
+          },
+        ],
+        workerOnly: [],
+        workerOnlyReasons: {},
       }),
     );
   });

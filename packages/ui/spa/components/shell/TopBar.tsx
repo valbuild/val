@@ -1,4 +1,5 @@
 import {
+  ArrowUpCircle,
   AlertTriangle,
   Bell,
   ChevronDown,
@@ -7,11 +8,11 @@ import {
   GitCompare,
   History,
   Link2,
-  Loader2,
   LucideIcon,
   Menu,
   PanelRight,
   Search,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Upload,
@@ -32,9 +33,13 @@ import { StudioMark } from "./ValLogo";
 import { ShellBreakpoint, ShellLogo, ShellPanel } from "./types";
 import { useDismissOnOutsidePointer } from "./useDismissOnOutsidePointer";
 import { LocaleFilter } from "./LocaleFilter";
+import type { UpgradeButton } from "../../upgrade/useUpgrade";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { ProjectMembersButton, orgOfProject } from "./ProjectMembersButton";
-import { ProposalSwitcher } from "../proposals/ProposalSwitcher";
+import {
+  ProposalLocationChip,
+  ProposalSwitcher,
+} from "../proposals/ProposalSwitcher";
 import {
   ProposalMenu,
   ProposalPublishButton,
@@ -42,6 +47,7 @@ import {
   ProposalSaveButton,
 } from "../proposals/ProposalBar";
 import type { ProposalSummary, StudioLocation } from "../proposals/types";
+import { Spinner } from "../designSystem/spinner";
 
 /**
  * Proposals, when this project has them: the switcher, and in a proposal the
@@ -122,6 +128,13 @@ export type TopBarProps = {
    * validate. Absent in stories and embeds that do not route.
    */
   onOpenValidate?: () => void;
+  /**
+   * The Updates notice (valbuild/home `docs/plans/upgrades-v2.md`, piece E):
+   * there only while there is something to upgrade, marked when that fixes a
+   * vulnerability, and opening the project's Updates in Val Build, where
+   * upgrades are made. On a phone it is a row in the account sheet.
+   */
+  upgrade?: UpgradeButton;
   /** Whether the Validate page is the one being shown. */
   validateActive?: boolean;
   /**
@@ -245,6 +258,7 @@ export function TopBar({
   historyActive = false,
   onOpenHistory,
   onOpenValidate,
+  upgrade,
   validateActive = false,
   validateCount = 0,
   user,
@@ -275,8 +289,9 @@ export function TopBar({
    * Above a phone, where you are is the middle of the bar: the switcher, and
    * in a proposal Publish beside it -- publishing a proposal is merging it,
    * an act about the proposal -- while Save takes Publish's place on the
-   * right. On a phone the bottom bar has room for one action, which is Save,
-   * and Publish is first in the proposal's menu.
+   * right. On a phone where you are is a chip of a fixed width (see
+   * `ProposalLocationChip`), and everything about the proposal is in the
+   * sheet behind it.
    */
   const layout: "phone" | "centered" = isMobileBreakpoint(breakpoint)
     ? "phone"
@@ -302,14 +317,6 @@ export function TopBar({
               onCopyLink={proposals.onCopyLink}
               onClose={proposals.onClose}
               defaultOpen={proposals.defaultMenuOpen}
-              // On a phone the bottom bar has room for Save alone, so
-              // Publish is the first thing in the menu.
-              {...(layout === "phone"
-                ? {
-                    onPublish: proposals.onPublish,
-                    publishBlockedBy: proposalLocation.publishBlockedBy,
-                  }
-                : {})}
             />
           ),
           save: (
@@ -353,13 +360,23 @@ export function TopBar({
     <header
       className={cn(
         "absolute z-full top-3 h-11 flex items-center gap-1.5 px-2 rounded-lg",
+        /*
+         * While one of the bar's own menus is open, the bar goes above the
+         * panels. They are `z-full` too and come later in the shell, so a
+         * menu dropping out of the bar was drawn underneath an open panel.
+         */
+        "has-[[role=menu]]:z-overlay",
         "bg-bg-float border shadow-sm",
         /*
          * In a proposal the bar wears the proposal colour: where you are must
          * never be in doubt, and a screenshot should say where it was taken.
+         *
+         * The tint is LAYERED over `bg-bg-float` as an image, never swapped
+         * in for it: `--bg-proposal-soft` is translucent in dark mode, so as
+         * the background colour it let the editor show through the bar.
          */
         proposalLocation !== null
-          ? "border-border-proposal ring-1 ring-border-proposal bg-bg-proposal-soft"
+          ? "border-border-proposal ring-1 ring-border-proposal bg-[linear-gradient(var(--bg-proposal-soft),var(--bg-proposal-soft))]"
           : "border-border-float",
         // Leaves room for the rail on desktop; full-bleed below that.
         isDesktop ? "left-[4.75rem] right-3" : "left-3 right-3",
@@ -370,6 +387,10 @@ export function TopBar({
           type="button"
           aria-label="Open navigation"
           onClick={onOpenMenu}
+          // Where Pages, Media, Data and Settings are below the desktop: a
+          // tour step about one of them points here when the rail is not
+          // drawn. See `measureTarget`.
+          data-val-tour="pages media data settings"
           className="grid place-items-center w-8 h-8 rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary shrink-0"
         >
           <Menu size={17} />
@@ -381,11 +402,11 @@ export function TopBar({
         </div>
       )}
       {/*
-       * On a phone in a proposal, the proposal's name rather than the
-       * project's: where you are matters more than which project it is, and
-       * there is room for one name.
+       * Not on a phone, where there is room for no name at all: the project's
+       * is at the top of the navigation sheet, behind the menu button, and the
+       * proposal's is in the sheet behind the location chip.
        */}
-      {!(layout === "phone" && proposalLocation !== null) && (
+      {layout !== "phone" && (
         <>
           {projectHref !== undefined && webComponentsUrl !== undefined ? (
             <ProjectSwitcher
@@ -400,12 +421,15 @@ export function TopBar({
           )}
         </>
       )}
-      {layout === "phone" && (
-        <>
-          {switcher}
-          {inProposal?.menu}
-        </>
+      {layout === "phone" && proposals !== undefined && (
+        <ProposalLocationChip
+          location={proposals.location}
+          open={openPanel === "proposals"}
+          onClick={() => onTogglePanel("proposals")}
+        />
       )}
+      {/* On a phone Search sits on the right, beside the account. */}
+      {layout === "phone" && <div className="flex-1" />}
       <SearchTrigger breakpoint={breakpoint} onClick={onOpenSearch} />
       {/* Where you are, in the middle of the bar. */}
       {layout === "centered" && (
@@ -420,12 +444,7 @@ export function TopBar({
           )}
         </div>
       )}
-      <div
-        className={cn(
-          "flex items-center gap-1.5 shrink-0",
-          layout === "phone" && "ml-auto",
-        )}
-      >
+      <div className="flex items-center gap-1.5 shrink-0">
         {/*
          * Who else is here, and a way to bring more people in. Above mobile it
          * leads the cluster, to the left of the locale: it is about the
@@ -485,8 +504,29 @@ export function TopBar({
             <BarDivider />
           </>
         )}
-        {isMobile && members}
-        {onOpenValidate && (
+        {/*
+         * Validate, History and the bell are one button on a phone - the
+         * bottom bar's bell, with the activity sheet behind it.
+         */}
+        {upgrade !== undefined && !isMobile && (
+          <IconButton
+            label={`${upgrade.label}: open Updates in Val Build`}
+            onClick={upgrade.onOpen}
+          >
+            {upgrade.vulnerable ? (
+              <ShieldAlert size={16} className="text-fg-error-on-surface" />
+            ) : (
+              <ArrowUpCircle size={16} />
+            )}
+            {upgrade.vulnerable && (
+              <span
+                aria-hidden
+                className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-bg-error-primary"
+              />
+            )}
+          </IconButton>
+        )}
+        {onOpenValidate && !isMobile && (
           <IconButton
             label={
               validateCount > 0
@@ -507,7 +547,7 @@ export function TopBar({
             )}
           </IconButton>
         )}
-        {historyEnabled && (
+        {historyEnabled && !isMobile && (
           <IconButton
             label="History"
             active={historyActive}
@@ -542,7 +582,7 @@ export function TopBar({
             <PanelRight size={16} />
           </IconButton>
         )}
-        {unreadNotifications !== undefined && (
+        {unreadNotifications !== undefined && !isMobile && (
           <IconButton
             label={
               unreadNotifications > 0
@@ -560,15 +600,23 @@ export function TopBar({
             )}
           </IconButton>
         )}
-        {(user || accountError) && (
+        {/*
+         * Always there on a phone, even with nobody signed in: the theme, auto
+         * save and the deploy feed are behind it, and nothing else on a phone
+         * leads to them.
+         */}
+        {(user || accountError || isMobile) && (
           <>
-            <BarDivider />
+            {/* On a phone there is nothing before it to divide it from. */}
+            {!isMobile && <BarDivider />}
             <button
               type="button"
               aria-label={
                 accountError
                   ? `Account: ${accountError.message}`
-                  : `Account: ${user?.name}`
+                  : user
+                    ? `Account: ${user.name}`
+                    : "Account and settings"
               }
               title={accountError?.message}
               onClick={() => onTogglePanel("account")}
@@ -1041,7 +1089,7 @@ export function PublishButton({
       )}
     >
       {publishState === "publishing" ? (
-        <Loader2 size={14} className="shrink-0 animate-spin" />
+        <Spinner size={14} />
       ) : publishState === "error" ? (
         <AlertTriangle size={14} className="shrink-0" />
       ) : (
@@ -1080,7 +1128,7 @@ export function PublishButton({
  * that is not connected has no page, so the name stays a plain label rather
  * than becoming a link that goes nowhere.
  */
-function ProjectName({
+export function ProjectName({
   projectName,
   projectHref,
 }: {

@@ -3,6 +3,8 @@ import type { SerializedSchema } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
 import {
   JSONValue as JSONValueSchema,
+  parseBuildTarget,
+  type BuildTargetResponse,
   type SchemaError,
 } from "@valbuild/shared/internal";
 import type {
@@ -26,6 +28,70 @@ const Job = z.object({
   status: z.enum(["pending", "running", "succeeded", "failed"]),
   lastError: z.string().nullable().optional(),
 });
+
+/**
+ * What a proposal builds on (valbuild/home `docs/adept.md`, step 6): the
+ * site's dependencies; its own, built (`own`), being built (`pending`) or
+ * not (`failed`); or none yet, because they changed without a lockfile to
+ * match (`lockfile`), which {@link ProposalsClient.computeLockfile} computes.
+ * A state this Studio does not know reads as the site's.
+ */
+const Dependencies = z
+  .union([
+    z.object({ state: z.enum(["site", "own", "pending"]) }),
+    z.object({ state: z.literal("failed"), error: z.string().nullable() }),
+    z.object({
+      state: z.literal("lockfile"),
+      computing: z.boolean(),
+      error: z.string().nullable(),
+    }),
+  ])
+  .catch({ state: "site" });
+export type ProposalDependencies = z.infer<typeof Dependencies>;
+
+/**
+ * An upgrade proposal's upgrade (valbuild/home `docs/adept.md`, step 7):
+ * `computing` while adept works it out, `staged` once its files are, or
+ * `nothing` to upgrade, or `failed` and why.
+ */
+const UpgradeJson = z.object({
+  path: z.enum(["cves", "latest", "majors"]),
+  state: z.enum(["computing", "staged", "nothing", "failed"]),
+  changes: z.array(
+    z.object({
+      name: z.string(),
+      from: z.string().nullable(),
+      to: z.string().nullable(),
+      kind: z.enum(["major", "minor", "patch"]).nullable().catch(null),
+    }),
+  ),
+  vulnerableBefore: z.number().nullable(),
+  vulnerableAfter: z.number().nullable(),
+  error: z.string().nullable(),
+});
+export type ProposalUpgrade = z.infer<typeof UpgradeJson>;
+
+const TypeErrorJson = z.object({
+  file: z.string(),
+  line: z.number(),
+  column: z.number(),
+  code: z.number(),
+  message: z.string(),
+});
+/** A type error the base does not have (decision 20). */
+export type ProposalTypeError = z.infer<typeof TypeErrorJson>;
+
+/**
+ * The typecheck reported for a proposal: of which staged inputs, how many
+ * new errors in all, and the first of them.
+ */
+const TypecheckJson = z.object({
+  inputs: z.string(),
+  newErrors: z.number(),
+  errors: z.array(TypeErrorJson),
+  checkedAt: z.string(),
+});
+export type ProposalTypecheck = z.infer<typeof TypecheckJson>;
 
 const ProposalJson = z.object({
   name: z.string(),
@@ -70,6 +136,14 @@ const ProposalJson = z.object({
       buildRequired: z.boolean(),
     })
     .optional(),
+  /** What it builds on. Only on a read of one, and absent from older content. */
+  dependencies: Dependencies.optional(),
+  /** How it was started. A kind this Studio does not know is an editor's. */
+  kind: z.string().optional(),
+  /** An upgrade proposal's upgrade: what it moves, and where it is. */
+  upgrade: UpgradeJson.optional(),
+  /** The last typecheck reported for it. Only on a read of one. */
+  typecheck: TypecheckJson.nullable().optional(),
 });
 export type ProposalJson = z.infer<typeof ProposalJson>;
 
@@ -91,17 +165,17 @@ const ListAnswer = z.object({
   siteUrl: z.string().nullable().optional(),
 });
 const OneAnswer = z.object({ proposal: ProposalJson });
+const LockfileAnswer = z.object({ dependencies: Dependencies });
+const TypecheckAnswer = z.object({ typecheck: TypecheckJson });
 const MergeCheck = z.object({
   id: z.string(),
   ok: z.boolean(),
   message: z.string(),
   /** What clears it, when something here does. Unknown actions are none. */
   action: z
-    .string()
+    .enum(["update-from-site", "compute-lockfile", "typecheck"])
     .optional()
-    .transform((action) =>
-      action === "update-from-site" ? action : undefined,
-    ),
+    .catch(undefined),
 });
 export type MergeCheckJson = z.infer<typeof MergeCheck>;
 const MergeChecksAnswer = z.object({
@@ -282,6 +356,13 @@ export type ProposalsClient = {
      * way (valbuild/home `docs/hosted-publishing.md`, step 9).
      */
     patchIds?: string[];
+    /**
+     * An upgrade proposal (valbuild/home `docs/adept.md`, step 7): content
+     * has adept compute the upgrade and stages it. `skip`: for majors, the
+     * packages not to move.
+     */
+    kind?: "upgrade";
+    upgrade?: { path: "cves" | "latest" | "majors"; skip?: string[] };
   }): Promise<ProposalJson>;
   rename(name: string, displayName: string): Promise<ProposalJson>;
   close(name: string): Promise<ProposalJson>;
@@ -340,12 +421,51 @@ export type ProposalsClient = {
    * step 9.
    */
   restoreCode(name: string, commit: string): Promise<ProposalJson>;
+  /**
+   * What a build of it targets: the site's, or -- when it changed the
+   * project's dependencies -- its own framework and layer, which content had
+   * adept build (valbuild/home `docs/adept.md`, step 6). A 409 while they are
+   * being built or when they could not be, which says so.
+   */
+  buildTarget(name: string): Promise<ProposalBuildTarget>;
+  /**
+   * Report the typecheck of its staged `inputs`: the errors the site's code
+   * does not have (decision 20). A proposal with dependencies of its own is
+   * not published until one is reported, with none.
+   */
+  reportTypecheck(
+    name: string,
+    report: {
+      inputs: string;
+      newErrors: ProposalTypeError[];
+      count?: number;
+    },
+  ): Promise<ProposalTypecheck>;
+  /**
+   * Compute the lockfile of a proposal whose dependencies changed without one
+   * to match: content has adept work it out and stages it, which builds the
+   * dependencies from it. Answers at once, with what the proposal now builds
+   * on; a 409 when there is nothing to compute.
+   */
+  computeLockfile(name: string): Promise<ProposalDependencies>;
   /** Serve a build of its staged files, uploaded as `publishId`, at its address. */
   serveBuild(
     name: string,
     build: { publishId: string; inputs: string },
   ): Promise<ProposalJson>;
 };
+
+/**
+ * A proposal's build target, and whose layer it is: `own` when the proposal
+ * changed the dependencies and builds on the layer content had built for it,
+ * `site` otherwise.
+ */
+export type ProposalBuildTarget = {
+  target: BuildTargetResponse;
+  layer: "site" | "own";
+};
+
+const LayerOf = z.object({ layer: z.enum(["site", "own"]).optional() });
 
 export function createProposalsClient(options: {
   /** This deployment's Val API, e.g. `/api/val`. */
@@ -410,6 +530,19 @@ export function createProposalsClient(options: {
           ...(message !== undefined ? { message } : {}),
         }),
       ),
+    buildTarget: async (name) => {
+      const answer = await call(`${at(name)}/build-target`, "GET");
+      return {
+        target: parseBuildTarget(answer),
+        layer: LayerOf.parse(answer).layer ?? "site",
+      };
+    },
+    reportTypecheck: async (name, report) =>
+      TypecheckAnswer.parse(await call(`${at(name)}/typecheck`, "POST", report))
+        .typecheck,
+    computeLockfile: async (name) =>
+      LockfileAnswer.parse(await call(`${at(name)}/lockfile`, "POST", {}))
+        .dependencies,
     serveBuild: (name, build) => one(`${at(name)}/build`, "POST", build),
     updateFromSite: (name) => one(`${at(name)}/update-from-site`, "POST", {}),
     updateContent: async (name, resolutions, heads) =>
@@ -493,6 +626,7 @@ export function toSummary(
       viewer !== null &&
       (json.ownerIds ?? (json.ownerId ? [json.ownerId] : [])).includes(viewer),
     changes: json.changes ?? 0,
+    ...(json.upgrade !== undefined ? { upgrade: true } : {}),
     updatedAt: json.updatedAt,
     ...(json.setup !== undefined ? { setup: jobState(json.setup) } : {}),
     ...(json.closedBy ? { closedBy: people(json.closedBy) } : {}),

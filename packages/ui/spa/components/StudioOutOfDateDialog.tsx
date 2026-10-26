@@ -1,7 +1,7 @@
 import { Button } from "./designSystem/button";
 import { Dialog, DialogContent, DialogTitle } from "./designSystem/dialog";
 import { useValPortal } from "./ValPortalProvider";
-import { STUDIO_OUT_OF_DATE_MESSAGE } from "../publish/loadedLayer";
+import { STUDIO_OUT_OF_DATE_MESSAGE } from "@valbuild/shared/publish";
 
 /**
  * A publish was refused because the site was updated after this Studio was

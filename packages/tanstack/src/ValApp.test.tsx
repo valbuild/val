@@ -3,6 +3,7 @@
  */
 import { initVal } from "@valbuild/core";
 import { VAL_APP_ID } from "@valbuild/ui";
+import type { ReactNode } from "react";
 
 // Injecting the Studio's script is not what this is about, and jsdom has no
 // `CSS.escape` for `ValScript` to build its selector with.
@@ -97,5 +98,87 @@ describe("ValApp's loading screen", () => {
     unmount();
     render(<ValApp config={config} />);
     expect(spinner()).toBeNull();
+  });
+});
+
+/**
+ * The demo starts Val's server in the tab, and that server needs the project's
+ * modules, which `<ValModulesClient>` registers from inside `<ValApp>`.
+ *
+ * `ValApp` renders only its loading screen at first, so the child that
+ * registers them is not mounted yet. The demo used to start on that first
+ * render, and read the modules once the server's code had loaded: on a page
+ * that had the code already, that was before the child's next render, and the
+ * demo said it "was built without its content" -- some of the time, on the
+ * same build.
+ *
+ * Rendered without `act`, which would do React's follow-up render on the spot
+ * and hide exactly the race this is about. In a browser it is a task of its
+ * own, and a module that has already loaded resolves before it.
+ */
+describe("ValApp's demo", () => {
+  const { s, c, config } = initVal({ project: "acme/site" });
+  const modules = {
+    config,
+    modules: [
+      {
+        def: async () => ({
+          default: c.define("/content/a.val.ts", s.string(), "a"),
+        }),
+      },
+    ],
+  };
+  const settled = () => new Promise((resolve) => setTimeout(resolve, 100));
+  const alert = () => document.querySelector('[role="alert"]');
+  let ValApp: typeof import("./ValApp").ValApp;
+  let ValModulesClient: typeof import("./ValModulesClient").ValModulesClient;
+  let createRoot: typeof import("react-dom/client").createRoot;
+  let unmount: () => void = () => undefined;
+  afterEach(() => {
+    unmount();
+    Reflect.deleteProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT");
+  });
+  beforeEach(async () => {
+    jest.resetModules();
+    // The server's code has loaded already: the import resolves at once.
+    jest.doMock("@valbuild/server/browser", () => ({
+      createInTabValFetch: () => async () => new Response(null),
+    }));
+    jest.doMock("./demo/demoRelayHost", () => ({
+      startDemoRelay: async () => true,
+    }));
+    ({ ValApp } = await import("./ValApp"));
+    ({ ValModulesClient } = await import("./ValModulesClient"));
+    ({ createRoot } = await import("react-dom/client"));
+    Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", false);
+    document.body.innerHTML = "";
+    delete window.__VAL_MODULES__;
+    delete window.__VAL_DEMO__;
+  });
+
+  function renderDemo(children?: ReactNode) {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    root.render(
+      <ValApp config={{ ...config, defaultTheme: "light" }} demo>
+        {children}
+      </ValApp>,
+    );
+    unmount = () => root.unmount();
+  }
+
+  test("starts with the modules its child registers, however fast the server's code loads", async () => {
+    renderDemo(<ValModulesClient modules={modules} />);
+    await settled();
+    expect(alert()).toBeNull();
+    expect(window.__VAL_DEMO__).toBeDefined();
+  });
+
+  test("says it was built without its content when nothing registers any", async () => {
+    renderDemo();
+    await settled();
+    expect(alert()?.textContent).toContain("built without its content");
+    expect(window.__VAL_DEMO__).toBeUndefined();
   });
 });

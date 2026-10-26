@@ -1,5 +1,31 @@
 # @valbuild/core
 
+## 0.148.7
+
+### Patch Changes
+
+- [#906](https://github.com/valbuild/val/pull/906) [`fb2eed8`](https://github.com/valbuild/val/commit/fb2eed8b51092cc2ad5c812bdf88b528913c824a) Thanks [@freekh](https://github.com/freekh)! - `val.attrs(post, "author")` tags an element with one field of what it shows. Use it for a value Val never encodes, like an `s.keyOf` key, a date or a colour. A byline that shows the author a post points at can carry the post's `author` field, so clicking it in the Studio opens the choice of author.
+
+  On a phone, a tour step about Pages, Media, Data or Settings points at the menu button, which is where they are when the rail is not drawn.
+
+## 0.148.2
+
+### Patch Changes
+
+- [#889](https://github.com/valbuild/val/pull/889) [`dc7c8cc`](https://github.com/valbuild/val/commit/dc7c8ccd82f643e662d00225fabec411b5d39e3a) Thanks [@freekh](https://github.com/freekh)! - Val is quieter in your app's console. Errors and warnings you can act on still
+  print, now prefixed with `[val]` so you can filter them. Val's own debug
+  output, which used to reach your terminal and browser console, is now off by
+  default. That includes the `Invalid JWT` line that printed on every request
+  with an expired session cookie, the "verifying draft mode" and polling notices,
+  and the Studio's sync and WebSocket chatter.
+
+  To turn the debug output back on, for example when reporting a bug:
+
+  - on the server, set `VAL_DEBUG=1`
+  - in the browser, run `localStorage.setItem("val:debug", "1")` in the console.
+    It takes effect immediately, with no reload. Remove the key to turn it off
+    again.
+
 ## 0.148.0
 
 ### Patch Changes

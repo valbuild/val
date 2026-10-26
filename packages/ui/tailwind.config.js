@@ -209,6 +209,16 @@ module.exports = {
          *
          * Only ever applied behind `motion-safe:` — see `TourLauncher`.
          */
+        /*
+         * The tour's ring arriving somewhere new: one beat outwards, so the eye
+         * finds where it went, and then still. Once, not a loop: a ring that
+         * keeps pulsing at what someone is already reading is a distraction.
+         * Behind `motion-safe:`, like the glow below.
+         */
+        "tour-arrive": {
+          "0%": { boxShadow: "0 0 0 0 var(--border-brand-secondary)" },
+          "100%": { boxShadow: "0 0 0 10px transparent" },
+        },
         "tour-glow": {
           "0%, 100%": {
             boxShadow: "0 0 0 0 var(--border-brand-secondary)",
@@ -224,6 +234,7 @@ module.exports = {
         "rotate-clock-hour-hand": "rotate-clock 12s linear infinite",
         "rotate-clock-minute-hand": "rotate-clock 1s linear infinite",
         "tour-glow": "tour-glow 2.4s ease-in-out infinite",
+        "tour-arrive": "tour-arrive 0.7s ease-out 1",
       },
     },
   },

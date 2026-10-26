@@ -74,3 +74,4 @@ export * from "./patchSets/PatchSets";
 export * from "./patchSets/selectionClosure";
 export * from "./patchSets/schemaTypesOfPath";
 export * from "./proposalMerge/trees";
+export * from "./selfCheck";

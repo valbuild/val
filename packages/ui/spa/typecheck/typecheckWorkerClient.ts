@@ -1,11 +1,19 @@
-import { SourceError } from "./acquireTypes";
-import { STUDIO_ADEPT_BASE } from "./adeptSources";
-import type { TypecheckProgress, TypecheckResult } from "./typecheckProject";
+import {
+  SourceError,
+  type TypecheckProgress,
+  type TypecheckResult,
+} from "@valbuild/shared/typecheck";
 import {
   TypecheckAbandoned,
   type TypecheckReply,
   type TypecheckRequest,
 } from "./typecheckProtocol";
+
+/**
+ * Where the Studio's typecheck gets adept's type bundles and compilers: its
+ * own server's publish proxy, which forwards to content with the session.
+ */
+export const STUDIO_ADEPT_BASE = "/api/val/publish-api/adept";
 
 /**
  * The Studio's side of the typecheck worker. Imported with `import()`, as

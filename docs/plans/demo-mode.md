@@ -496,8 +496,19 @@ Follow-ups, roughly in order:
    never fetches. `noNodeFromBrowser.test.ts` fails if it becomes statically
    reachable again.
 2. ~~Uploads are refused when tried~~ -- they work now; see section 10.
-3. **The tour is a sequence of cards.** The section 7 ideas (waiting for the
-   visitor to do the thing, a richer template) are open.
+3. ~~The tour is a sequence of cards~~ -- the site writes it now
+   (`<ValApp demo={{ tour }}>`, steps as `ValDemoTourStep` data), drawn as a
+   ring with nothing dimmed, and a step can move on when the visitor has done
+   it (opened a field, made an edit, opened a panel, switched the language),
+   with "Do it for me". What the demo's tour says lives in valbuild/home's
+   `demo/src/tour.ts`; the plan for the rest of it is `demo/TOUR.md` there.
+   It is a demo SCRIPT now (`demo={{ tours, audiences }}`): nothing opens by
+   itself; the demo card asks "What brings you here?" and lists short tours
+   for the answer, ticked off as they are done (`demoScript.ts`). A tour can
+   start on a page of its own (`start`), add a page (`newPage`), write any
+   value, show the schema behind a field (`code`), and be linked to
+   (`/val?tour=<id>`). Still missing from the plan: the assistant's and
+   proposals' tours, which need those to run in the demo first, and hints.
 4. **Text fields have no accessible name** (the label is not associated with
    the input). Found writing the e2e test, which finds fields by
    `data-val-studio-path` instead; not demo-specific.

@@ -38,6 +38,13 @@ import {
  * the draft text goes out without them, and the render React does right after
  * hydrating the component puts them in.
  *
+ * With analytics on and draft mode off, the same rule for every visitor: no
+ * tags on the server or while hydrating, tags from the render after. So the
+ * content of the HTML a visitor is sent, prerendered or not, is the same with
+ * analytics on or off -- what differs is the few bytes of JSON that say it is
+ * on (`platformAnalytics.tsx`) -- and no edit tag ever reaches a crawler that
+ * does not run the page.
+ *
  * Because JSX auto-tagging turns a tagged string into a `data-val-path`
  * attribute as the element is created, and the switch for it is process-wide.
  * The server cannot be relied on to tag (whether the patched JSX runtime is
@@ -50,9 +57,13 @@ import {
 function useEncodesEditTags(context: {
   draftMode: boolean | null;
   serverDraft?: boolean;
+  analytics?: boolean;
 }): boolean {
   const hydrated = useHydrated();
-  return !!context.draftMode && (!context.serverDraft || hydrated);
+  if (context.draftMode) {
+    return !context.serverDraft || hydrated;
+  }
+  return !!context.analytics && hydrated;
 }
 
 /** What `useVal` gives back — see `ResolvedVal` in `@valbuild/react/stega`. */

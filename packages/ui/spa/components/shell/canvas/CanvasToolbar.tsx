@@ -195,10 +195,15 @@ export function CanvasToolbar({
               isRefreshing ? "text-fg-brand-primary" : "text-fg-secondary",
             )}
           >
-            <RotateCw
-              size={13}
-              className={cn(isRefreshing && "animate-spin")}
-            />
+            {/* The span spins, not the SVG: see designSystem/spinner. */}
+            <span
+              className={cn(
+                "inline-flex",
+                isRefreshing && "animate-spin will-change-transform",
+              )}
+            >
+              <RotateCw size={14} />
+            </span>
           </button>
         </>
       )}
