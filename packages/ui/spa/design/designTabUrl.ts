@@ -9,8 +9,30 @@ const DESIGN_PREFIX = "/val/design/";
 /** A proposal's name: 20 hex characters, as content mints them. */
 const PROPOSAL_NAME = /^[0-9a-f]{20}$/;
 
-/** The design tab of proposal `name`, on the site at `siteUrl`. */
-export function designTabUrl(siteUrl: string, name: string): string {
+/**
+ * The design tab of proposal `name`, opened from `here` -- the page the
+ * proposal's Studio is on.
+ *
+ * On the site's address beside the proposal's: `<proposal>--<project>.<host>`
+ * is the proposal's, and `<project>.<host>` the site's, which is the SAME SITE
+ * to a browser on valstart.dev -- so the tab's frame of the proposal is sent
+ * the editor's session. `siteUrl`, the site as content names it, may be a
+ * custom domain, from which the proposal is another site and the frame is
+ * signed out; it is the fallback, where the address is not a proposal's by
+ * name (a local loader reached by header).
+ */
+export function designTabUrl(
+  here: string,
+  name: string,
+  siteUrl: string,
+): string {
+  const url = new URL(here);
+  const [label, ...rest] = url.hostname.split(".");
+  const prefix = `${name}--`;
+  if (label.startsWith(prefix) && label.length > prefix.length) {
+    url.hostname = [label.slice(prefix.length), ...rest].join(".");
+    return new URL(`${DESIGN_PREFIX}${name}`, url.origin).toString();
+  }
   return new URL(`${DESIGN_PREFIX}${name}`, siteUrl).toString();
 }
 

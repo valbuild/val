@@ -1066,7 +1066,11 @@ export function useProposalsBar({
       ? {
           onOpenDesign: () =>
             window.open(
-              designTabUrl(designSite, location.proposal.name),
+              designTabUrl(
+                window.location.href,
+                location.proposal.name,
+                designSite,
+              ),
               "_blank",
             ),
         }
