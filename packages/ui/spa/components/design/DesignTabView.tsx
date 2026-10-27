@@ -334,7 +334,11 @@ function summarise(checks: DesignCheckItem[]): {
   }
   const idle = checks.find((item) => item.check.state === "idle");
   if (idle !== undefined && idle.check.state === "idle") {
-    return { tone: "idle", label: idle.check.detail ?? "Not checked" };
+    // Named: alone beside the proposal's name, "needed" says nothing.
+    return {
+      tone: "idle",
+      label: `${idle.label}: ${idle.check.detail ?? "not checked"}`,
+    };
   }
   return { tone: "passed", label: "Ready" };
 }
