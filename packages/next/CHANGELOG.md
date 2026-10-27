@@ -1,5 +1,16 @@
 # @valbuild/next
 
+## 0.150.5
+
+### Patch Changes
+
+- Updated dependencies [[`47a31cc`](https://github.com/valbuild/val/commit/47a31cc3574841acf4f3207d5053f8bc728d25cd)]:
+  - @valbuild/server@0.150.5
+  - @valbuild/ui@0.150.5
+  - @valbuild/language-server@0.150.5
+  - @valbuild/mcp@0.150.5
+  - @valbuild/react@0.150.5
+
 ## 0.150.3
 
 ### Patch Changes
