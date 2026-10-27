@@ -56,6 +56,16 @@ describe("autoTagJSX", () => {
     expect(propsOf(list)["data-val-path"]).toBe(`${TITLE},${BLURB}`);
   });
 
+  test("frozen children -- React's development build freezes static ones -- are cleaned on a copy", () => {
+    const link: ResolvedVal<typeof linkVal> = stegaEncode(linkVal, {});
+    const { jsxs } = jsxRuntime;
+    // <TextLink>{link.title} →</TextLink> hands its children on to <a>.
+    const children = Object.freeze([link.title, " →"]);
+    const anchor = jsxs("a", { href: "/", children });
+    expect(propsOf(anchor).children).toEqual(["Val", " →"]);
+    expect(propsOf(anchor)["data-val-path"]).toBe(TITLE);
+  });
+
   test("createElement leaves a component's children for the element it renders", () => {
     const link: ResolvedVal<typeof linkVal> = stegaEncode(linkVal, {});
     const Component = (props: { children?: React.ReactNode }) => props.children;

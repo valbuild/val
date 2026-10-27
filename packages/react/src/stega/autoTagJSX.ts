@@ -38,6 +38,28 @@ function pathsOfFragmentChildren(children: unknown): string[] {
 }
 
 /**
+ * `props.children` as an array that can be written to, or null when it is
+ * an array that cannot and `props` cannot take another.
+ *
+ * React's development build freezes an element's static children
+ * (`{label} →` is `[label, " →"]`), so a component that hands its
+ * `children` on to an intrinsic element -- `<a>{children}</a>` -- hands on a
+ * frozen array: the element got its `data-val-path`, and its text kept the
+ * edit tag, in development only. Its props are the component's own, fresh
+ * object, so the cleaned copy goes there.
+ */
+function writableChildren(props: any): unknown[] | null {
+  if (!Object.isFrozen(props.children)) {
+    return props.children;
+  }
+  if (Object.isFrozen(props)) {
+    return null;
+  }
+  props.children = [...props.children];
+  return props.children;
+}
+
+/**
  * Takes the edit tags out of a fragment's text, and returns the paths they
  * named -- its own and its fragment children's -- for its parent to carry.
  */
@@ -57,9 +79,10 @@ function cleanFragment(props: any): string[] {
     return value;
   };
   if (Array.isArray(props.children)) {
-    if (!Object.isFrozen(props.children)) {
-      props.children.forEach((child: unknown, index: number) => {
-        props.children[index] = clean(child);
+    const children = writableChildren(props);
+    if (children) {
+      children.forEach((child: unknown, index: number) => {
+        children[index] = clean(child);
       });
     }
   } else if (!Object.isFrozen(props)) {
@@ -161,9 +184,13 @@ const addValPathIfFound = (type: any, props: any): string[] | undefined => {
             }
           }
         } else if (value instanceof Array) {
-          for (const [index, item] of Object.entries(value)) {
+          const container =
+            key === "children" && isIntrinsicElement(type)
+              ? (writableChildren(props) ?? value)
+              : value;
+          for (const [index, item] of Object.entries(container)) {
             if (typeof item === "string" && item.match(VERCEL_STEGA_REGEX)) {
-              updateValSources(index, item, props, value);
+              updateValSources(index, item, props, container);
             }
           }
         }
