@@ -33,7 +33,7 @@ import { Decoration, DecorationSet, EditorView } from "prosemirror-view";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
 import { BoxView } from "./boxNodeView";
-import type { SketchMedia } from "./sketchFormat";
+import type { SketchMedia } from "@valbuild/shared/internal";
 import { docFromSketch, sketchFromDoc, sketchSchema } from "./sketchpadDoc";
 
 const nodes = sketchSchema.nodes;

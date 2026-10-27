@@ -1,8 +1,10 @@
 import {
-  formatPlaceholder,
-  formatText,
+  checkSketch,
+  formatSketch,
+  sketchTitle,
+  formatSketchBox,
+  formatSketchText,
   parseSketch,
-  replaceLine,
 } from "./sketchFormat";
 
 describe("parseSketch", () => {
@@ -152,7 +154,7 @@ describe("writing back", () => {
       label: "Team [on] the roof",
       media: { type: "image" as const, src: "/a b.jpg" },
     };
-    const line = formatPlaceholder(placeholder);
+    const line = formatSketchBox(placeholder);
     expect(line).toBe("[hero: Team on the roof](image: /a%20b.jpg)");
     expect(parseSketch(line).blocks[0]).toMatchObject({
       label: "Team on the roof",
@@ -162,16 +164,67 @@ describe("writing back", () => {
 
   test("a paragraph that reads like something else is escaped", () => {
     for (const text of ["row", "## not a heading", "[not a box]"]) {
-      expect(parseSketch(formatText(0, text)).blocks).toEqual([
+      expect(parseSketch(formatSketchText(0, text)).blocks).toEqual([
         { type: "text", line: 1, level: 0, text },
       ]);
     }
-    expect(formatText(2, "Two\nlines")).toBe("## Two lines");
+    expect(formatSketchText(2, "Two\nlines")).toBe("## Two lines");
+  });
+});
+
+describe("checkSketch", () => {
+  test("a sketch as the Sketchpad writes it passes", () => {
+    expect(
+      checkSketch(
+        "# Title\nrow\n  col 2\n    [hero: A](image: /a.jpg)\n  col\n    Text\n\nicon hero M3 5h18\n",
+      ),
+    ).toEqual([]);
+    expect(checkSketch("")).toEqual([]);
   });
 
-  test("replacing a line keeps its indent", () => {
-    expect(replaceLine("row\n  col\n    Old", 3, "New")).toBe(
-      "row\n  col\n    New",
+  test.each([
+    ["a tab", "row\n\tcol\n\t\tText\n", 2],
+    ["three spaces", "row\n   col\n      Text\n", 2],
+    ["a blank line between blocks", "# Title\n\nText\n", 2],
+    ["an icon before the page", "icon hero M3 5h18\n[hero]\n", 1],
+    ["an icon kind in capitals", "[hero]\n\nicon Hero M3 5h18\n", 3],
+    ["no final newline", "# Title", 1],
+    ["two final newlines", "# Title\n\n", 2],
+    ["a kind of two words", "[team photo: Roof]\n", 1],
+  ])("%s is refused, at the line to fix", (_, source, line) => {
+    const errors = checkSketch(source);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].line).toBe(line);
+  });
+
+  test("a col outside a row is refused", () => {
+    expect(checkSketch("col\n  Alone\n").map((e) => e.line)).toEqual([1]);
+  });
+
+  test("what formatSketch writes always passes", () => {
+    for (const source of [
+      "row\n\tcol\n\t\tText",
+      "icon hero M3 5h18\n\n\n[hero: A]\n# B",
+      "row\n",
+    ]) {
+      const { blocks, icons } = parseSketch(source);
+      expect(checkSketch(formatSketch(blocks, icons))).toEqual([]);
+    }
+  });
+
+  test("a row directly in a row is refused", () => {
+    expect(checkSketch("row\n  row\n    col\n").map((e) => e.line)).toEqual([
+      2,
+    ]);
+  });
+});
+
+describe("sketchTitle", () => {
+  test("is the biggest top-level heading", () => {
+    expect(sketchTitle(parseSketch("Intro\n## Sub\n# Main\n").blocks)).toBe(
+      "Main",
     );
+    expect(sketchTitle(parseSketch("## Sub\n").blocks)).toBe("Sub");
+    expect(sketchTitle(parseSketch("Just text\n").blocks)).toBeNull();
   });
 });

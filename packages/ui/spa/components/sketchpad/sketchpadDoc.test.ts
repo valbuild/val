@@ -1,5 +1,10 @@
-import { parseSketch, type SketchNode } from "./sketchFormat";
-import { checkSketch, docFromSketch, sketchFromDoc } from "./sketchpadDoc";
+import {
+  checkSketch,
+  formatSketch,
+  parseSketch,
+  type SketchNode,
+} from "@valbuild/shared/internal";
+import { docFromSketch, sketchFromDoc } from "./sketchpadDoc";
 
 /** A sketch's blocks without their line numbers, which a rewrite moves. */
 function shape(source: string): unknown {
@@ -63,39 +68,24 @@ describe("the Sketchpad document", () => {
   });
 });
 
-describe("checkSketch", () => {
-  test("a sketch as the Sketchpad writes it passes", () => {
-    expect(checkSketch(SKETCH)).toEqual([]);
-    expect(checkSketch("")).toEqual([]);
-  });
-
+describe("the editor writes what formatSketch writes", () => {
   test.each([
-    ["a tab", "row\n\tcol\n\t\tText\n", 2],
-    ["three spaces", "row\n   col\n      Text\n", 2],
-    ["a blank line between blocks", "# Title\n\nText\n", 2],
-    ["an icon before the page", "icon hero M3 5h18\n[hero]\n", 1],
-    ["an icon kind in capitals", "[hero]\n\nicon Hero M3 5h18\n", 3],
-    ["no final newline", "# Title", 1],
-    ["two final newlines", "# Title\n\n", 2],
-    ["a kind of two words", "[team photo: Roof]\n", 1],
-  ])("%s is refused, at the line to fix", (_, source, line) => {
-    const errors = checkSketch(source);
-    expect(errors).toHaveLength(1);
-    expect(errors[0].line).toBe(line);
-  });
-
-  test("a col outside a row is refused", () => {
-    expect(checkSketch("col\n  Alone\n").map((e) => e.line)).toEqual([1]);
-  });
-
-  test("what the Sketchpad writes always passes", () => {
-    for (const source of [
-      "row\n\tcol\n\t\tText",
-      "icon hero M3 5h18\n\n\n[hero: A]\n# B",
-      "col\n  Alone",
-    ]) {
-      const { doc, icons } = docFromSketch(source);
-      expect(checkSketch(sketchFromDoc(doc, icons))).toEqual([]);
+    SKETCH,
+    "",
+    "row\n\tcol\n\t\tText",
+    "icon hero M3 5h18\n\n\n[hero: A]\n# B",
+    "col\n  Alone",
+    "row\n  row\n    col\n      Deep",
+    "row\n",
+    "# Title\n\n\nText\n",
+  ])("%j", (source) => {
+    const { blocks, icons } = parseSketch(source);
+    const { doc, icons: docIcons } = docFromSketch(source);
+    const written = sketchFromDoc(doc, docIcons);
+    if (parseSketch(source).errors.length === 0) {
+      expect(written).toBe(formatSketch(blocks, icons));
     }
+    // Whatever went in, what the editor writes is a sketch the server takes.
+    expect(checkSketch(written)).toEqual([]);
   });
 });

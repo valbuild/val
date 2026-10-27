@@ -2,7 +2,7 @@ import { Archive, ChevronDown, Sparkles, X } from "lucide-react";
 import type { Plugin } from "prosemirror-state";
 import { useState, type ReactNode } from "react";
 import { cn } from "../designSystem/cn";
-import type { SketchMedia } from "./sketchFormat";
+import type { SketchMedia } from "@valbuild/shared/internal";
 import { SketchpadEditor } from "./SketchpadEditor";
 import { SketchpadListPopover, type SketchpadListProps } from "./SketchpadList";
 

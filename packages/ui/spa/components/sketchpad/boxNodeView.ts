@@ -1,7 +1,7 @@
 import type { Node as PMNode } from "prosemirror-model";
 import type { EditorView, NodeView } from "prosemirror-view";
 import { mediaOf } from "./sketchpadDoc";
-import type { SketchMedia } from "./sketchFormat";
+import type { SketchMedia } from "@valbuild/shared/internal";
 
 export type BoxViewOptions = {
   /** The icons are the sketch's, and change when the assistant draws one. */

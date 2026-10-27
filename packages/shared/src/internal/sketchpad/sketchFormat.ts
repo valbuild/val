@@ -19,9 +19,8 @@
  * before anyone worries about how it looks. The person never sees this text,
  * only the page it describes; the assistant never sees the page, only this.
  * So the two have to be the same thing, and the format is STRICT: there is
- * exactly one way to write what is on the screen. `checkSketch` (in
- * `sketchpadDoc.ts`) is that rule, and an assistant's write that breaks it
- * is refused with the line to fix.
+ * exactly one way to write what is on the screen. `checkSketch` is that
+ * rule, and the server refuses a write that breaks it, with the line to fix.
  *
  * Parsing is still forgiving, so a sketch that breaks the rule shows what it
  * can rather than nothing; that is for reading, never for accepting.
@@ -161,6 +160,12 @@ export function parseSketch(source: string): ParsedSketch {
         message: "A col only goes directly inside a row.",
       });
     }
+    if (node.type === "row" && parent.type === "row") {
+      errors.push({
+        line,
+        message: "A row goes in a col, not directly in another row.",
+      });
+    }
     parent.children.push(node);
     if (node.type === "row" || node.type === "col") {
       stack.push({
@@ -252,7 +257,10 @@ function parseContent(
  * The line a text block is written as. Line breaks become spaces, and a
  * paragraph that would read as something else is kept as text with `\`.
  */
-export function formatText(level: SketchText["level"], text: string): string {
+export function formatSketchText(
+  level: SketchText["level"],
+  text: string,
+): string {
   const flat = text.replace(/\s+/g, " ").trim();
   if (level > 0) {
     return "#".repeat(level) + " " + flat;
@@ -267,7 +275,7 @@ export function formatText(level: SketchText["level"], text: string): string {
 }
 
 /** The line a placeholder is written as. */
-export function formatPlaceholder(
+export function formatSketchBox(
   placeholder: Pick<SketchPlaceholder, "kind" | "label" | "media">,
 ): string {
   const clean = (text: string) =>
@@ -280,18 +288,124 @@ export function formatPlaceholder(
   return `[${kind}${label ? `: ${label}` : ""}]${media}`;
 }
 
-/** `source` with its `line` (1-based) replaced, keeping that line's indent. */
-export function replaceLine(
-  source: string,
-  line: number,
-  content: string,
+/**
+ * The ONE way of writing `blocks` and `icons`: what `checkSketch` holds every
+ * other text to, and what the Studio's editor writes (its own serializer is
+ * tested against this one). Two spaces per level; an empty row gets an empty
+ * col, so it has somewhere to type; a col outside a row is written as its
+ * contents, which is all it shows; the icons last, after one blank line, and
+ * no blank line anywhere else; a final newline. Empty text is not written --
+ * it is not on the page.
+ */
+export function formatSketch(
+  blocks: SketchNode[],
+  icons: Record<string, string>,
 ): string {
-  const lines = source.split("\n");
-  const current = lines[line - 1];
-  if (current === undefined) {
-    return source;
+  const lines: string[] = [];
+  const walk = (node: SketchNode, depth: number, inRow: boolean) => {
+    const indent = "  ".repeat(depth);
+    switch (node.type) {
+      case "text":
+        if (node.text) {
+          lines.push(indent + formatSketchText(node.level, node.text));
+        }
+        return;
+      case "placeholder":
+        lines.push(indent + formatSketchBox(node));
+        return;
+      case "row":
+        lines.push(indent + "row");
+        if (node.children.length === 0) {
+          lines.push(indent + "  col");
+        }
+        node.children.forEach((child) => walk(child, depth + 1, true));
+        return;
+      case "col":
+        if (!inRow) {
+          node.children.forEach((child) => walk(child, depth, false));
+          return;
+        }
+        lines.push(indent + (node.weight === 1 ? "col" : `col ${node.weight}`));
+        node.children.forEach((child) => walk(child, depth + 1, false));
+        return;
+    }
+  };
+  blocks.forEach((block) => walk(block, 0, false));
+  const iconLines = Object.entries(icons).map(
+    ([kind, path]) => `icon ${kind} ${path}`,
+  );
+  const all = [...lines, ...(iconLines.length > 0 ? ["", ...iconLines] : [])];
+  return all.length > 0 ? all.join("\n") + "\n" : "";
+}
+
+/**
+ * What a list names a sketch by: its first top-level heading, the biggest
+ * one first. Null for a sketch with no heading, which a list then names by
+ * its page.
+ */
+export function sketchTitle(blocks: SketchNode[]): string | null {
+  for (const level of [1, 2, 3]) {
+    const heading = blocks.find(
+      (block): block is SketchText =>
+        block.type === "text" && block.level === level && block.text !== "",
+    );
+    if (heading) {
+      return heading.text;
+    }
   }
-  const indent = current.slice(0, current.length - current.trimStart().length);
-  lines[line - 1] = indent + content;
-  return lines.join("\n");
+  return null;
+}
+
+/**
+ * Everything wrong with `source`, or nothing when it is a sketch exactly as
+ * `formatSketch` writes it.
+ *
+ * Strict on purpose. The person sees the page and the assistant sees the
+ * text, so a text with two spellings of one page -- a tab or two spaces, an
+ * icon line here or there, a blank line or none -- is a text the assistant
+ * cannot trust to be what is on the screen, and that would show it a change
+ * nobody made the next time the Studio writes it back. Holding every write
+ * to the one spelling rules all of that out at once.
+ *
+ * The parse errors come first; past those, the first line that is spelled
+ * differently, with how it should be spelled.
+ */
+export function checkSketch(source: string): SketchError[] {
+  const { blocks, icons, errors } = parseSketch(source);
+  if (errors.length > 0) {
+    return errors;
+  }
+  const canonical = formatSketch(blocks, icons);
+  if (canonical === source) {
+    return [];
+  }
+  if (canonical !== "" && !source.endsWith("\n")) {
+    return [
+      {
+        line: source.split("\n").length,
+        message: "A sketch ends with a newline.",
+      },
+    ];
+  }
+  // Compared without the final newline, so an extra one is an extra line.
+  const given = source.slice(0, -1).split("\n");
+  const wanted = canonical.slice(0, -1).split("\n");
+  for (let i = 0; i < Math.max(given.length, wanted.length); i++) {
+    if (given[i] !== wanted[i]) {
+      return [
+        {
+          line: i + 1,
+          message:
+            wanted[i] === undefined
+              ? "Nothing goes here: the sketch ends on the line before."
+              : given[i] === ""
+                ? "No blank lines: the one blank line in a sketch is before its icons."
+                : given[i] === undefined
+                  ? `The sketch goes on: "${wanted[i]}".`
+                  : `This line is written ${JSON.stringify(wanted[i])} in a sketch: two spaces per level, the icons last after one blank line, and no other blank lines.`,
+        },
+      ];
+    }
+  }
+  return [];
 }

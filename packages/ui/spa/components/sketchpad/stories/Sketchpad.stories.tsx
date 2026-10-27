@@ -14,7 +14,7 @@ import { Sketchpad, type SketchpadProps } from "../Sketchpad";
  * Click a box's kind to rename it.
  *
  * The assistant reads and writes the same page as text, in one strict form
- * (see `sketchFormat.ts`):
+ * (see `sketchFormat.ts` in `@valbuild/shared`):
  *
  * ```
  * # Heading / ## Sub / ### Small     text

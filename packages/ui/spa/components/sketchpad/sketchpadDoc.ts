@@ -1,12 +1,11 @@
 import { Schema, type Node as PMNode } from "prosemirror-model";
 import {
-  formatPlaceholder,
-  formatText,
+  formatSketchBox,
+  formatSketchText,
   parseSketch,
-  type SketchError,
   type SketchMedia,
   type SketchNode,
-} from "./sketchFormat";
+} from "@valbuild/shared/internal";
 
 /**
  * The Sketchpad as a ProseMirror document, so the page is edited the way a
@@ -151,7 +150,12 @@ function toNodes(block: SketchNode, inRow: boolean): PMNode[] {
         ),
       ];
     case "row": {
-      const items = block.children.flatMap((child) => toNodes(child, true));
+      const items = block.children.flatMap((child) =>
+        // A row cannot hold a row (it is reported); a col around it can.
+        child.type === "row"
+          ? [nodes.col.create(null, toNodes(child, false))]
+          : toNodes(child, true),
+      );
       return [
         nodes.row.create(
           null,
@@ -174,8 +178,9 @@ function toNodes(block: SketchNode, inRow: boolean): PMNode[] {
 }
 
 /**
- * The document as sketch text: the ONE way of writing it, which is what
- * `checkSketch` holds everything else to. Two spaces per level; the icons
+ * The document as sketch text: the ONE way of writing it, the same as
+ * `formatSketch` in `@valbuild/shared`, which the server holds every write
+ * to (`sketchpadDoc.test.ts` pins the two together). Two spaces per level; the icons
  * last, after a blank line, and no blank line anywhere else; a final newline.
  * An empty paragraph or heading -- the place someone is about to type -- is
  * not on the page, so it is not in the text.
@@ -191,18 +196,20 @@ export function sketchFromDoc(
     switch (node.type) {
       case nodes.paragraph:
         if (text) {
-          lines.push(indent + formatText(0, text));
+          lines.push(indent + formatSketchText(0, text));
         }
         return;
       case nodes.heading:
         if (text) {
-          lines.push(indent + formatText(levelOf(node.attrs.level), text));
+          lines.push(
+            indent + formatSketchText(levelOf(node.attrs.level), text),
+          );
         }
         return;
       case nodes.box:
         lines.push(
           indent +
-            formatPlaceholder({
+            formatSketchBox({
               kind: String(node.attrs.kind),
               label: text || null,
               media: mediaOf(node),
@@ -228,61 +235,6 @@ export function sketchFromDoc(
   );
   const all = [...lines, ...(iconLines.length > 0 ? ["", ...iconLines] : [])];
   return all.length > 0 ? all.join("\n") + "\n" : "";
-}
-
-/**
- * Everything wrong with `source`, or nothing when it is a sketch exactly as
- * the Sketchpad writes it.
- *
- * Strict on purpose. The person sees the page and the assistant sees the
- * text, so a text with two spellings of one page -- a tab or two spaces, an
- * icon line here or there, a blank line or none -- is a text the assistant
- * cannot trust to be what is on the screen, and that would show it a change
- * nobody made the next time the Sketchpad writes it back. Holding a write to
- * the Sketchpad's own spelling rules all of that out at once.
- *
- * The parse errors come first; past those, the first line that is spelled
- * differently, with how it should be spelled.
- */
-export function checkSketch(source: string): SketchError[] {
-  const { errors } = parseSketch(source);
-  if (errors.length > 0) {
-    return errors;
-  }
-  const { doc, icons } = docFromSketch(source);
-  const canonical = sketchFromDoc(doc, icons);
-  if (canonical === source) {
-    return [];
-  }
-  if (canonical !== "" && !source.endsWith("\n")) {
-    return [
-      {
-        line: source.split("\n").length,
-        message: "A sketch ends with a newline.",
-      },
-    ];
-  }
-  // Compared without the final newline, so an extra one is an extra line.
-  const given = source.slice(0, -1).split("\n");
-  const wanted = canonical.slice(0, -1).split("\n");
-  for (let i = 0; i < Math.max(given.length, wanted.length); i++) {
-    if (given[i] !== wanted[i]) {
-      return [
-        {
-          line: i + 1,
-          message:
-            wanted[i] === undefined
-              ? "Nothing goes here: the sketch ends on the line before."
-              : given[i] === ""
-                ? "No blank lines: the one blank line in a sketch is before its icons."
-                : given[i] === undefined
-                  ? `The sketch goes on: "${wanted[i]}".`
-                  : `This line is written ${JSON.stringify(wanted[i])} in a sketch: two spaces per level, the icons last after one blank line, and no other blank lines.`,
-        },
-      ];
-    }
-  }
-  return [];
 }
 
 function levelOf(level: unknown): 1 | 2 | 3 {
