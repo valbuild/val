@@ -40,6 +40,7 @@ import {
   SourcePath,
   ValidationFix,
 } from "@valbuild/core";
+import { richTextImageSchema } from "@valbuild/shared/internal";
 import { collectionReferencePatches } from "./collectionReferences";
 import { extractJsonValuesEntry } from "./extractJsonValuesEntry";
 import {
@@ -49,7 +50,11 @@ import {
 import { checkGalleryFiles } from "./galleryFiles";
 import type { Service } from "./Service";
 import type { IValFSHost } from "./ValFSHost";
-import { openRemoteUploadSession, uploadBytesToRemote } from "./remoteUpload";
+import {
+  localFilesWarning,
+  openRemoteUploadSession,
+  uploadBytesToRemote,
+} from "./remoteUpload";
 import {
   handleVideoDownloadRemote,
   handleVideoUploadRemote,
@@ -144,6 +149,10 @@ export type FixHandlerResult = {
   // The handler did nothing because `--fix` was off, but the error IS fixable:
   // report it as such instead of as a plain validation error.
   fixableErrorMessage?: string;
+  // The handler did nothing because `--fix` was off, and what it found is a
+  // warning rather than an error (`WARNING_FIXES` in `@valbuild/shared`): the
+  // project-relative files it is about, and what would deal with them.
+  warning?: ValidationWarning;
   /**
    * Patches to OTHER modules than the one the fix is about, for the caller to
    * apply alongside the fix's own patch (and only when it applies that one).
@@ -160,6 +169,12 @@ export type FixHandlerResult = {
   remoteFilesCounter?: number;
   // Events to emit
   events?: ValidationEvent[];
+};
+
+export type ValidationWarning = {
+  message: string;
+  files: string[];
+  hint?: string;
 };
 
 /** A patch, and the module it is for. */
@@ -192,6 +207,17 @@ export type ValidationEvent =
       /** See `isRepairedOnSave`: the Studio would not hold a publish for it. */
       repairedOnSave?: boolean;
     }
+  /**
+   * Reported, and not counted as an error: `val validate` exits 0 on warnings
+   * alone unless `--strict`. So a module with warnings and no errors is still
+   * `file-valid`, which means "no errors"; the CLI shows it with its warnings
+   * rather than in the list of valid modules.
+   */
+  | ({
+      type: "validation-warning";
+      sourcePath: string;
+      keyError?: boolean;
+    } & ValidationWarning)
   | {
       type: "unknown-fix";
       sourcePath: string;
@@ -347,6 +373,10 @@ async function uploadRemoteFileCore(
     };
   }
 
+  if (!ctx.fix) {
+    return localFilesWarning([fileRef]);
+  }
+
   const opened = await openRemoteUploadSession(ctx);
   if (!opened.success) {
     return opened.result;
@@ -400,14 +430,6 @@ async function uploadRemoteFileCore(
 export async function handleRemoteFileUpload(
   ctx: FixHandlerContext,
 ): Promise<FixHandlerResult> {
-  if (!ctx.fix) {
-    return {
-      success: false,
-      // No sourcePath in the message: the reported location already points at it.
-      errorMessage: `Remote file needs to be uploaded (use --fix to upload)`,
-    };
-  }
-
   const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
     ctx.sourcePath,
   );
@@ -434,7 +456,13 @@ export async function handleRemoteFileUpload(
     };
   }
 
-  const resolveRemoteFileSchema = resolvedRemoteFileAtSourcePath.schema;
+  // A rich text image's `src` resolves to the RICH TEXT schema when the schema
+  // is serialized, as it is here: the image schema is its `img` option.
+  const resolvedSchema = resolvedRemoteFileAtSourcePath.schema;
+  const resolveRemoteFileSchema =
+    resolvedSchema?.type === "richtext"
+      ? richTextImageSchema(resolvedSchema)
+      : resolvedSchema;
   if (!resolveRemoteFileSchema) {
     return {
       success: false,
@@ -481,14 +509,6 @@ export async function handleRemoteFileUpload(
 export async function handleRemoteGalleryFileUpload(
   ctx: FixHandlerContext,
 ): Promise<FixHandlerResult> {
-  if (!ctx.fix) {
-    return {
-      success: false,
-      // No sourcePath in the message: the reported location already points at it.
-      errorMessage: `Remote file needs to be uploaded (use --fix to upload)`,
-    };
-  }
-
   const fix = ctx.validationError.fixes?.[0];
   const mediaType = fix === "files:upload-remote" ? "file" : "image";
 
@@ -552,24 +572,7 @@ export async function handleRemoteGalleryFileUpload(
       }`,
     };
   }
-  const { accept, dir } = recordSchema;
-  const schema: SerializedImageSchema | SerializedFileSchema =
-    mediaType === "image"
-      ? {
-          type: "image",
-          opt: false,
-          options: {
-            ...(accept ? { accept } : {}),
-            ...(dir ? { dir } : {}),
-          },
-        }
-      : {
-          type: "file",
-          opt: false,
-          options: {
-            ...(accept ? { accept } : {}),
-          },
-        };
+  const schema = Internal.galleryEntryMediaSchema(mediaType, recordSchema);
 
   const uploaded = await uploadRemoteFileCore(ctx, fileRef, metadata, schema);
   const ref = ctx.remoteFiles[ctx.sourcePath]?.ref;

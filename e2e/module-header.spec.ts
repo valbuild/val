@@ -14,8 +14,17 @@ import { openStudio, test } from "./studio";
  * has a trail — see `A page names itself and nothing else` below for why the
  * page itself no longer does.
  */
-const FIELD_IN_PAGE = "/val/~/app/page.val.ts?p=%22%2F%22.hero";
-const PAGE = "/val/~/app/page.val.ts?p=%22%2F%22";
+/*
+ * The generic page: a page with NO preview, so its heading is its route. That
+ * is the case every `toHaveText("/generic")` below pins -- a page that has a
+ * preview (the showcase's home, "Content as code") is titled by it instead,
+ * which is a different rule. `sections` is a field inside it, as `hero` was
+ * on the Next example's home page this spec used to drive.
+ */
+const FIELD_IN_PAGE =
+  "/val/~/src/routes/_site.generic.$.val.ts?p=%22%2Fgeneric%22.sections";
+const PAGE = "/val/~/src/routes/_site.generic.$.val.ts?p=%22%2Fgeneric%22";
+const ROUTE = "/generic";
 
 test.describe("the module header", () => {
   test("names the field, and links up the scope", async ({ page }) => {
@@ -55,7 +64,7 @@ test.describe("the module header", () => {
      * router. Asked of the heading rather than the text, because the sticky bar
      * carries a hidden copy of the same title.
      */
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("/");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(ROUTE);
   });
 
   /**
@@ -87,14 +96,14 @@ test.describe("the module header", () => {
     };
 
     await openStudio(page, PAGE);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("/");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(ROUTE);
     const alone = await headingBox();
 
     await openStudio(page, `${PAGE}&canvas=1`);
     await expect(
       page.getByRole("button", { name: "Fit page width" }),
     ).toBeVisible({ timeout: 30000 });
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("/");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(ROUTE);
     const besideTheCanvas = await headingBox();
 
     expect(besideTheCanvas.height).toBeLessThan(alone.height);
@@ -111,7 +120,7 @@ test.describe("the module header", () => {
      * the route in the heading there is nothing left for the trail to add, and
      * an arrow up to the page list would duplicate that same panel.
      */
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("/");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(ROUTE);
     await expect(page.getByRole("navigation", { name: "Scope" })).toHaveCount(
       0,
     );

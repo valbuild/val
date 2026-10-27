@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { TANSTACK_APP_URL } from "./apps";
 
 /**
  * The overlay's select mode, on the customer's own page.
@@ -26,7 +27,7 @@ import { expect, test } from "@playwright/test";
  * resolved against the request — the same reason `uncommitted-routes.spec.ts`
  * spells the origin out.
  */
-const HOME = "http://localhost:3456/";
+const HOME = `${TANSTACK_APP_URL}/`;
 
 /**
  * Turn preview mode on and land on the page, in one navigation.

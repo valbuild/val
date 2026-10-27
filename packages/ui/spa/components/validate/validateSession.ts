@@ -38,7 +38,8 @@ export type CheckRun =
     };
 
 /** A fix this session made, with the patch it made, so it can be undone. */
-export type SessionFix = FixState & { patchId?: PatchId };
+/** `patchIds`: what the fix wrote, which Undo removes. */
+export type SessionFix = FixState & { patchIds?: PatchId[] };
 
 export type ValidateSessionState = {
   run: CheckRun;

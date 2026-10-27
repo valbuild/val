@@ -603,9 +603,12 @@ Two things follow, and they are the ones that get forgotten:
   ADDING IT THERE — a module (or a field in one), registered in
   `val.modules.ts`, rendered by a route, and passing `val validate`. A feature
   that exists only in `packages/core` is a feature nobody can look at.
-  `examples/next` is the FIXTURE app: it carries the awkward shapes the e2e
-  suite and the language server drive, and it is allowed to hold things the
-  showcase does not.
+  `examples/next` is the FIXTURE app for the language server and for the e2e
+  specs that keep `@valbuild/next` covered (`smoke`, `insecure-context`, the
+  canvas suite), and it is allowed to hold things the showcase does not. The
+  rest of the e2e suite drives `examples/tanstack`, whose e2e fixtures live in
+  `examples/tanstack/content/` (and a few `src/routes/_site.*` fixture pages),
+  registered only when `VAL_E2E_FIXTURES=true`.
 - **The TanStack checks are CI jobs** (`build-tanstack`, and the `tanstack`
   project in the blocking `smoke` job), and still yours to run before pushing
   a change the Studio loads through: `pnpm exec playwright test --project=tanstack`
@@ -631,7 +634,9 @@ partly overrides, and an image gallery entry with a default focal point; and `s.
 content analytics, switched on by `VAL_ANALYTICS=true` in its `.env.development`
 (on a hosted site it is a project setting, so there is no `val.config.ts`
 option) and read in `_site.tsx`'s loader, so its content is tagged for every
-visitor after hydration (`e2e/tanstack/analytics.spec.ts`). What it does NOT cover, and why: `.remote()` on media (and
+visitor after hydration (`e2e/tanstack/analytics.spec.ts`), with the post
+page writing JSON-LD and a share link through `val.raw()`, which the dev-only
+leak warning checks (`e2e/tanstack/leakWarning.spec.ts`). What it does NOT cover, and why: `.remote()` on media (and
 `files: { remote: true }` in `val.config.ts`, which turns it on for every media
 schema) and `.external()` on a record, because both need credentials or an
 adapter a plain `pnpm dev` does not have — `examples/next` gates the remote one behind
@@ -857,7 +862,8 @@ cd examples/tanstack && pnpm run build # vite build for the TanStack example
 ```
 
 Three more checks are the blocking `smoke` job — separate from the `e2e` matrix,
-which selects only `chromium` and `chromium-http` and does not block. They are
+which selects `chromium`, `chromium-http`, `tanstack-http` and the two WebKit
+projects, and does not block. They are
 the gate for "the Studio does not come up at all", on both frameworks and in an
 insecure context, which is the one class of failure that reaches every user at
 once, so run them before pushing anything the Studio loads through:
@@ -869,11 +875,12 @@ pnpm exec playwright test --project=chromium e2e/smoke.spec.ts \
 ```
 
 `webkit-http` runs the publishing specs (`http/reloadEquivalence`, `http/publish`)
-in WebKit — Safari's engine, and every iOS browser's. It is declared only when
-asked for by name (`--project=webkit-http`), because a bare `playwright test`
-runs every project and WebKit is not installed in most places this runs: it
-needs `pnpm exec playwright install --with-deps webkit`. CI runs it as one
-entry of the `e2e` matrix in `.github/workflows/check.yml`, which installs the
+in WebKit — Safari's engine, and every iOS browser's — and `webkit-tanstack-http`
+runs the builder-tab spec (`tanstack-http/publishHandoff`) there. Each is
+declared only when asked for by name (`--project=webkit-http`), because a bare
+`playwright test` runs every project and WebKit is not installed in most places
+this runs: it needs `pnpm exec playwright install --with-deps webkit`. CI runs
+each as one entry of the `e2e` matrix in `.github/workflows/check.yml`, which installs the
 entry's `browser` (chromium when unset).
 
 Notes:
@@ -931,8 +938,9 @@ no amount of clicking in the normal dev loop reaches that UI.
 
 What DOES exercise it is the `chromium-http` Playwright project, which starts
 `e2e/mock-content-host` — a faithful stand-in for `home` implementing all five
-history endpoints — alongside a second `examples/next` in proxy mode. Ports and
-secrets live in `e2e/http/config.ts`.
+history endpoints — alongside a second `examples/tanstack` in proxy mode, with
+the e2e fixtures (`examples/tanstack/content/`) switched on. Ports and secrets
+live in `e2e/http/config.ts`.
 
 **Do not add a second history implementation to `ValOpsFS`.** The mock content
 host is already a full stand-in for `home`, pinned by `homeWireContract.test.ts`

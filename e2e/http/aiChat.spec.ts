@@ -414,7 +414,7 @@ test.describe("ai chat tools", () => {
     const state = await mock.state();
     expect(state.commits).toHaveLength(1);
     expect(state.repoOverlay, "the image did not land in the commit").toContain(
-      "/examples/next/public/val/ai-published.png",
+      "/examples/tanstack/public/val/ai-published.png",
     );
     expect(await mock.committedSource(MEDIA_FIELDS)).toContain(
       "/public/val/ai-published.png",

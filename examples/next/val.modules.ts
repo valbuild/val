@@ -70,6 +70,8 @@ export default modules(config, [
         { def: () => import("./content/remoteImages.val") },
         // Remote image, file and video FIELDS. See content/remoteFields.val.ts.
         { def: () => import("./content/remoteFields.val") },
+        // A remote video set. See content/remoteVideos.val.ts.
+        { def: () => import("./content/remoteVideos.val") },
       ]
     : []),
 ]);

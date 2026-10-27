@@ -22,8 +22,9 @@ describe("parseTanStackRoutePattern", () => {
     ["/src/routes/posts/$postId/index.val.ts", ["posts", "[postId]"]],
     // `route` is a directory's layout, so it serves the directory's own path.
     ["/src/routes/posts/route.val.ts", ["posts"]],
-    // A splat, named the way TanStack names the param.
-    ["/src/routes/files.$.val.ts", ["files", "[..._splat]"]],
+    // A splat, named the way TanStack names the param. Optional: TanStack's
+    // `$` matches the directory itself too.
+    ["/src/routes/files.$.val.ts", ["files", "[[..._splat]]"]],
     // Route groups and pathless layouts are not in the URL.
     ["/src/routes/(marketing)/about.val.ts", ["about"]],
     ["/src/routes/_layout.dashboard.val.ts", ["dashboard"]],
@@ -79,6 +80,21 @@ describe("tanstackRouter.validate", () => {
       tanstackRouter.validate("/src/routes/files.$.val.ts" as ModuleFilePath, [
         "/files/a",
         "/files/a/b/c",
+      ]),
+    ).toEqual([]);
+  });
+
+  /*
+   * TanStack's `$` matches the directory itself too: `/files/$` serves
+   * `/files`, with `_splat` empty (`new-process-route-tree.js` pushes the
+   * wildcard node when the path has run out). So `/files` is a page of this
+   * route, and refusing its key made a page the site serves impossible to
+   * give content.
+   */
+  test("a splat also matches the directory itself", () => {
+    expect(
+      tanstackRouter.validate("/src/routes/files.$.val.ts" as ModuleFilePath, [
+        "/files",
       ]),
     ).toEqual([]);
   });

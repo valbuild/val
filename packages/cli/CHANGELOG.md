@@ -1,5 +1,67 @@
 # @valbuild/cli
 
+## 0.150.1
+
+### Patch Changes
+
+- [#938](https://github.com/valbuild/val/pull/938) [`b2903b6`](https://github.com/valbuild/val/commit/b2903b64bfbd85d3e293a506555a6dab39ab8aa8) Thanks [@freekh](https://github.com/freekh)! - `val connect` in a monorepo now tells Val which app you ran it in. The link it opens names the app's folder in the repository (`folder=apps/web`), so the new-project page picks that app's `val.config.ts` instead of asking you to choose.
+
+- [#894](https://github.com/valbuild/val/pull/894) [`9171baa`](https://github.com/valbuild/val/commit/9171baad7beb1b2a355c70724d2339467b126e02) Thanks [@freekh](https://github.com/freekh)! - `val validate` no longer fails a project just because some of its files are
+  local while the project stores files remotely (`files: { remote: true }` or
+  `.remote()`). Every project made from a template starts like that, and the
+  site serves those files from `public/` until they are uploaded. They are now
+  reported as **warnings**, grouped into one block per file with the command
+  that uploads them:
+
+  ```
+  content/images.val.ts  ⚠ 7 warnings  (12ms)
+  │
+  │  ⚠  Local files in a project with remote files. Your site serves them from public/ for now; they move to remote storage when uploaded.
+  │
+  │     content/images.val.ts:7:5  /public/val/images/image-0_00000.png
+  │     content/images.val.ts:8:5  /public/val/images/image-1_00001.png
+  │     content/images.val.ts:9:5  /public/val/images/image-2_00002.png
+  │     content/images.val.ts:10:5  /public/val/images/image-3_00003.png
+  │     content/images.val.ts:11:5  /public/val/images/image-4_00004.png
+  │     … 2 more
+  │
+  │     → val validate --fix uploads them (needs val login)
+  │
+
+  ✔ No validation errors · 7 warnings in 1 file
+  ```
+
+  - `--strict` on `val validate` and `val publish` makes warnings fail too.
+  - `val validate --fix` still fails when it cannot upload them, for example
+    when you are not logged in.
+  - A local file that does not exist is still an error.
+  - The language server shows these as warnings.
+  - In the Studio, **Check everything** on the Validate page lists them with a
+    **Fix** button that uploads them, so a hosted project, which
+    has no command line, can move its template's images and files to remote
+    storage. That covers images, files and videos (a video's poster, captions
+    and HLS stream go up with it), images inside rich text included, and the
+    fields that picked a gallery image or a video from a set are updated with
+    it.
+  - On a hosted project, **Check everything** no longer reports the template's
+    images and videos as "The file is gone", and no longer offers a Fix that
+    would remove them from their gallery or video set.
+
+  Fixable errors are now printed with `✘`, like every other error, instead of
+  the `⚠` warnings use. They were always errors and still make `val validate`
+  fail.
+
+- [#942](https://github.com/valbuild/val/pull/942) [`fd9ee2a`](https://github.com/valbuild/val/commit/fd9ee2ad76ef45bc6c4801aaccaae6e183960f11) Thanks [@freekh](https://github.com/freekh)! - `val publish` builds with native `rolldown` instead of rolldown's WebAssembly build. A site whose lockfile resolved `@napi-rs/wasm-runtime` 1.2.6 (released 2026-10-25) could no longer publish: `@rolldown/browser` 1.2.15 accepts that version but does not load with it, and `val publish` failed with "@valbuild/tanstack-build and rolldown … could not be loaded: Cannot set properties of undefined (setting 'initWorker')". Native `rolldown` does not use `@napi-rs/wasm-runtime` at all, so the site's version of it no longer matters. The Studio still builds in the browser with `@rolldown/browser`, from Val's own pinned versions.
+
+  New: `val check-build-tools` loads what `val publish` builds with and builds a one-line module with it, without asking content anything, and fails when it could not. Val Build runs it on an upgrade's install before a project whose CI publishes it can publish the upgrade.
+
+- Updated dependencies [[`9171baa`](https://github.com/valbuild/val/commit/9171baad7beb1b2a355c70724d2339467b126e02), [`fd9ee2a`](https://github.com/valbuild/val/commit/fd9ee2ad76ef45bc6c4801aaccaae6e183960f11)]:
+  - @valbuild/core@0.150.1
+  - @valbuild/server@0.150.1
+  - @valbuild/shared@0.150.1
+  - @valbuild/language-server@0.150.1
+  - @valbuild/tanstack-build@0.150.1
+
 ## 0.150.0
 
 ### Patch Changes

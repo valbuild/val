@@ -17,8 +17,12 @@ import { Route as SiteLoginRouteImport } from './routes/_site.login'
 import { Route as SiteShowcaseRouteImport } from './routes/_site.showcase'
 import { Route as ValIndexRouteImport } from './routes/val/index'
 import { Route as ValSplatRouteImport } from './routes/val/$'
+import { Route as SiteBlogsBlogRouteImport } from './routes/_site.blogs.$blog'
 import { Route as SiteDocsSplatRouteImport } from './routes/_site.docs.$'
+import { Route as SiteGenericSplatRouteImport } from './routes/_site.generic.$'
+import { Route as SiteNotesNoteRouteImport } from './routes/_site.notes.$note'
 import { Route as SitePostsPostIdRouteImport } from './routes/_site.posts.$postId'
+import { Route as SiteSupportSlugRouteImport } from './routes/_site.support.$slug'
 import { Route as ApiValSplatRouteImport } from './routes/api/val.$'
 import { Route as SiteChar123LocaleChar125NewsSlugRouteImport } from './routes/_site.{-$locale}.news.$slug'
 
@@ -61,14 +65,34 @@ const ValSplatRoute = ValSplatRouteImport.update({
   path: '/$',
   getParentRoute: () => ValRouteRoute,
 } as any)
+const SiteBlogsBlogRoute = SiteBlogsBlogRouteImport.update({
+  id: '/blogs/$blog',
+  path: '/blogs/$blog',
+  getParentRoute: () => SiteRoute,
+} as any)
 const SiteDocsSplatRoute = SiteDocsSplatRouteImport.update({
   id: '/docs/$',
   path: '/docs/$',
   getParentRoute: () => SiteRoute,
 } as any)
+const SiteGenericSplatRoute = SiteGenericSplatRouteImport.update({
+  id: '/generic/$',
+  path: '/generic/$',
+  getParentRoute: () => SiteRoute,
+} as any)
+const SiteNotesNoteRoute = SiteNotesNoteRouteImport.update({
+  id: '/notes/$note',
+  path: '/notes/$note',
+  getParentRoute: () => SiteRoute,
+} as any)
 const SitePostsPostIdRoute = SitePostsPostIdRouteImport.update({
   id: '/posts/$postId',
   path: '/posts/$postId',
+  getParentRoute: () => SiteRoute,
+} as any)
+const SiteSupportSlugRoute = SiteSupportSlugRouteImport.update({
+  id: '/support/$slug',
+  path: '/support/$slug',
   getParentRoute: () => SiteRoute,
 } as any)
 const ApiValSplatRoute = ApiValSplatRouteImport.update({
@@ -91,8 +115,12 @@ export interface FileRoutesByFullPath {
   '/showcase': typeof SiteShowcaseRoute
   '/val/$': typeof ValSplatRoute
   '/val/': typeof ValIndexRoute
+  '/blogs/$blog': typeof SiteBlogsBlogRoute
   '/docs/$': typeof SiteDocsSplatRoute
+  '/generic/$': typeof SiteGenericSplatRoute
+  '/notes/$note': typeof SiteNotesNoteRoute
   '/posts/$postId': typeof SitePostsPostIdRoute
+  '/support/$slug': typeof SiteSupportSlugRoute
   '/api/val/$': typeof ApiValSplatRoute
   '/{-$locale}/news/$slug': typeof SiteChar123LocaleChar125NewsSlugRoute
 }
@@ -103,8 +131,12 @@ export interface FileRoutesByTo {
   '/val/$': typeof ValSplatRoute
   '/': typeof SiteIndexRoute
   '/val': typeof ValIndexRoute
+  '/blogs/$blog': typeof SiteBlogsBlogRoute
   '/docs/$': typeof SiteDocsSplatRoute
+  '/generic/$': typeof SiteGenericSplatRoute
+  '/notes/$note': typeof SiteNotesNoteRoute
   '/posts/$postId': typeof SitePostsPostIdRoute
+  '/support/$slug': typeof SiteSupportSlugRoute
   '/api/val/$': typeof ApiValSplatRoute
   '/{-$locale}/news/$slug': typeof SiteChar123LocaleChar125NewsSlugRoute
 }
@@ -118,8 +150,12 @@ export interface FileRoutesById {
   '/val/$': typeof ValSplatRoute
   '/_site/': typeof SiteIndexRoute
   '/val/': typeof ValIndexRoute
+  '/_site/blogs/$blog': typeof SiteBlogsBlogRoute
   '/_site/docs/$': typeof SiteDocsSplatRoute
+  '/_site/generic/$': typeof SiteGenericSplatRoute
+  '/_site/notes/$note': typeof SiteNotesNoteRoute
   '/_site/posts/$postId': typeof SitePostsPostIdRoute
+  '/_site/support/$slug': typeof SiteSupportSlugRoute
   '/api/val/$': typeof ApiValSplatRoute
   '/_site/{-$locale}/news/$slug': typeof SiteChar123LocaleChar125NewsSlugRoute
 }
@@ -133,8 +169,12 @@ export interface FileRouteTypes {
     | '/showcase'
     | '/val/$'
     | '/val/'
+    | '/blogs/$blog'
     | '/docs/$'
+    | '/generic/$'
+    | '/notes/$note'
     | '/posts/$postId'
+    | '/support/$slug'
     | '/api/val/$'
     | '/{-$locale}/news/$slug'
   fileRoutesByTo: FileRoutesByTo
@@ -145,8 +185,12 @@ export interface FileRouteTypes {
     | '/val/$'
     | '/'
     | '/val'
+    | '/blogs/$blog'
     | '/docs/$'
+    | '/generic/$'
+    | '/notes/$note'
     | '/posts/$postId'
+    | '/support/$slug'
     | '/api/val/$'
     | '/{-$locale}/news/$slug'
   id:
@@ -159,8 +203,12 @@ export interface FileRouteTypes {
     | '/val/$'
     | '/_site/'
     | '/val/'
+    | '/_site/blogs/$blog'
     | '/_site/docs/$'
+    | '/_site/generic/$'
+    | '/_site/notes/$note'
     | '/_site/posts/$postId'
+    | '/_site/support/$slug'
     | '/api/val/$'
     | '/_site/{-$locale}/news/$slug'
   fileRoutesById: FileRoutesById
@@ -229,6 +277,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ValSplatRouteImport
       parentRoute: typeof ValRouteRoute
     }
+    '/_site/blogs/$blog': {
+      id: '/_site/blogs/$blog'
+      path: '/blogs/$blog'
+      fullPath: '/blogs/$blog'
+      preLoaderRoute: typeof SiteBlogsBlogRouteImport
+      parentRoute: typeof SiteRoute
+    }
     '/_site/docs/$': {
       id: '/_site/docs/$'
       path: '/docs/$'
@@ -236,11 +291,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SiteDocsSplatRouteImport
       parentRoute: typeof SiteRoute
     }
+    '/_site/generic/$': {
+      id: '/_site/generic/$'
+      path: '/generic/$'
+      fullPath: '/generic/$'
+      preLoaderRoute: typeof SiteGenericSplatRouteImport
+      parentRoute: typeof SiteRoute
+    }
+    '/_site/notes/$note': {
+      id: '/_site/notes/$note'
+      path: '/notes/$note'
+      fullPath: '/notes/$note'
+      preLoaderRoute: typeof SiteNotesNoteRouteImport
+      parentRoute: typeof SiteRoute
+    }
     '/_site/posts/$postId': {
       id: '/_site/posts/$postId'
       path: '/posts/$postId'
       fullPath: '/posts/$postId'
       preLoaderRoute: typeof SitePostsPostIdRouteImport
+      parentRoute: typeof SiteRoute
+    }
+    '/_site/support/$slug': {
+      id: '/_site/support/$slug'
+      path: '/support/$slug'
+      fullPath: '/support/$slug'
+      preLoaderRoute: typeof SiteSupportSlugRouteImport
       parentRoute: typeof SiteRoute
     }
     '/api/val/$': {
@@ -279,8 +355,12 @@ interface SiteRouteChildren {
   SiteLoginRoute: typeof SiteLoginRoute
   SiteShowcaseRoute: typeof SiteShowcaseRoute
   SiteIndexRoute: typeof SiteIndexRoute
+  SiteBlogsBlogRoute: typeof SiteBlogsBlogRoute
   SiteDocsSplatRoute: typeof SiteDocsSplatRoute
+  SiteGenericSplatRoute: typeof SiteGenericSplatRoute
+  SiteNotesNoteRoute: typeof SiteNotesNoteRoute
   SitePostsPostIdRoute: typeof SitePostsPostIdRoute
+  SiteSupportSlugRoute: typeof SiteSupportSlugRoute
   SiteChar123LocaleChar125NewsSlugRoute: typeof SiteChar123LocaleChar125NewsSlugRoute
 }
 
@@ -289,8 +369,12 @@ const SiteRouteChildren: SiteRouteChildren = {
   SiteLoginRoute: SiteLoginRoute,
   SiteShowcaseRoute: SiteShowcaseRoute,
   SiteIndexRoute: SiteIndexRoute,
+  SiteBlogsBlogRoute: SiteBlogsBlogRoute,
   SiteDocsSplatRoute: SiteDocsSplatRoute,
+  SiteGenericSplatRoute: SiteGenericSplatRoute,
+  SiteNotesNoteRoute: SiteNotesNoteRoute,
   SitePostsPostIdRoute: SitePostsPostIdRoute,
+  SiteSupportSlugRoute: SiteSupportSlugRoute,
   SiteChar123LocaleChar125NewsSlugRoute: SiteChar123LocaleChar125NewsSlugRoute,
 }
 

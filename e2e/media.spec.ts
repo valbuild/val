@@ -21,7 +21,7 @@ import {
  * browser can see — a decoded tile, a ref in the directory the schema names, a
  * field that renders at all.
  *
- * The fixtures are in `examples/next/content/`:
+ * The fixtures are in `examples/tanstack/content/` (the e2e fixtures):
  *
  * - `mediaFixtures.val.ts`  `s.imagedir("/public/test/subdir")`
  * - `fileGallery.val.ts`    `s.filedir("/public/test/files")`
@@ -225,10 +225,12 @@ test.describe("the Media section", () => {
     // Served paths, so the row reads the way a URL to the file will.
     await expect(target).not.toContainText("/public");
     await expect(target).toContainText("Images");
+    // Named by its directory, like `target`: the showcase has a files gallery
+    // of its own (`/val/downloads`), so "a row that says Files" is two rows.
     await expect(
-      studio.getByRole("menuitem", { name: /Files/ }),
+      studio.getByRole("menuitem", { name: /test\/files/ }),
       "the menu did not say which gallery takes non-images",
-    ).toBeVisible();
+    ).toContainText("Files");
 
     await target.click();
     // It opens the gallery it named — the upload itself happens there, and the

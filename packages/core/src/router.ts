@@ -299,7 +299,7 @@ export function parseNextJsRoutePattern(moduleFilePath: string): string[] {
  * - /src/routes/posts.$postId.val.ts -> ["posts", "[postId]"]
  * - /routes/posts/$postId.val.ts     -> ["posts", "[postId]"]
  * - /src/routes/index.val.ts         -> []
- * - /src/routes/files.$.val.ts       -> ["files", "[..._splat]"]
+ * - /src/routes/files.$.val.ts       -> ["files", "[[..._splat]]"]
  * - /src/routes/{-$locale}.about.val.ts -> ["[[locale]]", "about"]
  * - /src/routes/(app)/_layout.about.val.ts -> ["about"]
  */
@@ -366,7 +366,12 @@ export function tanStackSegmentsOfRoutePath(routePath: string): string[] {
       // A splat. Named `_splat` because that is the param name TanStack gives
       // it, so `useValRoute(pageVal, params)` can be handed the route's own
       // params object unchanged.
-      segments.push("[..._splat]");
+      //
+      // OPTIONAL, because TanStack's is: `/files/$` serves `/files` too, with
+      // nothing in `_splat` (the matcher descends into the wildcard when the
+      // path has run out). A required catch-all refused the key `/files` for
+      // a page the site serves.
+      segments.push("[[..._splat]]");
       continue;
     }
     if (segment.startsWith("$")) {

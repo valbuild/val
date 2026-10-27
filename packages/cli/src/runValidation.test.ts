@@ -8,6 +8,10 @@ import {
 } from "@valbuild/core";
 import { createService } from "@valbuild/server";
 import {
+  LOCAL_FILE_IN_REMOTE_PROJECT_HINT,
+  LOCAL_FILE_IN_REMOTE_PROJECT_WARNING,
+} from "@valbuild/shared/internal";
+import {
   createDefaultValFSHost,
   runValidation,
   ValidationEvent,
@@ -430,32 +434,69 @@ describe("runValidation", () => {
     }
   });
 
-  test("reports upload-remote error for local entry in a remote gallery", async () => {
-    const events: ValidationEvent[] = [];
+  describe("a local entry in a remote gallery", () => {
+    const run = async (fix: boolean) => {
+      const events: ValidationEvent[] = [];
+      for await (const event of runValidation({
+        root: tmpDir,
+        fix,
+        valFiles: ["content/basic-gallery-remote.val.ts"],
+        project: undefined,
+        remote: mockRemote,
+        fs: createDefaultValFSHost(),
+      })) {
+        events.push(event);
+      }
+      return events;
+    };
+    const entry = `/content/basic-gallery-remote.val.ts?p="/public/val/images-remote/image.png"`;
 
-    for await (const event of runValidation({
-      root: tmpDir,
-      fix: false,
-      valFiles: ["content/basic-gallery-remote.val.ts"],
-      project: undefined,
-      remote: mockRemote,
-      fs: createDefaultValFSHost(),
-    })) {
-      events.push(event);
-    }
-
-    expect(events.at(-1)).toEqual({
-      type: "summary-errors",
-      count: expect.any(Number),
+    test("is a warning, not an error: the site serves it from public/", async () => {
+      const events = await run(false);
+      expect(events.at(-1)).toEqual({ type: "summary-success" });
+      expect(events.filter((e) => e.type === "validation-warning")).toEqual([
+        {
+          type: "validation-warning",
+          sourcePath: entry,
+          message: LOCAL_FILE_IN_REMOTE_PROJECT_WARNING,
+          files: ["/public/val/images-remote/image.png"],
+          hint: LOCAL_FILE_IN_REMOTE_PROJECT_HINT,
+          keyError: true,
+        },
+      ]);
     });
-    const errors = events.filter((e) => e.type === "validation-error");
-    expect(
-      errors.some(
-        (e) =>
-          "message" in e &&
-          (e.message as string).includes("needs to be uploaded"),
-      ),
-    ).toBe(true);
+
+    test("is an error when the file does not exist", async () => {
+      fs.rmSync(
+        path.join(tmpDir, "public", "val", "images-remote", "image.png"),
+      );
+      const events = await run(false);
+      expect(events.filter((e) => e.type === "validation-warning")).toEqual([]);
+      // The gallery's own check reports the missing file too.
+      expect(events.at(-1)).toEqual({
+        type: "summary-errors",
+        count: expect.any(Number),
+      });
+      expect(
+        events.some(
+          (e) =>
+            e.type === "validation-error" &&
+            e.sourcePath === entry &&
+            /does not exist/.test(e.message),
+        ),
+      ).toBe(true);
+    });
+
+    test("is an error under --fix when it cannot be uploaded: not logged in", async () => {
+      fs.rmSync(path.join(tmpDir, ".val", "pat.json"), { force: true });
+      const events = await run(true);
+      expect(events.filter((e) => e.type === "validation-warning")).toEqual([]);
+      expect(events.at(-1)).toEqual({ type: "summary-errors", count: 1 });
+      const error = events.find((e) => e.type === "validation-error");
+      expect(error && "message" in error ? error.message : "").toMatch(
+        /not logged in/,
+      );
+    });
   });
 
   test("uploads local entry in a remote gallery and rewrites the key when fix is true", async () => {

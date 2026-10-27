@@ -41,6 +41,7 @@ import { useHeadingTools } from "./shell/headingTools";
 import { PathHeading } from "./PathHeading";
 import { useEditorDensity } from "./EditorDensity";
 import { useDescription } from "./useDescription";
+import { ContentViewsSummary } from "../analytics/ContentViewsSummary";
 
 export function Module({
   path,
@@ -257,6 +258,7 @@ export function Module({
             }
             below={
               <>
+                <ContentViewsSummary path={path} />
                 {keyErrors.length > 0 && (
                   <FieldValidationError validationErrors={keyErrors} />
                 )}

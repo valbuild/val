@@ -19,6 +19,13 @@ export {
 export { stegaDecodeStrings } from "./stegaDecodeStrings";
 export { attrs } from "./attrs";
 export { raw, type DecodeVal } from "./raw";
+export {
+  findStegaLeaks,
+  watchStegaLeaks,
+  stegaLeakMessage,
+  isReactDevelopmentBuild,
+  type StegaLeak,
+} from "./stegaLeaks";
 
 let isRSC = false;
 let autoTagJSXEnabled = false;
