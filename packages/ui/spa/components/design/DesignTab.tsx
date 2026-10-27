@@ -272,6 +272,7 @@ export function DesignTab({ name }: { name: string }) {
               url={previewSrc}
               origin={addressOrigin}
               relaySources={false}
+              throughEnable
               width="100%"
               height="100%"
               reloadKey={reloadKey}

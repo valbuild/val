@@ -61,6 +61,14 @@ export type CanvasFrameProps = {
    * nothing to wait for (`sourcesSynced`).
    */
   relaySources?: boolean;
+  /**
+   * Load the page through `/api/val/enable` every time, so it is in preview
+   * mode from its first document. The design tab's frame: the proposal's
+   * address is another origin, which the Studio's own enable never reached,
+   * and without the cookie it sets the page mounts no bridge -- nothing on it
+   * can be picked, and the tab learns that only from a timeout.
+   */
+  throughEnable?: boolean;
   /** Bumped to reload. */
   reloadKey: number;
   /** Whether a click on the page picks the element under it. */
@@ -147,6 +155,7 @@ export function CanvasFrame({
   height,
   origin = typeof window === "undefined" ? "" : window.origin,
   relaySources = true,
+  throughEnable = false,
   reloadKey,
   isPicking,
   selectionColors,
@@ -385,13 +394,8 @@ export function CanvasFrame({
      * for as long as the tab was open.
      */
     setState({ status: "waiting" });
-    const redirectTo = new URL(frameSrc, origin).toString();
-    // At the page's origin: the cookie it sets is the page's.
-    const enableUrl = `${origin === window.origin ? "" : origin}/api/val/enable?redirect_to=${encodeURIComponent(
-      redirectTo,
-    )}`;
     if (frameRef.current) {
-      frameRef.current.src = enableUrl;
+      frameRef.current.src = enableUrlOf(frameSrc, origin);
     }
   }, [frameSrc, origin]);
 
@@ -524,7 +528,7 @@ export function CanvasFrame({
         // not reliably a navigation, and `contentWindow.location.reload()` is a
         // cross-document call a stricter origin setup would refuse.
         key={`${frameSrc}-${reloadKey}`}
-        src={frameSrc}
+        src={throughEnable ? enableUrlOf(frameSrc, origin) : frameSrc}
         title={`Preview of ${url}`}
         style={{ width, height, border: "none", display: "block" }}
         referrerPolicy="same-origin"
@@ -541,4 +545,12 @@ export function CanvasFrame({
        */}
     </div>
   );
+}
+
+/** The page, through `/api/val/enable` at its own origin: the cookie it sets is the page's. */
+function enableUrlOf(frameSrc: string, origin: string): string {
+  const redirectTo = new URL(frameSrc, origin).toString();
+  return `${origin === window.origin ? "" : origin}/api/val/enable?redirect_to=${encodeURIComponent(
+    redirectTo,
+  )}`;
 }
