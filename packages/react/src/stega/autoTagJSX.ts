@@ -196,24 +196,77 @@ function WrapJsx<T>(jsx: T): T {
   } as any as T;
 }
 
+/**
+ * `React.createElement(type, props, ...children)` takes its children as
+ * arguments, not in `props`, so the wrapper `jsx` gets never sees them: a
+ * library that renders content with it -- TanStack Router's `<Link>` does --
+ * put the text on the page with its edit tag still in it. Its string
+ * children are cleaned here, and an intrinsic element carries their paths.
+ */
+function WrapCreateElement<T>(createElement: T): T {
+  if (typeof createElement !== "function") return createElement;
+
+  return function (type: any, props: any, ...children: any[]) {
+    if (!IS_AUTO_TAG_JSX_ENABLED() || children.length === 0) {
+      addValPathIfFound(type, props);
+      return createElement.call(createElement, type, props, ...children);
+    }
+    const paths: string[] = [];
+    const clean = (child: unknown): unknown => {
+      if (typeof child === "string" && child.match(VERCEL_STEGA_REGEX)) {
+        const found = stegaDecodeStrings(child);
+        if (found) {
+          paths.push(...found);
+          return vercelStegaSplit(child).cleaned;
+        }
+      }
+      return child;
+    };
+    const cleaned = isIntrinsicElement(type)
+      ? children.map((child) =>
+          Array.isArray(child) ? child.map(clean) : clean(child),
+        )
+      : children;
+    let ownProps = props;
+    if (isIntrinsicElement(type)) {
+      paths.push(...pathsOfFragmentChildren(cleaned));
+      if (paths.length > 0) {
+        ownProps = { ...(props ?? {}) };
+        if (!ownProps["data-val-path"]) {
+          ownProps["data-val-path"] = Array.from(new Set(paths)).join(",");
+        }
+      }
+    }
+    addValPathIfFound(type, ownProps);
+    return createElement.call(createElement, type, ownProps, ...cleaned);
+  } as any as T;
+}
+
 interface JsxRuntimeModule {
   jsx?(type: any, ...rest: any[]): unknown;
   jsxs?(type: any, ...rest: any[]): unknown;
   jsxDEV?(type: any, ...rest: any[]): unknown;
 }
 
+/** Whether the runtimes are wrapped already: wrapping twice cleans twice. */
+let installed = false;
+
 export function autoTagJSX() {
+  if (installed) {
+    return;
+  }
+  installed = true;
   const JsxPro: JsxRuntimeModule = jsxRuntime;
   const JsxDev: JsxRuntimeModule = jsxRuntimeDev;
 
   /**
    * createElement _may_ be called by jsx runtime as a fallback in certain cases,
-   * so we need to wrap it regardless.
+   * and libraries call it directly, so we need to wrap it regardless.
    *
    * The jsx exports depend on the `NODE_ENV` var to ensure the users' bundler doesn't
    * include both, so one of them will be set with `undefined` values.
    */
-  React.createElement = WrapJsx(React.createElement);
+  React.createElement = WrapCreateElement(React.createElement);
   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   JsxDev.jsx && /*   */ (JsxDev.jsx = WrapJsx(JsxDev.jsx));
   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
