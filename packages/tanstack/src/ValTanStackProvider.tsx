@@ -1093,7 +1093,10 @@ ${prefixStyles(commonStyles)}
 function useConsoleLogEnableVal(showOverlay?: boolean) {
   React.useEffect(() => {
     if (
-      process.env["NODE_ENV"] === "development" &&
+      // Not `process.env.NODE_ENV`: the dev server does not define it in
+      // the browser, so the banner never showed. React's development build
+      // is what `vite dev` serves.
+      isReactDevelopmentBuild() &&
       showOverlay === false &&
       !isValStudioPath(location.pathname)
     ) {
