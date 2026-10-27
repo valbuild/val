@@ -2928,6 +2928,9 @@ Do not describe what you will do unless you do it for clarification — just do 
     const timer = setInterval(async () => {
       const sid = sessionIdRef.current;
       if (sid === null || inFlightPromptIdRef.current !== null) return;
+      // Not from a tab nobody is looking at: the on-page overlay mounts this
+      // hook on every page, and a background tab has nobody to show it to.
+      if (document.visibilityState !== "visible") return;
       let res: AIMessagesResponse;
       try {
         res = await aiGetSessionMessages(sid);
