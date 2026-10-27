@@ -2,6 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createStudioPublishClient } from "@valbuild/shared/publish";
 import type { HistoricalCommit } from "@valbuild/shared/internal";
 import { AIChatSurface } from "../AIChatSurface";
+import { CanvasFrame } from "../shell/canvas/CanvasFrame";
+import type { CanvasPreviewStatus } from "../shell/canvas/CanvasPreviewNotice";
+import { PublishProposalDialog } from "../proposals/PublishProposalDialog";
+import { useValPortal } from "../ValPortalProvider";
+import { useAllSources, useSchemas } from "../ValFieldProvider";
+import { sitePages } from "../../design/sitePages";
+import { useDesignPublish } from "./useDesignPublish";
 import { useAIChatActions } from "../AIChatActionsContext";
 import { useClient, useCurrentProposal } from "../ValProvider";
 import { formatRelativeTime } from "../shell/shellDataMapping";
@@ -57,7 +64,8 @@ export function DesignTab({ name }: { name: string }) {
   );
   const studioProposal = useCurrentProposal();
   const { state, build, progress } = useProposalBuild(proposals, name);
-  const { askAssistant } = useAIChatActions();
+  const { askAssistant, insertFieldRef } = useAIChatActions();
+  const portalContainer = useValPortal();
 
   const [read, setRead] = useState<Read>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -155,50 +163,118 @@ export function DesignTab({ name }: { name: string }) {
     };
   }, [read]);
 
+  // The site's pages, for the page menu.
+  const schemas = useSchemas();
+  const sources = useAllSources();
+  const pages = useMemo(
+    () =>
+      schemas.status === "success" ? sitePages(schemas.data, sources) : [],
+    [schemas, sources],
+  );
+
+  // Picking on the page: what is picked is mentioned to the assistant.
+  const [picking, setPicking] = useState(false);
+  const [frameStatus, setFrameStatus] =
+    useState<CanvasPreviewStatus>("connecting");
+  const [enableKey, setEnableKey] = useState(0);
+  const addressOrigin = useMemo(() => {
+    try {
+      return address !== null ? new URL(address).origin : null;
+    } catch {
+      return null;
+    }
+  }, [address]);
+
+  const publish = useDesignPublish(name, proposal, proposals);
+
   const open = proposal?.status === "open";
   return (
-    <DesignTabView
-      proposal={{ displayName, address }}
-      previewHref={previewSrc}
-      studioUrl={address !== null ? new URL("/val", address).toString() : null}
-      route={route}
-      onRouteChange={setRoute}
-      onReload={() => setReloadKey((key) => key + 1)}
-      files={read.status === "ready" ? read.files : null}
-      diffOf={diffOf}
-      checkpoints={checkpoints}
-      checks={checks}
-      build={{
-        required: proposal?.staged?.buildRequired ?? false,
-        building: state.building,
-        progress,
-        onBuild: open && build !== null ? () => void build() : null,
-      }}
-      builder={
-        canBuildHere()
-          ? { kind: "in-tab" }
-          : { kind: "window", blocked: state.inTab?.blocked ?? false }
-      }
-      onOpenBuilder={openBuilder}
-      problem={problem}
-      preview={
-        previewSrc !== null ? (
-          <iframe
-            key={`${previewSrc}#${reloadKey}`}
-            title={`${displayName}, ${route}`}
-            src={previewSrc}
-            className="h-full w-full border-0"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+    <>
+      <DesignTabView
+        proposal={{ displayName, address }}
+        previewHref={previewSrc}
+        studioUrl={
+          address !== null ? new URL("/val", address).toString() : null
+        }
+        route={route}
+        onRouteChange={setRoute}
+        pages={pages}
+        picking={
+          previewSrc === null
+            ? null
+            : {
+                active: picking,
+                onToggle: () => setPicking((on) => !on),
+                status:
+                  frameStatus === "live"
+                    ? "live"
+                    : frameStatus === "preview-off" ||
+                        frameStatus === "no-answer"
+                      ? "off"
+                      : "waiting",
+                onTurnOn: () => setEnableKey((key) => key + 1),
+              }
+        }
+        onPublish={open ? () => publish.setOpen(true) : null}
+        onReload={() => setReloadKey((key) => key + 1)}
+        files={read.status === "ready" ? read.files : null}
+        diffOf={diffOf}
+        checkpoints={checkpoints}
+        checks={checks}
+        build={{
+          required: proposal?.staged?.buildRequired ?? false,
+          building: state.building,
+          progress,
+          onBuild: open && build !== null ? () => void build() : null,
+        }}
+        builder={
+          canBuildHere()
+            ? { kind: "in-tab" }
+            : { kind: "window", blocked: state.inTab?.blocked ?? false }
+        }
+        onOpenBuilder={openBuilder}
+        problem={problem}
+        preview={
+          previewSrc !== null && addressOrigin !== null ? (
+            // The Studio's canvas frame, at the proposal's origin: it reports
+            // what is picked on the page. The site's edits are not relayed --
+            // the page is the proposal's, and reads its own.
+            <CanvasFrame
+              url={previewSrc}
+              origin={addressOrigin}
+              relaySources={false}
+              width="100%"
+              height="100%"
+              reloadKey={reloadKey}
+              isPicking={picking}
+              highlightedPath={null}
+              onPick={(paths) => {
+                setPicking(false);
+                const picked = paths[0];
+                if (picked !== undefined) insertFieldRef(picked);
+              }}
+              enableKey={enableKey}
+              onStatusChange={setFrameStatus}
+            />
+          ) : null
+        }
+        chat={
+          <AIChatSurface
+            className="h-full"
+            design={{ proposal: { name, displayName } }}
           />
-        ) : null
-      }
-      chat={
-        <AIChatSurface
-          className="h-full"
-          design={{ proposal: { name, displayName } }}
-        />
-      }
-    />
+        }
+      />
+      <PublishProposalDialog
+        open={publish.open}
+        onOpenChange={publish.setOpen}
+        displayName={displayName}
+        state={publish.state}
+        onPublish={publish.publish}
+        onRetry={publish.retry}
+        portalContainer={portalContainer}
+      />
+    </>
   );
 }
 

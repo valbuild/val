@@ -25,6 +25,8 @@ import {
  * - **Nothing changed yet** -- a proposal that runs the site's code.
  * - **Safari** -- the bundler cannot run in a tab that frames the site, so
  *   the build waits for a builder window opened from a tap.
+ * - **Picking** -- Select, then click something on the page: the assistant is
+ *   told which. It needs the page in preview mode, which the bar turns on.
  */
 const meta: Meta<typeof DesignTabView> = {
   title: "Design/DesignTab",
@@ -153,6 +155,14 @@ const BASE: DesignTabViewProps = {
   previewHref: "https://3f9c1e7a2b4d6c8e0a1b--nordic.valstart.dev/",
   route: "/",
   onRouteChange: () => {},
+  pages: ["/", "/about", "/products/knitwear", "/products/outerwear"],
+  picking: {
+    active: false,
+    onToggle: () => {},
+    status: "live",
+    onTurnOn: () => {},
+  },
+  onPublish: () => {},
   onReload: () => {},
   files: FILES,
   diffOf: (path) => lineDiff(SITE[path] ?? null, PROPOSAL[path] ?? null),
@@ -286,5 +296,31 @@ export const SafariNoBuilderWindow: Story = {
       onBuild: () => {},
     },
     preview: <DesignSiteMock testimonials="none" />,
+  },
+};
+
+export const Picking: Story = {
+  name: "Picking on the page",
+  args: {
+    ...BASE,
+    picking: {
+      active: true,
+      onToggle: () => {},
+      status: "live",
+      onTurnOn: () => {},
+    },
+  },
+};
+
+export const PickingNeedsPreview: Story = {
+  name: "Picking needs preview mode",
+  args: {
+    ...BASE,
+    picking: {
+      active: false,
+      onToggle: () => {},
+      status: "off",
+      onTurnOn: () => {},
+    },
   },
 };

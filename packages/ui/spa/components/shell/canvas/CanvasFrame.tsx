@@ -41,10 +41,24 @@ type FrameState =
 export const ANSWER_TIMEOUT_MS = 8000;
 
 export type CanvasFrameProps = {
-  /** The page's own URL, e.g. `/blogs/blog1`. */
+  /** The page's own URL, e.g. `/blogs/blog1`; absolute when `origin` is another. */
   url: string;
-  width: number;
-  height: number;
+  width: number | string;
+  height: number | string;
+  /**
+   * The origin the page is served from, when it is not the Studio's: the
+   * design tab frames a proposal's address from the site's
+   * (valbuild/home `docs/design-tab.md`). Messages are sent to it, and preview
+   * mode is turned on there.
+   */
+  origin?: string;
+  /**
+   * Whether this Studio's edits are relayed into the page. Off when the page is
+   * not this Studio's content: a proposal's page reads its own drafts, and the
+   * site's would be the wrong ones. The page is still told when there is
+   * nothing to wait for (`sourcesSynced`).
+   */
+  relaySources?: boolean;
   /** Bumped to reload. */
   reloadKey: number;
   /** Whether a click on the page picks the element under it. */
@@ -116,6 +130,8 @@ export function CanvasFrame({
   url,
   width,
   height,
+  origin = typeof window === "undefined" ? "" : window.origin,
+  relaySources = true,
   reloadKey,
   isPicking,
   selectionColors,
@@ -174,11 +190,14 @@ export function CanvasFrame({
   const frameSrc = useMemo(() => withValCanvasParam(url), [url]);
 
   /** Send one message into the frame. */
-  const send = useCallback((message: ValCanvasStudioMessage) => {
-    // Same origin as the studio — the page is served by the same app — so the
-    // target origin can be named rather than left as `*`.
-    frameRef.current?.contentWindow?.postMessage(message, window.origin);
-  }, []);
+  const send = useCallback(
+    (message: ValCanvasStudioMessage) => {
+      // The page's origin -- the Studio's own unless told otherwise -- named
+      // rather than left as `*`.
+      frameRef.current?.contentWindow?.postMessage(message, origin);
+    },
+    [origin],
+  );
 
   // A reload is a new document, so whatever the last one said no longer holds.
   useEffect(() => {
@@ -201,6 +220,9 @@ export function CanvasFrame({
       // Only this frame, and only messages shaped like the protocol: a window
       // hears from anything holding a handle on it.
       if (event.source !== frameRef.current?.contentWindow) return;
+      // A frame of another origin is held to it; the Studio's own pages are
+      // already the only thing `source` can be.
+      if (origin !== window.origin && event.origin !== origin) return;
       if (!isValCanvasPageMessage(event.data)) return;
       const message = event.data;
       if (message.type === "ready") {
@@ -226,7 +248,7 @@ export function CanvasFrame({
     };
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [onElements, onPick, onPinch, onZoom, onRefreshingChange]);
+  }, [onElements, onPick, onPinch, onZoom, onRefreshingChange, origin]);
 
   // Picking and highlighting are pushed rather than set on the frame: they are
   // properties of the page's behaviour, and only the page can apply them.
@@ -305,14 +327,15 @@ export function CanvasFrame({
      * for as long as the tab was open.
      */
     setState({ status: "waiting" });
-    const redirectTo = new URL(frameSrc, window.location.origin).toString();
-    const enableUrl = `/api/val/enable?redirect_to=${encodeURIComponent(
+    const redirectTo = new URL(frameSrc, origin).toString();
+    // At the page's origin: the cookie it sets is the page's.
+    const enableUrl = `${origin === window.origin ? "" : origin}/api/val/enable?redirect_to=${encodeURIComponent(
       redirectTo,
     )}`;
     if (frameRef.current) {
       frameRef.current.src = enableUrl;
     }
-  }, [frameSrc]);
+  }, [frameSrc, origin]);
 
   /**
    * Relay every edit into the frame.
@@ -337,7 +360,7 @@ export function CanvasFrame({
     },
     [send],
   );
-  useValSourceUpdates(isLive, sendSourceUpdate);
+  useValSourceUpdates(isLive && relaySources, sendSourceUpdate);
 
   /**
    * And catch the page up the moment it is listening.
@@ -355,7 +378,7 @@ export function CanvasFrame({
   const sendPendingSources = useValPendingSourceSnapshot();
   useEffect(() => {
     if (!isLive) return;
-    sendPendingSources(sendSourceUpdate);
+    if (relaySources) sendPendingSources(sendSourceUpdate);
     /**
      * And say that was all of it.
      *
@@ -368,7 +391,14 @@ export function CanvasFrame({
      * draft, and renders committed source for it immediately.
      */
     send({ val: VAL_CANVAS_MESSAGE, type: "sourcesSynced" });
-  }, [isLive, documentEpoch, sendPendingSources, sendSourceUpdate, send]);
+  }, [
+    isLive,
+    relaySources,
+    documentEpoch,
+    sendPendingSources,
+    sendSourceUpdate,
+    send,
+  ]);
 
   /**
    * Turn preview mode on when asked from outside.

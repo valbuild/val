@@ -159,6 +159,9 @@ Whoever opened the design tab wants the site's code changed: a component, a layo
 - Read content to see what the code renders (get_all_schema, get_source, search_content, count_entries, get_record_keys). These read the SITE's content.
 - Ask when a request is ambiguous (ask_user_question), and name the session once the topic is clear (set_session_name).
 
+## What the person points at
+- <field path="..."/> in a message is something the person picked on the page in the preview: the Val source path of the content it shows (a module file path, and the field in it). The code to change is what renders it: find the module path in the files (list_files, read_file), follow it to the component that shows that field, and change that.
+
 ## Working
 - Keep each change small enough to build and check, and build after it.
 - A build that fails, or a page that does not render, is not served: the preview keeps the last build that worked, and build_proposal answers with the error. Read it, fix the files, and build again.

@@ -1,19 +1,23 @@
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
   ChevronRight,
   Circle,
   ExternalLink,
   FileCode2,
+  FileText,
   GitBranch,
   Hammer,
   History,
   Monitor,
+  MousePointerClick,
   Paintbrush,
   RotateCw,
   Smartphone,
   Sparkles,
   Tablet,
+  Upload,
   X,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
@@ -73,6 +77,18 @@ export type DesignProblem = {
   action?: { label: string; onClick: () => void };
 };
 
+/**
+ * Pointing at something on the page: picked in the frame, it is mentioned to
+ * the assistant. Needs the page in preview mode, where Val marks what it
+ * renders; `off` offers to turn it on.
+ */
+export type DesignPicking = {
+  active: boolean;
+  onToggle: () => void;
+  status: "live" | "waiting" | "off";
+  onTurnOn: () => void;
+};
+
 export type DesignDevice = "desktop" | "tablet" | "mobile";
 export type DesignView = "preview" | "changes";
 
@@ -84,7 +100,13 @@ export type DesignTabViewProps = {
   studioUrl: string | null;
   route: string;
   onRouteChange: (route: string) => void;
+  /** The site's pages, to pick the one the frame shows. */
+  pages: string[];
   onReload: () => void;
+  /** `null`: the frame cannot pick (nothing is framed). */
+  picking: DesignPicking | null;
+  /** Publish (merge) the proposal into the site; `null`: not offered. */
+  onPublish: (() => void) | null;
   /** `null` while they are read. */
   files: ChangedFile[] | null;
   /** The diff of one of `files` against the site's copy. */
@@ -154,6 +176,7 @@ export function DesignTabView(props: DesignTabViewProps) {
           <PreviewToolbar
             route={props.route}
             onRouteChange={props.onRouteChange}
+            pages={props.pages}
             onReload={props.onReload}
             address={props.proposal.address}
             previewHref={props.previewHref}
@@ -171,6 +194,7 @@ export function DesignTabView(props: DesignTabViewProps) {
               progress={props.build.progress}
               device={device}
               preview={props.preview}
+              picking={props.picking}
             />
           ) : shownFile === null ? (
             <Empty>
@@ -195,6 +219,7 @@ function DesignTopBar({
   checks,
   builder,
   build,
+  onPublish,
 }: DesignTabViewProps) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border-primary px-3">
@@ -247,11 +272,21 @@ function DesignTopBar({
           target="_blank"
           rel="noreferrer"
           className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-fg-secondary hover:bg-bg-secondary"
-          title="Its content, and Publish, are in the proposal's own Studio"
+          title="Its content is edited in the proposal's own Studio"
         >
           Open the proposal&apos;s Studio
           <ExternalLink size={12} />
         </a>
+      )}
+      {onPublish !== null && (
+        <button
+          type="button"
+          onClick={onPublish}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-bg-proposal px-3 text-xs font-medium text-fg-on-proposal hover:bg-bg-proposal-hover"
+        >
+          <Upload size={14} />
+          Publish
+        </button>
       )}
     </header>
   );
@@ -441,6 +476,7 @@ function Checkpoints({ checkpoints }: { checkpoints: DesignCheckpoint[] }) {
 function PreviewToolbar({
   route,
   onRouteChange,
+  pages,
   onReload,
   address,
   previewHref,
@@ -452,6 +488,7 @@ function PreviewToolbar({
 }: {
   route: string;
   onRouteChange: (route: string) => void;
+  pages: string[];
   onReload: () => void;
   address: string | null;
   previewHref: string | null;
@@ -508,6 +545,9 @@ function PreviewToolbar({
               className="min-w-[6rem] flex-1 bg-transparent outline-none"
             />
           </form>
+          {pages.length > 0 && (
+            <PagesMenu pages={pages} current={route} onPick={onRouteChange} />
+          )}
           <div className="flex items-center">
             {devices.map((option) => (
               <button
@@ -549,6 +589,106 @@ function PreviewToolbar({
             </a>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+/** The site's pages, to show one in the frame. */
+function PagesMenu({
+  pages,
+  current,
+  onPick,
+}: {
+  pages: string[];
+  current: string;
+  onPick: (route: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((shown) => !shown)}
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-border-primary px-2 text-xs text-fg-secondary hover:bg-bg-secondary"
+      >
+        <FileText size={12} />
+        Pages
+        <ChevronDown size={12} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-full mt-1 max-h-80 w-64 overflow-y-auto rounded-md border border-border-float bg-bg-float py-1 shadow-lg"
+        >
+          {pages.map((page) => (
+            <button
+              key={page}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onPick(page);
+              }}
+              className={cn(
+                "block w-full truncate px-3 py-1.5 text-left font-mono text-xs hover:bg-bg-float-raised",
+                page === current && "text-fg-proposal",
+              )}
+            >
+              {page}
+            </button>
+          ))}
+          <p className="border-t border-border-float px-3 py-1.5 text-[11px] text-fg-tertiary">
+            The site&apos;s pages. A page the proposal adds is reached by typing
+            its path.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The tools over the page: pick something on it to point the assistant at
+ * it. Picking needs preview mode, where Val marks what it renders; without
+ * it, the bar offers to turn it on.
+ */
+function PickingBar({ picking }: { picking: DesignPicking }) {
+  return (
+    <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border-float bg-bg-float px-2 py-1 text-xs text-fg-primary shadow-lg">
+      {picking.status === "off" ? (
+        <>
+          <span className="px-1 text-fg-secondary">
+            Picking needs preview mode on this page
+          </span>
+          <button
+            type="button"
+            onClick={picking.onTurnOn}
+            className="rounded-full bg-bg-proposal px-2.5 py-1 font-medium text-fg-on-proposal hover:bg-bg-proposal-hover"
+          >
+            Turn it on
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          aria-pressed={picking.active}
+          disabled={picking.status !== "live"}
+          onClick={picking.onToggle}
+          title="Pick something on the page, and the assistant is told which"
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1",
+            picking.active
+              ? "bg-bg-proposal text-fg-on-proposal"
+              : "hover:bg-bg-float-raised",
+            "disabled:text-fg-disabled",
+          )}
+        >
+          <MousePointerClick size={14} />
+          {picking.active ? "Click something on the page" : "Select"}
+        </button>
       )}
     </div>
   );
@@ -624,12 +764,14 @@ function PreviewArea({
   progress,
   device,
   preview,
+  picking,
 }: {
   address: string | null;
   building: boolean;
   progress: { label: string; percent: number | null } | null;
   device: DesignDevice;
   preview: ReactNode;
+  picking: DesignPicking | null;
 }) {
   const width = DEVICE_WIDTHS[device];
   if (address === null) {
@@ -675,6 +817,7 @@ function PreviewArea({
           style={width === null ? undefined : { maxWidth: width }}
         >
           {preview}
+          {picking !== null && <PickingBar picking={picking} />}
         </div>
       </div>
     </div>
