@@ -31,7 +31,7 @@ import { ModuleFilePath } from "./ModuleFilePath";
 // A render is static config, so unlike a `preview` it travels WHOLE — this
 // is the field the editor reads the layout from. See `core/src/render.ts`.
 // Array, record and keyOf carry `{ as: "inline" }`; number carries
-// `{ as: "slider", ... }`. A stale `render` on any other schema is stripped here, harmlessly.
+// `{ as: "slider", ... }`; object carries `{ as: "component" }`. A stale `render` on any other schema is stripped here, harmlessly.
 // NB: these z.objects STRIP unknown keys, so a render variant that is not
 // declared here is silently dropped in transit — add it here when it is added
 // to `render.ts`.
@@ -44,6 +44,17 @@ const NumberRender = z
     min: z.number(),
     max: z.number(),
     step: z.number().optional(),
+  })
+  .optional();
+// EXPERIMENTAL: `s.object(...).render({ as: "component" })`. Only a marker: the
+// component is a closure and stays in the host app, like a preview.
+const ComponentRender = z
+  .object({
+    as: z.literal("component"),
+    example: z.literal(true).optional(),
+    maxWidth: z.number().optional(),
+    aspectRatio: z.number().optional(),
+    defaultView: z.enum(["preview", "content", "split"]).optional(),
   })
   .optional();
 
@@ -135,6 +146,7 @@ export const SerializedObjectSchema: z.ZodType<SerializedObjectSchemaT> =
   z.lazy(() => {
     return z.object({
       ...commonSchemaFields,
+      render: ComponentRender,
       type: z.literal("object"),
       items: z.record(z.string(), SerializedSchema),
       opt: z.boolean(),

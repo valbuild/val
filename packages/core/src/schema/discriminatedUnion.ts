@@ -17,6 +17,7 @@ import { SourceObject } from "../source";
 import { ModuleFilePath, SourcePath } from "../val";
 import { LiteralSchema } from "./literal";
 import { ObjectSchema, SerializedObjectSchema } from "./object";
+import { ComponentRender } from "../render";
 import {
   ValidationError,
   ValidationErrors,
@@ -494,7 +495,7 @@ export class DiscriminatedUnionSchema<
    * The variant schema a value takes. `null` when the value matches none of
    * them — a structural error `executeValidate` already reports.
    */
-  private matchedVariant(src: Src): Schema<SelectorSource> | null {
+  private matchedVariant(src: unknown): Schema<SelectorSource> | null {
     const key = this.key;
     if (typeof key !== "string" || !Array.isArray(this.items)) {
       return null;
@@ -569,6 +570,13 @@ export class DiscriminatedUnionSchema<
       return matched["executePreviewItem"](src);
     }
     return null;
+  }
+
+  protected override executeComponentRender(
+    src: unknown,
+  ): ComponentRender<unknown> | null {
+    const matched = this.matchedVariant(src);
+    return matched ? matched["executeComponentRender"](src) : null;
   }
 
   protected override declaresItemPreview(): boolean {

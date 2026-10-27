@@ -11,8 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SiteRouteImport } from './routes/_site'
 import { Route as ValRouteRouteImport } from './routes/val/route'
+import { Route as ValPreviewRouteImport } from './routes/val-preview'
 import { Route as SiteIndexRouteImport } from './routes/_site.index'
 import { Route as SiteDashboardRouteImport } from './routes/_site.dashboard'
+import { Route as SiteLandingRouteImport } from './routes/_site.landing'
 import { Route as SiteLoginRouteImport } from './routes/_site.login'
 import { Route as SiteShowcaseRouteImport } from './routes/_site.showcase'
 import { Route as ValIndexRouteImport } from './routes/val/index'
@@ -35,6 +37,11 @@ const ValRouteRoute = ValRouteRouteImport.update({
   path: '/val',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ValPreviewRoute = ValPreviewRouteImport.update({
+  id: '/val-preview',
+  path: '/val-preview',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SiteIndexRoute = SiteIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -43,6 +50,11 @@ const SiteIndexRoute = SiteIndexRouteImport.update({
 const SiteDashboardRoute = SiteDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => SiteRoute,
+} as any)
+const SiteLandingRoute = SiteLandingRouteImport.update({
+  id: '/landing',
+  path: '/landing',
   getParentRoute: () => SiteRoute,
 } as any)
 const SiteLoginRoute = SiteLoginRouteImport.update({
@@ -110,7 +122,9 @@ const SiteChar123LocaleChar125NewsSlugRoute =
 export interface FileRoutesByFullPath {
   '/val': typeof ValRouteRouteWithChildren
   '/': typeof SiteIndexRoute
+  '/val-preview': typeof ValPreviewRoute
   '/dashboard': typeof SiteDashboardRoute
+  '/landing': typeof SiteLandingRoute
   '/login': typeof SiteLoginRoute
   '/showcase': typeof SiteShowcaseRoute
   '/val/$': typeof ValSplatRoute
@@ -125,7 +139,9 @@ export interface FileRoutesByFullPath {
   '/{-$locale}/news/$slug': typeof SiteChar123LocaleChar125NewsSlugRoute
 }
 export interface FileRoutesByTo {
+  '/val-preview': typeof ValPreviewRoute
   '/dashboard': typeof SiteDashboardRoute
+  '/landing': typeof SiteLandingRoute
   '/login': typeof SiteLoginRoute
   '/showcase': typeof SiteShowcaseRoute
   '/val/$': typeof ValSplatRoute
@@ -144,7 +160,9 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/val': typeof ValRouteRouteWithChildren
   '/_site': typeof SiteRouteWithChildren
+  '/val-preview': typeof ValPreviewRoute
   '/_site/dashboard': typeof SiteDashboardRoute
+  '/_site/landing': typeof SiteLandingRoute
   '/_site/login': typeof SiteLoginRoute
   '/_site/showcase': typeof SiteShowcaseRoute
   '/val/$': typeof ValSplatRoute
@@ -164,7 +182,9 @@ export interface FileRouteTypes {
   fullPaths:
     | '/val'
     | '/'
+    | '/val-preview'
     | '/dashboard'
+    | '/landing'
     | '/login'
     | '/showcase'
     | '/val/$'
@@ -179,7 +199,9 @@ export interface FileRouteTypes {
     | '/{-$locale}/news/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/val-preview'
     | '/dashboard'
+    | '/landing'
     | '/login'
     | '/showcase'
     | '/val/$'
@@ -197,7 +219,9 @@ export interface FileRouteTypes {
     | '__root__'
     | '/val'
     | '/_site'
+    | '/val-preview'
     | '/_site/dashboard'
+    | '/_site/landing'
     | '/_site/login'
     | '/_site/showcase'
     | '/val/$'
@@ -216,6 +240,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   ValRouteRoute: typeof ValRouteRouteWithChildren
   SiteRoute: typeof SiteRouteWithChildren
+  ValPreviewRoute: typeof ValPreviewRoute
   ApiValSplatRoute: typeof ApiValSplatRoute
 }
 
@@ -235,6 +260,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ValRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/val-preview': {
+      id: '/val-preview'
+      path: '/val-preview'
+      fullPath: '/val-preview'
+      preLoaderRoute: typeof ValPreviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_site/': {
       id: '/_site/'
       path: '/'
@@ -247,6 +279,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof SiteDashboardRouteImport
+      parentRoute: typeof SiteRoute
+    }
+    '/_site/landing': {
+      id: '/_site/landing'
+      path: '/landing'
+      fullPath: '/landing'
+      preLoaderRoute: typeof SiteLandingRouteImport
       parentRoute: typeof SiteRoute
     }
     '/_site/login': {
@@ -352,6 +391,7 @@ const ValRouteRouteWithChildren = ValRouteRoute._addFileChildren(
 
 interface SiteRouteChildren {
   SiteDashboardRoute: typeof SiteDashboardRoute
+  SiteLandingRoute: typeof SiteLandingRoute
   SiteLoginRoute: typeof SiteLoginRoute
   SiteShowcaseRoute: typeof SiteShowcaseRoute
   SiteIndexRoute: typeof SiteIndexRoute
@@ -366,6 +406,7 @@ interface SiteRouteChildren {
 
 const SiteRouteChildren: SiteRouteChildren = {
   SiteDashboardRoute: SiteDashboardRoute,
+  SiteLandingRoute: SiteLandingRoute,
   SiteLoginRoute: SiteLoginRoute,
   SiteShowcaseRoute: SiteShowcaseRoute,
   SiteIndexRoute: SiteIndexRoute,
@@ -383,6 +424,7 @@ const SiteRouteWithChildren = SiteRoute._addFileChildren(SiteRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   ValRouteRoute: ValRouteRouteWithChildren,
   SiteRoute: SiteRouteWithChildren,
+  ValPreviewRoute: ValPreviewRoute,
   ApiValSplatRoute: ApiValSplatRoute,
 }
 export const routeTree = rootRouteImport

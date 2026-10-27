@@ -332,6 +332,14 @@ export {
   type SliderRender,
   type NumberRender,
   isInlineRender,
+  type ComponentRender,
+  type SerializedComponentRender,
+  type ComponentView,
+  type ValComponent,
+  type ValComponentImport,
+  getComponentRender,
+  loadComponent,
+  VAL_PREVIEW_MESSAGES,
 } from "./render";
 export type {
   ValRouter,

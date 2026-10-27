@@ -26,6 +26,7 @@ import { FieldValidationErrorCompact } from "./FieldValidationError";
 import { ValidationErrors } from "./ValidationError";
 import { useFieldErrorsOwned } from "./FieldErrorsOwner";
 import { usePendingWriteHold } from "./PendingWriteHold";
+import { ComponentField, mayHaveComponent } from "./ComponentPreview";
 
 export type ErrorDisplay = "default" | "compact" | "none";
 
@@ -75,6 +76,19 @@ export function AnyField({
    */
   const effectiveReadonly = readonly || schema.readonly || writeHeld;
   const leafProps = { readonly: effectiveReadonly, compact };
+  /*
+   * An object (or a union variant) with `.render({ as: "component" })` is
+   * shown with its component too, switched on the field itself. Not in an
+   * inline row, which is laid out for density and has no room for a frame.
+   */
+  const withComponent = (fields: React.ReactNode) =>
+    !inline && mayHaveComponent(schema) ? (
+      <ComponentField key={path} path={path} schema={schema}>
+        {fields}
+      </ComponentField>
+    ) : (
+      fields
+    );
   let leaf: React.ReactNode;
   if (schema.type === "string") {
     leaf = (
@@ -99,7 +113,7 @@ export function AnyField({
       />
     );
   } else if (schema.type === "object") {
-    return (
+    return withComponent(
       <ObjectFields
         key={path}
         path={path}
@@ -107,7 +121,7 @@ export function AnyField({
         compact={compact}
         inline={inline}
         errorDisplay={errorDisplay}
-      />
+      />,
     );
   } else if (schema.type === "array") {
     return (
@@ -143,7 +157,7 @@ export function AnyField({
       />
     );
   } else if (schema.type === "discriminated-union") {
-    return (
+    return withComponent(
       <DiscriminatedUnionField
         key={path}
         path={path}
@@ -151,7 +165,7 @@ export function AnyField({
         compact={compact}
         inline={inline}
         errorDisplay={errorDisplay}
-      />
+      />,
     );
   } else if (schema.type === "enum") {
     leaf = <EnumField key={path} path={path} readonly={effectiveReadonly} />;
