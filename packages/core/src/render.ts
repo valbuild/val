@@ -238,16 +238,29 @@ export type SerializedComponentRender = {
  * The messages between the Studio and the host app's preview route, which run
  * in different frames. Both sides read them from here so they cannot drift.
  *
+ * - `ready`: preview to Studio. The preview is listening; tell it whether
+ *   clicking picks.
  * - `refresh`: Studio to preview. The content changed; render it again.
  * - `size`: preview to Studio, with `{ height }`. What the component rendered
  *   is this tall, so the Studio can size the frame to fit it.
+ * - `picking`: Studio to preview, with `{ enabled }`. Whether a click on
+ *   content picks the field it came from, rather than doing what a click on
+ *   the site does.
+ * - `pick`: preview to Studio, with `{ paths }`. The editor clicked content
+ *   with these source paths behind it (from its `data-val-path`).
  */
 export const VAL_PREVIEW_MESSAGES: {
+  ready: "val-preview-ready";
   refresh: "val-preview-refresh";
   size: "val-preview-size";
+  picking: "val-preview-picking";
+  pick: "val-preview-pick";
 } = {
+  ready: "val-preview-ready",
   refresh: "val-preview-refresh",
   size: "val-preview-size",
+  picking: "val-preview-picking",
+  pick: "val-preview-pick",
 };
 
 /**

@@ -1,4 +1,5 @@
 import {
+  Internal,
   VAL_PREVIEW_MESSAGES,
   type ComponentView,
   type SerializedComponentRender,
@@ -10,6 +11,7 @@ import {
   Eye,
   FlaskConical,
   Monitor,
+  MousePointerClick,
   PenLine,
   RotateCw,
   Smartphone,
@@ -26,6 +28,7 @@ import {
 import { useShallowSourceAtPath, useSourceAtPath } from "./ValFieldProvider";
 import { sourcePathOfItem } from "../utils/sourcePathOfItem";
 import { cn } from "./designSystem/cn";
+import { scrollToStudioPath } from "./ValRouter";
 
 /**
  * Route in the host app that renders the value at one source path with its
@@ -236,6 +239,22 @@ function ComponentFieldLayout({
     [view, device],
   );
   const [showExample, setShowExample] = useState(false);
+  // On by default: the content IS the way into its fields
+  const [picking, setPicking] = useState(true);
+  /*
+   * A click on content in the preview: show the fields beside it and open the
+   * one it came from - scrolled to and its input focused. Not a navigation:
+   * the field is part of what is already open, and navigating remounts the
+   * field, which starts this one over from its `defaultView`.
+   */
+  const pick = useCallback((paths: SourcePath[]) => {
+    const picked = paths[0];
+    if (picked === undefined) {
+      return;
+    }
+    setView("split");
+    selectField(picked);
+  }, []);
   // Bumped to throw the iframe away and mount a new one. Needed when the
   // component code changed (as opposed to its content), since that means the
   // host app has to re-evaluate the module, not just re-render it.
@@ -258,6 +277,8 @@ function ComponentFieldLayout({
       path={path}
       render={render}
       example={showExample}
+      picking={picking}
+      onPick={pick}
       width={view === "split" ? splitDevice.width(render.maxWidth) : null}
     />
   );
@@ -271,6 +292,17 @@ function ComponentFieldLayout({
         />
         {view !== "content" && (
           <div className="flex gap-1 items-center">
+            <ToolbarButton
+              label={
+                picking
+                  ? "Clicking content in the preview opens its field. Turn off to use the component as on the site"
+                  : "Click content in the preview to open its field"
+              }
+              pressed={picking}
+              onClick={() => setPicking((prev) => !prev)}
+            >
+              <MousePointerClick size={14} />
+            </ToolbarButton>
             {render.example && (
               <ToolbarButton
                 label={
@@ -467,11 +499,16 @@ function PreviewFrame({
   path,
   render,
   example,
+  picking,
+  onPick,
   width,
 }: {
   path: SourcePath;
   render: SerializedComponentRender;
   example: boolean;
+  /** Whether a click on content picks its field. See `ValPreviewBridge`. */
+  picking: boolean;
+  onPick: (paths: SourcePath[]) => void;
   /**
    * The width to lay the component out at, scaled down when there is less
    * room. `null` is as wide as there is room, up to the render's `maxWidth`.
@@ -479,8 +516,13 @@ function PreviewFrame({
   width: number | null;
 }) {
   const sourceAtPath = useSourceAtPath(path);
+  // By value: the store hands out a new object for the same content (once
+  // the patches are in, for one), and every new one was a refresh - which
+  // reloads the preview under the editor's pointer.
   const source =
-    sourceAtPath.status === "success" ? sourceAtPath.data : undefined;
+    sourceAtPath.status === "success"
+      ? JSON.stringify(sourceAtPath.data)
+      : undefined;
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const src = previewUrl({ path, example });
 
@@ -501,6 +543,16 @@ function PreviewFrame({
     };
   }, []);
 
+  const sendPicking = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: VAL_PREVIEW_MESSAGES.picking, enabled: picking },
+      window.location.origin,
+    );
+  }, [picking]);
+  // A ref, so a new `onPick` does not re-subscribe the listener below
+  const onPickRef = useRef(onPick);
+  onPickRef.current = onPick;
+
   // A new document reports its own height; until it does, the old one's
   // would be a lie about something else.
   const [reportedHeight, setReportedHeight] = useState<number | null>(null);
@@ -514,29 +566,55 @@ function PreviewFrame({
       if (event.source !== iframeRef.current?.contentWindow) {
         return;
       }
+      const data: unknown = event.data;
+      if (typeof data !== "object" || data === null || !("type" in data)) {
+        return;
+      }
       if (
-        event.data?.type === VAL_PREVIEW_MESSAGES.size &&
-        typeof event.data.height === "number"
+        data.type === VAL_PREVIEW_MESSAGES.size &&
+        "height" in data &&
+        typeof data.height === "number"
       ) {
-        setReportedHeight(event.data.height);
+        setReportedHeight(data.height);
+      } else if (data.type === VAL_PREVIEW_MESSAGES.ready) {
+        sendPicking();
+      } else if (
+        data.type === VAL_PREVIEW_MESSAGES.pick &&
+        "paths" in data &&
+        Array.isArray(data.paths)
+      ) {
+        onPickRef.current(
+          data.paths.filter(
+            (path): path is SourcePath => typeof path === "string",
+          ),
+        );
       }
     };
     window.addEventListener("message", listener);
     return () => {
       window.removeEventListener("message", listener);
     };
-  }, []);
+  }, [sendPicking]);
+
+  // Picking switched on the field: tell the preview now. A preview that is
+  // still loading asks with `ready` once it can listen.
+  useEffect(() => {
+    sendPicking();
+  }, [sendPicking]);
 
   // Content changed in Val: ask the preview to re-render with the new content.
-  const isFirstSourceRef = useRef(true);
+  // The content the preview was last loaded or refreshed with. Compared
+  // rather than counting runs: an effect can run twice for one value
+  // (StrictMode does exactly that), and the first value is the one the frame
+  // is loading anyway.
+  const shownSourceRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (source === undefined) {
-      // Still loading: arriving is not a change
+    if (source === undefined || source === shownSourceRef.current) {
       return;
     }
-    if (isFirstSourceRef.current) {
-      // The iframe is loading the current content anyway
-      isFirstSourceRef.current = false;
+    const isFirst = shownSourceRef.current === undefined;
+    shownSourceRef.current = source;
+    if (isFirst) {
       return;
     }
     const timeout = setTimeout(() => {
@@ -607,6 +685,67 @@ function frameLayout({
   return { width: Math.min(render.maxWidth ?? available, available), scale: 1 };
 }
 
+/**
+ * Scroll to the picked field and put the cursor in its input, once it is on
+ * screen - which after switching to split view is a render or two away. A
+ * field's element carries its path (`data-val-studio-path`, see
+ * `scrollToStudioPath`).
+ *
+ * Not every value is a field of its own: an item of a list of strings is a row
+ * in its list. When the picked path has not appeared after a while, the
+ * nearest field above it is scrolled to instead, and nothing is focused -
+ * guessing which input in it was meant would put the cursor in the wrong one.
+ */
+function selectField(path: SourcePath, attempt = 0) {
+  const exact = findStudioField(path);
+  if (exact) {
+    scrollToStudioPath(path);
+    exact
+      .querySelector<HTMLElement>(
+        "input:not([type=hidden]), textarea, [contenteditable=true]",
+      )
+      ?.focus({ preventScroll: true });
+    return;
+  }
+  if (attempt < 10) {
+    setTimeout(() => selectField(path, attempt + 1), 100);
+    return;
+  }
+  const ancestor = ancestorsOf(path).find((candidate) =>
+    findStudioField(candidate),
+  );
+  if (ancestor) {
+    scrollToStudioPath(ancestor);
+  }
+}
+
+function findStudioField(path: SourcePath): HTMLElement | undefined {
+  const root = document.getElementById("val-shadow-root")?.shadowRoot;
+  return root
+    ? Array.from(
+        root.querySelectorAll<HTMLElement>("[data-val-studio-path]"),
+      ).find((element) => element.getAttribute("data-val-studio-path") === path)
+    : undefined;
+}
+
+/** The paths above `path` in its module, nearest first. */
+function ancestorsOf(path: SourcePath): SourcePath[] {
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(path);
+  const parts = modulePath ? Internal.splitModulePath(modulePath) : [];
+  const ancestors: SourcePath[] = [];
+  for (let length = parts.length - 1; length > 0; length--) {
+    let ancestor: SourcePath | undefined = undefined;
+    for (const part of parts.slice(0, length)) {
+      ancestor = Internal.createValPathOfItem(ancestor ?? moduleFilePath, part);
+    }
+    if (ancestor) {
+      ancestors.push(ancestor);
+    }
+  }
+  return ancestors;
+}
+
 function previewUrl({
   path,
   example,
@@ -618,5 +757,12 @@ function previewUrl({
   if (example) {
     params.set("example", "1");
   }
-  return `${VAL_PREVIEW_ROUTE}?${params.toString()}`;
+  const preview = new URL(
+    `${VAL_PREVIEW_ROUTE}?${params.toString()}`,
+    window.location.origin,
+  ).toString();
+  // Through `/enable`, the way the canvas turns draft mode on: without it the
+  // preview renders PUBLISHED content - not the edit being made - and without
+  // stega, so there is nothing to click to pick a field.
+  return `/api/val/enable?redirect_to=${encodeURIComponent(preview)}`;
 }

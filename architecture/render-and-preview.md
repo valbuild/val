@@ -116,6 +116,17 @@ then a desktop. A screen wider than the room is laid out at its own width and
 scaled down, so the component's media queries see the screen, not the
 column.
 
+Clicking content in the preview opens its field, and is on by default (a
+toggle on the field turns it off, so links and buttons in the component work
+as on the site). It is the canvas's mechanism in a smaller frame: the preview
+loads through `/api/val/enable`, so it renders draft content with stega,
+`autoTagJSX` tags the elements with `data-val-path`, and `ValPreviewBridge`
+turns a click on one into a `pick` message. The Studio switches to Split and
+scrolls to the field and focuses its input - without navigating, which would
+remount the field and start it over from its `defaultView`. A value that is
+not a field of its own (an item of a list of strings) scrolls to the nearest
+field above it and focuses nothing, rather than guessing an input.
+
 `component` is a lazy `import()` and never the component. Val evaluates
 `.val.ts` files outside of the app — `val validate` and the language server in
 `node:vm`, the Studio in a rolldown Worker — and a component pulls in CSS,
