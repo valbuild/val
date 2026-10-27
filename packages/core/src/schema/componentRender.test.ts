@@ -32,18 +32,20 @@ describe("s.object(...).render({ as: 'component' })", () => {
     });
   });
 
-  test("serialize: the sizes travel whole", () => {
+  test("serialize: the sizes and the default view travel whole", () => {
     const schema = s.object({ title: s.string() }).render({
       as: "component",
       component: () => Promise.resolve(Hero),
       maxWidth: 400,
       aspectRatio: 16 / 9,
+      defaultView: "preview",
     });
     const serialized = schema["executeSerialize"]();
     expect(serialized.type === "object" && serialized.render).toEqual({
       as: "component",
       maxWidth: 400,
       aspectRatio: 16 / 9,
+      defaultView: "preview",
     });
   });
 

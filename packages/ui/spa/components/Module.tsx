@@ -51,12 +51,6 @@ import { PathHeading } from "./PathHeading";
 import { useEditorDensity } from "./EditorDensity";
 import { useDescription } from "./useDescription";
 import { ContentViewsSummary } from "../analytics/ContentViewsSummary";
-import {
-  ComponentLayout,
-  ComponentViewSwitch,
-  mayHaveComponent,
-  useComponentView,
-} from "./ComponentPreview";
 
 export function Module({
   path,
@@ -75,8 +69,6 @@ export function Module({
   const profilesByAuthorIds = useProfilesByAuthorId();
   // Whatever the shell puts beside the heading: the phone's locale filter.
   const headingTools = useHeadingTools();
-  /** Preview, content or both, for a value that has a component. */
-  const [componentView, setComponentView] = useComponentView();
   const patchesByAuthorIds = useMemo((): Record<string, PendingPatch[]> => {
     const byAuthors: Record<string, PendingPatch[]> = {};
     for (const patch of pendingPatchesRes || []) {
@@ -184,16 +176,10 @@ export function Module({
    * `KeySelector`. See the rule at the top of `core/src/preview.ts`.
    */
 
-  /** A component to preview this value with, so a view switch beside it. */
-  const hasComponent = mayHaveComponent(schema);
-
   /** The record tools, beside the title. */
   const tools = !isMediaGallery && (
     <div className="shrink-0 flex gap-2 items-center">
       {headingTools}
-      {hasComponent && (
-        <ComponentViewSwitch view={componentView} onChange={setComponentView} />
-      )}
       {hasPendingPatches && (
         <FieldPatchAuthors
           patchesByAuthorIds={patchesByAuthorIds}
@@ -231,39 +217,6 @@ export function Module({
         <span className="truncate">{description.title}</span>
       </span>
     ) : undefined;
-
-  /** The fields, which a value with a component lays out beside it. */
-  const fields = (
-    <div>
-      {isKey && nonKeyErrors.length > 0 && (
-        <FieldValidationError validationErrors={validationErrors} />
-      )}
-      <div
-        className={cn({
-          "border rounded-lg border-bg-warning-secondary p-4 mt-4":
-            nonKeyErrors.length > 0,
-        })}
-      >
-        {showModuleGalleryChild ? (
-          <ModuleGallery
-            key={path}
-            path={path}
-            showChildPath={showModuleGalleryChild}
-            // A readonly gallery module offered upload, delete and alt text
-            // regardless, and every one of them wrote a patch.
-            readonly={schema.readonly}
-          />
-        ) : (
-          // `ignoreHidden`: this IS the thing being looked at, so a hidden
-          // schema here would blank the page rather than hide a row. A
-          // module hidden from the nav is still reached — from an `s.view()`
-          // row, from search, from a validation error — and renders in full
-          // once reached.
-          <AnyField key={path} path={path} schema={schema} ignoreHidden />
-        )}
-      </div>
-    </div>
-  );
 
   const isMediaCollection =
     schema.type === "record" && schema.mediaType !== undefined;
@@ -332,13 +285,35 @@ export function Module({
           />
         </div>
       </div>
-      {hasComponent ? (
-        <ComponentLayout path={path} schema={schema} view={componentView}>
-          {fields}
-        </ComponentLayout>
-      ) : (
-        fields
-      )}
+      <div>
+        {isKey && nonKeyErrors.length > 0 && (
+          <FieldValidationError validationErrors={validationErrors} />
+        )}
+        <div
+          className={cn({
+            "border rounded-lg border-bg-warning-secondary p-4 mt-4":
+              nonKeyErrors.length > 0,
+          })}
+        >
+          {showModuleGalleryChild ? (
+            <ModuleGallery
+              key={path}
+              path={path}
+              showChildPath={showModuleGalleryChild}
+              // A readonly gallery module offered upload, delete and alt text
+              // regardless, and every one of them wrote a patch.
+              readonly={schema.readonly}
+            />
+          ) : (
+            // `ignoreHidden`: this IS the thing being looked at, so a hidden
+            // schema here would blank the page rather than hide a row. A
+            // module hidden from the nav is still reached — from an `s.view()`
+            // row, from search, from a validation error — and renders in full
+            // once reached.
+            <AnyField key={path} path={path} schema={schema} ignoreHidden />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

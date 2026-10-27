@@ -58,6 +58,8 @@ export const quoteSection = s
     component: () => import("../app/sections/QuoteSection"),
     // Shown in a narrow column on the site, so previewed as one.
     maxWidth: 560,
+    // Two short fields: the component says more than they do.
+    defaultView: "preview",
   });
 
 export const schema = s.record(

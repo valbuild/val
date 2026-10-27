@@ -429,6 +429,10 @@ export class ObjectSchema<
    * space a shape. Without them the preview is as wide as the editor and as
    * tall as the component.
    *
+   * `defaultView` is how the Studio shows the value to begin with: the
+   * component (`"preview"`), the fields (`"content"`) or both (`"split"`, the
+   * default).
+   *
    * @example
    * const hero = s
    *   .object({ title: s.string() })
@@ -501,6 +505,7 @@ export class ObjectSchema<
                 this.renderInput.example !== undefined ? true : undefined,
               maxWidth: this.renderInput.maxWidth,
               aspectRatio: this.renderInput.aspectRatio,
+              defaultView: this.renderInput.defaultView,
             },
           }
         : {}),

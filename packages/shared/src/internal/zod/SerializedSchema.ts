@@ -54,6 +54,7 @@ const ComponentRender = z
     example: z.literal(true).optional(),
     maxWidth: z.number().optional(),
     aspectRatio: z.number().optional(),
+    defaultView: z.enum(["preview", "content", "split"]).optional(),
   })
   .optional();
 

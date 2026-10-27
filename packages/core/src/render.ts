@@ -205,7 +205,20 @@ export type ComponentRender<Src> = {
    * Without it the preview is as tall as what the component renders.
    */
   aspectRatio?: number;
+  /**
+   * How the Studio shows the value to begin with: `"preview"` (the component
+   * alone), `"content"` (the fields alone) or `"split"` (the two side by side).
+   * Split starts on a phone-wide preview, which leaves the fields the most
+   * room, and pressing Split again moves to an iPad and then a desktop, scaled
+   * down to fit. The editor can switch on the field.
+   *
+   * Defaults to `"split"`.
+   */
+  defaultView?: ComponentView;
 };
+
+/** How the Studio shows a value that has a component. See {@link ComponentRender}. */
+export type ComponentView = "preview" | "content" | "split";
 
 /**
  * What a {@link ComponentRender} serializes to. The component is a closure and
@@ -218,6 +231,7 @@ export type SerializedComponentRender = {
   example?: true;
   maxWidth?: number;
   aspectRatio?: number;
+  defaultView?: ComponentView;
 };
 
 /**
@@ -245,6 +259,15 @@ export const VAL_PREVIEW_MESSAGES: {
 export function assertComponentRenderIsConsistent(
   render: ComponentRender<unknown>,
 ): void {
+  const views: ComponentView[] = ["preview", "content", "split"];
+  if (
+    render.defaultView !== undefined &&
+    !views.some((view) => view === render.defaultView)
+  ) {
+    throw new Error(
+      `render({ as: "component" }): defaultView must be one of ${views.join(", ")}, got ${String(render.defaultView)}`,
+    );
+  }
   for (const key of ["maxWidth", "aspectRatio"] as const) {
     const value = render[key];
     if (value !== undefined && !(Number.isFinite(value) && value > 0)) {

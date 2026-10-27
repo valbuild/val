@@ -1,14 +1,24 @@
 import {
   VAL_PREVIEW_MESSAGES,
+  type ComponentView,
   type SerializedComponentRender,
   type SerializedDiscriminatedUnionSchema,
   type SerializedSchema,
   type SourcePath,
 } from "@valbuild/core";
-import { Columns2, Eye, FlaskConical, PenLine, RotateCw } from "lucide-react";
+import {
+  Eye,
+  FlaskConical,
+  Monitor,
+  PenLine,
+  RotateCw,
+  Smartphone,
+  Tablet,
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -48,24 +58,53 @@ export const VAL_COMPONENT_PREVIEW_RELOAD_EVENT =
 const REFRESH_DEBOUNCE_MS = 800;
 
 /**
- * How tall the frame is until the preview has said how tall it is - and for
- * good, if the preview route does not wrap its output in `ValPreviewBridge`.
+ * How tall the component is taken to be until the preview has said how tall
+ * it is - and for good, if the preview route does not wrap its output in
+ * `ValPreviewBridge`.
  */
 const UNMEASURED_HEIGHT_PX = 240;
 
 /**
- * How a value that has a component is shown: rendered, as its fields, or both
- * side by side.
+ * The screens split view can show the component on. Pressing Split again moves
+ * to the next one. Mobile comes first: it is the narrowest, so it leaves the
+ * fields beside it the most room.
+ *
+ * The component is laid out at the screen's width - capped by the render's
+ * `maxWidth`, which is as wide as it ever gets - and scaled down to fit when
+ * there is less room than that. Desktop is the `maxWidth` itself when there is
+ * one, and a laptop's width when there is not.
  */
-export type ComponentView = "preview" | "content" | "split";
+type SplitDevice = "mobile" | "tablet" | "desktop";
 
-const COMPONENT_VIEWS: ComponentView[] = ["preview", "content", "split"];
-const COMPONENT_VIEW_STORAGE_KEY = "val:component-view";
+const SPLIT_DEVICES: {
+  device: SplitDevice;
+  label: string;
+  icon: ReactNode;
+  width: (maxWidth: number | undefined) => number;
+}[] = [
+  {
+    device: "mobile",
+    label: "Mobile",
+    icon: <Smartphone size={14} />,
+    width: (maxWidth) => Math.min(390, maxWidth ?? Infinity),
+  },
+  {
+    device: "tablet",
+    label: "iPad",
+    icon: <Tablet size={14} />,
+    width: (maxWidth) => Math.min(820, maxWidth ?? Infinity),
+  },
+  {
+    device: "desktop",
+    label: "Desktop",
+    icon: <Monitor size={14} />,
+    width: (maxWidth) => maxWidth ?? 1280,
+  },
+];
 
 /**
- * Could a value with this schema have a component? Read off the schema alone,
- * so the switch can be shown before the value has loaded: an object that
- * declares one, or a union with a variant that does.
+ * Could a value with this schema have a component? Read off the schema alone:
+ * an object that declares one, or a union with a variant that does.
  */
 export function mayHaveComponent(schema: SerializedSchema): boolean {
   if (schema.type === "discriminated-union") {
@@ -74,113 +113,38 @@ export function mayHaveComponent(schema: SerializedSchema): boolean {
   return componentRenderOf(schema) !== null;
 }
 
-/**
- * The view the editor last chose, remembered per browser: a convenience on
- * one machine, so `localStorage`, and nothing breaks when it is unavailable.
- */
-export function useComponentView(): [
-  ComponentView,
-  (view: ComponentView) => void,
-] {
-  const [view, setView] = useState<ComponentView>(readComponentView);
-  const select = useCallback((next: ComponentView) => {
-    setView(next);
-    try {
-      localStorage.setItem(COMPONENT_VIEW_STORAGE_KEY, next);
-    } catch {
-      // Not remembered next time; the switch still works.
-    }
-  }, []);
-  return [view, select];
-}
-
-function readComponentView(): ComponentView {
-  try {
-    const stored = localStorage.getItem(COMPONENT_VIEW_STORAGE_KEY);
-    const known = COMPONENT_VIEWS.find((view) => view === stored);
-    if (known) {
-      return known;
-    }
-  } catch {
-    // Storage blocked: fall through to the default.
+function componentRenderOf(
+  schema: SerializedSchema,
+): SerializedComponentRender | null {
+  if (schema.type !== "object") {
+    return null;
   }
-  return "split";
-}
-
-const VIEW_OPTIONS: {
-  view: ComponentView;
-  label: string;
-  icon: ReactNode;
-}[] = [
-  { view: "preview", label: "Preview", icon: <Eye size={14} /> },
-  { view: "content", label: "Content", icon: <PenLine size={14} /> },
-  { view: "split", label: "Split", icon: <Columns2 size={14} /> },
-];
-
-/** The switch between the three {@link ComponentView}s, beside the heading. */
-export function ComponentViewSwitch({
-  view,
-  onChange,
-}: {
-  view: ComponentView;
-  onChange: (view: ComponentView) => void;
-}) {
-  return (
-    <div
-      role="radiogroup"
-      aria-label="Show"
-      className="inline-flex items-center gap-0.5 p-0.5 rounded-md border border-border-primary"
-    >
-      {VIEW_OPTIONS.map((option) => {
-        const selected = option.view === view;
-        return (
-          <button
-            key={option.view}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            onClick={() => onChange(option.view)}
-            className={cn(
-              "flex items-center gap-1.5 h-7 px-2 rounded text-xs transition-colors",
-              {
-                "bg-bg-secondary text-fg-primary": selected,
-                "text-fg-tertiary hover:text-fg-primary": !selected,
-              },
-            )}
-          >
-            {option.icon}
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
-  );
+  return schema.render?.as === "component" ? schema.render : null;
 }
 
 /**
- * EXPERIMENTAL: the value at `path` laid out by `view` - rendered with the
- * component its schema declares, as its fields (`children`), or both.
+ * EXPERIMENTAL: a field whose value has a component -
+ * `s.object(...).render({ as: "component" })`, or a union whose current
+ * variant is one. It is shown as the component, as its fields (`children`) or
+ * both, starting from the render's `defaultView`, and switched on the field.
  *
- * The component is `s.object(...).render({ as: "component" })`, or the one of
- * the variant a union's value takes. When there is none - a union whose
- * current variant has no component - the fields are shown as they always are.
+ * When there is no component - a union whose current variant has none - the
+ * fields are shown as they always are.
  */
-export function ComponentLayout({
+export function ComponentField({
   path,
   schema,
-  view,
   children,
 }: {
   path: SourcePath;
   schema: SerializedSchema;
-  view: ComponentView;
   children: ReactNode;
 }) {
   if (schema.type === "discriminated-union") {
     return (
-      <UnionComponentLayout path={path} schema={schema} view={view}>
+      <UnionComponentField path={path} schema={schema}>
         {children}
-      </UnionComponentLayout>
+      </UnionComponentField>
     );
   }
   const render = componentRenderOf(schema);
@@ -188,9 +152,9 @@ export function ComponentLayout({
     return <>{children}</>;
   }
   return (
-    <ViewLayout path={path} render={render} view={view}>
+    <ComponentFieldLayout key={path} path={path} render={render}>
       {children}
-    </ViewLayout>
+    </ComponentFieldLayout>
   );
 }
 
@@ -198,15 +162,13 @@ export function ComponentLayout({
  * A union has no render of its own: the variant the value takes does, and
  * which one that is can change while the editor is looking at it.
  */
-function UnionComponentLayout({
+function UnionComponentField({
   path,
   schema,
-  view,
   children,
 }: {
   path: SourcePath;
   schema: SerializedDiscriminatedUnionSchema;
-  view: ComponentView;
   children: ReactNode;
 }) {
   const tagRes = useShallowSourceAtPath(
@@ -222,81 +184,58 @@ function UnionComponentLayout({
   if (!render) {
     return <>{children}</>;
   }
+  // Keyed by the variant too: another variant is another component, with a
+  // default view, an example and a frame of its own.
   return (
-    <ViewLayout path={path} render={render} view={view} variant={String(tag)}>
+    <ComponentFieldLayout
+      key={`${path}:${String(tag)}`}
+      path={path}
+      render={render}
+    >
       {children}
-    </ViewLayout>
+    </ComponentFieldLayout>
   );
 }
 
-function ViewLayout({
+/**
+ * The toolbar - the view switch, Example and Reload - on top of the field,
+ * and under it the component, the fields or both.
+ *
+ * Keyed by its caller on the path (and the variant), so navigating starts
+ * over from the render's `defaultView` and from the content rather than the
+ * example.
+ */
+function ComponentFieldLayout({
   path,
   render,
-  view,
-  variant,
   children,
 }: {
   path: SourcePath;
   render: SerializedComponentRender;
-  view: ComponentView;
-  /** Another variant is another component: its frame starts over. */
-  variant?: string;
   children: ReactNode;
 }) {
-  if (view === "content") {
-    return <>{children}</>;
-  }
-  const frame = <PreviewFrame key={variant} path={path} render={render} />;
-  if (view === "preview") {
-    return frame;
-  }
-  // Side by side when there is room for both, one above the other when there
-  // is not: a column narrower than two of the minimum wraps the fields under
-  // the preview. The preview stays in view while the fields beside it scroll.
-  return (
-    <div className="grid gap-6 items-start grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))]">
-      <div className="sticky top-4">{frame}</div>
-      <div className="min-w-0">{children}</div>
-    </div>
+  const [view, setView] = useState<ComponentView>(
+    render.defaultView ?? "split",
   );
-}
-
-function componentRenderOf(
-  schema: SerializedSchema,
-): SerializedComponentRender | null {
-  if (schema.type !== "object") {
-    return null;
-  }
-  return schema.render?.as === "component" ? schema.render : null;
-}
-
-/**
- * The component, rendered by the host app in an iframe: that way it gets the
- * app's own React, CSS, fonts and providers, and server components work. Val
- * only decides which content it is rendered with.
- *
- * As wide as there is room for up to the render's `maxWidth`, and as tall as
- * the component - which only the frame can measure, so it reports it (see
- * `ValPreviewBridge`) - unless the render gives an `aspectRatio`.
- */
-function PreviewFrame({
-  path,
-  render,
-}: {
-  path: SourcePath;
-  render: SerializedComponentRender;
-}) {
-  const sourceAtPath = useSourceAtPath(path);
-  const source =
-    sourceAtPath.status === "success" ? sourceAtPath.data : undefined;
+  const [device, setDevice] = useState<SplitDevice>("mobile");
+  const splitDevice =
+    SPLIT_DEVICES.find((candidate) => candidate.device === device) ??
+    SPLIT_DEVICES[0];
+  // Split again, while in split, is the next screen
+  const selectView = useCallback(
+    (next: ComponentView) => {
+      if (next === "split" && view === "split") {
+        const index = SPLIT_DEVICES.findIndex(
+          (candidate) => candidate.device === device,
+        );
+        setDevice(SPLIT_DEVICES[(index + 1) % SPLIT_DEVICES.length].device);
+      } else {
+        setView(next);
+      }
+    },
+    [view, device],
+  );
   const [showExample, setShowExample] = useState(false);
-  // Navigating to another value starts on its content
-  useEffect(() => {
-    setShowExample(false);
-  }, [path]);
-
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [height, setHeight] = useState<number | null>(null);
   // Bumped to throw the iframe away and mount a new one. Needed when the
   // component code changed (as opposed to its content), since that means the
   // host app has to re-evaluate the module, not just re-render it.
@@ -304,14 +243,270 @@ function PreviewFrame({
   const reload = useCallback(() => {
     setReloadKey((prev) => prev + 1);
   }, []);
-  const src = previewUrl({ path, example: showExample });
+
+  // Component code changed outside of Val: reload from scratch.
+  useEffect(() => {
+    window.addEventListener(VAL_COMPONENT_PREVIEW_RELOAD_EVENT, reload);
+    return () => {
+      window.removeEventListener(VAL_COMPONENT_PREVIEW_RELOAD_EVENT, reload);
+    };
+  }, [reload]);
+
+  const frame = (
+    <PreviewFrame
+      key={reloadKey}
+      path={path}
+      render={render}
+      example={showExample}
+      width={view === "split" ? splitDevice.width(render.maxWidth) : null}
+    />
+  );
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-1 justify-between items-center">
+        <ComponentViewSwitch
+          view={view}
+          splitDevice={splitDevice}
+          onChange={selectView}
+        />
+        {view !== "content" && (
+          <div className="flex gap-1 items-center">
+            {render.example && (
+              <ToolbarButton
+                label={
+                  showExample
+                    ? "Showing the example. Show the content instead"
+                    : "Show the example: a fixture, not content on the site"
+                }
+                pressed={showExample}
+                onClick={() => setShowExample((prev) => !prev)}
+              >
+                <FlaskConical size={14} />
+                Example
+              </ToolbarButton>
+            )}
+            <ToolbarButton
+              label="Reload the preview (after the component code changed)"
+              onClick={reload}
+            >
+              <RotateCw size={14} />
+            </ToolbarButton>
+          </div>
+        )}
+      </div>
+      {view === "content" ? (
+        children
+      ) : view === "preview" ? (
+        frame
+      ) : (
+        // Side by side when there is room for both, one above the other when
+        // there is not. On mobile the preview takes the phone's width and the
+        // fields the rest; on the wider screens the two share the room and
+        // the preview is scaled down. It stays in view while the fields scroll.
+        <div className="flex flex-wrap gap-6 items-start">
+          <div
+            className="sticky top-4 min-w-0"
+            style={
+              device === "mobile"
+                ? {
+                    flex: "0 1 auto",
+                    width: splitDevice.width(render.maxWidth) + 2,
+                    maxWidth: "100%",
+                  }
+                : { flex: "1 1 22rem" }
+            }
+          >
+            {frame}
+          </div>
+          <div className="min-w-0" style={{ flex: "1 1 22rem" }}>
+            {children}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const VIEW_OPTIONS: {
+  view: ComponentView;
+  label: string;
+  icon: ReactNode;
+}[] = [
+  { view: "preview", label: "Preview", icon: <Eye size={14} /> },
+  { view: "content", label: "Content", icon: <PenLine size={14} /> },
+];
+
+/**
+ * Preview, Content and Split. Split shows the screen it is on, and pressing
+ * it again moves to the next one.
+ */
+function ComponentViewSwitch({
+  view,
+  splitDevice,
+  onChange,
+}: {
+  view: ComponentView;
+  splitDevice: (typeof SPLIT_DEVICES)[number];
+  onChange: (view: ComponentView) => void;
+}) {
+  const nextDevice =
+    SPLIT_DEVICES[
+      (SPLIT_DEVICES.indexOf(splitDevice) + 1) % SPLIT_DEVICES.length
+    ];
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Show"
+      className="inline-flex items-center gap-0.5 p-0.5 rounded-md border border-border-primary"
+    >
+      {VIEW_OPTIONS.map((option) => (
+        <ViewButton
+          key={option.view}
+          selected={view === option.view}
+          onClick={() => onChange(option.view)}
+        >
+          {option.icon}
+          {option.label}
+        </ViewButton>
+      ))}
+      <ViewButton
+        selected={view === "split"}
+        title={
+          view === "split"
+            ? `Split, on ${splitDevice.label}. Press again for ${nextDevice.label}`
+            : `Split, on ${splitDevice.label}`
+        }
+        onClick={() => onChange("split")}
+      >
+        {splitDevice.icon}
+        Split
+        <span className="text-fg-tertiary">{splitDevice.label}</span>
+      </ViewButton>
+    </div>
+  );
+}
+
+function ViewButton({
+  selected,
+  title,
+  onClick,
+  children,
+}: {
+  selected: boolean;
+  title?: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      title={title}
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-1.5 h-7 px-2 rounded text-xs transition-colors",
+        {
+          "bg-bg-secondary text-fg-primary": selected,
+          "text-fg-tertiary hover:text-fg-primary": !selected,
+        },
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ToolbarButton({
+  label,
+  pressed,
+  onClick,
+  children,
+}: {
+  label: string;
+  pressed?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      aria-pressed={pressed}
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-1.5 h-7 px-2 rounded text-xs transition-colors",
+        {
+          "bg-bg-secondary text-fg-primary": pressed,
+          "text-fg-tertiary hover:text-fg-primary": !pressed,
+        },
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * The component, rendered by the host app in an iframe: that way it gets the
+ * app's own React, CSS, fonts and providers, and server components work. Val
+ * only decides which content it is rendered with.
+ *
+ * The frame is laid out at a width - the room there is, up to the render's
+ * `maxWidth`, or in split view the width of the screen picked there - and
+ * scaled down when there is less room than that. So split view on desktop
+ * shows the component as it looks on a wide screen, in miniature, rather than
+ * its narrow-screen layout.
+ *
+ * It is as tall as the component - which only the frame can measure, so it
+ * reports it (see `ValPreviewBridge`) - unless the render has an
+ * `aspectRatio`.
+ */
+function PreviewFrame({
+  path,
+  render,
+  example,
+  width,
+}: {
+  path: SourcePath;
+  render: SerializedComponentRender;
+  example: boolean;
+  /**
+   * The width to lay the component out at, scaled down when there is less
+   * room. `null` is as wide as there is room, up to the render's `maxWidth`.
+   */
+  width: number | null;
+}) {
+  const sourceAtPath = useSourceAtPath(path);
+  const source =
+    sourceAtPath.status === "success" ? sourceAtPath.data : undefined;
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const src = previewUrl({ path, example });
+
+  // The room there is, which the frame is fitted into
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [room, setRoom] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const element = containerRef.current;
+    if (!element) {
+      return;
+    }
+    const measure = () => setRoom(element.getBoundingClientRect().width);
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    measure();
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
 
   // A new document reports its own height; until it does, the old one's
   // would be a lie about something else.
+  const [reportedHeight, setReportedHeight] = useState<number | null>(null);
   useEffect(() => {
-    setHeight(null);
-  }, [src, reloadKey]);
-
+    setReportedHeight(null);
+  }, [src]);
   useEffect(() => {
     const listener = (event: MessageEvent) => {
       // Only this frame's own document: every preview on the page posts the
@@ -323,7 +518,7 @@ function PreviewFrame({
         event.data?.type === VAL_PREVIEW_MESSAGES.size &&
         typeof event.data.height === "number"
       ) {
-        setHeight(event.data.height);
+        setReportedHeight(event.data.height);
       }
     };
     window.addEventListener("message", listener);
@@ -355,84 +550,61 @@ function PreviewFrame({
     };
   }, [source]);
 
-  // Component code changed outside of Val: reload from scratch.
-  useEffect(() => {
-    window.addEventListener(VAL_COMPONENT_PREVIEW_RELOAD_EVENT, reload);
-    return () => {
-      window.removeEventListener(VAL_COMPONENT_PREVIEW_RELOAD_EVENT, reload);
-    };
-  }, [reload]);
-
+  const layout = room === null ? null : frameLayout({ render, room, width });
+  const height = layout
+    ? render.aspectRatio
+      ? layout.width / render.aspectRatio
+      : (reportedHeight ?? UNMEASURED_HEIGHT_PX)
+    : UNMEASURED_HEIGHT_PX;
+  const scale = layout?.scale ?? 1;
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex gap-1 justify-end items-center">
-        {render.example && (
-          <FrameButton
-            label={
-              showExample
-                ? "Showing the example. Show the content instead"
-                : "Show the example: a fixture, not content on the site"
-            }
-            pressed={showExample}
-            onClick={() => setShowExample((prev) => !prev)}
-          >
-            <FlaskConical size={14} />
-            Example
-          </FrameButton>
-        )}
-        <FrameButton
-          label="Reload the preview (after the component code changed)"
-          onClick={reload}
+    <div ref={containerRef} className="w-full">
+      {layout && (
+        <div
+          className="mx-auto overflow-hidden rounded-lg border border-border-primary bg-bg-primary"
+          // The border is outside the scaled frame, so it stays one pixel
+          // wide however small the frame is drawn.
+          style={{
+            width: layout.width * scale + 2,
+            height: height * scale + 2,
+            maxWidth: "100%",
+          }}
         >
-          <RotateCw size={14} />
-        </FrameButton>
-      </div>
-      <iframe
-        key={reloadKey}
-        ref={iframeRef}
-        title={`Preview of ${path}`}
-        src={src}
-        style={{
-          maxWidth: render.maxWidth,
-          ...(render.aspectRatio
-            ? { aspectRatio: render.aspectRatio }
-            : { height: height ?? UNMEASURED_HEIGHT_PX }),
-        }}
-        className="block w-full mx-auto rounded-lg border border-border-primary bg-bg-primary"
-      />
+          <iframe
+            ref={iframeRef}
+            title={`Preview of ${path}`}
+            src={src}
+            className="block border-0 origin-top-left"
+            style={{
+              width: layout.width,
+              height,
+              transform: scale === 1 ? undefined : `scale(${scale})`,
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
 
-function FrameButton({
-  label,
-  pressed,
-  onClick,
-  children,
+/**
+ * The width the frame is laid out at, and how much it is scaled down to fit in
+ * `room`. The frame's border takes 2px of the room.
+ */
+function frameLayout({
+  render,
+  room,
+  width,
 }: {
-  label: string;
-  pressed?: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      aria-pressed={pressed}
-      onClick={onClick}
-      className={cn(
-        "flex items-center gap-1.5 h-7 px-2 rounded text-xs transition-colors",
-        {
-          "bg-bg-secondary text-fg-primary": pressed,
-          "text-fg-tertiary hover:text-fg-primary": !pressed,
-        },
-      )}
-    >
-      {children}
-    </button>
-  );
+  render: SerializedComponentRender;
+  room: number;
+  width: number | null;
+}): { width: number; scale: number } {
+  const available = Math.max(room - 2, 1);
+  if (width !== null) {
+    return { width, scale: Math.min(1, available / width) };
+  }
+  return { width: Math.min(render.maxWidth ?? available, available), scale: 1 };
 }
 
 function previewUrl({

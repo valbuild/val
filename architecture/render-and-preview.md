@@ -103,8 +103,18 @@ frame, which is the component's whole viewport, so it is also the width its
 media queries see. Without `aspectRatio` the frame is as tall as the component:
 the preview route wraps its output in `ValPreviewBridge`, which reports the
 height whenever it changes (`VAL_PREVIEW_MESSAGES` in `render.ts`), because the
-Studio cannot see into the frame to measure it. In the Studio the editor picks
-Preview, Content or Split beside the heading (`ComponentPreview.tsx`).
+Studio cannot see into the frame to measure it.
+
+In the Studio the field itself carries the switch: Preview, Content or Split,
+starting from the render's `defaultView` (`"split"` when it has none).
+`AnyField` wraps an object or union field that has a component in
+`ComponentField` (`ComponentPreview.tsx`), so it works on the value being
+navigated to and on an object field inside it alike, but not in an inline
+row, which has no room for a frame. Split starts on a phone-wide frame, which
+leaves the fields the most room; pressing Split again moves to an iPad and
+then a desktop. A screen wider than the room is laid out at its own width and
+scaled down, so the component's media queries see the screen, not the
+column.
 
 `component` is a lazy `import()` and never the component. Val evaluates
 `.val.ts` files outside of the app — `val validate` and the language server in
