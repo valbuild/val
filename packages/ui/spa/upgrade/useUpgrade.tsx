@@ -63,8 +63,8 @@ export function useUpgrade(input: {
   onRefresh: () => void;
   /** The project's own name, "quiet-harbor-24": what Publish updates. */
   siteName?: string;
-  /** Publish this proposal, as the bar's Publish does. */
-  onPublish?: () => void;
+  /** Content changed at the upgrade's address, saved or not. */
+  contentChanges?: number;
 }): {
   /** `null` while there is nothing to upgrade, or nobody here can. */
   button: UpgradeButton | null;
@@ -77,7 +77,7 @@ export function useUpgrade(input: {
   notice: ReactNode | null;
 } {
   const { enabled, adminProject, here, current, proposals, onRefresh } = input;
-  const { siteName, onPublish } = input;
+  const { siteName, contentChanges = 0 } = input;
   const deploys = useStudioIsDeployer();
   const usable = enabled && deploys && adminProject !== null;
   const { state: check, recheck } = useUpgradeCheck({ enabled: usable });
@@ -158,7 +158,7 @@ export function useUpgrade(input: {
       <UpgradeProposalNotice
         upgrade={hereUpgrade.upgrade}
         {...(siteName !== undefined ? { siteName } : {})}
-        {...(onPublish !== undefined ? { onPublish } : {})}
+        contentChanges={contentChanges}
         {...(adminProject !== null
           ? { checksHref: upgradeUrl(hereUpgrade.name) }
           : {})}
@@ -177,17 +177,21 @@ export function UpgradeNotice({
   return (
     <div
       role="status"
-      className="flex items-center justify-between gap-3 rounded-lg border border-border-proposal bg-bg-proposal-soft px-4 py-3 text-xs text-fg-primary"
+      /*
+       * Neutral, not the proposal colour: this is the site, and that colour
+       * means "you are in a proposal" everywhere else.
+       */
+      className="flex items-center justify-between gap-3 rounded-lg border border-border-primary bg-bg-tertiary px-4 py-3 text-xs text-fg-primary"
     >
       <span className="flex items-center gap-2">
-        <ArrowUpCircle size={14} className="shrink-0 text-fg-proposal" />
+        <ArrowUpCircle size={14} className="shrink-0 text-fg-secondary" />
         {text}
       </span>
       {action !== undefined && (
         <button
           type="button"
           onClick={action.onClick}
-          className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border-proposal px-2 font-medium hover:bg-bg-proposal-soft"
+          className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border-primary px-2 font-medium hover:bg-bg-float-raised"
         >
           {action.label} <ExternalLink size={12} />
         </button>

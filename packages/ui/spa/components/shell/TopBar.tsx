@@ -41,10 +41,9 @@ import {
   ProposalSwitcher,
 } from "../proposals/ProposalSwitcher";
 import {
+  ProposalActionButton,
   ProposalMenu,
-  ProposalPublishButton,
-  ProposalBuildButton,
-  ProposalSaveButton,
+  ProposalProgress,
 } from "../proposals/ProposalBar";
 import type { ProposalSummary, StudioLocation } from "../proposals/types";
 import { Spinner } from "../designSystem/spinner";
@@ -83,6 +82,8 @@ export type TopBarProposals = {
   /** For stories. */
   defaultSwitcherOpen?: boolean;
   defaultMenuOpen?: boolean;
+  /** The Save/Publish button's caret menu. */
+  defaultActionMenuOpen?: boolean;
 };
 
 export type TopBarProps = {
@@ -286,12 +287,12 @@ export function TopBar({
   const proposalLocation =
     proposals?.location.kind === "proposal" ? proposals.location : null;
   /*
-   * Above a phone, where you are is the middle of the bar: the switcher, and
-   * in a proposal Publish beside it -- publishing a proposal is merging it,
-   * an act about the proposal -- while Save takes Publish's place on the
-   * right. On a phone where you are is a chip of a fixed width (see
-   * `ProposalLocationChip`), and everything about the proposal is in the
-   * sheet behind it.
+   * Above a phone, where you are is the middle of the bar: the switcher, the
+   * proposal's menu, and what its address is doing after a save. Save, Build
+   * and Publish are one split button where Publish is on the site -- see
+   * `ProposalActionButton`. On a phone where you are is a chip of a fixed
+   * width (see `ProposalLocationChip`), and everything about the proposal is
+   * in the sheet behind it.
    */
   const layout: "phone" | "centered" = isMobileBreakpoint(breakpoint)
     ? "phone"
@@ -316,27 +317,19 @@ export function TopBar({
               onRename={proposals.onRename}
               onCopyLink={proposals.onCopyLink}
               onClose={proposals.onClose}
+              upgrade={proposalLocation.proposal.upgrade === true}
               defaultOpen={proposals.defaultMenuOpen}
             />
           ),
-          save: (
-            <ProposalSaveButton
+          progress: <ProposalProgress location={proposalLocation} />,
+          action: (
+            <ProposalActionButton
               location={proposalLocation}
               onSave={proposals.onSave}
-              blockedBy={proposals.saveBlockedBy}
-            />
-          ),
-          build:
-            proposals.onBuild !== undefined ? (
-              <ProposalBuildButton
-                location={proposalLocation}
-                onBuild={proposals.onBuild}
-              />
-            ) : null,
-          publish: (
-            <ProposalPublishButton
-              location={proposalLocation}
+              onBuild={proposals.onBuild}
               onPublish={proposals.onPublish}
+              saveBlockedBy={proposals.saveBlockedBy}
+              defaultMenuOpen={proposals.defaultActionMenuOpen}
             />
           ),
         }
@@ -438,8 +431,8 @@ export function TopBar({
           {switcher}
           {inProposal !== null && (
             <>
-              {inProposal.publish}
               {inProposal.menu}
+              {inProposal.progress}
             </>
           )}
         </div>
@@ -488,11 +481,11 @@ export function TopBar({
                 isCanvasOpen={isCanvasOpen}
               />
             </span>
-            {inProposal?.build}
             <span data-val-tour="publish" className="inline-flex">
               {inProposal !== null
-                ? // In a proposal, Save is where Publish is on the site.
-                  inProposal.save
+                ? // In a proposal, Save -- then Publish -- is where Publish is
+                  // on the site.
+                  inProposal.action
                 : (publishSlot ?? (
                     <PublishButton
                       pendingChanges={pendingChanges}
@@ -508,7 +501,31 @@ export function TopBar({
          * Validate, History and the bell are one button on a phone - the
          * bottom bar's bell, with the activity sheet behind it.
          */}
-        {upgrade !== undefined && !isMobile && (
+        {/*
+         * Labelled on a desktop: an icon alone said "something about
+         * upgrades" and kept what in its tooltip. Below that, an icon.
+         */}
+        {upgrade !== undefined && isDesktop && (
+          <button
+            type="button"
+            aria-label={`${upgrade.label}: open Updates in Val Build`}
+            onClick={upgrade.onOpen}
+            className={cn(
+              "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium hover:bg-bg-float-raised",
+              upgrade.vulnerable
+                ? "text-fg-error-on-surface"
+                : "text-fg-secondary hover:text-fg-primary",
+            )}
+          >
+            {upgrade.vulnerable ? (
+              <ShieldAlert size={15} className="shrink-0" />
+            ) : (
+              <ArrowUpCircle size={15} className="shrink-0" />
+            )}
+            {upgrade.label}
+          </button>
+        )}
+        {upgrade !== undefined && !isMobile && !isDesktop && (
           <IconButton
             label={`${upgrade.label}: open Updates in Val Build`}
             onClick={upgrade.onOpen}

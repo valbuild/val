@@ -44,13 +44,29 @@ export const SwitcherWithNoProposals = shell({
 
 /**
  * In a proposal: the bar wears the proposal colour, the switcher names it, and
- * Save takes Publish's place. Press Save to run one.
+ * Save stands where Publish is on the site. Press Save to run one: once it is
+ * done, the same button is Publish.
  */
 export const InAProposal = shell({ location: inProposal() });
 
-/** Nothing unsaved: Save is off, and Merge reads plain "Merge". */
+/**
+ * The caret beside Save: every step, Publish among them, so publishing never
+ * waits for the button to get there. Publish saves first.
+ */
+export const InAProposalActionMenuOpen = shell({
+  location: inProposal(),
+  actionMenuOpen: true,
+});
+
+/** Everything saved: Save has become Publish. */
 export const InAProposalAllSaved = shell({
   location: inProposal({ unsaved: 0 }),
+});
+
+/** Ready to publish, with the caret open. */
+export const InAProposalAllSavedMenuOpen = shell({
+  location: inProposal({ unsaved: 0 }),
+  actionMenuOpen: true,
 });
 
 /**
@@ -120,7 +136,48 @@ export const InAProposalSwitcherOpen = shell({
  */
 export const InAProposalPublishBlocked = shell({
   location: inProposal({
+    unsaved: 0,
     publishBlockedBy: "It is being brought up to date with the site.",
+  }),
+  actionMenuOpen: true,
+});
+
+/*
+ * AFTER A SAVE. The proposal's address catches up with the save, then is
+ * checked to still render: said beside the switcher while it runs, and when
+ * it fails.
+ */
+
+/** A new proposal, while its address is being made. */
+export const SettingUp = shell({
+  location: inProposal({
+    unsaved: 0,
+    proposal: { ...open[0]!, changes: 0, setup: { status: "running" } },
+    overlay: null,
+    renderCheck: null,
+  }),
+});
+
+export const UpdatingThePreview = shell({
+  location: inProposal({
+    unsaved: 0,
+    overlay: { status: "running" },
+    renderCheck: null,
+  }),
+});
+
+export const CheckingThePreview = shell({
+  location: inProposal({ unsaved: 0, renderCheck: { status: "running" } }),
+});
+
+/** The pages did not render after the save: said, with why on hover. */
+export const PreviewDidNotRender = shell({
+  location: inProposal({
+    unsaved: 0,
+    renderCheck: {
+      status: "failed",
+      error: "/products answered 500",
+    },
   }),
 });
 
@@ -153,6 +210,12 @@ export const SaveFailed = shell({
  */
 export const BuildRequired = shell({
   location: inProposal({ unsaved: 0, code: { state: "required" } }),
+});
+
+/** Build is next, and Publish is still in the menu: it builds first. */
+export const BuildRequiredMenuOpen = shell({
+  location: inProposal({ unsaved: 0, code: { state: "required" } }),
+  actionMenuOpen: true,
 });
 
 export const Building = shell({

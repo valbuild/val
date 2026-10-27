@@ -101,6 +101,27 @@ function publishBlockedByStatus(status: string | undefined): string | null {
   }
 }
 
+/**
+ * Why an upgrade proposal cannot be published yet, by its upgrade's state;
+ * null for an ordinary proposal and for an upgrade that is staged. The notice
+ * above the editor said "nothing to publish yet" while Publish beside it was
+ * on, which was a button that could only fail.
+ */
+function publishBlockedByUpgrade(
+  upgrade: ProposalJson["upgrade"] | undefined,
+): string | null {
+  switch (upgrade?.state) {
+    case "computing":
+      return "Val Build is still working out this upgrade. It can be published once it is checked.";
+    case "failed":
+      return "This upgrade could not be worked out. Val Build has the details.";
+    case "nothing":
+      return "There is nothing to upgrade: the site is up to date.";
+    default:
+      return null;
+  }
+}
+
 type Dialog = "new" | "close" | "rename" | "all" | "publish" | null;
 
 /** No list yet: one array, so what reads it does not see a new one each render. */
@@ -371,7 +392,9 @@ export function useProposalsBar({
           : { state: "idle" },
       overlay: jobState(currentJson?.overlay),
       renderCheck: jobState(currentJson?.renderCheck),
-      publishBlockedBy: publishBlockedByStatus(currentJson?.status),
+      publishBlockedBy:
+        publishBlockedByStatus(currentJson?.status) ??
+        publishBlockedByUpgrade(currentJson?.upgrade),
       code,
     };
   }, [
@@ -982,6 +1005,7 @@ export function useProposalsBar({
     setDialog(next);
   };
 
+  const siteName = config?.project?.split("/")[1] ?? null;
   const upgrade = useUpgrade({
     enabled: state.status !== "off",
     adminProject: toAdminLinks(config)?.project ?? null,
@@ -989,13 +1013,11 @@ export function useProposalsBar({
     proposals: ready?.proposals ?? NO_PROPOSALS,
     current: currentJson,
     onRefresh: onTypechecked,
-    ...(config?.project?.split("/")[1]
-      ? { siteName: config.project.split("/")[1] }
-      : {}),
-    onPublish: () => {
-      openDialog("publish");
-      void loadChecks();
-    },
+    ...(siteName !== null ? { siteName } : {}),
+    contentChanges:
+      location.kind === "proposal"
+        ? location.proposal.changes + location.unsaved
+        : 0,
   });
 
   if (state.status === "off" || (ready === null && here === null)) {
@@ -1068,6 +1090,10 @@ export function useProposalsBar({
           open={dialog === "publish"}
           onOpenChange={(isOpen) => setDialog(isOpen ? "publish" : null)}
           displayName={currentSummary.displayName}
+          {...(currentJson?.upgrade !== undefined
+            ? { upgrade: currentJson.upgrade }
+            : {})}
+          {...(siteName !== null ? { siteName } : {})}
           state={dialogState}
           onPublish={() => void runPublish()}
           onRetry={() => {

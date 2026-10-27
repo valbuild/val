@@ -167,6 +167,8 @@ export type HarnessProps = {
   theme?: "dark" | "light";
   switcherOpen?: boolean;
   menuOpen?: boolean;
+  /** The Save/Publish button's caret menu, open. */
+  actionMenuOpen?: boolean;
   dialog?: "new" | "close" | "rename" | "all" | "publish" | null;
   newProblem?: NewProposalProblem | null;
   /** Validation errors a save would be refused for. */
@@ -203,6 +205,7 @@ export function ProposalsShell({
   theme: initialTheme = "dark",
   switcherOpen = false,
   menuOpen = false,
+  actionMenuOpen = false,
   dialog: initialDialog = null,
   newProblem = null,
   validationErrors = 0,
@@ -287,8 +290,27 @@ export function ProposalsShell({
       setDialog(null);
     }
   };
+  /*
+   * Publish is refused while the upgrade is not staged, as
+   * `publishBlockedByUpgrade` in `useProposalsBar` refuses it.
+   */
+  const barLocation: StudioLocation =
+    location.kind === "proposal" &&
+    upgrade !== undefined &&
+    upgrade.state !== "staged" &&
+    location.publishBlockedBy === null
+      ? {
+          ...location,
+          publishBlockedBy:
+            upgrade.state === "computing"
+              ? "Val Build is still working out this upgrade. It can be published once it is checked."
+              : upgrade.state === "failed"
+                ? "This upgrade could not be worked out. Val Build has the details."
+                : "There is nothing to upgrade: the site is up to date.",
+        }
+      : location;
   const handlers: TopBarProposals = {
-    location,
+    location: barLocation,
     ...(validationErrors > 0
       ? {
           saveBlockedBy: {
@@ -331,6 +353,7 @@ export function ProposalsShell({
     onClose: () => setDialog("close"),
     defaultSwitcherOpen: switcherOpen,
     defaultMenuOpen: menuOpen,
+    defaultActionMenuOpen: actionMenuOpen,
   };
 
   // Above the editor, in `useProposalsBar`'s order: merged, then the upgrade.
@@ -351,8 +374,12 @@ export function ProposalsShell({
       <UpgradeProposalNotice
         upgrade={upgrade}
         siteName="quiet-harbor-24"
-        onPublish={openPublish}
         checksHref="#val-build"
+        contentChanges={
+          location.kind === "proposal"
+            ? location.proposal.changes + location.unsaved
+            : 0
+        }
       />
     ) : location.kind === "site" && upgradeUnderWay !== undefined ? (
       <UpgradeNotice
@@ -369,7 +396,15 @@ export function ProposalsShell({
       <Shell
         initialPanel={panel ?? null}
         initialSelectionId={selectionId ?? null}
-        data={mockShellData}
+        /*
+         * In a proposal the status bar names its branch, as `useShellData`
+         * does: its saves are there, never on the site's.
+         */
+        data={
+          current !== null
+            ? { ...mockShellData, branch: `val/p/${current.name}` }
+            : mockShellData
+        }
         theme={theme}
         onThemeChange={setTheme}
         /*
@@ -393,6 +428,8 @@ export function ProposalsShell({
           open={dialog === "publish"}
           onOpenChange={(isOpen) => setDialog(isOpen ? "publish" : null)}
           displayName={current.displayName}
+          {...(upgrade !== undefined ? { upgrade } : {})}
+          siteName="quiet-harbor-24"
           state={publishState}
           onPublish={() => {
             setPublishState({ kind: "publishing", step: "building" });

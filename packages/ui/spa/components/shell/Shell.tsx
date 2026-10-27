@@ -66,6 +66,7 @@ import {
   ProposalBuildButton,
   ProposalPublishButton,
   ProposalSaveButton,
+  nextProposalAction,
 } from "../proposals/ProposalBar";
 import { UtilityPanel } from "./UtilityPanel";
 import { availableDestinations } from "./shellDataMapping";
@@ -1272,14 +1273,16 @@ export function Shell({
     proposals?.location.kind === "proposal" ? proposals.location : null;
   const mobilePrimary =
     proposals !== undefined && phoneProposal !== null ? (
-      phoneProposal.unsaved > 0 ? (
+      nextProposalAction(phoneProposal, proposals.onBuild !== undefined) ===
+      "save" ? (
         <ProposalSaveButton
           location={phoneProposal}
           onSave={proposals.onSave}
           blockedBy={proposals.saveBlockedBy}
           className="h-9 min-w-[5.5rem]"
         />
-      ) : phoneProposal.code !== null && proposals.onBuild !== undefined ? (
+      ) : nextProposalAction(phoneProposal, proposals.onBuild !== undefined) ===
+          "build" && proposals.onBuild !== undefined ? (
         <ProposalBuildButton
           location={phoneProposal}
           onBuild={proposals.onBuild}
@@ -1493,6 +1496,11 @@ export function Shell({
             autoSave={autoSave}
             onAutoSaveChange={onAutoSaveChange}
             branch={data.branch}
+            unsavedInProposal={
+              proposals?.location.kind === "proposal"
+                ? proposals.location.unsaved
+                : 0
+            }
             deployments={deployments}
             studioIsDeployer={studioIsDeployer}
             publishIndicator={publishIndicator}

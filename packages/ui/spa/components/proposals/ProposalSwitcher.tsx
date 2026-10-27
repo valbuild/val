@@ -1,4 +1,12 @@
-import { Check, ChevronDown, GitBranch, Globe, List, Plus } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  CircleArrowUp,
+  GitBranch,
+  Globe,
+  List,
+  Plus,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
 import { useDismissOnOutsidePointer } from "../shell/useDismissOnOutsidePointer";
@@ -73,7 +81,11 @@ export function ProposalSwitcher({
         )}
       >
         {location.kind === "proposal" ? (
-          <GitBranch size={14} className="shrink-0" />
+          <ProposalIcon
+            proposal={location.proposal}
+            size={14}
+            className="shrink-0"
+          />
         ) : (
           <Globe size={14} className="shrink-0" />
         )}
@@ -109,7 +121,13 @@ export function ProposalSwitcher({
             proposals.map((proposal) => (
               <MenuRow
                 key={proposal.name}
-                icon={<GitBranch size={14} className="text-fg-proposal" />}
+                icon={
+                  <ProposalIcon
+                    proposal={proposal}
+                    size={14}
+                    className="text-fg-proposal"
+                  />
+                }
                 label={proposal.displayName}
                 detail={`${proposal.ownedByViewer ? "You" : (proposal.owner?.name ?? "Someone")} · ${proposalChangesLabel(proposal)}`}
                 current={here === proposal.name}
@@ -174,12 +192,37 @@ export function ProposalLocationChip({
       )}
     >
       {location.kind === "proposal" ? (
-        <GitBranch size={15} className="shrink-0" />
+        <ProposalIcon
+          proposal={location.proposal}
+          size={15}
+          className="shrink-0"
+        />
       ) : (
         <Globe size={15} className="shrink-0" />
       )}
       <ChevronDown size={13} className="shrink-0 opacity-70" />
     </button>
+  );
+}
+
+/**
+ * A proposal's icon: a branch, or for an upgrade the upgrade arrow, so an
+ * upgrade -- which Val Build made and which holds no content -- is told apart
+ * from the proposals people write, wherever proposals are listed.
+ */
+export function ProposalIcon({
+  proposal,
+  size,
+  className,
+}: {
+  proposal: Pick<ProposalSummary, "upgrade">;
+  size: number;
+  className?: string;
+}) {
+  return proposal.upgrade ? (
+    <CircleArrowUp size={size} className={className} />
+  ) : (
+    <GitBranch size={size} className={className} />
   );
 }
 

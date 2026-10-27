@@ -166,6 +166,23 @@ export const InAnUpgradeWithEdits = shell({
   upgrade: minorUpgrade,
 });
 
+/** Val Build found nothing to upgrade: Publish is refused, Discard is the way. */
+export const NothingToUpgrade = shell({
+  location: inUpgrade(),
+  list: withUpgrade,
+  selectionId: home,
+  upgrade: { ...minorUpgrade, state: "nothing", changes: [] },
+});
+
+/** The Save/Publish caret, in an upgrade. */
+export const InAnUpgradeActionMenuOpen = shell({
+  location: inUpgrade(),
+  list: withUpgrade,
+  selectionId: home,
+  upgrade: minorUpgrade,
+  actionMenuOpen: true,
+});
+
 /** The switcher from inside the upgrade: "here" is the upgrade. */
 export const InAnUpgradeSwitcherOpen = shell({
   location: inUpgrade(),

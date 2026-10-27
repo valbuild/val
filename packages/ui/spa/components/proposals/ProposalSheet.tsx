@@ -12,7 +12,7 @@ import { FloatingPanel, PanelSectionLabel } from "../shell/FloatingPanel";
 import { SheetHeading, SheetRow } from "../shell/PhoneSheet";
 import type { TopBarProposals } from "../shell/TopBar";
 import type { ShellBreakpoint } from "../shell/types";
-import { proposalChangesLabel } from "./ProposalSwitcher";
+import { ProposalIcon, proposalChangesLabel } from "./ProposalSwitcher";
 import type { ProposalSummary } from "./types";
 
 /**
@@ -98,12 +98,15 @@ export function ProposalSheet({
                 Compare with the site
               </SheetRow>
             )}
-            <SheetRow
-              icon={<Pencil size={16} />}
-              onClick={choose(proposals.onRename)}
-            >
-              Rename…
-            </SheetRow>
+            {/* An upgrade is named after its kind, by Val Build. */}
+            {!here.proposal.upgrade && (
+              <SheetRow
+                icon={<Pencil size={16} />}
+                onClick={choose(proposals.onRename)}
+              >
+                Rename…
+              </SheetRow>
+            )}
             <SheetRow
               icon={<Link2 size={16} />}
               onClick={choose(proposals.onCopyLink)}
@@ -115,7 +118,7 @@ export function ProposalSheet({
               onClick={choose(proposals.onClose)}
               destructive
             >
-              Close…
+              {here.proposal.upgrade ? "Discard upgrade…" : "Close…"}
             </SheetRow>
           </div>
         )}
@@ -138,7 +141,13 @@ export function ProposalSheet({
         {elsewhere.map((proposal) => (
           <SheetRow
             key={proposal.name}
-            icon={<GitBranch size={16} className="text-fg-proposal" />}
+            icon={
+              <ProposalIcon
+                proposal={proposal}
+                size={16}
+                className="text-fg-proposal"
+              />
+            }
             detail={`${ownerLabel(proposal)} · ${proposalChangesLabel(proposal)}`}
             onClick={choose(() => proposals.onOpenProposal(proposal.name))}
           >

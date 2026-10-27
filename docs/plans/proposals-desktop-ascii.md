@@ -6,8 +6,9 @@ component. Each frame names the story it comes from: open
 `iframe.html?id=<that id>` in Storybook (`pnpm --filter @valbuild/ui storybook`)
 to see the real thing.
 
-These frames show how things are **now**. To propose a change, copy a frame
-and edit the copy, so the two can be read side by side.
+These frames show how things are **now**, after the redesign below. To
+propose a change, copy a frame and edit the copy, so the two can be read side
+by side.
 
 ## Legend
 
@@ -16,53 +17,55 @@ and edit the copy, so the two can be read side by side.
 <Label>       primary, the site's green   [!! Label!]  red: an error or a destructive act
 [-Label-]     disabled                    [@ Label]    with a spinner
 (o The site v)  the switcher, on the site {Y Name v}   the switcher, in a proposal
-(^)           the Updates icon            (!*)         Updates, with a security fix (red dot)
+(^) / (!)     Updates / security fixes    ^            an upgrade proposal (Y: any other)
+(@) Label     progress beside the switcher  /!\ Label  the same, failed
 Review(9+)    Review, with its badge      [|]  (3)     the panel toggle, notifications
 =====         the top bar's purple ring: you are in a proposal
 -----         the top bar on the site
 V P M {}      the left rail: logo, Pages, Media, Data;  * settings, FR the account
 ```
 
-## What the frames show
+## What changed, and why
 
-Things that stand out from going through them. They are notes to discuss,
-not decisions.
+**Save becomes Publish.** There is no Publish beside the switcher any more.
+Where Publish is on the site, a proposal has one split button, shaped like
+Preview beside it. Its main half is the step that comes next: Save while
+anything is unsaved, Build while code is staged, then Publish. The caret lists
+every step, Publish always among them, so publishing never waits for the
+button to get there: Publish saves first. The phone's bottom bar already
+worked this way, and both now follow the same rule (`nextProposalAction`).
 
-**Upgrade proposals**
+The issues the first pass found, and what became of each:
 
-- Publish appears twice: as `[Publish]` in the bar and as the notice's
-  `{Publish to update quiet-harbor-24}`. They open the same dialog.
-- While the upgrade is still being worked out, or after it failed, the notice
-  says there is nothing to publish, but the bar's Publish is still enabled.
-- The Publish dialog is the content dialog unchanged: "0 changes", "Its
-  changes go to the site", and checks about pages. Nothing says what it
-  upgrades.
-- The `...` menu offers Rename (Val Build names upgrades after their kind) and
-  says "Close…" for what its dialog calls "Discard".
-- Content can be edited at an upgrade's address. Save appears, while the
-  notice keeps saying "It holds no content changes".
-- In the switcher and in All proposals, an upgrade uses the same branch icon as
-  any proposal. Only the "Upgrade" subtitle sets it apart.
-- On the site, "an upgrade is under way" is a purple notice, the colour that
-  otherwise means "you are in a proposal".
-- "Updates available" is an icon with no label on a desktop. What it says is
-  only in its tooltip.
-
-**All proposals**
-
-- Every dialog's overlay is opaque (`bg-bg-primary`), so the whole Studio
-  disappears behind New, Rename, Close, Publish and All proposals.
-- The bar reads Switcher · Publish · `...` in the middle and Save on the far
-  right. When code is staged, Build comes in before Save and moves everything
-  else along.
-- At a published proposal's address the bar stays purple and the fields can
-  still be edited. Only the notice says it is finished.
-- Making a proposal's address, "Updating the preview…" and the render check
-  (`setup`, `overlay`, `renderCheck` on `StudioLocation`) are passed to the bar
-  and shown nowhere.
-- In these stories the status bar is the mock data's (`main`, "Building", "All
-  changes saved"), whatever the proposal's state. Check what the app shows
-  there before reading anything into it.
+- **Upgrade, two Publish buttons.** The notice's is gone; the bar's is the
+  one. The notice says "press Publish" and links the checks.
+- **Upgrade, Publish on while it could not work.** Off while the upgrade is
+  being worked out, has failed, or found nothing, with the reason in the
+  caret's menu.
+- **Upgrade, a content Publish dialog.** It names the site it updates and what
+  moves ("Val 0.149.4 → 0.149.7 and 5 more packages"), and says "No content
+  changes" rather than "0 changes".
+- **Upgrade, Rename and "Close…".** An upgrade's menu has no Rename, and says
+  "Discard upgrade…", as its dialog does. Same on a phone.
+- **Upgrade, "no content changes" after edits.** The notice counts them:
+  "It also holds 2 content changes, made here, which are published with it."
+- **Upgrade, same icon as a proposal.** An upgrade has the upgrade arrow in
+  the switcher, All proposals and the phone sheet.
+- **Upgrade under way, in proposal purple.** Neutral grey: it is the site.
+- **Updates, an unlabelled icon.** Labelled on a desktop ("Val 0.150.0 is
+  out"), an icon below that.
+- **Dialogs hid the Studio.** The overlay is translucent now, every dialog in
+  the Studio included.
+- **A published proposal looked editable.** The button reads "Published" and
+  does nothing. The fields can still be typed in: there is no read-only mode
+  for fields to switch on, so that is left for later.
+- **Setup, preview and render check shown nowhere.** Said beside the switcher
+  while running ("Updating the preview…"), in warning yellow when one fails,
+  why on hover, and nothing once done.
+- **Status bar.** In the stories it named `main`; the app names the
+  proposal's branch, and the stories do too now. And the app itself said "All
+  changes saved" beside "Save 3": in a proposal it now counts what is not saved
+  ("3 not saved to the proposal").
 
 <!-- generated -->
 
@@ -70,12 +73,12 @@ not decisions.
 
 ### On the site
 
-`proposals-proposals--on-the-site` — Every project with proposals starts here.
+`proposals-proposals--on-the-site` — Unchanged.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ------------------------------------------------------------------------------------------------------------------------ |
-|V |  val-demo [Search ^K]                                (o The site v)             Review(9+) [Preview] <Publish>  [|] (3)  |
+|V |  val-demo [Search]                                   (o The site v)             Review(9+) [Preview] <Publish>  [|] (3)  |
 |  | ------------------------------------------------------------------------------------------------------------------------ |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -103,7 +106,7 @@ not decisions.
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ------------------------------------------------------------------------------------------------------------------------ |
-|V |  val-demo [Search ^K]                                (o The site v)             Review(9+) [Preview] <Publish>  [|] (3)  |
+|V |  val-demo [Search]                                   (o The site v)             Review(9+) [Preview] <Publish>  [|] (3)  |
 |  | ------------------------------------------------------------------------------------------------------------------------ |
 |P |                                       +----------------------------------------+                                         |
 |M |                                       | (o) The site                      here |                                         |
@@ -131,7 +134,7 @@ not decisions.
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ------------------------------------------------------------------------------------------------------------------------ |
-|V |  val-demo [Search ^K]                                (o The site v)             Review(9+) [Preview] <Publish>  [|] (3)  |
+|V |  val-demo [Search]                                   (o The site v)             Review(9+) [Preview] <Publish>  [|] (3)  |
 |  | ------------------------------------------------------------------------------------------------------------------------ |
 |P |                                       +------------------------------------------+                                       |
 |M |                                       | (o) The site                      here   |                                       |
@@ -152,14 +155,14 @@ not decisions.
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
-### In a proposal, nothing open
+### In a proposal, unsaved changes
 
-`proposals-proposals--in-a-proposal` — The bar wears the proposal colour (`===`). Publish sits by the switcher; Save is far right.
+`proposals-proposals--in-a-proposal` — No Publish beside the switcher any more. `{Save 3|v}` is one split button where Publish is on the site; the status bar names the proposal's branch and counts what is not saved.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                     {Y Spring campaign v} [Publish] [...]  Review(9+) [Preview] {Save 3}  [|] (3)  |
+|V |  val-demo [Search]                             {Y Spring campaign v} [...]     Review(9+) [Preview] {Save 3|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -176,18 +179,102 @@ not decisions.
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  o 3 not saved to the proposal                          |
+'--'--------------------------------------------------------------------------------------------------------------------------'
+```
+
+### The caret beside Save
+
+`proposals-proposals--in-a-proposal-action-menu-open` — Publish is always one press away: it saves first.
+
+```text
+ _____________________________________________________________________________________________________________________________
+|  | ======================================================================================================================== |
+|V |  val-demo [Search]                             {Y Spring campaign v} [...]     Review(9+) [Preview] {Save 3|v}  [|] (3)  |
+|  | ======================================================================================================================== |
+|P |                                                                       +----------------------------------------------+   |
+|M |                                                                       | [s] Save 3 changes                           |   |
+|{}|                                                                       |      Keep them in the proposal. Nothing      |   |
+|  |                          Pick something to edit                       |      reaches the site.                       |   |
+|  |                          Everything in this project is in the navigati| [^] Publish to the site                      |   |
+|  |                          Pages   One row per page of your site, by URL|      Saves the changes first, then           |   |
+|  |                          Media   Images and files, uploaded once and u|      publishes the proposal                  |   |
+|  |                          Data    Content that is not tied to one page.+----------------------------------------------+   |
+|  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|* | ------------------------------------------------------------------------------------------------------------------------ |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  o 3 not saved to the proposal                          |
+'--'--------------------------------------------------------------------------------------------------------------------------'
+```
+
+### Everything saved: Save has become Publish
+
+`proposals-proposals--in-a-proposal-all-saved`
+
+```text
+ _____________________________________________________________________________________________________________________________
+|  | ======================================================================================================================== |
+|V |  val-demo [Search]                             {Y Spring campaign v} [...]  Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
+|  | ======================================================================================================================== |
+|P |                                                                                                                          |
+|M |                                                                                                                          |
+|{}|                                                                                                                          |
+|  |                          Pick something to edit                                                                          |
+|  |                          Everything in this project is in the navigation:                                                |
+|  |                          Pages   One row per page of your site, by URL.                                                  |
+|  |                          Media   Images and files, uploaded once and used anywhere.                                      |
+|  |                          Data    Content that is not tied to one page.                                                   |
+|  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|* | ------------------------------------------------------------------------------------------------------------------------ |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  * All changes saved                                    |
+'--'--------------------------------------------------------------------------------------------------------------------------'
+```
+
+### Ready to publish, caret open
+
+`proposals-proposals--in-a-proposal-all-saved-menu-open`
+
+```text
+ _____________________________________________________________________________________________________________________________
+|  | ======================================================================================================================== |
+|V |  val-demo [Search]                             {Y Spring campaign v} [...]  Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
+|  | ======================================================================================================================== |
+|P |                                                                       +----------------------------------------------+   |
+|M |                                                                       | [^] Publish to the site                      |   |
+|{}|                                                                       |      Merges the proposal into the site,      |   |
+|  |                          Pick something to edit                       |      as one change                           |   |
+|  |                          Everything in this project is in the navigati+----------------------------------------------+   |
+|  |                          Pages   One row per page of your site, by URL.                                                  |
+|  |                          Media   Images and files, uploaded once and used anywhere.                                      |
+|  |                          Data    Content that is not tied to one page.                                                   |
+|  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|* | ------------------------------------------------------------------------------------------------------------------------ |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
 ### In a proposal, editing a page
 
-`proposals-proposals--in-a-proposal-editing-a-page` — What an editor mostly looks at: only the bar says the edits go to a proposal.
+`proposals-proposals--in-a-proposal-editing-a-page`
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                     {Y Spring campaign v} [Publish] [...]  Review(9+) [Preview] {Save 3}  [|] (3)  |
+|V |  val-demo [Search]                             {Y Spring campaign v} [...]     Review(9+) [Preview] {Save 3|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |   [/] [DRAFT]                                                                                                            |
@@ -204,54 +291,26 @@ not decisions.
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
-'--'--------------------------------------------------------------------------------------------------------------------------'
-```
-
-### All saved
-
-`proposals-proposals--in-a-proposal-all-saved` — Save is disabled.
-
-```text
- _____________________________________________________________________________________________________________________________
-|  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                     {Y Spring campaign v} [Publish] [...]  Review(9+) [Preview] [-Save-]  [|] (3)  |
-|  | ======================================================================================================================== |
-|P |                                                                                                                          |
-|M |                                                                                                                          |
-|{}|                                                                                                                          |
-|  |                          Pick something to edit                                                                          |
-|  |                          Everything in this project is in the navigation:                                                |
-|  |                          Pages   One row per page of your site, by URL.                                                  |
-|  |                          Media   Images and files, uploaded once and used anywhere.                                      |
-|  |                          Data    Content that is not tied to one page.                                                   |
-|  |                          <Take a tour>                                                                                   |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  o 3 not saved to the proposal                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
 ### The proposal's menu (...)
 
-`proposals-proposals--in-a-proposal-menu-open`
+`proposals-proposals--in-a-proposal-menu-open` — Unchanged for a content proposal.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                     {Y Spring campaign v} [Publish] [...]  Review(9+) [Preview] {Save 3}  [|] (3)  |
+|V |  val-demo [Search]                             {Y Spring campaign v} [...]     Review(9+) [Preview] {Save 3|v}  [|] (3)  |
 |  | ======================================================================================================================== |
-|P |                                                       +--------------------------------+                                 |
-|M |                                                       | <>  Compare with the site      |                                 |
-|{}|                                                       |  /  Rename...                  |                                 |
-|  |                          Pick something to edit       |  @  Copy link                  |                                 |
-|  |                          Everything in this project is| --------------------------     |                                 |
-|  |                          Pages   One row per page of y|  x  Close...          (red)    |                                 |
-|  |                          Media   Images and files, upl+--------------------------------+                                 |
+|P |                                                         +--------------------------------+                               |
+|M |                                                         | <>  Compare with the site      |                               |
+|{}|                                                         |  /  Rename...                  |                               |
+|  |                          Pick something to edit         |  @  Copy link                  |                               |
+|  |                          Everything in this project is i| --------------------------     |                               |
+|  |                          Pages   One row per page of you|  x  Close...          (red)    |                               |
+|  |                          Media   Images and files, uploa+--------------------------------+                               |
 |  |                          Data    Content that is not tied to one page.                                                   |
 |  |                          <Take a tour>                                                                                   |
 |  |                                                                                                                          |
@@ -260,7 +319,7 @@ not decisions.
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  o 3 not saved to the proposal                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
@@ -271,7 +330,7 @@ not decisions.
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                     {Y Spring campaign v} [Publish] [...]  Review(9+) [Preview] {Save 3}  [|] (3)  |
+|V |  val-demo [Search]                             {Y Spring campaign v} [...]     Review(9+) [Preview] {Save 3|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                       +----------------------------------------+                                         |
 |M |                                       | (o) The site                           |                                         |
@@ -288,24 +347,24 @@ not decisions.
 |  |                                       +----------------------------------------+                                         |
 |  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  o 3 not saved to the proposal                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
-### Publish blocked
+### Publish refused
 
-`proposals-proposals--in-a-proposal-publish-blocked` — Disabled, the reason only on hover: "It is being brought up to date with the site."
+`proposals-proposals--in-a-proposal-publish-blocked` — The reason is in the menu now, not only in a tooltip.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                   {Y Spring campaign v} [-Publish-] [...]  Review(9+) [Preview] {Save 3}  [|] (3)  |
+|V |  val-demo [Search]                           {Y Spring campaign v} [...]  Review(9+) [Preview] [-^ Publish-|v]  [|] (3)  |
 |  | ======================================================================================================================== |
-|P |                                                                                                                          |
-|M |                                                                                                                          |
-|{}|                                                                                                                          |
-|  |                          Pick something to edit                                                                          |
-|  |                          Everything in this project is in the navigation:                                                |
+|P |                                                                       +----------------------------------------------+   |
+|M |                                                                       | [^] Publish to the site          (off)       |   |
+|{}|                                                                       |      It is being brought up to date with     |   |
+|  |                          Pick something to edit                       |      the site.                               |   |
+|  |                          Everything in this project is in the navigati+----------------------------------------------+   |
 |  |                          Pages   One row per page of your site, by URL.                                                  |
 |  |                          Media   Images and files, uploaded once and used anywhere.                                      |
 |  |                          Data    Content that is not tied to one page.                                                   |
@@ -316,7 +375,7 @@ not decisions.
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
@@ -327,7 +386,7 @@ not decisions.
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                {Y Spring campaign v} [Publish] [...]  Review(9+) [Preview] {@ Saving...}  [|] (3)  |
+|V |  val-demo [Search]                         {Y Spring campaign v} [...]  Review(9+) [Preview] [-@ Saving...-|v]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -344,18 +403,18 @@ not decisions.
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  o 3 not saved to the proposal                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
 ### Save blocked by validation errors
 
-`proposals-proposals--save-blocked-by-validation-errors` — Save becomes a red "Fix 2" that goes to the errors.
+`proposals-proposals--save-blocked-by-validation-errors` — The main half is a red Fix 2; the caret's Publish is off, since it would save what cannot be saved.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                  {Y Spring campaign v} [Publish] [...]  Review(9+) [Preview] [!! Fix 2!]  [|] (3)  |
+|V |  val-demo [Search]                             {Y Spring campaign v} [...]  Review(9+) [Preview] [!! Fix 2|v!]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -372,18 +431,18 @@ not decisions.
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  o 3 not saved to the proposal                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
 ### Save failed
 
-`proposals-proposals--save-failed` — The reason is on hover.
+`proposals-proposals--save-failed`
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]            {Y Spring campaign v} [Publish] [...]  Review(9+) [Preview] [!! Save failed!]  [|] (3)  |
+|V |  val-demo [Search]                       {Y Spring campaign v} [...]  Review(9+) [Preview] [!! Save failed|v!]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -400,18 +459,18 @@ not decisions.
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  o 3 not saved to the proposal                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
-### Build required (code staged)
+### A new proposal, while its address is made
 
-`proposals-proposals--build-required` — A third action appears before Save. Publish shifts left.
+`proposals-proposals--setting-up` — Beside the switcher, while it runs; nothing once it is done.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]  {Y Spring campaign v} [Publish] [...]  Review(9+) [Preview] [# Build required] [-Save-]  [|] (3)  |
+|V |  val-demo [Search]           {Y Spring campaign v} [...] (@) Setting up...  Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -428,7 +487,147 @@ not decisions.
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  * All changes saved                                    |
+'--'--------------------------------------------------------------------------------------------------------------------------'
+```
+
+### After a save: updating the preview
+
+`proposals-proposals--updating-the-preview`
+
+```text
+ _____________________________________________________________________________________________________________________________
+|  | ======================================================================================================================== |
+|V |  val-demo [Search]  {Y Spring campaign v} [...] (@) Updating the preview... Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
+|  | ======================================================================================================================== |
+|P |                                                                                                                          |
+|M |                                                                                                                          |
+|{}|                                                                                                                          |
+|  |                          Pick something to edit                                                                          |
+|  |                          Everything in this project is in the navigation:                                                |
+|  |                          Pages   One row per page of your site, by URL.                                                  |
+|  |                          Media   Images and files, uploaded once and used anywhere.                                      |
+|  |                          Data    Content that is not tied to one page.                                                   |
+|  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|* | ------------------------------------------------------------------------------------------------------------------------ |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  * All changes saved                                    |
+'--'--------------------------------------------------------------------------------------------------------------------------'
+```
+
+### After a save: checking it renders
+
+`proposals-proposals--checking-the-preview`
+
+```text
+ _____________________________________________________________________________________________________________________________
+|  | ======================================================================================================================== |
+|V |  val-demo [Search]  {Y Spring campaign v} [...] (@) Checking the preview... Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
+|  | ======================================================================================================================== |
+|P |                                                                                                                          |
+|M |                                                                                                                          |
+|{}|                                                                                                                          |
+|  |                          Pick something to edit                                                                          |
+|  |                          Everything in this project is in the navigation:                                                |
+|  |                          Pages   One row per page of your site, by URL.                                                  |
+|  |                          Media   Images and files, uploaded once and used anywhere.                                      |
+|  |                          Data    Content that is not tied to one page.                                                   |
+|  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|* | ------------------------------------------------------------------------------------------------------------------------ |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  * All changes saved                                    |
+'--'--------------------------------------------------------------------------------------------------------------------------'
+```
+
+### The preview did not render
+
+`proposals-proposals--preview-did-not-render` — In warning yellow; why is on hover ("/products answered 500").
+
+```text
+ _____________________________________________________________________________________________________________________________
+|  | ======================================================================================================================== |
+|V |  val-demo [Search]  {Y Spring campaign v} [...] /!\ Preview did not render  Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
+|  | ======================================================================================================================== |
+|P |                                                                                                                          |
+|M |                                                                                                                          |
+|{}|                                                                                                                          |
+|  |                          Pick something to edit                                                                          |
+|  |                          Everything in this project is in the navigation:                                                |
+|  |                          Pages   One row per page of your site, by URL.                                                  |
+|  |                          Media   Images and files, uploaded once and used anywhere.                                      |
+|  |                          Data    Content that is not tied to one page.                                                   |
+|  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|* | ------------------------------------------------------------------------------------------------------------------------ |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  * All changes saved                                    |
+'--'--------------------------------------------------------------------------------------------------------------------------'
+```
+
+### Build is next
+
+`proposals-proposals--build-required` — Build is the main half once everything is saved. It used to be a third button.
+
+```text
+ _____________________________________________________________________________________________________________________________
+|  | ======================================================================================================================== |
+|V |  val-demo [Search]                      {Y Spring campaign v} [...]  Review(9+) [Preview] [# Build required|v]  [|] (3)  |
+|  | ======================================================================================================================== |
+|P |                                                                                                                          |
+|M |                                                                                                                          |
+|{}|                                                                                                                          |
+|  |                          Pick something to edit                                                                          |
+|  |                          Everything in this project is in the navigation:                                                |
+|  |                          Pages   One row per page of your site, by URL.                                                  |
+|  |                          Media   Images and files, uploaded once and used anywhere.                                      |
+|  |                          Data    Content that is not tied to one page.                                                   |
+|  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|* | ------------------------------------------------------------------------------------------------------------------------ |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  * All changes saved                                    |
+'--'--------------------------------------------------------------------------------------------------------------------------'
+```
+
+### Build is next, caret open
+
+`proposals-proposals--build-required-menu-open`
+
+```text
+ _____________________________________________________________________________________________________________________________
+|  | ======================================================================================================================== |
+|V |  val-demo [Search]                      {Y Spring campaign v} [...]  Review(9+) [Preview] [# Build required|v]  [|] (3)  |
+|  | ======================================================================================================================== |
+|P |                                                                       +----------------------------------------------+   |
+|M |                                                                       | [#] Build                                    |   |
+|{}|                                                                       |      Code changed in this proposal. Build it |   |
+|  |                          Pick something to edit                       |      so the preview shows it.                |   |
+|  |                          Everything in this project is in the navigati| [^] Publish to the site                      |   |
+|  |                          Pages   One row per page of your site, by URL|      Merges the proposal into the site,      |   |
+|  |                          Media   Images and files, uploaded once and u|      as one change                           |   |
+|  |                          Data    Content that is not tied to one page.+----------------------------------------------+   |
+|  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|* | ------------------------------------------------------------------------------------------------------------------------ |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
@@ -439,7 +638,7 @@ not decisions.
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]     {Y Spring campaign v} [Publish] [...]  Review(9+) [Preview] [@ Building...] [-Save-]  [|] (3)  |
+|V |  val-demo [Search]                       {Y Spring campaign v} [...]  Review(9+) [Preview] [-@ Building...-|v]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -456,18 +655,18 @@ not decisions.
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
 ### Build failed
 
-`proposals-proposals--build-failed` — Red, reason on hover, press to build again.
+`proposals-proposals--build-failed` — Red; the caret offers Build again, with why.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]  {Y Spring campaign v} [Publish] [...]  Review(9+) [Preview] [!! Build failed!] [-Save-]  [|] (3)  |
+|V |  val-demo [Search]                      {Y Spring campaign v} [...]  Review(9+) [Preview] [!! Build failed|v!]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -484,7 +683,7 @@ not decisions.
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
@@ -496,7 +695,7 @@ not decisions.
  _____________________________________________________________________________________________________________________________
 |  |                                                                                                                          |
 |  |                                                                                                                          |
-|  |    (the Studio is hidden: the dialog's overlay is opaque)                                                                |
+|  |    (the Studio is dimmed and blurred behind it, but still there)                                                         |
 |  |                                                                                                                          |
 |  |                               +----------------------------------------------------------+                               |
 |  |                               | Y New proposal                                    x      |                               |
@@ -508,35 +707,8 @@ not decisions.
 |  |                               | [ Bright harbour                                ]        |                               |
 |  |                               | Description (optional)                                   |                               |
 |  |                               | [ What it changes, and why                      ]        |                               |
-|  |                               | [                                               ]        |                               |
 |  |                               | Starts from                                              |                               |
 |  |                               | [ The site as it is now                         ]        |                               |
-|  |                               | ----------------------------------------------------     |                               |
-|  |                               |                          Cancel  {Create and open ->}    |                               |
-|  |                               +----------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-'--'--------------------------------------------------------------------------------------------------------------------------'
-```
-
-### New proposal: one already exists
-
-`proposals-proposals--new-proposal-already-exists`
-
-```text
- _____________________________________________________________________________________________________________________________
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|  |    (the Studio is hidden: the dialog's overlay is opaque)                                                                |
-|  |                                                                                                                          |
-|  |                               +----------------------------------------------------------+                               |
-|  |                               | Y New proposal                                    x      |                               |
-|  |                               | ...                                                      |                               |
-|  |                               | Starts from                                              |                               |
-|  |                               | [ The site as it is now                         ]        |                               |
-|  |                               | There is already a proposal of the site as it is         |                               |
-|  |                               | now: open Spring campaign.                               |                               |
 |  |                               | ----------------------------------------------------     |                               |
 |  |                               |                          Cancel  {Create and open ->}    |                               |
 |  |                               +----------------------------------------------------------+                               |
@@ -554,7 +726,7 @@ not decisions.
  _____________________________________________________________________________________________________________________________
 |  |                                                                                                                          |
 |  |                                                                                                                          |
-|  |    (the Studio is hidden: the dialog's overlay is opaque)                                                                |
+|  |    (the Studio is dimmed and blurred behind it, but still there)                                                         |
 |  |                                                                                                                          |
 |  |                               +----------------------------------------------------------+                               |
 |  |                               | Rename proposal                                   x      |                               |
@@ -578,7 +750,7 @@ not decisions.
  _____________________________________________________________________________________________________________________________
 |  |                                                                                                                          |
 |  |                                                                                                                          |
-|  |    (the Studio is hidden: the dialog's overlay is opaque)                                                                |
+|  |    (the Studio is dimmed and blurred behind it, but still there)                                                         |
 |  |                                                                                                                          |
 |  |                               +----------------------------------------------------------+                               |
 |  |                               | Close "Spring campaign"?                          x      |                               |
@@ -601,7 +773,7 @@ not decisions.
  _____________________________________________________________________________________________________________________________
 |  |                                                                                                                          |
 |  |                                                                                                                          |
-|  |    (the Studio is hidden: the dialog's overlay is opaque)                                                                |
+|  |    (the Studio is dimmed and blurred behind it, but still there)                                                         |
 |  |                                                                                                                          |
 |  |                               +----------------------------------------------------------+                               |
 |  |                               | Y Proposals                     [+ New proposal]  x      |                               |
@@ -613,7 +785,6 @@ not decisions.
 |  |                               | ----------------------------------------------------     |                               |
 |  |                               | Y New pricing page  Kari Nordmann           [Open]       |                               |
 |  |                               |   4 changes . edited yesterday                           |                               |
-|  |                               | ----------------------------------------------------     |                               |
 |  |                               +----------------------------------------------------------+                               |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -629,7 +800,7 @@ not decisions.
  _____________________________________________________________________________________________________________________________
 |  |                                                                                                                          |
 |  |                                                                                                                          |
-|  |    (the Studio is hidden: the dialog's overlay is opaque)                                                                |
+|  |    (the Studio is dimmed and blurred behind it, but still there)                                                         |
 |  |                                                                                                                          |
 |  |                               +----------------------------------------------------------+                               |
 |  |                               | Publish "Spring campaign" to the site             x      |                               |
@@ -652,12 +823,12 @@ not decisions.
 
 ### At a published proposal's address
 
-`proposals-proposals--published-proposal` — Finished, but the bar is still purple and the fields are still editable.
+`proposals-proposals--published-proposal` — The button says Published and does nothing; there is no caret.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                   {Y Spring campaign v} [-Publish-] [...]  Review(9+) [Preview] [-Save-]  [|] (3)  |
+|V |  val-demo [Search]                             {Y Spring campaign v} [...]  Review(9+) [Preview] [v Published]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |   +--------------------------------------------------------------------------------------+                               |
@@ -674,35 +845,7 @@ not decisions.
 |  |   Title  Shown in the browser tab and search results                                                                     |
 |  |   [ Build better websites                                                              ]                                 |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
-'--'--------------------------------------------------------------------------------------------------------------------------'
-```
-
-### Published, changes moved to a new proposal
-
-`proposals-proposals--published-proposal-continued`
-
-```text
- _____________________________________________________________________________________________________________________________
-|  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                   {Y Spring campaign v} [-Publish-] [...]  Review(9+) [Preview] [-Save-]  [|] (3)  |
-|  | ======================================================================================================================== |
-|P |                                                                                                                          |
-|M |   +--------------------------------------------------------------------------------------+                               |
-|{}|   | v "Spring campaign" is published                                                     |                               |
-|  |   |   Changes made while it was published went to "Spring campaign (continued)".         |                               |
-|  |   |   {Open Spring campaign (continued)}  [Go to the site]                               |                               |
-|  |   +--------------------------------------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |   [/] [DRAFT]                                                                                                            |
-|  |   /                                              <- the page's heading                                                   |
-|  |   /app/page.val.ts?p="/"                                                                                                 |
-|  |   --------------------------------------------------------------------------------------                                 |
-|  |   Title  Shown in the browser tab and search results                                                                     |
-|  |   [ Build better websites                                                              ]                                 |
-|  |                                                                                                                          |
-|* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
@@ -710,12 +853,12 @@ not decisions.
 
 ### Updates available (on the site)
 
-`proposals-upgrade-in-the-studio--updates-available` — Just an icon `(^)` in the bar, left of the panel toggle. The label is a tooltip.
+`proposals-upgrade-in-the-studio--updates-available` — Labelled now, on a desktop. An icon alone below it.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ------------------------------------------------------------------------------------------------------------------------ |
-|V |  val-demo [Search ^K]                                (o The site v)          Review(9+) [Preview] <Publish> (^) [|] (3)  |
+|V |  val-demo [Search]                     (o The site v)  Review(9+) [Preview] <Publish> | (^) Val 0.150.0 is out  [|] (3)  |
 |  | ------------------------------------------------------------------------------------------------------------------------ |
 |P |                                                                                                                          |
 |M |   [/] [DRAFT]                                                                                                            |
@@ -738,12 +881,12 @@ not decisions.
 
 ### Security updates available
 
-`proposals-upgrade-in-the-studio--security-updates-available` — The icon becomes a shield with a red dot.
+`proposals-upgrade-in-the-studio--security-updates-available` — Shield, in red, with its label.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ------------------------------------------------------------------------------------------------------------------------ |
-|V |  val-demo [Search ^K]                                (o The site v)         Review(9+) [Preview] <Publish> (!*) [|] (3)  |
+|V |  val-demo [Search]                 (o The site v)  Review(9+) [Preview] <Publish> | (!) Security fixes are out  [|] (3)  |
 |  | ------------------------------------------------------------------------------------------------------------------------ |
 |P |                                                                                                                          |
 |M |   [/] [DRAFT]                                                                                                            |
@@ -766,12 +909,12 @@ not decisions.
 
 ### Upgrade under way (on the site)
 
-`proposals-upgrade-in-the-studio--upgrade-under-way` — A purple notice on the site, although you are not in a proposal.
+`proposals-upgrade-in-the-studio--upgrade-under-way` — Neutral grey now: purple is for "you are in a proposal".
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ------------------------------------------------------------------------------------------------------------------------ |
-|V |  val-demo [Search ^K]                                (o The site v)             Review(9+) [Preview] <Publish>  [|] (3)  |
+|V |  val-demo [Search]                                   (o The site v)             Review(9+) [Preview] <Publish>  [|] (3)  |
 |  | ------------------------------------------------------------------------------------------------------------------------ |
 |P |                                                                                                                          |
 |M |   +--------------------------------------------------------------------------------------+                               |
@@ -794,79 +937,49 @@ not decisions.
 
 ### The upgrade in the switcher
 
-`proposals-upgrade-in-the-studio--upgrade-in-the-switcher` — Same icon as any proposal; "Upgrade" stands where the changes count would be.
+`proposals-upgrade-in-the-studio--upgrade-in-the-switcher` — Its own icon `^`, not the branch.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ------------------------------------------------------------------------------------------------------------------------ |
-|V |  val-demo [Search ^K]                                (o The site v)             Review(9+) [Preview] <Publish>  [|] (3)  |
+|V |  val-demo [Search]                                   (o The site v)             Review(9+) [Preview] <Publish>  [|] (3)  |
 |  | ------------------------------------------------------------------------------------------------------------------------ |
-|P |                                       +------------------------------------------+                                       |
-|M |   +-----------------------------------| (o) The site                      here   |-------+                               |
-|{}|   | (^) Minor versions: an upgrade is |     What visitors see                    |]      |                               |
-|  |   +-----------------------------------| ----------------------------------       |-------+                               |
-|  |                                       | PROPOSALS                                |                                       |
-|  |   [/] [DRAFT]                         |  Y  Minor versions                       |                                       |
-|  |   /                                   |     You . Upgrade                        |                                       |
-|  |   /app/page.val.ts?p="/"              |  Y  Spring campaign                      |                                       |
-|  |   ------------------------------------|     You . 15 changes                     |------                                 |
-|  |   Title  Shown in the browser tab and |  Y  New pricing page                     |                                       |
-|  |                                       |     Kari Nordmann . 4 changes            |                                       |
-|  |                                       | ----------------------------------       |                                       |
-|  |                                       |  +  New proposal                         |                                       |
-|  |                                       |  =  All proposals...                     |                                       |
-|  |                                       +------------------------------------------+                                       |
+|P |                                       +----------------------------------------+                                         |
+|M |   [/] [DRAFT]                         | (o) The site                      here |                                         |
+|{}|   /                                   |     What visitors see                  |                                         |
+|  |   /app/page.val.ts?p="/"              | ----------------------------------     |                                         |
+|  |   ------------------------------------| PROPOSALS                              |--------                                 |
+|  |   Title  Shown in the browser tab and |  ^  Minor versions                     |                                         |
+|  |                                       |     You . Upgrade                      |                                         |
+|  |                                       |  Y  Spring campaign                    |                                         |
+|  |                                       |     You . 15 changes                   |                                         |
+|  |                                       |  Y  New pricing page                   |                                         |
+|  |                                       |     Kari Nordmann . 4 changes          |                                         |
+|  |                                       | ----------------------------------     |                                         |
+|  |                                       |  +  New proposal                       |                                         |
+|  |                                       |  =  All proposals...                   |                                         |
+|  |                                       +----------------------------------------+                                         |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
-'--'--------------------------------------------------------------------------------------------------------------------------'
-```
-
-### All proposals, with an upgrade
-
-`proposals-upgrade-in-the-studio--upgrade-in-all-proposals`
-
-```text
- _____________________________________________________________________________________________________________________________
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|  |    (the Studio is hidden: the dialog's overlay is opaque)                                                                |
-|  |                                                                                                                          |
-|  |                               +----------------------------------------------------------+                               |
-|  |                               | Y Proposals                     [+ New proposal]  x      |                               |
-|  |                               |  Open 3 | Merged 1 | Closed 1                            |                               |
-|  |                               | ----------------------------------------------------     |                               |
-|  |                               | Y Minor versions  You                       [Open]       |                               |
-|  |                               |   Upgrade . edited 15m ago                               |                               |
-|  |                               | ----------------------------------------------------     |                               |
-|  |                               | Y Spring campaign  You                      [Open]       |                               |
-|  |                               |   Rewrite of all product copy for the spring launch      |                               |
-|  |                               |   15 changes . edited 2h ago                             |                               |
-|  |                               | ----------------------------------------------------     |                               |
-|  |                               | Y New pricing page  Kari Nordmann           [Open]       |                               |
-|  |                               |   4 changes . edited yesterday                           |                               |
-|  |                               +----------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
 ### In an upgrade (ready)
 
-`proposals-upgrade-in-the-studio--in-an-upgrade` — Publish appears twice: in the bar, and as the notice's primary button.
+`proposals-upgrade-in-the-studio--in-an-upgrade` — One Publish: the bar's. The notice links the checks.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                     {Y Minor versions v} [Publish] [...]       Review [Preview] [-Save-]  [|] (3)  |
+|V |  val-demo [Search]                             {^ Minor versions v} [...]       Review [Preview] {^ Publish|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |   +--------------------------------------------------------------------------------------+                               |
 |{}|   | (^) This proposal upgrades Val 0.149.4 -> 0.149.7                                    |                               |
 |  |   |     It holds no content changes: what you see is quiet-harbor-24 with newer          |                               |
-|  |   |     packages. Look around, then publish it to update quiet-harbor-24.                |                               |
+|  |   |     packages. Look around, then press Publish to update quiet-harbor-24.             |                               |
 |  |   |     > And 5 more packages                                                            |                               |
-|  |   |     {Publish to update quiet-harbor-24}  [See the checks in Val Build ->]            |                               |
+|  |   |     [See the checks in Val Build ->]                                                 |                               |
 |  |   +--------------------------------------------------------------------------------------+                               |
 |  |                                                                                                                          |
 |  |   [/] [DRAFT]                                                                                                            |
@@ -876,112 +989,23 @@ not decisions.
 |  |   Title  Shown in the browser tab and search results                                                                     |
 |  |   [ Build better websites                                                              ]                                 |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
-'--'--------------------------------------------------------------------------------------------------------------------------'
-```
-
-### In an upgrade, nothing open
-
-`proposals-upgrade-in-the-studio--in-an-upgrade-nothing-open`
-
-```text
- _____________________________________________________________________________________________________________________________
-|  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                     {Y Minor versions v} [Publish] [...]       Review [Preview] [-Save-]  [|] (3)  |
-|  | ======================================================================================================================== |
-|P |                                                                                                                          |
-|M |   +--------------------------------------------------------------------------------------+                               |
-|{}|   | (^) This proposal upgrades Val 0.149.4 -> 0.149.7                                    |                               |
-|  |   |     It holds no content changes: what you see is quiet-harbor-24 with newer          |                               |
-|  |   |     packages. Look around, then publish it to update quiet-harbor-24.                |                               |
-|  |   |     > And 5 more packages                                                            |                               |
-|  |   |     {Publish to update quiet-harbor-24}  [See the checks in Val Build ->]            |                               |
-|  |   +--------------------------------------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |                          Pick something to edit                                                                          |
-|  |                          Everything in this project is in the navigation:                                                |
-|  |                          Pages   One row per page of your site, by URL.                                                  |
-|  |                          Media   Images and files, uploaded once and used anywhere.                                      |
-|  |                          Data    Content that is not tied to one page.                                                   |
-|  |                          <Take a tour>                                                                                   |
-|  |                                                                                                                          |
-|* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
-'--'--------------------------------------------------------------------------------------------------------------------------'
-```
-
-### In a security upgrade
-
-`proposals-upgrade-in-the-studio--in-a-security-upgrade`
-
-```text
- _____________________________________________________________________________________________________________________________
-|  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                     {Y Security fixes v} [Publish] [...]       Review [Preview] [-Save-]  [|] (3)  |
-|  | ======================================================================================================================== |
-|P |                                                                                                                          |
-|M |   +--------------------------------------------------------------------------------------+                               |
-|{}|   | (#) This proposal fixes security issues                                              |                               |
-|  |   |     It holds no content changes: what you see is quiet-harbor-24 with newer          |                               |
-|  |   |     packages. Look around, then publish it to update quiet-harbor-24.                |                               |
-|  |   |     > 1 package . fixes 2 security issues                                            |                               |
-|  |   |     {Publish to update quiet-harbor-24}  [See the checks in Val Build ->]            |                               |
-|  |   +--------------------------------------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |   [/] [DRAFT]                                                                                                            |
-|  |   /                                              <- the page's heading                                                   |
-|  |   /app/page.val.ts?p="/"                                                                                                 |
-|  |   --------------------------------------------------------------------------------------                                 |
-|  |   Title  Shown in the browser tab and search results                                                                     |
-|  |   [ Build better websites                                                              ]                                 |
-|* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
-'--'--------------------------------------------------------------------------------------------------------------------------'
-```
-
-### In a major upgrade
-
-`proposals-upgrade-in-the-studio--in-a-major-upgrade`
-
-```text
- _____________________________________________________________________________________________________________________________
-|  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                      {Y Full upgrade v} [Publish] [...]        Review [Preview] [-Save-]  [|] (3)  |
-|  | ======================================================================================================================== |
-|P |                                                                                                                          |
-|M |   +--------------------------------------------------------------------------------------+                               |
-|{}|   | (^) This proposal upgrades Val 0.149.4 -> 1.0.0                                      |                               |
-|  |   |     It holds no content changes: what you see is quiet-harbor-24 with newer          |                               |
-|  |   |     packages. Look around, then publish it to update quiet-harbor-24.                |                               |
-|  |   |     v And 5 more packages                       (expanded here, folded by default)   |                               |
-|  |   |       @valbuild/tanstack 0.149.4 -> 1.0.0 [MAJOR]                                    |                               |
-|  |   |       @valbuild/core 0.149.4 -> 0.149.7  ...                                         |                               |
-|  |   |     {Publish to update quiet-harbor-24}  [See the checks in Val Build ->]            |                               |
-|  |   +--------------------------------------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |   [/] [DRAFT]                                                                                                            |
-|  |   /                                              <- the page's heading                                                   |
-|  |   /app/page.val.ts?p="/"                                                                                                 |
-|  |   --------------------------------------------------------------------------------------                                 |
-|* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/e5f6a7b8c9d0e1f2a3b4          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
 ### Upgrade being worked out
 
-`proposals-upgrade-in-the-studio--in-an-upgrade-being-worked-out` — The notice says nothing can be published yet, but the bar's Publish is still enabled.
+`proposals-upgrade-in-the-studio--in-an-upgrade-being-worked-out` — Publish is off, with the reason in its menu.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                     {Y Minor versions v} [Publish] [...]       Review [Preview] [-Save-]  [|] (3)  |
+|V |  val-demo [Search]                             {^ Minor versions v} [...]     Review [Preview] [-^ Publish-|v]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |   +--------------------------------------------------------------------------------------+                               |
 |{}|   | (^) Val Build is working out this upgrade                                            |                               |
-|  |   |     It holds no content changes. When it is worked out and checked, it can be        |                               |
-|  |   |     published from here.                                                             |                               |
+|  |   |     When it is worked out and checked, it can be published.                          |                               |
 |  |   |     [Open in Val Build ->]                                                           |                               |
 |  |   +--------------------------------------------------------------------------------------+                               |
 |  |                                                                                                                          |
@@ -991,19 +1015,20 @@ not decisions.
 |  |   --------------------------------------------------------------------------------------                                 |
 |  |   Title  Shown in the browser tab and search results                                                                     |
 |  |   [ Build better websites                                                              ]                                 |
+|  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/e5f6a7b8c9d0e1f2a3b4          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
 ### Upgrade failed
 
-`proposals-upgrade-in-the-studio--in-an-upgrade-that-failed` — Same: the bar still offers Publish.
+`proposals-upgrade-in-the-studio--in-an-upgrade-that-failed` — Publish is off.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                     {Y Minor versions v} [Publish] [...]       Review [Preview] [-Save-]  [|] (3)  |
+|V |  val-demo [Search]                             {^ Minor versions v} [...]     Review [Preview] [-^ Publish-|v]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |   +--------------------------------------------------------------------------------------+                               |
@@ -1020,26 +1045,23 @@ not decisions.
 |  |   [ Build better websites                                                              ]                                 |
 |  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/e5f6a7b8c9d0e1f2a3b4          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
-### Upgrade with content edits
+### Nothing to upgrade
 
-`proposals-upgrade-in-the-studio--in-an-upgrade-with-edits` — Save appears, and the notice still says "It holds no content changes".
+`proposals-upgrade-in-the-studio--nothing-to-upgrade`
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                     {Y Minor versions v} [Publish] [...]    Review(2) [Preview] {Save 2}  [|] (3)  |
+|V |  val-demo [Search]                             {^ Minor versions v} [...]     Review [Preview] [-^ Publish-|v]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |   +--------------------------------------------------------------------------------------+                               |
-|{}|   | (^) This proposal upgrades Val 0.149.4 -> 0.149.7                                    |                               |
-|  |   |     It holds no content changes: what you see is quiet-harbor-24 with newer          |                               |
-|  |   |     packages. Look around, then publish it to update quiet-harbor-24.                |                               |
-|  |   |     > And 5 more packages                                                            |                               |
-|  |   |     {Publish to update quiet-harbor-24}  [See the checks in Val Build ->]            |                               |
+|{}|   | (^) There is nothing to upgrade                                                      |                               |
+|  |   |     quiet-harbor-24 is up to date. Discard this proposal from its menu.              |                               |
 |  |   +--------------------------------------------------------------------------------------+                               |
 |  |                                                                                                                          |
 |  |   [/] [DRAFT]                                                                                                            |
@@ -1048,8 +1070,66 @@ not decisions.
 |  |   --------------------------------------------------------------------------------------                                 |
 |  |   Title  Shown in the browser tab and search results                                                                     |
 |  |   [ Build better websites                                                              ]                                 |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/e5f6a7b8c9d0e1f2a3b4          (o) Building ===---  ^  |  * All changes saved                                    |
+'--'--------------------------------------------------------------------------------------------------------------------------'
+```
+
+### Upgrade with content edits
+
+`proposals-upgrade-in-the-studio--in-an-upgrade-with-edits` — Save is the main half again, and the notice says it holds them.
+
+```text
+ _____________________________________________________________________________________________________________________________
+|  | ======================================================================================================================== |
+|V |  val-demo [Search]                             {^ Minor versions v} [...]       Review(2) [Preview] {Save 2|v}  [|] (3)  |
+|  | ======================================================================================================================== |
+|P |                                                                                                                          |
+|M |   +--------------------------------------------------------------------------------------+                               |
+|{}|   | (^) This proposal upgrades Val 0.149.4 -> 0.149.7                                    |                               |
+|  |   |     It also holds 2 content changes, made here, which are published with it.         |                               |
+|  |   |     Look around, then press Publish to update quiet-harbor-24.                       |                               |
+|  |   |     > And 5 more packages                                                            |                               |
+|  |   |     [See the checks in Val Build ->]                                                 |                               |
+|  |   +--------------------------------------------------------------------------------------+                               |
+|  |                                                                                                                          |
+|  |   [/] [DRAFT]                                                                                                            |
+|  |   /                                              <- the page's heading                                                   |
+|  |   /app/page.val.ts?p="/"                                                                                                 |
+|  |   --------------------------------------------------------------------------------------                                 |
+|  |   Title  Shown in the browser tab and search results                                                                     |
+|* | ------------------------------------------------------------------------------------------------------------------------ |
+|FR|  Y val/p/e5f6a7b8c9d0e1f2a3b4          (o) Building ===---  ^  |  o 2 not saved to the proposal                          |
+'--'--------------------------------------------------------------------------------------------------------------------------'
+```
+
+### The menu (in an upgrade)
+
+`proposals-upgrade-in-the-studio--in-an-upgrade-menu-open` — No Rename; Close is Discard upgrade, matching its dialog.
+
+```text
+ _____________________________________________________________________________________________________________________________
+|  | ======================================================================================================================== |
+|V |  val-demo [Search]                             {^ Minor versions v} [...]       Review [Preview] {^ Publish|v}  [|] (3)  |
+|  | ======================================================================================================================== |
+|P |                                                         +--------------------------------+                               |
+|M |   +-----------------------------------------------------| <>  Compare with the site      |                               |
+|{}|   | (^) This proposal upgrades Val 0.149.4 -> 0.149.7   |  @  Copy link                  |                               |
+|  |   |     It holds no content changes: what you see is qui| --------------------------     |                               |
+|  |   |     packages. Look around, then press Publish to upd|  x  Discard upgrade...  (red)  |                               |
+|  |   |     > And 5 more packages                           +--------------------------------+                               |
+|  |   |     [See the checks in Val Build ->]                                                 |                               |
+|  |   +--------------------------------------------------------------------------------------+                               |
+|  |                                                                                                                          |
+|  |   [/] [DRAFT]                                                                                                            |
+|  |   /                                              <- the page's heading                                                   |
+|  |   /app/page.val.ts?p="/"                                                                                                 |
+|  |   --------------------------------------------------------------------------------------                                 |
+|  |   Title  Shown in the browser tab and search results                                                                     |
+|* | ------------------------------------------------------------------------------------------------------------------------ |
+|FR|  Y val/p/e5f6a7b8c9d0e1f2a3b4          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
@@ -1060,104 +1140,51 @@ not decisions.
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                     {Y Minor versions v} [Publish] [...]       Review [Preview] [-Save-]  [|] (3)  |
+|V |  val-demo [Search]                             {^ Minor versions v} [...]       Review [Preview] {^ Publish|v}  [|] (3)  |
 |  | ======================================================================================================================== |
-|P |                                       +------------------------------------------+                                       |
-|M |   +-----------------------------------| (o) The site                             |-------+                               |
-|{}|   | (^) This proposal upgrades Val 0.1|     What visitors see                    |       |                               |
-|  |   |     It holds no content changes: w| ----------------------------------       |       |                               |
-|  |   |     packages. Look around, then pu| PROPOSALS                                |       |                               |
-|  |   |     > And 5 more packages         |  Y  Minor versions                here   |       |                               |
-|  |   |     {Publish to update quiet-harbo|     You . Upgrade                        |       |                               |
-|  |   +-----------------------------------|  Y  Spring campaign                      |-------+                               |
-|  |                                       |     You . 15 changes                     |                                       |
-|  |   [/] [DRAFT]                         |  Y  New pricing page                     |                                       |
-|  |   /                                   |     Kari Nordmann . 4 changes            |                                       |
-|  |   /app/page.val.ts?p="/"              | ----------------------------------       |                                       |
-|  |   ------------------------------------|  +  New proposal                         |------                                 |
-|  |   Title  Shown in the browser tab and |  =  All proposals...                     |                                       |
-|  |                                       +------------------------------------------+                                       |
+|P |                                       +----------------------------------------+                                         |
+|M |   +-----------------------------------| (o) The site                           |---------+                               |
+|{}|   | (^) This proposal upgrades Val 0.1|     What visitors see                  |         |                               |
+|  |   |     It holds no content changes: w| ----------------------------------     |         |                               |
+|  |   |     packages. Look around, then pr| PROPOSALS                              |         |                               |
+|  |   |     > And 5 more packages         |  ^  Minor versions                here |         |                               |
+|  |   |     [See the checks in Val Build -|     You . Upgrade                      |         |                               |
+|  |   +-----------------------------------|  Y  Spring campaign                    |---------+                               |
+|  |                                       |     You . 15 changes                   |                                         |
+|  |   [/] [DRAFT]                         |  Y  New pricing page                   |                                         |
+|  |   /                                   |     Kari Nordmann . 4 changes          |                                         |
+|  |   /app/page.val.ts?p="/"              | ----------------------------------     |                                         |
+|  |   ------------------------------------|  +  New proposal                       |--------                                 |
+|  |   Title  Shown in the browser tab and |  =  All proposals...                   |                                         |
+|  |                                       +----------------------------------------+                                         |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
-'--'--------------------------------------------------------------------------------------------------------------------------'
-```
-
-### The menu (in an upgrade)
-
-`proposals-upgrade-in-the-studio--in-an-upgrade-menu-open` — Same menu as any proposal: Rename is offered, and it says Close where the dialog says Discard.
-
-```text
- _____________________________________________________________________________________________________________________________
-|  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                     {Y Minor versions v} [Publish] [...]       Review [Preview] [-Save-]  [|] (3)  |
-|  | ======================================================================================================================== |
-|P |                                                       +--------------------------------+                                 |
-|M |   +---------------------------------------------------| <>  Compare with the site      |-+                               |
-|{}|   | (^) This proposal upgrades Val 0.149.4 -> 0.149.7 |  /  Rename...                  | |                               |
-|  |   |     It holds no content changes: what you see is q|  @  Copy link                  | |                               |
-|  |   |     packages. Look around, then publish it to upda| --------------------------     | |                               |
-|  |   |     > And 5 more packages                         |  x  Close...          (red)    | |                               |
-|  |   |     {Publish to update quiet-harbor-24}  [See the +--------------------------------+ |                               |
-|  |   +--------------------------------------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |   [/] [DRAFT]                                                                                                            |
-|  |   /                                              <- the page's heading                                                   |
-|  |   /app/page.val.ts?p="/"                                                                                                 |
-|  |   --------------------------------------------------------------------------------------                                 |
-|  |   Title  Shown in the browser tab and search results                                                                     |
-|* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
+|FR|  Y val/p/e5f6a7b8c9d0e1f2a3b4          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
 ### Publish an upgrade
 
-`proposals-upgrade-in-the-studio--publish-an-upgrade` — The ordinary dialog: "0 changes", "Its changes go to the site", checks about pages.
+`proposals-upgrade-in-the-studio--publish-an-upgrade` — Says what it updates; "No content changes" instead of "0 changes".
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  |                                                                                                                          |
 |  |                                                                                                                          |
-|  |    (the Studio is hidden: the dialog's overlay is opaque)                                                                |
+|  |    (the Studio is dimmed and blurred behind it, but still there)                                                         |
 |  |                                                                                                                          |
 |  |                               +----------------------------------------------------------+                               |
-|  |                               | Publish "Minor versions" to the site              x      |                               |
-|  |                               | Its changes go to the site as one change, checked        |                               |
-|  |                               | before anything there changes. The proposal is           |                               |
-|  |                               | finished afterwards.                                     |                               |
+|  |                               | Publish "Minor versions" to update quiet-harbor-24 x     |                               |
+|  |                               | It updates quiet-harbor-24's packages: Val               |                               |
+|  |                               | 0.149.4 -> 0.149.7 and 5 more packages. The site         |                               |
+|  |                               | is built and checked with them before anything           |                               |
+|  |                               | there changes. The proposal is finished afterwards.      |                               |
 |  |                               |                                                          |                               |
-|  |                               | 0 changes                                 [Compare]      |                               |
+|  |                               | No content changes                        [Compare]      |                               |
 |  |                               | v Nobody has published to these pages since this         |                               |
 |  |                               |   proposal started                                       |                               |
 |  |                               | v Nobody has unpublished changes on these pages          |                               |
 |  |                               | ----------------------------------------------------     |                               |
 |  |                               |                                  Cancel  {^ Publish}     |                               |
-|  |                               +----------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-'--'--------------------------------------------------------------------------------------------------------------------------'
-```
-
-### Publishing an upgrade
-
-`proposals-upgrade-in-the-studio--publishing-an-upgrade`
-
-```text
- _____________________________________________________________________________________________________________________________
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|  |    (the Studio is hidden: the dialog's overlay is opaque)                                                                |
-|  |                                                                                                                          |
-|  |                               +----------------------------------------------------------+                               |
-|  |                               | Publish "Minor versions" to the site              x      |                               |
-|  |                               | Its changes go to the site as one change, checked        |                               |
-|  |                               | before anything there changes. The proposal is           |                               |
-|  |                               | finished afterwards.                                     |                               |
-|  |                               |                                                          |                               |
-|  |                               | @ Building the site with it...                           |                               |
-|  |                               | ----------------------------------------------------     |                               |
-|  |                               |                            Cancel  [-@ Publishing...-]   |                               |
 |  |                               +----------------------------------------------------------+                               |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -1173,13 +1200,12 @@ not decisions.
  _____________________________________________________________________________________________________________________________
 |  |                                                                                                                          |
 |  |                                                                                                                          |
-|  |    (the Studio is hidden: the dialog's overlay is opaque)                                                                |
+|  |    (the Studio is dimmed and blurred behind it, but still there)                                                         |
 |  |                                                                                                                          |
 |  |                               +----------------------------------------------------------+                               |
 |  |                               | Published "Minor versions"                        x      |                               |
-|  |                               | It is live on the site, as one change. This              |                               |
-|  |                               | proposal is finished: anything more starts a new         |                               |
-|  |                               | one.                                                     |                               |
+|  |                               | It is live: quiet-harbor-24 runs the new packages.       |                               |
+|  |                               | This proposal is finished.                               |                               |
 |  |                               |                                                          |                               |
 |  |                               | v Merged into the site.                                  |                               |
 |  |                               | ----------------------------------------------------     |                               |
@@ -1199,7 +1225,7 @@ not decisions.
  _____________________________________________________________________________________________________________________________
 |  |                                                                                                                          |
 |  |                                                                                                                          |
-|  |    (the Studio is hidden: the dialog's overlay is opaque)                                                                |
+|  |    (the Studio is dimmed and blurred behind it, but still there)                                                         |
 |  |                                                                                                                          |
 |  |                               +----------------------------------------------------------+                               |
 |  |                               | Discard "Minor versions"?                         x      |                               |
@@ -1211,33 +1237,5 @@ not decisions.
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
-'--'--------------------------------------------------------------------------------------------------------------------------'
-```
-
-### In an ordinary proposal while an upgrade is open
-
-`proposals-upgrade-in-the-studio--in-a-proposal-while-an-upgrade-is-open` — Nothing about the upgrade. The Updates icon shows here too, next to Save.
-
-```text
- _____________________________________________________________________________________________________________________________
-|  | ======================================================================================================================== |
-|V |  val-demo [Search ^K]                  {Y Spring campaign v} [Publish] [...]  Review(9+) [Preview] {Save 3} (^) [|] (3)  |
-|  | ======================================================================================================================== |
-|P |                                                                                                                          |
-|M |   [/] [DRAFT]                                                                                                            |
-|{}|   /                                              <- the page's heading                                                   |
-|  |   /app/page.val.ts?p="/"                                                                                                 |
-|  |   --------------------------------------------------------------------------------------                                 |
-|  |   Title  Shown in the browser tab and search results                                                                     |
-|  |   [ Build better websites                                                              ]                                 |
-|  |   Meta description                                                                                                       |
-|  |   [ Val is a Git-based CMS for developers. Content lives in your repository as Type...  ]                                |
-|  |   Hero image                                                                                                             |
-|  |   [  img  ]  /public/val/hero_a1b2c.png  2400 x 1260                                                                     |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
