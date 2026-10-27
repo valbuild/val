@@ -8,7 +8,7 @@ import React, {
 import type { Json, PatchId, ValidationErrors } from "@valbuild/core";
 import { applyPatch, JSONOps, type JSONValue } from "@valbuild/core/patch";
 import { result } from "@valbuild/core/fp";
-import type { ParentRef } from "@valbuild/shared/internal";
+import type { ParentRef, PickedElement } from "@valbuild/shared/internal";
 
 /**
  * The JSON patch applier, shared by every speculative validation below.
@@ -90,6 +90,7 @@ import {
   CODE_TOOLS,
   codeToolsPromptSection,
   designSystemPrompt,
+  pickedElementPrompt,
   isCodeTool,
   runCodeTool,
 } from "../proposals/proposalCode";
@@ -645,7 +646,15 @@ export type UseAIOptions = {
    * in the tab is none -- it is served by the site's build -- and only the
    * tools that read content are offered with them.
    */
-  design?: { proposal: { name: string; displayName: string } };
+  design?: {
+    proposal: { name: string; displayName: string };
+    /**
+     * The element picked in the preview: it goes with the next message
+     * (`pickedElementPrompt`), and `onPointedAtSent` is told it has gone.
+     */
+    pointedAt?: PickedElement | null;
+    onPointedAtSent?: () => void;
+  };
   /** Initial session id to load on mount (e.g. read from URL). When null, the chat starts in an unborn state. */
   initialSessionId?: string | null;
   /** Called when the session transitions from unborn → born (first send) or when an existing session is loaded. */
@@ -2523,6 +2532,11 @@ export function useAI(
           "use the exact image_key string from this list (NOT any vision-system file id):\n" +
           lines.join("\n") +
           "]";
+      }
+      const pointedAt = designRef.current?.pointedAt ?? null;
+      if (pointedAt !== null) {
+        augmentedText = `${augmentedText}\n\n${pickedElementPrompt(pointedAt)}`;
+        designRef.current?.onPointedAtSent?.();
       }
       const contentBlocks: AIMessageContentBlock[] = [
         { type: "text", text: augmentedText },

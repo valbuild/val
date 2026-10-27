@@ -1,24 +1,32 @@
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
   ChevronRight,
   Circle,
   ExternalLink,
-  FileCode2,
+  FileText,
   GitBranch,
   Hammer,
   History,
   Monitor,
+  MousePointerClick,
   Paintbrush,
   RotateCw,
   Smartphone,
   Sparkles,
   Tablet,
+  Upload,
   X,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "../designSystem/cn";
 import { Spinner } from "../designSystem/spinner";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../designSystem/popover";
 import type { ChangedFile, FileChange } from "../../design/changedFiles";
 import type { DiffLine } from "../../design/lineDiff";
 
@@ -28,11 +36,17 @@ import type { DiffLine } from "../../design/lineDiff";
  * served by the SITE's build -- so it stays up when the proposal's code does
  * not. `DesignTab` wires it; this is only what it shows.
  *
- * - Left: what the proposal changes of the site's files, and its history.
  * - Middle: the proposal's address in a frame, or a file against the site's.
- * - Right: the assistant, whose code tools act on this proposal.
- * - Top: the checks a change goes through, the build, and the proposal's
- *   own Studio, where its content is edited and it is published.
+ *   Anything on the page can be picked (hold the modifier, or Select), and
+ *   the assistant is told which.
+ * - Right: the assistant, whose code tools act on this proposal, with what
+ *   was picked above it.
+ * - Top: the checks a change goes through as one quiet word beside the
+ *   proposal's name ("Ready", "Build failed"), with the list behind it; its
+ *   history behind a button; the build, the proposal's own Studio, and
+ *   Publish.
+ *
+ * Which files changed is not a panel of its own: it is the Changes view.
  *
  * A build that does not render is never served (step 1), so a failed build
  * does not take the preview away: it says so above the last build that
@@ -73,6 +87,29 @@ export type DesignProblem = {
   action?: { label: string; onClick: () => void };
 };
 
+/**
+ * Pointing at something on the page: ANY element, picked in the frame while
+ * the modifier is held (or Select is on), is mentioned to the assistant.
+ * `waiting` until the frame's page answers; `off` when it cannot pick, which
+ * offers to turn it on.
+ */
+export type DesignPicking = {
+  active: boolean;
+  onToggle: () => void;
+  status: "live" | "waiting" | "off";
+  onTurnOn: () => void;
+  /** The key held to pick, as this keyboard names it: `⌥`, `Alt`. */
+  modifier: string;
+};
+
+/** What was picked on the page, as the assistant is told it. */
+export type DesignPicked = {
+  tag: string;
+  text: string;
+  selector: string;
+  valPath?: string;
+};
+
 export type DesignDevice = "desktop" | "tablet" | "mobile";
 export type DesignView = "preview" | "changes";
 
@@ -84,7 +121,16 @@ export type DesignTabViewProps = {
   studioUrl: string | null;
   route: string;
   onRouteChange: (route: string) => void;
+  /** The site's pages, to pick the one the frame shows. */
+  pages: string[];
   onReload: () => void;
+  /** `null`: the frame cannot pick (nothing is framed). */
+  picking: DesignPicking | null;
+  /** What was picked, shown above the assistant until it is sent or cleared. */
+  picked?: DesignPicked | null;
+  onClearPicked?: () => void;
+  /** Publish (merge) the proposal into the site; `null`: not offered. */
+  onPublish: (() => void) | null;
   /** `null` while they are read. */
   files: ChangedFile[] | null;
   /** The diff of one of `files` against the site's copy. */
@@ -128,32 +174,24 @@ export function DesignTabView(props: DesignTabViewProps) {
   const files = props.files ?? [];
   const shownFile =
     files.find((file) => file.path === selected) ?? files[0] ?? null;
+  const checkpoints =
+    props.checkpoints !== null && props.checkpoints.length > 0
+      ? props.checkpoints
+      : null;
   return (
     <div className="flex h-svh flex-col bg-bg-primary text-fg-primary">
-      <DesignTopBar {...props} />
+      <DesignTopBar {...props} checkpoints={checkpoints} />
       {props.builder.kind === "window" &&
         props.builder.blocked &&
         props.onOpenBuilder !== undefined && (
           <BuilderWindowBanner onOpen={props.onOpenBuilder} />
         )}
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-64 shrink-0 flex-col overflow-y-auto border-r border-border-primary bg-bg-secondary">
-          <ChangedFiles
-            files={props.files}
-            selected={view === "changes" ? (shownFile?.path ?? null) : null}
-            onSelect={(path) => {
-              setSelected(path);
-              setView("changes");
-            }}
-          />
-          {props.checkpoints !== null && props.checkpoints.length > 0 && (
-            <Checkpoints checkpoints={props.checkpoints} />
-          )}
-        </aside>
         <main className="flex min-w-0 flex-1 flex-col bg-bg-canvas">
           <PreviewToolbar
             route={props.route}
             onRouteChange={props.onRouteChange}
+            pages={props.pages}
             onReload={props.onReload}
             address={props.proposal.address}
             previewHref={props.previewHref}
@@ -162,6 +200,7 @@ export function DesignTabView(props: DesignTabViewProps) {
             device={device}
             onDevice={setDevice}
             changes={files.length}
+            picking={props.picking}
           />
           {props.problem !== null && <ProblemBanner problem={props.problem} />}
           {view === "preview" ? (
@@ -171,6 +210,7 @@ export function DesignTabView(props: DesignTabViewProps) {
               progress={props.build.progress}
               device={device}
               preview={props.preview}
+              picking={props.picking}
             />
           ) : shownFile === null ? (
             <Empty>
@@ -178,11 +218,19 @@ export function DesignTabView(props: DesignTabViewProps) {
               change, and the files it writes are shown here.
             </Empty>
           ) : (
-            <DiffArea file={shownFile} lines={props.diffOf(shownFile.path)} />
+            <DiffArea
+              files={files}
+              file={shownFile}
+              onSelect={setSelected}
+              lines={props.diffOf(shownFile.path)}
+            />
           )}
         </main>
         <aside className="flex w-[380px] shrink-0 flex-col border-l border-border-primary">
-          {props.chat}
+          {props.picked !== undefined && props.picked !== null && (
+            <PickedCard picked={props.picked} onClear={props.onClearPicked} />
+          )}
+          <div className="flex min-h-0 flex-1 flex-col">{props.chat}</div>
         </aside>
       </div>
     </div>
@@ -195,7 +243,11 @@ function DesignTopBar({
   checks,
   builder,
   build,
-}: DesignTabViewProps) {
+  onPublish,
+  checkpoints,
+}: DesignTabViewProps & {
+  checkpoints: DesignCheckpoint[] | null;
+}) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border-primary px-3">
       <span className="inline-flex items-center gap-1.5 rounded-md bg-bg-proposal px-2 py-1 text-xs font-semibold text-fg-on-proposal">
@@ -206,85 +258,184 @@ function DesignTopBar({
         <GitBranch size={14} className="shrink-0 text-fg-proposal" />
         <span className="truncate font-medium">{proposal.displayName}</span>
       </span>
-      <div className="mx-auto flex items-center gap-1.5">
-        {checks.map((item, index) => (
-          <span key={item.label} className="inline-flex items-center gap-1.5">
-            {index > 0 && (
-              <ChevronRight size={12} className="text-fg-tertiary" />
-            )}
-            <CheckChip label={item.label} check={item.check} />
-          </span>
-        ))}
-        {builder.kind === "window" && (
-          <span
-            className={cn(
-              "ml-2 inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px]",
-              builder.blocked
-                ? "border-border-warning-primary text-fg-warning-primary"
-                : "border-border-primary text-fg-secondary",
-            )}
-            title="This browser builds in a window of its own. This tab shows the preview."
+      <ChecksStatus checks={checks} />
+      {builder.kind === "window" && (
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 text-[11px]",
+            builder.blocked ? "text-fg-warning-primary" : "text-fg-tertiary",
+          )}
+          title="This browser builds in a window of its own. This tab shows the preview."
+        >
+          <Hammer size={12} />
+          {builder.blocked ? "No builder window" : "Builds in a window"}
+        </span>
+      )}
+      <div className="ml-auto flex items-center gap-1">
+        {checkpoints !== null && <HistoryMenu checkpoints={checkpoints} />}
+        {studioUrl !== null && (
+          <a
+            href={studioUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-fg-secondary hover:bg-bg-secondary"
+            title="Its content is edited in the proposal's own Studio"
           >
-            <Hammer size={12} />
-            {builder.blocked ? "No builder window" : "Builds in a window"}
-          </span>
+            Proposal&apos;s Studio
+            <ExternalLink size={12} />
+          </a>
+        )}
+        {build.onBuild !== null && (build.required || build.building) && (
+          <button
+            type="button"
+            onClick={build.onBuild}
+            disabled={build.building}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-primary px-3 text-xs font-medium text-fg-primary hover:bg-bg-secondary disabled:text-fg-disabled"
+          >
+            {build.building ? <Spinner size={14} /> : <Hammer size={14} />}
+            {build.building ? "Building…" : "Build"}
+          </button>
+        )}
+        {onPublish !== null && (
+          <button
+            type="button"
+            onClick={onPublish}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-bg-proposal px-3 text-xs font-medium text-fg-on-proposal hover:bg-bg-proposal-hover"
+          >
+            <Upload size={14} />
+            Publish
+          </button>
         )}
       </div>
-      {build.onBuild !== null && (build.required || build.building) && (
-        <button
-          type="button"
-          onClick={build.onBuild}
-          disabled={build.building}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-proposal px-3 text-xs font-medium text-fg-primary hover:bg-bg-proposal-soft disabled:text-fg-disabled"
-        >
-          {build.building ? <Spinner size={14} /> : <Hammer size={14} />}
-          {build.building ? "Building…" : "Build"}
-        </button>
-      )}
-      {studioUrl !== null && (
-        <a
-          href={studioUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-fg-secondary hover:bg-bg-secondary"
-          title="Its content, and Publish, are in the proposal's own Studio"
-        >
-          Open the proposal&apos;s Studio
-          <ExternalLink size={12} />
-        </a>
-      )}
     </header>
   );
 }
 
-function CheckChip({ label, check }: { label: string; check: DesignCheck }) {
+type ChecksTone = "passed" | "running" | "failed" | "idle";
+
+/** All the checks as one: the first that failed, else the one running. */
+function summarise(checks: DesignCheckItem[]): {
+  tone: ChecksTone;
+  label: string;
+} {
+  const failed = checks.find((item) => item.check.state === "failed");
+  if (failed !== undefined)
+    return { tone: "failed", label: `${failed.label} failed` };
+  const running = checks.find((item) => item.check.state === "running");
+  if (running !== undefined && running.check.state === "running") {
+    const percent = running.check.percent;
+    return {
+      tone: "running",
+      label:
+        percent !== undefined && percent !== null
+          ? `${running.label} · ${percent}%`
+          : `${running.label}…`,
+    };
+  }
+  const idle = checks.find((item) => item.check.state === "idle");
+  if (idle !== undefined && idle.check.state === "idle") {
+    // Named: alone beside the proposal's name, "needed" says nothing.
+    return {
+      tone: "idle",
+      label: `${idle.label}: ${idle.check.detail ?? "not checked"}`,
+    };
+  }
+  return { tone: "passed", label: "Ready" };
+}
+
+function ToneDot({ tone }: { tone: ChecksTone }) {
+  if (tone === "running") return <Spinner size={10} />;
   return (
     <span
-      title={check.state === "failed" ? check.message : undefined}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium",
-        check.state === "passed" &&
-          "bg-bg-brand-secondary text-fg-brand-secondary",
-        check.state === "failed" && "bg-bg-error-primary text-fg-error-primary",
-        check.state === "running" && "bg-bg-secondary text-fg-primary",
-        check.state === "idle" && "bg-bg-secondary text-fg-tertiary",
+        "inline-block h-2 w-2 shrink-0 rounded-full",
+        tone === "passed" && "bg-bg-brand-secondary",
+        tone === "failed" && "bg-bg-error-primary",
+        tone === "idle" && "bg-fg-disabled",
       )}
-    >
-      {check.state === "passed" && <Check size={12} />}
-      {check.state === "failed" && <X size={12} />}
-      {check.state === "running" && <Spinner size={12} />}
-      {check.state === "idle" && <Circle size={10} />}
-      {label}
-      {(check.state === "passed" || check.state === "idle") &&
-        check.detail !== undefined && (
-          <span className="opacity-70">{check.detail}</span>
-        )}
-      {check.state === "running" &&
-        check.percent !== undefined &&
-        check.percent !== null && (
-          <span className="tabular-nums opacity-70">{check.percent}%</span>
-        )}
-    </span>
+    />
+  );
+}
+
+/** Each check, with what it said: what the quiet forms open onto. */
+function ChecksList({ checks }: { checks: DesignCheckItem[] }) {
+  return (
+    <ul className="flex flex-col gap-2 text-xs">
+      {checks.map((item) => (
+        <li key={item.label} className="flex items-start gap-2">
+          <span className="mt-0.5 shrink-0">
+            {item.check.state === "passed" && (
+              <Check size={12} className="text-fg-secondary" />
+            )}
+            {item.check.state === "failed" && (
+              <X size={12} className="text-fg-error-on-surface" />
+            )}
+            {item.check.state === "running" && <Spinner size={12} />}
+            {item.check.state === "idle" && (
+              <Circle size={10} className="text-fg-tertiary" />
+            )}
+          </span>
+          <span className="min-w-0">
+            <span className="font-medium">{item.label}</span>
+            {item.check.state === "failed" ? (
+              <span className="mt-0.5 block text-fg-secondary">
+                {item.check.message}
+              </span>
+            ) : item.check.state === "running" ? (
+              <span className="text-fg-tertiary"> · running</span>
+            ) : item.check.detail !== undefined ? (
+              <span className="text-fg-tertiary"> · {item.check.detail}</span>
+            ) : null}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The checks, quietly: a dot and one word beside the name; the rest on a click. */
+function ChecksStatus({ checks }: { checks: DesignCheckItem[] }) {
+  const summary = summarise(checks);
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs hover:bg-bg-secondary",
+            summary.tone === "failed"
+              ? "text-fg-error-on-surface"
+              : "text-fg-tertiary",
+          )}
+        >
+          <ToneDot tone={summary.tone} />
+          {summary.label}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 p-3">
+        <ChecksList checks={checks} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function HistoryMenu({ checkpoints }: { checkpoints: DesignCheckpoint[] }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title="History"
+          aria-label="History"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-fg-secondary hover:bg-bg-secondary"
+        >
+          <History size={14} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-0 py-1">
+        <Checkpoints checkpoints={checkpoints} />
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -304,101 +455,6 @@ function BuilderWindowBanner({ onOpen }: { onOpen: () => void }) {
         Open the builder window
       </button>
     </div>
-  );
-}
-
-const CHANGE_MARK: Record<FileChange, { letter: string; tone: string }> = {
-  added: { letter: "A", tone: "bg-bg-brand-secondary text-fg-brand-secondary" },
-  modified: {
-    letter: "M",
-    tone: "bg-bg-warning-secondary text-fg-warning-secondary",
-  },
-  deleted: { letter: "D", tone: "bg-bg-error-primary text-fg-error-primary" },
-};
-
-function ChangeMark({ change }: { change: FileChange }) {
-  const mark = CHANGE_MARK[change];
-  return (
-    <span
-      className={cn(
-        "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded font-mono text-[10px] font-semibold",
-        mark.tone,
-      )}
-    >
-      {mark.letter}
-    </span>
-  );
-}
-
-function ChangedFiles({
-  files,
-  selected,
-  onSelect,
-}: {
-  files: ChangedFile[] | null;
-  selected: string | null;
-  onSelect: (path: string) => void;
-}) {
-  return (
-    <section className="flex flex-col border-b border-border-primary py-2">
-      <h2 className="flex items-center gap-2 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-fg-tertiary">
-        <FileCode2 size={12} />
-        Changed from the site
-        {files !== null && (
-          <span className="ml-auto tabular-nums">{files.length}</span>
-        )}
-      </h2>
-      {files === null ? (
-        <div className="flex items-center gap-2 px-4 py-1.5 text-xs text-fg-secondary">
-          <Spinner size={12} /> Reading the proposal&apos;s files
-        </div>
-      ) : files.length === 0 ? (
-        <p className="px-4 py-1.5 text-xs text-fg-secondary">
-          Nothing yet: the proposal runs the site&apos;s code.
-        </p>
-      ) : (
-        <ul>
-          {files.map((file) => {
-            const slash = file.path.lastIndexOf("/");
-            const dir = file.path.slice(0, slash + 1);
-            const name = file.path.slice(slash + 1);
-            return (
-              <li key={file.path}>
-                <button
-                  type="button"
-                  onClick={() => onSelect(file.path)}
-                  title={file.path}
-                  className={cn(
-                    "flex w-full items-center gap-2 px-4 py-1 text-left text-xs hover:bg-bg-secondary-hover",
-                    selected === file.path && "bg-bg-secondary-hover",
-                  )}
-                >
-                  <ChangeMark change={file.change} />
-                  <span className="min-w-0 truncate">
-                    <span
-                      className={cn(
-                        file.change === "deleted" && "line-through",
-                      )}
-                    >
-                      {name}
-                    </span>{" "}
-                    <span className="text-fg-tertiary">{dir}</span>
-                  </span>
-                  {!file.staged && (
-                    <span
-                      className="ml-auto shrink-0 text-[10px] text-fg-tertiary"
-                      title="Changed by a save of its content, not staged as code"
-                    >
-                      content
-                    </span>
-                  )}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
   );
 }
 
@@ -441,6 +497,7 @@ function Checkpoints({ checkpoints }: { checkpoints: DesignCheckpoint[] }) {
 function PreviewToolbar({
   route,
   onRouteChange,
+  pages,
   onReload,
   address,
   previewHref,
@@ -449,9 +506,11 @@ function PreviewToolbar({
   device,
   onDevice,
   changes,
+  picking,
 }: {
   route: string;
   onRouteChange: (route: string) => void;
+  pages: string[];
   onReload: () => void;
   address: string | null;
   previewHref: string | null;
@@ -460,6 +519,7 @@ function PreviewToolbar({
   device: DesignDevice;
   onDevice: (device: DesignDevice) => void;
   changes: number;
+  picking: DesignPicking | null;
 }) {
   const [draft, setDraft] = useState(route);
   useEffect(() => setDraft(route), [route]);
@@ -508,6 +568,28 @@ function PreviewToolbar({
               className="min-w-[6rem] flex-1 bg-transparent outline-none"
             />
           </form>
+          {pages.length > 0 && (
+            <PagesMenu pages={pages} current={route} onPick={onRouteChange} />
+          )}
+          {picking !== null && picking.status !== "off" && (
+            <button
+              type="button"
+              aria-pressed={picking.active}
+              disabled={picking.status !== "live"}
+              onClick={picking.onToggle}
+              title={`Select something on the page, and the assistant is told which. Or hold ${picking.modifier} and click.`}
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs",
+                picking.active
+                  ? "bg-bg-proposal text-fg-on-proposal"
+                  : "text-fg-secondary hover:bg-bg-secondary",
+                "disabled:text-fg-disabled",
+              )}
+            >
+              <MousePointerClick size={14} />
+              Select
+            </button>
+          )}
           <div className="flex items-center">
             {devices.map((option) => (
               <button
@@ -549,6 +631,140 @@ function PreviewToolbar({
             </a>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+/** The site's pages, to show one in the frame. */
+function PagesMenu({
+  pages,
+  current,
+  onPick,
+}: {
+  pages: string[];
+  current: string;
+  onPick: (route: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((shown) => !shown)}
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-border-primary px-2 text-xs text-fg-secondary hover:bg-bg-secondary"
+      >
+        <FileText size={12} />
+        Pages
+        <ChevronDown size={12} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-full mt-1 max-h-80 w-64 overflow-y-auto rounded-md border border-border-float bg-bg-float py-1 shadow-lg"
+        >
+          {pages.map((page) => (
+            <button
+              key={page}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onPick(page);
+              }}
+              className={cn(
+                "block w-full truncate px-3 py-1.5 text-left font-mono text-xs hover:bg-bg-float-raised",
+                page === current && "text-fg-proposal",
+              )}
+            >
+              {page}
+            </button>
+          ))}
+          <p className="border-t border-border-float px-3 py-1.5 text-[11px] text-fg-tertiary">
+            The site&apos;s pages. A page the proposal adds is reached by typing
+            its path.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Over the page, small: how to pick, while Select is off; what to do, while it
+ * is on. When the frame cannot pick, it offers to turn that on.
+ */
+function PickingHint({ picking }: { picking: DesignPicking }) {
+  if (picking.status === "waiting") return null;
+  return (
+    <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-bg-float/90 px-3 py-1 text-[11px] text-fg-secondary shadow-sm">
+      {picking.status === "off" ? (
+        <>
+          <span>Selecting needs preview mode on this page</span>
+          <button
+            type="button"
+            onClick={picking.onTurnOn}
+            className="pointer-events-auto font-medium text-fg-proposal hover:underline"
+          >
+            Turn it on
+          </button>
+        </>
+      ) : picking.active ? (
+        <span>Click anything on the page · Esc to stop</span>
+      ) : (
+        <span>
+          Hold{" "}
+          <kbd className="rounded border border-border-primary px-1 font-sans">
+            {picking.modifier}
+          </kbd>{" "}
+          and click anything to show it to the assistant
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** What was picked, above the assistant: it goes with the next message. */
+function PickedCard({
+  picked,
+  onClear,
+}: {
+  picked: DesignPicked;
+  onClear?: () => void;
+}) {
+  return (
+    <div className="m-3 mb-0 flex items-start gap-2 rounded-lg border border-border-proposal bg-bg-proposal-soft px-3 py-2 text-xs">
+      <MousePointerClick
+        size={14}
+        className="mt-0.5 shrink-0 text-fg-proposal"
+      />
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-1.5">
+          <code className="rounded bg-bg-primary px-1 font-mono text-[11px]">
+            &lt;{picked.tag}&gt;
+          </code>
+          <span className="truncate font-medium">
+            {picked.text !== "" ? picked.text : "No text"}
+          </span>
+        </p>
+        <p
+          className="mt-0.5 truncate font-mono text-[10px] text-fg-tertiary"
+          title={picked.selector}
+        >
+          {picked.selector}
+        </p>
+      </div>
+      {onClear !== undefined && (
+        <button
+          type="button"
+          onClick={onClear}
+          aria-label="Clear what was selected"
+          className="shrink-0 rounded p-0.5 text-fg-secondary hover:bg-bg-primary"
+        >
+          <X size={12} />
+        </button>
       )}
     </div>
   );
@@ -624,12 +840,14 @@ function PreviewArea({
   progress,
   device,
   preview,
+  picking,
 }: {
   address: string | null;
   building: boolean;
   progress: { label: string; percent: number | null } | null;
   device: DesignDevice;
   preview: ReactNode;
+  picking: DesignPicking | null;
 }) {
   const width = DEVICE_WIDTHS[device];
   if (address === null) {
@@ -675,19 +893,91 @@ function PreviewArea({
           style={width === null ? undefined : { maxWidth: width }}
         >
           {preview}
+          {picking !== null && <PickingHint picking={picking} />}
         </div>
       </div>
     </div>
   );
 }
 
-function DiffArea({ file, lines }: { file: ChangedFile; lines: DiffLine[] }) {
+const CHANGE_MARK: Record<FileChange, { letter: string; tone: string }> = {
+  added: { letter: "A", tone: "text-fg-brand-primary" },
+  modified: { letter: "M", tone: "text-fg-warning-primary" },
+  deleted: { letter: "D", tone: "text-fg-error-on-surface" },
+};
+
+function ChangeMark({ change }: { change: FileChange }) {
+  const mark = CHANGE_MARK[change];
   return (
-    <div className="flex min-h-0 flex-1 flex-col p-4">
+    <span
+      title={change}
+      className={cn(
+        "w-3 shrink-0 font-mono text-[10px] font-semibold",
+        mark.tone,
+      )}
+    >
+      {mark.letter}
+    </span>
+  );
+}
+
+/**
+ * A file against the site's copy. Which files changed is this view's own
+ * list, on its left, rather than a panel beside the preview.
+ */
+function DiffArea({
+  files,
+  file,
+  onSelect,
+  lines,
+}: {
+  files: ChangedFile[];
+  file: ChangedFile;
+  onSelect: (path: string) => void;
+  lines: DiffLine[];
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 gap-3 p-4">
+      <ul className="w-56 shrink-0 overflow-y-auto text-xs">
+        {files.map((item) => {
+          const slash = item.path.lastIndexOf("/");
+          return (
+            <li key={item.path}>
+              <button
+                type="button"
+                onClick={() => onSelect(item.path)}
+                title={item.path}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-bg-secondary",
+                  item.path === file.path && "bg-bg-secondary font-medium",
+                )}
+              >
+                <ChangeMark change={item.change} />
+                <span
+                  className={cn(
+                    "min-w-0 truncate",
+                    item.change === "deleted" && "line-through",
+                  )}
+                >
+                  {item.path.slice(slash + 1)}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border-primary bg-bg-primary">
         <div className="flex items-center gap-2 border-b border-border-primary px-4 py-2 font-mono text-xs">
           <ChangeMark change={file.change} />
           {file.path}
+          {!file.staged && (
+            <span
+              className="font-sans text-fg-tertiary"
+              title="Changed by a save of its content, not staged as code"
+            >
+              · content
+            </span>
+          )}
           <span className="ml-auto font-sans text-fg-tertiary">
             Compared with the site
           </span>
