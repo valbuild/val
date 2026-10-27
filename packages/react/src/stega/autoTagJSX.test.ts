@@ -1,3 +1,4 @@
+import React from "react";
 import jsxRuntime from "react/jsx-runtime";
 import { initVal } from "@valbuild/core";
 import { VERCEL_STEGA_REGEX } from "@vercel/stega";
@@ -39,6 +40,39 @@ const hasTag = (value: unknown) =>
   JSON.stringify(value).match(VERCEL_STEGA_REGEX) !== null;
 
 describe("autoTagJSX", () => {
+  test("text handed to createElement as a child is cleaned, and the element carries its path", () => {
+    // What TanStack Router's <Link> does: React.createElement("a", props, children).
+    const link: ResolvedVal<typeof linkVal> = stegaEncode(linkVal, {});
+    const anchor = React.createElement("a", { href: "/" }, link.title);
+    expect(propsOf(anchor)).toEqual({
+      href: "/",
+      children: "Val",
+      "data-val-path": TITLE,
+    });
+    const list = React.createElement("p", null, link.title, " — ", [
+      link.blurb,
+    ]);
+    expect(hasTag(propsOf(list).children)).toBe(false);
+    expect(propsOf(list)["data-val-path"]).toBe(`${TITLE},${BLURB}`);
+  });
+
+  test("frozen children -- React's development build freezes static ones -- are cleaned on a copy", () => {
+    const link: ResolvedVal<typeof linkVal> = stegaEncode(linkVal, {});
+    const { jsxs } = jsxRuntime;
+    // <TextLink>{link.title} →</TextLink> hands its children on to <a>.
+    const children = Object.freeze([link.title, " →"]);
+    const anchor = jsxs("a", { href: "/", children });
+    expect(propsOf(anchor).children).toEqual(["Val", " →"]);
+    expect(propsOf(anchor)["data-val-path"]).toBe(TITLE);
+  });
+
+  test("createElement leaves a component's children for the element it renders", () => {
+    const link: ResolvedVal<typeof linkVal> = stegaEncode(linkVal, {});
+    const Component = (props: { children?: React.ReactNode }) => props.children;
+    const element = React.createElement(Component, null, link.title);
+    expect(hasTag(propsOf(element).children)).toBe(true);
+  });
+
   test("a fragment's text is cleaned, and the element it is in carries its path", () => {
     const link: ResolvedVal<typeof linkVal> = stegaEncode(linkVal, {});
     const { jsx, jsxs, Fragment } = jsxRuntime;

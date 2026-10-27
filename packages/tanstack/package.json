@@ -14,7 +14,7 @@
     "tanstack-router",
     "react"
   ],
-  "version": "0.150.5",
+  "version": "0.150.7",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"
@@ -38,6 +38,10 @@
       "module": "./server/dist/valbuild-tanstack-server.esm.js",
       "default": "./server/dist/valbuild-tanstack-server.cjs.js"
     },
+    "./autotag": {
+      "module": "./autotag/dist/valbuild-tanstack-autotag.esm.js",
+      "default": "./autotag/dist/valbuild-tanstack-autotag.cjs.js"
+    },
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-tanstack.cjs.d.ts",
@@ -46,7 +50,8 @@
       "./index.ts",
       "./server/index.ts",
       "./client/index.ts",
-      "./demo/index.ts"
+      "./demo/index.ts",
+      "./autotag/index.ts"
     ],
     "exports": true
   },
@@ -85,6 +90,7 @@
     "dist",
     "client",
     "server",
-    "demo"
+    "demo",
+    "autotag"
   ]
 }
