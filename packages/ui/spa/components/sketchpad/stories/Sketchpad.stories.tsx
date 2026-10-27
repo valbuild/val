@@ -1,17 +1,24 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useEffect, useState } from "react";
-import { PageSketch, type PageSketchProps } from "../PageSketch";
+import { Sketchpad, type SketchpadProps } from "../Sketchpad";
 
 /**
- * A page sketch: a scratch pad, kept outside the assistant's chat, where the
- * assistant and an editor agree on WHAT goes on a page before anyone worries
- * about how it looks. It is plain text with four primitives, so the assistant
- * can rewrite it in one go and an editor can fix one line of it:
+ * Sketchpad: a page's content and rough layout, worked out with the
+ * assistant before anyone builds it. It lives outside the chat, so both sides
+ * can change it: the assistant rewrites it, the editor types in it.
+ *
+ * **Page** is a document: click anywhere and type, and the caret moves
+ * through headings, paragraphs, box labels and columns with the arrow keys.
+ * `#` makes a heading and `[kind: label]` a box, as in the text; the toolbar
+ * adds boxes and columns. Drop an image or a video on a box to put it in.
+ * Click a box's kind to rename it.
+ *
+ * **Text** is what the assistant reads and writes:
  *
  * ```
  * # Heading / ## Sub / ### Small     text
  * Any other line                     text (a paragraph)
- * [image: Team photo]                placeholder: [kind] or [kind: label]
+ * [image: Team photo]                a box: [kind] or [kind: label]
  * row                                its children side by side
  * col 2                              its children stacked; 2 shares of a row
  * [hero: Roof](image: /roof.jpg)     a box with an image (or video) in it
@@ -21,17 +28,12 @@ import { PageSketch, type PageSketchProps } from "../PageSketch";
  * A box's kind is any word. The assistant draws each kind's icon as SVG path
  * data, so the sketch is not limited to the kinds someone gave icons to.
  *
- * The page side is editable too: click a heading, a paragraph or a box's
- * label and type; drop an image or a video on a box. Every edit lands in the
- * text, because the text is what the assistant builds the page from.
- *
- * The wireframe and the text are linked: click a block to select its line,
- * move the caret to highlight its block. The ASCII view is the same page as
- * monospace text — what the assistant would be handed back to "see" it.
+ * **ASCII** is the page as monospace text: what the assistant is handed back
+ * to see the page the way the editor does.
  */
-const meta: Meta<typeof PageSketch> = {
-  title: "Components/PageSketch",
-  component: PageSketch,
+const meta: Meta<typeof Sketchpad> = {
+  title: "Components/Sketchpad",
+  component: Sketchpad,
   parameters: { layout: "fullscreen" },
   tags: ["autodocs"],
   decorators: [
@@ -44,13 +46,13 @@ const meta: Meta<typeof PageSketch> = {
   render: (args) => <Editable {...args} />,
 };
 export default meta;
-type Story = StoryObj<typeof PageSketch>;
+type Story = StoryObj<typeof Sketchpad>;
 
 /** Keeps the story's text in state, so typing in it works. */
-function Editable(props: PageSketchProps) {
+function Editable(props: SketchpadProps) {
   const [value, setValue] = useState(props.value);
   useEffect(() => setValue(props.value), [props.value]);
-  return <PageSketch {...props} value={value} onChange={setValue} />;
+  return <Sketchpad {...props} value={value} onChange={setValue} />;
 }
 
 /**
@@ -151,7 +153,7 @@ export const ArticleWithSidebar: Story = {
 /**
  * A dashboard is the same four primitives: a row of stat tiles, charts side
  * by side, and a table. A placeholder's kind is free text, so `stat`, `chart`
- * and `table` are just kinds the wireframe happens to draw an icon for.
+ * and `table` are just kinds the assistant drew an icon for.
  */
 export const Dashboard: Story = {
   args: {
@@ -289,14 +291,19 @@ row 2
 
 /**
  * The same page as monospace text, as wide as the pane allows: what the
- * assistant gets back to see the page as the editor sees the wireframe.
+ * assistant gets back to see the page as the editor sees it.
  */
 export const AsciiView: Story = {
   args: { value: LANDING, title: "/", defaultView: "ascii" },
 };
 
-/** The pane stacks the text over the page when there is no room for both. */
-export const Narrow: Story = {
+/** The sketch as the assistant reads it, line numbers and all. */
+export const TextView: Story = {
+  args: { value: LANDING, title: "/", defaultView: "text" },
+};
+
+/** On a phone: the toolbar wraps and the page takes the width. */
+export const Phone: Story = {
   args: { value: ARTICLE, title: "/blog/cms-in-git" },
   decorators: [
     (Story) => (
@@ -355,7 +362,7 @@ We are hiring.
 ${icons("image", "list", "button")}`,
 ];
 
-function AssistantEditing(props: PageSketchProps) {
+function AssistantEditing(props: SketchpadProps) {
   const [step, setStep] = useState(0);
   const [value, setValue] = useState(ASSISTANT_STEPS[0]);
   const done = step >= ASSISTANT_STEPS.length - 1;
@@ -372,7 +379,7 @@ function AssistantEditing(props: PageSketchProps) {
   }, [step, done]);
 
   return (
-    <PageSketch
+    <Sketchpad
       {...props}
       value={value}
       onChange={setValue}

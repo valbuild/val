@@ -4,7 +4,7 @@ import {
   parseSketch,
   renderSketchAscii,
   replaceLine,
-} from "./pageSketch";
+} from "./sketchFormat";
 
 describe("parseSketch", () => {
   test("reads the four primitives and nests by indent", () => {
