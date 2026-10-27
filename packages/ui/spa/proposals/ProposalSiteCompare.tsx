@@ -17,6 +17,7 @@ import { useCurrentAuthorId } from "../components/ValProvider";
 import type { SiteChanges } from "./useSiteChanges";
 import { Spinner } from "../components/designSystem/spinner";
 import { ProposalPage } from "./ProposalPageCompare";
+import { siteOrigin } from "./sitePageUrl";
 
 /**
  * Compare with the site, in a proposal: what Publish -- merging it -- would
@@ -111,11 +112,15 @@ function MountedSiteCompare({
     [],
   );
   const site = useMemo(() => ({ trees: changes.trees }), [changes.trees]);
-  // Without the site's address there is no left page, and one side of a
-  // comparison is not one.
+  /*
+   * Without the site's address there is no left page, and one side of a
+   * comparison is not one. Nor with an address that is not a whole URL: the
+   * side would resolve it against THIS origin, and show the proposal under a
+   * heading that says the site.
+   */
   const renderPage = useMemo(
     () =>
-      siteUrl === null
+      siteUrl === null || siteOrigin(siteUrl) === null
         ? undefined
         : (page: ComparePageView) => (
             <ProposalPage siteUrl={siteUrl} page={page} />

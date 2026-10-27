@@ -9,10 +9,19 @@ export function sitePageUrl(siteUrl: string, route: string): string {
   return `${siteUrl.replace(/\/+$/, "")}${route}`;
 }
 
-/** The origin of the site's address, or null when it is not a URL. */
+/**
+ * The origin of the site's address, or null when it is not a web address.
+ *
+ * http(s) only. The address ends up as a frame's `src` and a link's `href`,
+ * and `new URL("javascript:…")` parses -- with an origin of the STRING
+ * `"null"`, so checking for a parse alone lets it through.
+ */
 export function siteOrigin(siteUrl: string): string | null {
   try {
-    return new URL(siteUrl).origin;
+    const url = new URL(siteUrl);
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.origin
+      : null;
   } catch {
     return null;
   }

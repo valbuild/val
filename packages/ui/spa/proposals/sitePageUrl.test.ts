@@ -28,4 +28,9 @@ describe("siteOrigin", () => {
   test("is null for something that is not a URL", () => {
     expect(siteOrigin("example.com")).toBe(null);
   });
+
+  test("is null for an address that is not on the web", () => {
+    expect(siteOrigin("javascript:alert(1)")).toBe(null);
+    expect(siteOrigin("data:text/html,hi")).toBe(null);
+  });
 });
