@@ -41,7 +41,12 @@ describe("the settings panel is renderable without any Val plumbing", () => {
   test("the appearance fields, colour picker included", () => {
     render(
       <ThemeSettingsFields
-        value={{ accent: "#2563eb", radius: "tight", mode: null }}
+        value={{
+          accent: "#2563eb",
+          proposal: null,
+          radius: "tight",
+          mode: null,
+        }}
         onChange={() => undefined}
       />,
     );
@@ -104,7 +109,7 @@ describe("the Studio tab's sections", () => {
     render(
       <>
         <ThemeSettingsFields
-          value={{ accent: null, radius: null, mode: null }}
+          value={{ accent: null, proposal: null, radius: null, mode: null }}
           onChange={() => undefined}
         />
         <StudioSettingsFields

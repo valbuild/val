@@ -612,6 +612,8 @@ export function NoSettingsModule() {
 export type ThemeSettingsValue = {
   /** A hex colour, or `null` for Val's own green. */
   accent: string | null;
+  /** A hex colour, or `null` for Val's violet. */
+  proposal: string | null;
   radius: ThemeRadius | null;
   /** The project's default mode, or `null` for "no preference". */
   mode: "dark" | "light" | null;
@@ -686,6 +688,18 @@ const ACCENT_PRESETS: { hex: string; name: string }[] = [
   { hex: "#64748b", name: "Slate" },
 ];
 
+/**
+ * The proposal colour's presets: Val's violet first (it writes `null`), then
+ * colours that stand apart from most accents. The field takes any hex too.
+ */
+const PROPOSAL_PRESETS: { hex: string; name: string }[] = [
+  { hex: "#2563eb", name: "Blue" },
+  { hex: "#db2777", name: "Pink" },
+  { hex: "#ea580c", name: "Orange" },
+  { hex: "#0891b2", name: "Cyan" },
+  { hex: "#16a34a", name: "Green" },
+];
+
 const RADIUS_LABELS: Record<ThemeRadius, string> = {
   square: "Square",
   tight: "Tight",
@@ -711,6 +725,7 @@ export function ThemeSettingsFields({
   readonly,
 }: ThemeSettingsFieldsProps) {
   const accent = value.accent?.trim().toLowerCase() ?? null;
+  const proposal = value.proposal?.trim().toLowerCase() ?? null;
   return (
     <SettingsSection
       title="Appearance"
@@ -768,6 +783,52 @@ export function ThemeSettingsFields({
         {errors?.accent && (
           <span className="block mt-1 text-[0.6875rem] text-fg-error-on-surface leading-relaxed">
             {errors.accent}
+          </span>
+        )}
+      </div>
+      <div>
+        <span className="text-xs font-medium">Proposals</span>
+        <span className="block mt-0.5 text-[0.6875rem] text-fg-secondary-alt leading-relaxed">
+          What the Studio wears in a proposal, so nobody mistakes one for the
+          site. Pick one that stands apart from the accent.
+        </span>
+        <div
+          role="radiogroup"
+          aria-label="Proposal colour"
+          className="mt-2 flex flex-wrap gap-1.5"
+        >
+          {/* Val's violet writes `null`, as Val green does for the accent. */}
+          <AccentSwatch
+            name="Val violet"
+            css="#7c3aed"
+            selected={proposal === null}
+            disabled={readonly}
+            onSelect={() => onChange("proposal", null)}
+          />
+          {PROPOSAL_PRESETS.map((preset) => (
+            <AccentSwatch
+              key={preset.hex}
+              name={preset.name}
+              css={preset.hex}
+              selected={proposal === preset.hex}
+              disabled={readonly}
+              onSelect={() => onChange("proposal", preset.hex)}
+            />
+          ))}
+        </div>
+        <div className="mt-2">
+          <ColorFieldPure
+            id="val-theme-proposal"
+            label="Proposal colour"
+            value={value.proposal}
+            onChange={(next) => onChange("proposal", next)}
+            format="hex"
+            readonly={readonly}
+          />
+        </div>
+        {errors?.proposal && (
+          <span className="block mt-1 text-[0.6875rem] text-fg-error-on-surface leading-relaxed">
+            {errors.proposal}
           </span>
         )}
       </div>

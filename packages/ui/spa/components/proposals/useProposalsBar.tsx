@@ -1,4 +1,4 @@
-import { Check, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -74,10 +74,14 @@ import {
   type RestoreDestination,
 } from "../../history/restoreDestination";
 import { RestoreCodeNotice, type RestoreCodeState } from "./RestoreCodeNotice";
+import {
+  readRememberedProposal,
+  rememberProposal,
+} from "../../proposals/rememberedProposal";
 import type { FloatingNoticeItem } from "../shell/FloatingNotices";
 import { randomProposalName } from "../../proposals/proposalNames";
 import { AllProposalsDialog } from "./ProposalsList";
-import { MergedProposalNotice } from "./MergedProposalNotice";
+import { MergedProposalDialog } from "./MergedProposalDialog";
 import type {
   ProposalCodeState,
   ProposalPerson,
@@ -157,9 +161,9 @@ export function useProposalsBar({
   proposals: TopBarProposals | undefined;
   dialogs: ReactNode;
   /**
-   * Popping up from below, most pressing first: a merged proposal says it is
-   * finished, a restore how it went, an upgrade what it upgrades. See
-   * `FloatingNotices`.
+   * Popping up from below: a restore says how it went, an upgrade what it
+   * upgrades. See `FloatingNotices`. A merged proposal is a dialog instead,
+   * since there is nothing left to do in one.
    */
   notices: FloatingNoticeItem[];
   /**
@@ -174,7 +178,28 @@ export function useProposalsBar({
 } {
   const mode = useValMode();
   const config = useValConfig();
-  const here = useCurrentProposal();
+  const statHere = useCurrentProposal();
+  /*
+   * Where this Studio is, before `/stat` has said: the proposal it was in
+   * last time at this address, if any. See `rememberedProposal.ts`. Once
+   * `/stat` answers (the mode is known), it is what decides.
+   */
+  const located = mode !== "unknown";
+  const [remembered] = useState(readRememberedProposal);
+  const rememberedHere = useMemo(
+    () =>
+      remembered === null
+        ? null
+        : { name: remembered.name, branch: remembered.branch },
+    [remembered],
+  );
+  const here = located ? statHere : rememberedHere;
+  /*
+   * Nothing is known about where this Studio is yet: the bar says it is
+   * loading rather than showing the site's switcher and Publish, which at a
+   * proposal's address it then took back.
+   */
+  const locating = !located && here === null;
   // What a save would be refused for: Save offers them, as Publish does.
   const allValidationErrors = useAllValidationErrors();
   const validationErrorPaths = Object.keys(
@@ -224,6 +249,29 @@ export function useProposalsBar({
     [ready?.proposals, viewer, people],
   );
 
+  /*
+   * Once `/stat` has said where this Studio is, remember it for the next
+   * time at this address, with the name once it is read.
+   */
+  const knownName =
+    statHere === null
+      ? null
+      : (ready?.current?.displayName ??
+        ready?.proposals.find((p) => p.name === statHere.name)?.displayName ??
+        (remembered?.name === statHere.name ? remembered.displayName : null));
+  useEffect(() => {
+    if (!located) return;
+    rememberProposal(
+      statHere === null
+        ? null
+        : {
+            name: statHere.name,
+            branch: statHere.branch,
+            displayName: knownName,
+          },
+    );
+  }, [located, statHere, knownName]);
+
   /** The proposal this Studio is in, as best known: its own read, or the list's. */
   const currentJson: ProposalJson | null =
     here === null
@@ -232,7 +280,23 @@ export function useProposalsBar({
         ready?.proposals.find((p) => p.name === here.name) ??
         null);
 
-  const go = useCallback((origin: string) => {
+  /*
+   * Where this Studio is going, while the browser gets there: opening a
+   * proposal goes to its own address, through sign-in redirects, and the page
+   * being left stays on screen until the next one replaces it. The switcher
+   * says so, instead of looking as though nothing was pressed.
+   */
+  const [leaving, setLeaving] = useState<string | null>(null);
+  useEffect(() => {
+    // Back to this page from the history cache: it is not leaving any more.
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setLeaving(null);
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+  const go = useCallback((origin: string, to?: string) => {
+    if (to !== undefined) setLeaving(to);
     window.location.assign(sameStudioPageAt(origin, window.location));
   }, []);
 
@@ -246,16 +310,20 @@ export function useProposalsBar({
     async (name: string) => {
       if (name === here?.name) return;
       const known = ready?.proposals.find((p) => p.name === name);
+      const to = known ? `Opening “${known.displayName}”…` : "Opening…";
       try {
         if (known?.address) {
-          go(known.address);
+          go(known.address, to);
           return;
         }
+        // Its address may still be being made: say so while it is.
+        setLeaving(to);
         if (known?.setup?.status === "failed") {
           await client.retrySetup(name);
         }
-        go(await waitForAddress(client, name));
+        go(await waitForAddress(client, name), to);
       } catch (error) {
+        setLeaving(null);
         failed("Could not open the proposal", error);
       }
     },
@@ -377,9 +445,13 @@ export function useProposalsBar({
     const proposal: ProposalSummary = currentJson
       ? toSummary(currentJson, viewer, people)
       : {
-          // Its own read has not answered yet: the name is all there is.
+          // Its own read has not answered yet: the name it had last time
+          // here, if any.
           name: here.name,
-          displayName: "Proposal",
+          displayName:
+            remembered?.name === here.name && remembered.displayName !== null
+              ? remembered.displayName
+              : "Proposal",
           description: null,
           status: "open",
           owner: null,
@@ -412,6 +484,7 @@ export function useProposalsBar({
     isPublishing,
     saveError,
     code,
+    remembered,
   ]);
 
   /** Save; the reason it did not, or null when it did. */
@@ -859,7 +932,10 @@ export function useProposalsBar({
           ...(input.description ? { description: input.description } : {}),
         });
         void refresh();
-        go(made.address ?? (await waitForAddress(client, made.name)));
+        go(
+          made.address ?? (await waitForAddress(client, made.name)),
+          `Opening “${made.displayName}”…`,
+        );
       } catch (error) {
         const existing =
           error instanceof ProposalsApiError ? error.existing() : null;
@@ -890,7 +966,7 @@ export function useProposalsBar({
       setDialog(null);
       // Nothing more happens here: a closed proposal takes no changes.
       if (ready?.siteUrl) {
-        go(ready.siteUrl);
+        go(ready.siteUrl, "Opening the site…");
       } else {
         await refresh();
       }
@@ -1026,7 +1102,10 @@ export function useProposalsBar({
         : 0,
   });
 
-  if (state.status === "off" || (ready === null && here === null)) {
+  if (
+    !locating &&
+    (state.status === "off" || (ready === null && here === null))
+  ) {
     return {
       proposals: undefined,
       dialogs: null,
@@ -1039,6 +1118,9 @@ export function useProposalsBar({
 
   const proposals: TopBarProposals = {
     location,
+    // Where this Studio is, or which proposal it is, still being read.
+    loading: locating || (here !== null && currentJson === null),
+    leaving,
     ...(validationErrorPaths.length > 0
       ? {
           saveBlockedBy: {
@@ -1054,7 +1136,7 @@ export function useProposalsBar({
     onOpenSite: () => {
       if (here === null) return;
       if (ready?.siteUrl) {
-        go(ready.siteUrl);
+        go(ready.siteUrl, "Opening the site…");
       } else {
         reportError(
           "Could not open the site",
@@ -1089,6 +1171,16 @@ export function useProposalsBar({
   const currentSummary =
     location.kind === "proposal" ? location.proposal : null;
   const siteUrl = ready?.siteUrl ?? null;
+  const continuedIn =
+    currentJson?.continuedIn != null
+      ? (all.find((p) => p.name === currentJson.continuedIn) ?? null)
+      : null;
+  /*
+   * A merged proposal is finished, and says so in a dialog that does not
+   * close onto it -- unless another dialog it led to (New proposal, All
+   * proposals) is open in its place.
+   */
+  const merged = currentJson?.status === "merged" && dialog === null;
   const dialogs = (
     <>
       {currentSummary !== null && (
@@ -1132,6 +1224,27 @@ export function useProposalsBar({
             setDecided([]);
           }}
           updating={updating}
+          portalContainer={portalContainer}
+        />
+      )}
+      {currentJson !== null && (
+        <MergedProposalDialog
+          open={merged}
+          displayName={currentJson.displayName}
+          continuedIn={
+            continuedIn !== null
+              ? { displayName: continuedIn.displayName }
+              : null
+          }
+          onOpenContinuation={() => {
+            if (continuedIn !== null) void openProposal(continuedIn.name);
+          }}
+          onNewProposal={() => openDialog("new")}
+          onShowAllProposals={() => {
+            void refresh();
+            openDialog("all");
+          }}
+          {...(siteUrl !== null ? { onGoToSite: () => go(siteUrl) } : {})}
           portalContainer={portalContainer}
         />
       )}
@@ -1195,10 +1308,6 @@ export function useProposalsBar({
    * A merged proposal is finished: said above the editor, with where to carry
    * on, before anyone types something that will not be kept.
    */
-  const continuedIn =
-    currentJson?.continuedIn != null
-      ? (all.find((p) => p.name === currentJson.continuedIn) ?? null)
-      : null;
   const restoreNotice: FloatingNoticeItem | null =
     restoreCode !== null && here !== null
       ? {
@@ -1219,31 +1328,7 @@ export function useProposalsBar({
           ),
         }
       : null;
-  const mergedNotice: FloatingNoticeItem | null =
-    currentJson?.status === "merged"
-      ? {
-          id: `merged:${currentJson.name}:${continuedIn?.name ?? ""}`,
-          label: "Published",
-          icon: <Check size={13} />,
-          content: (
-            <MergedProposalNotice
-              displayName={currentJson.displayName}
-              continuedIn={
-                continuedIn !== null
-                  ? { displayName: continuedIn.displayName }
-                  : null
-              }
-              onOpenContinuation={() => {
-                if (continuedIn !== null) void openProposal(continuedIn.name);
-              }}
-              onNewProposal={() => openDialog("new")}
-              {...(siteUrl !== null ? { onGoToSite: () => go(siteUrl) } : {})}
-            />
-          ),
-        }
-      : null;
-
-  const notices = [mergedNotice, restoreNotice, upgrade.notice].filter(
+  const notices = [restoreNotice, upgrade.notice].filter(
     (each): each is FloatingNoticeItem => each !== null,
   );
 

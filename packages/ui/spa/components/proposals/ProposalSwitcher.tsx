@@ -5,11 +5,13 @@ import {
   GitBranch,
   Globe,
   List,
+  Pencil,
   Plus,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
 import { useDismissOnOutsidePointer } from "../shell/useDismissOnOutsidePointer";
+import { Spinner } from "../designSystem/spinner";
 import type { ProposalSummary, StudioLocation } from "./types";
 
 /**
@@ -23,6 +25,10 @@ import type { ProposalSummary, StudioLocation } from "./types";
  *
  * Lists the OPEN proposals and nothing else; merged and closed ones are in
  * All proposals, which is one click further.
+ *
+ * In a proposal it also renames it: renaming is about the name this
+ * switcher shows, so it is here, beside it, rather than among the things to
+ * do with the proposal's changes in the Save/Publish menu.
  */
 export function ProposalSwitcher({
   location,
@@ -31,6 +37,9 @@ export function ProposalSwitcher({
   onOpenProposal,
   onNewProposal,
   onShowAllProposals,
+  onRename,
+  loading = false,
+  leaving = null,
   defaultOpen = false,
 }: {
   location: StudioLocation;
@@ -40,6 +49,15 @@ export function ProposalSwitcher({
   onOpenProposal: (name: string) => void;
   onNewProposal: () => void;
   onShowAllProposals: () => void;
+  /**
+   * Rename the proposal you are in. Not offered on the site, nor for an
+   * upgrade, which Val Build names after its kind.
+   */
+  onRename?: () => void;
+  /** See `TopBarProposals.loading`. */
+  loading?: boolean;
+  /** See `TopBarProposals.leaving`: said here, and nothing more to choose. */
+  leaving?: string | null;
   /** For stories: show the menu open. */
   defaultOpen?: boolean;
 }) {
@@ -47,6 +65,9 @@ export function ProposalSwitcher({
   const containerRef = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setIsOpen(false), []);
   useDismissOnOutsidePointer(containerRef, isOpen, close);
+  // Not yet known whether this is the site or a proposal.
+  const unknown = loading && location.kind === "site";
+  const busy = loading || leaving !== null;
   useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -67,20 +88,29 @@ export function ProposalSwitcher({
         type="button"
         aria-haspopup="menu"
         aria-expanded={isOpen}
+        aria-busy={busy || undefined}
         aria-label={
-          location.kind === "proposal"
-            ? `In the proposal ${location.proposal.displayName}. Switch`
-            : "On the site. Switch to a proposal"
+          leaving !== null
+            ? leaving
+            : unknown
+              ? "Finding out where this Studio is"
+              : location.kind === "proposal"
+                ? `In the proposal ${location.proposal.displayName}. Switch`
+                : "On the site. Switch to a proposal"
         }
+        disabled={leaving !== null || unknown}
         onClick={() => setIsOpen((open) => !open)}
         className={cn(
           "inline-flex h-full w-full max-w-full md:max-w-[16rem] items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium",
+          "disabled:cursor-progress",
           location.kind === "proposal"
             ? "border-border-proposal bg-bg-proposal text-fg-on-proposal hover:bg-bg-proposal-hover"
             : "border-border-float text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
         )}
       >
-        {location.kind === "proposal" ? (
+        {busy ? (
+          <Spinner size={14} />
+        ) : location.kind === "proposal" ? (
           <ProposalIcon
             proposal={location.proposal}
             size={14}
@@ -90,11 +120,17 @@ export function ProposalSwitcher({
           <Globe size={14} className="shrink-0" />
         )}
         <span className="truncate">
-          {location.kind === "proposal"
-            ? location.proposal.displayName
-            : "The site"}
+          {leaving !== null
+            ? leaving
+            : unknown
+              ? "Loading…"
+              : location.kind === "proposal"
+                ? location.proposal.displayName
+                : "The site"}
         </span>
-        <ChevronDown size={13} className="shrink-0 opacity-70" />
+        {leaving === null && !unknown && (
+          <ChevronDown size={13} className="shrink-0 opacity-70" />
+        )}
       </button>
       {isOpen && (
         <div
@@ -136,6 +172,15 @@ export function ProposalSwitcher({
             ))
           )}
           <div className="my-1 border-t border-border-float" />
+          {location.kind === "proposal" &&
+            !location.proposal.upgrade &&
+            onRename !== undefined && (
+              <MenuRow
+                icon={<Pencil size={14} />}
+                label={`Rename “${location.proposal.displayName}”…`}
+                onClick={choose(onRename)}
+              />
+            )}
           <MenuRow
             icon={<Plus size={14} />}
             label="New proposal"
@@ -167,11 +212,14 @@ export function ProposalLocationChip({
   location,
   open,
   onClick,
+  busy = false,
 }: {
   location: StudioLocation;
   /** Whether its sheet is the one open. */
   open: boolean;
   onClick: () => void;
+  /** Loading, or on the way to another address: a spinner for the icon. */
+  busy?: boolean;
 }) {
   return (
     <button
@@ -191,7 +239,9 @@ export function ProposalLocationChip({
           : "border-border-float text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary",
       )}
     >
-      {location.kind === "proposal" ? (
+      {busy ? (
+        <Spinner size={16} />
+      ) : location.kind === "proposal" ? (
         <ProposalIcon
           proposal={location.proposal}
           size={15}

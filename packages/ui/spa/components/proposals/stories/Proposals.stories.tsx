@@ -29,6 +29,35 @@ export default meta;
 /** On the site, as every project with proposals starts: the switcher says so. */
 export const OnTheSite = shell({ location: { kind: "site" } });
 
+/*
+ * LOADING. At an address it has not been at before, the Studio learns it is
+ * in a proposal from `/stat`; until then it says it is loading rather than
+ * showing the site's switcher and Publish. Next time at the same address it
+ * remembers, and starts in the proposal.
+ */
+export const Loading = shell({
+  location: { kind: "site" },
+  loading: true,
+  selectionId: mockSelectionIds.home,
+});
+
+/** In a proposal, before its own details are read: the name it had last time. */
+export const LoadingTheProposal = shell({
+  location: inProposal({ unsaved: 0 }),
+  loading: true,
+  selectionId: mockSelectionIds.home,
+});
+
+/**
+ * A proposal chosen in the switcher: the browser goes to its address, through
+ * sign-in, and this page stays on screen until then -- saying so.
+ */
+export const OpeningAProposal = shell({
+  location: { kind: "site" },
+  leaving: "Opening “New pricing page”…",
+  selectionId: mockSelectionIds.home,
+});
+
 /** The switcher, open: the site, the open proposals, and the two ways on. */
 export const SwitcherOpen = shell({
   location: { kind: "site" },
@@ -48,6 +77,25 @@ export const SwitcherWithNoProposals = shell({
  * done, the same button is Publish.
  */
 export const InAProposal = shell({ location: inProposal() });
+
+/**
+ * The project's own proposal colour (`theme.proposal` in settings): here a
+ * cyan, for a project whose accent is violet. The whole proposal chrome
+ * follows it, in both modes.
+ */
+export const CustomProposalColour = shell({
+  location: inProposal(),
+  selectionId: mockSelectionIds.home,
+  proposalColor: "#0891b2",
+  menuOpen: true,
+});
+
+export const CustomProposalColourLight = shell({
+  location: inProposal(),
+  selectionId: mockSelectionIds.home,
+  proposalColor: "#0891b2",
+  theme: "light",
+});
 
 /** Everything saved: Save has become Publish. */
 export const InAProposalAllSaved = shell({

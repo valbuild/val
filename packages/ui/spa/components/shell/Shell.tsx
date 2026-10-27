@@ -59,6 +59,7 @@ import {
   ProjectName,
   PublishButton,
   PublishState,
+  PublishPlaceholder,
   TopBar,
   type TopBarProposals,
 } from "./TopBar";
@@ -1335,6 +1336,8 @@ export function Shell({
           className="h-9"
         />
       )
+    ) : proposals?.loading ? (
+      <PublishPlaceholder className="h-9" />
     ) : (
       (publishSlot ?? (
         <PublishButton

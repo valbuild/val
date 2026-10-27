@@ -53,6 +53,16 @@ import { Spinner } from "../designSystem/spinner";
  */
 export type TopBarProposals = {
   location: StudioLocation;
+  /**
+   * Still finding out where this Studio is (before `/stat` answers, at an
+   * address it has not been at before), or which proposal it is in (before
+   * the proposal's own read). The switcher says it is loading, and on the
+   * site Publish waits: at a proposal's address the site's Publish would be
+   * taken back a moment later.
+   */
+  loading?: boolean;
+  /** On the way to another address: "Opening “Spring campaign”…". */
+  leaving?: string | null;
   /** Open proposals, for the switcher. */
   open: ProposalSummary[];
   onOpenSite: () => void;
@@ -304,6 +314,9 @@ export function TopBar({
       onOpenProposal={proposals.onOpenProposal}
       onNewProposal={proposals.onNewProposal}
       onShowAllProposals={proposals.onShowAllProposals}
+      onRename={proposals.onRename}
+      loading={proposals.loading}
+      leaving={proposals.leaving ?? null}
       defaultOpen={proposals.defaultSwitcherOpen}
     />
   );
@@ -319,7 +332,6 @@ export function TopBar({
               onPublish={proposals.onPublish}
               saveBlockedBy={proposals.saveBlockedBy}
               onCompare={proposals.onCompare}
-              onRename={proposals.onRename}
               onCopyLink={proposals.onCopyLink}
               onClose={proposals.onClose}
               defaultMenuOpen={proposals.defaultMenuOpen}
@@ -412,6 +424,9 @@ export function TopBar({
           location={proposals.location}
           open={openPanel === "proposals"}
           onClick={() => onTogglePanel("proposals")}
+          busy={
+            proposals.loading === true || (proposals.leaving ?? null) !== null
+          }
         />
       )}
       {/* On a phone Search sits on the right, beside the account. */}
@@ -470,17 +485,21 @@ export function TopBar({
               />
             </span>
             <span data-val-tour="publish" className="inline-flex">
-              {inProposal !== null
-                ? // In a proposal, Save -- then Publish -- is where Publish is
-                  // on the site.
-                  inProposal.action
-                : (publishSlot ?? (
-                    <PublishButton
-                      pendingChanges={pendingChanges}
-                      onPublish={onPublish}
-                      publishState={publishState}
-                    />
-                  ))}
+              {inProposal !== null ? (
+                // In a proposal, Save -- then Publish -- is where Publish is
+                // on the site.
+                inProposal.action
+              ) : proposals?.loading ? (
+                <PublishPlaceholder />
+              ) : (
+                (publishSlot ?? (
+                  <PublishButton
+                    pendingChanges={pendingChanges}
+                    onPublish={onPublish}
+                    publishState={publishState}
+                  />
+                ))
+              )}
             </span>
             <BarDivider />
           </>
@@ -946,6 +965,22 @@ function PreviewMenuItem({
     <button type="button" role="menuitem" onClick={onClick} className={shared}>
       {inner}
     </button>
+  );
+}
+
+/**
+ * Where Publish goes, while it is not known yet whether this is the site or a
+ * proposal: the same size, so nothing moves when the real one arrives.
+ */
+export function PublishPlaceholder({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-block h-8 w-[5.5rem] animate-pulse rounded-md bg-bg-float-raised",
+        className,
+      )}
+    />
   );
 }
 

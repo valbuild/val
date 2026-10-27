@@ -7,7 +7,6 @@ import {
   GitCompare,
   Link2,
   Package,
-  Pencil,
   Save,
   Upload,
   X,
@@ -388,9 +387,9 @@ const CARET_TONES: Record<Tone, string> = {
  * Publish saves first. Shaped like `PreviewButton` beside it.
  *
  * The same menu holds what used to be the proposal's own `...` menu beside
- * the switcher -- compare, rename, copy its link, close -- below the steps:
- * one place for everything to do with this proposal, rather than two menus
- * a few centimetres apart.
+ * the switcher -- compare, copy its link, close -- below the steps: one
+ * place for what is done with this proposal, rather than two menus a few
+ * centimetres apart. Rename is the switcher's, beside the name it changes.
  *
  * At a published proposal's address there is nothing left to do, and the
  * main half says "Published"; the caret keeps the rest.
@@ -402,7 +401,6 @@ export function ProposalActionButton({
   onPublish,
   saveBlockedBy,
   onCompare,
-  onRename,
   onCopyLink,
   onClose,
   defaultMenuOpen = false,
@@ -415,7 +413,6 @@ export function ProposalActionButton({
   saveBlockedBy?: { errors: number; onShow: () => void };
   /** Absent: not offered. */
   onCompare?: () => void;
-  onRename: () => void;
   onCopyLink: () => void;
   onClose: () => void;
   defaultMenuOpen?: boolean;
@@ -434,7 +431,7 @@ export function ProposalActionButton({
   }, [isOpen]);
 
   const merged = location.proposal.status === "merged";
-  // Val Build names an upgrade after its kind, and closing one discards it.
+  // Closing an upgrade discards it.
   const upgrade = location.proposal.upgrade === true;
   const action = merged
     ? "publish"
@@ -627,11 +624,6 @@ export function ProposalActionButton({
               onClick={choose(onCompare)}
             >
               Compare with the site
-            </MenuItem>
-          )}
-          {!upgrade && (
-            <MenuItem icon={<Pencil size={14} />} onClick={choose(onRename)}>
-              Rename…
             </MenuItem>
           )}
           <MenuItem icon={<Link2 size={14} />} onClick={choose(onCopyLink)}>

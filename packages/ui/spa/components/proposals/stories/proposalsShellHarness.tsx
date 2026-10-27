@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
-import { ArrowUpCircle, Check } from "lucide-react";
+import { themeCustomProperties } from "@valbuild/shared/internal";
+import { ArrowUpCircle } from "lucide-react";
 import type { FloatingNoticeItem } from "../../shell/FloatingNotices";
 import { Shell } from "../../shell/Shell";
 import { mockShellData } from "../../shell/mockShellData";
@@ -16,7 +17,7 @@ import {
 import { CloseProposalDialog } from "../CloseProposalDialog";
 import { RenameProposalDialog } from "../RenameProposalDialog";
 import { AllProposalsDialog } from "../ProposalsList";
-import { MergedProposalNotice } from "../MergedProposalNotice";
+import { MergedProposalDialog } from "../MergedProposalDialog";
 import {
   PublishProposalDialog,
   type MergeCheckView,
@@ -196,6 +197,12 @@ export type HarnessProps = {
   merged?: { continuedIn: string | null };
   /** The floating notices, dismissed: folded into the status bar. */
   noticesDismissed?: boolean;
+  /** Where the Studio is, or which proposal, still being read. */
+  loading?: boolean;
+  /** On the way to another address. */
+  leaving?: string;
+  /** The project's own proposal colour, from `theme.proposal`. */
+  proposalColor?: string;
 };
 
 /**
@@ -219,6 +226,9 @@ export function ProposalsShell({
   updates,
   merged,
   noticesDismissed = false,
+  loading = false,
+  leaving,
+  proposalColor,
 }: HarnessProps) {
   const [theme, setTheme] = useState(initialTheme);
   const [location, setLocation] = useState<StudioLocation>(initialLocation);
@@ -314,6 +324,8 @@ export function ProposalsShell({
       : location;
   const handlers: TopBarProposals = {
     location: barLocation,
+    loading,
+    leaving: leaving ?? null,
     ...(validationErrors > 0
       ? {
           saveBlockedBy: {
@@ -363,26 +375,7 @@ export function ProposalsShell({
    * upgrade; on the site, an upgrade under way. Ids as the app makes them.
    */
   const floatingNotices: FloatingNoticeItem[] = [];
-  if (current !== null && merged !== undefined) {
-    floatingNotices.push({
-      id: `merged:${current.name}`,
-      label: "Published",
-      icon: <Check size={13} />,
-      content: (
-        <MergedProposalNotice
-          displayName={current.displayName}
-          continuedIn={
-            merged.continuedIn !== null
-              ? { displayName: merged.continuedIn }
-              : null
-          }
-          onOpenContinuation={action("open the continuation")}
-          onNewProposal={() => setDialog("new")}
-          onGoToSite={() => setLocation({ kind: "site" })}
-        />
-      ),
-    });
-  } else if (current !== null && upgrade !== undefined) {
+  if (current !== null && upgrade !== undefined && merged === undefined) {
     const contentChanges =
       location.kind === "proposal"
         ? location.proposal.changes + location.unsaved
@@ -446,6 +439,9 @@ export function ProposalsShell({
         mode="http"
         proposals={handlers}
         floatingNotices={floatingNotices}
+        {...(proposalColor !== undefined
+          ? { themeStyle: themeCustomProperties({ proposal: proposalColor }) }
+          : {})}
         {...(noticesDismissed
           ? { initialDismissedNotices: floatingNotices.map((each) => each.id) }
           : {})}
@@ -470,6 +466,22 @@ export function ProposalsShell({
             setDialog(null);
             setLocation({ kind: "site" });
           }}
+        />
+      )}
+      {current !== null && merged !== undefined && (
+        <MergedProposalDialog
+          // As `useProposalsBar`: unless a dialog it led to is open instead.
+          open={dialog === null}
+          displayName={current.displayName}
+          continuedIn={
+            merged.continuedIn !== null
+              ? { displayName: merged.continuedIn }
+              : null
+          }
+          onOpenContinuation={action("open the continuation")}
+          onNewProposal={() => setDialog("new")}
+          onShowAllProposals={() => setDialog("all")}
+          onGoToSite={() => setLocation({ kind: "site" })}
         />
       )}
       <NewProposalDialog

@@ -41,7 +41,6 @@ const handlers = () => ({
   onSave: jest.fn(),
   onBuild: jest.fn(),
   onPublish: jest.fn(),
-  onRename: jest.fn(),
   onCopyLink: jest.fn(),
   onClose: jest.fn(),
 });
@@ -164,7 +163,7 @@ describe("ProposalActionButton", () => {
 });
 
 describe("the proposal's acts, in the same menu", () => {
-  test("compare, rename, copy its link and close sit below the steps", () => {
+  test("compare, copy its link and close sit below the steps", () => {
     const h = handlers();
     render(
       <ProposalActionButton
@@ -181,7 +180,6 @@ describe("the proposal's acts, in the same menu", () => {
       "Save 3 changes",
       "Publish to the site",
       "Compare with the site",
-      "Rename…",
       "Copy link",
       "Close…",
     ]);
@@ -189,7 +187,7 @@ describe("the proposal's acts, in the same menu", () => {
     expect(h.onClose).toHaveBeenCalledTimes(1);
   });
 
-  test("an upgrade is discarded, and not renamed", () => {
+  test("an upgrade is discarded", () => {
     render(
       <ProposalActionButton
         location={location({
@@ -200,7 +198,6 @@ describe("the proposal's acts, in the same menu", () => {
         defaultMenuOpen
       />,
     );
-    expect(screen.queryByRole("menuitem", { name: /Rename/ })).toBeNull();
     expect(
       screen.getByRole("menuitem", { name: /Discard upgrade/ }),
     ).toBeTruthy();

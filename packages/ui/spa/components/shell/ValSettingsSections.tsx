@@ -129,6 +129,7 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
 
   const themePath = sourcePathOfItem(moduleFilePath, "theme");
   const accentPath = sourcePathOfItem(themePath, "accent");
+  const proposalColourPath = sourcePathOfItem(themePath, "proposal");
   const radiusPath = sourcePathOfItem(themePath, "radius");
   const modePath = sourcePathOfItem(themePath, "mode");
   const logoPath = sourcePathOfItem(themePath, "logo");
@@ -145,9 +146,11 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
     "data" in themeSection &&
     !!themeSection.data;
   const accentValue = useThemeStringField(accentPath);
+  const proposalColourValue = useThemeStringField(proposalColourPath);
   const radiusValue = useThemeRadiusField(radiusPath);
   const modeValue = useThemeModeField(modePath);
   const accentErrors = useValidationErrors(accentPath);
+  const proposalColourErrors = useValidationErrors(proposalColourPath);
   const radiusErrors = useValidationErrors(radiusPath);
   const modeErrors = useValidationErrors(modePath);
   const writeThemeSetting = useWriteThemeSetting(moduleFilePath);
@@ -212,12 +215,14 @@ function Sections({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
               <ThemeSettingsFields
                 value={{
                   accent: accentValue,
+                  proposal: proposalColourValue,
                   radius: radiusValue,
                   mode: modeValue,
                 }}
                 onChange={writeThemeSetting}
                 errors={{
                   accent: accentErrors[0]?.message,
+                  proposal: proposalColourErrors[0]?.message,
                   radius: radiusErrors[0]?.message,
                   mode: modeErrors[0]?.message,
                 }}

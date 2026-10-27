@@ -14,6 +14,7 @@ describe("readThemeSettings", () => {
       }),
     ).toEqual({
       accent: "#2563eb",
+      proposal: null,
       radius: "tight",
       mode: "light",
       logo: null,
@@ -25,6 +26,7 @@ describe("readThemeSettings", () => {
     // two.
     expect(readThemeSettings({ theme: { accent: "#2563eb" } })).toEqual({
       accent: "#2563eb",
+      proposal: null,
       radius: null,
       mode: null,
       logo: null,
@@ -35,6 +37,13 @@ describe("readThemeSettings", () => {
     expect(
       readThemeSettings({ theme: { accent: null, radius: null, mode: null } }),
     ).toEqual(NO_THEME_SETTINGS);
+  });
+
+  test("the proposal colour is read, and an empty one is unset", () => {
+    expect(readThemeSettings({ theme: { proposal: "#0891b2" } }).proposal).toBe(
+      "#0891b2",
+    );
+    expect(readThemeSettings({ theme: { proposal: " " } }).proposal).toBe(null);
   });
 
   test("an empty accent is unset, not a colour", () => {
