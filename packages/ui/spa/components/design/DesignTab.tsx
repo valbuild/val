@@ -188,6 +188,16 @@ export function DesignTab({ name }: { name: string }) {
   // with the next message (`UseAIOptions.design.pointedAt`).
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<PickedElement | null>(null);
+  // Esc stops Select from here too: right after pressing it the focus is in
+  // this tab, and the page hears its own keys only once it has been clicked.
+  useEffect(() => {
+    if (!picking) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPicking(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [picking]);
   const [frameStatus, setFrameStatus] =
     useState<CanvasPreviewStatus>("connecting");
   const [enableKey, setEnableKey] = useState(0);
