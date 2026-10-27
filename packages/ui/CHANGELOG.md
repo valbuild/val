@@ -1,5 +1,24 @@
 # @valbuild/ui
 
+## 0.150.8
+
+### Patch Changes
+
+- [#960](https://github.com/valbuild/val/pull/960) [`5960071`](https://github.com/valbuild/val/commit/59600711af792f489b050ab47bcdc103d7d8c028) Thanks [@freekh](https://github.com/freekh)! - The design tab can point the assistant at anything on the page. Hold ⌥ (Alt) and click any element in the preview, or press **Select** first: the element under the pointer is outlined and named, and the one picked is shown above the assistant and sent with the next message. A **Pages** menu shows any of the site's pages in the preview, and **Publish** publishes the proposal from the tab, the same way its own Studio does. The checks are now a single quiet status beside the proposal's name, the history is behind a button, and the changed files are listed in the Changes view instead of a panel of their own.
+
+  The picking runs in the proposal's own page, through the canvas bridge in `@valbuild/next` and `@valbuild/tanstack`, so a site needs those packages at this version for picking to work in its design tab.
+
+- [#968](https://github.com/valbuild/val/pull/968) [`2a16ffa`](https://github.com/valbuild/val/commit/2a16ffacd1c77bccaa6ccf5f8754b1f9c574d4f2) Thanks [@freekh](https://github.com/freekh)! - The assistant can search, format and typecheck a proposal's code, and change content in the design tab.
+
+  - **`search_code`** finds every line of the project that matches some text or a regular expression, with its file and line number, so the assistant finds where something is rendered before reading whole files.
+  - **`format_files`** formats the proposal's files with Prettier and the project's own config (`.prettierrc`, `.prettierrc.json` or `package.json`'s `prettier`), and stages the ones that change. It runs in the browser, loaded the first time it is used, because the platform's server cannot run Prettier. A config it cannot read — JavaScript, YAML, plugins or per-file overrides — is reported rather than guessed at.
+  - **`typecheck`** checks the proposal's code with TypeScript and answers the type errors the proposal adds — not the ones the site already has. The assistant runs it after changing code and before building. In the design tab its result is the Types check.
+  - **`create_patch` in the design tab** writes content into the module's file in the proposal and stages it with the code, so a field the assistant adds to a schema is filled in the same change and built with it.
+
+- [#963](https://github.com/valbuild/val/pull/963) [`f7d56ec`](https://github.com/valbuild/val/commit/f7d56ecaed8567c0ea2889bbf1ba64844356cb1a) Thanks [@freekh](https://github.com/freekh)! - The assistant's chats in a proposal are shared with everyone on the project. A chat started while you are in a proposal belongs to it: anyone on the project who opens the proposal sees it in the chat list, with who is in it, and can read it and keep asking. Messages are named once more than one person has written, and the chat header has a link to the chat. One question runs at a time: if someone else's question is running, what you write is sent when its answer is done. Chats started on the site stay your own.
+
+  It needs the content server that knows about proposal chats; with an older one, chats work as before.
+
 ## 0.150.5
 
 ### Patch Changes
