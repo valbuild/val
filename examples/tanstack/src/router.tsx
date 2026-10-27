@@ -1,3 +1,4 @@
+import "@valbuild/tanstack/autotag";
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
 import { NotFound } from "./components/NotFound";
