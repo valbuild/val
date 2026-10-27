@@ -503,7 +503,7 @@ describe("the proposals API, for the Studio", () => {
     ]);
   });
 
-  test("staged files are read anywhere, and written and built only by the proposal's own server", async () => {
+  test("staged files are read anywhere, and written and built by the proposal's own server or the site's", async () => {
     const own = ops(proposal("save-2"));
     await own.proposalsApi(`/${NAME}/files`, { method: "GET" }, "p");
     await own.proposalsApi(
@@ -523,22 +523,31 @@ describe("the proposals API, for the Studio", () => {
     ]);
     sent.length = 0;
 
+    // A proposal's address writes no other proposal's files.
     const OTHER = "f".repeat(20);
-    for (const [o, path] of [
-      [own, `/${OTHER}/files`],
-      [own, `/${OTHER}/build`],
-      [ops(undefined), `/${NAME}/files`],
-      [ops(undefined), `/${NAME}/build`],
-    ] as const) {
-      const answer = await o.proposalsApi(
+    for (const path of [`/${OTHER}/files`, `/${OTHER}/build`]) {
+      const answer = await own.proposalsApi(
         path,
         { method: "POST", body: "{}" },
         "p",
       );
       expect([path, answer.status]).toEqual([path, 403]);
-      expect(JSON.parse(answer.body).message).toMatch(/in (a|the) proposal/);
+      expect(JSON.parse(answer.body).message).toMatch(/in the proposal/);
     }
     expect(sent).toEqual([]);
+
+    // The site's server writes and builds any of them: the design tab, which
+    // the site's build serves so that a build broken in the proposal cannot
+    // take its tools down (valbuild/home docs/design-tab.md, step 2).
+    const site = ops(undefined);
+    for (const path of [`/${NAME}/files`, `/${NAME}/build`]) {
+      await site.proposalsApi(path, { method: "POST", body: "{}" }, "p");
+    }
+    expect(sent.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      `POST /v1/org/project/proposals/${NAME}/files`,
+      `POST /v1/org/project/proposals/${NAME}/build`,
+    ]);
+    sent.length = 0;
     // Reading another proposal's files is reading it, as GET of it is.
     await ops(undefined).proposalsApi(`/${NAME}/files`, { method: "GET" }, "p");
     expect(sent).toHaveLength(1);

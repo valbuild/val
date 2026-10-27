@@ -89,6 +89,7 @@ import { useProjectLocales } from "./useProjectLocales";
 import {
   CODE_TOOLS,
   codeToolsPromptSection,
+  designSystemPrompt,
   isCodeTool,
   runCodeTool,
 } from "../proposals/proposalCode";
@@ -619,7 +620,32 @@ const ALL_TOOLS: AITool[] = [
   GET_RECORD_KEYS_TOOL,
 ];
 
+/**
+ * The tools the design tab gives the assistant besides the code tools: the
+ * ones that READ content and talk to the person. Nothing that writes content
+ * or moves the Studio: the tab is about a proposal's code, it is served by the
+ * site's build, and the content tools act on the site's content.
+ */
+const DESIGN_TOOLS: AITool[] = [
+  GET_ALL_SCHEMA_TOOL,
+  GET_SOURCE_TOOL,
+  SEARCH_CONTENT_TOOL,
+  GET_CURRENT_CONTEXT_TOOL,
+  SET_SESSION_NAME_TOOL,
+  ASK_USER_QUESTION_TOOL,
+  COUNT_ENTRIES_TOOL,
+  GET_RECORD_KEYS_TOOL,
+];
+const DESIGN_TOOL_NAMES = new Set(DESIGN_TOOLS.map((tool) => tool.name));
+
 export type UseAIOptions = {
+  /**
+   * The design tab's proposal (valbuild/home `docs/design-tab.md`): the code
+   * tools act on it rather than on the proposal this Studio is open in, which
+   * in the tab is none -- it is served by the site's build -- and only the
+   * tools that read content are offered with them.
+   */
+  design?: { proposal: { name: string; displayName: string } };
   /** Initial session id to load on mount (e.g. read from URL). When null, the chat starts in an unborn state. */
   initialSessionId?: string | null;
   /** Called when the session transitions from unborn → born (first send) or when an existing session is loaded. */
@@ -648,10 +674,17 @@ export function useAI(
    * proposal this Studio is in, its build, and the two APIs they read. Refs,
    * because the message handler below is subscribed once.
    */
-  const currentProposal = useCurrentProposal();
+  const design = opts?.design ?? null;
+  const studioProposal = useCurrentProposal();
+  const currentProposal = design?.proposal ?? studioProposal;
   const currentProposalRef = useRef(currentProposal);
   currentProposalRef.current = currentProposal;
-  const proposalBuild = useProposalBuild().build;
+  const designRef = useRef(design);
+  designRef.current = design;
+  const proposalBuild = useProposalBuild(
+    undefined,
+    design?.proposal.name,
+  ).build;
   const proposalBuildRef = useRef(proposalBuild);
   proposalBuildRef.current = proposalBuild;
   const codeClients = useMemo(
@@ -1035,7 +1068,27 @@ export function useAI(
             askQuestions,
           );
         }
-        if (message.name === "ask_user_question") {
+        if (
+          designRef.current !== null &&
+          !DESIGN_TOOL_NAMES.has(message.name) &&
+          !isCodeTool(message.name)
+        ) {
+          // Only the tools offered are run: a call to another -- from an
+          // older turn, or a model that reached past its list -- would change
+          // the SITE's content from a tab that says content is not changed
+          // here.
+          sendWsMessage({
+            type: "ai_tool_result",
+            toolCallId: message.toolCallId,
+            result: {
+              success: false,
+              error:
+                "That tool is not available in the design tab: content is edited in the proposal's own Studio. Change code with write_files.",
+            },
+            isError: true,
+          });
+          chatRef.current?.errorToolCall(message.id, message.toolCallId);
+        } else if (message.name === "ask_user_question") {
           pendingQuestionsRef.current.set(message.toolCallId, message.id);
           // Do NOT send ai_tool_result. Wait for the user to submit or cancel
           // via answerToolQuestions / cancelToolQuestion.
@@ -2493,7 +2546,12 @@ export function useAI(
             // refused. Null means AI is off, which is checked before we get
             // here.
             model: chatModel,
-            systemPrompt: `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
+            systemPrompt:
+              designRef.current !== null
+                ? `${designSystemPrompt(designRef.current.proposal.displayName)}${assistantSettingsPromptSection(
+                    valReads.getAssistantSettings(),
+                  )}`
+                : `You are a helpful assistant embedded in Val, a content management system. You help non-technical content editors read, understand, and update their content.
 
 ## Who you are talking to
 Users are content editors — they are NOT developers. Never use technical terms like "patch", "JSON", "schema", "module", or "RFC 6902". Explain everything in plain language. Refer to content files by their friendly name or path (e.g. "Blog Posts").
@@ -2576,9 +2634,16 @@ Do not describe what you will do unless you do it for clarification — just do 
 - This is a CMS, it is not a chat. The intention of user is to find and edit content. If user asks existential questions, interpret them as a technical question. If for example they ask "who they are", they probably mean "what is my profile". If they ask "what can you do?", they probably want to know what kind of content changes you can make or what information you can provide about their content. Always interpret vague questions in a way that assumes the user wants to understand or change their content, rather than asking about the assistant itself.
 - Confirm changes in plain language after every successful update.
 - If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
-              valReads.getAssistantSettings(),
-            )}${codeToolsPromptSection(currentProposal !== null)}`,
-            tools: [...ALL_TOOLS, ...CODE_TOOLS],
+                    valReads.getAssistantSettings(),
+                  )}${codeToolsPromptSection(
+                    currentProposalRef.current !== null
+                      ? { kind: "proposal" }
+                      : { kind: "site" },
+                  )}`,
+            tools:
+              designRef.current !== null
+                ? [...DESIGN_TOOLS, ...CODE_TOOLS]
+                : [...ALL_TOOLS, ...CODE_TOOLS],
           },
         ],
       };

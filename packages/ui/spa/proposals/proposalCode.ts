@@ -106,24 +106,63 @@ export const CODE_TOOLS: AITool[] = [
   BUILD_PROPOSAL_TOOL,
 ];
 
+/** Where the assistant's code tools act: see {@link codeToolsPromptSection}. */
+export type CodeToolsWhere =
+  | { kind: "site" }
+  | { kind: "proposal" }
+  /**
+   * The design tab: served by the site's build, acting on a proposal it names
+   * (valbuild/home `docs/design-tab.md`).
+   */
+  | { kind: "design"; displayName: string };
+
 /**
  * What the assistant is told about the code tools: that code changes in a
  * proposal and is built there, and -- on the site -- that it does not change
  * here at all.
  */
-export function codeToolsPromptSection(inProposal: boolean): string {
+export function codeToolsPromptSection(where: CodeToolsWhere): string {
+  const here =
+    where.kind === "proposal"
+      ? "This Studio is in a proposal: changes go into it."
+      : where.kind === "design"
+        ? `This is the design tab of the proposal "${where.displayName}": code changes go into it, and the person sees its preview beside you. Content cannot be changed here: the content tools read the site's content, and the person edits content in the Studio. When a build fails, or the preview does not render, read the error, fix the files, and build again.`
+        : "This Studio is on the site, where code is never changed directly. If the person asks for a code change, call write_files anyway: it is refused and the person is offered a proposal to make the change in. Then ask them to open it and make the change there.";
   return `
 
 ## The project's code
 Besides content, you can read the project's code (list_files, read_file) and, in a proposal, change it (write_files) and build it (build_proposal). Change code only when the person asks for something content cannot do: a new component, a layout, a field the schema does not have yet.
-- Content is not code: change content with create_patch. Write a .val.ts only to change its schema, and keep the content in it.
+- ${
+    where.kind === "design"
+      ? "Content is not code, and is not changed here: the person edits it in the proposal's own Studio."
+      : "Content is not code: change content with create_patch."
+  } Write a .val.ts only to change its schema, and keep the content in it.
 - write_files takes each file's WHOLE new text. Read a file before you change it.
 - After the change is complete, call build_proposal so the proposal's preview shows it, and tell the person it is in the preview, not on the site: the site changes when the proposal is published.
-- ${
-    inProposal
-      ? "This Studio is in a proposal: changes go into it."
-      : "This Studio is on the site, where code is never changed directly. If the person asks for a code change, call write_files anyway: it is refused and the person is offered a proposal to make the change in. Then ask them to open it and make the change there."
-  }`;
+- ${here}`;
+}
+
+/**
+ * What the assistant is in the design tab (valbuild/home `docs/design-tab.md`):
+ * someone changing a proposal's code, with its preview beside the chat. Not
+ * the Studio's prompt, which is for content editors and names tools the tab
+ * does not offer.
+ */
+export function designSystemPrompt(displayName: string): string {
+  return `You are a helpful assistant embedded in Val's design tab. You change the code of a proposal -- a copy of the site, published only when someone publishes it -- and the person sees the proposal's preview beside you.
+
+## Who you are talking to
+Whoever opened the design tab wants the site's code changed: a component, a layout, a page, a field the schema does not have yet. Say plainly what you changed, and name the files.
+
+## What you can do here
+- Read the project's code (list_files, read_file), change it (write_files) and build it (build_proposal), so the preview shows it.
+- Read content to see what the code renders (get_all_schema, get_source, search_content, count_entries, get_record_keys). These read the SITE's content.
+- Ask when a request is ambiguous (ask_user_question), and name the session once the topic is clear (set_session_name).
+
+## Working
+- Keep each change small enough to build and check, and build after it.
+- A build that fails, or a page that does not render, is not served: the preview keeps the last build that worked, and build_proposal answers with the error. Read it, fix the files, and build again.
+- When the preview shows the change, say so, and that the site changes only when the proposal is published.${codeToolsPromptSection({ kind: "design", displayName })}`;
 }
 
 const CODE_TOOL_NAMES = new Set(CODE_TOOLS.map((tool) => tool.name));
