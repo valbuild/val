@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 // FIRST, and it must stay first: see the note in `testPolyfills`.
 import "../../stores/react/testPolyfills";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import type { ProposalUpgrade } from "../../proposals/proposalsClient";
 import { UpgradeProposalNotice } from "./UpgradeProposalNotice";
 
@@ -41,30 +41,43 @@ test("names the Val it upgrades to, by the site's framework binding", () => {
   expect(screen.getByText("And 2 more packages")).toBeTruthy();
 });
 
-test("Publish updates the site, and says which", () => {
-  const onPublish = jest.fn();
+test("Publish is the top bar's: the notice says which site it updates, and links the checks", () => {
   render(
     <UpgradeProposalNotice
       upgrade={upgrade()}
       siteName="quiet-harbor-24"
-      onPublish={onPublish}
       checksHref="https://admin.val.build/~/acme/quiet-harbor-24/updates/p"
     />,
   );
-  fireEvent.click(
-    screen.getByRole("button", { name: "Publish to update quiet-harbor-24" }),
-  );
-  expect(onPublish).toHaveBeenCalledTimes(1);
+  expect(
+    screen.getByText(/press Publish to update quiet-harbor-24/),
+  ).toBeTruthy();
+  // One Publish on the screen, in the bar, rather than two for one act.
+  expect(screen.queryByRole("button", { name: /Publish/ })).toBeNull();
   expect(
     screen.getByRole("link", { name: /See the checks in Val Build/ }),
   ).toBeTruthy();
+});
+
+test("content edited at the upgrade's address is said, not denied", () => {
+  render(<UpgradeProposalNotice upgrade={upgrade()} contentChanges={2} />);
+  expect(screen.queryByText(/no content changes/)).toBeNull();
+  expect(screen.getByText(/It also holds 2 content changes/)).toBeTruthy();
+});
+
+test("nothing to upgrade says so", () => {
+  render(
+    <UpgradeProposalNotice
+      upgrade={upgrade({ state: "nothing", changes: [] })}
+    />,
+  );
+  expect(screen.getByText("There is nothing to upgrade")).toBeTruthy();
 });
 
 test("nothing to publish while Val Build works it out", () => {
   render(
     <UpgradeProposalNotice
       upgrade={upgrade({ state: "computing", changes: [] })}
-      onPublish={() => {}}
     />,
   );
   expect(

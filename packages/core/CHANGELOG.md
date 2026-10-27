@@ -1,5 +1,11 @@
 # @valbuild/core
 
+## 0.150.2
+
+### Patch Changes
+
+- [#944](https://github.com/valbuild/val/pull/944) [`155a079`](https://github.com/valbuild/val/commit/155a0792c2a437a1cbcdd6342131999be70e0d70) Thanks [@freekh](https://github.com/freekh)! - A TanStack splat route now has a page of its own. `src/routes/docs.$.tsx` serves `/docs` as well as everything under it, the way TanStack Router matches it, and `/docs` is now a valid key in its Val module. It used to be refused ("does not match `/docs/[..._splat]`"), so the page TanStack served at `/docs` could not be given content. `useValRoute` on that page reads the `/docs` entry.
+
 ## 0.150.1
 
 ### Patch Changes

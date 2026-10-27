@@ -27,7 +27,7 @@
     ],
     "exports": true
   },
-  "version": "0.150.1",
+  "version": "0.150.2",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest",

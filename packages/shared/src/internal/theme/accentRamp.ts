@@ -289,8 +289,12 @@ export function themeCustomProperties(theme: {
   accent?: string | null;
   /** A `--radius` length. The caller maps the named step; see `THEME_RADIUS_LENGTHS`. */
   radius?: string | null;
+  /** The proposal colour, a hex. See {@link proposalCustomProperties}. */
+  proposal?: string | null;
 }): Record<string, string> {
-  const properties: Record<string, string> = {};
+  const properties: Record<string, string> = {
+    ...(theme.proposal ? proposalCustomProperties(theme.proposal) : {}),
+  };
   if (theme.accent) {
     const ramp = accentRamp(theme.accent);
     if (ramp !== null) {
@@ -336,6 +340,50 @@ export function themeCustomProperties(theme: {
     properties["--radius"] = theme.radius;
   }
   return properties;
+}
+
+/**
+ * The proposal colour's tokens, for light and dark at once.
+ *
+ * The six `--*-proposal` tokens are declared per mode in `index.css`, each as
+ * `var(--theme-proposal-<mode>-<token>, <Val's violet>)`, so the ones written
+ * here are picked up where the mode block is declared -- on every element the
+ * Studio stamps `data-mode` on, which is where these go (see
+ * `themeCustomProperties` on why a `var()` resolves where it is declared).
+ * Both modes' values are written because an element does not know which mode
+ * its subtree will be in by the time it is styled.
+ *
+ * From the same ramp as the accent: the hue is the project's, the lightness
+ * of each step Val's, so the steps chosen here have the contrast Val's violet
+ * had. Text on the filled colour is white unless white would not read, then
+ * the ramp's darkest step. Empty for a value that is not a usable hex, so
+ * Val's violet stays.
+ */
+export function proposalCustomProperties(hex: string): Record<string, string> {
+  const ramp = accentRamp(hex);
+  if (ramp === null) return {};
+  const onFill = (fill: string) =>
+    contrastRatio("#ffffff", fill) >= 4.5 ? "#ffffff" : ramp[1000];
+  const soft = hexToRgb(ramp[500]);
+  const softDark =
+    soft === null
+      ? ramp[900]
+      : `rgba(${soft.map((c) => Math.round(c * 255)).join(", ")}, 0.16)`;
+  return {
+    "--theme-proposal-light-bg": ramp[700],
+    "--theme-proposal-light-bg-hover": ramp[800],
+    "--theme-proposal-light-bg-soft": ramp[100],
+    "--theme-proposal-light-fg": ramp[700],
+    "--theme-proposal-light-fg-on": onFill(ramp[700]),
+    "--theme-proposal-light-border": ramp[400],
+    // 700 in dark too: 600 left white text below AA for some hues.
+    "--theme-proposal-dark-bg": ramp[700],
+    "--theme-proposal-dark-bg-hover": ramp[600],
+    "--theme-proposal-dark-bg-soft": softDark,
+    "--theme-proposal-dark-fg": ramp[300],
+    "--theme-proposal-dark-fg-on": onFill(ramp[700]),
+    "--theme-proposal-dark-border": ramp[700],
+  };
 }
 
 /**

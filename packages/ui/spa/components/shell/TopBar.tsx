@@ -41,10 +41,8 @@ import {
   ProposalSwitcher,
 } from "../proposals/ProposalSwitcher";
 import {
-  ProposalMenu,
-  ProposalPublishButton,
-  ProposalBuildButton,
-  ProposalSaveButton,
+  ProposalActionButton,
+  ProposalProgress,
 } from "../proposals/ProposalBar";
 import type { ProposalSummary, StudioLocation } from "../proposals/types";
 import { Spinner } from "../designSystem/spinner";
@@ -55,6 +53,16 @@ import { Spinner } from "../designSystem/spinner";
  */
 export type TopBarProposals = {
   location: StudioLocation;
+  /**
+   * Still finding out where this Studio is (before `/stat` answers, at an
+   * address it has not been at before), or which proposal it is in (before
+   * the proposal's own read). The switcher says it is loading, and on the
+   * site Publish waits: at a proposal's address the site's Publish would be
+   * taken back a moment later.
+   */
+  loading?: boolean;
+  /** On the way to another address: "Opening “Spring campaign”…". */
+  leaving?: string | null;
   /** Open proposals, for the switcher. */
   open: ProposalSummary[];
   onOpenSite: () => void;
@@ -87,6 +95,7 @@ export type TopBarProposals = {
   onOpenDesign?: () => void;
   /** For stories. */
   defaultSwitcherOpen?: boolean;
+  /** The Save/Publish button's caret menu, the proposal's acts with it. */
   defaultMenuOpen?: boolean;
 };
 
@@ -291,12 +300,13 @@ export function TopBar({
   const proposalLocation =
     proposals?.location.kind === "proposal" ? proposals.location : null;
   /*
-   * Above a phone, where you are is the middle of the bar: the switcher, and
-   * in a proposal Publish beside it -- publishing a proposal is merging it,
-   * an act about the proposal -- while Save takes Publish's place on the
-   * right. On a phone where you are is a chip of a fixed width (see
-   * `ProposalLocationChip`), and everything about the proposal is in the
-   * sheet behind it.
+   * Above a phone, where you are is the middle of the bar: the switcher --
+   * which in a proposal also holds what is done with the proposal itself, as
+   * the phone's sheet does -- and what its address is doing after a save.
+   * Save, Build and Publish are one split button where Publish is on the site
+   * (`ProposalActionButton`). On a phone where you are is a chip of a fixed
+   * width (see `ProposalLocationChip`), and everything about the proposal is
+   * in the sheet behind it.
    */
   const layout: "phone" | "centered" = isMobileBreakpoint(breakpoint)
     ? "phone"
@@ -309,42 +319,30 @@ export function TopBar({
       onOpenProposal={proposals.onOpenProposal}
       onNewProposal={proposals.onNewProposal}
       onShowAllProposals={proposals.onShowAllProposals}
+      onRename={proposals.onRename}
+      onCompare={proposals.onCompare}
+      onCopyLink={proposals.onCopyLink}
+      onClose={proposals.onClose}
+      {...(proposals.onOpenDesign !== undefined
+        ? { onOpenDesign: proposals.onOpenDesign }
+        : {})}
+      loading={proposals.loading}
+      leaving={proposals.leaving ?? null}
       defaultOpen={proposals.defaultSwitcherOpen}
     />
   );
   const inProposal =
     proposals !== undefined && proposalLocation !== null
       ? {
-          menu: (
-            <ProposalMenu
-              onCompare={proposals.onCompare}
-              onRename={proposals.onRename}
-              onCopyLink={proposals.onCopyLink}
-              onClose={proposals.onClose}
-              {...(proposals.onOpenDesign !== undefined
-                ? { onOpenDesign: proposals.onOpenDesign }
-                : {})}
-              defaultOpen={proposals.defaultMenuOpen}
-            />
-          ),
-          save: (
-            <ProposalSaveButton
+          progress: <ProposalProgress location={proposalLocation} />,
+          action: (
+            <ProposalActionButton
               location={proposalLocation}
               onSave={proposals.onSave}
-              blockedBy={proposals.saveBlockedBy}
-            />
-          ),
-          build:
-            proposals.onBuild !== undefined ? (
-              <ProposalBuildButton
-                location={proposalLocation}
-                onBuild={proposals.onBuild}
-              />
-            ) : null,
-          publish: (
-            <ProposalPublishButton
-              location={proposalLocation}
+              onBuild={proposals.onBuild}
               onPublish={proposals.onPublish}
+              saveBlockedBy={proposals.saveBlockedBy}
+              defaultMenuOpen={proposals.defaultMenuOpen}
             />
           ),
         }
@@ -434,6 +432,9 @@ export function TopBar({
           location={proposals.location}
           open={openPanel === "proposals"}
           onClick={() => onTogglePanel("proposals")}
+          busy={
+            proposals.loading === true || (proposals.leaving ?? null) !== null
+          }
         />
       )}
       {/* On a phone Search sits on the right, beside the account. */}
@@ -444,12 +445,7 @@ export function TopBar({
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
           {planStatus}
           {switcher}
-          {inProposal !== null && (
-            <>
-              {inProposal.publish}
-              {inProposal.menu}
-            </>
-          )}
+          {inProposal?.progress}
         </div>
       )}
       <div className="flex items-center gap-1.5 shrink-0">
@@ -496,18 +492,22 @@ export function TopBar({
                 isCanvasOpen={isCanvasOpen}
               />
             </span>
-            {inProposal?.build}
             <span data-val-tour="publish" className="inline-flex">
-              {inProposal !== null
-                ? // In a proposal, Save is where Publish is on the site.
-                  inProposal.save
-                : (publishSlot ?? (
-                    <PublishButton
-                      pendingChanges={pendingChanges}
-                      onPublish={onPublish}
-                      publishState={publishState}
-                    />
-                  ))}
+              {inProposal !== null ? (
+                // In a proposal, Save -- then Publish -- is where Publish is
+                // on the site.
+                inProposal.action
+              ) : proposals?.loading ? (
+                <PublishPlaceholder />
+              ) : (
+                (publishSlot ?? (
+                  <PublishButton
+                    pendingChanges={pendingChanges}
+                    onPublish={onPublish}
+                    publishState={publishState}
+                  />
+                ))
+              )}
             </span>
             <BarDivider />
           </>
@@ -516,7 +516,31 @@ export function TopBar({
          * Validate, History and the bell are one button on a phone - the
          * bottom bar's bell, with the activity sheet behind it.
          */}
-        {upgrade !== undefined && !isMobile && (
+        {/*
+         * Labelled on a desktop: an icon alone said "something about
+         * upgrades" and kept what in its tooltip. Below that, an icon.
+         */}
+        {upgrade !== undefined && isDesktop && (
+          <button
+            type="button"
+            aria-label={`${upgrade.label}: open Updates in Val Build`}
+            onClick={upgrade.onOpen}
+            className={cn(
+              "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium hover:bg-bg-float-raised",
+              upgrade.vulnerable
+                ? "text-fg-error-on-surface"
+                : "text-fg-secondary hover:text-fg-primary",
+            )}
+          >
+            {upgrade.vulnerable ? (
+              <ShieldAlert size={15} className="shrink-0" />
+            ) : (
+              <ArrowUpCircle size={15} className="shrink-0" />
+            )}
+            {upgrade.label}
+          </button>
+        )}
+        {upgrade !== undefined && !isMobile && !isDesktop && (
           <IconButton
             label={`${upgrade.label}: open Updates in Val Build`}
             onClick={upgrade.onOpen}
@@ -949,6 +973,22 @@ function PreviewMenuItem({
     <button type="button" role="menuitem" onClick={onClick} className={shared}>
       {inner}
     </button>
+  );
+}
+
+/**
+ * Where Publish goes, while it is not known yet whether this is the site or a
+ * proposal: the same size, so nothing moves when the real one arrives.
+ */
+export function PublishPlaceholder({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-block h-8 w-[5.5rem] animate-pulse rounded-md bg-bg-float-raised",
+        className,
+      )}
+    />
   );
 }
 

@@ -306,6 +306,7 @@ function MockSettingsSections() {
   });
   const [theme, setTheme] = useState<ThemeSettingsValue>({
     accent: null,
+    proposal: null,
     radius: null,
     mode: null,
   });

@@ -8,6 +8,8 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import type { ProposalUpgrade } from "../../proposals/proposalsClient";
+import { describeUpgrade } from "./UpgradeProposalNotice";
 import { cn } from "../designSystem/cn";
 import {
   Dialog,
@@ -129,6 +131,22 @@ function changesMadeDuring(changes: number): string {
     : `${changes} changes made during the merge are`;
 }
 
+/** "Val 0.149.4 → 0.149.7 and 5 more packages, fixing 2 security issues". */
+function upgradeWords(upgrade: ProposalUpgrade): string {
+  const { val, others, fixes } = describeUpgrade(upgrade);
+  const packages = (count: number) =>
+    count === 1 ? "1 package" : `${count} packages`;
+  const moved =
+    val === null
+      ? packages(others)
+      : others > 0
+        ? `${val} and ${others} more ${others === 1 ? "package" : "packages"}`
+        : val;
+  return fixes > 0
+    ? `${moved}, fixing ${fixes} security ${fixes === 1 ? "issue" : "issues"}`
+    : moved;
+}
+
 /** A message from elsewhere, as a sentence: they do not all end in one. */
 function asSentence(message: string): string {
   const trimmed = message.trim();
@@ -144,6 +162,8 @@ export function PublishProposalDialog({
   open,
   onOpenChange,
   displayName,
+  upgrade,
+  siteName,
   state,
   onPublish,
   onRetry,
@@ -162,6 +182,13 @@ export function PublishProposalDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   displayName: string;
+  /**
+   * An upgrade proposal's upgrade: the dialog says what publishing it
+   * updates, instead of counting content changes it has none of.
+   */
+  upgrade?: ProposalUpgrade;
+  /** The project's name, "quiet-harbor-24": what an upgrade updates. */
+  siteName?: string;
   state: PublishProposalState;
   onPublish: () => void;
   /** Ask again: the checks, the update or the merge, whichever failed. */
@@ -192,6 +219,7 @@ export function PublishProposalDialog({
   portalContainer?: HTMLElement | null;
 }) {
   const busy = state.kind === "publishing";
+  const site = siteName ?? "the site";
   const blocked =
     state.kind === "ready" && state.checks.some((check) => !check.ok);
   // Blocked by someone else's changes, which only they can publish or
@@ -223,12 +251,18 @@ export function PublishProposalDialog({
           <DialogTitle className="text-sm font-semibold">
             {state.kind === "merged"
               ? `Published “${displayName}”`
-              : `Publish “${displayName}” to the site`}
+              : upgrade !== undefined
+                ? `Publish “${displayName}” to update ${site}`
+                : `Publish “${displayName}” to the site`}
           </DialogTitle>
           <DialogDescription className="text-xs text-fg-secondary">
-            {state.kind === "merged"
-              ? "It is live on the site, as one change. This proposal is finished: anything more starts a new one."
-              : "Its changes go to the site as one change, checked before anything there changes. The proposal is finished afterwards."}
+            {upgrade !== undefined
+              ? state.kind === "merged"
+                ? `It is live: ${site} runs the new packages. This proposal is finished.`
+                : `It updates ${site}'s packages: ${upgradeWords(upgrade)}. The site is built and checked with them before anything there changes. The proposal is finished afterwards.`
+              : state.kind === "merged"
+                ? "It is live on the site, as one change. This proposal is finished: anything more starts a new one."
+                : "Its changes go to the site as one change, checked before anything there changes. The proposal is finished afterwards."}
           </DialogDescription>
         </div>
 
@@ -248,7 +282,11 @@ export function PublishProposalDialog({
               )}
               <div className="flex items-center justify-between gap-2 text-xs text-fg-primary">
                 <span>
-                  {changesLabel(state.changes)}
+                  {upgrade === undefined
+                    ? changesLabel(state.changes)
+                    : state.changes === 0
+                      ? "No content changes"
+                      : `${changesLabel(state.changes)} to content as well`}
                   {state.unsaved > 0 && (
                     <span className="text-fg-secondary">
                       {" "}

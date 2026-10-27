@@ -2,7 +2,7 @@ import { GitBranch, Plus } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../designSystem/cn";
 import { relativeLocalDate } from "../../utils/relativeLocalDate";
-import { proposalChangesLabel } from "./ProposalSwitcher";
+import { ProposalIcon, proposalChangesLabel } from "./ProposalSwitcher";
 import { Dialog, DialogContent, DialogTitle } from "../designSystem/dialog";
 import type { ProposalSummary } from "./types";
 import { Spinner } from "../designSystem/spinner";
@@ -137,7 +137,11 @@ function ProposalRow({
     : (proposal.owner?.name ?? "Someone");
   return (
     <li className="flex items-start gap-3 border-b border-border-float px-4 py-3">
-      <GitBranch size={14} className="mt-0.5 shrink-0 text-fg-proposal" />
+      <ProposalIcon
+        proposal={proposal}
+        size={14}
+        className="mt-0.5 shrink-0 text-fg-proposal"
+      />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="truncate text-xs font-medium text-fg-primary">
