@@ -11,7 +11,7 @@ import {
 import type { PublishIndicator } from "../../publish/publishIndicatorView";
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import type { JSONValue } from "@valbuild/core/patch";
-import { AIChatPanel } from "./AIChatPanel";
+import { AI_PANEL_WIDTH, AIChatPanel } from "./AIChatPanel";
 import { DataPanel } from "./DataPanel";
 import { checkExternalUrls } from "./externalUrlChecks";
 import { toRows } from "./externalPageGroups";
@@ -1370,6 +1370,14 @@ export function Shell({
       ))
     );
 
+  /*
+   * The assistant beside the work area rather than over it, where there is
+   * room for both: a desktop. On a tablet the editor left beside it would be
+   * a few words wide, so the panel floats there, and on a phone it is a
+   * sheet.
+   */
+  const chatDocked =
+    aiEnabled && openPanel === "ai" && breakpoint === "desktop";
   const columnPlanStatus =
     breakpoint === "desktop" ? null : (renderPlanStatus?.("column") ?? null);
   const editorColumn = (
@@ -1413,52 +1421,62 @@ export function Shell({
         // tokens out of these custom properties. See `ValThemeProvider`.
         style={{ height: "100svh", ...themeStyle }}
       >
-        {workspaceOverride !== undefined ? (
-          <div
-            className={
-              breakpoint === "mobile"
-                ? "absolute inset-0 px-3 pt-[4.5rem] pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.75rem)]"
-                : breakpoint === "desktop"
-                  ? "absolute inset-0 pt-20 pb-14 pr-3 pl-[5.5rem]"
-                  : "absolute inset-0 pt-20 pb-14 px-3"
-            }
-          >
-            {workspaceOverride}
-          </div>
-        ) : (
-          <PageWorkspace
-            breakpoint={breakpoint}
-            page={canCanvas ? canvasPage : undefined}
-            renderCanvas={canCanvas ? renderCanvas : undefined}
-            canvasPaths={canCanvas ? canvasPaths : undefined}
-            onSelectCanvasPath={onSelectCanvasPath}
-            selectedCanvasPath={selectedCanvasPath}
-            canvasRoute={canCanvas ? canvasRoute : undefined}
-            onCanvasRouteChange={onCanvasRouteChange}
-            canvasRoutes={canvasRoutes}
-            initialTransform={initialCanvasTransform}
-            onTransformChange={setCanvasTransform}
-            isCanvasOpen={isCanvasOpen && canCanvas}
-            onCloseCanvas={closeCanvas}
-            view={canvasView}
-            onViewChange={setCanvasView}
-            pane={workspacePane}
-            onPaneChange={setWorkspacePane}
-            isDevMode={isDevMode}
-            onAttachToChat={aiEnabled ? attachToChat : undefined}
-            skipTransition={skipTransition}
-          >
-            {/*
-             * The editor column, built once and then either rendered on its own
-             * or handed to `renderHistory` as the left half. Built once because
-             * the alternative - the same tree written twice, in two branches -
-             * is the shape where the two quietly stop matching.
-             */}
-            {renderHistory
-              ? renderHistory(editorColumn, breakpoint)
-              : editorColumn}
-          </PageWorkspace>
-        )}
+        {/*
+         * Everything the editor works in, which a docked assistant moves out
+         * from under it rather than covering: the editor column, the canvas,
+         * or the Sketchpad's panes.
+         */}
+        <div
+          className="absolute inset-0"
+          style={chatDocked ? { right: AI_PANEL_WIDTH + 12 } : undefined}
+        >
+          {workspaceOverride !== undefined ? (
+            <div
+              className={
+                breakpoint === "mobile"
+                  ? "absolute inset-0 px-3 pt-[4.5rem] pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.75rem)]"
+                  : breakpoint === "desktop"
+                    ? "absolute inset-0 pt-20 pb-14 pr-3 pl-[5.5rem]"
+                    : "absolute inset-0 pt-20 pb-14 px-3"
+              }
+            >
+              {workspaceOverride}
+            </div>
+          ) : (
+            <PageWorkspace
+              breakpoint={breakpoint}
+              page={canCanvas ? canvasPage : undefined}
+              renderCanvas={canCanvas ? renderCanvas : undefined}
+              canvasPaths={canCanvas ? canvasPaths : undefined}
+              onSelectCanvasPath={onSelectCanvasPath}
+              selectedCanvasPath={selectedCanvasPath}
+              canvasRoute={canCanvas ? canvasRoute : undefined}
+              onCanvasRouteChange={onCanvasRouteChange}
+              canvasRoutes={canvasRoutes}
+              initialTransform={initialCanvasTransform}
+              onTransformChange={setCanvasTransform}
+              isCanvasOpen={isCanvasOpen && canCanvas}
+              onCloseCanvas={closeCanvas}
+              view={canvasView}
+              onViewChange={setCanvasView}
+              pane={workspacePane}
+              onPaneChange={setWorkspacePane}
+              isDevMode={isDevMode}
+              onAttachToChat={aiEnabled ? attachToChat : undefined}
+              skipTransition={skipTransition}
+            >
+              {/*
+               * The editor column, built once and then either rendered on its own
+               * or handed to `renderHistory` as the left half. Built once because
+               * the alternative - the same tree written twice, in two branches -
+               * is the shape where the two quietly stop matching.
+               */}
+              {renderHistory
+                ? renderHistory(editorColumn, breakpoint)
+                : editorColumn}
+            </PageWorkspace>
+          )}
+        </div>
 
         {breakpoint === "desktop" && (
           <LeftRail
@@ -1814,6 +1832,7 @@ export function Shell({
           <AIChatPanel
             breakpoint={breakpoint}
             hidden={openPanel !== "ai"}
+            docked={chatDocked}
             onClose={closePanel}
           >
             {aiSlot ?? <NoAssistantConfigured />}

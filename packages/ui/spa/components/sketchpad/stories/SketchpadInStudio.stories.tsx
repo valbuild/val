@@ -8,26 +8,26 @@ import {
   type SketchpadAssistantStatus,
   type SketchpadPerson,
 } from "../Sketchpad";
-import type { SketchpadSummary } from "../SketchpadList";
+import type { SketchpadListItem } from "../SketchpadList";
 import { SketchpadWorkspace } from "../SketchpadWorkspace";
 import { PreviewMock, SKETCH } from "./sketchpadFixtures";
 
 /**
- * Sketchpad in the Studio: the Preview, the Sketchpad and the chat it
- * belongs to, side by side as far as the screen allows.
+ * Sketchpad in the Studio: the Preview and the Sketchpad, with the chat
+ * docked beside them by the shell.
  *
- * - Wide (1440px and up): all three.
- * - Narrower: the Sketchpad and one of the others, picked above them.
- * - A phone: one at a time.
+ * - A wide desktop: three columns -- the preview, the sketch, the chat.
+ * - A narrower one: the sketch and the chat, the preview a switch away;
+ *   close the chat and the preview comes back beside the sketch.
+ * - A phone: one at a time, and the chat a sheet over them.
  *
- * Resize the preview to see each. The chat has three sketchpads, one per
- * page: the title switches between them, the archive button puts one away
- * (with an undo), and an archived one is reopened from the same list -- or
- * from the strip that takes the Sketchpad's place when none is open.
- * The Sketchpad belongs to the AI session:
- * the assistant can read it whenever it wants, and **Send to AI** asks
- * it to now. Here the reply is simulated: it reads, answers and makes
- * one change of its own, which lands in the Sketchpad as it is written.
+ * The project has three sketchpads, each about a page: the title switches
+ * between them, the page under it can be changed, the archive button puts
+ * one away (with an undo), and an archived one is reopened from the same
+ * list -- or from the strip that takes the Sketchpad's place when none is
+ * open. The assistant reads a sketchpad whenever it wants, and **Send to
+ * AI** asks it to now. Here the reply is simulated: it reads, answers and
+ * makes one change of its own, which lands in the Sketchpad.
  */
 const meta: Meta<typeof SketchpadInStudio> = {
   title: "Components/Sketchpad/In the Studio",
@@ -77,7 +77,7 @@ const JOURNAL = `# Journal
 [list: Latest stories, newest first]
 `;
 
-type Pad = SketchpadSummary & {
+type Pad = SketchpadListItem & {
   value: string;
   /** The text as the assistant last read it. */
   readValue: string;
@@ -86,7 +86,8 @@ type Pad = SketchpadSummary & {
 const PADS: Pad[] = [
   {
     id: "home",
-    title: "/",
+    title: "Clothes that outlast the season.",
+    page: "/",
     detail: "Sketched by the assistant · 5 min ago",
     archived: false,
     value: SKETCH,
@@ -94,7 +95,8 @@ const PADS: Pad[] = [
   },
   {
     id: "stores",
-    title: "/stores",
+    title: "Our stores",
+    page: "/stores",
     detail: "Changed by you · yesterday",
     archived: false,
     value: STORES,
@@ -102,7 +104,8 @@ const PADS: Pad[] = [
   },
   {
     id: "journal",
-    title: "/journal",
+    title: "Journal",
+    page: "/journal",
     detail: "Archived by you · Monday",
     archived: true,
     value: JOURNAL,
@@ -176,7 +179,7 @@ function SketchpadInStudio({ inProposal, theme }: Props) {
       {
         id: `ask-${turn}`,
         role: "user",
-        content: `I've changed the Sketchpad for ${pad.title}. Read it and tell me what you think.`,
+        content: `I've changed the sketchpad “${pad.title ?? pad.page}” (${pad.id}). Read it and tell me what you think.`,
         status: "complete",
       },
     ];
@@ -232,6 +235,17 @@ function SketchpadInStudio({ inProposal, theme }: Props) {
       onThemeChange={setTheme}
       initialSelectionId={mockSelectionIds.home}
       aiEnabled
+      initialPanel="ai"
+      aiSlot={
+        <AIChat
+          ref={chat}
+          isConnected
+          authError={false}
+          mode="http"
+          initialMessages={OPENING}
+          onSendMessage={() => true}
+        />
+      }
       pendingChanges={3}
       onCompare={() => console.log("open the review view")}
       workspaceOverride={
@@ -245,8 +259,8 @@ function SketchpadInStudio({ inProposal, theme }: Props) {
                 className="flex shrink-0 items-center gap-3 rounded-lg border border-border-primary bg-bg-primary px-3 py-1.5 text-xs text-fg-secondary"
               >
                 <span>
-                  Archived the sketchpad for {archivedPad.title}. Reopen it from
-                  the list of sketchpads.
+                  Archived “{archivedPad.title ?? archivedPad.page}”. Reopen it
+                  from the list of sketchpads.
                 </span>
                 <button
                   type="button"
@@ -265,29 +279,18 @@ function SketchpadInStudio({ inProposal, theme }: Props) {
                 value={current.value}
                 onChange={(value) => update(current.id, { value })}
                 readOnly={reading}
-                title={current.title}
+                title={current.title ?? undefined}
+                page={current.page}
+                onPageChange={(page) => update(current.id, { page })}
+                pageOptions={["/", "/stores", "/journal", "/about"]}
                 people={inProposal ? PEOPLE : undefined}
-                status={
-                  inProposal
-                    ? "In ⎇ Autumn campaign, with Kari"
-                    : "In your chat “Rework the home page”"
-                }
+                status={inProposal ? "In ⎇ Autumn campaign" : current.detail}
                 onAskAssistant={() => askAssistant(current.id)}
                 assistantStatus={status}
                 onArchive={() => archive(current.id)}
                 sketchpads={list}
               />
             ) : null
-          }
-          chat={
-            <AIChat
-              ref={chat}
-              isConnected
-              authError={false}
-              mode="http"
-              initialMessages={OPENING}
-              onSendMessage={() => true}
-            />
           }
         />
       }

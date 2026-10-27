@@ -7,6 +7,7 @@ import type {
 } from "../../AIChatToolActivities";
 import { Shell } from "../../shell/Shell";
 import { mockSelectionIds, mockShellData } from "../../shell/mockShellData";
+import { parseSketch, sketchTitle } from "@valbuild/shared/internal";
 import { Sketchpad } from "../Sketchpad";
 import { SketchpadWorkspace } from "../SketchpadWorkspace";
 import { PreviewMock, SKETCH, sketchingSteps } from "./sketchpadFixtures";
@@ -24,9 +25,8 @@ import { PreviewMock, SKETCH, sketchingSteps } from "./sketchpadFixtures";
  *    Sketchpad, with a dot when it changed since you last had it open. A bar
  *    that offered it before then would be asking people to start one.
  *
- * In every case the chat comes with it: the Sketchpad belongs to the AI
- * session, so opening one puts the chat beside it (and takes it out of the
- * floating panel, rather than showing it twice).
+ * In every case the chat comes with it: opening a Sketchpad opens the chat
+ * docked beside it, where the sketch is worked out.
  */
 const meta: Meta<typeof EntryPoint> = {
   title: "Components/Sketchpad/Ways in",
@@ -101,7 +101,7 @@ function EntryPoint({ start }: Props) {
   const [seen, setSeen] = useState<string | null>(
     start === "top-bar" ? "" : null,
   );
-  const [title, setTitle] = useState("/");
+  const [page, setPage] = useState<string | null>("/");
   const [writing, setWriting] = useState(false);
   const [epoch, setEpoch] = useState(0);
   const messages = useRef<ChatMessage[]>(
@@ -110,7 +110,7 @@ function EntryPoint({ start }: Props) {
 
   const openSketchpad = () => {
     setOpen(true);
-    // The chat goes into the workspace; it is not also left floating.
+    // With the chat beside it, docked: the Sketchpad is worked out in it.
     setEpoch((e) => e + 1);
   };
   const closeSketchpad = () => {
@@ -119,8 +119,8 @@ function EntryPoint({ start }: Props) {
   };
 
   // The assistant writing a first sketch, a few blocks at a time.
-  const sketch = (page: string) => {
-    setTitle(page);
+  const sketch = (route: string) => {
+    setPage(route);
     setValue("");
     setWriting(true);
     openSketchpad();
@@ -174,8 +174,8 @@ function EntryPoint({ start }: Props) {
 
   const chat = (
     <AIChat
-      // Remounted where it moves, so it starts from the conversation so far.
-      key={`${open}-${epoch}`}
+      // Remounted when the story moves the conversation on.
+      key={epoch}
       isConnected
       authError={false}
       mode="http"
@@ -199,13 +199,13 @@ function EntryPoint({ start }: Props) {
           ? undefined
           : {
               epoch,
-              panel: open ? null : "ai",
+              panel: "ai",
               canvasOpen: false,
               canvasView: "normal",
             }
       }
       aiEnabled
-      aiSlot={open ? undefined : chat}
+      aiSlot={chat}
       pendingChanges={3}
       onCompare={() => console.log("open the review view")}
       onNewPage={() => undefined}
@@ -237,7 +237,14 @@ function EntryPoint({ start }: Props) {
           <SketchpadWorkspace
             preview={<PreviewMock />}
             sketchpads={{
-              sketchpads: [{ id: "pad", title, archived: false }],
+              sketchpads: [
+                {
+                  id: "pad",
+                  title: sketchTitle(parseSketch(value).blocks),
+                  page,
+                  archived: false,
+                },
+              ],
               currentId: "pad",
               onOpen: () => undefined,
               onReopen: () => undefined,
@@ -247,17 +254,16 @@ function EntryPoint({ start }: Props) {
                 value={value}
                 onChange={setValue}
                 readOnly={writing}
-                title={title}
+                title={sketchTitle(parseSketch(value).blocks) ?? undefined}
+                page={page}
+                onPageChange={setPage}
                 status={
-                  writing
-                    ? "The assistant is sketching the page…"
-                    : "In your chat with the assistant"
+                  writing ? "The assistant is sketching the page…" : undefined
                 }
                 onAskAssistant={() => console.log("send to the assistant")}
                 assistantStatus={writing ? "reading" : "read"}
               />
             }
-            chat={chat}
           />
         ) : undefined
       }

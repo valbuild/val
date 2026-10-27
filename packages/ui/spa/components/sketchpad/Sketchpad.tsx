@@ -1,6 +1,6 @@
-import { Archive, ChevronDown, Sparkles, X } from "lucide-react";
+import { Archive, ChevronDown, FileText, Sparkles, X } from "lucide-react";
 import type { Plugin } from "prosemirror-state";
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { cn } from "../designSystem/cn";
 import type { SketchMedia } from "@valbuild/shared/internal";
 import { SketchpadEditor } from "./SketchpadEditor";
@@ -17,6 +17,15 @@ export type SketchpadProps = {
   onChange?: (value: string) => void;
   /** Shown above the page, e.g. the page's route. */
   title?: string;
+  /**
+   * The page it is about: a route, or null. A label, not a link -- the
+   * sketchpad is the project's, and changing its page moves nothing.
+   */
+  page?: string | null;
+  /** Shown as a chip that can be edited when given. */
+  onPageChange?: (page: string | null) => void;
+  /** Routes to suggest while the page is edited: the site's pages. */
+  pageOptions?: string[];
   /** Shown under the title, e.g. who is editing. */
   status?: ReactNode;
   /** True while someone else (the assistant) is writing to the sketch. */
@@ -92,6 +101,9 @@ export function Sketchpad({
   assistantStatus,
   onArchive,
   sketchpads,
+  page,
+  onPageChange,
+  pageOptions,
 }: SketchpadProps) {
   const [notice, setNotice] = useState<Notice | null>(null);
 
@@ -136,7 +148,7 @@ export function Sketchpad({
               trigger={
                 <button
                   type="button"
-                  title="Sketchpads in this chat"
+                  title="Sketchpads in this project"
                   className="-ml-1 flex max-w-full cursor-pointer items-center gap-1 rounded px-1 text-sm font-medium hover:bg-bg-secondary"
                 >
                   <span className="truncate">
@@ -151,8 +163,17 @@ export function Sketchpad({
               <TitleText title={title} />
             </div>
           )}
-          {status && (
-            <div className="truncate text-xs text-fg-secondary">{status}</div>
+          {(page !== undefined || status) && (
+            <div className="flex min-w-0 items-center gap-2 text-xs text-fg-secondary">
+              {page !== undefined && (
+                <PageChip
+                  page={page}
+                  onChange={readOnly ? undefined : onPageChange}
+                  options={pageOptions}
+                />
+              )}
+              {status && <span className="truncate">{status}</span>}
+            </div>
           )}
         </div>
         {people && people.length > 0 && <People people={people} />}
@@ -186,6 +207,83 @@ export function Sketchpad({
         plugins={plugins}
       />
     </div>
+  );
+}
+
+/** The page a sketch is about, and where to change it. */
+function PageChip({
+  page,
+  onChange,
+  options,
+}: {
+  page: string | null;
+  onChange?: (page: string | null) => void;
+  options?: string[];
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(page ?? "");
+  const listId = useId();
+  const label = page ?? "No page";
+  if (!onChange) {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1">
+        <FileText className="h-3 w-3" />
+        {label}
+      </span>
+    );
+  }
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        title="Change which page this sketches"
+        onClick={() => {
+          setDraft(page ?? "");
+          setEditing(true);
+        }}
+        className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded px-1 -mx-1 hover:bg-bg-secondary hover:text-fg-primary"
+      >
+        <FileText className="h-3 w-3" />
+        {label}
+      </button>
+    );
+  }
+  const save = () => {
+    setEditing(false);
+    const next = draft.trim() === "" ? null : draft.trim();
+    if (next !== page) {
+      onChange(next);
+    }
+  };
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1">
+      <FileText className="h-3 w-3" />
+      <input
+        autoFocus
+        aria-label="Page this sketches"
+        placeholder="/a-page, or empty for none"
+        value={draft}
+        list={options ? listId : undefined}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            save();
+          } else if (e.key === "Escape") {
+            setEditing(false);
+          }
+        }}
+        className="h-6 w-44 rounded border border-border-focus bg-bg-primary px-1.5 text-xs text-fg-primary outline-none"
+      />
+      {options && (
+        <datalist id={listId}>
+          {options.map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
+      )}
+    </span>
   );
 }
 

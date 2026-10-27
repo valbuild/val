@@ -8,14 +8,13 @@ import {
 } from "../designSystem/popover";
 import { useValPortal } from "../ValPortalProvider";
 
-/**
- * One of an AI session's sketchpads, as a row names it. A session has one
- * per page it sketched.
- */
-export type SketchpadSummary = {
+/** A sketchpad of the project, as a row of the list names it. */
+export type SketchpadListItem = {
   id: string;
-  /** The page it sketches: its route. */
-  title: string;
+  /** Its first heading, if it has one. */
+  title: string | null;
+  /** The route it is about, if any. */
+  page: string | null;
   /** "Changed 2 min ago by Kari". */
   detail?: string;
   /** Put away: not shown until someone reopens it. Nothing is deleted. */
@@ -23,7 +22,7 @@ export type SketchpadSummary = {
 };
 
 export type SketchpadListProps = {
-  sketchpads: SketchpadSummary[];
+  sketchpads: SketchpadListItem[];
   /** The one on screen, if any. */
   currentId?: string | null;
   onOpen: (id: string) => void;
@@ -54,7 +53,7 @@ export function SketchpadList({
   if (sketchpads.length === 0) {
     return (
       <p className="px-3 py-3 text-sm text-fg-secondary">
-        No sketchpads in this chat yet. Ask the assistant to sketch a page.
+        No sketchpads in this project yet. Ask the assistant to sketch a page.
       </p>
     );
   }
@@ -63,7 +62,7 @@ export function SketchpadList({
     <div className="flex flex-col py-1 text-sm">
       {open.length === 0 && (
         <p className="px-3 py-2 text-fg-secondary">
-          Every sketchpad in this chat is archived.
+          Every sketchpad in this project is archived.
         </p>
       )}
       {open.map((sketchpad) => (
@@ -77,12 +76,8 @@ export function SketchpadList({
             sketchpad.id === currentId && "bg-bg-secondary",
           )}
         >
-          <span className="font-medium">{sketchpad.title}</span>
-          {sketchpad.detail && (
-            <span className="text-xs text-fg-secondary">
-              {sketchpad.detail}
-            </span>
-          )}
+          <span className="font-medium">{nameOf(sketchpad)}</span>
+          <RowDetail sketchpad={sketchpad} className="text-fg-secondary" />
         </button>
       ))}
       {archived.length > 0 && (
@@ -110,13 +105,12 @@ export function SketchpadList({
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-fg-secondary">
-                    {sketchpad.title}
+                    {nameOf(sketchpad)}
                   </div>
-                  {sketchpad.detail && (
-                    <div className="truncate text-xs text-fg-tertiary">
-                      {sketchpad.detail}
-                    </div>
-                  )}
+                  <RowDetail
+                    sketchpad={sketchpad}
+                    className="truncate text-fg-tertiary"
+                  />
                 </div>
                 <button
                   type="button"
@@ -131,6 +125,27 @@ export function SketchpadList({
       )}
     </div>
   );
+}
+
+/** A sketch is named by its heading, else by its page. */
+function nameOf(sketchpad: SketchpadListItem): string {
+  return sketchpad.title ?? sketchpad.page ?? "Untitled sketch";
+}
+
+function RowDetail({
+  sketchpad,
+  className,
+}: {
+  sketchpad: SketchpadListItem;
+  className?: string;
+}) {
+  const parts = [
+    sketchpad.title !== null ? sketchpad.page : null,
+    sketchpad.detail,
+  ].filter((part): part is string => !!part);
+  return parts.length > 0 ? (
+    <span className={cn("block text-xs", className)}>{parts.join(" · ")}</span>
+  ) : null;
 }
 
 /** `SketchpadList` behind a button, closing once something is chosen. */
@@ -162,7 +177,7 @@ export function SketchpadListPopover({
         className="w-72 p-0"
       >
         <div className="border-b border-border-primary px-3 py-2 text-xs font-medium text-fg-secondary">
-          Sketchpads in this chat
+          Sketchpads
         </div>
         <SketchpadList
           {...list}
