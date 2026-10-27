@@ -62,6 +62,11 @@ const UpgradeJson = z.object({
       name: z.string(),
       from: z.string().nullable(),
       to: z.string().nullable(),
+      // The specifier, before and after: pnpm moves a range up to the
+      // version already installed, a change with no new version. Absent
+      // from a Val Build that does not send them yet.
+      fromRange: z.string().nullish(),
+      toRange: z.string().nullish(),
       kind: z.enum(["major", "minor", "patch"]).nullable().catch(null),
     }),
   ),
