@@ -4,8 +4,8 @@ import { cn } from "../designSystem/cn";
 
 /**
  * A notice that pops up from below rather than sitting above the editor:
- * where the Studio is (an upgrade proposal, a published one, an upgrade under
- * way) rather than about the field in front of you, so it should not push
+ * where the Studio is (an upgrade proposal, an upgrade under way, a code
+ * restore) rather than about the field in front of you, so it should not push
  * that field down the page. It stays until it is dismissed, and a dismissed
  * one folds into the status bar, from which it comes back.
  *

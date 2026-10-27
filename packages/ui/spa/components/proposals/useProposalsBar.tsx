@@ -1207,7 +1207,9 @@ export function useProposalsBar({
             void loadChecks().then(() => updateFromSite(checkId));
           }}
           {...(onCompare !== undefined ? { onCompare } : {})}
-          {...(siteUrl !== null ? { onGoToSite: () => go(siteUrl) } : {})}
+          {...(siteUrl !== null
+            ? { onGoToSite: () => go(siteUrl, "Opening the site…") }
+            : {})}
           {...(continuation !== null
             ? { onOpenContinuation: () => void openProposal(continuation) }
             : {})}
@@ -1247,7 +1249,9 @@ export function useProposalsBar({
             void refresh();
             openDialog("all");
           }}
-          {...(siteUrl !== null ? { onGoToSite: () => go(siteUrl) } : {})}
+          {...(siteUrl !== null
+            ? { onGoToSite: () => go(siteUrl, "Opening the site…") }
+            : {})}
           portalContainer={portalContainer}
         />
       )}
@@ -1308,8 +1312,8 @@ export function useProposalsBar({
     </>
   );
   /*
-   * A merged proposal is finished: said above the editor, with where to carry
-   * on, before anyone types something that will not be kept.
+   * A code restore under way at this address, or how it ended: a notice that
+   * stays until it is dismissed, so a failure is not missed.
    */
   const restoreNotice: FloatingNoticeItem | null =
     restoreCode !== null && here !== null
