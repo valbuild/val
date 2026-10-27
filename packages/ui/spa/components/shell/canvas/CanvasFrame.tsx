@@ -3,6 +3,8 @@ import {
   DEFAULT_CANVAS_SELECTION,
   DEFAULT_CANVAS_SELECTION_SOFT,
   isValCanvasPageMessage,
+  type PickedElement,
+  type PickModifier,
   VAL_CANVAS_MESSAGE,
   ValCanvasElement,
   ValCanvasStudioMessage,
@@ -78,6 +80,19 @@ export type CanvasFrameProps = {
   /** Something on the page was picked. */
   onPick?: (paths: SourcePath[]) => void;
   /**
+   * Picking ANY element, the design tab's way (`pickElements` in
+   * `valCanvasProtocol`): `null` off, absent never sent. `isPicking` is the
+   * other kind, of the fields Val tagged.
+   */
+  elementPicking?: {
+    active: boolean;
+    modifier: PickModifier;
+    keepPicked: boolean;
+  } | null;
+  onPickElement?: (element: PickedElement) => void;
+  /** Esc on the page while `elementPicking.active`. */
+  onElementPickingStopped?: () => void;
+  /**
    * A two-finger gesture on the page.
    *
    * Relayed rather than observed: a frame keeps its own touches, so nothing the
@@ -138,6 +153,9 @@ export function CanvasFrame({
   highlightedPath,
   onElements,
   onPick,
+  elementPicking,
+  onPickElement,
+  onElementPickingStopped,
   onPinch,
   onZoom,
   onRefreshingChange,
@@ -241,6 +259,10 @@ export function CanvasFrame({
         });
       } else if (message.type === "zoom") {
         onZoom?.(message.factor, message.center);
+      } else if (message.type === "elementPicked") {
+        onPickElement?.(message.element);
+      } else if (message.type === "elementPickingStopped") {
+        onElementPickingStopped?.();
       } else {
         pickedHere.current = message.paths[0] ?? null;
         onPick?.(message.paths);
@@ -248,13 +270,49 @@ export function CanvasFrame({
     };
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [onElements, onPick, onPinch, onZoom, onRefreshingChange, origin]);
+  }, [
+    onElements,
+    onPick,
+    onPickElement,
+    onElementPickingStopped,
+    onPinch,
+    onZoom,
+    onRefreshingChange,
+    origin,
+  ]);
 
   // Picking and highlighting are pushed rather than set on the frame: they are
   // properties of the page's behaviour, and only the page can apply them.
   useEffect(() => {
     send({ val: VAL_CANVAS_MESSAGE, type: "setPicking", picking: isPicking });
   }, [send, isPicking, state.status]);
+
+  // Whole, every time, and again for every new document: a reload starts the
+  // page's picker afresh.
+  const pickActive = elementPicking?.active === true;
+  const pickModifier = elementPicking?.modifier ?? "alt";
+  const keepPicked = elementPicking?.keepPicked !== false;
+  const pickEnabled =
+    elementPicking === undefined ? undefined : elementPicking !== null;
+  useEffect(() => {
+    if (pickEnabled === undefined) return;
+    send({
+      val: VAL_CANVAS_MESSAGE,
+      type: "pickElements",
+      enabled: pickEnabled,
+      active: pickActive,
+      modifier: pickModifier,
+      keepPicked,
+    });
+  }, [
+    send,
+    pickEnabled,
+    pickActive,
+    pickModifier,
+    keepPicked,
+    state.status,
+    documentEpoch,
+  ]);
 
   /**
    * The outline colours, pushed for a stronger reason than picking is.

@@ -24,7 +24,11 @@ import {
 import { changedFiles, type ChangedFile } from "../../design/changedFiles";
 import { lineDiff, type DiffLine } from "../../design/lineDiff";
 import { previewUrl, siteDesignTabUrl } from "../../design/designTabUrl";
-import { modifierLabel, type PickModifier } from "../../design/elementPicker";
+import {
+  modifierLabel,
+  type PickedElement,
+  type PickModifier,
+} from "@valbuild/shared/internal";
 import {
   DesignTabView,
   type DesignCheckItem,
@@ -72,7 +76,7 @@ export function DesignTab({ name }: { name: string }) {
   );
   const studioProposal = useCurrentProposal();
   const { state, build, progress } = useProposalBuild(proposals, name);
-  const { askAssistant, insertFieldRef } = useAIChatActions();
+  const { askAssistant } = useAIChatActions();
   const portalContainer = useValPortal();
 
   const [read, setRead] = useState<Read>({ status: "loading" });
@@ -180,8 +184,10 @@ export function DesignTab({ name }: { name: string }) {
     [schemas, sources],
   );
 
-  // Picking on the page: what is picked is mentioned to the assistant.
+  // Picking on the page, any element: what is picked goes to the assistant
+  // with the next message (`UseAIOptions.design.pointedAt`).
   const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState<PickedElement | null>(null);
   const [frameStatus, setFrameStatus] =
     useState<CanvasPreviewStatus>("connecting");
   const [enableKey, setEnableKey] = useState(0);
@@ -213,17 +219,20 @@ export function DesignTab({ name }: { name: string }) {
             : {
                 active: picking,
                 onToggle: () => setPicking((on) => !on),
+                // The page's bridge picks whether or not it is in preview
+                // mode: only a page that never answered cannot.
                 status:
-                  frameStatus === "live"
+                  frameStatus === "live" || frameStatus === "preview-off"
                     ? "live"
-                    : frameStatus === "preview-off" ||
-                        frameStatus === "no-answer"
+                    : frameStatus === "no-answer"
                       ? "off"
                       : "waiting",
                 onTurnOn: () => setEnableKey((key) => key + 1),
                 modifier: modifierLabel(PICK_MODIFIER, isMac()),
               }
         }
+        picked={picked}
+        onClearPicked={() => setPicked(null)}
         onPublish={open ? () => publish.setOpen(true) : null}
         onReload={() => setReloadKey((key) => key + 1)}
         files={read.status === "ready" ? read.files : null}
@@ -245,9 +254,10 @@ export function DesignTab({ name }: { name: string }) {
         problem={problem}
         preview={
           previewSrc !== null && addressOrigin !== null ? (
-            // The Studio's canvas frame, at the proposal's origin: it reports
-            // what is picked on the page. The site's edits are not relayed --
-            // the page is the proposal's, and reads its own.
+            // The Studio's canvas frame, at the proposal's origin: the page
+            // picks any element itself and reports it described. The site's
+            // edits are not relayed -- the page is the proposal's, and reads
+            // its own.
             <CanvasFrame
               url={previewSrc}
               origin={addressOrigin}
@@ -255,13 +265,18 @@ export function DesignTab({ name }: { name: string }) {
               width="100%"
               height="100%"
               reloadKey={reloadKey}
-              isPicking={picking}
+              isPicking={false}
               highlightedPath={null}
-              onPick={(paths) => {
-                setPicking(false);
-                const picked = paths[0];
-                if (picked !== undefined) insertFieldRef(picked);
+              elementPicking={{
+                active: picking,
+                modifier: PICK_MODIFIER,
+                keepPicked: picked !== null,
               }}
+              onPickElement={(element) => {
+                setPicking(false);
+                setPicked(element);
+              }}
+              onElementPickingStopped={() => setPicking(false)}
               enableKey={enableKey}
               onStatusChange={setFrameStatus}
             />
@@ -270,7 +285,11 @@ export function DesignTab({ name }: { name: string }) {
         chat={
           <AIChatSurface
             className="h-full"
-            design={{ proposal: { name, displayName } }}
+            design={{
+              proposal: { name, displayName },
+              pointedAt: picked,
+              onPointedAtSent: () => setPicked(null),
+            }}
           />
         }
       />

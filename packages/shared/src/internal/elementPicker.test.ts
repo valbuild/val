@@ -1,5 +1,9 @@
 /** @jest-environment jsdom */
-import { attachElementPicker, describeElement } from "./elementPicker";
+import {
+  attachElementPicker,
+  describeElement,
+  startElementPicking,
+} from "./elementPicker";
 
 function page(html: string): HTMLElement {
   const root = document.createElement("div");
@@ -107,5 +111,80 @@ describe("attachElementPicker", () => {
       new MouseEvent("mousemove", { bubbles: true, altKey: true }),
     );
     expect(hovered).toEqual([null, heading]);
+  });
+});
+
+describe("startElementPicking", () => {
+  const altClick = (element: Element) =>
+    element.dispatchEvent(
+      new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        altKey: true,
+      }),
+    );
+  const boxes = () =>
+    document.querySelector("[data-val-picker]")?.shadowRoot ?? null;
+
+  test("outlines and names what is under the pointer, and keeps the pick outlined", () => {
+    const root = page(`<section><h2 class="mb-6 text-2xl">Worn</h2></section>`);
+    const heading = root.querySelector("h2")!;
+    const picked: unknown[] = [];
+    const picking = startElementPicking(root, {
+      modifier: "alt",
+      active: () => false,
+      color: "#079455",
+      onPick: (element) => picked.push(element),
+      onStop: () => {},
+    });
+    const shadow = boxes();
+    expect(shadow).not.toBeNull();
+    const hover = shadow!.querySelector<HTMLElement>('[data-kind="hover"]')!;
+    const kept = shadow!.querySelector<HTMLElement>('[data-kind="picked"]')!;
+
+    heading.dispatchEvent(
+      new MouseEvent("mousemove", { bubbles: true, altKey: true }),
+    );
+    expect(hover.style.display).toBe("block");
+    expect(hover.textContent).toBe("h2.mb-6.text-2xl");
+    expect(document.documentElement.hasAttribute("data-val-picking")).toBe(
+      true,
+    );
+
+    altClick(heading);
+    expect(picked).toEqual([
+      expect.objectContaining({ tag: "h2", text: "Worn" }),
+    ]);
+    expect(hover.style.display).toBe("none");
+    expect(kept.style.display).toBe("block");
+
+    picking.clearPicked();
+    expect(kept.style.display).toBe("none");
+
+    picking.stop();
+    expect(boxes()).toBeNull();
+    expect(document.documentElement.hasAttribute("data-val-picking")).toBe(
+      false,
+    );
+  });
+
+  test("Esc stops Select, and only while it is on", () => {
+    const root = page(`<p>Hi</p>`);
+    let active = false;
+    let stops = 0;
+    const picking = startElementPicking(root, {
+      modifier: "alt",
+      active: () => active,
+      color: "#079455",
+      onPick: () => {},
+      onStop: () => stops++,
+    });
+    const esc = () =>
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    esc();
+    active = true;
+    esc();
+    expect(stops).toBe(1);
+    picking.stop();
   });
 });

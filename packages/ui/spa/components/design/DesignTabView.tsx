@@ -41,13 +41,12 @@ import type { DiffLine } from "../../design/lineDiff";
  *   the assistant is told which.
  * - Right: the assistant, whose code tools act on this proposal, with what
  *   was picked above it.
- * - Top: the build, the proposal's own Studio, and Publish. The checks a
- *   change goes through are kept quiet until one fails.
+ * - Top: the checks a change goes through as one quiet word beside the
+ *   proposal's name ("Ready", "Build failed"), with the list behind it; its
+ *   history behind a button; the build, the proposal's own Studio, and
+ *   Publish.
  *
  * Which files changed is not a panel of its own: it is the Changes view.
- *
- * `options` holds the choices still being made (the stories show each); the
- * one picked becomes the only layout.
  *
  * A build that does not render is never served (step 1), so a failed build
  * does not take the preview away: it says so above the last build that
@@ -111,22 +110,6 @@ export type DesignPicked = {
   valPath?: string;
 };
 
-/**
- * The choices still being made, one story per option:
- *
- * - `checks`: `status` -- one quiet word and a dot beside the proposal's
- *   name, the checks behind it; `toolbar` -- small marks at the end of the
- *   preview's toolbar; `publish` -- folded into Publish, which they gate.
- * - `history`: `rail` -- a narrow column on the left; `menu` -- a button in
- *   the top bar, and the preview takes the whole width.
- */
-export type DesignTabOptions = {
-  checks: "status" | "toolbar" | "publish";
-  history: "rail" | "menu";
-};
-
-const DEFAULT_OPTIONS: DesignTabOptions = { checks: "status", history: "menu" };
-
 export type DesignDevice = "desktop" | "tablet" | "mobile";
 export type DesignView = "preview" | "changes";
 
@@ -172,7 +155,6 @@ export type DesignTabViewProps = {
   chat: ReactNode;
   initialView?: DesignView;
   initialDevice?: DesignDevice;
-  options?: DesignTabOptions;
 };
 
 const VIEWS: DesignView[] = ["preview", "changes"];
@@ -184,7 +166,6 @@ const DEVICE_WIDTHS: Record<DesignDevice, number | null> = {
 };
 
 export function DesignTabView(props: DesignTabViewProps) {
-  const options = props.options ?? DEFAULT_OPTIONS;
   const [view, setView] = useState<DesignView>(props.initialView ?? "preview");
   const [device, setDevice] = useState<DesignDevice>(
     props.initialDevice ?? "desktop",
@@ -199,22 +180,13 @@ export function DesignTabView(props: DesignTabViewProps) {
       : null;
   return (
     <div className="flex h-svh flex-col bg-bg-primary text-fg-primary">
-      <DesignTopBar
-        {...props}
-        options={options}
-        checkpoints={options.history === "menu" ? checkpoints : null}
-      />
+      <DesignTopBar {...props} checkpoints={checkpoints} />
       {props.builder.kind === "window" &&
         props.builder.blocked &&
         props.onOpenBuilder !== undefined && (
           <BuilderWindowBanner onOpen={props.onOpenBuilder} />
         )}
       <div className="flex min-h-0 flex-1">
-        {options.history === "rail" && checkpoints !== null && (
-          <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-border-primary bg-bg-secondary">
-            <Checkpoints checkpoints={checkpoints} />
-          </aside>
-        )}
         <main className="flex min-w-0 flex-1 flex-col bg-bg-canvas">
           <PreviewToolbar
             route={props.route}
@@ -229,7 +201,6 @@ export function DesignTabView(props: DesignTabViewProps) {
             onDevice={setDevice}
             changes={files.length}
             picking={props.picking}
-            checks={options.checks === "toolbar" ? props.checks : null}
           />
           {props.problem !== null && <ProblemBanner problem={props.problem} />}
           {view === "preview" ? (
@@ -273,10 +244,8 @@ function DesignTopBar({
   builder,
   build,
   onPublish,
-  options,
   checkpoints,
 }: DesignTabViewProps & {
-  options: DesignTabOptions;
   checkpoints: DesignCheckpoint[] | null;
 }) {
   return (
@@ -289,7 +258,7 @@ function DesignTopBar({
         <GitBranch size={14} className="shrink-0 text-fg-proposal" />
         <span className="truncate font-medium">{proposal.displayName}</span>
       </span>
-      {options.checks === "status" && <ChecksStatus checks={checks} />}
+      <ChecksStatus checks={checks} />
       {builder.kind === "window" && (
         <span
           className={cn(
@@ -327,19 +296,16 @@ function DesignTopBar({
             {build.building ? "Building…" : "Build"}
           </button>
         )}
-        {onPublish !== null &&
-          (options.checks === "publish" ? (
-            <PublishWithChecks checks={checks} onPublish={onPublish} />
-          ) : (
-            <button
-              type="button"
-              onClick={onPublish}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-bg-proposal px-3 text-xs font-medium text-fg-on-proposal hover:bg-bg-proposal-hover"
-            >
-              <Upload size={14} />
-              Publish
-            </button>
-          ))}
+        {onPublish !== null && (
+          <button
+            type="button"
+            onClick={onPublish}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-bg-proposal px-3 text-xs font-medium text-fg-on-proposal hover:bg-bg-proposal-hover"
+          >
+            <Upload size={14} />
+            Publish
+          </button>
+        )}
       </div>
     </header>
   );
@@ -423,7 +389,7 @@ function ChecksList({ checks }: { checks: DesignCheckItem[] }) {
   );
 }
 
-/** Option `status`: a dot and one word beside the name; the rest on a click. */
+/** The checks, quietly: a dot and one word beside the name; the rest on a click. */
 function ChecksStatus({ checks }: { checks: DesignCheckItem[] }) {
   const summary = summarise(checks);
   return (
@@ -446,79 +412,6 @@ function ChecksStatus({ checks }: { checks: DesignCheckItem[] }) {
         <ChecksList checks={checks} />
       </PopoverContent>
     </Popover>
-  );
-}
-
-/** Option `toolbar`: a mark per check, small, at the end of the toolbar. */
-function ChecksMarks({ checks }: { checks: DesignCheckItem[] }) {
-  return (
-    <span className="inline-flex items-center gap-2 text-[11px] text-fg-tertiary">
-      {checks.map((item) => (
-        <span
-          key={item.label}
-          title={item.check.state === "failed" ? item.check.message : undefined}
-          className={cn(
-            "inline-flex items-center gap-1",
-            item.check.state === "failed" && "text-fg-error-on-surface",
-          )}
-        >
-          {item.check.state === "passed" && <Check size={11} />}
-          {item.check.state === "failed" && <X size={11} />}
-          {item.check.state === "running" && <Spinner size={10} />}
-          {item.check.state === "idle" && <Circle size={8} />}
-          {item.label}
-        </span>
-      ))}
-    </span>
-  );
-}
-
-/**
- * Option `publish`: the checks are what Publish waits on, so they sit in it --
- * a dot on the button, and the list beside it.
- */
-function PublishWithChecks({
-  checks,
-  onPublish,
-}: {
-  checks: DesignCheckItem[];
-  onPublish: () => void;
-}) {
-  const summary = summarise(checks);
-  return (
-    <div className="inline-flex h-8 items-stretch overflow-hidden rounded-md bg-bg-proposal text-xs font-medium text-fg-on-proposal">
-      <button
-        type="button"
-        onClick={onPublish}
-        className="inline-flex items-center gap-1.5 px-3 hover:bg-bg-proposal-hover"
-      >
-        <Upload size={14} />
-        Publish
-      </button>
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label={`Checks: ${summary.label}`}
-            title={summary.label}
-            className="inline-flex items-center gap-1 border-l border-bg-proposal-hover px-2 hover:bg-bg-proposal-hover"
-          >
-            <ToneDot tone={summary.tone} />
-            <ChevronDown size={12} />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-72 p-3">
-          <p className="mb-2 text-xs font-semibold">
-            {summary.tone === "passed"
-              ? "Ready to publish"
-              : summary.tone === "failed"
-                ? "Fix this before publishing"
-                : "Checking"}
-          </p>
-          <ChecksList checks={checks} />
-        </PopoverContent>
-      </Popover>
-    </div>
   );
 }
 
@@ -610,7 +503,6 @@ function PreviewToolbar({
   onDevice,
   changes,
   picking,
-  checks,
 }: {
   route: string;
   onRouteChange: (route: string) => void;
@@ -624,8 +516,6 @@ function PreviewToolbar({
   onDevice: (device: DesignDevice) => void;
   changes: number;
   picking: DesignPicking | null;
-  /** Option `toolbar`: the checks, as marks at the end. */
-  checks: DesignCheckItem[] | null;
 }) {
   const [draft, setDraft] = useState(route);
   useEffect(() => setDraft(route), [route]);
@@ -737,11 +627,6 @@ function PreviewToolbar({
             </a>
           )}
         </>
-      )}
-      {checks !== null && (
-        <span className="ml-auto pl-2">
-          <ChecksMarks checks={checks} />
-        </span>
       )}
     </div>
   );

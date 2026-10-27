@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { useState } from "react";
+import type { PickedElement } from "@valbuild/shared/internal";
 import { DesignSiteMock } from "./DesignSiteMock";
-import { DesignTabView } from "../DesignTabView";
+import { PickerLayer } from "../PickerLayer";
+import { DesignTabView, type DesignTabViewProps } from "../DesignTabView";
 import { BASE, MESSAGES, NOT_RENDERED, chat } from "./designStoryFixtures";
 
 /**
@@ -19,8 +22,12 @@ import { BASE, MESSAGES, NOT_RENDERED, chat } from "./designStoryFixtures";
  * - **Nothing changed yet** -- a proposal that runs the site's code.
  * - **Safari** -- the bundler cannot run in a tab that frames the site, so
  *   the build waits for a builder window opened from a tap.
- * - **Picking** -- Select, then click something on the page: the assistant is
- *   told which. It needs the page in preview mode, which the bar turns on.
+ * - **Picking** -- live: hold ⌥ (Alt) and click ANYTHING on the page, or
+ *   press Select first. What is under the pointer is outlined and named; what
+ *   is picked is outlined, shown above the assistant, and sent with the next
+ *   message. The same picker the proposal's page runs (`startElementPicking`).
+ * - **Picking, no answer** -- the page never answered the canvas, so nothing
+ *   on it can be picked; the hint offers to turn preview mode on.
  */
 const meta: Meta<typeof DesignTabView> = {
   title: "Design/DesignTab",
@@ -148,22 +155,76 @@ export const SafariNoBuilderWindow: Story = {
   },
 };
 
+function LivePicking({
+  initialPicked = null,
+  initialSelect = false,
+  ...props
+}: DesignTabViewProps & {
+  initialPicked?: PickedElement | null;
+  initialSelect?: boolean;
+}) {
+  const [active, setActive] = useState(initialSelect);
+  const [picked, setPicked] = useState<PickedElement | null>(initialPicked);
+  return (
+    <DesignTabView
+      {...props}
+      picking={{
+        active,
+        onToggle: () => setActive((on) => !on),
+        status: "live",
+        onTurnOn: () => {},
+        modifier: "⌥",
+      }}
+      picked={picked}
+      onClearPicked={() => setPicked(null)}
+      preview={
+        <PickerLayer
+          modifier="alt"
+          active={active}
+          keepPicked={picked !== null}
+          onStop={() => setActive(false)}
+          onPick={(element) => {
+            setActive(false);
+            setPicked(element);
+          }}
+        >
+          <DesignSiteMock testimonials="cards" />
+        </PickerLayer>
+      }
+    />
+  );
+}
+
 export const Picking: Story = {
-  name: "Picking on the page",
-  args: {
-    ...BASE,
-    picking: {
-      active: true,
-      onToggle: () => {},
-      status: "live",
-      onTurnOn: () => {},
-      modifier: "⌥",
-    },
-  },
+  name: "Picking: hold ⌥ and click anything",
+  render: (args) => <LivePicking {...args} />,
+  args: BASE,
 };
 
-export const PickingNeedsPreview: Story = {
-  name: "Picking needs preview mode",
+export const Picked: Story = {
+  name: "Picking: a heading picked",
+  render: (args) => (
+    <LivePicking
+      {...args}
+      initialPicked={{
+        tag: "h2",
+        text: "Worn for years, not weeks",
+        classes: ["mb-6", "text-2xl", "font-bold", "tracking-tight"],
+        selector: "div > section:nth-of-type(2) > h2",
+      }}
+    />
+  ),
+  args: BASE,
+};
+
+export const PickingWithSelect: Story = {
+  name: "Picking: Select on, no key needed",
+  render: (args) => <LivePicking {...args} initialSelect />,
+  args: BASE,
+};
+
+export const PickingNoAnswer: Story = {
+  name: "Picking: the page did not answer",
   args: {
     ...BASE,
     picking: {
