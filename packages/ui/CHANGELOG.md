@@ -1,5 +1,23 @@
 # @valbuild/ui
 
+## 0.150.2
+
+### Patch Changes
+
+- [#951](https://github.com/valbuild/val/pull/951) [`c674aae`](https://github.com/valbuild/val/commit/c674aae361be3c75b5232acb41ea6d8da973c678) Thanks [@freekh](https://github.com/freekh)! - Studio: the line under an editor's heading is now one link back to the parent, by name — `‹ Product 1` — instead of a breadcrumb of path segments. The parent is where the level above is shown, so from a section of a page it is the page, not its `sections` field.
+
+- [#947](https://github.com/valbuild/val/pull/947) [`c044e55`](https://github.com/valbuild/val/commit/c044e55452ba34ec5b7b38c935c9c25491d980be) Thanks [@freekh](https://github.com/freekh)! - In a proposal, **Compare with the site** can now show a changed page as a page: pick a page and switch from **Fields** to **Page** to see the page as the site serves it beside the page as the proposal does, unsaved changes included, at desktop or phone width. Each side has an **Open** link to see it in a tab of its own. A page the proposal adds or removes says so on the side it is not on, rather than loading a 404.
+
+  The changes list no longer marks a page (or a content module) as **new** or **removed** because something inside it was added or removed — an item appended to a list on a page now shows as an edit of that page.
+
+- [#949](https://github.com/valbuild/val/pull/949) [`36412b2`](https://github.com/valbuild/val/commit/36412b28bb009083f652b26462b76a74c80ff595) Thanks [@freekh](https://github.com/freekh)! - Val Studio now shows content analytics beside the content being edited, for a hosted project with content analytics switched on. Each field and list row shows how many page views it was seen in (hover for how many it was on the page in, and the share). The heading of what is open says the same for all of it, and lists what in it was seen most, by the names the Studio gives them everywhere else. Nothing is shown, and nothing is asked of Val Build, for a project with analytics off or a Studio not signed in to Val Build.
+
+- [#953](https://github.com/valbuild/val/pull/953) [`8f598b6`](https://github.com/valbuild/val/commit/8f598b618b794e59ef5b9c6ef94650be4ff006e7) Thanks [@freekh](https://github.com/freekh)! - A proposal's typecheck no longer downloads TypeScript again for its second check. The compiler (about 13 MB) is kept by the typecheck's worker once fetched, for every check that asks for the same version after it.
+
+- [#952](https://github.com/valbuild/val/pull/952) [`95d17e6`](https://github.com/valbuild/val/commit/95d17e6bbecceb2f09d6a6226808e9c60b2d4795) Thanks [@freekh](https://github.com/freekh)! - A proposal's typecheck (an upgrade, or a proposal with dependencies of its own) now checks the proposal first, and checks the site as it is only when the proposal has type errors, to tell the errors the site already had from the ones the proposal adds. A proposal that typechecks cleanly is done in one check instead of two, which is most of them. A site with no lockfile on record no longer has one worked out for it unless the second check needs it.
+
+- [#950](https://github.com/valbuild/val/pull/950) [`520d22c`](https://github.com/valbuild/val/commit/520d22cc721ff23b83e4bae0b4ba7f52a6a0fa0c) Thanks [@freekh](https://github.com/freekh)! - **Check everything** on the Studio's Validate page can no longer be pressed before the Studio has loaded the project. A press in that moment used to do nothing at all, without saying so; the button is now disabled until a check can run.
+
 ## 0.150.1
 
 ### Patch Changes
