@@ -1,5 +1,12 @@
 # @valbuild/next
 
+## 0.150.6
+
+### Patch Changes
+
+- Updated dependencies [[`f84222b`](https://github.com/valbuild/val/commit/f84222b2c902d8725b1da96f79481060fb8b9842)]:
+  - @valbuild/react@0.150.6
+
 ## 0.150.5
 
 ### Patch Changes
