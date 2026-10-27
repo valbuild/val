@@ -88,7 +88,19 @@ export const InAnUpgrade = shell({
   upgrade: minorUpgrade,
 });
 
-/** Nothing open in the editor: the notice above the empty state. */
+/**
+ * The notice, dismissed: it folds into the status bar as "About this
+ * upgrade", which brings it back.
+ */
+export const InAnUpgradeNoticeDismissed = shell({
+  location: inUpgrade(),
+  list: withUpgrade,
+  selectionId: home,
+  upgrade: minorUpgrade,
+  noticesDismissed: true,
+});
+
+/** Nothing open in the editor: the notice pops up over the empty state. */
 export const InAnUpgradeNothingOpen = shell({
   location: inUpgrade(),
   list: withUpgrade,
@@ -174,15 +186,6 @@ export const NothingToUpgrade = shell({
   upgrade: { ...minorUpgrade, state: "nothing", changes: [] },
 });
 
-/** The Save/Publish caret, in an upgrade. */
-export const InAnUpgradeActionMenuOpen = shell({
-  location: inUpgrade(),
-  list: withUpgrade,
-  selectionId: home,
-  upgrade: minorUpgrade,
-  actionMenuOpen: true,
-});
-
 /** The switcher from inside the upgrade: "here" is the upgrade. */
 export const InAnUpgradeSwitcherOpen = shell({
   location: inUpgrade(),
@@ -192,7 +195,7 @@ export const InAnUpgradeSwitcherOpen = shell({
   switcherOpen: true,
 });
 
-/** The bar's menu, in an upgrade. */
+/** The caret's menu, in an upgrade: no Rename, and Discard rather than Close. */
 export const InAnUpgradeMenuOpen = shell({
   location: inUpgrade(),
   list: withUpgrade,

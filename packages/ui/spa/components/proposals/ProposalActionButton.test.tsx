@@ -4,7 +4,6 @@ import "../../stores/react/testPolyfills";
 import { fireEvent, render, screen } from "@testing-library/react";
 import {
   ProposalActionButton,
-  ProposalMenu,
   nextProposalAction,
   proposalProgress,
 } from "./ProposalBar";
@@ -42,6 +41,9 @@ const handlers = () => ({
   onSave: jest.fn(),
   onBuild: jest.fn(),
   onPublish: jest.fn(),
+  onRename: jest.fn(),
+  onCopyLink: jest.fn(),
+  onClose: jest.fn(),
 });
 
 describe("nextProposalAction", () => {
@@ -88,7 +90,7 @@ describe("ProposalActionButton", () => {
     const h = handlers();
     render(<ProposalActionButton location={location()} {...h} />);
     fireEvent.click(
-      screen.getByRole("button", { name: "More ways to save and publish" }),
+      screen.getByRole("button", { name: "More for this proposal" }),
     );
     const publish = screen.getByRole("menuitem", {
       name: /Publish to the site/,
@@ -141,7 +143,7 @@ describe("ProposalActionButton", () => {
     ).toBe(true);
   });
 
-  test("a published proposal says so, and does nothing", () => {
+  test("a published proposal says so, and its menu keeps the proposal's acts", () => {
     const h = handlers();
     render(
       <ProposalActionButton
@@ -150,25 +152,52 @@ describe("ProposalActionButton", () => {
           proposal: { ...location().proposal, status: "merged" },
         })}
         {...h}
+        defaultMenuOpen
       />,
     );
     const button = screen.getByRole("button", { name: /Published/ });
     expect(button.hasAttribute("disabled")).toBe(true);
-    expect(
-      screen.queryByRole("button", { name: "More ways to save and publish" }),
-    ).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Publish to/ })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Copy link/ }));
+    expect(h.onCopyLink).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("ProposalMenu", () => {
+describe("the proposal's acts, in the same menu", () => {
+  test("compare, rename, copy its link and close sit below the steps", () => {
+    const h = handlers();
+    render(
+      <ProposalActionButton
+        location={location()}
+        {...h}
+        onCompare={() => {}}
+        defaultMenuOpen
+      />,
+    );
+    const items = screen
+      .getAllByRole("menuitem")
+      .map((item) => item.textContent ?? "");
+    expect(items.map((text) => text.split(/(?=[A-Z])/)[0])).toEqual([
+      "Save 3 changes",
+      "Publish to the site",
+      "Compare with the site",
+      "Rename…",
+      "Copy link",
+      "Close…",
+    ]);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Close/ }));
+    expect(h.onClose).toHaveBeenCalledTimes(1);
+  });
+
   test("an upgrade is discarded, and not renamed", () => {
     render(
-      <ProposalMenu
-        onRename={() => {}}
-        onCopyLink={() => {}}
-        onClose={() => {}}
-        upgrade
-        defaultOpen
+      <ProposalActionButton
+        location={location({
+          unsaved: 0,
+          proposal: { ...location().proposal, upgrade: true, changes: 0 },
+        })}
+        {...handlers()}
+        defaultMenuOpen
       />,
     );
     expect(screen.queryByRole("menuitem", { name: /Rename/ })).toBeNull();

@@ -1,4 +1,5 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect } from "react";
+import type { FloatingNoticeItem } from "../components/shell/FloatingNotices";
 import { ArrowUpCircle, ExternalLink } from "lucide-react";
 import { useStudioIsDeployer } from "../components/ValProvider";
 import { UpgradeProposalNotice } from "../components/proposals/UpgradeProposalNotice";
@@ -71,10 +72,10 @@ export function useUpgrade(input: {
   /** `null` where this Studio does not upgrade. */
   settings: UpgradeSettings | null;
   /**
-   * Above the editor: on the site, an upgrade under way; at an upgrade
-   * proposal's address, that it is followed in Val Build.
+   * Popping up from below: on the site, an upgrade under way; at an upgrade
+   * proposal's address, what it upgrades. See `FloatingNotices`.
    */
-  notice: ReactNode | null;
+  notice: FloatingNoticeItem | null;
 } {
   const { enabled, adminProject, here, current, proposals, onRefresh } = input;
   const { siteName, contentChanges = 0 } = input;
@@ -141,29 +142,44 @@ export function useUpgrade(input: {
     };
   }, [following, onRefresh]);
 
-  const siteNotice =
-    running === null ? null : (
-      <UpgradeNotice
-        text={`${running.displayName}: an upgrade is under way in Val Build.`}
-        action={{
-          label: "Open upgrade",
-          onClick: () => openInValBuild(upgradeUrl(running.name)),
-        }}
-      />
-    );
-  const proposalNotice =
+  const siteNotice: FloatingNoticeItem | null =
+    running === null
+      ? null
+      : {
+          id: `upgrade-under-way:${running.name}`,
+          label: "Upgrade under way",
+          icon: <ArrowUpCircle size={13} />,
+          content: (
+            <UpgradeNotice
+              text={`${running.displayName}: an upgrade is under way in Val Build.`}
+              action={{
+                label: "Open upgrade",
+                onClick: () => openInValBuild(upgradeUrl(running.name)),
+              }}
+            />
+          ),
+        };
+  const proposalNotice: FloatingNoticeItem | null =
     hereUpgrade === null ||
     hereUpgrade.status !== "open" ||
-    hereUpgrade.upgrade === undefined ? null : (
-      <UpgradeProposalNotice
-        upgrade={hereUpgrade.upgrade}
-        {...(siteName !== undefined ? { siteName } : {})}
-        contentChanges={contentChanges}
-        {...(adminProject !== null
-          ? { checksHref: upgradeUrl(hereUpgrade.name) }
-          : {})}
-      />
-    );
+    hereUpgrade.upgrade === undefined
+      ? null
+      : {
+          // New words, a new id: it comes back once the upgrade is worked out.
+          id: `upgrade:${hereUpgrade.name}:${hereUpgrade.upgrade.state}:${contentChanges > 0 ? "content" : "none"}`,
+          label: "About this upgrade",
+          icon: <ArrowUpCircle size={13} />,
+          content: (
+            <UpgradeProposalNotice
+              upgrade={hereUpgrade.upgrade}
+              {...(siteName !== undefined ? { siteName } : {})}
+              contentChanges={contentChanges}
+              {...(adminProject !== null
+                ? { checksHref: upgradeUrl(hereUpgrade.name) }
+                : {})}
+            />
+          ),
+        };
   return { button, settings, notice: siteNotice ?? proposalNotice };
 }
 
@@ -175,7 +191,7 @@ export function UpgradeNotice({
   action?: { label: string; onClick: () => void };
 }) {
   return (
-    <div
+    <section
       role="status"
       /*
        * Neutral, not the proposal colour: this is the site, and that colour
@@ -196,6 +212,6 @@ export function UpgradeNotice({
           {action.label} <ExternalLink size={12} />
         </button>
       )}
-    </div>
+    </section>
   );
 }

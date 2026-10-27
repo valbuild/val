@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
+import { ArrowUpCircle, Check } from "lucide-react";
+import type { FloatingNoticeItem } from "../../shell/FloatingNotices";
 import { Shell } from "../../shell/Shell";
 import { mockShellData } from "../../shell/mockShellData";
 import type { TopBarProposals } from "../../shell/TopBar";
@@ -166,9 +168,8 @@ export type HarnessProps = {
   list?: ProposalSummary[];
   theme?: "dark" | "light";
   switcherOpen?: boolean;
+  /** The Save/Publish button's caret menu, open: the proposal's acts too. */
   menuOpen?: boolean;
-  /** The Save/Publish button's caret menu, open. */
-  actionMenuOpen?: boolean;
   dialog?: "new" | "close" | "rename" | "all" | "publish" | null;
   newProblem?: NewProposalProblem | null;
   /** Validation errors a save would be refused for. */
@@ -193,6 +194,8 @@ export type HarnessProps = {
    * where its later changes went, if anywhere.
    */
   merged?: { continuedIn: string | null };
+  /** The floating notices, dismissed: folded into the status bar. */
+  noticesDismissed?: boolean;
 };
 
 /**
@@ -205,7 +208,6 @@ export function ProposalsShell({
   theme: initialTheme = "dark",
   switcherOpen = false,
   menuOpen = false,
-  actionMenuOpen = false,
   dialog: initialDialog = null,
   newProblem = null,
   validationErrors = 0,
@@ -216,6 +218,7 @@ export function ProposalsShell({
   upgradeUnderWay,
   updates,
   merged,
+  noticesDismissed = false,
 }: HarnessProps) {
   const [theme, setTheme] = useState(initialTheme);
   const [location, setLocation] = useState<StudioLocation>(initialLocation);
@@ -353,43 +356,66 @@ export function ProposalsShell({
     onClose: () => setDialog("close"),
     defaultSwitcherOpen: switcherOpen,
     defaultMenuOpen: menuOpen,
-    defaultActionMenuOpen: actionMenuOpen,
   };
 
-  // Above the editor, in `useProposalsBar`'s order: merged, then the upgrade.
-  const notice =
-    current !== null && merged !== undefined ? (
-      <MergedProposalNotice
-        displayName={current.displayName}
-        continuedIn={
-          merged.continuedIn !== null
-            ? { displayName: merged.continuedIn }
-            : null
-        }
-        onOpenContinuation={action("open the continuation")}
-        onNewProposal={() => setDialog("new")}
-        onGoToSite={() => setLocation({ kind: "site" })}
-      />
-    ) : current !== null && upgrade !== undefined ? (
-      <UpgradeProposalNotice
-        upgrade={upgrade}
-        siteName="quiet-harbor-24"
-        checksHref="#val-build"
-        contentChanges={
-          location.kind === "proposal"
-            ? location.proposal.changes + location.unsaved
-            : 0
-        }
-      />
-    ) : location.kind === "site" && upgradeUnderWay !== undefined ? (
-      <UpgradeNotice
-        text={`${upgradeUnderWay}: an upgrade is under way in Val Build.`}
-        action={{
-          label: "Open upgrade",
-          onClick: action("open the upgrade in Val Build"),
-        }}
-      />
-    ) : null;
+  /*
+   * Popping up from below, in `useProposalsBar`'s order: merged, then the
+   * upgrade; on the site, an upgrade under way. Ids as the app makes them.
+   */
+  const floatingNotices: FloatingNoticeItem[] = [];
+  if (current !== null && merged !== undefined) {
+    floatingNotices.push({
+      id: `merged:${current.name}`,
+      label: "Published",
+      icon: <Check size={13} />,
+      content: (
+        <MergedProposalNotice
+          displayName={current.displayName}
+          continuedIn={
+            merged.continuedIn !== null
+              ? { displayName: merged.continuedIn }
+              : null
+          }
+          onOpenContinuation={action("open the continuation")}
+          onNewProposal={() => setDialog("new")}
+          onGoToSite={() => setLocation({ kind: "site" })}
+        />
+      ),
+    });
+  } else if (current !== null && upgrade !== undefined) {
+    const contentChanges =
+      location.kind === "proposal"
+        ? location.proposal.changes + location.unsaved
+        : 0;
+    floatingNotices.push({
+      id: `upgrade:${current.name}:${upgrade.state}:${contentChanges > 0}`,
+      label: "About this upgrade",
+      icon: <ArrowUpCircle size={13} />,
+      content: (
+        <UpgradeProposalNotice
+          upgrade={upgrade}
+          siteName="quiet-harbor-24"
+          checksHref="#val-build"
+          contentChanges={contentChanges}
+        />
+      ),
+    });
+  } else if (location.kind === "site" && upgradeUnderWay !== undefined) {
+    floatingNotices.push({
+      id: `upgrade-under-way:${upgradeUnderWay}`,
+      label: "Upgrade under way",
+      icon: <ArrowUpCircle size={13} />,
+      content: (
+        <UpgradeNotice
+          text={`${upgradeUnderWay}: an upgrade is under way in Val Build.`}
+          action={{
+            label: "Open upgrade",
+            onClick: action("open the upgrade in Val Build"),
+          }}
+        />
+      ),
+    });
+  }
 
   return (
     <>
@@ -419,7 +445,10 @@ export function ProposalsShell({
         onCompare={action("open the review view")}
         mode="http"
         proposals={handlers}
-        notice={notice}
+        floatingNotices={floatingNotices}
+        {...(noticesDismissed
+          ? { initialDismissedNotices: floatingNotices.map((each) => each.id) }
+          : {})}
         // Hidden at an upgrade's own address, as `useUpgrade` hides it.
         {...(updates !== undefined && !isUpgrade ? { upgrade: updates } : {})}
       />

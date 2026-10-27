@@ -1227,7 +1227,7 @@ function ValShellBody({
   const {
     proposals: proposalsBar,
     dialogs: proposalDialogs,
-    notice: proposalNotice,
+    notices: proposalNotices,
     restoreDestination,
     upgrade,
     upgradeSettings,
@@ -1268,16 +1268,6 @@ function ValShellBody({
     ),
     [settingsModule, updates],
   );
-  // A merged proposal's notice first: it says this whole Studio is finished.
-  const shellNotice =
-    proposalNotice === null ? (
-      editorNotice
-    ) : (
-      <div className="flex flex-col gap-3">
-        {proposalNotice}
-        {editorNotice}
-      </div>
-    );
   const proposals = useMemo(
     () =>
       proposalsBar && inProposal
@@ -1459,7 +1449,8 @@ function ValShellBody({
             : undefined
         }
         editorOverride={overrideEditor}
-        notice={shellNotice}
+        notice={editorNotice}
+        floatingNotices={proposalNotices}
         renderPlanStatus={planStatus}
         statusNotice={remoteFilesStatusNotice}
         publishSlot={demo !== null ? <DemoPublishButton /> : <PublishButton />}

@@ -42,7 +42,6 @@ import {
 } from "../proposals/ProposalSwitcher";
 import {
   ProposalActionButton,
-  ProposalMenu,
   ProposalProgress,
 } from "../proposals/ProposalBar";
 import type { ProposalSummary, StudioLocation } from "../proposals/types";
@@ -81,9 +80,8 @@ export type TopBarProposals = {
   onClose: () => void;
   /** For stories. */
   defaultSwitcherOpen?: boolean;
+  /** The Save/Publish button's caret menu, the proposal's acts with it. */
   defaultMenuOpen?: boolean;
-  /** The Save/Publish button's caret menu. */
-  defaultActionMenuOpen?: boolean;
 };
 
 export type TopBarProps = {
@@ -287,12 +285,13 @@ export function TopBar({
   const proposalLocation =
     proposals?.location.kind === "proposal" ? proposals.location : null;
   /*
-   * Above a phone, where you are is the middle of the bar: the switcher, the
-   * proposal's menu, and what its address is doing after a save. Save, Build
-   * and Publish are one split button where Publish is on the site -- see
-   * `ProposalActionButton`. On a phone where you are is a chip of a fixed
-   * width (see `ProposalLocationChip`), and everything about the proposal is
-   * in the sheet behind it.
+   * Above a phone, where you are is the middle of the bar: the switcher, and
+   * what its address is doing after a save. Save, Build and Publish are one
+   * split button where Publish is on the site, its menu holding the rest of
+   * what can be done with the proposal -- see `ProposalActionButton`. On a
+   * phone where you are is a chip of a fixed width (see
+   * `ProposalLocationChip`), and everything about the proposal is in the
+   * sheet behind it.
    */
   const layout: "phone" | "centered" = isMobileBreakpoint(breakpoint)
     ? "phone"
@@ -311,16 +310,6 @@ export function TopBar({
   const inProposal =
     proposals !== undefined && proposalLocation !== null
       ? {
-          menu: (
-            <ProposalMenu
-              onCompare={proposals.onCompare}
-              onRename={proposals.onRename}
-              onCopyLink={proposals.onCopyLink}
-              onClose={proposals.onClose}
-              upgrade={proposalLocation.proposal.upgrade === true}
-              defaultOpen={proposals.defaultMenuOpen}
-            />
-          ),
           progress: <ProposalProgress location={proposalLocation} />,
           action: (
             <ProposalActionButton
@@ -329,7 +318,11 @@ export function TopBar({
               onBuild={proposals.onBuild}
               onPublish={proposals.onPublish}
               saveBlockedBy={proposals.saveBlockedBy}
-              defaultMenuOpen={proposals.defaultActionMenuOpen}
+              onCompare={proposals.onCompare}
+              onRename={proposals.onRename}
+              onCopyLink={proposals.onCopyLink}
+              onClose={proposals.onClose}
+              defaultMenuOpen={proposals.defaultMenuOpen}
             />
           ),
         }
@@ -429,12 +422,7 @@ export function TopBar({
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1.5">
           {planStatus}
           {switcher}
-          {inProposal !== null && (
-            <>
-              {inProposal.menu}
-              {inProposal.progress}
-            </>
-          )}
+          {inProposal?.progress}
         </div>
       )}
       <div className="flex items-center gap-1.5 shrink-0">

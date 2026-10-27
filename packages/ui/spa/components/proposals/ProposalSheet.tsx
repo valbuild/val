@@ -22,7 +22,7 @@ import type { ProposalSummary } from "./types";
  * whatever its author wrote, and there is no width for it there. It shows the
  * place with colour and an icon instead, and this sheet is where the name is
  * read IN FULL, wrapping rather than truncated. Above a phone the switcher in
- * the top bar names it, and `ProposalMenu` beside it carries the same actions.
+ * the top bar names it, and `ProposalActionButton`'s menu carries the same actions.
  *
  * One sheet for everything about the proposal: its name, what you can do to it,
  * and the way out to somewhere else. Publish is not here: it is something you

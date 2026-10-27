@@ -18,7 +18,7 @@ by side.
 [-Label-]     disabled                    [@ Label]    with a spinner
 (o The site v)  the switcher, on the site {Y Name v}   the switcher, in a proposal
 (^) / (!)     Updates / security fixes    ^            an upgrade proposal (Y: any other)
-(@) Label     progress beside the switcher  /!\ Label  the same, failed
+[x]           dismiss a notice          (@) Label  progress beside the switcher  /!\ Label  the same, failed
 Review(9+)    Review, with its badge      [|]  (3)     the panel toggle, notifications
 =====         the top bar's purple ring: you are in a proposal
 -----         the top bar on the site
@@ -26,6 +26,21 @@ V P M {}      the left rail: logo, Pages, Media, Data;  * settings, FR the accou
 ```
 
 ## What changed, and why
+
+**One menu, and notices from below.** The `...` beside the switcher is
+gone: Compare, Rename, Copy link and Close are at the bottom of the Save/Publish
+caret's menu, below the steps, so everything to do with the proposal is in one
+place. A published proposal keeps the caret for them, beside "Published".
+
+The notices about where the Studio is -- an upgrade proposal, a published one,
+an upgrade under way, a restore -- no longer sit above the editor. They pop up
+from below, bottom right above the status bar, and stay until dismissed with
+their `[x]`. A dismissed one folds into the status bar under its name ("About
+this upgrade"), and pressing that brings it back. A notice whose words change
+(an upgrade that finishes being worked out) comes back by itself. On a phone,
+with nothing to float over, they stay above the editor.
+
+### Before that
 
 **Save becomes Publish.** There is no Publish beside the switcher any more.
 Where Publish is on the site, a proposal has one split button, shaped like
@@ -94,6 +109,8 @@ The issues the first pass found, and what became of each:
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
@@ -121,6 +138,8 @@ The issues the first pass found, and what became of each:
 |  |                                       |  +  New proposal                       |                                         |
 |  |                                       |  =  All proposals...                   |                                         |
 |  |                                       +----------------------------------------+                                         |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
@@ -150,6 +169,8 @@ The issues the first pass found, and what became of each:
 |  |                                       +------------------------------------------+                                       |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
@@ -162,7 +183,7 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {Y Spring campaign v} [...]     Review(9+) [Preview] {Save 3|v}  [|] (3)  |
+|V |  val-demo [Search]                                {Y Spring campaign v}        Review(9+) [Preview] {Save 3|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -175,32 +196,6 @@ The issues the first pass found, and what became of each:
 |  |                          <Take a tour>                                                                                   |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|* | ------------------------------------------------------------------------------------------------------------------------ |
-|FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  o 3 not saved to the proposal                          |
-'--'--------------------------------------------------------------------------------------------------------------------------'
-```
-
-### The caret beside Save
-
-`proposals-proposals--in-a-proposal-action-menu-open` — Publish is always one press away: it saves first.
-
-```text
- _____________________________________________________________________________________________________________________________
-|  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {Y Spring campaign v} [...]     Review(9+) [Preview] {Save 3|v}  [|] (3)  |
-|  | ======================================================================================================================== |
-|P |                                                                       +----------------------------------------------+   |
-|M |                                                                       | [s] Save 3 changes                           |   |
-|{}|                                                                       |      Keep them in the proposal. Nothing      |   |
-|  |                          Pick something to edit                       |      reaches the site.                       |   |
-|  |                          Everything in this project is in the navigati| [^] Publish to the site                      |   |
-|  |                          Pages   One row per page of your site, by URL|      Saves the changes first, then           |   |
-|  |                          Media   Images and files, uploaded once and u|      publishes the proposal                  |   |
-|  |                          Data    Content that is not tied to one page.+----------------------------------------------+   |
-|  |                          <Take a tour>                                                                                   |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -218,7 +213,7 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {Y Spring campaign v} [...]  Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
+|V |  val-demo [Search]                                {Y Spring campaign v}     Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -229,6 +224,8 @@ The issues the first pass found, and what became of each:
 |  |                          Media   Images and files, uploaded once and used anywhere.                                      |
 |  |                          Data    Content that is not tied to one page.                                                   |
 |  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -246,17 +243,19 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {Y Spring campaign v} [...]  Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
+|V |  val-demo [Search]                                {Y Spring campaign v}     Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                       +----------------------------------------------+   |
 |M |                                                                       | [^] Publish to the site                      |   |
 |{}|                                                                       |      Merges the proposal into the site,      |   |
 |  |                          Pick something to edit                       |      as one change                           |   |
-|  |                          Everything in this project is in the navigati+----------------------------------------------+   |
-|  |                          Pages   One row per page of your site, by URL.                                                  |
-|  |                          Media   Images and files, uploaded once and used anywhere.                                      |
-|  |                          Data    Content that is not tied to one page.                                                   |
-|  |                          <Take a tour>                                                                                   |
+|  |                          Everything in this project is in the navigati| ----------------------------------------     |   |
+|  |                          Pages   One row per page of your site, by URL| <>  Compare with the site                    |   |
+|  |                          Media   Images and files, uploaded once and u|  /  Rename...                                |   |
+|  |                          Data    Content that is not tied to one page.|  @  Copy link                                |   |
+|  |                          <Take a tour>                                | ----------------------------------------     |   |
+|  |                                                                       |  x  Close...                    (red)        |   |
+|  |                                                                       +----------------------------------------------+   |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -274,7 +273,7 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {Y Spring campaign v} [...]     Review(9+) [Preview] {Save 3|v}  [|] (3)  |
+|V |  val-demo [Search]                                {Y Spring campaign v}        Review(9+) [Preview] {Save 3|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |   [/] [DRAFT]                                                                                                            |
@@ -290,32 +289,36 @@ The issues the first pass found, and what became of each:
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  o 3 not saved to the proposal                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
-### The proposal's menu (...)
+### The caret's menu
 
-`proposals-proposals--in-a-proposal-menu-open` — Unchanged for a content proposal.
+`proposals-proposals--in-a-proposal-menu-open` — The steps, Publish always among them (it saves first), then what was the `...` menu: there is no `...` button any more.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {Y Spring campaign v} [...]     Review(9+) [Preview] {Save 3|v}  [|] (3)  |
+|V |  val-demo [Search]                                {Y Spring campaign v}        Review(9+) [Preview] {Save 3|v}  [|] (3)  |
 |  | ======================================================================================================================== |
-|P |                                                         +--------------------------------+                               |
-|M |                                                         | <>  Compare with the site      |                               |
-|{}|                                                         |  /  Rename...                  |                               |
-|  |                          Pick something to edit         |  @  Copy link                  |                               |
-|  |                          Everything in this project is i| --------------------------     |                               |
-|  |                          Pages   One row per page of you|  x  Close...          (red)    |                               |
-|  |                          Media   Images and files, uploa+--------------------------------+                               |
-|  |                          Data    Content that is not tied to one page.                                                   |
-|  |                          <Take a tour>                                                                                   |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
+|P |                                                                       +----------------------------------------------+   |
+|M |                                                                       | [s] Save 3 changes                           |   |
+|{}|                                                                       |      Keep them in the proposal. Nothing      |   |
+|  |                          Pick something to edit                       |      reaches the site.                       |   |
+|  |                          Everything in this project is in the navigati| [^] Publish to the site                      |   |
+|  |                          Pages   One row per page of your site, by URL|      Saves the changes first, then           |   |
+|  |                          Media   Images and files, uploaded once and u|      publishes the proposal                  |   |
+|  |                          Data    Content that is not tied to one page.| ----------------------------------------     |   |
+|  |                          <Take a tour>                                | <>  Compare with the site                    |   |
+|  |                                                                       |  /  Rename...                                |   |
+|  |                                                                       |  @  Copy link                                |   |
+|  |                                                                       | ----------------------------------------     |   |
+|  |                                                                       |  x  Close...                    (red)        |   |
+|  |                                                                       +----------------------------------------------+   |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
@@ -330,7 +333,7 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {Y Spring campaign v} [...]     Review(9+) [Preview] {Save 3|v}  [|] (3)  |
+|V |  val-demo [Search]                                {Y Spring campaign v}        Review(9+) [Preview] {Save 3|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                       +----------------------------------------+                                         |
 |M |                                       | (o) The site                           |                                         |
@@ -346,6 +349,8 @@ The issues the first pass found, and what became of each:
 |  |                                       |  =  All proposals...                   |                                         |
 |  |                                       +----------------------------------------+                                         |
 |  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  o 3 not saved to the proposal                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
@@ -358,17 +363,19 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                           {Y Spring campaign v} [...]  Review(9+) [Preview] [-^ Publish-|v]  [|] (3)  |
+|V |  val-demo [Search]                                {Y Spring campaign v}   Review(9+) [Preview] [-^ Publish-|v]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                       +----------------------------------------------+   |
 |M |                                                                       | [^] Publish to the site          (off)       |   |
 |{}|                                                                       |      It is being brought up to date with     |   |
 |  |                          Pick something to edit                       |      the site.                               |   |
-|  |                          Everything in this project is in the navigati+----------------------------------------------+   |
-|  |                          Pages   One row per page of your site, by URL.                                                  |
-|  |                          Media   Images and files, uploaded once and used anywhere.                                      |
-|  |                          Data    Content that is not tied to one page.                                                   |
-|  |                          <Take a tour>                                                                                   |
+|  |                          Everything in this project is in the navigati| ----------------------------------------     |   |
+|  |                          Pages   One row per page of your site, by URL| <>  Compare with the site                    |   |
+|  |                          Media   Images and files, uploaded once and u|  /  Rename...                                |   |
+|  |                          Data    Content that is not tied to one page.|  @  Copy link                                |   |
+|  |                          <Take a tour>                                | ----------------------------------------     |   |
+|  |                                                                       |  x  Close...                    (red)        |   |
+|  |                                                                       +----------------------------------------------+   |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -386,7 +393,7 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                         {Y Spring campaign v} [...]  Review(9+) [Preview] [-@ Saving...-|v]  [|] (3)  |
+|V |  val-demo [Search]                               {Y Spring campaign v}  Review(9+) [Preview] [-@ Saving...-|v]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -397,6 +404,8 @@ The issues the first pass found, and what became of each:
 |  |                          Media   Images and files, uploaded once and used anywhere.                                      |
 |  |                          Data    Content that is not tied to one page.                                                   |
 |  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -414,7 +423,7 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {Y Spring campaign v} [...]  Review(9+) [Preview] [!! Fix 2|v!]  [|] (3)  |
+|V |  val-demo [Search]                                {Y Spring campaign v}     Review(9+) [Preview] [!! Fix 2|v!]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -425,6 +434,8 @@ The issues the first pass found, and what became of each:
 |  |                          Media   Images and files, uploaded once and used anywhere.                                      |
 |  |                          Data    Content that is not tied to one page.                                                   |
 |  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -442,7 +453,7 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                       {Y Spring campaign v} [...]  Review(9+) [Preview] [!! Save failed|v!]  [|] (3)  |
+|V |  val-demo [Search]                             {Y Spring campaign v}  Review(9+) [Preview] [!! Save failed|v!]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -453,6 +464,8 @@ The issues the first pass found, and what became of each:
 |  |                          Media   Images and files, uploaded once and used anywhere.                                      |
 |  |                          Data    Content that is not tied to one page.                                                   |
 |  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -470,7 +483,7 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]           {Y Spring campaign v} [...] (@) Setting up...  Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
+|V |  val-demo [Search]                 {Y Spring campaign v} (@) Setting up...  Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -481,6 +494,8 @@ The issues the first pass found, and what became of each:
 |  |                          Media   Images and files, uploaded once and used anywhere.                                      |
 |  |                          Data    Content that is not tied to one page.                                                   |
 |  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -498,7 +513,7 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]  {Y Spring campaign v} [...] (@) Updating the preview... Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
+|V |  val-demo [Search]       {Y Spring campaign v} (@) Updating the preview...  Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -509,6 +524,8 @@ The issues the first pass found, and what became of each:
 |  |                          Media   Images and files, uploaded once and used anywhere.                                      |
 |  |                          Data    Content that is not tied to one page.                                                   |
 |  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -526,7 +543,7 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]  {Y Spring campaign v} [...] (@) Checking the preview... Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
+|V |  val-demo [Search]       {Y Spring campaign v} (@) Checking the preview...  Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -537,6 +554,8 @@ The issues the first pass found, and what became of each:
 |  |                          Media   Images and files, uploaded once and used anywhere.                                      |
 |  |                          Data    Content that is not tied to one page.                                                   |
 |  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -554,7 +573,7 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]  {Y Spring campaign v} [...] /!\ Preview did not render  Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
+|V |  val-demo [Search]        {Y Spring campaign v} /!\ Preview did not render  Review(9+) [Preview] {^ Publish|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -565,6 +584,8 @@ The issues the first pass found, and what became of each:
 |  |                          Media   Images and files, uploaded once and used anywhere.                                      |
 |  |                          Data    Content that is not tied to one page.                                                   |
 |  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -582,7 +603,7 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                      {Y Spring campaign v} [...]  Review(9+) [Preview] [# Build required|v]  [|] (3)  |
+|V |  val-demo [Search]                            {Y Spring campaign v}  Review(9+) [Preview] [# Build required|v]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -593,6 +614,8 @@ The issues the first pass found, and what became of each:
 |  |                          Media   Images and files, uploaded once and used anywhere.                                      |
 |  |                          Data    Content that is not tied to one page.                                                   |
 |  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -610,7 +633,7 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                      {Y Spring campaign v} [...]  Review(9+) [Preview] [# Build required|v]  [|] (3)  |
+|V |  val-demo [Search]                            {Y Spring campaign v}  Review(9+) [Preview] [# Build required|v]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                       +----------------------------------------------+   |
 |M |                                                                       | [#] Build                                    |   |
@@ -619,11 +642,13 @@ The issues the first pass found, and what became of each:
 |  |                          Everything in this project is in the navigati| [^] Publish to the site                      |   |
 |  |                          Pages   One row per page of your site, by URL|      Merges the proposal into the site,      |   |
 |  |                          Media   Images and files, uploaded once and u|      as one change                           |   |
-|  |                          Data    Content that is not tied to one page.+----------------------------------------------+   |
-|  |                          <Take a tour>                                                                                   |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
+|  |                          Data    Content that is not tied to one page.| ----------------------------------------     |   |
+|  |                          <Take a tour>                                | <>  Compare with the site                    |   |
+|  |                                                                       |  /  Rename...                                |   |
+|  |                                                                       |  @  Copy link                                |   |
+|  |                                                                       | ----------------------------------------     |   |
+|  |                                                                       |  x  Close...                    (red)        |   |
+|  |                                                                       +----------------------------------------------+   |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
@@ -638,7 +663,7 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                       {Y Spring campaign v} [...]  Review(9+) [Preview] [-@ Building...-|v]  [|] (3)  |
+|V |  val-demo [Search]                             {Y Spring campaign v}  Review(9+) [Preview] [-@ Building...-|v]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -649,6 +674,8 @@ The issues the first pass found, and what became of each:
 |  |                          Media   Images and files, uploaded once and used anywhere.                                      |
 |  |                          Data    Content that is not tied to one page.                                                   |
 |  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -666,7 +693,7 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                      {Y Spring campaign v} [...]  Review(9+) [Preview] [!! Build failed|v!]  [|] (3)  |
+|V |  val-demo [Search]                            {Y Spring campaign v}  Review(9+) [Preview] [!! Build failed|v!]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
 |M |                                                                                                                          |
@@ -677,6 +704,8 @@ The issues the first pass found, and what became of each:
 |  |                          Media   Images and files, uploaded once and used anywhere.                                      |
 |  |                          Data    Content that is not tied to one page.                                                   |
 |  |                          <Take a tour>                                                                                   |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -823,27 +852,29 @@ The issues the first pass found, and what became of each:
 
 ### At a published proposal's address
 
-`proposals-proposals--published-proposal` — The button says Published and does nothing; there is no caret.
+`proposals-proposals--published-proposal` — The main half says Published and does nothing; the caret keeps Compare, Rename, Copy link and Close. The notice pops up from below.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {Y Spring campaign v} [...]  Review(9+) [Preview] [v Published]  [|] (3)  |
+|V |  val-demo [Search]                                {Y Spring campaign v}   Review(9+) [Preview] [v Published|v]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
-|M |   +--------------------------------------------------------------------------------------+                               |
-|{}|   | v "Spring campaign" is published                                                     |                               |
-|  |   |   It is live on the site, and finished: nothing more is kept here. To change         |                               |
-|  |   |   more, start a new proposal.                                                        |                               |
-|  |   |   {+ New proposal}  [Go to the site]                                                 |                               |
-|  |   +--------------------------------------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |   [/] [DRAFT]                                                                                                            |
-|  |   /                                              <- the page's heading                                                   |
+|M |   [/] [DRAFT]                                                                                                            |
+|{}|   /                                              <- the page's heading                                                   |
 |  |   /app/page.val.ts?p="/"                                                                                                 |
 |  |   --------------------------------------------------------------------------------------                                 |
 |  |   Title  Shown in the browser tab and search results                                                                     |
 |  |   [ Build better websites                                                              ]                                 |
+|  |   Meta description                                                                                                       |
+|  |   [ Val is a Git-based CMS for developers. Content lives in your repository as Type...  ]                                |
+|  |   Hero image                                                                                                             |
+|  |   [  img  ]  /public/val/hero_a1b2c.png  2400 x 1260         +--------------------------------------------------------+  |
+|  |                                                              | v "Spring campaign" is published                   [x] |  |
+|  |                                                              |   It is live on the site, and finished: nothing more   |  |
+|  |                                                              |   is kept here. To change more, start a new proposal.  |  |
+|  |                                                              |   {+ New proposal}  [Go to the site]                   |  |
+|  |                                                              +--------------------------------------------------------+  |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y val/p/a1b2c3d4e5f6a7b8c9d0          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
@@ -871,6 +902,8 @@ The issues the first pass found, and what became of each:
 |  |   [ Val is a Git-based CMS for developers. Content lives in your repository as Type...  ]                                |
 |  |   Hero image                                                                                                             |
 |  |   [  img  ]  /public/val/hero_a1b2c.png  2400 x 1260                                                                     |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
@@ -902,6 +935,8 @@ The issues the first pass found, and what became of each:
 |  |                                                                                                                          |
 |  |                                                                                                                          |
 |  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
@@ -917,19 +952,21 @@ The issues the first pass found, and what became of each:
 |V |  val-demo [Search]                                   (o The site v)             Review(9+) [Preview] <Publish>  [|] (3)  |
 |  | ------------------------------------------------------------------------------------------------------------------------ |
 |P |                                                                                                                          |
-|M |   +--------------------------------------------------------------------------------------+                               |
-|{}|   | (^) Minor versions: an upgrade is under way in Val Build.     [Open upgrade ->]      |                               |
-|  |   +--------------------------------------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |   [/] [DRAFT]                                                                                                            |
-|  |   /                                              <- the page's heading                                                   |
+|M |   [/] [DRAFT]                                                                                                            |
+|{}|   /                                              <- the page's heading                                                   |
 |  |   /app/page.val.ts?p="/"                                                                                                 |
 |  |   --------------------------------------------------------------------------------------                                 |
 |  |   Title  Shown in the browser tab and search results                                                                     |
 |  |   [ Build better websites                                                              ]                                 |
 |  |   Meta description                                                                                                       |
+|  |   [ Val is a Git-based CMS for developers. Content lives in your repository as Type...  ]                                |
+|  |   Hero image                                                                                                             |
+|  |   [  img  ]  /public/val/hero_a1b2c.png  2400 x 1260                                                                     |
 |  |                                                                                                                          |
-|  |                                                                                                                          |
+|  |                                                              +--------------------------------------------------------+  |
+|  |                                                              | (^) Minor versions: an upgrade is under way        [x] |  |
+|  |                                                              |     in Val Build.                [Open upgrade ->]     |  |
+|  |                                                              +--------------------------------------------------------+  |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
@@ -950,15 +987,16 @@ The issues the first pass found, and what became of each:
 |  |   /app/page.val.ts?p="/"              | ----------------------------------     |                                         |
 |  |   ------------------------------------| PROPOSALS                              |--------                                 |
 |  |   Title  Shown in the browser tab and |  ^  Minor versions                     |                                         |
-|  |                                       |     You . Upgrade                      |                                         |
-|  |                                       |  Y  Spring campaign                    |                                         |
-|  |                                       |     You . 15 changes                   |                                         |
-|  |                                       |  Y  New pricing page                   |                                         |
-|  |                                       |     Kari Nordmann . 4 changes          |                                         |
+|  |   [ Build better websites             |     You . Upgrade                      |       ]                                 |
+|  |   Meta description                    |  Y  Spring campaign                    |                                         |
+|  |   [ Val is a Git-based CMS for develop|     You . 15 changes                   |ype...  ]                                |
+|  |   Hero image                          |  Y  New pricing page                   |                                         |
+|  |   [  img  ]  /public/val/hero_a1b2c.pn|     Kari Nordmann . 4 changes          |                                         |
 |  |                                       | ----------------------------------     |                                         |
-|  |                                       |  +  New proposal                       |                                         |
-|  |                                       |  =  All proposals...                   |                                         |
-|  |                                       +----------------------------------------+                                         |
+|  |                                       |  +  New proposal                       |--------------------------------------+  |
+|  |                                       |  =  All proposals...                   |s: an upgrade is under way        [x] |  |
+|  |                                       +----------------------------------------+                [Open upgrade ->]     |  |
+|  |                                                              +--------------------------------------------------------+  |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y main                          (o) Building ===---  ^  |  * All changes saved                                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
@@ -966,30 +1004,61 @@ The issues the first pass found, and what became of each:
 
 ### In an upgrade (ready)
 
-`proposals-upgrade-in-the-studio--in-an-upgrade` — One Publish: the bar's. The notice links the checks.
+`proposals-upgrade-in-the-studio--in-an-upgrade` — One Publish: the bar's. The notice pops up from below, bottom right, and stays until dismissed.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {^ Minor versions v} [...]       Review [Preview] {^ Publish|v}  [|] (3)  |
+|V |  val-demo [Search]                                {^ Minor versions v}          Review [Preview] {^ Publish|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
-|M |   +--------------------------------------------------------------------------------------+                               |
-|{}|   | (^) This proposal upgrades Val 0.149.4 -> 0.149.7                                    |                               |
-|  |   |     It holds no content changes: what you see is quiet-harbor-24 with newer          |                               |
-|  |   |     packages. Look around, then press Publish to update quiet-harbor-24.             |                               |
-|  |   |     > And 5 more packages                                                            |                               |
-|  |   |     [See the checks in Val Build ->]                                                 |                               |
-|  |   +--------------------------------------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |   [/] [DRAFT]                                                                                                            |
-|  |   /                                              <- the page's heading                                                   |
+|M |   [/] [DRAFT]                                                                                                            |
+|{}|   /                                              <- the page's heading                                                   |
 |  |   /app/page.val.ts?p="/"                                                                                                 |
 |  |   --------------------------------------------------------------------------------------                                 |
 |  |   Title  Shown in the browser tab and search results                                                                     |
 |  |   [ Build better websites                                                              ]                                 |
+|  |   Meta description                                                                                                       |
+|  |   [ Val is a Git-based CMS for developers. Content lives in y+--------------------------------------------------------+  |
+|  |   Hero image                                                 | (^) This proposal upgrades Val 0.149.4 -> 0.149.7  [x] |  |
+|  |   [  img  ]  /public/val/hero_a1b2c.png  2400 x 1260         |     It holds no content changes: what you see is       |  |
+|  |                                                              |     quiet-harbor-24 with newer packages. Look around,  |  |
+|  |                                                              |     then press Publish to update quiet-harbor-24.      |  |
+|  |                                                              |     > And 5 more packages                              |  |
+|  |                                                              |     [See the checks in Val Build ->]                   |  |
+|  |                                                              +--------------------------------------------------------+  |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y val/p/e5f6a7b8c9d0e1f2a3b4          (o) Building ===---  ^  |  * All changes saved                                    |
+'--'--------------------------------------------------------------------------------------------------------------------------'
+```
+
+### The notice, dismissed
+
+`proposals-upgrade-in-the-studio--in-an-upgrade-notice-dismissed` — It folds into the status bar as "About this upgrade"; pressing that brings it back.
+
+```text
+ _____________________________________________________________________________________________________________________________
+|  | ======================================================================================================================== |
+|V |  val-demo [Search]                                {^ Minor versions v}          Review [Preview] {^ Publish|v}  [|] (3)  |
+|  | ======================================================================================================================== |
+|P |                                                                                                                          |
+|M |   [/] [DRAFT]                                                                                                            |
+|{}|   /                                              <- the page's heading                                                   |
+|  |   /app/page.val.ts?p="/"                                                                                                 |
+|  |   --------------------------------------------------------------------------------------                                 |
+|  |   Title  Shown in the browser tab and search results                                                                     |
+|  |   [ Build better websites                                                              ]                                 |
+|  |   Meta description                                                                                                       |
+|  |   [ Val is a Git-based CMS for developers. Content lives in your repository as Type...  ]                                |
+|  |   Hero image                                                                                                             |
+|  |   [  img  ]  /public/val/hero_a1b2c.png  2400 x 1260                                                                     |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|  |                                                                                                                          |
+|* | ------------------------------------------------------------------------------------------------------------------------ |
+|FR|  Y val/p/e5f6a7b8c9d0e1f2a3b4   (^) About this upgrade  |  (o) Building ===---  ^  |  * All changes saved                |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
@@ -1000,22 +1069,24 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {^ Minor versions v} [...]     Review [Preview] [-^ Publish-|v]  [|] (3)  |
+|V |  val-demo [Search]                                {^ Minor versions v}        Review [Preview] [-^ Publish-|v]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
-|M |   +--------------------------------------------------------------------------------------+                               |
-|{}|   | (^) Val Build is working out this upgrade                                            |                               |
-|  |   |     When it is worked out and checked, it can be published.                          |                               |
-|  |   |     [Open in Val Build ->]                                                           |                               |
-|  |   +--------------------------------------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |   [/] [DRAFT]                                                                                                            |
-|  |   /                                              <- the page's heading                                                   |
+|M |   [/] [DRAFT]                                                                                                            |
+|{}|   /                                              <- the page's heading                                                   |
 |  |   /app/page.val.ts?p="/"                                                                                                 |
 |  |   --------------------------------------------------------------------------------------                                 |
 |  |   Title  Shown in the browser tab and search results                                                                     |
 |  |   [ Build better websites                                                              ]                                 |
-|  |                                                                                                                          |
+|  |   Meta description                                                                                                       |
+|  |   [ Val is a Git-based CMS for developers. Content lives in your repository as Type...  ]                                |
+|  |   Hero image                                                                                                             |
+|  |   [  img  ]  /public/val/hero_a1b2c.png  2400 x 1260         +--------------------------------------------------------+  |
+|  |                                                              | (^) Val Build is working out this upgrade          [x] |  |
+|  |                                                              |     When it is worked out and checked, it can be       |  |
+|  |                                                              |     published.                                         |  |
+|  |                                                              |     [Open in Val Build ->]                             |  |
+|  |                                                              +--------------------------------------------------------+  |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y val/p/e5f6a7b8c9d0e1f2a3b4          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
@@ -1028,22 +1099,24 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {^ Minor versions v} [...]     Review [Preview] [-^ Publish-|v]  [|] (3)  |
+|V |  val-demo [Search]                                {^ Minor versions v}        Review [Preview] [-^ Publish-|v]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
-|M |   +--------------------------------------------------------------------------------------+                               |
-|{}|   | (^) This upgrade could not be worked out                                             |                               |
-|  |   |     No version of @tanstack/react-start fits @valbuild/tanstack 0.149.7.             |                               |
-|  |   |     [Open in Val Build ->]                                                           |                               |
-|  |   +--------------------------------------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |   [/] [DRAFT]                                                                                                            |
-|  |   /                                              <- the page's heading                                                   |
+|M |   [/] [DRAFT]                                                                                                            |
+|{}|   /                                              <- the page's heading                                                   |
 |  |   /app/page.val.ts?p="/"                                                                                                 |
 |  |   --------------------------------------------------------------------------------------                                 |
 |  |   Title  Shown in the browser tab and search results                                                                     |
 |  |   [ Build better websites                                                              ]                                 |
-|  |                                                                                                                          |
+|  |   Meta description                                                                                                       |
+|  |   [ Val is a Git-based CMS for developers. Content lives in your repository as Type...  ]                                |
+|  |   Hero image                                                                                                             |
+|  |   [  img  ]  /public/val/hero_a1b2c.png  2400 x 1260         +--------------------------------------------------------+  |
+|  |                                                              | (^) This upgrade could not be worked out           [x] |  |
+|  |                                                              |     No version of @tanstack/react-start fits           |  |
+|  |                                                              |     @valbuild/tanstack 0.149.7.                        |  |
+|  |                                                              |     [Open in Val Build ->]                             |  |
+|  |                                                              +--------------------------------------------------------+  |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y val/p/e5f6a7b8c9d0e1f2a3b4          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
@@ -1056,22 +1129,24 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {^ Minor versions v} [...]     Review [Preview] [-^ Publish-|v]  [|] (3)  |
+|V |  val-demo [Search]                                {^ Minor versions v}        Review [Preview] [-^ Publish-|v]  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
-|M |   +--------------------------------------------------------------------------------------+                               |
-|{}|   | (^) There is nothing to upgrade                                                      |                               |
-|  |   |     quiet-harbor-24 is up to date. Discard this proposal from its menu.              |                               |
-|  |   +--------------------------------------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |   [/] [DRAFT]                                                                                                            |
-|  |   /                                              <- the page's heading                                                   |
+|M |   [/] [DRAFT]                                                                                                            |
+|{}|   /                                              <- the page's heading                                                   |
 |  |   /app/page.val.ts?p="/"                                                                                                 |
 |  |   --------------------------------------------------------------------------------------                                 |
 |  |   Title  Shown in the browser tab and search results                                                                     |
 |  |   [ Build better websites                                                              ]                                 |
-|  |                                                                                                                          |
-|  |                                                                                                                          |
+|  |   Meta description                                                                                                       |
+|  |   [ Val is a Git-based CMS for developers. Content lives in your repository as Type...  ]                                |
+|  |   Hero image                                                                                                             |
+|  |   [  img  ]  /public/val/hero_a1b2c.png  2400 x 1260                                                                     |
+|  |                                                              +--------------------------------------------------------+  |
+|  |                                                              | (^) There is nothing to upgrade                    [x] |  |
+|  |                                                              |     quiet-harbor-24 is up to date. Discard this        |  |
+|  |                                                              |     proposal from its menu.                            |  |
+|  |                                                              +--------------------------------------------------------+  |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y val/p/e5f6a7b8c9d0e1f2a3b4          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
@@ -1084,50 +1159,54 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {^ Minor versions v} [...]       Review(2) [Preview] {Save 2|v}  [|] (3)  |
+|V |  val-demo [Search]                                {^ Minor versions v}          Review(2) [Preview] {Save 2|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                                                                                                          |
-|M |   +--------------------------------------------------------------------------------------+                               |
-|{}|   | (^) This proposal upgrades Val 0.149.4 -> 0.149.7                                    |                               |
-|  |   |     It also holds 2 content changes, made here, which are published with it.         |                               |
-|  |   |     Look around, then press Publish to update quiet-harbor-24.                       |                               |
-|  |   |     > And 5 more packages                                                            |                               |
-|  |   |     [See the checks in Val Build ->]                                                 |                               |
-|  |   +--------------------------------------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |   [/] [DRAFT]                                                                                                            |
-|  |   /                                              <- the page's heading                                                   |
+|M |   [/] [DRAFT]                                                                                                            |
+|{}|   /                                              <- the page's heading                                                   |
 |  |   /app/page.val.ts?p="/"                                                                                                 |
 |  |   --------------------------------------------------------------------------------------                                 |
 |  |   Title  Shown in the browser tab and search results                                                                     |
+|  |   [ Build better websites                                                              ]                                 |
+|  |   Meta description                                                                                                       |
+|  |   [ Val is a Git-based CMS for developers. Content lives in y+--------------------------------------------------------+  |
+|  |   Hero image                                                 | (^) This proposal upgrades Val 0.149.4 -> 0.149.7  [x] |  |
+|  |   [  img  ]  /public/val/hero_a1b2c.png  2400 x 1260         |     It also holds 2 content changes, made here,        |  |
+|  |                                                              |     which are published with it. Look around, then     |  |
+|  |                                                              |     press Publish to update quiet-harbor-24.           |  |
+|  |                                                              |     > And 5 more packages                              |  |
+|  |                                                              |     [See the checks in Val Build ->]                   |  |
+|  |                                                              +--------------------------------------------------------+  |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y val/p/e5f6a7b8c9d0e1f2a3b4          (o) Building ===---  ^  |  o 2 not saved to the proposal                          |
 '--'--------------------------------------------------------------------------------------------------------------------------'
 ```
 
-### The menu (in an upgrade)
+### The caret's menu (in an upgrade)
 
 `proposals-upgrade-in-the-studio--in-an-upgrade-menu-open` — No Rename; Close is Discard upgrade, matching its dialog.
 
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {^ Minor versions v} [...]       Review [Preview] {^ Publish|v}  [|] (3)  |
+|V |  val-demo [Search]                                {^ Minor versions v}          Review [Preview] {^ Publish|v}  [|] (3)  |
 |  | ======================================================================================================================== |
-|P |                                                         +--------------------------------+                               |
-|M |   +-----------------------------------------------------| <>  Compare with the site      |                               |
-|{}|   | (^) This proposal upgrades Val 0.149.4 -> 0.149.7   |  @  Copy link                  |                               |
-|  |   |     It holds no content changes: what you see is qui| --------------------------     |                               |
-|  |   |     packages. Look around, then press Publish to upd|  x  Discard upgrade...  (red)  |                               |
-|  |   |     > And 5 more packages                           +--------------------------------+                               |
-|  |   |     [See the checks in Val Build ->]                                                 |                               |
-|  |   +--------------------------------------------------------------------------------------+                               |
-|  |                                                                                                                          |
-|  |   [/] [DRAFT]                                                                                                            |
-|  |   /                                              <- the page's heading                                                   |
-|  |   /app/page.val.ts?p="/"                                                                                                 |
-|  |   --------------------------------------------------------------------------------------                                 |
-|  |   Title  Shown in the browser tab and search results                                                                     |
+|P |                                                                       +----------------------------------------------+   |
+|M |   [/] [DRAFT]                                                         | [^] Publish to the site                      |   |
+|{}|   /                                              <- the page's heading|      Merges the proposal into the site,      |   |
+|  |   /app/page.val.ts?p="/"                                              |      as one change                           |   |
+|  |   --------------------------------------------------------------------| ----------------------------------------     |   |
+|  |   Title  Shown in the browser tab and search results                  | <>  Compare with the site                    |   |
+|  |   [ Build better websites                                             |  @  Copy link                                |   |
+|  |   Meta description                                                    | ----------------------------------------     |   |
+|  |   [ Val is a Git-based CMS for developers. Content lives in y+--------|  x  Discard upgrade...          (red)        |+  |
+|  |   Hero image                                                 | (^) Thi+----------------------------------------------+|  |
+|  |   [  img  ]  /public/val/hero_a1b2c.png  2400 x 1260         |     It holds no content changes: what you see is       |  |
+|  |                                                              |     quiet-harbor-24 with newer packages. Look around,  |  |
+|  |                                                              |     then press Publish to update quiet-harbor-24.      |  |
+|  |                                                              |     > And 5 more packages                              |  |
+|  |                                                              |     [See the checks in Val Build ->]                   |  |
+|  |                                                              +--------------------------------------------------------+  |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y val/p/e5f6a7b8c9d0e1f2a3b4          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'
@@ -1140,23 +1219,24 @@ The issues the first pass found, and what became of each:
 ```text
  _____________________________________________________________________________________________________________________________
 |  | ======================================================================================================================== |
-|V |  val-demo [Search]                             {^ Minor versions v} [...]       Review [Preview] {^ Publish|v}  [|] (3)  |
+|V |  val-demo [Search]                                {^ Minor versions v}          Review [Preview] {^ Publish|v}  [|] (3)  |
 |  | ======================================================================================================================== |
 |P |                                       +----------------------------------------+                                         |
-|M |   +-----------------------------------| (o) The site                           |---------+                               |
-|{}|   | (^) This proposal upgrades Val 0.1|     What visitors see                  |         |                               |
-|  |   |     It holds no content changes: w| ----------------------------------     |         |                               |
-|  |   |     packages. Look around, then pr| PROPOSALS                              |         |                               |
-|  |   |     > And 5 more packages         |  ^  Minor versions                here |         |                               |
-|  |   |     [See the checks in Val Build -|     You . Upgrade                      |         |                               |
-|  |   +-----------------------------------|  Y  Spring campaign                    |---------+                               |
-|  |                                       |     You . 15 changes                   |                                         |
-|  |   [/] [DRAFT]                         |  Y  New pricing page                   |                                         |
-|  |   /                                   |     Kari Nordmann . 4 changes          |                                         |
+|M |   [/] [DRAFT]                         | (o) The site                           |                                         |
+|{}|   /                                   |     What visitors see                  |                                         |
 |  |   /app/page.val.ts?p="/"              | ----------------------------------     |                                         |
-|  |   ------------------------------------|  +  New proposal                       |--------                                 |
-|  |   Title  Shown in the browser tab and |  =  All proposals...                   |                                         |
-|  |                                       +----------------------------------------+                                         |
+|  |   ------------------------------------| PROPOSALS                              |--------                                 |
+|  |   Title  Shown in the browser tab and |  ^  Minor versions                here |                                         |
+|  |   [ Build better websites             |     You . Upgrade                      |       ]                                 |
+|  |   Meta description                    |  Y  Spring campaign                    |                                         |
+|  |   [ Val is a Git-based CMS for develop|     You . 15 changes                   |--------------------------------------+  |
+|  |   Hero image                          |  Y  New pricing page                   | upgrades Val 0.149.4 -> 0.149.7  [x] |  |
+|  |   [  img  ]  /public/val/hero_a1b2c.pn|     Kari Nordmann . 4 changes          |ontent changes: what you see is       |  |
+|  |                                       | ----------------------------------     |24 with newer packages. Look around,  |  |
+|  |                                       |  +  New proposal                       |blish to update quiet-harbor-24.      |  |
+|  |                                       |  =  All proposals...                   |packages                              |  |
+|  |                                       +----------------------------------------+ks in Val Build ->]                   |  |
+|  |                                                              +--------------------------------------------------------+  |
 |* | ------------------------------------------------------------------------------------------------------------------------ |
 |FR|  Y val/p/e5f6a7b8c9d0e1f2a3b4          (o) Building ===---  ^  |  * All changes saved                                    |
 '--'--------------------------------------------------------------------------------------------------------------------------'

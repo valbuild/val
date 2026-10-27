@@ -6,7 +6,6 @@ import {
   Hammer,
   GitCompare,
   Link2,
-  MoreHorizontal,
   Package,
   Pencil,
   Save,
@@ -349,98 +348,6 @@ export function ProposalPublishButton({
   );
 }
 
-/**
- * The proposal's own menu, above a phone: compare, rename, copy its link,
- * close. On a phone the same acts are in `ProposalSheet`.
- */
-export function ProposalMenu({
-  onCompare,
-  onRename,
-  onCopyLink,
-  onClose,
-  upgrade = false,
-  defaultOpen = false,
-  menuPlacement = "below",
-}: {
-  /** Absent: not offered. */
-  onCompare?: () => void;
-  onRename: () => void;
-  onCopyLink: () => void;
-  onClose: () => void;
-  /**
-   * An upgrade: Val Build names it after its kind, so it is not renamed, and
-   * closing it is discarding it, as its dialog says.
-   */
-  upgrade?: boolean;
-  defaultOpen?: boolean;
-  menuPlacement?: "below" | "above";
-}) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const close = useCallback(() => setIsOpen(false), []);
-  useDismissOnOutsidePointer(containerRef, isOpen, close);
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsOpen(false);
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [isOpen]);
-  const choose = (action: () => void) => () => {
-    setIsOpen(false);
-    action();
-  };
-  return (
-    <div ref={containerRef} className="relative h-8 shrink-0">
-      <button
-        type="button"
-        aria-label="More for this proposal"
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-        onClick={() => setIsOpen((open) => !open)}
-        className="grid h-8 w-8 place-items-center rounded-md text-fg-secondary hover:bg-bg-float-raised hover:text-fg-primary"
-      >
-        <MoreHorizontal size={16} />
-      </button>
-      {isOpen && (
-        <div
-          role="menu"
-          className={cn(
-            "absolute right-0 z-full w-56 rounded-md border border-border-float bg-bg-float py-1 shadow-lg",
-            menuPlacement === "above" ? "bottom-full mb-1" : "top-full mt-1",
-          )}
-        >
-          {onCompare !== undefined && (
-            <MenuItem
-              icon={<GitCompare size={14} />}
-              onClick={choose(onCompare)}
-            >
-              Compare with the site
-            </MenuItem>
-          )}
-          {!upgrade && (
-            <MenuItem icon={<Pencil size={14} />} onClick={choose(onRename)}>
-              Rename…
-            </MenuItem>
-          )}
-          <MenuItem icon={<Link2 size={14} />} onClick={choose(onCopyLink)}>
-            Copy link
-          </MenuItem>
-          <div className="my-1 border-t border-border-float" />
-          <MenuItem
-            icon={<X size={14} />}
-            onClick={choose(onClose)}
-            destructive
-          >
-            {upgrade ? "Discard upgrade…" : "Close…"}
-          </MenuItem>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /** What a proposal's one primary action is: whichever step comes next. */
 export type ProposalNextAction = "save" | "build" | "publish";
 
@@ -480,8 +387,13 @@ const CARET_TONES: Record<Tone, string> = {
  * Publish among them, so publishing never waits for the button to get there:
  * Publish saves first. Shaped like `PreviewButton` beside it.
  *
- * At a published proposal's address there is nothing left to do, and it says
- * "Published".
+ * The same menu holds what used to be the proposal's own `...` menu beside
+ * the switcher -- compare, rename, copy its link, close -- below the steps:
+ * one place for everything to do with this proposal, rather than two menus
+ * a few centimetres apart.
+ *
+ * At a published proposal's address there is nothing left to do, and the
+ * main half says "Published"; the caret keeps the rest.
  */
 export function ProposalActionButton({
   location,
@@ -489,6 +401,10 @@ export function ProposalActionButton({
   onBuild,
   onPublish,
   saveBlockedBy,
+  onCompare,
+  onRename,
+  onCopyLink,
+  onClose,
   defaultMenuOpen = false,
 }: {
   location: InProposal;
@@ -497,6 +413,11 @@ export function ProposalActionButton({
   onBuild?: () => void;
   onPublish: () => void;
   saveBlockedBy?: { errors: number; onShow: () => void };
+  /** Absent: not offered. */
+  onCompare?: () => void;
+  onRename: () => void;
+  onCopyLink: () => void;
+  onClose: () => void;
   defaultMenuOpen?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(defaultMenuOpen);
@@ -512,11 +433,12 @@ export function ProposalActionButton({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [isOpen]);
 
-  if (location.proposal.status === "merged") {
-    return <ProposalPublishButton location={location} onPublish={onPublish} />;
-  }
-
-  const action = nextProposalAction(location, onBuild !== undefined);
+  const merged = location.proposal.status === "merged";
+  // Val Build names an upgrade after its kind, and closing one discards it.
+  const upgrade = location.proposal.upgrade === true;
+  const action = merged
+    ? "publish"
+    : nextProposalAction(location, onBuild !== undefined);
   const saving = location.save.state === "saving";
   const saveFailed = location.save.state === "failed";
   const blocked =
@@ -550,8 +472,9 @@ export function ProposalActionButton({
             failed: code.state === "failed",
           };
 
-  const mainDisabled =
-    action === "save"
+  const mainDisabled = merged
+    ? false
+    : action === "save"
       ? saving
       : action === "build"
         ? build === null ||
@@ -568,7 +491,11 @@ export function ProposalActionButton({
           ? "error"
           : "outline"
         : "primary";
-  const caretTone: Tone = mainDisabled ? "muted" : mainTone;
+  const caretTone: Tone = merged
+    ? "outline"
+    : mainDisabled
+      ? "muted"
+      : mainTone;
 
   const choose = (act: () => void) => () => {
     setIsOpen(false);
@@ -605,7 +532,7 @@ export function ProposalActionButton({
         )}
         <button
           type="button"
-          aria-label="More ways to save and publish"
+          aria-label="More for this proposal"
           aria-haspopup="menu"
           aria-expanded={isOpen}
           onClick={() => setIsOpen((open) => !open)}
@@ -624,7 +551,8 @@ export function ProposalActionButton({
           role="menu"
           className="absolute right-0 top-full z-full mt-1 w-64 rounded-md border border-border-float bg-bg-float py-1 shadow-lg"
         >
-          {location.unsaved > 0 &&
+          {!merged &&
+            location.unsaved > 0 &&
             (blocked !== null ? (
               <MenuItem
                 icon={
@@ -654,7 +582,7 @@ export function ProposalActionButton({
                   : `Save ${location.unsaved} ${location.unsaved === 1 ? "change" : "changes"}`}
               </MenuItem>
             ))}
-          {build !== null && onBuild !== undefined && (
+          {!merged && build !== null && onBuild !== undefined && (
             <MenuItem
               icon={
                 build.busy ? (
@@ -677,18 +605,45 @@ export function ProposalActionButton({
               {build.label}
             </MenuItem>
           )}
+          {!merged && (
+            <MenuItem
+              icon={<Upload size={14} />}
+              onClick={choose(onPublish)}
+              disabled={publishRefusedBy !== null}
+              detail={
+                publishRefusedBy ??
+                (location.unsaved > 0
+                  ? "Saves the changes first, then publishes the proposal"
+                  : "Merges the proposal into the site, as one change")
+              }
+            >
+              Publish to the site
+            </MenuItem>
+          )}
+          {!merged && <div className="my-1 border-t border-border-float" />}
+          {onCompare !== undefined && (
+            <MenuItem
+              icon={<GitCompare size={14} />}
+              onClick={choose(onCompare)}
+            >
+              Compare with the site
+            </MenuItem>
+          )}
+          {!upgrade && (
+            <MenuItem icon={<Pencil size={14} />} onClick={choose(onRename)}>
+              Rename…
+            </MenuItem>
+          )}
+          <MenuItem icon={<Link2 size={14} />} onClick={choose(onCopyLink)}>
+            Copy link
+          </MenuItem>
+          <div className="my-1 border-t border-border-float" />
           <MenuItem
-            icon={<Upload size={14} />}
-            onClick={choose(onPublish)}
-            disabled={publishRefusedBy !== null}
-            detail={
-              publishRefusedBy ??
-              (location.unsaved > 0
-                ? "Saves the changes first, then publishes the proposal"
-                : "Merges the proposal into the site, as one change")
-            }
+            icon={<X size={14} />}
+            onClick={choose(onClose)}
+            destructive
           >
-            Publish to the site
+            {upgrade ? "Discard upgrade…" : "Close…"}
           </MenuItem>
         </div>
       )}

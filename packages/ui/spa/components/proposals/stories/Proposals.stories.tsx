@@ -49,15 +49,6 @@ export const SwitcherWithNoProposals = shell({
  */
 export const InAProposal = shell({ location: inProposal() });
 
-/**
- * The caret beside Save: every step, Publish among them, so publishing never
- * waits for the button to get there. Publish saves first.
- */
-export const InAProposalActionMenuOpen = shell({
-  location: inProposal(),
-  actionMenuOpen: true,
-});
-
 /** Everything saved: Save has become Publish. */
 export const InAProposalAllSaved = shell({
   location: inProposal({ unsaved: 0 }),
@@ -66,7 +57,7 @@ export const InAProposalAllSaved = shell({
 /** Ready to publish, with the caret open. */
 export const InAProposalAllSavedMenuOpen = shell({
   location: inProposal({ unsaved: 0 }),
-  actionMenuOpen: true,
+  menuOpen: true,
 });
 
 /**
@@ -118,7 +109,11 @@ export const PublishedProposalContinued = shell({
   merged: { continuedIn: "Spring campaign (continued)" },
 });
 
-/** The proposal's menu: compare, rename, copy its link, close. */
+/**
+ * The caret beside Save: every step, Publish among them -- it saves first --
+ * and below them what was the proposal's own menu: compare, rename, copy its
+ * link, close.
+ */
 export const InAProposalMenuOpen = shell({
   location: inProposal(),
   menuOpen: true,
@@ -139,7 +134,7 @@ export const InAProposalPublishBlocked = shell({
     unsaved: 0,
     publishBlockedBy: "It is being brought up to date with the site.",
   }),
-  actionMenuOpen: true,
+  menuOpen: true,
 });
 
 /*
@@ -215,7 +210,7 @@ export const BuildRequired = shell({
 /** Build is next, and Publish is still in the menu: it builds first. */
 export const BuildRequiredMenuOpen = shell({
   location: inProposal({ unsaved: 0, code: { state: "required" } }),
-  actionMenuOpen: true,
+  menuOpen: true,
 });
 
 export const Building = shell({

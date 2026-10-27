@@ -1,5 +1,5 @@
+import { Check, RotateCcw } from "lucide-react";
 import {
-  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -74,6 +74,7 @@ import {
   type RestoreDestination,
 } from "../../history/restoreDestination";
 import { RestoreCodeNotice, type RestoreCodeState } from "./RestoreCodeNotice";
+import type { FloatingNoticeItem } from "../shell/FloatingNotices";
 import { randomProposalName } from "../../proposals/proposalNames";
 import { AllProposalsDialog } from "./ProposalsList";
 import { MergedProposalNotice } from "./MergedProposalNotice";
@@ -126,6 +127,7 @@ type Dialog = "new" | "close" | "rename" | "all" | "publish" | null;
 
 /** No list yet: one array, so what reads it does not see a new one each render. */
 const NO_PROPOSALS: ProposalJson[] = [];
+const NO_NOTICES: FloatingNoticeItem[] = [];
 
 /** How often a proposal waiting on its dependencies is read again. */
 const DEPENDENCIES_POLL_MS = 5_000;
@@ -154,8 +156,12 @@ export function useProposalsBar({
   /** `undefined` where this project has no proposals. */
   proposals: TopBarProposals | undefined;
   dialogs: ReactNode;
-  /** Above the editor, or null: a merged proposal says it is finished. */
-  notice: ReactNode | null;
+  /**
+   * Popping up from below, most pressing first: a merged proposal says it is
+   * finished, a restore how it went, an upgrade what it upgrades. See
+   * `FloatingNotices`.
+   */
+  notices: FloatingNoticeItem[];
   /**
    * Where a restore goes: a new proposal on the site of a project with
    * proposals, else here. See `restoreDestination.ts`.
@@ -1024,7 +1030,7 @@ export function useProposalsBar({
     return {
       proposals: undefined,
       dialogs: null,
-      notice: null,
+      notices: NO_NOTICES,
       restoreDestination,
       upgrade: null,
       upgradeSettings: null,
@@ -1193,47 +1199,58 @@ export function useProposalsBar({
     currentJson?.continuedIn != null
       ? (all.find((p) => p.name === currentJson.continuedIn) ?? null)
       : null;
-  const restoreNotice =
-    restoreCode !== null && here !== null ? (
-      <RestoreCodeNotice
-        state={restoreCode}
-        onRetry={() => void runRestoreCode(here.name, restoreCode.commit)}
-        onDismiss={() => setRestoreCode(null)}
-      />
-    ) : null;
-  const mergedNotice =
-    currentJson?.status === "merged" ? (
-      <MergedProposalNotice
-        displayName={currentJson.displayName}
-        continuedIn={
-          continuedIn !== null ? { displayName: continuedIn.displayName } : null
+  const restoreNotice: FloatingNoticeItem | null =
+    restoreCode !== null && here !== null
+      ? {
+          id: `restore:${restoreCode.commit}:${restoreCode.kind}`,
+          label:
+            restoreCode.kind === "restoring"
+              ? "Restoring code…"
+              : restoreCode.kind === "restored"
+                ? "Code restored"
+                : "Restore failed",
+          icon: <RotateCcw size={13} />,
+          content: (
+            <RestoreCodeNotice
+              state={restoreCode}
+              onRetry={() => void runRestoreCode(here.name, restoreCode.commit)}
+              onDismiss={() => setRestoreCode(null)}
+            />
+          ),
         }
-        onOpenContinuation={() => {
-          if (continuedIn !== null) void openProposal(continuedIn.name);
-        }}
-        onNewProposal={() => openDialog("new")}
-        {...(siteUrl !== null ? { onGoToSite: () => go(siteUrl) } : {})}
-      />
-    ) : null;
+      : null;
+  const mergedNotice: FloatingNoticeItem | null =
+    currentJson?.status === "merged"
+      ? {
+          id: `merged:${currentJson.name}:${continuedIn?.name ?? ""}`,
+          label: "Published",
+          icon: <Check size={13} />,
+          content: (
+            <MergedProposalNotice
+              displayName={currentJson.displayName}
+              continuedIn={
+                continuedIn !== null
+                  ? { displayName: continuedIn.displayName }
+                  : null
+              }
+              onOpenContinuation={() => {
+                if (continuedIn !== null) void openProposal(continuedIn.name);
+              }}
+              onNewProposal={() => openDialog("new")}
+              {...(siteUrl !== null ? { onGoToSite: () => go(siteUrl) } : {})}
+            />
+          ),
+        }
+      : null;
 
   const notices = [mergedNotice, restoreNotice, upgrade.notice].filter(
-    (each): each is NonNullable<typeof each> => each !== null,
+    (each): each is FloatingNoticeItem => each !== null,
   );
-  const notice =
-    notices.length > 1 ? (
-      <div className="flex flex-col gap-3">
-        {notices.map((each, at) => (
-          <Fragment key={at}>{each}</Fragment>
-        ))}
-      </div>
-    ) : (
-      (notices[0] ?? null)
-    );
 
   return {
     proposals,
     dialogs,
-    notice,
+    notices,
     restoreDestination,
     upgrade: upgrade.button,
     upgradeSettings: upgrade.settings,
