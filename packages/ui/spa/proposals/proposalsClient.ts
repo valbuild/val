@@ -158,6 +158,18 @@ const FilesAnswer = z.object({
   files: z.record(z.string(), z.string().nullable()),
   staged: Staged,
 });
+/** `POST /proposals-api/<name>/format`'s answer: each file, and what was staged. */
+const FormatAnswer = z.object({
+  files: z.array(
+    z.object({
+      path: z.string(),
+      status: z.enum(["changed", "unchanged", "missing", "failed"]),
+      message: z.string().optional(),
+    }),
+  ),
+  staged: z.unknown().nullable(),
+});
+
 const StagedAnswer = z.object({ commit: z.string(), staged: Staged });
 
 const ListAnswer = z.object({
@@ -398,6 +410,16 @@ export type ProposalsClient = {
     message?: string,
   ): Promise<z.infer<typeof StagedAnswer>>;
   /**
+   * The proposal's files formatted the way the project formats them, by the
+   * formatter the app gives Val: the assistant's `format_files`. With no
+   * paths, what the proposal stages; with `write`, the ones that change are
+   * staged.
+   */
+  formatFiles(
+    name: string,
+    request: { paths?: string[]; write?: boolean; message?: string },
+  ): Promise<z.infer<typeof FormatAnswer>>;
+  /**
    * Onto the site as it is now: its base build becomes the site's, and its
    * staged code needs building again. The site-code check's action.
    */
@@ -542,6 +564,8 @@ export function createProposalsClient(options: {
           ...(message !== undefined ? { message } : {}),
         }),
       ),
+    formatFiles: async (name, request) =>
+      FormatAnswer.parse(await call(`${at(name)}/format`, "POST", request)),
     patchFile: async (name, moduleFilePath, patch, message) =>
       StagedAnswer.parse(
         await call(`${at(name)}/patch-file`, "POST", {

@@ -1929,7 +1929,9 @@ export function useAI(
             offerProposal: requestProposal,
           }).then(({ result, isError }) => {
             if (
-              (toolName === "write_files" || toolName === "create_patch") &&
+              (toolName === "write_files" ||
+                toolName === "create_patch" ||
+                toolName === "format_files") &&
               !isError
             )
               proposalCodeChanged();

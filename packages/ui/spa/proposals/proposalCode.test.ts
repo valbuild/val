@@ -282,11 +282,13 @@ describe("the code tools", () => {
   ): CodeToolDeps & {
     staged: unknown[];
     patched: unknown[];
+    formatted: unknown[];
     offered: number;
   } => {
     const record = {
       staged: [] as unknown[],
       patched: [] as unknown[],
+      formatted: [] as unknown[],
       offered: 0,
     };
     return Object.assign(record, {
@@ -316,6 +318,19 @@ describe("the code tools", () => {
             staged: staged({ files: [moduleFilePath.slice(1)] }),
           };
         },
+        formatFiles: async (
+          name: string,
+          request: { paths?: string[]; write?: boolean },
+        ) => {
+          record.formatted.push([name, request]);
+          return {
+            files: [
+              { path: "src/components/Hero.tsx", status: "changed" as const },
+              { path: "src/app.tsx", status: "unchanged" as const },
+            ],
+            staged: null,
+          };
+        },
       },
       typecheck: async () => ({ status: "nothing-staged" as const }),
       siteSource: async () => SITE,
@@ -331,12 +346,13 @@ describe("the code tools", () => {
     });
   };
 
-  test("are six, and known by name", () => {
+  test("are seven, and known by name", () => {
     expect(CODE_TOOLS.map((tool) => tool.name)).toEqual([
       "list_files",
       "read_file",
       "search_code",
       "write_files",
+      "format_files",
       "typecheck",
       "build_proposal",
     ]);
@@ -415,6 +431,38 @@ describe("the code tools", () => {
     expect(
       (await runCodeTool("create_patch", { module_file_path: "/a.val.ts" }, d))
         .isError,
+    ).toBe(true);
+  });
+
+  test("format_files formats the proposal's files as the project does, and stages them by default", async () => {
+    const d = deps();
+    const answer = await runCodeTool("format_files", {}, d);
+    expect(d.formatted).toEqual([[NAME, { write: true }]]);
+    expect(answer).toMatchObject({
+      result: {
+        success: true,
+        files: [
+          { path: "src/components/Hero.tsx", status: "changed" },
+          { path: "src/app.tsx", status: "unchanged" },
+        ],
+        next: "The changed files are staged, formatted.",
+      },
+      isError: false,
+    });
+    await runCodeTool(
+      "format_files",
+      { paths: ["src/app.tsx"], write: false },
+      d,
+    );
+    expect(d.formatted[1]).toEqual([
+      NAME,
+      { paths: ["src/app.tsx"], write: false },
+    ]);
+    expect(
+      (await runCodeTool("format_files", { paths: "src/app.tsx" }, d)).isError,
+    ).toBe(true);
+    expect(
+      (await runCodeTool("format_files", {}, deps({ proposal: null }))).isError,
     ).toBe(true);
   });
 

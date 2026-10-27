@@ -146,11 +146,36 @@ const TYPECHECK_TOOL: AITool = {
   timeoutMs: 5 * 60_000,
 };
 
+const FORMAT_FILES_TOOL: AITool = {
+  name: "format_files",
+  description:
+    "Format the proposal's files the way the project formats them (its own formatter, e.g. prettier with its config), " +
+    "and stage the ones that change. With no paths, every file the proposal stages. Call it after write_files, before typecheck.",
+  parameters: {
+    type: "object",
+    properties: {
+      paths: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Only these files, e.g. ['src/components/Hero.tsx']. At most 50.",
+      },
+      write: {
+        type: "boolean",
+        description:
+          "Stage the formatted files (default true). false only reports which would change.",
+      },
+    },
+    required: [],
+  },
+};
+
 export const CODE_TOOLS: AITool[] = [
   LIST_FILES_TOOL,
   READ_FILE_TOOL,
   SEARCH_CODE_TOOL,
   WRITE_FILES_TOOL,
+  FORMAT_FILES_TOOL,
   TYPECHECK_TOOL,
   BUILD_PROPOSAL_TOOL,
 ];
@@ -218,11 +243,11 @@ export function codeToolsPromptSection(where: CodeToolsWhere): string {
   return `
 
 ## The project's code
-Besides content, you can read the project's code (list_files, read_file, search_code) and, in a proposal, change it (write_files), typecheck it (typecheck) and build it (build_proposal). Change code only when the person asks for something content cannot do: a new component, a layout, a field the schema does not have yet.
+Besides content, you can read the project's code (list_files, read_file, search_code) and, in a proposal, change it (write_files), format it (format_files), typecheck it (typecheck) and build it (build_proposal). Change code only when the person asks for something content cannot do: a new component, a layout, a field the schema does not have yet.
 - Content is not code: change content with create_patch. Write a .val.ts only to change its schema, and keep the content in it.
 - Find before you read: search_code finds where something is defined or rendered, then read_file the files it names.
 - write_files takes each file's WHOLE new text. Read a file before you change it.
-- After changing code, call typecheck and fix the type errors it reports; then build_proposal, so the proposal's preview shows it. Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
+- After changing code, call format_files so the files are formatted as the project's are, then typecheck and fix the type errors it reports; then build_proposal, so the proposal's preview shows it. Tell the person it is in the preview, not on the site: the site changes when the proposal is published.
 - ${here}`;
 }
 
@@ -239,7 +264,7 @@ export function designSystemPrompt(displayName: string): string {
 Whoever opened the design tab wants the site's code changed: a component, a layout, a page, a field the schema does not have yet. Say plainly what you changed, and name the files.
 
 ## What you can do here
-- Find and read the project's code (search_code, list_files, read_file), change it (write_files), typecheck it (typecheck) and build it (build_proposal), so the preview shows it.
+- Find and read the project's code (search_code, list_files, read_file), change it (write_files), format it (format_files), typecheck it (typecheck) and build it (build_proposal), so the preview shows it.
 - Change content with create_patch: it is written into the module's file in the proposal and staged with the code, so a field you add to a schema can be filled in the same change.
 - Read content to see what the code renders (get_all_schema, get_source, search_content, count_entries, get_record_keys). These read the SITE's content: a module the proposal changed is read with read_file.
 - Ask when a request is ambiguous (ask_user_question), and name the session once the topic is clear (set_session_name).
@@ -249,7 +274,7 @@ Whoever opened the design tab wants the site's code changed: a component, a layo
 - <field path="..."/> is a field the person mentioned: the Val source path of some content, found the same way.
 
 ## Working
-- Keep each change small enough to check: write it, typecheck and fix what it reports, then build.
+- Keep each change small enough to check: write it, format it, typecheck and fix what it reports, then build.
 - A build that fails, or a page that does not render, is not served: the preview keeps the last build that worked, and build_proposal answers with the error. Read it, fix the files, and build again.
 - When the preview shows the change, say so, and that the site changes only when the proposal is published.${codeToolsPromptSection({ kind: "design", displayName })}`;
 }
@@ -288,7 +313,10 @@ export function isCodeTool(name: string): boolean {
 export type CodeToolDeps = {
   /** The proposal this Studio is open in; `null` on the site. */
   proposal: { name: string } | null;
-  client: Pick<ProposalsClient, "files" | "stageFiles" | "patchFile">;
+  client: Pick<
+    ProposalsClient,
+    "files" | "stageFiles" | "patchFile" | "formatFiles"
+  >;
   /** The site's source, as its live build was made from it. */
   siteSource: () => Promise<Record<string, string> | null>;
   build: () => Promise<ProposalBuildOutcome>;
@@ -398,6 +426,42 @@ export async function runCodeTool(
           staged: staged.staged.files,
           buildRequired: staged.staged.buildRequired,
           next: "Written into the module's file and staged. Call build_proposal when the change is complete, so the preview shows it.",
+        },
+        isError: false,
+      };
+    }
+    if (name === "format_files") {
+      if (deps.proposal === null) {
+        return fail(
+          "Only a proposal's files are formatted here: the site's code is changed by merging a proposal.",
+        );
+      }
+      const paths = input["paths"];
+      if (
+        paths !== undefined &&
+        (!Array.isArray(paths) || !paths.every((p) => typeof p === "string"))
+      ) {
+        return fail("paths must be a list of file paths.");
+      }
+      const write = input["write"] !== false;
+      const formatted = await deps.client.formatFiles(deps.proposal.name, {
+        ...(paths !== undefined ? { paths } : {}),
+        write,
+      });
+      const changed = formatted.files.filter((f) => f.status === "changed");
+      const failed = formatted.files.filter((f) => f.status === "failed");
+      return {
+        result: {
+          success: true,
+          files: formatted.files,
+          next:
+            failed.length > 0
+              ? "Some files could not be formatted: that is usually a syntax error. Fix them, then format again."
+              : changed.length === 0
+                ? "Everything is formatted already."
+                : write
+                  ? "The changed files are staged, formatted."
+                  : "Call format_files again with write: true to stage these formatted.",
         },
         isError: false,
       };

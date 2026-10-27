@@ -83,9 +83,17 @@ const PatchFileBody = z.object({
   message: z.string().max(500).optional(),
 });
 
-/** What `patchFileInProposal` reads of content's answer for a proposal's files. */
+/** `POST /proposals-api/<name>/format`: see `formatFilesInProposal`. */
+const FormatFilesBody = z.object({
+  paths: z.array(z.string().min(1)).max(50).optional(),
+  write: z.boolean().optional(),
+  message: z.string().max(500).optional(),
+});
+
+/** What the proposal's file routes read of content's answer for its files. */
 const ProposalFilesRead = z.object({
   files: z.record(z.string(), z.string().nullable()),
+  staged: z.object({ files: z.array(z.string()) }).optional(),
 });
 
 const PatchId = z.string().refine((s): s is PatchId => !!s); // TODO: validate
@@ -1111,6 +1119,10 @@ export class ValOpsHttp extends ValOps {
     if (updating !== undefined && init.method === "POST") {
       return this.updateContentFromSite(updating, init.body, profileId);
     }
+    const formatting = /^\/([0-9a-f]{20})\/format$/.exec(path)?.[1];
+    if (formatting !== undefined && init.method === "POST") {
+      return this.formatFilesInProposal(formatting, init.body, profileId);
+    }
     const patching = /^\/([0-9a-f]{20})\/patch-file$/.exec(path)?.[1];
     if (patching !== undefined && init.method === "POST") {
       return this.patchFileInProposal(patching, init.body, profileId);
@@ -1230,18 +1242,7 @@ export class ValOpsHttp extends ValOps {
       });
     }
     const { moduleFilePath, patch, message } = request.data;
-    const content = (suffix: string, init: RequestInit = {}) =>
-      fetch(
-        `${this.contentUrl}/v1/${this.project}/proposals/${name}${suffix}`,
-        {
-          ...init,
-          headers: {
-            ...this.authHeaders,
-            ...(profileId !== null ? { "x-val-profile-id": profileId } : {}),
-            ...(init.body === undefined ? {} : { "Content-Type": json }),
-          },
-        },
-      );
+    const content = this.proposalContent(name, profileId);
     const read = await content("/files");
     if (!read.ok) {
       return {
@@ -1302,6 +1303,122 @@ export class ValOpsHttp extends ValOps {
       contentType: staged.headers.get("Content-Type") ?? json,
       body: await staged.text(),
     };
+  }
+
+  /**
+   * The proposal's files formatted the way the project formats them: the
+   * assistant's `format_files` (valbuild/home `docs/design-tab.md`).
+   *
+   * With the formatter the app gives Val (`initValServer`'s `formatter` --
+   * the template's is prettier with its own `.prettierrc`), the one a save
+   * formats with, so the assistant's files come out as the project's would.
+   * Answered here, at `POST /<name>/format`: the files are the proposal's
+   * copies, or this build's for a file the proposal has not changed. With no
+   * paths, the files the proposal stages. With `write`, the ones that changed
+   * are staged, as `write_files` stages them.
+   *
+   * A site that gives Val no formatter has none to run, and says so: there is
+   * nothing here that knows the project's style.
+   */
+  private async formatFilesInProposal(
+    name: string,
+    body: string | undefined,
+    profileId: string | null,
+  ): Promise<{ status: number; body: string; contentType: string }> {
+    const json = "application/json";
+    const answer = (status: number, value: unknown) => ({
+      status,
+      contentType: json,
+      body: JSON.stringify(value),
+    });
+    if (!this.mayWriteFiles({ name, write: "files" })) {
+      return answer(403, {
+        message:
+          "Files are changed in the proposal this Studio is open in, not in another.",
+      });
+    }
+    const formatter = this.options?.formatter;
+    if (formatter === undefined) {
+      return answer(409, {
+        message:
+          "This site gives Val no formatter (initValServer's formatter option), so there is nothing that knows how the project formats its files.",
+      });
+    }
+    let parsedBody: unknown;
+    try {
+      parsedBody = body === undefined || body === "" ? {} : JSON.parse(body);
+    } catch {
+      return answer(400, { message: "The format request's body is not JSON." });
+    }
+    const request = FormatFilesBody.safeParse(parsedBody);
+    if (!request.success) {
+      return answer(400, {
+        message: `Invalid format request: ${fromError(request.error).toString()}`,
+      });
+    }
+    const content = this.proposalContent(name, profileId);
+    const read = await content("/files");
+    if (!read.ok) {
+      return {
+        status: read.status,
+        contentType: json,
+        body: await read.text(),
+      };
+    }
+    const files = ProposalFilesRead.safeParse(await read.json());
+    if (!files.success) {
+      return answer(502, {
+        message: `Content answered the proposal's files in a shape this Val does not read: ${fromError(files.error).toString()}`,
+      });
+    }
+    const paths = (request.data.paths ?? files.data.staged?.files ?? []).map(
+      (path) => path.replace(/^\/+/, ""),
+    );
+    const results: Array<{
+      path: string;
+      status: "changed" | "unchanged" | "missing" | "failed";
+      message?: string;
+    }> = [];
+    const changed: Record<string, string> = {};
+    for (const path of paths) {
+      const own = files.data.files[path];
+      const text =
+        own === null ? undefined : (own ?? this.projectSource?.[path]);
+      if (text === undefined) {
+        results.push({ path, status: "missing" });
+        continue;
+      }
+      try {
+        const formatted = await formatter(text, `/${path}`);
+        if (formatted === text) {
+          results.push({ path, status: "unchanged" });
+        } else {
+          changed[path] = formatted;
+          results.push({ path, status: "changed" });
+        }
+      } catch (error) {
+        results.push({
+          path,
+          status: "failed",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    if (!request.data.write || Object.keys(changed).length === 0) {
+      return answer(200, { files: results, staged: null });
+    }
+    const staged = await content("/files", {
+      method: "POST",
+      body: JSON.stringify({
+        files: changed,
+        message: request.data.message ?? "Format",
+      }),
+    });
+    const stagedText = await staged.text();
+    if (!staged.ok) {
+      return { status: staged.status, contentType: json, body: stagedText };
+    }
+    return answer(200, { files: results, staged: JSON.parse(stagedText) });
   }
 
   /**
