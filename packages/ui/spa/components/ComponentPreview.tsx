@@ -1,16 +1,19 @@
 import {
+  VAL_PREVIEW_MESSAGES,
   type SerializedComponentRender,
   type SerializedDiscriminatedUnionSchema,
   type SerializedSchema,
   type SourcePath,
 } from "@valbuild/core";
-import { RotateCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Columns2, Eye, FlaskConical, PenLine, RotateCw } from "lucide-react";
 import {
-  useSchemaAtPath,
-  useShallowSourceAtPath,
-  useSourceAtPath,
-} from "./ValFieldProvider";
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { useShallowSourceAtPath, useSourceAtPath } from "./ValFieldProvider";
 import { sourcePathOfItem } from "../utils/sourcePathOfItem";
 import { cn } from "./designSystem/cn";
 
@@ -22,7 +25,6 @@ import { cn } from "./designSystem/cn";
  * the right setup story is.
  */
 const VAL_PREVIEW_ROUTE = "/val-preview";
-const VAL_PREVIEW_REFRESH_MESSAGE = "val-preview-refresh";
 
 /**
  * Window event that forces a full reload of every component preview.
@@ -45,52 +47,167 @@ export const VAL_COMPONENT_PREVIEW_RELOAD_EVENT =
  */
 const REFRESH_DEBOUNCE_MS = 800;
 
-type PreviewSource =
-  /** The content being edited, at this path. */
-  | { type: "content" }
-  /** The `example` of the render: a fixture that is not on the site. */
-  | { type: "example" }
-  /** Values typed in by hand, written nowhere. */
-  | { type: "values" };
+/**
+ * How tall the frame is until the preview has said how tall it is - and for
+ * good, if the preview route does not wrap its output in `ValPreviewBridge`.
+ */
+const UNMEASURED_HEIGHT_PX = 240;
 
 /**
- * EXPERIMENTAL: a live preview of the value at `path`, rendered with the
- * component its schema declares - `s.object(...).render({ as: "component" })`,
- * or the variant of a discriminated union the value takes.
- *
- * Renders nothing when there is no such component.
- *
- * The component itself is rendered by the host app (in an iframe), not here:
- * the serialized schema only says THAT there is one, and that way it gets the
- * app's own React, CSS, fonts and providers, and server components work. Val
- * UI only decides which content to render it with.
+ * How a value that has a component is shown: rendered, as its fields, or both
+ * side by side.
  */
-export function ComponentPreview({ path }: { path: SourcePath }) {
-  const schemaAtPath = useSchemaAtPath(path);
-  if (schemaAtPath.status !== "success") {
-    return null;
-  }
-  const schema = schemaAtPath.data;
+export type ComponentView = "preview" | "content" | "split";
+
+const COMPONENT_VIEWS: ComponentView[] = ["preview", "content", "split"];
+const COMPONENT_VIEW_STORAGE_KEY = "val:component-view";
+
+/**
+ * Could a value with this schema have a component? Read off the schema alone,
+ * so the switch can be shown before the value has loaded: an object that
+ * declares one, or a union with a variant that does.
+ */
+export function mayHaveComponent(schema: SerializedSchema): boolean {
   if (schema.type === "discriminated-union") {
-    return <UnionComponentPreview path={path} schema={schema} />;
+    return schema.items.some((item) => componentRenderOf(item) !== null);
+  }
+  return componentRenderOf(schema) !== null;
+}
+
+/**
+ * The view the editor last chose, remembered per browser: a convenience on
+ * one machine, so `localStorage`, and nothing breaks when it is unavailable.
+ */
+export function useComponentView(): [
+  ComponentView,
+  (view: ComponentView) => void,
+] {
+  const [view, setView] = useState<ComponentView>(readComponentView);
+  const select = useCallback((next: ComponentView) => {
+    setView(next);
+    try {
+      localStorage.setItem(COMPONENT_VIEW_STORAGE_KEY, next);
+    } catch {
+      // Not remembered next time; the switch still works.
+    }
+  }, []);
+  return [view, select];
+}
+
+function readComponentView(): ComponentView {
+  try {
+    const stored = localStorage.getItem(COMPONENT_VIEW_STORAGE_KEY);
+    const known = COMPONENT_VIEWS.find((view) => view === stored);
+    if (known) {
+      return known;
+    }
+  } catch {
+    // Storage blocked: fall through to the default.
+  }
+  return "split";
+}
+
+const VIEW_OPTIONS: {
+  view: ComponentView;
+  label: string;
+  icon: ReactNode;
+}[] = [
+  { view: "preview", label: "Preview", icon: <Eye size={14} /> },
+  { view: "content", label: "Content", icon: <PenLine size={14} /> },
+  { view: "split", label: "Split", icon: <Columns2 size={14} /> },
+];
+
+/** The switch between the three {@link ComponentView}s, beside the heading. */
+export function ComponentViewSwitch({
+  view,
+  onChange,
+}: {
+  view: ComponentView;
+  onChange: (view: ComponentView) => void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Show"
+      className="inline-flex items-center gap-0.5 p-0.5 rounded-md border border-border-primary"
+    >
+      {VIEW_OPTIONS.map((option) => {
+        const selected = option.view === view;
+        return (
+          <button
+            key={option.view}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onChange(option.view)}
+            className={cn(
+              "flex items-center gap-1.5 h-7 px-2 rounded text-xs transition-colors",
+              {
+                "bg-bg-secondary text-fg-primary": selected,
+                "text-fg-tertiary hover:text-fg-primary": !selected,
+              },
+            )}
+          >
+            {option.icon}
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * EXPERIMENTAL: the value at `path` laid out by `view` - rendered with the
+ * component its schema declares, as its fields (`children`), or both.
+ *
+ * The component is `s.object(...).render({ as: "component" })`, or the one of
+ * the variant a union's value takes. When there is none - a union whose
+ * current variant has no component - the fields are shown as they always are.
+ */
+export function ComponentLayout({
+  path,
+  schema,
+  view,
+  children,
+}: {
+  path: SourcePath;
+  schema: SerializedSchema;
+  view: ComponentView;
+  children: ReactNode;
+}) {
+  if (schema.type === "discriminated-union") {
+    return (
+      <UnionComponentLayout path={path} schema={schema} view={view}>
+        {children}
+      </UnionComponentLayout>
+    );
   }
   const render = componentRenderOf(schema);
   if (!render) {
-    return null;
+    return <>{children}</>;
   }
-  return <ComponentPreviewFrame path={path} render={render} />;
+  return (
+    <ViewLayout path={path} render={render} view={view}>
+      {children}
+    </ViewLayout>
+  );
 }
 
 /**
  * A union has no render of its own: the variant the value takes does, and
  * which one that is can change while the editor is looking at it.
  */
-function UnionComponentPreview({
+function UnionComponentLayout({
   path,
   schema,
+  view,
+  children,
 }: {
   path: SourcePath;
   schema: SerializedDiscriminatedUnionSchema;
+  view: ComponentView;
+  children: ReactNode;
 }) {
   const tagRes = useShallowSourceAtPath(
     sourcePathOfItem(path, schema.key),
@@ -103,12 +220,44 @@ function UnionComponentPreview({
   });
   const render = variant ? componentRenderOf(variant) : null;
   if (!render) {
-    return null;
+    return <>{children}</>;
   }
-  // Keyed by the tag: another variant is another component, and its picker
-  // state (an example it may not have) must not carry over.
   return (
-    <ComponentPreviewFrame key={String(tag)} path={path} render={render} />
+    <ViewLayout path={path} render={render} view={view} variant={String(tag)}>
+      {children}
+    </ViewLayout>
+  );
+}
+
+function ViewLayout({
+  path,
+  render,
+  view,
+  variant,
+  children,
+}: {
+  path: SourcePath;
+  render: SerializedComponentRender;
+  view: ComponentView;
+  /** Another variant is another component: its frame starts over. */
+  variant?: string;
+  children: ReactNode;
+}) {
+  if (view === "content") {
+    return <>{children}</>;
+  }
+  const frame = <PreviewFrame key={variant} path={path} render={render} />;
+  if (view === "preview") {
+    return frame;
+  }
+  // Side by side when there is room for both, one above the other when there
+  // is not: a column narrower than two of the minimum wraps the fields under
+  // the preview. The preview stays in view while the fields beside it scroll.
+  return (
+    <div className="grid gap-6 items-start grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))]">
+      <div className="sticky top-4">{frame}</div>
+      <div className="min-w-0">{children}</div>
+    </div>
   );
 }
 
@@ -121,7 +270,16 @@ function componentRenderOf(
   return schema.render?.as === "component" ? schema.render : null;
 }
 
-function ComponentPreviewFrame({
+/**
+ * The component, rendered by the host app in an iframe: that way it gets the
+ * app's own React, CSS, fonts and providers, and server components work. Val
+ * only decides which content it is rendered with.
+ *
+ * As wide as there is room for up to the render's `maxWidth`, and as tall as
+ * the component - which only the frame can measure, so it reports it (see
+ * `ValPreviewBridge`) - unless the render gives an `aspectRatio`.
+ */
+function PreviewFrame({
   path,
   render,
 }: {
@@ -131,17 +289,14 @@ function ComponentPreviewFrame({
   const sourceAtPath = useSourceAtPath(path);
   const source =
     sourceAtPath.status === "success" ? sourceAtPath.data : undefined;
-
-  const [previewSource, setPreviewSource] = useState<PreviewSource>({
-    type: "content",
-  });
-  // Reset when navigating to another value
+  const [showExample, setShowExample] = useState(false);
+  // Navigating to another value starts on its content
   useEffect(() => {
-    setPreviewSource({ type: "content" });
+    setShowExample(false);
   }, [path]);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const isFirstSourceRef = useRef(true);
+  const [height, setHeight] = useState<number | null>(null);
   // Bumped to throw the iframe away and mount a new one. Needed when the
   // component code changed (as opposed to its content), since that means the
   // host app has to re-evaluate the module, not just re-render it.
@@ -149,9 +304,41 @@ function ComponentPreviewFrame({
   const reload = useCallback(() => {
     setReloadKey((prev) => prev + 1);
   }, []);
+  const src = previewUrl({ path, example: showExample });
+
+  // A new document reports its own height; until it does, the old one's
+  // would be a lie about something else.
+  useEffect(() => {
+    setHeight(null);
+  }, [src, reloadKey]);
+
+  useEffect(() => {
+    const listener = (event: MessageEvent) => {
+      // Only this frame's own document: every preview on the page posts the
+      // same message.
+      if (event.source !== iframeRef.current?.contentWindow) {
+        return;
+      }
+      if (
+        event.data?.type === VAL_PREVIEW_MESSAGES.size &&
+        typeof event.data.height === "number"
+      ) {
+        setHeight(event.data.height);
+      }
+    };
+    window.addEventListener("message", listener);
+    return () => {
+      window.removeEventListener("message", listener);
+    };
+  }, []);
 
   // Content changed in Val: ask the preview to re-render with the new content.
+  const isFirstSourceRef = useRef(true);
   useEffect(() => {
+    if (source === undefined) {
+      // Still loading: arriving is not a change
+      return;
+    }
     if (isFirstSourceRef.current) {
       // The iframe is loading the current content anyway
       isFirstSourceRef.current = false;
@@ -159,7 +346,7 @@ function ComponentPreviewFrame({
     }
     const timeout = setTimeout(() => {
       iframeRef.current?.contentWindow?.postMessage(
-        { type: VAL_PREVIEW_REFRESH_MESSAGE },
+        { type: VAL_PREVIEW_MESSAGES.refresh },
         window.location.origin,
       );
     }, REFRESH_DEBOUNCE_MS);
@@ -177,171 +364,87 @@ function ComponentPreviewFrame({
   }, [reload]);
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex gap-2 justify-between items-center">
-        <PreviewSourcePicker
-          hasExample={render.example === true}
-          selected={previewSource}
-          onSelect={setPreviewSource}
-        />
-        <button
-          type="button"
-          className="flex gap-1 items-center text-xs shrink-0 text-fg-tertiary hover:text-fg-primary"
+    <div className="flex flex-col gap-1">
+      <div className="flex gap-1 justify-end items-center">
+        {render.example && (
+          <FrameButton
+            label={
+              showExample
+                ? "Showing the example. Show the content instead"
+                : "Show the example: a fixture, not content on the site"
+            }
+            pressed={showExample}
+            onClick={() => setShowExample((prev) => !prev)}
+          >
+            <FlaskConical size={14} />
+            Example
+          </FrameButton>
+        )}
+        <FrameButton
+          label="Reload the preview (after the component code changed)"
           onClick={reload}
-          title="Reload the preview (after the component code changed)"
         >
-          <RotateCw size={12} />
-          Reload
-        </button>
+          <RotateCw size={14} />
+        </FrameButton>
       </div>
-      {previewSource.type === "values" ? (
-        <ValuesPreview path={path} initialValue={source} />
-      ) : (
-        <iframe
-          key={reloadKey}
-          ref={iframeRef}
-          title={`Preview of ${path}`}
-          src={previewUrl({
-            path,
-            example: previewSource.type === "example",
-          })}
-          className="w-full h-[420px] rounded-lg border border-border-primary bg-bg-primary"
-        />
-      )}
+      <iframe
+        key={reloadKey}
+        ref={iframeRef}
+        title={`Preview of ${path}`}
+        src={src}
+        style={{
+          maxWidth: render.maxWidth,
+          ...(render.aspectRatio
+            ? { aspectRatio: render.aspectRatio }
+            : { height: height ?? UNMEASURED_HEIGHT_PX }),
+        }}
+        className="block w-full mx-auto rounded-lg border border-border-primary bg-bg-primary"
+      />
     </div>
   );
 }
 
-function PreviewSourcePicker({
-  hasExample,
-  selected,
-  onSelect,
-}: {
-  hasExample: boolean;
-  selected: PreviewSource;
-  onSelect: (source: PreviewSource) => void;
-}) {
-  return (
-    <div className="flex flex-wrap gap-1 items-center text-xs">
-      <PickerButton
-        selected={selected.type === "content"}
-        onClick={() => onSelect({ type: "content" })}
-        title="The content you are editing"
-      >
-        Content
-      </PickerButton>
-      {hasExample && (
-        <PickerButton
-          selected={selected.type === "example"}
-          onClick={() => onSelect({ type: "example" })}
-          title="The example the schema declares - a fixture, not content that exists on the site"
-        >
-          Example
-        </PickerButton>
-      )}
-      <PickerButton
-        selected={selected.type === "values"}
-        onClick={() => onSelect({ type: "values" })}
-        title="Render this component with values you type in, without changing any content"
-      >
-        Values&hellip;
-      </PickerButton>
-    </div>
-  );
-}
-
-function PickerButton({
-  selected,
+function FrameButton({
+  label,
+  pressed,
   onClick,
-  title,
   children,
 }: {
-  selected: boolean;
+  label: string;
+  pressed?: boolean;
   onClick: () => void;
-  title?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <button
       type="button"
-      title={title}
+      title={label}
+      aria-label={label}
+      aria-pressed={pressed}
       onClick={onClick}
-      className={cn("px-2 py-1 rounded border border-border-primary", {
-        "bg-bg-secondary text-fg-primary": selected,
-        "text-fg-tertiary hover:text-fg-primary": !selected,
-      })}
+      className={cn(
+        "flex items-center gap-1.5 h-7 px-2 rounded text-xs transition-colors",
+        {
+          "bg-bg-secondary text-fg-primary": pressed,
+          "text-fg-tertiary hover:text-fg-primary": !pressed,
+        },
+      )}
     >
       {children}
     </button>
   );
 }
 
-/**
- * Render the component with values typed in by hand.
- *
- * The values are sent as JSON in the preview URL, so they are never written
- * anywhere: the preview is still rendered by the host app's server, which keeps
- * server components working.
- */
-function ValuesPreview({
-  path,
-  initialValue,
-}: {
-  path: SourcePath;
-  initialValue: unknown;
-}) {
-  const [text, setText] = useState(() =>
-    JSON.stringify(initialValue ?? {}, null, 2),
-  );
-  const [committed, setCommitted] = useState(text);
-  useEffect(() => {
-    const timeout = setTimeout(() => setCommitted(text), 500);
-    return () => clearTimeout(timeout);
-  }, [text]);
-  const parseError = useMemo(() => {
-    try {
-      JSON.parse(committed);
-      return null;
-    } catch (err) {
-      return err instanceof Error ? err.message : "Invalid JSON";
-    }
-  }, [committed]);
-  return (
-    <div className="flex flex-col gap-2">
-      <textarea
-        className="w-full h-40 p-2 font-mono text-xs rounded-lg border border-border-primary bg-bg-primary text-fg-primary"
-        spellCheck={false}
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-      />
-      {parseError ? (
-        <div className="text-xs text-fg-error-primary">{parseError}</div>
-      ) : (
-        <iframe
-          title={`Preview of ${path} with typed values`}
-          src={previewUrl({ path, props: committed })}
-          className="w-full h-[420px] rounded-lg border border-border-primary bg-bg-primary"
-        />
-      )}
-    </div>
-  );
-}
-
 function previewUrl({
   path,
   example,
-  props,
 }: {
   path: SourcePath;
   example?: boolean;
-  props?: string;
 }): string {
   const params = new URLSearchParams({ p: path });
   if (example) {
     params.set("example", "1");
-  }
-  if (props !== undefined) {
-    params.set("props", props);
   }
   return `${VAL_PREVIEW_ROUTE}?${params.toString()}`;
 }

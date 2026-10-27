@@ -22,6 +22,8 @@ export const heroSection = s
   .render({
     as: "component",
     component: () => import("../app/sections/HeroSection"),
+    // A full-width section: wider than this, the site centres it.
+    maxWidth: 1200,
     // Deliberately not representative of any real page: long values and a
     // long list are what make layout problems obvious.
     example: {
@@ -54,6 +56,8 @@ export const quoteSection = s
   .render({
     as: "component",
     component: () => import("../app/sections/QuoteSection"),
+    // Shown in a narrow column on the site, so previewed as one.
+    maxWidth: 560,
   });
 
 export const schema = s.record(

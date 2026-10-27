@@ -188,16 +188,72 @@ export type ComponentRender<Src> = {
   as: "component";
   component: () => Promise<ValComponentImport>;
   example?: Src;
+  /**
+   * The widest the component is shown, in CSS pixels. The preview is the
+   * component's whole viewport, so this is also the width its media queries
+   * see: a card designed for a 400px column says `maxWidth: 400` and is not
+   * stretched across the editor.
+   *
+   * Without it the preview is as wide as there is room for.
+   */
+  maxWidth?: number;
+  /**
+   * Width divided by height, e.g. `16 / 9`, for a component that fills the
+   * space it is given rather than having a height of its own - a full-bleed
+   * hero, a background video. The preview is then that shape.
+   *
+   * Without it the preview is as tall as what the component renders.
+   */
+  aspectRatio?: number;
 };
 
 /**
  * What a {@link ComponentRender} serializes to. The component is a closure and
- * cannot travel; `example` says whether there is one to preview with.
+ * cannot travel; `example` says whether there is one to preview with. The
+ * sizes are plain numbers and travel whole: the Studio lays the preview out
+ * with them.
  */
 export type SerializedComponentRender = {
   as: "component";
   example?: true;
+  maxWidth?: number;
+  aspectRatio?: number;
 };
+
+/**
+ * The messages between the Studio and the host app's preview route, which run
+ * in different frames. Both sides read them from here so they cannot drift.
+ *
+ * - `refresh`: Studio to preview. The content changed; render it again.
+ * - `size`: preview to Studio, with `{ height }`. What the component rendered
+ *   is this tall, so the Studio can size the frame to fit it.
+ */
+export const VAL_PREVIEW_MESSAGES: {
+  refresh: "val-preview-refresh";
+  size: "val-preview-size";
+} = {
+  refresh: "val-preview-refresh",
+  size: "val-preview-size",
+};
+
+/**
+ * Throws, where the schema is defined, on sizes no preview could be laid out
+ * with - the same place the slider's range is checked, and for the same
+ * reason: a mistake here is a developer's, and the definition is where they
+ * can see it.
+ */
+export function assertComponentRenderIsConsistent(
+  render: ComponentRender<unknown>,
+): void {
+  for (const key of ["maxWidth", "aspectRatio"] as const) {
+    const value = render[key];
+    if (value !== undefined && !(Number.isFinite(value) && value > 0)) {
+      throw new Error(
+        `render({ as: "component" }): ${key} must be a positive number, got ${value}`,
+      );
+    }
+  }
+}
 
 /**
  * EXPERIMENTAL: the component that renders a value of `schema` whose source is

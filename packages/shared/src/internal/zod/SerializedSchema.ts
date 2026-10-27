@@ -52,6 +52,8 @@ const ComponentRender = z
   .object({
     as: z.literal("component"),
     example: z.literal(true).optional(),
+    maxWidth: z.number().optional(),
+    aspectRatio: z.number().optional(),
   })
   .optional();
 

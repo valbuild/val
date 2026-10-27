@@ -1,4 +1,4 @@
-import { unstable_renderValComponent, ValPreviewRefresh } from "@valbuild/next";
+import { unstable_renderValComponent, ValPreviewBridge } from "@valbuild/next";
 import valModules from "../../val.modules";
 import { fetchVal } from "../../val/rsc";
 
@@ -35,8 +35,7 @@ export default async function ValPreviewPage({
     }
   }
   return (
-    <>
-      <ValPreviewRefresh />
+    <ValPreviewBridge>
       {await unstable_renderValComponent({
         valModules,
         sourcePath: p,
@@ -44,6 +43,6 @@ export default async function ValPreviewPage({
         props: parsedProps,
         fetchVal,
       })}
-    </>
+    </ValPreviewBridge>
   );
 }

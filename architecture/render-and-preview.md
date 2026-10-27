@@ -89,12 +89,22 @@ const hero = s.object({ type: s.literal("hero"), title: s.string() }).render({
 The component that renders an object on the site, so the Studio can show it,
 rendered by the app in an iframe, next to the object's fields. It is the one
 render that holds a CLOSURE, so it is plumbed like a preview, not like the
-other renders: the serialized schema carries only `{ as: "component", example?:
-true }`, and the host app, which has the schema instance, renders the
-component (`getComponentRender` in `core/src/render.ts`,
+other renders: the serialized schema carries only a marker
+(`{ as: "component", example?: true, maxWidth?, aspectRatio? }`), and the host
+app, which has the schema instance, renders the component
+(`getComponentRender` in `core/src/render.ts`,
 `unstable_renderValComponent` in `@valbuild/next`). A discriminated union
 answers for the variant its value takes, so a list of sections needs nothing
 on the list itself.
+
+`maxWidth` and `aspectRatio` are plain numbers, so unlike the component they
+travel whole, and the Studio lays the frame out with them. `maxWidth` caps the
+frame, which is the component's whole viewport, so it is also the width its
+media queries see. Without `aspectRatio` the frame is as tall as the component:
+the preview route wraps its output in `ValPreviewBridge`, which reports the
+height whenever it changes (`VAL_PREVIEW_MESSAGES` in `render.ts`), because the
+Studio cannot see into the frame to measure it. In the Studio the editor picks
+Preview, Content or Split beside the heading (`ComponentPreview.tsx`).
 
 `component` is a lazy `import()` and never the component. Val evaluates
 `.val.ts` files outside of the app — `val validate` and the language server in

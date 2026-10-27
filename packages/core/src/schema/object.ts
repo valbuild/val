@@ -14,7 +14,11 @@ import {
   PreviewScope,
   mergePreviewInto,
 } from "../preview";
-import { ComponentRender, SerializedComponentRender } from "../render";
+import {
+  assertComponentRenderIsConsistent,
+  ComponentRender,
+  SerializedComponentRender,
+} from "../render";
 import { SelectorSource } from "../selector";
 import {
   createValPathOfItem,
@@ -420,6 +424,11 @@ export class ObjectSchema<
    * `example` is content that is not on the site, to preview with as well:
    * long titles and empty lists that make layout problems easy to spot.
    *
+   * `maxWidth` caps how wide the preview is (and so what the component's
+   * media queries see), and `aspectRatio` gives a component that fills its
+   * space a shape. Without them the preview is as wide as the editor and as
+   * tall as the component.
+   *
    * @example
    * const hero = s
    *   .object({ title: s.string() })
@@ -427,10 +436,12 @@ export class ObjectSchema<
    *     as: "component",
    *     component: () => import("./HeroSection"),
    *     example: { title: "A very long title that should wrap nicely" },
+   *     maxWidth: 1200,
    *   });
    * export default c.define("/example.val.ts", s.array(hero), []);
    */
   render(input: ComponentRender<NonNullable<Src>>): ObjectSchema<Props, Src> {
+    assertComponentRenderIsConsistent(input);
     return new ObjectSchema(
       this.items,
       this.opt,
@@ -488,6 +499,8 @@ export class ObjectSchema<
               as: "component",
               example:
                 this.renderInput.example !== undefined ? true : undefined,
+              maxWidth: this.renderInput.maxWidth,
+              aspectRatio: this.renderInput.aspectRatio,
             },
           }
         : {}),

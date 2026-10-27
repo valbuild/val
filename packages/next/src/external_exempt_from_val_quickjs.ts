@@ -52,10 +52,7 @@ export {
   unstable_renderValComponent,
   type ValComponentPreviewOptions,
 } from "./ValComponentPreview";
-export {
-  ValPreviewRefresh,
-  VAL_PREVIEW_REFRESH_MESSAGE,
-} from "./ValPreviewRefresh";
+export { ValPreviewBridge } from "./ValPreviewBridge";
 export { ValPreviewError } from "./ValPreviewError";
 
 import { Internal as InternalCore } from "@valbuild/core";
