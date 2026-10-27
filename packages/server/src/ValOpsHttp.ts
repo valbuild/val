@@ -1263,6 +1263,11 @@ export class ValOpsHttp extends ValOps {
         message: `${moduleFilePath} is deleted in this proposal.`,
       });
     }
+    if (own === undefined && this.projectSource === null) {
+      return answer(409, {
+        message: `This build does not carry its source, so ${moduleFilePath} can only be patched once the proposal has its own copy: write it with write_files.`,
+      });
+    }
     const text = own ?? this.projectSource?.[filePath];
     if (text === undefined) {
       return answer(404, {
@@ -1275,9 +1280,16 @@ export class ValOpsHttp extends ValOps {
         message: `The patch does not apply to ${moduleFilePath}: ${patched.error}`,
       });
     }
-    const formatted = this.options?.formatter
-      ? await this.options.formatter(patched.value, moduleFilePath)
-      : patched.value;
+    let formatted = patched.value;
+    if (this.options?.formatter) {
+      try {
+        formatted = await this.options.formatter(patched.value, moduleFilePath);
+      } catch (error) {
+        return answer(422, {
+          message: `The patched ${moduleFilePath} could not be formatted: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    }
     const staged = await content("/files", {
       method: "POST",
       body: JSON.stringify({

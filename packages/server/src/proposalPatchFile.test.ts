@@ -45,7 +45,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-const ops = (proposal?: ValProposal) =>
+const ops = (proposal?: ValProposal, withSource = true) =>
   new ValOpsHttp(
     "https://content.example",
     "org/project",
@@ -54,7 +54,7 @@ const ops = (proposal?: ValProposal) =>
     { config, modules: [] },
     {
       config,
-      projectSource: { [PATH]: SITE_TEXT },
+      ...(withSource ? { projectSource: { [PATH]: SITE_TEXT } } : {}),
       ...(proposal !== undefined ? { proposal } : {}),
     },
   );
@@ -126,6 +126,13 @@ describe("a patch written into a module's file in a proposal", () => {
     ownFiles = { [PATH]: null };
     const answer = await patchFile(ops(), NAME, "x");
     expect(answer.status).toBe(409);
+    expect(sent.map((r) => r.method)).toEqual(["GET"]);
+  });
+
+  test("a build that carries no source says so, rather than that the module is not there", async () => {
+    const answer = await patchFile(ops(undefined, false), NAME, "x");
+    expect(answer.status).toBe(409);
+    expect(JSON.parse(answer.body).message).toContain("write_files");
     expect(sent.map((r) => r.method)).toEqual(["GET"]);
   });
 
