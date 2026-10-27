@@ -1,31 +1,23 @@
+import { Check, Copy, ImagePlus, Trash2, X } from "lucide-react";
 import {
-  BarChart3,
-  Check,
-  Copy,
-  Film,
-  ImageIcon,
-  List,
-  Map as MapIcon,
-  MousePointerClick,
-  Square,
-  Table,
-  TrendingUp,
-  TextCursorInput,
-  type LucideIcon,
-} from "lucide-react";
-import {
+  createContext,
+  useContext,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type DragEvent,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 import { cn } from "../designSystem/cn";
 import { copyText } from "../../utils/copyText";
 import {
+  formatPlaceholder,
+  formatText,
   parseSketch,
   renderSketchAscii,
+  replaceLine,
   type SketchError,
   type SketchNode,
   type SketchPlaceholder,
@@ -44,6 +36,13 @@ export type PageSketchProps = {
   /** True while someone else (the assistant) is writing to the sketch. */
   readOnly?: boolean;
   defaultView?: PageSketchView;
+  /**
+   * Stores a file put in a box and resolves to the URL the sketch will name
+   * it by. That URL is what the assistant reads, so in the Studio it is where
+   * the upload landed. Defaults to an object URL, which lives as long as the
+   * tab does.
+   */
+  onAttachMedia?: (file: File) => Promise<string>;
 };
 
 /**
@@ -57,10 +56,22 @@ const MONO =
 /** Must match the editor's `leading-5`: the gutter and scroll-to-line use it. */
 const LINE_HEIGHT = 20;
 
+type Notice = {
+  message: string;
+  details?: string;
+  retry?: () => void;
+};
+
+async function objectUrlOf(file: File): Promise<string> {
+  return URL.createObjectURL(file);
+}
+
 /**
  * A page sketch: the text on the left, and the page it describes on the
- * right. Clicking a block selects its line; moving the caret highlights its
- * block. See `pageSketch.ts` for the format.
+ * right. Both can be edited: type in the text, or click a heading, a
+ * paragraph or a box's label on the page and type there; drop an image or a
+ * video on a box to put it in. Either way the text is what changes, because
+ * the text is what the assistant reads. See `pageSketch.ts` for the format.
  */
 export function PageSketch({
   value,
@@ -69,12 +80,18 @@ export function PageSketch({
   status,
   readOnly = false,
   defaultView = "wireframe",
+  onAttachMedia,
 }: PageSketchProps) {
-  const { blocks, errors } = useMemo(() => parseSketch(value), [value]);
+  const { blocks, icons, errors } = useMemo(() => parseSketch(value), [value]);
   const [view, setView] = useState<PageSketchView>(defaultView);
   const [caretLine, setCaretLine] = useState<number | null>(null);
   const [hoveredLine, setHoveredLine] = useState<number | null>(null);
   const [showLayout, setShowLayout] = useState(true);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  // An upload finishes after the person may have typed on; it has to land in
+  // the text as it is then, not as it was when the file was dropped.
+  const latestValue = useRef(value);
+  latestValue.current = value;
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
   // Where the caret goes once a keystroke we rewrote has been rendered.
@@ -95,7 +112,7 @@ export function PageSketch({
   );
   const activeLine = hoveredLine ?? caretLine;
 
-  const selectLine = (line: number) => {
+  const selectLine = (line: number, focusEditor = true) => {
     const editor = editorRef.current;
     if (!editor) {
       return;
@@ -105,10 +122,55 @@ export function PageSketch({
       .slice(0, line - 1)
       .reduce((sum, l) => sum + l.length + 1, 0);
     const indent = lines[line - 1].length - lines[line - 1].trimStart().length;
-    editor.focus();
+    if (focusEditor) {
+      editor.focus();
+    }
     editor.setSelectionRange(start + indent, start + lines[line - 1].length);
     editor.scrollTop = Math.max(0, (line - 3) * LINE_HEIGHT);
     setCaretLine(line);
+  };
+
+  const commitLine = (line: number, content: string) => {
+    onChange?.(replaceLine(latestValue.current, line, content));
+  };
+
+  const attachMedia = async (node: SketchPlaceholder, file: File) => {
+    const type = file.type.startsWith("video/")
+      ? "video"
+      : file.type.startsWith("image/")
+        ? "image"
+        : null;
+    if (type === null) {
+      setNotice({
+        message: `"${file.name}" is not an image or a video, so it cannot go in a box.`,
+      });
+      return;
+    }
+    setNotice(null);
+    try {
+      const src = await (onAttachMedia ?? objectUrlOf)(file);
+      commitLine(
+        node.line,
+        formatPlaceholder({ ...node, media: { type, src } }),
+      );
+    } catch (error) {
+      setNotice({
+        message: `"${file.name}" could not be added. The box is as it was.`,
+        details: error instanceof Error ? error.message : undefined,
+        retry: () => attachMedia(node, file),
+      });
+    }
+  };
+
+  const sketch: SketchContextValue = {
+    icons,
+    activeLine,
+    showLayout,
+    editable: !readOnly && onChange !== undefined,
+    onSelectLine: (line) => selectLine(line, false),
+    onHoverLine: setHoveredLine,
+    onCommitLine: commitLine,
+    onAttachMedia: attachMedia,
   };
 
   const updateCaretLine = () => {
@@ -159,6 +221,9 @@ export function PageSketch({
           </div>
           {status && (
             <div className="truncate text-xs text-fg-secondary">{status}</div>
+          )}
+          {notice && (
+            <NoticeLine notice={notice} onDismiss={() => setNotice(null)} />
           )}
         </div>
         {view === "wireframe" && (
@@ -236,18 +301,13 @@ export function PageSketch({
           {blocks.length === 0 ? (
             <EmptyPage />
           ) : view === "wireframe" ? (
-            <div className="mx-auto flex max-w-3xl flex-col gap-4 rounded-md border border-border-primary bg-bg-primary p-6 shadow-sm">
-              {blocks.map((block, i) => (
-                <Block
-                  key={i}
-                  node={block}
-                  activeLine={activeLine}
-                  showLayout={showLayout}
-                  onSelectLine={selectLine}
-                  onHoverLine={setHoveredLine}
-                />
-              ))}
-            </div>
+            <SketchContext.Provider value={sketch}>
+              <div className="mx-auto flex max-w-3xl flex-col gap-4 rounded-md border border-border-primary bg-bg-primary p-6 shadow-sm">
+                {blocks.map((block, i) => (
+                  <Block key={i} node={block} />
+                ))}
+              </div>
+            </SketchContext.Provider>
           ) : (
             <AsciiPage blocks={blocks} />
           )}
@@ -261,11 +321,13 @@ const EMPTY_HINT = [
   "# A heading",
   "A paragraph of text.",
   "[image: What the picture shows]",
+  "[hero: Team on the roof](image: /public/val/roof.jpg)",
   "row",
   "  col 2",
   "    ## Wider column",
   "  col",
   "    [button: Sign up]",
+  "icon image M3 5h18v14H3z M3 16l5-5 4 4 3-3 6 6",
 ].join("\n");
 
 function ViewToggle({
@@ -344,16 +406,69 @@ function EmptyPage() {
   );
 }
 
-type BlockProps = {
-  node: SketchNode;
+function NoticeLine({
+  notice,
+  onDismiss,
+}: {
+  notice: Notice;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-bg-error-secondary px-2 py-1 text-xs text-fg-error-secondary"
+    >
+      <span>{notice.message}</span>
+      {notice.retry && (
+        <button
+          type="button"
+          onClick={notice.retry}
+          className="cursor-pointer font-medium underline"
+        >
+          Try again
+        </button>
+      )}
+      {notice.details && (
+        <details>
+          <summary className="cursor-pointer">Details</summary>
+          <span className={`${MONO}`}>{notice.details}</span>
+        </details>
+      )}
+      <button
+        type="button"
+        aria-label="Dismiss"
+        onClick={onDismiss}
+        className="ml-auto cursor-pointer"
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+type SketchContextValue = {
+  icons: Record<string, string>;
   activeLine: number | null;
   showLayout: boolean;
+  editable: boolean;
   onSelectLine: (line: number) => void;
   onHoverLine: (line: number | null) => void;
+  onCommitLine: (line: number, content: string) => void;
+  onAttachMedia: (node: SketchPlaceholder, file: File) => void;
 };
 
-function Block(props: BlockProps) {
-  const { node, activeLine, showLayout, onSelectLine, onHoverLine } = props;
+const SketchContext = createContext<SketchContextValue | null>(null);
+
+function useSketch(): SketchContextValue {
+  const sketch = useContext(SketchContext);
+  if (!sketch) {
+    throw new Error("A sketch block was rendered outside of PageSketch");
+  }
+  return sketch;
+}
+
+function Block({ node }: { node: SketchNode }) {
+  const { activeLine, showLayout, onSelectLine, onHoverLine } = useSketch();
   const active = node.line === activeLine;
   const interaction = {
     "data-line": node.line,
@@ -397,131 +512,318 @@ function Block(props: BlockProps) {
             className="flex min-w-0 flex-col"
             style={
               isRow
-                ? {
-                    flex: `${child.type === "col" ? child.weight : 1} 1 0`,
-                  }
+                ? { flex: `${child.type === "col" ? child.weight : 1} 1 0` }
                 : undefined
             }
           >
-            <Block {...props} node={child} />
+            <Block node={child} />
           </div>
         ))}
       </div>
     );
   }
-  if (node.type === "text") {
-    return (
-      <div {...interaction} className={cn("cursor-pointer rounded", ring)}>
-        <Text node={node} />
-      </div>
-    );
-  }
   return (
-    <div {...interaction} className={cn("cursor-pointer rounded", ring)}>
-      <Placeholder node={node} />
+    <div {...interaction} className={cn("rounded", ring)}>
+      {node.type === "text" ? (
+        <Text node={node} />
+      ) : (
+        <Placeholder node={node} />
+      )}
     </div>
   );
 }
 
+/**
+ * Text that is edited where it is shown. The DOM is the source of truth while
+ * it has focus -- React writing children into a node the browser is editing
+ * is how text ends up duplicated -- so the text is put in by hand, and only
+ * when nobody is typing in it.
+ */
+function EditableText({
+  text,
+  placeholder,
+  onCommit,
+  className,
+}: {
+  text: string;
+  /** Shown while empty. */
+  placeholder?: string;
+  onCommit: (text: string) => void;
+  className?: string;
+}) {
+  const { editable } = useSketch();
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    // `:focus` rather than `document.activeElement`, which is the shadow
+    // host inside the Studio.
+    if (element && !element.matches(":focus")) {
+      element.textContent = text;
+    }
+  }, [text]);
+
+  const onKeyDown = (event: KeyboardEvent<HTMLSpanElement>) => {
+    if (event.key === "Enter") {
+      // One line per block: a new line is a new block, made in the text.
+      event.preventDefault();
+      event.currentTarget.blur();
+    } else if (event.key === "Escape") {
+      event.currentTarget.textContent = text;
+      event.currentTarget.blur();
+    }
+  };
+
+  return (
+    <span
+      ref={ref}
+      role={editable ? "textbox" : undefined}
+      aria-label={editable ? "Edit text" : undefined}
+      contentEditable={editable ? "plaintext-only" : false}
+      suppressContentEditableWarning
+      data-placeholder={placeholder}
+      onKeyDown={onKeyDown}
+      onBlur={(e) => {
+        const next = (e.currentTarget.textContent ?? "")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (next !== text) {
+          onCommit(next);
+        }
+      }}
+      className={cn(
+        "rounded outline-none",
+        editable &&
+          "cursor-text hover:bg-bg-secondary focus:bg-bg-secondary focus:ring-2 focus:ring-border-focus",
+        "empty:before:text-fg-tertiary empty:before:content-[attr(data-placeholder)]",
+        className,
+      )}
+    />
+  );
+}
+
 function Text({ node }: { node: SketchText }) {
+  const { onCommitLine } = useSketch();
+  const editable = (
+    <EditableText
+      text={node.text}
+      onCommit={(text) => {
+        // Emptying a heading or a paragraph is not a way to delete it: that
+        // is done in the text, where the line is.
+        if (text !== "") {
+          onCommitLine(node.line, formatText(node.level, text));
+        }
+      }}
+    />
+  );
   switch (node.level) {
     case 1:
       return (
-        <h1 className="text-2xl font-semibold leading-tight">{node.text}</h1>
+        <h1 className="text-2xl font-semibold leading-tight">{editable}</h1>
       );
     case 2:
-      return (
-        <h2 className="text-lg font-semibold leading-snug">{node.text}</h2>
-      );
+      return <h2 className="text-lg font-semibold leading-snug">{editable}</h2>;
     case 3:
-      return <h3 className="text-sm font-semibold">{node.text}</h3>;
+      return <h3 className="text-sm font-semibold">{editable}</h3>;
     default:
-      return <p className="text-sm text-fg-secondary">{node.text}</p>;
+      return <p className="text-sm text-fg-secondary">{editable}</p>;
   }
 }
 
-const KIND_ICONS: Record<string, LucideIcon> = {
-  image: ImageIcon,
-  video: Film,
-  button: MousePointerClick,
-  link: MousePointerClick,
-  form: TextCursorInput,
-  input: TextCursorInput,
-  list: List,
-  map: MapIcon,
-  chart: BarChart3,
-  table: Table,
-  stat: TrendingUp,
-};
+/**
+ * A kind's icon, as the assistant drew it. A kind nobody drew one for has
+ * none, rather than a generic shape that would make every box look alike.
+ */
+function KindIcon({ kind, className }: { kind: string; className?: string }) {
+  const { icons } = useSketch();
+  const path = icons[kind.toLowerCase()];
+  if (!path) {
+    return null;
+  }
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn("h-3.5 w-3.5 shrink-0", className)}
+    >
+      <path d={path} />
+    </svg>
+  );
+}
 
+/** Kinds that read as a control, and are drawn as one rather than a box. */
+const INLINE_KINDS = new Set(["button", "link", "input"]);
 const TALL_KINDS = new Set(["image", "video", "map", "chart", "embed"]);
 
 function Placeholder({ node }: { node: SketchPlaceholder }) {
+  const { editable, onCommitLine, onAttachMedia, activeLine } = useSketch();
+  const [dropping, setDropping] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const kind = node.kind.toLowerCase();
-  const Icon = KIND_ICONS[kind] ?? Square;
-  if (kind === "button" || kind === "link") {
+  const label = (
+    <EditableText
+      text={node.label ?? ""}
+      placeholder={editable ? "Say what goes here" : undefined}
+      onCommit={(text) =>
+        onCommitLine(
+          node.line,
+          formatPlaceholder({ ...node, label: text === "" ? null : text }),
+        )
+      }
+      className="min-w-[2ch] px-1"
+    />
+  );
+
+  if (INLINE_KINDS.has(kind) && !node.media) {
     return (
-      <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-dashed border-fg-tertiary px-3 py-1.5 text-sm text-fg-secondary">
-        <Icon className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate">{node.label ?? kind}</span>
+      <span
+        className={cn(
+          "inline-flex max-w-full items-center gap-1.5 rounded-md border border-dashed border-fg-tertiary px-2.5 py-1.5 text-sm text-fg-secondary",
+          kind === "input" && "flex w-full",
+        )}
+      >
+        <KindIcon kind={kind} />
+        {label}
       </span>
     );
   }
-  if (kind === "input") {
-    return (
-      <span className="flex h-9 w-full min-w-0 items-center gap-1.5 rounded-md border border-dashed border-fg-tertiary px-2.5 text-sm text-fg-tertiary">
-        <Icon className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate">{node.label ?? kind}</span>
-      </span>
-    );
-  }
+
+  const isFileDrag = (e: DragEvent) =>
+    editable && Array.from(e.dataTransfer.types).includes("Files");
+
   return (
     <div
+      onDragOver={(e) => {
+        if (isFileDrag(e)) {
+          e.preventDefault();
+          setDropping(true);
+        }
+      }}
+      onDragLeave={() => setDropping(false)}
+      onDrop={(e) => {
+        if (!isFileDrag(e)) {
+          return;
+        }
+        e.preventDefault();
+        setDropping(false);
+        const file = e.dataTransfer.files[0];
+        if (file) {
+          onAttachMedia(node, file);
+        }
+      }}
       className={cn(
-        "relative flex flex-col items-center justify-center gap-1 overflow-hidden rounded-md border border-dashed border-fg-tertiary bg-bg-secondary p-3 text-center text-fg-secondary",
-        TALL_KINDS.has(kind)
-          ? "aspect-video"
-          : kind === "table"
-            ? "min-h-40"
-            : "min-h-16",
+        "group relative flex flex-col gap-2 overflow-hidden rounded-md border border-dashed border-fg-tertiary bg-bg-secondary p-3 text-fg-secondary",
+        !node.media &&
+          (TALL_KINDS.has(kind)
+            ? "aspect-video items-center justify-center text-center"
+            : "min-h-16 items-center justify-center text-center"),
+        dropping && "border-solid border-border-focus bg-bg-primary",
       )}
     >
-      {kind === "image" && (
-        // The wireframe convention for "a picture goes here".
-        <svg
-          aria-hidden
-          className="absolute inset-0 h-full w-full text-border-primary"
-          preserveAspectRatio="none"
-          viewBox="0 0 100 100"
-        >
-          <line
-            x1="0"
-            y1="0"
-            x2="100"
-            y2="100"
-            stroke="currentColor"
-            vectorEffect="non-scaling-stroke"
-          />
-          <line
-            x1="100"
-            y1="0"
-            x2="0"
-            y2="100"
-            stroke="currentColor"
-            vectorEffect="non-scaling-stroke"
-          />
-        </svg>
-      )}
-      <span className="relative flex items-center gap-1.5 rounded bg-bg-secondary px-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-tertiary">
-        <Icon className="h-3.5 w-3.5" />
+      <span
+        className={cn(
+          "flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-tertiary",
+          node.media && "self-start",
+        )}
+      >
+        <KindIcon kind={kind} />
         {node.kind}
       </span>
-      {node.label && (
-        <span className="relative rounded bg-bg-secondary px-1.5 text-sm">
-          {node.label}
+      {node.media?.type === "image" && (
+        <img
+          src={node.media.src}
+          alt={node.label ?? ""}
+          className="max-h-80 w-full rounded object-cover"
+        />
+      )}
+      {node.media?.type === "video" && (
+        <video
+          src={node.media.src}
+          controls
+          muted
+          playsInline
+          className="max-h-80 w-full rounded bg-bg-tertiary"
+        />
+      )}
+      <span className="text-sm">{label}</span>
+      {dropping && (
+        <span className="text-xs text-fg-primary">
+          Drop to put it in this box
         </span>
       )}
+
+      {editable && (
+        <div
+          className={cn(
+            "absolute right-1.5 top-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
+            node.line === activeLine && "opacity-100",
+          )}
+        >
+          <BoxAction
+            label={node.media ? "Replace image or video" : "Add image or video"}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <ImagePlus className="h-3.5 w-3.5" />
+          </BoxAction>
+          {node.media && (
+            <BoxAction
+              label={`Remove the ${node.media.type}`}
+              onClick={() =>
+                onCommitLine(
+                  node.line,
+                  formatPlaceholder({ ...node, media: null }),
+                )
+              }
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </BoxAction>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) {
+                onAttachMedia(node, file);
+              }
+            }}
+          />
+        </div>
+      )}
     </div>
+  );
+}
+
+function BoxAction({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-border-primary bg-bg-primary text-fg-secondary shadow-sm hover:bg-bg-secondary hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+    >
+      {children}
+    </button>
   );
 }
 
