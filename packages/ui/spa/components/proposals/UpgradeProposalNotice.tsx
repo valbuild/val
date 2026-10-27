@@ -4,8 +4,9 @@ import type { ProposalUpgrade } from "../../proposals/proposalsClient";
 
 /**
  * What an upgrade moves, in the few words every place that names it uses:
- * the site's Val (whichever framework binding it has, else any Val package),
- * how many more packages, and how many security issues it fixes.
+ * the site's Val (whichever framework binding it has, else any Val package,
+ * and only one whose version moved), how many more packages, and how many
+ * security issues it fixes.
  */
 export function describeUpgrade(upgrade: ProposalUpgrade): {
   /** "Val 0.149.4 → 0.149.7", or `null` when it does not move Val. */
@@ -14,18 +15,21 @@ export function describeUpgrade(upgrade: ProposalUpgrade): {
   others: number;
   fixes: number;
 } {
+  // A range moved alone would read "Val 0.150.0 → 0.150.0".
+  const moved = upgrade.changes.flatMap(({ name, from, to }) =>
+    from !== null && to !== null && from !== to ? [{ name, from, to }] : [],
+  );
   const val =
-    upgrade.changes.find((change) => BINDINGS.includes(change.name)) ??
-    upgrade.changes.find((change) => change.name.startsWith("@valbuild/")) ??
+    moved.find((change) => BINDINGS.includes(change.name)) ??
+    moved.find((change) => change.name.startsWith("@valbuild/")) ??
     null;
   const fixes =
     upgrade.vulnerableBefore !== null && upgrade.vulnerableAfter !== null
       ? upgrade.vulnerableBefore - upgrade.vulnerableAfter
       : 0;
-  const moved = val !== null && val.from !== null && val.to !== null;
   return {
-    val: moved ? `Val ${val.from} → ${val.to}` : null,
-    others: upgrade.changes.length - (moved ? 1 : 0),
+    val: val !== null ? `Val ${val.from} → ${val.to}` : null,
+    others: upgrade.changes.length - (val !== null ? 1 : 0),
     fixes,
   };
 }
@@ -109,7 +113,7 @@ export function UpgradeProposalNotice({
                 {upgrade.changes.map((change) => (
                   <li key={change.name}>
                     <code className="text-fg-primary">{change.name}</code>{" "}
-                    {change.from ?? "new"} → {change.to ?? "removed"}
+                    {changeText(change)}
                     {change.kind === "major" && (
                       <span className="ml-1.5 rounded border border-border-primary px-1 text-[10px] uppercase">
                         major
@@ -139,6 +143,24 @@ export function UpgradeProposalNotice({
       </div>
     </section>
   );
+}
+
+/**
+ * How a change reads after its name: `6.0.2 → 6.0.3`, or `range ^6.0.2 →
+ * ^6.0.3` when only the range moved -- `6.0.3 → 6.0.3` reads as nothing.
+ */
+export function changeText(change: ProposalUpgrade["changes"][number]): string {
+  const { from, to, fromRange, toRange } = change;
+  if (
+    from !== null &&
+    from === to &&
+    fromRange != null &&
+    toRange != null &&
+    fromRange !== toRange
+  ) {
+    return `range ${fromRange} → ${toRange}`;
+  }
+  return `${from ?? "new"} → ${to ?? "removed"}`;
 }
 
 const BINDINGS = ["@valbuild/tanstack", "@valbuild/next"];
