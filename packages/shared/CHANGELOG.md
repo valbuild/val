@@ -1,5 +1,17 @@
 # @valbuild/shared
 
+## 0.150.2
+
+### Patch Changes
+
+- [#949](https://github.com/valbuild/val/pull/949) [`36412b2`](https://github.com/valbuild/val/commit/36412b28bb009083f652b26462b76a74c80ff595) Thanks [@freekh](https://github.com/freekh)! - Val Studio now shows content analytics beside the content being edited, for a hosted project with content analytics switched on. Each field and list row shows how many page views it was seen in (hover for how many it was on the page in, and the share). The heading of what is open says the same for all of it, and lists what in it was seen most, by the names the Studio gives them everywhere else. Nothing is shown, and nothing is asked of Val Build, for a project with analytics off or a Studio not signed in to Val Build.
+
+- [#953](https://github.com/valbuild/val/pull/953) [`8f598b6`](https://github.com/valbuild/val/commit/8f598b618b794e59ef5b9c6ef94650be4ff006e7) Thanks [@freekh](https://github.com/freekh)! - A proposal's typecheck no longer downloads TypeScript again for its second check. The compiler (about 13 MB) is kept by the typecheck's worker once fetched, for every check that asks for the same version after it.
+
+- [#952](https://github.com/valbuild/val/pull/952) [`95d17e6`](https://github.com/valbuild/val/commit/95d17e6bbecceb2f09d6a6226808e9c60b2d4795) Thanks [@freekh](https://github.com/freekh)! - A proposal's typecheck (an upgrade, or a proposal with dependencies of its own) now checks the proposal first, and checks the site as it is only when the proposal has type errors, to tell the errors the site already had from the ones the proposal adds. A proposal that typechecks cleanly is done in one check instead of two, which is most of them. A site with no lockfile on record no longer has one worked out for it unless the second check needs it.
+- Updated dependencies [[`155a079`](https://github.com/valbuild/val/commit/155a0792c2a437a1cbcdd6342131999be70e0d70)]:
+  - @valbuild/core@0.150.2
+
 ## 0.150.1
 
 ### Patch Changes
