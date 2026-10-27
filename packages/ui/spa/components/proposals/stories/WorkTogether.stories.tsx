@@ -21,7 +21,7 @@ import type { ProposalParticipant, ProposalParticipantReason } from "../types";
  * project can read and continue them, one question at a time. Chats on the
  * site stay personal, and "Work together" there takes the chat into a
  * proposal. Inviting says what a new seat costs, and anyone who cannot add
- * someone asks the owners from the same row.
+ * someone asks the owners and developers from the same row.
  *
  * Presentational only: nothing here is wired to the content server yet.
  */
@@ -48,7 +48,13 @@ const INGRID: ProposalParticipant = { id: "p-ingrid", name: "Ingrid Lie" };
 const VIEWER = FREDRIK.id;
 const PROPOSAL = "Spring campaign";
 const ORG = "blank";
-const OWNERS = ["Theodor Carlsen", "Mari Holm"];
+/** The organization's owners and developers: who an editor asks. */
+const APPROVERS = [
+  "Theodor Carlsen",
+  "Mari Holm",
+  "Ola Nordmann",
+  "Sara Lunde",
+];
 const PRO_SEAT = { plan: "Pro", cost: "$9 a month" };
 
 /** Everyone the search can find, and where they are. */
@@ -82,7 +88,7 @@ function search(query: string): InviteCandidate[] {
 
 /**
  * The menu with its search and its buttons working: Add and Invite succeed
- * after a moment, asking the owners is recorded, and `failFirst` makes one
+ * after a moment, asking to add someone is recorded, and `failFirst` makes one
  * row fail the first time, so its Try again can be pressed.
  */
 function InviteMenuDemo({
@@ -126,7 +132,7 @@ function InviteMenuDemo({
         proposalName={PROPOSAL}
         org={ORG}
         role={role}
-        owners={OWNERS}
+        approvers={APPROVERS}
         newSeat={newSeat}
         query={query}
         onQueryChange={setQuery}
@@ -170,8 +176,8 @@ export const InviteByEmailAsOwner: Story = {
 
 /**
  * An editor cannot add someone to the project, so Karl's row asks the
- * owners instead, names them, and still shows the price: the owners decide
- * on it, and the editor should know what they are asking for.
+ * owners and developers instead, names them, and still shows the price: they
+ * decide on it, and the editor should know what they are asking for.
  */
 export const InviteAsEditor: Story = {
   render: () => <InviteMenuDemo role="editor" initialQuery="k" />,
@@ -221,7 +227,7 @@ export const RowStates: Story = {
           proposalName={PROPOSAL}
           org={ORG}
           role="editor"
-          owners={OWNERS}
+          approvers={APPROVERS}
           newSeat={PRO_SEAT}
           query="…"
           onQueryChange={() => {}}
@@ -237,8 +243,7 @@ export const RowStates: Story = {
             [INGRID.id]: { state: "working" },
             [inviteCandidateKey(nina)]: {
               state: "failed",
-              error:
-                "Val Build could not be reached. The owners were not asked.",
+              error: "Val Build could not be reached. Nobody was asked.",
             },
           }}
           people={WORKING_ON_IT}

@@ -29,10 +29,10 @@ export type InviteRowState =
   | { state: "failed"; error: string };
 
 /**
- * Who may add whom. Owners and developers choose a project's members and
- * invite new people to the organization from a proposal (Flow H made the
- * second theirs too: before it, only owners invited). Editors ask the owners,
- * from the same row.
+ * Who may add whom. Developers have the owners' rights except billing and
+ * deleting a project or the organization (valbuild/home `docs/proposals.md`,
+ * Flow H), so the two add and invite alike. Editors ask them, from the same
+ * row.
  */
 export type InviteRole = "owner" | "developer" | "editor";
 
@@ -69,7 +69,7 @@ export function looksLikeEmail(query: string): boolean {
  * Presentational: the search, the adding and the asking are the caller's. The
  * one thing decided here is what each row offers, from `inviteActionFor`, so
  * that nobody meets a dead end: a row that the viewer cannot act on asks the
- * owners instead, and says who they are.
+ * people who can instead, and says who they are.
  *
  * A row that adds someone to the PROJECT says what the seat costs, right on
  * the row: bringing in a colleague is what we want people to do, and a bill
@@ -79,7 +79,7 @@ export function ProposalInviteMenu({
   proposalName,
   org,
   role,
-  owners,
+  approvers,
   newSeat,
   query,
   onQueryChange,
@@ -99,8 +99,11 @@ export function ProposalInviteMenu({
   /** The organization's name, for "not in {org} yet". */
   org: string;
   role: InviteRole;
-  /** The organization's owners, by name: who an "ask" goes to. */
-  owners: string[];
+  /**
+   * Who can add people to the project, by name: the organization's owners
+   * and developers. Who an "ask" goes to.
+   */
+  approvers: string[];
   /**
    * What adding someone to the project costs on its plan. `cost: null` is a
    * plan where members are free.
@@ -172,7 +175,7 @@ export function ProposalInviteMenu({
                   action={inviteActionFor(candidate, role)}
                   state={rows[key]}
                   org={org}
-                  owners={owners}
+                  approvers={approvers}
                   newSeat={newSeat}
                   onRun={() => run(candidate)}
                 />
@@ -206,7 +209,7 @@ export function ProposalInviteMenu({
             </li>
           ))}
         </ul>
-        {people.length === 1 && (
+        {people.every(({ person }) => person.id === viewerId) && (
           <p className="mt-1 text-xs text-fg-secondary">
             Only you so far. Someone else can check the changes before they are
             published.
@@ -267,7 +270,7 @@ function CandidateRow({
   action,
   state,
   org,
-  owners,
+  approvers,
   newSeat,
   onRun,
 }: {
@@ -275,7 +278,7 @@ function CandidateRow({
   action: InviteAction;
   state: InviteRowState | undefined;
   org: string;
-  owners: string[];
+  approvers: string[];
   newSeat: { plan: string; cost: string | null };
   onRun: () => void;
 }) {
@@ -313,13 +316,13 @@ function CandidateRow({
         {seat && <p className="text-xs text-fg-secondary">{seat}</p>}
         {action === "ask" && state?.state !== "asked" && (
           <p className="text-xs text-fg-secondary">
-            {listNames(owners)} can add people to this project. We email them
+            {listNames(approvers)} can add people to this project. We email them
             your request.
           </p>
         )}
         {state?.state === "asked" && (
           <p className="text-xs text-fg-secondary">
-            Asked {listNames(owners)} · {state.when}
+            Asked {listNames(approvers)} · {state.when}
           </p>
         )}
         {state?.state === "failed" && (
@@ -359,7 +362,7 @@ function RowButton({
     state?.state === "failed"
       ? "Try again"
       : action === "ask"
-        ? "Ask the owners"
+        ? "Ask to add"
         : action === "invite"
           ? "Invite"
           : "Add";
@@ -379,8 +382,15 @@ function RowButton({
   );
 }
 
+/**
+ * "Theodor Carlsen", "Theodor Carlsen and Mari Holm", or past two names
+ * "Theodor Carlsen, Mari Holm and 3 others": an organization can have many
+ * developers, and the row is one line of help, not a member list.
+ */
 function listNames(names: string[]): string {
-  if (names.length === 0) return "The organization's owners";
+  if (names.length === 0) return "The organization's owners and developers";
   if (names.length === 1) return names[0];
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  const others = names.length - 2;
+  return `${names[0]}, ${names[1]} and ${others} ${others === 1 ? "other" : "others"}`;
 }

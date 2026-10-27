@@ -181,3 +181,39 @@ test("messages are named only once there is more than one person", () => {
   expect(screen.getByText("You")).toBeTruthy();
   expect(screen.getByText("Kari Andersen")).toBeTruthy();
 });
+
+test("asking again after someone left is this person's question", () => {
+  const chatRef = createRef<AIChatHandle>();
+  const editorRef = createRef<ChatEditorRef>();
+  const onSendMessage = jest.fn(() => true);
+  render(
+    <Chat
+      chatRef={chatRef}
+      editorRef={editorRef}
+      onSendMessage={onSendMessage}
+      initialMessages={[
+        {
+          id: "k1",
+          role: "user",
+          content: "Update the prices",
+          status: "complete",
+          author: KARI,
+        },
+        {
+          id: "k2",
+          role: "assistant",
+          content: "I'll look at",
+          status: "error",
+          error: "Kari left before the answer was done.",
+        },
+      ]}
+      together={{ viewerId: FREDRIK.id, people: [FREDRIK, KARI] }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  expect(onSendMessage).toHaveBeenCalledWith("Update the prices", undefined);
+  // Kari's question stays hers, and the new one is in this person's name.
+  expect(screen.getByText("Kari Andersen")).toBeTruthy();
+  expect(screen.getByText("You")).toBeTruthy();
+  expect(screen.getAllByText("Update the prices")).toHaveLength(2);
+});

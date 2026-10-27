@@ -11,7 +11,7 @@ import {
 
 /**
  * Who may add whom: valbuild/home `docs/proposals.md`, Flow H. Owners and
- * developers add and invite, and editors ask the owners from the same row.
+ * developers add and invite, and editors ask them from the same row.
  */
 
 const KARI = { id: "p-kari", name: "Kari Andersen" };
@@ -44,7 +44,7 @@ function renderMenu(
       proposalName="Spring campaign"
       org="blank"
       role={role}
-      owners={["Theodor Carlsen", "Mari Holm"]}
+      approvers={["Theodor Carlsen", "Mari Holm", "Ola Nordmann"]}
       newSeat={{ plan: "Pro", cost: "$9 a month" }}
       query={query}
       onQueryChange={() => {}}
@@ -68,13 +68,13 @@ test("a seat is priced on the row that adds it, and only there", () => {
   );
 });
 
-test("an editor asking the owners is told who they are", () => {
+test("an editor asking to add someone is told who decides", () => {
   renderMenu("editor", "karl", [org]);
   expect(
-    screen.getByRole("button", { name: "Ask the owners: Karl Berg" }),
+    screen.getByRole("button", { name: "Ask to add: Karl Berg" }),
   ).toBeTruthy();
   expect(
-    screen.getByText(/Theodor Carlsen and Mari Holm can add people/),
+    screen.getByText(/Theodor Carlsen, Mari Holm and 1 other can add people/),
   ).toBeTruthy();
 });
 

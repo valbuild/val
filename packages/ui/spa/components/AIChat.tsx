@@ -188,14 +188,15 @@ type AttachedFile = {
 };
 
 /**
- * A message written during someone else's turn, held in this tab until it
- * ends. The files are kept as they were attached, so "Don't send" can put
- * everything back in the composer.
+ * A message on its way: sent now, or held in this tab until someone else's
+ * turn ends. `files` are the composer's own attachments, kept as they were so
+ * "Don't send" can put everything back; a retry has none to put back.
  */
 type QueuedMessage = {
   outgoing: string | ChatDocument;
   displayText: string;
   doc?: ChatDocument;
+  attachments?: ChatMessageAttachment[];
   files: (AttachedFile & { key: string })[];
 };
 
@@ -1050,15 +1051,15 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const isStreaming = currentMessage !== null;
   const isUploading = attachedFiles.some((f) => f.status === "uploading");
   const isEmpty = messages.length === 0;
-  const viewer =
-    together?.people.find((p) => p.id === together.viewerId) ?? null;
+  const viewerId = together?.viewerId ?? null;
+  const viewer = together?.people.find((p) => p.id === viewerId) ?? null;
   const turnBy = together?.turnBy ?? null;
   /**
    * Someone else asked the turn that is running. It streams here as it does
    * for them, but it is not this tab's to stop, and writing is not blocked by
    * it: what is sent waits for it (`queued`).
    */
-  const othersTurn = turnBy !== null && turnBy.id !== together?.viewerId;
+  const othersTurn = turnBy !== null && turnBy.id !== viewerId;
   /** Names on messages only once there is more than one person to tell apart. */
   const showAuthors = (together?.people.length ?? 0) > 1;
   /** This tab's own turn is the one running. */
@@ -1137,17 +1138,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
    */
   const deliver = useCallback(
     (message: QueuedMessage) => {
-      const attachments =
-        message.files.length > 0
-          ? message.files.map(
-              (f): ChatMessageAttachment => ({
-                key: f.key,
-                name: f.file.name,
-                mimeType: f.file.type || undefined,
-                previewUrl: f.previewUrl,
-              }),
-            )
-          : undefined;
+      const { attachments } = message;
       const msgId = nextId();
       const userMsg: ChatMessage = {
         id: msgId,
@@ -1230,6 +1221,17 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         outgoing,
         displayText,
         doc: outgoingDoc,
+        attachments:
+          doneFiles.length > 0
+            ? doneFiles.map(
+                (f): ChatMessageAttachment => ({
+                  key: f.key,
+                  name: f.file.name,
+                  mimeType: f.file.type || undefined,
+                  previewUrl: f.previewUrl,
+                }),
+              )
+            : undefined,
         files: doneFiles,
       };
       if (othersTurn) {
@@ -1258,10 +1260,10 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
   const unqueue = useCallback(() => {
     if (queued === null) return;
     setQueued(null);
-    if (queued.doc) {
-      editorRef.current?.setDocument(queued.doc);
-      setIsEditorEmpty(false);
-    }
+    editorRef.current?.setDocument(
+      queued.doc ?? [{ tag: "p", children: [queued.displayText] }],
+    );
+    setIsEditorEmpty(false);
     setAttachedFiles((prev) => [...queued.files, ...prev]);
     requestAnimationFrame(() => editorRef.current?.focus());
   }, [queued, editorRef]);
@@ -1270,8 +1272,32 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
     (errorMsgId: string) => {
       const errorMsg = messages.find((m) => m.id === errorMsgId);
 
+      /**
+       * In a chat several people write in, a retry is a new message from
+       * whoever pressed it: "Kari left before the answer was done" is asked
+       * again in this person's name, not resent as Kari's. And it waits for
+       * someone else's running turn, like anything else they send.
+       */
+      const askAgain = (source: ChatMessage, removeId: string) => {
+        if (queued !== null) return;
+        setCompletedMessages((prev) => prev.filter((m) => m.id !== removeId));
+        const message: QueuedMessage = {
+          outgoing: source.userDoc ?? getTextContent(source.content),
+          displayText: getTextContent(source.content),
+          doc: source.userDoc,
+          attachments: source.attachments,
+          files: [],
+        };
+        if (othersTurn) setQueued(message);
+        else deliver(message);
+      };
+
       // Retry a failed user message (WebSocket send error)
       if (errorMsg?.role === "user") {
+        if (othersTurn) {
+          askAgain(errorMsg, errorMsgId);
+          return;
+        }
         setCompletedMessages((prev) =>
           prev.map((m) =>
             m.id === errorMsgId
@@ -1307,6 +1333,13 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         .reverse()
         .find((m) => m.role === "user");
       if (!prevUserMsg) return;
+      if (
+        othersTurn ||
+        (prevUserMsg.author !== undefined && prevUserMsg.author.id !== viewerId)
+      ) {
+        askAgain(prevUserMsg, errorMsgId);
+        return;
+      }
 
       // Remove the errored assistant message
       setCompletedMessages((prev) => prev.filter((m) => m.id !== errorMsgId));
@@ -1316,7 +1349,15 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
         onSendMessage?.(retryPayload, prevUserMsg.attachments) ?? true;
       if (sent) setAwaitingSince(Date.now());
     },
-    [messages, onSendMessage, setAwaitingSince],
+    [
+      messages,
+      onSendMessage,
+      setAwaitingSince,
+      queued,
+      othersTurn,
+      deliver,
+      viewerId,
+    ],
   );
 
   // ---- Render ----
@@ -1519,7 +1560,7 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                   showAuthors && msg.role === "user" && msg.author
                     ? {
                         person: msg.author,
-                        isViewer: msg.author.id === together?.viewerId,
+                        isViewer: msg.author.id === viewerId,
                       }
                     : undefined
                 }
@@ -1676,7 +1717,9 @@ export const AIChat = forwardRef<AIChatHandle, AIChatProps>(function AIChat(
                     models={models}
                     selectedModel={selectedModel}
                     onSelectModel={onSelectModel}
-                    disabled={isStreaming}
+                    // Someone else's turn has its asker's model; the next
+                    // message, waiting for it or not, is this person's.
+                    disabled={ownTurnRunning}
                     portalContainer={portalContainer}
                   />
                 )}
@@ -1965,9 +2008,11 @@ function MessageBubble({
         "flex flex-col gap-1.5 min-w-0",
         // Someone else's message is on the left, as in any chat with more
         // than two parties: the right side is "you".
-        isUser && !(author && !author.isViewer) ? "items-end" : "",
-        isUser && author && !author.isViewer ? "items-start" : "",
-        !isUser && "items-stretch",
+        !isUser
+          ? "items-stretch"
+          : author && !author.isViewer
+            ? "items-start"
+            : "items-end",
       )}
     >
       {author && (
