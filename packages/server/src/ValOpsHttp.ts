@@ -998,22 +998,47 @@ export class ValOpsHttp extends ValOps {
    * (valbuild/home `docs/adept.md`, step 6), reporting the typecheck of
    * them (step 7, decision 20), serving a build of it
    * (valbuild/home `docs/hosted-publishing.md`, step 7), or moving it onto the
-   * site's code (step 8, "Update from the site") -- is made by the
-   * proposal's own server and nobody else's: the file tools act on the
-   * proposal the Studio is open in (P11), and the site's files change only
-   * when a proposal is merged. The proposal it names, or `null` when this
-   * path is not such a write.
+   * site's code (step 8, "Update from the site"). The proposal it names and
+   * what it does, or `null` when this path is not such a write.
+   *
+   * Who may make one is {@link ValOpsHttp.mayWriteFiles}.
    */
   private static proposalFilesWrite(
     method: string,
     path: string,
-  ): string | null {
+  ): { name: string; write: string } | null {
     if (method !== "POST") return null;
-    return (
+    const match =
       /^\/([0-9a-f]{20})\/(files|lockfile|typecheck|build|update-from-site|restore-code)$/.exec(
         path,
-      )?.[1] ?? null
-    );
+      );
+    return match === null ? null : { name: match[1], write: match[2] };
+  }
+
+  /**
+   * The writes the SITE's server may make to a proposal's files: what the
+   * design tab does (valbuild/home `docs/design-tab.md`, step 2) -- stage
+   * code and build it. The tab is served by the site's
+   * build so that a build the assistant breaks in the proposal cannot take
+   * down the tools it would fix it with; at the proposal's address those
+   * tools run on the proposal's own code.
+   *
+   * The rest stay the proposal's own: Update from the site and the lockfile
+   * are answered from the proposal's build and schemas, bringing back a
+   * point's code is the Studio at its address finishing a restore, and the
+   * typecheck it reports is what blocks its Publish (adept.md, decision 20).
+   */
+  private static readonly SITE_MAY_WRITE = new Set(["files", "build"]);
+
+  /**
+   * Whether this server may make a write to a proposal's files: the
+   * proposal's own server, any of them; the site's, the design tab's; and a
+   * proposal's address, none to another proposal. Either way the site's own
+   * files change only when a proposal is merged.
+   */
+  private mayWriteFiles(write: { name: string; write: string }): boolean {
+    if (this.proposal !== null) return write.name === this.proposal.name;
+    return ValOpsHttp.SITE_MAY_WRITE.has(write.write);
   }
 
   /**
@@ -1100,7 +1125,7 @@ export class ValOpsHttp extends ValOps {
       };
     }
     const writes = ValOpsHttp.proposalFilesWrite(init.method, path);
-    if (writes !== null && writes !== this.proposal?.name) {
+    if (writes !== null && !this.mayWriteFiles(writes)) {
       return {
         status: 403,
         contentType: json,

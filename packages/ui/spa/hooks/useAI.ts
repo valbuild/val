@@ -619,7 +619,31 @@ const ALL_TOOLS: AITool[] = [
   GET_RECORD_KEYS_TOOL,
 ];
 
+/**
+ * The tools the design tab gives the assistant besides the code tools: the
+ * ones that READ content and talk to the person. Nothing that writes content
+ * or moves the Studio: the tab is about a proposal's code, it is served by the
+ * site's build, and the content tools act on the site's content.
+ */
+const DESIGN_TOOLS: AITool[] = [
+  GET_ALL_SCHEMA_TOOL,
+  GET_SOURCE_TOOL,
+  SEARCH_CONTENT_TOOL,
+  GET_CURRENT_CONTEXT_TOOL,
+  SET_SESSION_NAME_TOOL,
+  ASK_USER_QUESTION_TOOL,
+  COUNT_ENTRIES_TOOL,
+  GET_RECORD_KEYS_TOOL,
+];
+
 export type UseAIOptions = {
+  /**
+   * The design tab's proposal (valbuild/home `docs/design-tab.md`): the code
+   * tools act on it rather than on the proposal this Studio is open in, which
+   * in the tab is none -- it is served by the site's build -- and only the
+   * tools that read content are offered with them.
+   */
+  design?: { proposal: { name: string; displayName: string } };
   /** Initial session id to load on mount (e.g. read from URL). When null, the chat starts in an unborn state. */
   initialSessionId?: string | null;
   /** Called when the session transitions from unborn → born (first send) or when an existing session is loaded. */
@@ -648,10 +672,17 @@ export function useAI(
    * proposal this Studio is in, its build, and the two APIs they read. Refs,
    * because the message handler below is subscribed once.
    */
-  const currentProposal = useCurrentProposal();
+  const design = opts?.design ?? null;
+  const studioProposal = useCurrentProposal();
+  const currentProposal = design?.proposal ?? studioProposal;
   const currentProposalRef = useRef(currentProposal);
   currentProposalRef.current = currentProposal;
-  const proposalBuild = useProposalBuild().build;
+  const designRef = useRef(design);
+  designRef.current = design;
+  const proposalBuild = useProposalBuild(
+    undefined,
+    design?.proposal.name,
+  ).build;
   const proposalBuildRef = useRef(proposalBuild);
   proposalBuildRef.current = proposalBuild;
   const codeClients = useMemo(
@@ -2577,8 +2608,20 @@ Do not describe what you will do unless you do it for clarification — just do 
 - Confirm changes in plain language after every successful update.
 - If something goes wrong, explain what happened and what to do next.${assistantSettingsPromptSection(
               valReads.getAssistantSettings(),
-            )}${codeToolsPromptSection(currentProposal !== null)}`,
-            tools: [...ALL_TOOLS, ...CODE_TOOLS],
+            )}${codeToolsPromptSection(
+              designRef.current !== null
+                ? {
+                    kind: "design",
+                    displayName: designRef.current.proposal.displayName,
+                  }
+                : currentProposalRef.current !== null
+                  ? { kind: "proposal" }
+                  : { kind: "site" },
+            )}`,
+            tools:
+              designRef.current !== null
+                ? [...DESIGN_TOOLS, ...CODE_TOOLS]
+                : [...ALL_TOOLS, ...CODE_TOOLS],
           },
         ],
       };

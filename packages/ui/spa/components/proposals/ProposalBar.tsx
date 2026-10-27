@@ -6,6 +6,7 @@ import {
   Link2,
   MoreHorizontal,
   Package,
+  Paintbrush,
   Pencil,
   Save,
   Upload,
@@ -335,6 +336,7 @@ export function ProposalMenu({
   onRename,
   onCopyLink,
   onClose,
+  onOpenDesign,
   defaultOpen = false,
   menuPlacement = "below",
 }: {
@@ -343,6 +345,8 @@ export function ProposalMenu({
   onRename: () => void;
   onCopyLink: () => void;
   onClose: () => void;
+  /** The design tab, for the proposal's code. Absent: not offered. */
+  onOpenDesign?: () => void;
   defaultOpen?: boolean;
   menuPlacement?: "below" | "above";
 }) {
@@ -388,6 +392,15 @@ export function ProposalMenu({
               onClick={choose(onCompare)}
             >
               Compare with the site
+            </MenuItem>
+          )}
+          {onOpenDesign !== undefined && (
+            <MenuItem
+              icon={<Paintbrush size={14} />}
+              onClick={choose(onOpenDesign)}
+              detail="Change the code with the assistant, in a tab of its own"
+            >
+              Open design tab
             </MenuItem>
           )}
           <MenuItem icon={<Pencil size={14} />} onClick={choose(onRename)}>

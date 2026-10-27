@@ -76,6 +76,7 @@ import {
 import { RestoreCodeNotice, type RestoreCodeState } from "./RestoreCodeNotice";
 import { randomProposalName } from "../../proposals/proposalNames";
 import { AllProposalsDialog } from "./ProposalsList";
+import { designTabUrl } from "../../design/designTabUrl";
 import { MergedProposalNotice } from "./MergedProposalNotice";
 import type {
   ProposalCodeState,
@@ -1012,6 +1013,8 @@ export function useProposalsBar({
     };
   }
 
+  // Where the design tab is: the site's address, never this one.
+  const designSite = ready?.siteUrl ?? null;
   const proposals: TopBarProposals = {
     location,
     ...(validationErrorPaths.length > 0
@@ -1059,6 +1062,15 @@ export function useProposalsBar({
       toast.success("Link copied");
     },
     onClose: () => openDialog("close"),
+    ...(location.kind === "proposal" && designSite !== null
+      ? {
+          onOpenDesign: () =>
+            window.open(
+              designTabUrl(designSite, location.proposal.name),
+              "_blank",
+            ),
+        }
+      : {}),
   };
 
   const currentSummary =

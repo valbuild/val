@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { VAL_AI_SESSION_STORAGE_KEY } from "@valbuild/shared/internal";
 import { AIChat, type AIChatHandle } from "./AIChat";
-import { useAI } from "../hooks/useAI";
+import { useAI, type UseAIOptions } from "../hooks/useAI";
 import { useAIChatActions } from "./AIChatActionsContext";
 import {
   useAIConnectionError,
@@ -39,7 +39,14 @@ import { AiSetup } from "./shell/AiSetup";
  * its session id is seeded from `sessionStorage` rather than from the studio's
  * URL, which is how the two hand a conversation back and forth.
  */
-export function AIChatSurface({ className }: { className?: string }) {
+export function AIChatSurface({
+  className,
+  design,
+}: {
+  className?: string;
+  /** The design tab's proposal: see `UseAIOptions.design`. */
+  design?: UseAIOptions["design"];
+}) {
   /**
    * Nobody has said whether this project has an assistant, so ask before there
    * is a conversation at all — see `EnableAssistantPrompt`. Before the hooks
@@ -54,10 +61,16 @@ export function AIChatSurface({ className }: { className?: string }) {
       </div>
     );
   }
-  return <ConnectedChat className={className} />;
+  return <ConnectedChat className={className} design={design} />;
 }
 
-function ConnectedChat({ className }: { className?: string }) {
+function ConnectedChat({
+  className,
+  design,
+}: {
+  className?: string;
+  design?: UseAIOptions["design"];
+}) {
   const chatRef = useRef<AIChatHandle | null>(null);
   const mode = useValMode();
   /**
@@ -93,6 +106,7 @@ function ConnectedChat({ className }: { className?: string }) {
     cancelToolQuestion,
     cancel,
   } = useAI(chatRef, {
+    ...(design ? { design } : {}),
     initialSessionId: initialSessionIdRef.current,
     onSessionBorn: (id) => {
       setSessionParam(id, { replace: true });

@@ -106,12 +106,28 @@ export const CODE_TOOLS: AITool[] = [
   BUILD_PROPOSAL_TOOL,
 ];
 
+/** Where the assistant's code tools act: see {@link codeToolsPromptSection}. */
+export type CodeToolsWhere =
+  | { kind: "site" }
+  | { kind: "proposal" }
+  /**
+   * The design tab: served by the site's build, acting on a proposal it names
+   * (valbuild/home `docs/design-tab.md`).
+   */
+  | { kind: "design"; displayName: string };
+
 /**
  * What the assistant is told about the code tools: that code changes in a
  * proposal and is built there, and -- on the site -- that it does not change
  * here at all.
  */
-export function codeToolsPromptSection(inProposal: boolean): string {
+export function codeToolsPromptSection(where: CodeToolsWhere): string {
+  const here =
+    where.kind === "proposal"
+      ? "This Studio is in a proposal: changes go into it."
+      : where.kind === "design"
+        ? `This is the design tab of the proposal "${where.displayName}": code changes go into it, and the person sees its preview beside you. Content cannot be changed here: the content tools read the site's content, and the person edits content in the Studio. When a build fails, or the preview does not render, read the error, fix the files, and build again.`
+        : "This Studio is on the site, where code is never changed directly. If the person asks for a code change, call write_files anyway: it is refused and the person is offered a proposal to make the change in. Then ask them to open it and make the change there.";
   return `
 
 ## The project's code
@@ -119,11 +135,7 @@ Besides content, you can read the project's code (list_files, read_file) and, in
 - Content is not code: change content with create_patch. Write a .val.ts only to change its schema, and keep the content in it.
 - write_files takes each file's WHOLE new text. Read a file before you change it.
 - After the change is complete, call build_proposal so the proposal's preview shows it, and tell the person it is in the preview, not on the site: the site changes when the proposal is published.
-- ${
-    inProposal
-      ? "This Studio is in a proposal: changes go into it."
-      : "This Studio is on the site, where code is never changed directly. If the person asks for a code change, call write_files anyway: it is refused and the person is offered a proposal to make the change in. Then ask them to open it and make the change there."
-  }`;
+- ${here}`;
 }
 
 const CODE_TOOL_NAMES = new Set(CODE_TOOLS.map((tool) => tool.name));

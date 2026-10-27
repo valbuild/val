@@ -80,6 +80,11 @@ export type TopBarProposals = {
   onRename: () => void;
   onCopyLink: () => void;
   onClose: () => void;
+  /**
+   * Open the proposal's design tab, on the site's address (valbuild/home
+   * `docs/design-tab.md`). Absent while the site's address is not known.
+   */
+  onOpenDesign?: () => void;
   /** For stories. */
   defaultSwitcherOpen?: boolean;
   defaultMenuOpen?: boolean;
@@ -316,6 +321,9 @@ export function TopBar({
               onRename={proposals.onRename}
               onCopyLink={proposals.onCopyLink}
               onClose={proposals.onClose}
+              {...(proposals.onOpenDesign !== undefined
+                ? { onOpenDesign: proposals.onOpenDesign }
+                : {})}
               defaultOpen={proposals.defaultMenuOpen}
             />
           ),

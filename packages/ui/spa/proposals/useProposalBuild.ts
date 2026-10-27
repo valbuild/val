@@ -127,7 +127,15 @@ export function openBuilder(): void {
   if (openBuilderTab()) set({ inTab: { blocked: false, step: null } });
 }
 
-export function useProposalBuild(client?: ProposalsClient): {
+/**
+ * `proposalName`: the proposal to build, when it is not the one this Studio is
+ * open in -- the design tab, which is served by the site's build and builds a
+ * proposal it names (valbuild/home `docs/design-tab.md`).
+ */
+export function useProposalBuild(
+  client?: ProposalsClient,
+  proposalName?: string,
+): {
   state: ProposalBuildState;
   /** `null` off a proposal: nothing to build. */
   build: (() => Promise<ProposalBuildOutcome>) | null;
@@ -141,7 +149,7 @@ export function useProposalBuild(client?: ProposalsClient): {
     () => client ?? createProposalsClient({ api: "/api/val" }),
     [client],
   );
-  const name = here?.name ?? null;
+  const name = proposalName ?? here?.name ?? null;
   const build = useCallback(
     () =>
       runProposalBuild(() =>
