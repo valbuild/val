@@ -171,6 +171,63 @@ describe("toCompareStructure", () => {
   });
 });
 
+describe("what happened to a page", () => {
+  function as(
+    node: ChangeTreeNode,
+    changeType: "added" | "removed",
+  ): ChangeTreeNode {
+    return node.change === undefined
+      ? node
+      : { ...node, change: { ...node.change, changeType } };
+  }
+  function pageChange(trees: ChangeTreeNode[]) {
+    const res = toCompareStructure({ trees, isPageModule });
+    return res.panes[navNodeId(`${ROUTER}?p="/blogs/one"`)]?.change;
+  }
+
+  test("is added when the page itself was added", () => {
+    expect(
+      pageChange([
+        branch(ROUTER, [as(changed(`${ROUTER}?p="/blogs/one"`), "added")]),
+      ]),
+    ).toBe("added");
+  });
+
+  test("is removed when the page itself was removed", () => {
+    expect(
+      pageChange([
+        branch(ROUTER, [as(changed(`${ROUTER}?p="/blogs/one"`), "removed")]),
+      ]),
+    ).toBe("removed");
+  });
+
+  /*
+   * An item appended to a list on a page is an edit of the page. Taking the
+   * row's kind for the page's called a page that has always been there new,
+   * and the page compare then had no site side to show for it.
+   */
+  test("is changed when something inside it was added", () => {
+    expect(
+      pageChange([
+        branch(ROUTER, [
+          as(changed(`${ROUTER}?p="/blogs/one".tags.3`), "added"),
+          changed(`${ROUTER}?p="/blogs/one".title`),
+        ]),
+      ]),
+    ).toBe("changed");
+  });
+
+  test("is changed when something inside it was removed", () => {
+    expect(
+      pageChange([
+        branch(ROUTER, [
+          as(changed(`${ROUTER}?p="/blogs/one".tags.0`), "removed"),
+        ]),
+      ]),
+    ).toBe("changed");
+  });
+});
+
 describe("locateSourcePath", () => {
   const structure = toCompareStructure({
     trees: [

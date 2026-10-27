@@ -1232,6 +1232,7 @@ function ValShellBody({
     restoreDestination,
     upgrade,
     upgradeSettings,
+    siteUrl: proposalSiteUrl,
   } = useProposalsBar({
     unsaved: hasNetChanges ? pendingChangeCount : 0,
     portalContainer,
@@ -1596,6 +1597,7 @@ function ValShellBody({
         {proposalDialogs}
         <ProposalSiteCompare
           changes={siteChanges}
+          siteUrl={proposalSiteUrl}
           open={siteCompareOpen}
           onOpenChange={setSiteCompareOpen}
           portalContainer={portalContainer}

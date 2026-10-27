@@ -144,6 +144,8 @@ export function useProposalsBar({
   upgrade: UpgradeButton | null;
   /** Settings → Updates: what there is, and the way to Val Build. */
   upgradeSettings: UpgradeSettings | null;
+  /** The site's address, once the proposals list has said it. */
+  siteUrl: string | null;
 } {
   const mode = useValMode();
   const config = useValConfig();
@@ -1006,6 +1008,7 @@ export function useProposalsBar({
       restoreDestination,
       upgrade: null,
       upgradeSettings: null,
+      siteUrl: null,
     };
   }
 
@@ -1211,6 +1214,7 @@ export function useProposalsBar({
     restoreDestination,
     upgrade: upgrade.button,
     upgradeSettings: upgrade.settings,
+    siteUrl,
   };
 }
 

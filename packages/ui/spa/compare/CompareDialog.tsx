@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, PanelLeft, Undo2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  ChevronLeft,
+  Monitor,
+  PanelLeft,
+  Smartphone,
+  Undo2,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +44,8 @@ import type {
   CompareFocus,
   CompareModel,
   CompareNavNode,
+  ComparePageDevice,
+  ComparePageView,
   ComparePane,
   CompareUndoKind,
 } from "./types";
@@ -116,6 +124,7 @@ export function CompareDialog({
   onUndo,
   onRevertAll,
   tone = "calm",
+  renderPage,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -147,6 +156,15 @@ export function CompareDialog({
    * this goes and the survivor is the only behaviour.
    */
   tone?: UndoTone;
+  /**
+   * The page itself, one side at a time, for a pane that IS a page.
+   *
+   * Given, the pane of a page offers Fields | Page: the same change read as
+   * the fields that differ, or as the two pages a visitor would see. Absent,
+   * there is no switch -- the dialog cannot know where either side of a page
+   * is served, so a caller that cannot say draws fields alone.
+   */
+  renderPage?: (page: ComparePageView) => ReactNode;
 }) {
   const firstId = useMemo(() => firstNodeId(model), [model]);
   /* Null until somebody picks: until then the focus, or the first pane, stands. */
@@ -175,6 +193,13 @@ export function CompareDialog({
     ) ?? firstId;
   const [showUnchanged, setShowUnchanged] = useState(false);
   const [showing, setShowing] = useState<"left" | "right">("right");
+  /*
+   * Fields or pages. Kept across panes, so reading a proposal page by page
+   * stays on pages; a pane that is not a page shows its fields whatever this
+   * says, and has no switch to say otherwise.
+   */
+  const [view, setView] = useState<"fields" | "page">("fields");
+  const [device, setDevice] = useState<ComparePageDevice>("desktop");
   /*
    * The drawer is closed on arrival, on purpose.
    *
@@ -305,12 +330,24 @@ export function CompareDialog({
       />
     ) : undefined;
 
+  const pageUrl =
+    renderPage === undefined || pane === undefined ? null : pageUrlOf(pane);
+  /* The route being shown as pages, or null when the pane shows fields. */
+  const shownPage = view === "page" ? pageUrl : null;
+
   const toggle = (
-    <ShowAllFieldsToggle
-      showUnchanged={showUnchanged}
-      onChange={setShowUnchanged}
-      hiddenCount={hidden}
-    />
+    <>
+      {pageUrl !== null && <PaneViewSwitch view={view} onChange={setView} />}
+      {shownPage !== null ? (
+        <DeviceSwitch device={device} onChange={setDevice} />
+      ) : (
+        <ShowAllFieldsToggle
+          showUnchanged={showUnchanged}
+          onChange={setShowUnchanged}
+          hiddenCount={hidden}
+        />
+      )}
+    </>
   );
 
   return (
@@ -514,11 +551,19 @@ export function CompareDialog({
                   onShow={setShowing}
                   toolbar={toggle}
                 >
-                  <ComparePaneRows
-                    pane={pane}
-                    showUnchanged={showUnchanged}
-                    showing={showing === "left" ? "before" : "after"}
-                  />
+                  {shownPage !== null && renderPage !== undefined ? (
+                    <PageSide
+                      pane={pane}
+                      page={{ url: shownPage, side: showing, device }}
+                      renderPage={renderPage}
+                    />
+                  ) : (
+                    <ComparePaneRows
+                      pane={pane}
+                      showUnchanged={showUnchanged}
+                      showing={showing === "left" ? "before" : "after"}
+                    />
+                  )}
                 </CompareMobileColumns>
               )}
               {navOpen && (
@@ -567,11 +612,20 @@ export function CompareDialog({
                       rightSide={model.right}
                       toolbar={toggle}
                     >
-                      <ComparePaneRows
-                        pane={pane}
-                        showUnchanged={showUnchanged}
-                        showing="both"
-                      />
+                      {shownPage !== null && renderPage !== undefined ? (
+                        <ComparePages
+                          pane={pane}
+                          url={shownPage}
+                          device={device}
+                          renderPage={renderPage}
+                        />
+                      ) : (
+                        <ComparePaneRows
+                          pane={pane}
+                          showUnchanged={showUnchanged}
+                          showing="both"
+                        />
+                      )}
                     </CompareColumns>
                   </>
                 )}
@@ -598,6 +652,158 @@ export function CompareDialog({
       </Dialog>
     </CompareAuthorsProvider>
   );
+}
+
+/**
+ * The route a pane can be shown as a page at, or null.
+ *
+ * Only a route of THIS site: an external page router's keys are whole URLs on
+ * somebody else's, and neither side of the comparison serves them.
+ */
+export function pageUrlOf(pane: ComparePane): string | null {
+  const url = pane.description.url;
+  return url !== null && url.startsWith("/") ? url : null;
+}
+
+/** Fields | Page, for a pane that is a page. */
+function PaneViewSwitch({
+  view,
+  onChange,
+}: {
+  view: "fields" | "page";
+  onChange: (view: "fields" | "page") => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Compare as"
+      className="flex rounded border border-border-primary p-0.5"
+    >
+      {(["fields", "page"] as const).map((option) => (
+        <button
+          key={option}
+          type="button"
+          aria-pressed={view === option}
+          onClick={() => onChange(option)}
+          className={cn(
+            "rounded-sm px-2 py-0.5 text-xs",
+            view === option
+              ? "bg-bg-secondary text-fg-primary"
+              : "text-fg-tertiary hover:text-fg-secondary",
+          )}
+        >
+          {option === "fields" ? "Fields" : "Page"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const DEVICE_ICON: Record<ComparePageDevice, typeof Monitor> = {
+  desktop: Monitor,
+  mobile: Smartphone,
+};
+
+/** The width both pages are drawn at. One control, so the two always agree. */
+function DeviceSwitch({
+  device,
+  onChange,
+}: {
+  device: ComparePageDevice;
+  onChange: (device: ComparePageDevice) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Page width"
+      className="flex rounded border border-border-primary p-0.5"
+    >
+      {(Object.keys(DEVICE_ICON) as ComparePageDevice[]).map((option) => {
+        const Icon = DEVICE_ICON[option];
+        return (
+          <button
+            key={option}
+            type="button"
+            aria-label={option === "desktop" ? "Desktop width" : "Phone width"}
+            aria-pressed={device === option}
+            onClick={() => onChange(option)}
+            className={cn(
+              "grid h-6 w-6 place-items-center rounded-sm",
+              device === option
+                ? "bg-bg-secondary text-fg-primary"
+                : "text-fg-tertiary hover:text-fg-secondary",
+            )}
+          >
+            <Icon size={13} aria-hidden />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Both pages, under the column headings, on the template the rows use -- so
+ * each page sits under the heading that names it.
+ */
+function ComparePages({
+  pane,
+  url,
+  device,
+  renderPage,
+}: {
+  pane: ComparePane;
+  url: string;
+  device: ComparePageDevice;
+  renderPage: (page: ComparePageView) => ReactNode;
+}) {
+  return (
+    <div className="grid h-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-x-3">
+      <PageSide
+        pane={pane}
+        page={{ url, side: "left", device }}
+        renderPage={renderPage}
+      />
+      <div className="w-4" aria-hidden />
+      <PageSide
+        pane={pane}
+        page={{ url, side: "right", device }}
+        renderPage={renderPage}
+      />
+    </div>
+  );
+}
+
+/**
+ * One side of a page, or why there is none.
+ *
+ * A page the change ADDED is not on the left, and one it removed is not on the
+ * right. Loading it anyway would show the site's 404 under a heading that
+ * says "the site", which reads as the site being broken rather than as the
+ * page being new.
+ */
+function PageSide({
+  pane,
+  page,
+  renderPage,
+}: {
+  pane: ComparePane;
+  page: ComparePageView;
+  renderPage: (page: ComparePageView) => ReactNode;
+}) {
+  const absent =
+    (page.side === "left" && pane.change === "added") ||
+    (page.side === "right" && pane.change === "removed");
+  if (absent) {
+    return (
+      <div className="flex h-full min-h-40 items-center justify-center rounded border border-dashed border-border-primary p-4 text-center text-xs text-fg-tertiary">
+        {page.side === "left"
+          ? "Not here yet: this page is new."
+          : "Not here any more: this page is removed."}
+      </div>
+    );
+  }
+  return <div className="flex h-full min-h-0 flex-col">{renderPage(page)}</div>;
 }
 
 function BasisPicker({
