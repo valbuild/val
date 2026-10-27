@@ -295,13 +295,13 @@ export function TopBar({
   const proposalLocation =
     proposals?.location.kind === "proposal" ? proposals.location : null;
   /*
-   * Above a phone, where you are is the middle of the bar: the switcher, and
-   * what its address is doing after a save. Save, Build and Publish are one
-   * split button where Publish is on the site, its menu holding the rest of
-   * what can be done with the proposal -- see `ProposalActionButton`. On a
-   * phone where you are is a chip of a fixed width (see
-   * `ProposalLocationChip`), and everything about the proposal is in the
-   * sheet behind it.
+   * Above a phone, where you are is the middle of the bar: the switcher --
+   * which in a proposal also holds what is done with the proposal itself, as
+   * the phone's sheet does -- and what its address is doing after a save.
+   * Save, Build and Publish are one split button where Publish is on the site
+   * (`ProposalActionButton`). On a phone where you are is a chip of a fixed
+   * width (see `ProposalLocationChip`), and everything about the proposal is
+   * in the sheet behind it.
    */
   const layout: "phone" | "centered" = isMobileBreakpoint(breakpoint)
     ? "phone"
@@ -315,6 +315,9 @@ export function TopBar({
       onNewProposal={proposals.onNewProposal}
       onShowAllProposals={proposals.onShowAllProposals}
       onRename={proposals.onRename}
+      onCompare={proposals.onCompare}
+      onCopyLink={proposals.onCopyLink}
+      onClose={proposals.onClose}
       loading={proposals.loading}
       leaving={proposals.leaving ?? null}
       defaultOpen={proposals.defaultSwitcherOpen}
@@ -331,9 +334,6 @@ export function TopBar({
               onBuild={proposals.onBuild}
               onPublish={proposals.onPublish}
               saveBlockedBy={proposals.saveBlockedBy}
-              onCompare={proposals.onCompare}
-              onCopyLink={proposals.onCopyLink}
-              onClose={proposals.onClose}
               defaultMenuOpen={proposals.defaultMenuOpen}
             />
           ),

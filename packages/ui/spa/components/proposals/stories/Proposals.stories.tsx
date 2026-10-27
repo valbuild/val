@@ -158,16 +158,18 @@ export const PublishedProposalContinued = shell({
 });
 
 /**
- * The caret beside Save: every step, Publish among them -- it saves first --
- * and below them what was the proposal's own menu: compare, rename, copy its
- * link, close.
+ * The caret beside Save: the steps -- Save, Build, Publish, which saves
+ * first. What is done with the proposal itself is in the switcher.
  */
 export const InAProposalMenuOpen = shell({
   location: inProposal(),
   menuOpen: true,
 });
 
-/** The switcher from inside a proposal: "here" is the proposal. */
+/**
+ * The switcher from inside a proposal, as the phone's sheet: the proposal's
+ * name, compare, rename, copy its link and close, then where else to go.
+ */
 export const InAProposalSwitcherOpen = shell({
   location: inProposal(),
   switcherOpen: true,

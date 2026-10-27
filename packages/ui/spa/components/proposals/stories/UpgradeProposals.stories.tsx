@@ -186,7 +186,7 @@ export const NothingToUpgrade = shell({
   upgrade: { ...minorUpgrade, state: "nothing", changes: [] },
 });
 
-/** The switcher from inside the upgrade: "here" is the upgrade. */
+/** The switcher from inside the upgrade: no Rename, and Discard rather than Close. */
 export const InAnUpgradeSwitcherOpen = shell({
   location: inUpgrade(),
   list: withUpgrade,
@@ -195,7 +195,7 @@ export const InAnUpgradeSwitcherOpen = shell({
   switcherOpen: true,
 });
 
-/** The caret's menu, in an upgrade: no Rename, and Discard rather than Close. */
+/** The caret's menu, in an upgrade: Publish. */
 export const InAnUpgradeMenuOpen = shell({
   location: inUpgrade(),
   list: withUpgrade,

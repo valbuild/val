@@ -41,8 +41,6 @@ const handlers = () => ({
   onSave: jest.fn(),
   onBuild: jest.fn(),
   onPublish: jest.fn(),
-  onCopyLink: jest.fn(),
-  onClose: jest.fn(),
 });
 
 describe("nextProposalAction", () => {
@@ -89,7 +87,7 @@ describe("ProposalActionButton", () => {
     const h = handlers();
     render(<ProposalActionButton location={location()} {...h} />);
     fireEvent.click(
-      screen.getByRole("button", { name: "More for this proposal" }),
+      screen.getByRole("button", { name: "More ways to save and publish" }),
     );
     const publish = screen.getByRole("menuitem", {
       name: /Publish to the site/,
@@ -142,34 +140,28 @@ describe("ProposalActionButton", () => {
     ).toBe(true);
   });
 
-  test("a published proposal says so, and its menu keeps the proposal's acts", () => {
-    const h = handlers();
+  test("a published proposal says so, and offers nothing more", () => {
     render(
       <ProposalActionButton
         location={location({
           unsaved: 0,
           proposal: { ...location().proposal, status: "merged" },
         })}
-        {...h}
-        defaultMenuOpen
+        {...handlers()}
       />,
     );
     const button = screen.getByRole("button", { name: /Published/ });
     expect(button.hasAttribute("disabled")).toBe(true);
-    expect(screen.queryByRole("menuitem", { name: /Publish to/ })).toBeNull();
-    fireEvent.click(screen.getByRole("menuitem", { name: /Copy link/ }));
-    expect(h.onCopyLink).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole("button", { name: "More ways to save and publish" }),
+    ).toBeNull();
   });
-});
 
-describe("the proposal's acts, in the same menu", () => {
-  test("compare, copy its link and close sit below the steps", () => {
-    const h = handlers();
+  test("only the steps: the proposal's own acts are the switcher's", () => {
     render(
       <ProposalActionButton
         location={location()}
-        {...h}
-        onCompare={() => {}}
+        {...handlers()}
         defaultMenuOpen
       />,
     );
@@ -179,28 +171,7 @@ describe("the proposal's acts, in the same menu", () => {
     expect(items.map((text) => text.split(/(?=[A-Z])/)[0])).toEqual([
       "Save 3 changes",
       "Publish to the site",
-      "Compare with the site",
-      "Copy link",
-      "Close…",
     ]);
-    fireEvent.click(screen.getByRole("menuitem", { name: /Close/ }));
-    expect(h.onClose).toHaveBeenCalledTimes(1);
-  });
-
-  test("an upgrade is discarded", () => {
-    render(
-      <ProposalActionButton
-        location={location({
-          unsaved: 0,
-          proposal: { ...location().proposal, upgrade: true, changes: 0 },
-        })}
-        {...handlers()}
-        defaultMenuOpen
-      />,
-    );
-    expect(
-      screen.getByRole("menuitem", { name: /Discard upgrade/ }),
-    ).toBeTruthy();
   });
 });
 

@@ -4,12 +4,9 @@ import {
   ChevronDown,
   ExternalLink,
   Hammer,
-  GitCompare,
-  Link2,
   Package,
   Save,
   Upload,
-  X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../designSystem/cn";
@@ -386,13 +383,12 @@ const CARET_TONES: Record<Tone, string> = {
  * Publish among them, so publishing never waits for the button to get there:
  * Publish saves first. Shaped like `PreviewButton` beside it.
  *
- * The same menu holds what used to be the proposal's own `...` menu beside
- * the switcher -- compare, copy its link, close -- below the steps: one
- * place for what is done with this proposal, rather than two menus a few
- * centimetres apart. Rename is the switcher's, beside the name it changes.
+ * Only the steps: what is done with the proposal's CHANGES. What is done
+ * with the proposal itself -- compare, rename, copy its link, close -- is in
+ * the switcher, as it is in the phone's sheet behind the location chip.
  *
- * At a published proposal's address there is nothing left to do, and the
- * main half says "Published"; the caret keeps the rest.
+ * At a published proposal's address there is nothing left to do, and it
+ * says "Published", with no menu.
  */
 export function ProposalActionButton({
   location,
@@ -400,9 +396,6 @@ export function ProposalActionButton({
   onBuild,
   onPublish,
   saveBlockedBy,
-  onCompare,
-  onCopyLink,
-  onClose,
   defaultMenuOpen = false,
 }: {
   location: InProposal;
@@ -411,10 +404,6 @@ export function ProposalActionButton({
   onBuild?: () => void;
   onPublish: () => void;
   saveBlockedBy?: { errors: number; onShow: () => void };
-  /** Absent: not offered. */
-  onCompare?: () => void;
-  onCopyLink: () => void;
-  onClose: () => void;
   defaultMenuOpen?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(defaultMenuOpen);
@@ -430,12 +419,10 @@ export function ProposalActionButton({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [isOpen]);
 
-  const merged = location.proposal.status === "merged";
-  // Closing an upgrade discards it.
-  const upgrade = location.proposal.upgrade === true;
-  const action = merged
-    ? "publish"
-    : nextProposalAction(location, onBuild !== undefined);
+  if (location.proposal.status === "merged") {
+    return <ProposalPublishButton location={location} onPublish={onPublish} />;
+  }
+  const action = nextProposalAction(location, onBuild !== undefined);
   const saving = location.save.state === "saving";
   const saveFailed = location.save.state === "failed";
   const blocked =
@@ -469,9 +456,8 @@ export function ProposalActionButton({
             failed: code.state === "failed",
           };
 
-  const mainDisabled = merged
-    ? false
-    : action === "save"
+  const mainDisabled =
+    action === "save"
       ? saving
       : action === "build"
         ? build === null ||
@@ -488,11 +474,7 @@ export function ProposalActionButton({
           ? "error"
           : "outline"
         : "primary";
-  const caretTone: Tone = merged
-    ? "outline"
-    : mainDisabled
-      ? "muted"
-      : mainTone;
+  const caretTone: Tone = mainDisabled ? "muted" : mainTone;
 
   const choose = (act: () => void) => () => {
     setIsOpen(false);
@@ -529,7 +511,7 @@ export function ProposalActionButton({
         )}
         <button
           type="button"
-          aria-label="More for this proposal"
+          aria-label="More ways to save and publish"
           aria-haspopup="menu"
           aria-expanded={isOpen}
           onClick={() => setIsOpen((open) => !open)}
@@ -548,8 +530,7 @@ export function ProposalActionButton({
           role="menu"
           className="absolute right-0 top-full z-full mt-1 w-64 rounded-md border border-border-float bg-bg-float py-1 shadow-lg"
         >
-          {!merged &&
-            location.unsaved > 0 &&
+          {location.unsaved > 0 &&
             (blocked !== null ? (
               <MenuItem
                 icon={
@@ -579,7 +560,7 @@ export function ProposalActionButton({
                   : `Save ${location.unsaved} ${location.unsaved === 1 ? "change" : "changes"}`}
               </MenuItem>
             ))}
-          {!merged && build !== null && onBuild !== undefined && (
+          {build !== null && onBuild !== undefined && (
             <MenuItem
               icon={
                 build.busy ? (
@@ -602,40 +583,18 @@ export function ProposalActionButton({
               {build.label}
             </MenuItem>
           )}
-          {!merged && (
-            <MenuItem
-              icon={<Upload size={14} />}
-              onClick={choose(onPublish)}
-              disabled={publishRefusedBy !== null}
-              detail={
-                publishRefusedBy ??
-                (location.unsaved > 0
-                  ? "Saves the changes first, then publishes the proposal"
-                  : "Merges the proposal into the site, as one change")
-              }
-            >
-              Publish to the site
-            </MenuItem>
-          )}
-          {!merged && <div className="my-1 border-t border-border-float" />}
-          {onCompare !== undefined && (
-            <MenuItem
-              icon={<GitCompare size={14} />}
-              onClick={choose(onCompare)}
-            >
-              Compare with the site
-            </MenuItem>
-          )}
-          <MenuItem icon={<Link2 size={14} />} onClick={choose(onCopyLink)}>
-            Copy link
-          </MenuItem>
-          <div className="my-1 border-t border-border-float" />
           <MenuItem
-            icon={<X size={14} />}
-            onClick={choose(onClose)}
-            destructive
+            icon={<Upload size={14} />}
+            onClick={choose(onPublish)}
+            disabled={publishRefusedBy !== null}
+            detail={
+              publishRefusedBy ??
+              (location.unsaved > 0
+                ? "Saves the changes first, then publishes the proposal"
+                : "Merges the proposal into the site, as one change")
+            }
           >
-            {upgrade ? "Discard upgrade…" : "Close…"}
+            Publish to the site
           </MenuItem>
         </div>
       )}

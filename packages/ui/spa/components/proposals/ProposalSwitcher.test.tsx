@@ -39,6 +39,51 @@ const handlers = {
   onShowAllProposals: () => {},
 };
 
+test("in a proposal, it holds the proposal's own acts, as the phone's sheet does", () => {
+  const onClose = jest.fn();
+  render(
+    <ProposalSwitcher
+      location={inProposal()}
+      proposals={[proposal]}
+      {...handlers}
+      onRename={() => {}}
+      onCompare={() => {}}
+      onCopyLink={() => {}}
+      onClose={onClose}
+      defaultOpen
+    />,
+  );
+  const items = screen
+    .getAllByRole("menuitem")
+    .map((item) => item.textContent ?? "");
+  expect(items.map((text) => text.split(/(?=[A-Z])/)[0])).toEqual([
+    "Compare with the site",
+    "Rename…",
+    "Copy link",
+    "Close…",
+    "The site",
+    "New proposal",
+    "All proposals…",
+  ]);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Close…" }));
+  expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+test("an upgrade is discarded, not closed", () => {
+  render(
+    <ProposalSwitcher
+      location={inProposal({ upgrade: true, displayName: "Minor versions" })}
+      proposals={[proposal]}
+      {...handlers}
+      onClose={() => {}}
+      defaultOpen
+    />,
+  );
+  expect(
+    screen.getByRole("menuitem", { name: "Discard upgrade…" }),
+  ).toBeTruthy();
+});
+
 test("in a proposal, the switcher renames it", () => {
   const onRename = jest.fn();
   render(
@@ -50,9 +95,7 @@ test("in a proposal, the switcher renames it", () => {
       defaultOpen
     />,
   );
-  fireEvent.click(
-    screen.getByRole("menuitem", { name: /Rename “Spring campaign”/ }),
-  );
+  fireEvent.click(screen.getByRole("menuitem", { name: /Rename…/ }));
   expect(onRename).toHaveBeenCalledTimes(1);
 });
 
