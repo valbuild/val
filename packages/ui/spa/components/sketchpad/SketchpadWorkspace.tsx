@@ -6,6 +6,11 @@ import {
   type ReactNode,
 } from "react";
 import { cn } from "../designSystem/cn";
+import {
+  SketchpadList,
+  SketchpadStrip,
+  type SketchpadListProps,
+} from "./SketchpadList";
 
 export type SketchpadPane = "preview" | "sketchpad" | "chat";
 
@@ -15,7 +20,12 @@ export type SketchpadCompanion = "preview" | "chat";
 export type SketchpadWorkspaceProps = {
   /** The site, as it is now: what the sketch is about to change. */
   preview: ReactNode;
-  sketchpad: ReactNode;
+  /** Null when none is open: every one in the session is archived, say. */
+  sketchpad: ReactNode | null;
+  /** The session's sketchpads: where one comes back from when none is open. */
+  sketchpads: SketchpadListProps;
+  /** Above the panes: "Archived. Undo", and the like. */
+  notice?: ReactNode;
   /** The AI session the Sketchpad belongs to. */
   chat: ReactNode;
   /** Beside the Sketchpad when only two panes fit. */
@@ -56,6 +66,8 @@ function layoutFor(width: number): Layout {
 export function SketchpadWorkspace({
   preview,
   sketchpad,
+  sketchpads,
+  notice,
   chat,
   defaultCompanion = "chat",
   defaultPane = "sketchpad",
@@ -78,20 +90,25 @@ export function SketchpadWorkspace({
     return () => observer.disconnect();
   }, []);
 
+  const closed = sketchpad === null;
   const shown: Record<SketchpadPane, boolean> =
-    layout === "three"
+    // With nothing to sketch on, the two others share the room, and the
+    // Sketchpad's place is a strip that lists what can be reopened.
+    closed && layout !== "one"
       ? { preview: true, sketchpad: true, chat: true }
-      : layout === "two"
-        ? {
-            preview: companion === "preview",
-            sketchpad: true,
-            chat: companion === "chat",
-          }
-        : {
-            preview: pane === "preview",
-            sketchpad: pane === "sketchpad",
-            chat: pane === "chat",
-          };
+      : layout === "three"
+        ? { preview: true, sketchpad: true, chat: true }
+        : layout === "two"
+          ? {
+              preview: companion === "preview",
+              sketchpad: true,
+              chat: companion === "chat",
+            }
+          : {
+              preview: pane === "preview",
+              sketchpad: pane === "sketchpad",
+              chat: pane === "chat",
+            };
 
   return (
     <div ref={ref} className="flex h-full min-h-0 w-full flex-col gap-2">
@@ -107,7 +124,8 @@ export function SketchpadWorkspace({
           onChange={setPane}
         />
       )}
-      {layout === "two" && (
+      {notice}
+      {layout === "two" && !closed && (
         // Above both panes, so the two start on the same line.
         <div className="flex shrink-0 justify-end">
           <PaneSwitch
@@ -126,8 +144,24 @@ export function SketchpadWorkspace({
         <Pane shown={shown.preview} className="flex-[1.2_1_0]">
           <Card>{preview}</Card>
         </Pane>
-        <Pane shown={shown.sketchpad} className="flex-[1_1_0]">
-          {sketchpad}
+        <Pane
+          shown={shown.sketchpad}
+          className={
+            closed && layout !== "one" ? "w-11 shrink-0" : "flex-[1_1_0]"
+          }
+        >
+          {!closed ? (
+            sketchpad
+          ) : layout === "one" ? (
+            <Card>
+              <div className="border-b border-border-primary px-3 py-2 text-xs font-medium text-fg-secondary">
+                Sketchpads in this chat
+              </div>
+              <SketchpadList {...sketchpads} archivedOpen />
+            </Card>
+          ) : (
+            <SketchpadStrip {...sketchpads} />
+          )}
         </Pane>
         <Pane
           shown={shown.chat}

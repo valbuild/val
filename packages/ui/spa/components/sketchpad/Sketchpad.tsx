@@ -1,9 +1,10 @@
-import { Sparkles, X } from "lucide-react";
+import { Archive, ChevronDown, Sparkles, X } from "lucide-react";
 import type { Plugin } from "prosemirror-state";
 import { useState, type ReactNode } from "react";
 import { cn } from "../designSystem/cn";
 import type { SketchMedia } from "./sketchFormat";
 import { SketchpadEditor } from "./SketchpadEditor";
+import { SketchpadListPopover, type SketchpadListProps } from "./SketchpadList";
 
 export type SketchpadPerson = {
   name: string;
@@ -37,6 +38,13 @@ export type SketchpadProps = {
    * session has no one to send it to.
    */
   onAskAssistant?: () => void;
+  /**
+   * Puts the Sketchpad away. It is hidden, not deleted: the session keeps it
+   * and the list of sketchpads reopens it.
+   */
+  onArchive?: () => void;
+  /** The session's other sketchpads, behind the title, to switch or reopen. */
+  sketchpads?: SketchpadListProps;
   /**
    * Whether the assistant has seen the Sketchpad as it is now. It reads it
    * whenever it likes (it has a tool for that), so this is not a lock: it is
@@ -82,6 +90,8 @@ export function Sketchpad({
   plugins,
   onAskAssistant,
   assistantStatus,
+  onArchive,
+  sketchpads,
 }: SketchpadProps) {
   const [notice, setNotice] = useState<Notice | null>(null);
 
@@ -120,16 +130,27 @@ export function Sketchpad({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border-primary px-3 py-2">
         {/* On a phone the title has a line of its own, or it is a few letters. */}
         <div className="min-w-0 flex-1 basis-full sm:basis-0">
-          <div className="truncate text-sm font-medium">
-            {title ? (
-              <>
-                <span className="text-fg-secondary">Sketchpad · </span>
-                {title}
-              </>
-            ) : (
-              "Sketchpad"
-            )}
-          </div>
+          {sketchpads ? (
+            <SketchpadListPopover
+              {...sketchpads}
+              trigger={
+                <button
+                  type="button"
+                  title="Sketchpads in this chat"
+                  className="-ml-1 flex max-w-full cursor-pointer items-center gap-1 rounded px-1 text-sm font-medium hover:bg-bg-secondary"
+                >
+                  <span className="truncate">
+                    <TitleText title={title} />
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-fg-secondary" />
+                </button>
+              }
+            />
+          ) : (
+            <div className="truncate text-sm font-medium">
+              <TitleText title={title} />
+            </div>
+          )}
           {status && (
             <div className="truncate text-xs text-fg-secondary">{status}</div>
           )}
@@ -140,6 +161,17 @@ export function Sketchpad({
             status={assistantStatus ?? "changed"}
             onAsk={onAskAssistant}
           />
+        )}
+        {onArchive && (
+          <button
+            type="button"
+            onClick={onArchive}
+            title="Archive this sketchpad. It can be reopened from the list of sketchpads."
+            aria-label="Archive this sketchpad"
+            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
+          >
+            <Archive className="h-4 w-4" />
+          </button>
         )}
         {notice && (
           <NoticeLine notice={notice} onDismiss={() => setNotice(null)} />
@@ -154,6 +186,17 @@ export function Sketchpad({
         plugins={plugins}
       />
     </div>
+  );
+}
+
+function TitleText({ title }: { title?: string }) {
+  return title ? (
+    <>
+      <span className="text-fg-secondary">Sketchpad · </span>
+      {title}
+    </>
+  ) : (
+    <>Sketchpad</>
   );
 }
 
